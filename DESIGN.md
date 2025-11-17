@@ -1,4 +1,4 @@
-# Meldrum
+# Enya
 
 ## Metrics Store
 
@@ -55,16 +55,16 @@ while let Some(metric) = metrics_stream.next().await {
 
 ### Query Interface
 
-TBD - Possibly query lang like PromQL that makes it easy to map over queries to Meldrum
+TBD - Possibly query lang like PromQL that makes it easy to map over queries to Enya
 
 ## DataFusion
 
-Meldrum component for tracking and storing DF metrics, schema, table stats into
+Enya component for tracking and storing DF metrics, schema, table stats into
 storage over time.
 
 ## Tokio
 
-Meldrum component for tracking tokio runtimes and visualizing tasks on them.
+Enya component for tracking tokio runtimes and visualizing tasks on them.
 
 ## Memory
 

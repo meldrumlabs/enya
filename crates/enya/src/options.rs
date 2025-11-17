@@ -1,5 +1,5 @@
-/// Default dircetory for storing meldrum data
-pub const DEFAULT_DATA_DIR: &str = "/opt/meldrum";
+/// Default dircetory for storing enya data
+pub const DEFAULT_DATA_DIR: &str = "/opt/enya";
 
 pub struct Options {
     /// Directory where metrics and logs are stored

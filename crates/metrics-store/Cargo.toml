@@ -1,5 +1,5 @@
 [package]
-name = "meldrum-metrics-store"
+name = "enya-metrics-store"
 version = "0.1.0"
 edition = "2024"
 

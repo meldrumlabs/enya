@@ -1,5 +1,5 @@
 [package]
-name = "meldrum-ui"
+name = "enya-ui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -2,7 +2,7 @@
   <img width="300" height="300" src="assets/logo.png">
 </p>
 
-# Meldrum
+# Enya
 
 Real-time Embeddable Observability -- Built by developers for developers.
 
@@ -18,7 +18,7 @@ Real-time Embeddable Observability -- Built by developers for developers.
 **Other SDKs**
 
 - DataFusion Customized  (More customized tracking helping teams)
-  - Enable meldrum feature in DataFusion and make it integrate
+  - Enable enya feature in DataFusion and make it integrate
 - Deterministic Simulation Testing (Visualization)
   - egui graphs or step visualizer
 - AI Agents ???
@@ -67,14 +67,14 @@ Design goals:
 
 ## Game Plan
 
-- [ ] meldrum 0.1.0
+- [ ] enya 0.1.0
   - [ ] metrics integration with Prometheus
   - [ ] memory profiling with rust-jemalloc-pprof
 
 ## Enterprise models
 
 - Everything open-source (lib + UI).
-- Open-core - Open source core + basic UI where more powerful UI is available at meldrum.dev/ or locked behind API key.
+- Open-core - Open source core + basic UI where more powerful UI is available at enya.dev/ or locked behind API key.
   - Tiers: Individual, Teams, Pro
   - Free: Metrics, Logs, CPU, Memory
   - Paid: Git Tracking for above, Historical data.

@@ -8,4 +8,4 @@ mod theme;
 pub mod ui;
 pub mod util;
 
-pub use app::MeldrumApp;
+pub use app::EnyaApp;

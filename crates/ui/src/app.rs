@@ -18,7 +18,7 @@ use crate::ui::settings_screen::AppSettings;
 use crate::ui::settings_screen::show_settings_ui;
 
 /// The core App
-pub struct MeldrumApp {
+pub struct EnyaApp {
     state: AppState,
 
     dashboard: Option<Dashboard>,
@@ -71,7 +71,7 @@ pub enum UIState {
     Dashboard,
 }
 
-impl Default for MeldrumApp {
+impl Default for EnyaApp {
     fn default() -> Self {
         let (command_sender, command_receiver) = command_channel();
         Self {
@@ -85,7 +85,7 @@ impl Default for MeldrumApp {
     }
 }
 
-impl MeldrumApp {
+impl EnyaApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
@@ -231,7 +231,7 @@ impl MeldrumApp {
 
             UICommand::Help => {
                 egui_ctx.open_url(egui::output::OpenUrl {
-                    url: "https://meldrum.dev/contact".to_owned(),
+                    url: "https://enya.dev/contact".to_owned(),
                     new_tab: true,
                 });
             }
@@ -281,7 +281,7 @@ impl MeldrumApp {
     }
 }
 
-impl eframe::App for MeldrumApp {
+impl eframe::App for EnyaApp {
     /// Called by the frame work to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, &self.state);

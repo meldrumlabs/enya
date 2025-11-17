@@ -150,7 +150,7 @@ pub fn show_settings_ui_impl(
                     }
                 });
 
-            egui::CollapsingHeader::new("Meldrum Pro")
+            egui::CollapsingHeader::new("Enya Pro")
                 .default_open(true)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -166,7 +166,7 @@ pub fn show_settings_ui_impl(
                     if app_state.settings.api_key.is_empty() {
                         ui.colored_label(text_color, "Please configure your API key");
                     } else if ui.button("Save").clicked() {
-                        // TODO: Verify Meldrum API key when this is a thing
+                        // TODO: Verify Enya API key when this is a thing
                     }
                 });
 

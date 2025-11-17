@@ -1,27 +1,27 @@
-//! Meldrum is an embeddable observability agent that works with open standards
+//! Enya is an embeddable observability agent that works with open standards
 //!
 //! For when you don't want to set up a whole Prometheus + Grafana stack.
 
-/// Options enabling Meldrum customization
+/// Options enabling Enya customization
 pub mod options;
 
-/// Internal meldrum runtime where each component runs
+/// Internal enya runtime where each component runs
 mod runtime;
 /// Axum server hosting API endpoints and Websocket connections
 mod server;
 
 use options::Options;
 
-/// Serves the meldrum UI at 'addr'
+/// Serves the enya UI at 'addr'
 pub fn serve(addr: impl Into<String>) {
     serve_with_options(addr, Options::default())
 }
 
-/// Serves the meldrum UI at 'addr' with custom options
+/// Serves the enya UI at 'addr' with custom options
 pub fn serve_with_options(addr: impl Into<String>, _options: Options) {
     let _addr = addr.into();
-    //tracing::info!("Starting meldrum at {:?}", addr);
+    //tracing::info!("Starting enya at {:?}", addr);
 
-    // 1. Set up Meldrum runtime with options
+    // 1. Set up Enya runtime with options
     // 2. Set up Axum router
 }

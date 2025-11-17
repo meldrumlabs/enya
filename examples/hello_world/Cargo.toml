@@ -8,4 +8,4 @@ license.workspace = true
 readme.workspace = true
 
 [dependencies]
-meldrum.workspace = true
+enya.workspace = true

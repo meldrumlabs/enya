@@ -37,12 +37,12 @@ impl UICommand {
     pub fn text_and_tooltip(self) -> (&'static str, &'static str) {
         match self {
             Self::Help => ("Help", "Get help with any Playground issues"),
-            Self::Open => ("Open", "Open Meldrum Dashboard"),
-            Self::OpenExampleDashboard(_) => ("...", "Create a Meldrum dashboard"),
-            Self::Settings => ("Settings…", "Open Meldrum Settings"),
+            Self::Open => ("Open", "Open Enya Dashboard"),
+            Self::OpenExampleDashboard(_) => ("...", "Create an Enya dashboard"),
+            Self::Settings => ("Settings…", "Open Enya Settings"),
             Self::Theme(_) => ("...", "..."),
             Self::ToggleTheme => ("Toggle Theme...", "Toogles the application theme"),
-            Self::CloseSettings => ("Close Settings…", "Close Meldrum Settings"),
+            Self::CloseSettings => ("Close Settings…", "Close Enya Settings"),
             Self::ConnectionStatus(_) => ("", ""),
         }
     }

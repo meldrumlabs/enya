@@ -2,11 +2,11 @@
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-authors = ["Meldrum Labs"]
+authors = ["Enya Labs"]
 categories = ["observability", "metrics"]
 description = "Data Systems Observability"
 license = "MIT OR Apache-2.0"
-homepage = "https://meldrumlabs.com"
+homepage = "https://enyalabs.com"
 readme = "README.md"
 
 [workspace]
@@ -14,8 +14,8 @@ resolver = "3"
 members = ["crates/*", "examples/*"]
 
 [workspace.dependencies]
-meldrum = { path = "crates/meldrum", version = "0.1.0" }
-meldrum-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
+enya = { path = "crates/enya", version = "0.1.0" }
+enya-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
 talna = { path = "crates/talna", version = "0.3.0" }
 
 egui = "0.29"

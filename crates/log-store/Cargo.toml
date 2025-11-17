@@ -1,5 +1,5 @@
 [package]
-name = "meldrum-log-store"
+name = "enya-log-store"
 version = "0.1.0"
 edition = "2024"
 
