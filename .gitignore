@@ -1,0 +1,11 @@
+/target
+.DS_Store
+.testy
+
+# trunk output folder
+dist
+
+# Rust compile target directories:
+target
+target_ra
+target_wasm

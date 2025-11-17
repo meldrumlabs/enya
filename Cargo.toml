@@ -1,0 +1,75 @@
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Meldrum Labs"]
+categories = ["observability", "metrics"]
+description = "Data Systems Observability"
+license = "MIT OR Apache-2.0"
+homepage = "https://meldrumlabs.com"
+readme = "README.md"
+
+[workspace]
+resolver = "3"
+members = ["crates/*", "examples/*"]
+
+[workspace.dependencies]
+meldrum = { path = "crates/meldrum", version = "0.1.0" }
+meldrum-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
+talna = { path = "crates/talna", version = "0.3.0" }
+
+egui = "0.29"
+eframe = { version = "0.29", default-features = false, features = [
+  "accesskit",     # Make egui compatible with screen readers. NOTE: adds a lot of dependencies.
+  "default_fonts", # Embed the default egui fonts.
+  "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+  "persistence",   # Enable restoring app state when restarting the app.
+] }
+egui_plot = "0.29"
+egui_extras = { version = "0.29.1", features = ["image", "svg"] }
+egui-phosphor = { version = "0.7.3", features = ["thin"] }
+ehttp = { version = "0.5.0" }
+egui_tiles = { version = "0.10.1", features = ["serde"] }
+chrono = { version = "0.4.38", features = ["wasmbind"] }
+itertools = "0.14.0"
+poll-promise = "0.2.1"
+smallvec = "1.13.2"
+
+image = { version = "0.25", features = [
+  "png",
+] } # Add the types you want support for
+log = "0.4"
+fastrand = "1.2.0"
+# You only need serde if you want app persistence:
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+re_build_info = "0.21.0"
+strum_macros = "0.21.0"
+strum = "0.21.0"
+
+parking_lot = { version = "0.11", features = ["serde"] }
+env_logger = "0.11"
+mimalloc = "0.1.43"
+rustls = { version = "0.23.22", features = ["ring"] }
+
+ewebsock = { git = "https://github.com/c-git/ewebsock.git" }
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3.70"                                           # to access the DOM (to hide the loading text)
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+re_build_tools = "0.21.0"
+
+
+# talna
+byteorder = "1.5.0"
+fjall = "2.6.3"
+logos = "0.14.0"
+regex = "1.10.5"
+rustc-hash = "2.0.0"
+
+
+[profile.release]
+opt-level = 2 # fast and small wasm
+
+# Optimize all dependencies even in debug builds:
+[profile.dev.package."*"]
+opt-level = 2

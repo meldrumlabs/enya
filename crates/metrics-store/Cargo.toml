@@ -1,0 +1,7 @@
+[package]
+name = "meldrum-metrics-store"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+talna.workspace = true
