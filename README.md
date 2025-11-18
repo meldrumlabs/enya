@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="250" height="250" src="assets/logo.png">
+  <img width="300" height="300" src="assets/enya_logo.png">
 </p>
 
 # Enya
