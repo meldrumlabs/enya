@@ -6,6 +6,14 @@
 
 Real-time Embeddable Observability -- Built by developers for developers.
 
+```rust
+// Vision - Plug and play observability for your application.
+fn main() {
+    // Integrates with metrics-rs and tracing opentelemetry.
+    enya::serve("0.0.0.0:3000");
+}
+```
+
 **Core**
 
 - Metrics compatible with Prometheus (metrics-rs)
