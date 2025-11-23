@@ -46,11 +46,11 @@ clippy:
     cargo clippy --all-targets {{ _features }}  -- -D warnings
 
 check-wasm:
-    cargo check -p ui --target wasm32-unknown-unknown
+    cargo check -p enya-ui --target wasm32-unknown-unknown
 
 # Runs taplo fmt across the repo
 toml-fmt:
-    taplo fmt --check --diff
+    ./scripts/taplo-fmt.sh --check --diff
 
 # Run all lints
 lint: check-fmt clippy toml-fmt

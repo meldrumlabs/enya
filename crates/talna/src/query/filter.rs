@@ -19,7 +19,7 @@ pub enum Node<'a> {
     AllStar,
 }
 
-impl<'a> std::fmt::Display for Node<'a> {
+impl std::fmt::Display for Node<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Node::Eq(leaf) => write!(f, "{}:{}", leaf.key, leaf.value),
@@ -49,24 +49,18 @@ impl<'a> std::fmt::Display for Node<'a> {
 }
 
 pub fn intersection(vecs: &[Vec<SeriesId>]) -> Vec<SeriesId> {
-    if vecs.is_empty() {
+    if vecs.is_empty() || vecs.iter().any(Vec::is_empty) {
         return vec![];
     }
 
-    if vecs.iter().any(Vec::is_empty) {
+    let Some(first_vec) = vecs.first() else {
         return vec![];
-    }
-
-    // NOTE: Cannot be empty because of check above, so expect is fine
-    #[allow(clippy::expect_used)]
-    let first_vec = vecs.first().expect("should exist");
+    };
     let mut result = Vec::new();
 
     'outer: for &elem in first_vec {
-        for vec in &vecs[1..] {
-            if !vec.contains(&elem) {
-                continue 'outer;
-            }
+        if vecs.iter().skip(1).any(|vec| !vec.contains(&elem)) {
+            continue 'outer;
         }
 
         result.push(elem);
@@ -89,7 +83,7 @@ pub fn union(vecs: &[Vec<SeriesId>]) -> Vec<SeriesId> {
     result
 }
 
-impl<'a> Node<'a> {
+impl Node<'_> {
     // TODO: 1.0.0 unit test and add benchmark case
     pub fn evaluate(
         &self,
@@ -150,105 +144,78 @@ pub enum Item<'a> {
     ParanClose,
 }
 
-#[doc(hidden)]
-pub fn parse_filter_query(s: &str) -> Result<Node, crate::Error> {
-    if s.trim() == "*" {
-        return Ok(Node::AllStar);
+fn split_identifier(value: &str) -> Result<(&str, &str), crate::Error> {
+    value.split_once(':').ok_or(crate::Error::InvalidQuery)
+}
+
+fn push_identifier<'a>(
+    output_queue: &mut VecDeque<Item<'a>>,
+    id: &'a str,
+) -> Result<(), crate::Error> {
+    let (key, value) = split_identifier(id)?;
+    output_queue.push_back(Item::Identifier((key, value)));
+    Ok(())
+}
+
+fn push_wildcard<'a>(
+    output_queue: &mut VecDeque<Item<'a>>,
+    id: &'a str,
+) -> Result<(), crate::Error> {
+    let (key, value) = split_identifier(id)?;
+    output_queue.push_back(Item::Wildcard((key, value.trim_end_matches('*'))));
+    Ok(())
+}
+
+fn drain_ops<'a, F>(
+    output_queue: &mut VecDeque<Item<'a>>,
+    op_stack: &mut VecDeque<Item<'a>>,
+    predicate: F,
+) -> crate::Result<()>
+where
+    F: Fn(&Item<'a>) -> bool,
+{
+    loop {
+        let should_pop = matches!(op_stack.back(), Some(top_op) if predicate(top_op));
+        if !should_pop {
+            break;
+        }
+        let op = op_stack.pop_back().ok_or(crate::Error::InvalidQuery)?;
+        output_queue.push_back(op);
     }
+    Ok(())
+}
 
-    let mut output_queue = VecDeque::new();
-    let mut op_stack = VecDeque::new();
-
-    for tok in tokenize_filter_query(s) {
-        let Ok(tok) = tok else {
+fn handle_paran_close<'a>(
+    output_queue: &mut VecDeque<Item<'a>>,
+    op_stack: &mut VecDeque<Item<'a>>,
+) -> crate::Result<()> {
+    loop {
+        let Some(top_op) = op_stack.back() else {
             return Err(crate::Error::InvalidQuery);
         };
 
-        match tok {
-            lexer::Token::Identifier(id) => {
-                let mut splits = id.split(':');
-                let k = splits.next().expect("should be valid identifier");
-                let v = splits.next().expect("should be valid identifier");
-                output_queue.push_back(Item::Identifier((k, v)));
-            }
-            lexer::Token::Wildcard(id) => {
-                let mut splits = id.split(':');
-                let k = splits.next().expect("should be valid identifier");
-                let v = splits
-                    .next()
-                    .expect("should be valid identifier")
-                    .trim_end_matches("*");
-                output_queue.push_back(Item::Wildcard((k, v)));
-            }
-            lexer::Token::And => {
-                loop {
-                    let Some(top) = op_stack.back() else {
-                        break;
-                    };
-
-                    // And has higher precedence than Or but lower than Not
-                    if matches!(top, Item::And | Item::Not) {
-                        output_queue.push_back(op_stack.pop_back().expect("top should exist"));
-                    } else {
-                        break;
-                    }
-                }
-                op_stack.push_back(Item::And);
-            }
-            lexer::Token::Or => {
-                loop {
-                    let Some(top) = op_stack.back() else {
-                        break;
-                    };
-
-                    // Or has lower precedence, so we pop And and Not operators
-                    if matches!(top, Item::And | Item::Not) {
-                        output_queue.push_back(op_stack.pop_back().expect("top should exist"));
-                    } else {
-                        break;
-                    }
-                }
-
-                op_stack.push_back(Item::Or);
-            }
-            lexer::Token::Not => {
-                op_stack.push_back(Item::Not);
-            }
-            lexer::Token::ParanOpen => {
-                op_stack.push_back(Item::ParanOpen);
-            }
-            lexer::Token::ParanClose => {
-                loop {
-                    let Some(top) = op_stack.back() else {
-                        break;
-                    };
-
-                    if matches!(top, Item::ParanOpen) {
-                        break;
-                    }
-
-                    output_queue.push_back(op_stack.pop_back().expect("top should exist"));
-                }
-
-                let Some(top) = op_stack.pop_back() else {
-                    return Err(crate::Error::InvalidQuery);
-                };
-
-                if !matches!(top, Item::ParanOpen) {
-                    return Err(crate::Error::InvalidQuery);
-                }
-            }
+        if matches!(top_op, Item::ParanOpen) {
+            break;
         }
+
+        let op = op_stack.pop_back().ok_or(crate::Error::InvalidQuery)?;
+        output_queue.push_back(op);
     }
 
-    while let Some(top) = op_stack.pop_back() {
-        if matches!(top, Item::ParanOpen) {
-            return Err(crate::Error::InvalidQuery);
-        }
-        output_queue.push_back(top);
+    let open = op_stack.pop_back().ok_or(crate::Error::InvalidQuery)?;
+    if !matches!(open, Item::ParanOpen) {
+        return Err(crate::Error::InvalidQuery);
     }
 
-    let mut buf: Vec<Node> = Vec::new();
+    Ok(())
+}
+
+fn pop_node<'a>(buf: &mut Vec<Node<'a>>) -> crate::Result<Node<'a>> {
+    buf.pop().ok_or(crate::Error::InvalidQuery)
+}
+
+fn build_ast<'a>(output_queue: VecDeque<Item<'a>>) -> crate::Result<Node<'a>> {
+    let mut buf: Vec<Node<'a>> = Vec::new();
 
     for item in output_queue {
         match item {
@@ -259,37 +226,77 @@ pub fn parse_filter_query(s: &str) -> Result<Node, crate::Error> {
                 buf.push(Node::Wildcard(Tag { key, value }));
             }
             Item::And => {
-                let Some(b) = buf.pop() else {
-                    return Err(crate::Error::InvalidQuery);
-                };
-                let Some(a) = buf.pop() else {
-                    return Err(crate::Error::InvalidQuery);
-                };
-                buf.push(Node::And(vec![a, b]));
+                let right = pop_node(&mut buf)?;
+                let left = pop_node(&mut buf)?;
+                buf.push(Node::And(vec![left, right]));
             }
             Item::Or => {
-                let Some(b) = buf.pop() else {
-                    return Err(crate::Error::InvalidQuery);
-                };
-                let Some(a) = buf.pop() else {
-                    return Err(crate::Error::InvalidQuery);
-                };
-                buf.push(Node::Or(vec![a, b]));
+                let right = pop_node(&mut buf)?;
+                let left = pop_node(&mut buf)?;
+                buf.push(Node::Or(vec![left, right]));
             }
             Item::Not => {
-                let Some(a) = buf.pop() else {
-                    return Err(crate::Error::InvalidQuery);
-                };
-                buf.push(Node::Not(Box::new(a)));
+                let node = pop_node(&mut buf)?;
+                buf.push(Node::Not(Box::new(node)));
             }
-            Item::ParanOpen => return Err(crate::Error::InvalidQuery),
-            Item::ParanClose => return Err(crate::Error::InvalidQuery),
+            Item::ParanOpen | Item::ParanClose => return Err(crate::Error::InvalidQuery),
         }
     }
 
-    debug_assert_eq!(1, buf.len());
+    match buf.len() {
+        1 => pop_node(&mut buf),
+        _ => Err(crate::Error::InvalidQuery),
+    }
+}
 
-    Ok(buf.pop().expect("queue should not be empty"))
+#[doc(hidden)]
+pub fn parse_filter_query(s: &str) -> Result<Node, crate::Error> {
+    if s.trim() == "*" {
+        return Ok(Node::AllStar);
+    }
+
+    let mut output_queue = VecDeque::new();
+    let mut op_stack = VecDeque::new();
+
+    for tok in tokenize_filter_query(s) {
+        let tok = tok.map_err(|()| crate::Error::InvalidQuery)?;
+
+        match tok {
+            lexer::Token::Identifier(id) => push_identifier(&mut output_queue, id)?,
+            lexer::Token::Wildcard(id) => push_wildcard(&mut output_queue, id)?,
+            lexer::Token::And => {
+                drain_ops(&mut output_queue, &mut op_stack, |item| {
+                    matches!(item, Item::And | Item::Not)
+                })?;
+                op_stack.push_back(Item::And);
+            }
+            lexer::Token::Or => {
+                drain_ops(&mut output_queue, &mut op_stack, |item| {
+                    matches!(item, Item::And | Item::Not)
+                })?;
+
+                op_stack.push_back(Item::Or);
+            }
+            lexer::Token::Not => {
+                op_stack.push_back(Item::Not);
+            }
+            lexer::Token::ParanOpen => {
+                op_stack.push_back(Item::ParanOpen);
+            }
+            lexer::Token::ParanClose => {
+                handle_paran_close(&mut output_queue, &mut op_stack)?;
+            }
+        }
+    }
+
+    while let Some(top_op) = op_stack.pop_back() {
+        if matches!(top_op, Item::ParanOpen) {
+            return Err(crate::Error::InvalidQuery);
+        }
+        output_queue.push_back(top_op);
+    }
+
+    build_ast(output_queue)
 }
 
 #[cfg(test)]

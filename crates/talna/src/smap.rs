@@ -29,11 +29,16 @@ impl SeriesMapping {
         tx.insert(&self.partition, series_key, series_id.to_be_bytes());
     }
 
+    fn read_series_id(bytes: &[u8]) -> crate::Result<SeriesId> {
+        let mut reader = bytes;
+        reader.read_u64::<BigEndian>().map_err(crate::Error::from)
+    }
+
     pub fn get(&self, series_key: &str) -> crate::Result<Option<SeriesId>> {
-        Ok(self.partition.get(series_key)?.map(|bytes| {
-            let mut reader = &bytes[..];
-            reader.read_u64::<BigEndian>().expect("should deserialize")
-        }))
+        match self.partition.get(series_key)? {
+            Some(bytes) => Ok(Some(Self::read_series_id(bytes.as_ref())?)),
+            None => Ok(None),
+        }
     }
 
     pub fn list_all(&self) -> crate::Result<HashSet<SeriesId>> {
@@ -42,10 +47,7 @@ impl SeriesMapping {
         read_tx
             .iter(&self.partition)
             .map(|kv| match kv {
-                Ok((_, v)) => {
-                    let mut reader = &v[..];
-                    Ok(reader.read_u64::<BigEndian>().expect("should deserialize"))
-                }
+                Ok((_, v)) => Self::read_series_id(v.as_ref()),
                 Err(e) => Err(e.into()),
             })
             .collect::<crate::Result<HashSet<_>>>()

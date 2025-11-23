@@ -6,6 +6,10 @@ edition.workspace = true
 categories.workspace = true
 license.workspace = true
 readme.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords = ["observability", "metrics", "example"]
 
 [dependencies]
 enya.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

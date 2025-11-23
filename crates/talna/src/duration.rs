@@ -58,7 +58,12 @@ impl Duration {
 
     /// Formats N nanoseconds as nanosecond time frame.
     #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     pub const fn nanos(n: f64) -> u128 {
-        n as u128
+        if n.is_sign_negative() {
+            0
+        } else {
+            n as u128
+        }
     }
 }

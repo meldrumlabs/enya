@@ -2,12 +2,13 @@
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
-authors = ["Enya Labs"]
+authors = ["Meldrum Labs"]
 categories = ["observability", "metrics"]
 description = "Data Systems Observability"
 license = "MIT OR Apache-2.0"
-homepage = "https://enyalabs.com"
+homepage = "https://meldrumlabs.com"
 readme = "README.md"
+repository = "https://github.com/meldrumlabs/enya"
 
 [workspace]
 resolver = "3"
@@ -66,6 +67,18 @@ logos = "0.14.0"
 regex = "1.10.5"
 rustc-hash = "2.0.0"
 
+# enya
+axum = { version = "0.8", default-features = false, features = [
+  "tokio",
+  "http2",
+] }
+jemalloc_pprof = "0.8.1"
+pprof = { version = "0.15", default-features = false }
+tokio = "1.48"
+
+tracing = "0.1"
+tracing-subscriber = "0.3"
+metrics = "0.24"
 
 [profile.release]
 opt-level = 2 # fast and small wasm

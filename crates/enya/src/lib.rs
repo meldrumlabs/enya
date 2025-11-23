@@ -5,23 +5,26 @@
 /// Options enabling Enya customization
 pub mod options;
 
-/// Internal enya runtime where each component runs
-mod runtime;
 /// Axum server hosting API endpoints and Websocket connections
 mod server;
+
+/// Core enya state used by the server
+mod core;
+
+use std::net::SocketAddr;
 
 use options::Options;
 
 /// Serves the enya UI at 'addr'
-pub fn serve(addr: impl Into<String>) {
-    serve_with_options(addr, Options::default())
+pub async fn serve(addr: impl Into<String>) {
+    serve_with_options(addr, Options::default()).await
 }
 
 /// Serves the enya UI at 'addr' with custom options
-pub fn serve_with_options(addr: impl Into<String>, _options: Options) {
-    let _addr = addr.into();
-    //tracing::info!("Starting enya at {:?}", addr);
+pub async fn serve_with_options(addr: impl Into<String>, _options: Options) {
+    let addr = addr.into();
+    let socket_addr: SocketAddr = addr.parse().expect("Invalid SocketAddr format");
 
-    // 1. Set up Enya runtime with options
-    // 2. Set up Axum router
+    let core = core::Core {};
+    let _ = server::setup_and_serve(core, socket_addr).await;
 }

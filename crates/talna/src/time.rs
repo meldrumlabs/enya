@@ -7,7 +7,7 @@ pub fn timestamp() -> Timestamp {
     let start = SystemTime::now();
     let since_the_epoch = start
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards");
+        .unwrap_or_else(|err| err.duration());
 
     since_the_epoch.as_nanos()
 }

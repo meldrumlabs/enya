@@ -1,7 +1,12 @@
 [package]
 name = "enya-metrics-store"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+license.workspace = true
+description = "Metrics store for Enya"
+repository.workspace = true
+keywords = ["observability", "metrics"]
+categories = ["observability", "metrics"]
 
 [dependencies]
 talna.workspace = true

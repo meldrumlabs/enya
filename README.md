@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="300" height="300" src="assets/enya_logo.png">
+  <img width="150" height="150" src="assets/enya_logo.png">
 </p>
 
 # Enya
@@ -8,9 +8,12 @@ Real-time Embeddable Observability -- Built by developers for developers.
 
 ```rust
 // Vision - Plug and play observability for your application.
-fn main() {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Integrates with metrics-rs and tracing opentelemetry.
     enya::serve("0.0.0.0:3000");
+
+    Ok(())
 }
 ```
 

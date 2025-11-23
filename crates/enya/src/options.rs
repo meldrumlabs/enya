@@ -13,3 +13,11 @@ impl Default for Options {
         }
     }
 }
+
+impl Options {
+    /// Returns the directory used to store metrics and logs.
+    #[must_use]
+    pub fn data_dir(&self) -> &str {
+        &self.data_dir
+    }
+}

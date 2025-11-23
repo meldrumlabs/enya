@@ -26,7 +26,6 @@ byteorder.workspace = true
 fjall.workspace = true
 log.workspace = true
 logos.workspace = true
-regex.workspace = true
 rustc-hash.workspace = true
 
 [dev-dependencies]

@@ -149,12 +149,10 @@ impl Database {
                     tags,
                     reader: Box::new(kv_stream.map(move |x| match x {
                         Ok((k, v)) => {
-                            use std::io::Seek;
-
                             let mut k = Cursor::new(k);
 
-                            // Skip series ID
-                            k.seek_relative(std::mem::size_of::<SeriesId>() as i64)?;
+                            // Skip series ID by reading it
+                            let _ = k.read_u64::<BigEndian>()?;
 
                             let ts = k.read_u128::<BigEndian>()?;
                             // NOTE: Invert timestamp back to original value
@@ -214,7 +212,7 @@ impl Database {
         &'a self,
         metric: MetricName<'a>,
         group_by: &'a str,
-    ) -> crate::agg::Builder<crate::agg::Average> {
+    ) -> crate::agg::Builder<'a, crate::agg::Average> {
         crate::agg::Builder {
             phantom: PhantomData,
             database: self,
@@ -235,7 +233,7 @@ impl Database {
         &'a self,
         metric: MetricName<'a>,
         group_by: &'a str,
-    ) -> crate::agg::Builder<crate::agg::Sum> {
+    ) -> crate::agg::Builder<'a, crate::agg::Sum> {
         crate::agg::Builder {
             phantom: PhantomData,
             database: self,
@@ -256,7 +254,7 @@ impl Database {
         &'a self,
         metric: MetricName<'a>,
         group_by: &'a str,
-    ) -> crate::agg::Builder<crate::agg::Min> {
+    ) -> crate::agg::Builder<'a, crate::agg::Min> {
         crate::agg::Builder {
             phantom: PhantomData,
             database: self,
@@ -277,7 +275,7 @@ impl Database {
         &'a self,
         metric: MetricName<'a>,
         group_by: &'a str,
-    ) -> crate::agg::Builder<crate::agg::Max> {
+    ) -> crate::agg::Builder<'a, crate::agg::Max> {
         crate::agg::Builder {
             phantom: PhantomData,
             database: self,
@@ -298,7 +296,7 @@ impl Database {
         &'a self,
         metric: MetricName<'a>,
         group_by: &'a str,
-    ) -> crate::agg::Builder<crate::agg::Count> {
+    ) -> crate::agg::Builder<'a, crate::agg::Count> {
         crate::agg::Builder {
             phantom: PhantomData,
             database: self,
@@ -355,45 +353,45 @@ impl Database {
         metric: MetricName,
         tags: &TagSet,
     ) -> crate::Result<SeriesId> {
-        // NOTE: We need to run in a transaction (for serializability)
-        //
-        // Because we cannot rely on the series not being created since the
-        // start of the function, we need to again look it up inside the transaction
-        // to really make sure
-        let mut tx = self.0.keyspace.write_tx();
+        let series_id = {
+            let mut tx = self.0.keyspace.write_tx();
 
-        let series_id = tx.get(&self.0.smap.partition, series_key)?.map(|bytes| {
-            let mut reader = &bytes[..];
-            reader.read_u64::<BigEndian>().expect("should deserialize")
-        });
+            let series_id = tx
+                .get(&self.0.smap.partition, series_key)?
+                .map(|bytes| {
+                    let mut reader = bytes.as_ref();
+                    reader.read_u64::<BigEndian>().map_err(crate::Error::from)
+                })
+                .transpose()?;
 
-        let series_id = if let Some(series_id) = series_id {
-            // NOTE: Series was created since the start of the function
-            series_id
-        } else {
-            // NOTE: Actually create series
+            if let Some(series_id) = series_id {
+                // NOTE: Series was created since the start of the function
+                series_id
+            } else {
+                // NOTE: Actually create series
 
-            // TODO: 1.0.0 atomic, persistent counter
-            let next_series_id = self.0.smap.partition.inner().len()? as SeriesId;
+                // TODO: 1.0.0 atomic, persistent counter
+                let next_series_id = self.0.smap.partition.inner().len()? as SeriesId;
 
-            log::trace!("Creating series {next_series_id} for permutation {series_key:?}");
+                log::trace!("Creating series {next_series_id} for permutation {series_key:?}");
 
-            self.0.smap.insert(&mut tx, series_key, next_series_id);
+                self.0.smap.insert(&mut tx, series_key, next_series_id);
 
-            self.0
-                .tag_index
-                .index(&mut tx, metric, tags, next_series_id)?;
+                self.0
+                    .tag_index
+                    .index(&mut tx, metric, tags, next_series_id)?;
 
-            let mut serialized_tag_set = SeriesKey::allocate_string_for_tags(tags, 0);
-            SeriesKey::join_tags(&mut serialized_tag_set, tags);
+                let mut serialized_tag_set = SeriesKey::allocate_string_for_tags(tags, 0);
+                SeriesKey::join_tags(&mut serialized_tag_set, tags);
 
-            self.0
-                .tag_sets
-                .insert(&mut tx, next_series_id, &serialized_tag_set);
+                self.0
+                    .tag_sets
+                    .insert(&mut tx, next_series_id, &serialized_tag_set);
 
-            tx.commit()?;
+                tx.commit()?;
 
-            next_series_id
+                next_series_id
+            }
         };
 
         Ok(series_id)
@@ -424,6 +422,14 @@ mod tests {
     use super::*;
     use crate::tagset;
     use test_log::test;
+
+    fn assert_value_eq(actual: Value, expected: Value) {
+        let diff = (actual - expected).abs();
+        assert!(
+            diff <= Value::EPSILON,
+            "expected {expected} but got {actual}"
+        );
+    }
 
     #[test]
     fn test_range_cnt() -> crate::Result<()> {
@@ -482,7 +488,7 @@ mod tests {
 
                 match group.as_ref() {
                     "talna" => {
-                        assert_eq!(3.0, bucket.value);
+                        assert_value_eq(bucket.value, 3.0);
                         assert_eq!(2, bucket.start);
                         assert_eq!(4, bucket.end);
                         assert_eq!(3, bucket.len);
@@ -504,7 +510,7 @@ mod tests {
 
                 match group.as_ref() {
                     "talna" => {
-                        assert_eq!(4.0, bucket.value);
+                        assert_value_eq(bucket.value, 4.0);
                         assert_eq!(0, bucket.start);
                         assert_eq!(3, bucket.end);
                         assert_eq!(4, bucket.len);
@@ -526,7 +532,7 @@ mod tests {
 
                 match group.as_ref() {
                     "talna" => {
-                        assert_eq!(3.0, bucket.value);
+                        assert_value_eq(bucket.value, 3.0);
                         assert_eq!(1, bucket.start);
                         assert_eq!(3, bucket.end);
                         assert_eq!(3, bucket.len);
@@ -615,13 +621,13 @@ mod tests {
 
             match group.as_ref() {
                 "talna" => {
-                    assert_eq!(5.0, bucket.value);
+                    assert_value_eq(bucket.value, 5.0);
                     assert_eq!(0, bucket.start);
                     assert_eq!(4, bucket.end);
                     assert_eq!(5, bucket.len);
                 }
                 "smoltable" => {
-                    assert_eq!(2.0, bucket.value);
+                    assert_value_eq(bucket.value, 2.0);
                     assert_eq!(5, bucket.start);
                     assert_eq!(6, bucket.end);
                     assert_eq!(2, bucket.len);
@@ -709,13 +715,13 @@ mod tests {
 
             match group.as_ref() {
                 "talna" => {
-                    assert_eq!(20.0, bucket.value);
+                    assert_value_eq(bucket.value, 20.0);
                     assert_eq!(0, bucket.start);
                     assert_eq!(4, bucket.end);
                     assert_eq!(5, bucket.len);
                 }
                 "smoltable" => {
-                    assert_eq!(7.0, bucket.value);
+                    assert_value_eq(bucket.value, 7.0);
                     assert_eq!(5, bucket.start);
                     assert_eq!(6, bucket.end);
                     assert_eq!(2, bucket.len);
@@ -803,13 +809,13 @@ mod tests {
 
             match group.as_ref() {
                 "talna" => {
-                    assert_eq!(4.0, bucket.value);
+                    assert_value_eq(bucket.value, 4.0);
                     assert_eq!(0, bucket.start);
                     assert_eq!(4, bucket.end);
                     assert_eq!(5, bucket.len);
                 }
                 "smoltable" => {
-                    assert_eq!(5.0, bucket.value);
+                    assert_value_eq(bucket.value, 5.0);
                     assert_eq!(5, bucket.start);
                     assert_eq!(6, bucket.end);
                     assert_eq!(2, bucket.len);
@@ -897,13 +903,13 @@ mod tests {
 
             match group.as_ref() {
                 "talna" => {
-                    assert_eq!(50.0, bucket.value);
+                    assert_value_eq(bucket.value, 50.0);
                     assert_eq!(0, bucket.start);
                     assert_eq!(4, bucket.end);
                     assert_eq!(5, bucket.len);
                 }
                 "smoltable" => {
-                    assert_eq!(12.0, bucket.value);
+                    assert_value_eq(bucket.value, 12.0);
                     assert_eq!(5, bucket.start);
                     assert_eq!(6, bucket.end);
                     assert_eq!(2, bucket.len);
@@ -991,13 +997,13 @@ mod tests {
 
             match group.as_ref() {
                 "talna" => {
-                    assert_eq!(10.0, bucket.value);
+                    assert_value_eq(bucket.value, 10.0);
                     assert_eq!(0, bucket.start);
                     assert_eq!(4, bucket.end);
                     assert_eq!(5, bucket.len);
                 }
                 "smoltable" => {
-                    assert_eq!(6.0, bucket.value);
+                    assert_value_eq(bucket.value, 6.0);
                     assert_eq!(5, bucket.start);
                     assert_eq!(6, bucket.end);
                     assert_eq!(2, bucket.len);

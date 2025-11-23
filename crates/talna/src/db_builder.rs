@@ -1,6 +1,6 @@
 use crate::Database;
-use fjall::{BlockCache, TxKeyspace};
-use std::{path::Path, sync::Arc};
+use fjall::TxKeyspace;
+use std::path::Path;
 
 /// Builder for [`Database`].
 pub struct Builder {
@@ -46,10 +46,13 @@ impl Builder {
     ///
     /// Returns error if an I/O error occurred.
     pub fn open<P: AsRef<Path>>(self, path: P) -> crate::Result<crate::Database> {
+        let cache_bytes = self
+            .cache_size_mib
+            .saturating_mul(1_024)
+            .saturating_mul(1_024);
+
         let keyspace = fjall::Config::new(path)
-            .block_cache(Arc::new(BlockCache::with_capacity_bytes(
-                self.cache_size_mib * 1_024 * 1_024,
-            )))
+            .cache_size(cache_bytes)
             .open_transactional()?;
 
         Database::from_keyspace(keyspace, self.hyper_mode)
