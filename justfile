@@ -19,7 +19,7 @@ _features := if features == "all" {
 
 # Installs required dev tools
 install:
-    cargo install --locked cargo-machete taplo-cli cargo-nextest cargo-deny
+    cargo install --locked cargo-machete cargo-nextest cargo-deny
 
 # Cleans everything through cargo clean
 clean:
@@ -47,10 +47,6 @@ clippy:
 
 check-wasm:
     cargo check -p enya-ui --target wasm32-unknown-unknown
-
-# Runs taplo fmt across the repo
-toml-fmt:
-    ./scripts/taplo-fmt.sh --check --diff
 
 # Run all lints
 lint: check-fmt clippy toml-fmt

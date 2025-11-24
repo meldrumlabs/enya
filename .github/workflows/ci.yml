@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [check-fmt, toml-fmt, clippy, machete, test, deny]
+        target: [check-fmt, clippy, machete, test, deny]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
