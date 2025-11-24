@@ -1,6 +1,11 @@
 <p align="center">
-  <img width="150" height="150" src="assets/enya_logo.png">
+  <img width="300" height="300" src="assets/enya_logo.png">
 </p>
+
+![ci](https://github.com/meldrumlabs/enya/actions/workflows/ci.yml/badge.svg)
+[![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
+[![Apache](https://img.shields.io/badge/license-Apache-blue.svg)](https://github.com/uwheel/uwheel/blob/main/LICENSE-APACHE)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/uwheel/uwheel/blob/main/LICENSE-MIT)
 
 # Enya
 

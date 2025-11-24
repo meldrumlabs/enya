@@ -1,0 +1,56 @@
+name: CI
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [ opened, synchronize, reopened, labeled ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  just:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [check-fmt, toml-fmt, clippy, machete, test, deny]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Set up Just Runner
+        uses: extractions/setup-just@v2
+
+      - name: Run +${{ matrix.target }}
+        run: just features=all ${{ matrix.target }}
+
+
+  check_wasm:
+    name: Check wasm32
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p enya-ui --target wasm32-unknown-unknown

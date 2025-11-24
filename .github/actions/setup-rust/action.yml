@@ -1,0 +1,18 @@
+name: "Setup Rust"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Mold
+      uses: rui314/setup-mold@v1
+
+    - name: Install other dependencies
+      uses: awalsh128/cache-apt-pkgs-action@latest
+      with:
+        packages: libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+        version: 1.0
+
+    - name: Install dev tools
+      uses: taiki-e/install-action@v2.49.15
+      with:
+        tool: nextest@0.9.89, cargo-machete, cargo-deny, taplo-cli
