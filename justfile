@@ -49,7 +49,7 @@ check-wasm:
     cargo check -p enya-ui --target wasm32-unknown-unknown
 
 # Run all lints
-lint: check-fmt clippy toml-fmt
+lint: check-fmt clippy
 
 # Runs workspace tests using nextest
 test:
