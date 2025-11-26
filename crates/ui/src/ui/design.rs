@@ -125,91 +125,6 @@ pub fn white_theme() -> Visuals {
 //     }
 // }
 
-pub fn black_theme() -> Visuals {
-    // Define grayscale palette inspired by Rerun's color_table
-    let s100 = Color32::from_rgb(28, 37, 38); // Very dark gray (panel background, top bar)
-    let s150 = Color32::from_rgb(42, 52, 54); // Slightly lighter (bottom bar, faint bg)
-    let s250 = Color32::from_rgb(74, 84, 86); // Strokes, floating elements
-    let s300 = Color32::from_rgb(90, 100, 102); // Inactive widget fill
-    let s325 = Color32::from_rgb(100, 110, 112); // Hovered/active widget fill
-    let s550 = Color32::from_rgb(150, 160, 162); // Subdued text
-    let s775 = Color32::from_rgb(200, 210, 212); // Default text
-    let s1000 = Color32::from_rgb(255, 255, 255); // Strong text
-    let pure_black = Color32::from_rgb(0, 0, 0);
-
-    Visuals {
-        dark_mode: true,
-        override_text_color: None, // Remove ORANGE override to use grayscale text
-        widgets: Widgets {
-            noninteractive: WidgetVisuals {
-                bg_fill: s100,                     // Panel-like background
-                weak_bg_fill: s100,                // Consistent with panel
-                bg_stroke: Stroke::new(1.0, s250), // Subtle separator lines
-                rounding: Rounding::same(4.0),     // Slightly larger for modern look
-                fg_stroke: Stroke::new(1.0, s550), // Subdued text for non-interactive
-                expansion: 0.0,
-            },
-            inactive: WidgetVisuals {
-                bg_fill: s300,                      // Slightly lighter for checkboxes, etc.
-                weak_bg_fill: Color32::TRANSPARENT, // No background for buttons
-                bg_stroke: Stroke::NONE,            // No stroke for inactive buttons
-                rounding: Rounding::same(4.0),
-                fg_stroke: Stroke::new(1.0, s775), // Default text
-                expansion: 0.0,
-            },
-            hovered: WidgetVisuals {
-                bg_fill: s325, // Subtle highlight for hover
-                weak_bg_fill: s325,
-                bg_stroke: Stroke::NONE, // No stroke to keep clean
-                rounding: Rounding::same(4.0),
-                fg_stroke: Stroke::new(1.5, s775), // Slightly bolder text
-                expansion: 2.0,                    // Rerun's expansion for hover feedback
-            },
-            active: WidgetVisuals {
-                bg_fill: s325, // Same as hover for consistency
-                weak_bg_fill: s325,
-                bg_stroke: Stroke::NONE,
-                rounding: Rounding::same(4.0),
-                fg_stroke: Stroke::new(2.0, s1000), // Strong text for active state
-                expansion: 2.0,
-            },
-            open: WidgetVisuals {
-                bg_fill: s325, // Consistent with hover/active
-                weak_bg_fill: s325,
-                bg_stroke: Stroke::NONE,
-                rounding: Rounding::same(4.0),
-                fg_stroke: Stroke::new(1.0, s775),
-                expansion: 2.0,
-            },
-        },
-        selection: Selection {
-            bg_fill: Color32::from_rgb(0, 82, 165), // Rerun's blue(S350)-like color
-            stroke: Stroke::new(2.0, Color32::from_rgb(173, 184, 255)), // Brighter blue
-        },
-        window_rounding: Rounding::same(6.0), // Matches Rerun's window_corner_radius
-        window_fill: s250,                    // Floating elements like tooltips/menus
-        window_stroke: Stroke::NONE,          // Rerun avoids window strokes
-        panel_fill: s100,                     // Main panel background
-        faint_bg_color: s150,                 // For zebra stripes or subtle backgrounds
-        extreme_bg_color: pure_black,         // Text edits, scroll bars
-        popup_shadow: egui::epaint::Shadow {
-            offset: [0.0, 15.0].into(),
-            blur: 50.0,
-            spread: 0.0,
-            color: Color32::from_black_alpha(128), // Rerun's black-based shadow
-        },
-        window_shadow: egui::epaint::Shadow {
-            offset: [0.0, 15.0].into(),
-            blur: 50.0,
-            spread: 0.0,
-            color: Color32::from_black_alpha(128),
-        },
-        striped: false,        // Disable stripes like Rerun
-        clip_rect_margin: 0.0, // Avoid visual glitches
-        ..Default::default()
-    }
-}
-
 // pub fn black_theme() -> Visuals {
 //     // Define colors: emphasize pure black, minimal grayscale
 //     let pure_black = Color32::from_rgb(0, 0, 0); // Primary background
@@ -469,6 +384,290 @@ pub fn gruvbox_theme() -> Visuals {
         error_fg_color: red,   // Gruvbox red for errors
         warn_fg_color: orange, // Gruvbox orange for warnings
         hyperlink_color: blue, // Gruvbox blue for links
+        ..Default::default()
+    }
+}
+
+// pub fn black_theme() -> Visuals {
+//     // Define black and yellow palette
+//     let pure_black = Color32::from_rgb(0, 0, 0);
+//     let dark_black = Color32::from_rgb(8, 8, 8); // Very subtle lift from pure black
+//     let soft_black = Color32::from_rgb(16, 16, 16); // Panel background
+//     let charcoal = Color32::from_rgb(24, 24, 24); // Slightly lighter elements
+//     let dark_gray = Color32::from_rgb(32, 32, 32); // Interactive elements
+//     let medium_gray = Color32::from_rgb(48, 48, 48); // Hovered states
+//     let light_gray = Color32::from_rgb(128, 128, 128); // Subdued text
+//     let white = Color32::from_rgb(255, 255, 255); // Primary text
+
+//     // Yellow accent colors
+//     let yellow_primary = Color32::from_rgb(255, 215, 0); // Gold yellow
+//     let yellow_bright = Color32::from_rgb(255, 235, 59); // Bright yellow
+//     let yellow_dark = Color32::from_rgb(218, 165, 32); // Darker yellow
+
+//     Visuals {
+//         dark_mode: true,
+//         override_text_color: None,
+//         widgets: Widgets {
+//             noninteractive: WidgetVisuals {
+//                 bg_fill: pure_black, // Deep black panel background
+//                 weak_bg_fill: soft_black,
+//                 bg_stroke: Stroke::new(1.0, charcoal), // Subtle dark borders
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(1.0, light_gray), // Subdued text
+//                 expansion: 0.0,
+//             },
+//             inactive: WidgetVisuals {
+//                 bg_fill: dark_gray, // Dark interactive elements
+//                 weak_bg_fill: Color32::TRANSPARENT,
+//                 bg_stroke: Stroke::NONE,
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(1.0, white), // White text for contrast
+//                 expansion: 0.0,
+//             },
+//             hovered: WidgetVisuals {
+//                 bg_fill: medium_gray, // Lighter on hover
+//                 weak_bg_fill: medium_gray,
+//                 bg_stroke: Stroke::new(1.0, yellow_dark), // Yellow border on hover
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(1.5, yellow_bright), // Yellow text on hover
+//                 expansion: 2.0,
+//             },
+//             active: WidgetVisuals {
+//                 bg_fill: charcoal, // Darker when pressed
+//                 weak_bg_fill: charcoal,
+//                 bg_stroke: Stroke::new(2.0, yellow_primary), // Strong yellow border
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(2.0, yellow_primary), // Yellow text when active
+//                 expansion: 2.0,
+//             },
+//             open: WidgetVisuals {
+//                 bg_fill: medium_gray,
+//                 weak_bg_fill: medium_gray,
+//                 bg_stroke: Stroke::new(1.0, yellow_dark),
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(1.0, yellow_bright),
+//                 expansion: 2.0,
+//             },
+//         },
+//         selection: Selection {
+//             bg_fill: Color32::from_rgba_unmultiplied(255, 215, 0, 60), // Semi-transparent yellow
+//             stroke: Stroke::new(2.0, yellow_primary),                  // Yellow selection border
+//         },
+//         window_rounding: Rounding::same(6.0),
+//         window_fill: charcoal, // Floating windows in charcoal
+//         window_stroke: Stroke::new(1.0, yellow_dark), // Subtle yellow window borders
+//         panel_fill: soft_black, // Main panels in deep black
+//         faint_bg_color: dark_black, // Very subtle background variations
+//         extreme_bg_color: pure_black, // Text inputs, scrollbars in pure black
+//         popup_shadow: egui::epaint::Shadow {
+//             offset: [0.0, 8.0].into(),
+//             blur: 24.0,
+//             spread: 0.0,
+//             color: Color32::from_black_alpha(200), // Stronger shadow for contrast
+//         },
+//         window_shadow: egui::epaint::Shadow {
+//             offset: [0.0, 8.0].into(),
+//             blur: 24.0,
+//             spread: 0.0,
+//             color: Color32::from_black_alpha(200),
+//         },
+//         striped: false,
+//         clip_rect_margin: 0.0,
+//         ..Default::default()
+//     }
+// }
+
+// pub fn black_theme() -> Visuals {
+//     let dark_black = Color32::from_rgb(8, 8, 8); // #080808 <- Recommended background match
+//     let soft_black = Color32::from_rgb(16, 16, 16); // #101010
+//     let charcoal = Color32::from_rgb(24, 24, 24); // #181818
+//     let dark_gray = Color32::from_rgb(32, 32, 32); // #202020
+//     let medium_gray = Color32::from_rgb(48, 48, 48); // #303030
+//     let light_gray = Color32::from_rgb(128, 128, 128); // #808080
+//     let white = Color32::from_rgb(255, 255, 255); // Primary text
+
+//     // Yellow accent colors
+//     let yellow_primary = Color32::from_rgb(255, 215, 0); // Gold yellow
+//     let yellow_bright = Color32::from_rgb(255, 235, 59); // Bright yellow
+//     let yellow_dark = Color32::from_rgb(218, 165, 32); // Darker yellow
+
+//     Visuals {
+//         dark_mode: true,
+//         override_text_color: None,
+//         widgets: Widgets {
+//             noninteractive: WidgetVisuals {
+//                 // Use the lifted black for deep background areas
+//                 bg_fill: dark_black,
+//                 weak_bg_fill: soft_black,
+//                 bg_stroke: Stroke::new(1.0, charcoal),
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(1.0, light_gray),
+//                 expansion: 0.0,
+//             },
+//             inactive: WidgetVisuals {
+//                 bg_fill: dark_gray,
+//                 weak_bg_fill: Color32::TRANSPARENT,
+//                 bg_stroke: Stroke::NONE,
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(1.0, white),
+//                 expansion: 0.0,
+//             },
+//             hovered: WidgetVisuals {
+//                 bg_fill: medium_gray,
+//                 weak_bg_fill: medium_gray,
+//                 bg_stroke: Stroke::new(1.0, yellow_dark),
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(1.5, yellow_bright),
+//                 expansion: 2.0,
+//             },
+//             active: WidgetVisuals {
+//                 bg_fill: charcoal,
+//                 weak_bg_fill: charcoal,
+//                 bg_stroke: Stroke::new(2.0, yellow_primary),
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(2.0, yellow_primary),
+//                 expansion: 2.0,
+//             },
+//             open: WidgetVisuals {
+//                 bg_fill: medium_gray,
+//                 weak_bg_fill: medium_gray,
+//                 bg_stroke: Stroke::new(1.0, yellow_dark),
+//                 rounding: Rounding::same(4.0),
+//                 fg_stroke: Stroke::new(1.0, yellow_bright),
+//                 expansion: 2.0,
+//             },
+//         },
+//         selection: Selection {
+//             bg_fill: Color32::from_rgba_unmultiplied(255, 215, 0, 60),
+//             stroke: Stroke::new(2.0, yellow_primary),
+//         },
+//         window_rounding: Rounding::same(6.0),
+//         window_fill: charcoal,
+//         window_stroke: Stroke::new(1.0, yellow_dark),
+//         // 🔄 Change: Set main panel background to dark_black
+//         panel_fill: dark_black,
+//         faint_bg_color: dark_black,
+//         // 🔄 Change: Set extreme background (e.g., scrollbars, text inputs) to dark_black
+//         extreme_bg_color: dark_black,
+//         popup_shadow: egui::epaint::Shadow {
+//             offset: [0.0, 8.0].into(),
+//             blur: 24.0,
+//             spread: 0.0,
+//             color: Color32::from_black_alpha(200),
+//         },
+//         window_shadow: egui::epaint::Shadow {
+//             offset: [0.0, 8.0].into(),
+//             blur: 24.0,
+//             spread: 0.0,
+//             color: Color32::from_black_alpha(200),
+//         },
+//         striped: false,
+//         clip_rect_margin: 0.0,
+//         ..Default::default()
+//     }
+// }
+
+pub fn black_theme() -> Visuals {
+    // --- Departure Mono Color Palette ---
+    // The font is dark/technical, so we use sharp blacks and a bright, technical accent.
+    let extreme_black = Color32::from_rgb(8, 8, 8); // #080808 (Used for main window/outer frame)
+    let inner_black = Color32::from_rgb(16, 16, 16); // #101010 (Used for widget backgrounds)
+    let border_gray = Color32::from_rgb(48, 48, 48); // #303030 (Used for non-interactive borders)
+    let text_white = Color32::from_rgb(255, 255, 255); // Primary text
+
+    // We'll use a strong, contrasting yellow as the accent color, typical of terminal UIs.
+    let accent_yellow = Color32::from_rgb(255, 215, 0); // Primary accent
+    let accent_bright = Color32::from_rgb(255, 235, 59); // Brightest accent (e.g., hover text)
+
+    // KEY CHANGE: Zero rounding for the square, blocky pixel look.
+    let block_rounding = Rounding::same(0.0);
+
+    // KEY CHANGE: Define a zero-blur, zero-offset shadow for a flat, non-skeuomorphic UI.
+    let flat_shadow = egui::epaint::Shadow {
+        offset: [0.0, 0.0].into(),
+        blur: 0.0,
+        spread: 0.0,
+        color: Color32::TRANSPARENT,
+    };
+
+    Visuals {
+        dark_mode: true,
+        override_text_color: None,
+
+        // --- Widget Visuals (Blocky & Sharp) ---
+        widgets: Widgets {
+            noninteractive: WidgetVisuals {
+                // Simple box defined by a muted border (like a console box-drawing character)
+                bg_fill: inner_black,
+                weak_bg_fill: inner_black,
+                bg_stroke: Stroke::new(1.0, border_gray),
+                rounding: block_rounding,
+                fg_stroke: Stroke::new(1.0, text_white),
+                expansion: 0.0,
+            },
+            inactive: WidgetVisuals {
+                // Flat, no stroke, sharp corners
+                bg_fill: inner_black,
+                weak_bg_fill: Color32::TRANSPARENT,
+                bg_stroke: Stroke::NONE,
+                rounding: block_rounding,
+                fg_stroke: Stroke::new(1.0, text_white),
+                expansion: 0.0,
+            },
+            hovered: WidgetVisuals {
+                // Sharp accent border on hover
+                bg_fill: inner_black,
+                weak_bg_fill: inner_black,
+                bg_stroke: Stroke::new(1.0, accent_bright),
+                rounding: block_rounding,
+                fg_stroke: Stroke::new(1.0, accent_bright),
+                expansion: 1.0,
+            },
+            active: WidgetVisuals {
+                // Accent fill for pressed/active state
+                bg_fill: accent_yellow,
+                weak_bg_fill: accent_yellow,
+                bg_stroke: Stroke::new(1.0, accent_yellow),
+                rounding: block_rounding,
+                fg_stroke: Stroke::new(1.0, extreme_black), // Black text on accent background
+                expansion: 0.0,
+            },
+            open: WidgetVisuals {
+                // Accent border for open menus/dropdowns
+                bg_fill: inner_black,
+                weak_bg_fill: inner_black,
+                bg_stroke: Stroke::new(1.0, accent_yellow),
+                rounding: block_rounding,
+                fg_stroke: Stroke::new(1.0, accent_yellow),
+                expansion: 1.0,
+            },
+        },
+
+        // --- Selection, Window, and Backgrounds ---
+        selection: Selection {
+            // Simple selection block with accent outline
+            bg_fill: Color32::from_rgba_unmultiplied(255, 215, 0, 60),
+            stroke: Stroke::new(1.0, accent_yellow),
+        },
+
+        // KEY CHANGE: Window is square and has a sharp accent border.
+        window_rounding: Rounding::same(0.0),
+        window_fill: extreme_black,
+        window_stroke: Stroke::new(1.0, accent_yellow),
+
+        // KEY CHANGE: Shadows removed for a flat aesthetic.
+        popup_shadow: flat_shadow,
+        window_shadow: flat_shadow,
+
+        // Ensure all backgrounds are the deep black color.
+        panel_fill: inner_black,
+        faint_bg_color: inner_black,
+        extreme_bg_color: extreme_black,
+
+        warn_fg_color: text_white,
+
+        striped: false,
+        clip_rect_margin: 0.0,
         ..Default::default()
     }
 }

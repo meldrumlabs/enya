@@ -8,7 +8,6 @@ use crate::{
 use super::colors::{apply_button_theme, text_color};
 
 //pub(super) const MIN_COLUMN_WIDTH: f32 = 250.0;
-pub(super) const API_KEY_URL: &str = "https://polygon.io/dashboard/signup";
 
 pub fn welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState, command_sender: &CommandSender) {
     egui::Frame {
@@ -44,7 +43,7 @@ pub fn show_welcome_section_ui(
 
         ui.add(image.max_width(250.0).max_height(250.0));
         ui.heading(
-            egui::RichText::new("Ttadak")
+            egui::RichText::new("Enya")
                 .strong()
                 .size(24.0)
                 .color(theme_color),
@@ -57,39 +56,11 @@ pub fn show_welcome_section_ui(
         // } else {
         //     (500.0, 500.0)
         // };
-
-        // ui.add(
-        //     egui::Image::new(egui::include_image!("../../assets/graphic-hero.svg"))
-        //         .max_width(max_width)
-        //         .max_height(max_height),
-        // );
     });
 
     ui.add_space(30.0);
 
     ui.vertical_centered(|ui| {
-        if ui
-            .add(apply_button_theme(
-                app_state.theme,
-                egui::Button::new(
-                    egui::RichText::new("Create API Key")
-                        .strong()
-                        .color(Color32::WHITE)
-                        .size(16.0),
-                )
-                .min_size(egui::Vec2::new(220.0, 25.0)),
-            ))
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
-        {
-            ui.ctx().open_url(egui::output::OpenUrl {
-                url: API_KEY_URL.to_owned(),
-                new_tab: true,
-            });
-        }
-
-        ui.add_space(9.0);
-
         if ui
             .add(apply_button_theme(
                 app_state.theme,
@@ -108,27 +79,28 @@ pub fn show_welcome_section_ui(
             // Make it open in the next frame
             command_sender.send_ui(crate::command::UICommand::Settings)
         }
-
-        ui.add_space(9.0);
-
-        if ui
-            .add(apply_button_theme(
-                app_state.theme,
-                egui::Button::new(
-                    egui::RichText::new("Open")
-                        .strong()
-                        .color(Color32::WHITE)
-                        .size(16.0),
-                )
-                .min_size(egui::Vec2::new(220.0, 25.0)),
-            ))
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .clicked()
-        {
-            // Make it open in the next frame
-            command_sender.send_ui(crate::command::UICommand::Open);
-        }
     });
 
-    ui.add_space(25.0);
+    //     ui.add_space(9.0);
+
+    //     if ui
+    //         .add(apply_button_theme(
+    //             app_state.theme,
+    //             egui::Button::new(
+    //                 egui::RichText::new("Open")
+    //                     .strong()
+    //                     .color(Color32::WHITE)
+    //                     .size(16.0),
+    //             )
+    //             .min_size(egui::Vec2::new(220.0, 25.0)),
+    //         ))
+    //         .on_hover_cursor(egui::CursorIcon::PointingHand)
+    //         .clicked()
+    //     {
+    //         // Make it open in the next frame
+    //         command_sender.send_ui(crate::command::UICommand::Open);
+    //     }
+    // });
+
+    // ui.add_space(25.0);
 }

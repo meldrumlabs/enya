@@ -13,9 +13,10 @@ use crate::dashboard::Dashboard;
 use crate::theme::AppTheme;
 use crate::theme::light;
 use crate::ui::colors::text_color;
-use crate::ui::design::gruvbox_theme;
+use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::ui::settings_screen::show_settings_ui;
+use crate::ui::welcome_screen::welcome_section_ui;
 
 /// The core App
 pub struct EnyaApp {
@@ -50,7 +51,7 @@ impl AppState {
     fn visuals(&self) -> Visuals {
         match self.theme {
             AppTheme::Light => light(),
-            AppTheme::Dark => gruvbox_theme(),
+            AppTheme::Dark => black_theme(),
         }
     }
     /// Returns the current previous UIState
@@ -67,8 +68,9 @@ impl AppState {
 #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub enum UIState {
     Settings,
-    #[default]
     Dashboard,
+    #[default]
+    Home,
 }
 
 impl Default for EnyaApp {
@@ -93,6 +95,8 @@ impl EnyaApp {
         egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Thin);
 
         cc.egui_ctx.set_fonts(fonts);
+
+        replace_fonts(&cc.egui_ctx);
 
         let mut app = Self::default();
 
@@ -130,7 +134,7 @@ impl EnyaApp {
     // Paints the menu button at the header top left
     pub fn menu_button_ui(&mut self, ui: &mut egui::Ui) {
         pub fn small_icon_size() -> egui::Vec2 {
-            egui::Vec2::splat(14.0)
+            egui::Vec2::splat(24.0)
         }
 
         let icon = crate::ui::icons::ICON_COLOR;
@@ -145,6 +149,9 @@ impl EnyaApp {
     fn menu_ui(&mut self, ui: &mut egui::Ui) {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let theme = self.state.theme;
+
+        // Open Home
+        UICommand::Home.menu_button_ui(ui, theme, &self.command_sender);
 
         // Open dashboard
         UICommand::Open.menu_button_ui(ui, theme, &self.command_sender);
@@ -196,6 +203,7 @@ impl EnyaApp {
         match self.state.ui_state() {
             UIState::Settings => self.draw_settings(ctx),
             UIState::Dashboard => self.draw_dashboard(ctx),
+            UIState::Home => self.draw_home(ctx),
         }
     }
 
@@ -210,6 +218,10 @@ impl EnyaApp {
         let ui_state = self.state.ui_state();
         let prev_ui_state = self.state.prev_ui_state();
         match cmd {
+            UICommand::Home => {
+                self.state.ui_state = UIState::Home;
+                self.state.prev_ui_state = UIState::Home;
+            }
             UICommand::Settings => {
                 if let UIState::Settings = prev_ui_state {
                     self.state.prev_ui_state = UIState::Dashboard;
@@ -268,6 +280,12 @@ impl EnyaApp {
             show_settings_ui(ui, self.build_info, &mut self.state, &self.command_sender);
         });
     }
+    #[inline]
+    fn draw_home(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            welcome_section_ui(ui, &self.state, &self.command_sender);
+        });
+    }
 
     fn draw_dashboard(&mut self, ctx: &egui::Context) {
         if self.dashboard.is_none() {
@@ -307,4 +325,30 @@ impl eframe::App for EnyaApp {
         // Run any pending ui commands which updates internal data before the next frame
         self.run_pending_ui_commands(ctx);
     }
+}
+
+fn replace_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+
+    fonts.font_data.insert(
+        "depature_mono".to_owned(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/DepartureMono-Regular.otf")),
+    );
+
+    // Put my font first (highest priority) for proportional text:
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, "depature_mono".to_owned());
+
+    // Put my font as last fallback for monospace:
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .push("depature_mono".to_owned());
+
+    // Tell egui to use these fonts:
+    ctx.set_fonts(fonts);
 }

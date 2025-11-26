@@ -51,5 +51,4 @@ macro_rules! icon_from_path {
 
 pub const CLOSE_ICON: Icon = icon_from_path!("../../assets/close.png");
 pub const EXTERNAL_LINK: Icon = icon_from_path!("../../assets/external_link.png");
-pub const ICON_COLOR: Icon = icon_from_path!("../../assets/logo.png");
-//pub const ICON_COLOR: Icon = icon_from_path!("../../assets/favicon.ico");
+pub const ICON_COLOR: Icon = icon_from_path!("../../assets/favicon.ico");

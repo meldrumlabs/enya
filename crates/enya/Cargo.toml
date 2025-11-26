@@ -8,8 +8,14 @@ repository.workspace = true
 keywords = ["observability", "metrics"]
 categories = ["observability", "metrics"]
 description = "Embeddable Data Systems Observability"
+build = "build.rs"
 
 [dependencies]
 tokio.workspace = true
 serde.workspace = true
-axum = { workspace = true, features = ["json", "tokio"] }
+axum = { workspace = true, features = ["json", "tokio", "http1"] }
+build-info = { path = "../build-info" }
+
+[build-dependencies]
+re_build_tools.workspace = true
+chrono.workspace = true

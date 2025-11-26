@@ -9,32 +9,8 @@ use crate::{
 use super::colors::text_color;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
-pub enum Provider {
-    #[default]
-    Polygon,
-    Binance,
-}
-impl Provider {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Provider::Polygon => "Polygon",
-            Provider::Binance => "Binance",
-        }
-    }
-}
-
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {
-    /// Data provider API key.
     pub api_key: String,
-
-    /// Which Data Provider to use.
-    pub provider: Provider,
-
-    pub ttadak_key: String,
-
-    /// For advanced use (e.g., staging websocket SQL).
-    pub staging_api_key: String,
 }
 
 pub fn show_settings_ui(
@@ -110,52 +86,12 @@ pub fn show_settings_ui_impl(
 
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
-            egui::CollapsingHeader::new("Data Provider")
-                .default_open(true)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut app_state.settings.api_key)
-                                .password(true)
-                                .hint_text("API Key"),
-                        );
-                        egui::ComboBox::from_label("")
-                            .width(100.0)
-                            .selected_text(app_state.settings.provider.name())
-                            .show_ui(ui, |ui| {
-                                let polygon = ui.add(egui::SelectableLabel::new(
-                                    matches!(app_state.settings.provider, Provider::Polygon),
-                                    "Polygon",
-                                ));
-                                let binance = ui.add(egui::SelectableLabel::new(
-                                    matches!(app_state.settings.provider, Provider::Binance),
-                                    "Binance",
-                                ));
-
-                                if polygon.clicked() {
-                                    app_state.settings.provider = Provider::Polygon;
-                                }
-
-                                if binance.clicked() {
-                                    app_state.settings.provider = Provider::Binance;
-                                }
-                            });
-                    });
-
-                    ui.add_space(8.0);
-
-                    if app_state.settings.api_key.is_empty() {
-                        ui.colored_label(text_color, "Please configure your API key");
-                    } else if ui.button("Save").clicked() {
-                    }
-                });
-
             egui::CollapsingHeader::new("Enya Pro")
                 .default_open(true)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.add(
-                            egui::TextEdit::singleline(&mut app_state.settings.ttadak_key)
+                            egui::TextEdit::singleline(&mut app_state.settings.api_key)
                                 .password(true)
                                 .hint_text("API Key"),
                         );
@@ -194,31 +130,6 @@ pub fn show_settings_ui_impl(
                             ui.end_row();
                         });
                 });
-
-            // egui::CollapsingHeader::new("Looks")
-            //     .default_open(false)
-            //     .show(ui, |ui| {
-            //         egui::ComboBox::from_label("Theme")
-            //             .width(100.0)
-            //             .selected_text(app_state.theme.name())
-            //             .show_ui(ui, |ui| {
-            //                 let light = ui.add(egui::SelectableLabel::new(
-            //                     matches!(app_state.theme, AppTheme::Light),
-            //                     "Light",
-            //                 ));
-            //                 let dark = ui.add(egui::SelectableLabel::new(
-            //                     matches!(app_state.theme, AppTheme::Dark),
-            //                     "Dark",
-            //                 ));
-
-            //                 if light.clicked() {
-            //                     app_state.theme = AppTheme::Light;
-            //                 }
-            //                 if dark.clicked() {
-            //                     app_state.theme = AppTheme::Dark;
-            //                 }
-            //             });
-            //     });
         });
     });
 }

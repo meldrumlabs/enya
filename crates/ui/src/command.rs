@@ -15,6 +15,7 @@ pub trait UICommandSender {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum UICommand {
+    Home,
     Open,
     OpenExampleDashboard(usize),
     Settings,
@@ -36,6 +37,7 @@ impl UICommand {
 
     pub fn text_and_tooltip(self) -> (&'static str, &'static str) {
         match self {
+            Self::Home => ("Home", "Open Welcome Screen"),
             Self::Help => ("Help", "Get help with any Playground issues"),
             Self::Open => ("Open", "Open Enya Dashboard"),
             Self::OpenExampleDashboard(_) => ("...", "Create an Enya dashboard"),
@@ -169,6 +171,7 @@ impl UICommand {
         */
 
         match self {
+            Self::Home => smallvec![key(Key::H)],
             Self::Help => smallvec![key(Key::X)],
             Self::Open => smallvec![key(Key::O)],
             Self::Settings => smallvec![key(Key::S)],

@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="300" height="300" src="assets/enya_logo.png">
+  <img width="300" height="300" src="assets/logo.png">
 </p>
 
 ![ci](https://github.com/meldrumlabs/enya/actions/workflows/ci.yml/badge.svg)

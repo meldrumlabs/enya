@@ -25,6 +25,9 @@ pub async fn serve_with_options(addr: impl Into<String>, _options: Options) {
     let addr = addr.into();
     let socket_addr: SocketAddr = addr.parse().expect("Invalid SocketAddr format");
 
-    let core = core::Core {};
-    let _ = server::setup_and_serve(core, socket_addr).await;
+    let build_info = build_info::build_info!();
+    let core = core::Core::new(build_info);
+    if let Err(err) = server::setup_and_serve(core, socket_addr).await {
+        panic!("Failed to start enya server on {socket_addr}: {err}");
+    }
 }

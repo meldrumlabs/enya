@@ -6,7 +6,8 @@
 // v1/api/cpu/
 
 use super::core::Core;
-use axum::{Json, Router, response::IntoResponse, routing::get};
+use axum::{Json, Router, extract::State, response::IntoResponse, routing::get};
+use build_info::BuildInfo;
 use std::net::SocketAddr;
 
 /// Setup and serve the application on the specified port.
@@ -18,16 +19,12 @@ use std::net::SocketAddr;
 ///
 /// * `core` - The core application state.
 /// * `port` - The port number to listen on.
-pub(crate) async fn setup_and_serve(
-    core: Core,
-    addr: SocketAddr,
-) -> axum::serve::Serve<tokio::net::TcpListener, axum::Router, axum::Router> {
+pub(crate) async fn setup_and_serve(core: Core, addr: SocketAddr) -> Result<(), std::io::Error> {
     // Build the router
     let app = build_router(core);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    //tracing::debug!("listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, app)
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await
 }
 
 /// Set up the Axum router using the core Enya state
@@ -40,10 +37,26 @@ pub fn build_router(core: Core) -> Router {
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct Health {
     msg: String,
+    version: String,
+    git_hash: String,
+    git_branch: String,
+    built_at: String,
+    build_summary: String,
 }
 
-pub async fn health_handler() -> impl IntoResponse {
-    Json(Health {
-        msg: "Enya is up".to_string(),
-    })
+impl From<BuildInfo> for Health {
+    fn from(build_info: BuildInfo) -> Self {
+        Self {
+            msg: "Enya is up".to_owned(),
+            version: build_info.version.to_string(),
+            git_hash: build_info.git_hash_or_tag(),
+            git_branch: build_info.git_branch.to_owned(),
+            built_at: build_info.datetime.to_owned(),
+            build_summary: build_info.to_string(),
+        }
+    }
+}
+
+pub async fn health_handler(State(core): State<Core>) -> impl IntoResponse {
+    Json(Health::from(core.build_info()))
 }
