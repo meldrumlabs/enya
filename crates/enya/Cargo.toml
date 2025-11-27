@@ -11,11 +11,27 @@ description = "Embeddable Data Systems Observability"
 build = "build.rs"
 
 [dependencies]
+build-info = { path = "../build-info" }
+enya-metrics-store.workspace = true
+talna.workspace = true
+
 tokio.workspace = true
 serde.workspace = true
-axum = { workspace = true, features = ["json", "tokio", "http1"] }
-build-info = { path = "../build-info" }
+axum = { workspace = true, features = ["json", "tokio", "http1", "query"] }
+metrics.workspace = true
+tokio-metrics = "0.3"
+tracing.workspace = true
+
+[features]
+default = []
+high_precision = ["talna/high_precision"]
 
 [build-dependencies]
 re_build_tools.workspace = true
 chrono.workspace = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+
+[dev-dependencies]
+tempfile = "3.13"

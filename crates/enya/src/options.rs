@@ -1,5 +1,5 @@
-/// Default dircetory for storing enya data
-pub const DEFAULT_DATA_DIR: &str = "/opt/enya";
+/// Default directory for storing enya data
+pub const DEFAULT_DATA_DIR: &str = "/tmp/enya";
 
 pub struct Options {
     /// Directory where metrics and logs are stored
