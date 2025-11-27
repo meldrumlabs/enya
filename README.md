@@ -1,7 +1,5 @@
 <p align="center">
   <img width="300" height="300" src="assets/logo.png">
-  <br>
-  Enya - Your companion in Building and Running Data Systems
 </p>
 
 ![ci](https://github.com/meldrumlabs/enya/actions/workflows/ci.yml/badge.svg)
@@ -11,7 +9,7 @@
 
 # Enya
 
-Real-time Embeddable Observability -- Built by developers for developers.
+Your trusted companion for building and running data systems.
 
 ```rust
 // Vision - Plug and play observability for your application.
