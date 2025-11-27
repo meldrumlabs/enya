@@ -1,5 +1,7 @@
 <p align="center">
   <img width="300" height="300" src="assets/logo.png">
+  <br>
+  Enya - Your companion in Building and Running Data Systems
 </p>
 
 ![ci](https://github.com/meldrumlabs/enya/actions/workflows/ci.yml/badge.svg)
