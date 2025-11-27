@@ -15,14 +15,13 @@ Your trusted companion for building and running data systems.
 // Vision - Plug and play observability for your application.
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Integrates with metrics-rs and tracing opentelemetry.
-    enya::serve("0.0.0.0:3000");
+
+    // Integrates with metrics-rs and tracing
+    enya::init();
 
     Ok(())
 }
 ```
-
-**Core**
 
 - Metrics compatible with Prometheus (metrics-rs)
 - Logs compatible with Opentelemetry (tracing-subscriber)
@@ -39,72 +38,24 @@ async fn main() -> Result<()> {
   - egui graphs or step visualizer
 - AI Agents ???
 
-## Design goals
+## Feature Flags
 
-1. Reliable (Don't break users other system)
-2. Compact (Highly embeddable)
-3. Efficiency (Ingestion, Querying and Visualization)
+- `cpu`
+  - Enables CPU profiling using pprof
+- `jemalloc`
+  - Enables memory profiling using pprof through rust-jemalloc-pprof
+  - NOTE: this features assumes you are using tikv-jemallocator in your project
 
-## Tech
+## Acknowledgements
 
-### Ui
+- Enya takes inspiration from rerun.io for its egui-based UI.
+- Enya soft forks [talna](https://github.com/marvin-j97/talna), a time-series LSM storage made by [marvin-j97](https://github.com/marvin-j97).
 
-To enable a true embedded solution -- egui for WASM and axum to serve it.
+## License
 
-vs. gpui for Native desktop envs only..
+Licensed under either of
 
-- egui
-- eframe
-- egui_tiles
+- Apache License, Version 2.0, ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
-Design goals:
-
-- High performance -- no lag (if we lag then we have failed)
-- Compact and suitable for embedded and edge environments.
-
-### Metrics Store
-
-Time series LSM-based storage based on talna(fjall) and uwheel for indexing.
-
-Design goals:
-
-- Reliable and efficient
-- Compatible with DataDog / Prometheus based language
-- Non-interfering
-
-### Log Store
-
-Loki-like Log store for full-text search powered by Tantivy.
-
-Design goals:
-
-- Reliable and efficient.
-- Support efficient fetching of tracings and logs
-
-## Game Plan
-
-- [ ] enya 0.1.0
-  - [ ] metrics integration with Prometheus
-  - [ ] memory profiling with rust-jemalloc-pprof
-
-## Enterprise models
-
-- Everything open-source (lib + UI).
-- Open-core - Open source core + basic UI where more powerful UI is available at enya.dev/ or locked behind API key.
-  - Tiers: Individual, Teams, Pro
-  - Free: Metrics, Logs, CPU, Memory
-  - Paid: Git Tracking for above, Historical data.
-
-## Interesting crates
-
-- ddsketch
-- gpui / egui
-  - gpui - More native feeling - Requires download
-    - Zed backed
-  - egui - Native + WASM -- Simplify connection to an instance.
-    - Rerun backed
-- talna
-- uwheel
-- Tantivy
-- rkyv / zerocopy / zerovec
-- Websocket <-> ui
+at your option.
