@@ -21,10 +21,12 @@ axum = { workspace = true, features = ["json", "tokio", "http1", "query"] }
 metrics.workspace = true
 tokio-metrics = "0.3"
 tracing.workspace = true
+pprof = { workspace = true, optional = true }
 
 [features]
 default = []
 high_precision = ["talna/high_precision"]
+pprof = ["dep:pprof"]
 
 [build-dependencies]
 re_build_tools.workspace = true

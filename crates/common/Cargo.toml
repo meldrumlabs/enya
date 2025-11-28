@@ -1,0 +1,17 @@
+[package]
+name = "enya-common"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+categories.workspace = true
+description.workspace = true
+license.workspace = true
+homepage.workspace = true
+readme.workspace = true
+repository.workspace = true
+keywords.workspace = true
+
+[dependencies]
+uwheel = { workspace = true, features = ["bloom"] }
+sketches-ddsketch.workspace = true

@@ -4,6 +4,7 @@ edition = "2024"
 rust-version = "1.85"
 authors = ["Meldrum Labs"]
 categories = ["observability", "metrics"]
+keywords = ["observability", "metrics", "logging", "timeseries"]
 description = "Data Systems Observability"
 license = "MIT OR Apache-2.0"
 homepage = "https://meldrumlabs.com"
@@ -73,12 +74,18 @@ axum = { version = "0.8", default-features = false, features = [
   "http2",
 ] }
 jemalloc_pprof = "0.8.1"
-pprof = { version = "0.15", default-features = false }
+pprof = { version = "0.15", default-features = false, features = [
+  "prost-codec",
+] }
 tokio = "1.48"
 
 tracing = "0.1"
 tracing-subscriber = "0.3"
 metrics = "0.24"
+
+
+uwheel = { git = "https://github.com/uwheel/uwheel.git" }
+sketches-ddsketch = "0.3.0"
 
 [profile.release]
 opt-level = 2 # fast and small wasm

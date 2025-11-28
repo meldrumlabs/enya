@@ -7,6 +7,8 @@
 
 use super::core::Core;
 use crate::util::value_as_f64;
+#[cfg(feature = "pprof")]
+use axum::http::header;
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -14,9 +16,15 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+#[cfg(feature = "pprof")]
+use pprof::protos::Message;
 use serde::Deserialize;
 use std::net::SocketAddr;
+#[cfg(feature = "pprof")]
+use std::time::Duration;
 use talna::MetricName;
+#[cfg(feature = "pprof")]
+use tokio::time::sleep;
 
 /// Setup and serve the application on the specified port.
 ///
@@ -37,10 +45,14 @@ pub(crate) async fn setup_and_serve(core: Core, addr: SocketAddr) -> Result<(), 
 
 /// Set up the Axum router using the core Enya state
 pub fn build_router(core: Core) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/api/health", get(health_handler))
-        .route("/api/metrics/preview", get(metrics_preview_handler))
-        .with_state(core)
+        .route("/api/metrics/preview", get(metrics_preview_handler));
+
+    #[cfg(feature = "pprof")]
+    let router = router.route("/api/pprof/profile", get(cpu_profile_handler));
+
+    router.with_state(core)
 }
 
 #[derive(serde::Serialize, Clone, Debug)]
@@ -162,4 +174,107 @@ pub async fn metrics_preview_handler(
         )
             .into_response(),
     }
+}
+
+#[cfg(feature = "pprof")]
+const DEFAULT_PROFILE_SECONDS: u64 = 10;
+#[cfg(feature = "pprof")]
+const MIN_PROFILE_SECONDS: u64 = 1;
+#[cfg(feature = "pprof")]
+const MAX_PROFILE_SECONDS: u64 = 60;
+#[cfg(feature = "pprof")]
+const DEFAULT_PROFILE_FREQUENCY: i32 = 99;
+#[cfg(feature = "pprof")]
+const MIN_PROFILE_FREQUENCY: i32 = 1;
+#[cfg(feature = "pprof")]
+const MAX_PROFILE_FREQUENCY: i32 = 1000;
+
+#[cfg(feature = "pprof")]
+#[derive(Debug, Deserialize)]
+struct CpuProfileQuery {
+    seconds: Option<u64>,
+    frequency: Option<i32>,
+}
+
+#[cfg(feature = "pprof")]
+impl CpuProfileQuery {
+    fn duration(&self) -> Duration {
+        let secs = self
+            .seconds
+            .unwrap_or(DEFAULT_PROFILE_SECONDS)
+            .clamp(MIN_PROFILE_SECONDS, MAX_PROFILE_SECONDS);
+        Duration::from_secs(secs)
+    }
+
+    fn frequency(&self) -> i32 {
+        self.frequency
+            .unwrap_or(DEFAULT_PROFILE_FREQUENCY)
+            .clamp(MIN_PROFILE_FREQUENCY, MAX_PROFILE_FREQUENCY)
+    }
+}
+
+/// Sample a CPU profile and return it in the pprof protobuf format.
+#[cfg(feature = "pprof")]
+async fn cpu_profile_handler(Query(query): Query<CpuProfileQuery>) -> impl IntoResponse {
+    let duration = query.duration();
+    let frequency = query.frequency();
+
+    let guard = match pprof::ProfilerGuardBuilder::default()
+        .frequency(frequency)
+        .build()
+    {
+        Ok(guard) => guard,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to start CPU profiler: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    sleep(duration).await;
+
+    let report = match guard.report().build() {
+        Ok(report) => report,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to build CPU profile report: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let profile = match report.pprof() {
+        Ok(profile) => profile,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to generate protobuf profile: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    let mut body = Vec::new();
+    if let Err(err) = profile.encode(&mut body) {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to serialize CPU profile: {err}"),
+        )
+            .into_response();
+    }
+
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"cpu-profile.pb\"",
+            ),
+        ],
+        body,
+    )
+        .into_response()
 }

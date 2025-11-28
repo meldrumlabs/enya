@@ -9,7 +9,7 @@ where
     A: Aggregation,
     I: Iterator<Item = crate::Result<StreamItem>>;
 
-#[allow(clippy::needless_lifetimes)]
+#[allow(clippy::elidable_lifetime_names)]
 impl<'a, A, I> std::ops::Deref for GroupedAggregation<'a, A, I>
 where
     A: Aggregation,
@@ -22,7 +22,7 @@ where
     }
 }
 
-#[allow(clippy::needless_lifetimes)]
+#[allow(clippy::elidable_lifetime_names)]
 impl<'a, A, I> std::ops::DerefMut for GroupedAggregation<'a, A, I>
 where
     A: Aggregation,
@@ -33,7 +33,7 @@ where
     }
 }
 
-#[allow(clippy::needless_lifetimes)]
+#[allow(clippy::elidable_lifetime_names)]
 impl<'a, A, I> IntoIterator for GroupedAggregation<'a, A, I>
 where
     A: Aggregation,
@@ -47,7 +47,7 @@ where
     }
 }
 
-#[allow(clippy::needless_lifetimes)]
+#[allow(clippy::elidable_lifetime_names)]
 impl<'a, A, I> GroupedAggregation<'a, A, I>
 where
     A: Aggregation,
