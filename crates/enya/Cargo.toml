@@ -11,7 +11,7 @@ description = "Embeddable Data Systems Observability"
 build = "build.rs"
 
 [dependencies]
-build-info = { path = "../build-info" }
+enya-build-info = { path = "../build-info" }
 enya-metrics-store.workspace = true
 talna.workspace = true
 
@@ -29,7 +29,7 @@ high_precision = ["talna/high_precision"]
 pprof = ["dep:pprof"]
 
 [build-dependencies]
-re_build_tools.workspace = true
+enya-build-tools.workspace = true
 chrono.workspace = true
 
 [lints.rust]
