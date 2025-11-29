@@ -1655,6 +1655,7 @@ dependencies = [
 name = "enya-common"
 version = "0.1.0"
 dependencies = [
+ "criterion",
  "sketches-ddsketch",
  "uwheel",
 ]
