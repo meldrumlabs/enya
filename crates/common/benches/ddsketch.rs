@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use enya_common::aggregators::{DDSketchAggregator, DDSketchPartial};
 use uwheel::aggregator::Aggregator;
 
@@ -53,10 +53,7 @@ fn bench_merge(c: &mut Criterion) {
                     .map(|i| {
                         let mut sketch = DDSketchAggregator::lift((i * 100) as f64);
                         for j in 1..100 {
-                            DDSketchAggregator::combine_mutable(
-                                &mut sketch,
-                                (i * 100 + j) as f64,
-                            );
+                            DDSketchAggregator::combine_mutable(&mut sketch, (i * 100 + j) as f64);
                         }
                         DDSketchAggregator::freeze(sketch)
                     })
@@ -144,13 +141,9 @@ fn bench_quantile_query(c: &mut Criterion) {
 
     let mut group = c.benchmark_group("ddsketch_quantile");
 
-    group.bench_function("p50", |b| {
-        b.iter(|| black_box(final_sketch.quantile(0.5)))
-    });
+    group.bench_function("p50", |b| b.iter(|| black_box(final_sketch.quantile(0.5))));
 
-    group.bench_function("p99", |b| {
-        b.iter(|| black_box(final_sketch.quantile(0.99)))
-    });
+    group.bench_function("p99", |b| b.iter(|| black_box(final_sketch.quantile(0.99))));
 
     group.bench_function("p999", |b| {
         b.iter(|| black_box(final_sketch.quantile(0.999)))
