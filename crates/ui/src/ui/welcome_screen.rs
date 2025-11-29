@@ -7,8 +7,6 @@ use crate::{
 
 use super::colors::{apply_button_theme, text_color};
 
-//pub(super) const MIN_COLUMN_WIDTH: f32 = 250.0;
-
 pub fn welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState, command_sender: &CommandSender) {
     egui::Frame {
         inner_margin: egui::Margin::same(5.0),
@@ -49,13 +47,6 @@ pub fn show_welcome_section_ui(
                 .color(theme_color),
         );
         ui.add_space(10.0);
-
-        // let horizontal_scroll = ui.available_width() < 40.0 * 2.0 + MIN_COLUMN_WIDTH;
-        // kvet (max_width, max_height) = if horizontal_scroll {
-        //     (350.0, 350.0)
-        // } else {
-        //     (500.0, 500.0)
-        // };
     });
 
     ui.add_space(30.0);
@@ -70,7 +61,6 @@ pub fn show_welcome_section_ui(
                         .color(Color32::WHITE)
                         .size(16.0),
                 )
-                //.sense(egui::Sense::hover())
                 .min_size(egui::Vec2::new(220.0, 25.0)),
             ))
             .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -80,27 +70,4 @@ pub fn show_welcome_section_ui(
             command_sender.send_ui(crate::command::UICommand::Settings)
         }
     });
-
-    //     ui.add_space(9.0);
-
-    //     if ui
-    //         .add(apply_button_theme(
-    //             app_state.theme,
-    //             egui::Button::new(
-    //                 egui::RichText::new("Open")
-    //                     .strong()
-    //                     .color(Color32::WHITE)
-    //                     .size(16.0),
-    //             )
-    //             .min_size(egui::Vec2::new(220.0, 25.0)),
-    //         ))
-    //         .on_hover_cursor(egui::CursorIcon::PointingHand)
-    //         .clicked()
-    //     {
-    //         // Make it open in the next frame
-    //         command_sender.send_ui(crate::command::UICommand::Open);
-    //     }
-    // });
-
-    // ui.add_space(25.0);
 }

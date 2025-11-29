@@ -1,8 +1,8 @@
 use egui::RichText;
 use egui::Theme;
 use egui::Visuals;
-use re_build_info::BuildInfo;
-use re_build_info::build_info;
+use enya_build_info::BuildInfo;
+use enya_build_info::build_info;
 
 use crate::command::CommandReceiver;
 use crate::command::CommandSender;

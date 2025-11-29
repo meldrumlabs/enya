@@ -144,32 +144,6 @@ impl UICommand {
             KeyboardShortcut::new(Modifiers::NONE, key)
         }
 
-        /*
-        fn cmd(key: Key) -> KeyboardShortcut {
-            KeyboardShortcut::new(Modifiers::COMMAND, key)
-        }
-
-        fn cmd_shift(key: Key) -> KeyboardShortcut {
-            KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, key)
-        }
-
-        fn cmd_alt(key: Key) -> KeyboardShortcut {
-            KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::ALT, key)
-        }
-
-        fn ctrl(key: Key) -> KeyboardShortcut {
-            KeyboardShortcut::new(Modifiers::CTRL, key)
-        }
-
-        fn cmd_shift(key: Key) -> KeyboardShortcut {
-            KeyboardShortcut::new(Modifiers::COMMAND | Modifiers::SHIFT, key)
-        }
-
-        fn ctrl_shift(key: Key) -> KeyboardShortcut {
-            KeyboardShortcut::new(Modifiers::CTRL | Modifiers::SHIFT, key)
-        }
-        */
-
         match self {
             Self::Home => smallvec![key(Key::H)],
             Self::Help => smallvec![key(Key::X)],

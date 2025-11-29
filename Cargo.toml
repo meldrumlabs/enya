@@ -18,6 +18,8 @@ members = ["crates/*", "examples/*"]
 [workspace.dependencies]
 enya = { path = "crates/enya", version = "0.1.0" }
 enya-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
+enya-build-tools = { path = "crates/build-tools" }
+enya-build-info = { path = "crates/build-info" }
 talna = { path = "crates/talna", version = "0.3.0" }
 
 egui = "0.29"
@@ -45,7 +47,6 @@ fastrand = "1.2.0"
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
-re_build_info = "0.21.0"
 strum_macros = "0.21.0"
 strum = "0.21.0"
 
@@ -58,7 +59,6 @@ ewebsock = { git = "https://github.com/c-git/ewebsock.git" }
 wasm-bindgen-futures = "0.4"
 web-sys = "0.3.70"                                           # to access the DOM (to hide the loading text)
 gloo-timers = { version = "0.3.0", features = ["futures"] }
-re_build_tools = "0.21.0"
 
 
 # talna

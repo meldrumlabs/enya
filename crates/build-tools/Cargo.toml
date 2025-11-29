@@ -1,22 +1,16 @@
 [package]
-name = "enya-build-info"
+name = "enya-build-tools"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 categories.workspace = true
-description.workspace = true
+description = "Build tools for enya crates"
 license.workspace = true
 homepage.workspace = true
 readme.workspace = true
 repository.workspace = true
-keywords = ["build info"]
-
-[features]
-default = []
-
-## Enable (de)serialization using serde.
-serde = ["dep:serde"]
+keywords = ["build", "tools"]
 
 [dependencies]
-serde = { workspace = true, optional = true, features = ["derive"] }
+cargo_metadata = "0.18"
