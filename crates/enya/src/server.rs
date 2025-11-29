@@ -533,7 +533,7 @@ mod tests {
     fn create_test_core(dir: &std::path::Path) -> Core {
         let db = Database::builder().open(dir).expect("database");
         let metrics_store = MetricsStore::new(db, None, None);
-        let build_info = build_info::build_info!();
+        let build_info = enya_build_info::build_info!();
         Core::new(build_info, metrics_store)
     }
 
