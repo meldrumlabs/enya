@@ -15,3 +15,10 @@ keywords.workspace = true
 [dependencies]
 uwheel = { workspace = true, features = ["bloom"] }
 sketches-ddsketch.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "ddsketch"
+harness = false
