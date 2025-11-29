@@ -45,8 +45,7 @@ impl Dashboard {
             if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(_tabs))) =
                 self.tree.tiles.get_mut(parent)
             {
-                //tabs.add_child(new_child);
-                //tabs.set_active(new_child);
+                // Future: tabs.add_child(new_child) and tabs.set_active(new_child)
             }
         }
         self.tree.ui(&mut self.behavior, ui);

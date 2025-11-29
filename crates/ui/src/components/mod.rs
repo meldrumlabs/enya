@@ -1,6 +1,6 @@
 use crate::theme::AppTheme;
 
-/// Trait that defines a Polygon Component
+/// Trait that defines an Enya Component
 pub trait Component {
     /// The core function that is responsible for drawing the component
     fn show(&mut self, ui: &mut egui::Ui);
