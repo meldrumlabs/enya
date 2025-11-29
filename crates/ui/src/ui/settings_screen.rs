@@ -1,5 +1,5 @@
 use egui::NumExt;
-use re_build_info::BuildInfo;
+use enya_build_info::BuildInfo;
 
 use crate::{
     app::AppState,

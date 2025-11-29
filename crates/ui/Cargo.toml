@@ -24,7 +24,7 @@ smallvec = { workspace = true }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-re_build_info = { workspace = true }
+enya-build-info = { path = "../build-info" }
 strum_macros = { workspace = true }
 strum = { workspace = true }
 
@@ -45,4 +45,5 @@ web-sys = { workspace = true }                                           # to ac
 gloo-timers = { workspace = true, features = ["futures"] }
 
 [build-dependencies]
-re_build_tools = { workspace = true }
+enya-build-tools = { workspace = true }
+chrono = { workspace = true }

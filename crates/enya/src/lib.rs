@@ -31,7 +31,7 @@ pub async fn serve_with_options(addr: impl Into<String>, options: Options) {
     let addr = addr.into();
     let socket_addr: SocketAddr = addr.parse().expect("Invalid SocketAddr format");
 
-    let build_info = build_info::build_info!();
+    let build_info = enya_build_info::build_info!();
     let metrics_store = init_metrics_store(options.data_dir(), &build_info);
     let core = core::Core::new(build_info, metrics_store);
     let ingestor = Ingestor::spawn(core.clone());
@@ -42,7 +42,7 @@ pub async fn serve_with_options(addr: impl Into<String>, options: Options) {
     ingestor.shutdown().await;
 }
 
-fn init_metrics_store(data_dir: &str, build_info: &build_info::BuildInfo) -> MetricsStore {
+fn init_metrics_store(data_dir: &str, build_info: &enya_build_info::BuildInfo) -> MetricsStore {
     let metrics_dir = Path::new(data_dir).join("metrics");
     if let Err(err) = fs::create_dir_all(&metrics_dir) {
         panic!("Failed to create metrics directory {metrics_dir:?}: {err}");

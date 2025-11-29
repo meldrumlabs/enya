@@ -7,7 +7,7 @@
 ///
 /// There are a few other cases though, like
 /// - `git` is not installed
-/// - the user downloaded rerun as a tarball and then imported via a `path = …` import
+/// - the user downloaded the crate as a tarball and then imported via a `path = …` import
 /// - others?
 #[derive(Copy, Clone, Debug)]
 pub struct BuildInfo {
@@ -32,10 +32,10 @@ pub struct BuildInfo {
     /// Current git branch, or empty string.
     pub git_branch: &'static str,
 
-    /// True if we are building within the rerun repository workspace.
+    /// True if we are building within the enya repository workspace.
     ///
     /// This is a good proxy for "user checked out the project and built it from source".
-    pub is_in_rerun_workspace: bool,
+    pub is_in_enya_workspace: bool,
 
     /// Target architecture and OS
     ///
@@ -83,7 +83,7 @@ impl std::fmt::Display for BuildInfo {
             llvm_version,
             git_hash,
             git_branch,
-            is_in_rerun_workspace: _,
+            is_in_enya_workspace: _,
             target_triple,
             datetime,
         } = self;
@@ -134,7 +134,7 @@ impl std::fmt::Display for BuildInfo {
 use crate::CrateVersion;
 
 impl CrateVersion {
-    /// Attempts to parse a [`CrateVersion`] from a [`BuildInfo`]'s string representation (`rerun --version`).
+    /// Attempts to parse a [`CrateVersion`] from a [`BuildInfo`]'s string representation.
     ///
     /// Refer to `BuildInfo as std::fmt::Display>::fmt` to see what the string representation is
     /// expected to look like. Roughly:
@@ -157,7 +157,7 @@ impl CrateVersion {
 #[test]
 fn crate_version_from_build_info_string() {
     let build_info = BuildInfo {
-        crate_name: "re_build_info",
+        crate_name: "build_info",
         features: "default extra",
         version: CrateVersion {
             major: 0,
@@ -172,7 +172,7 @@ fn crate_version_from_build_info_string() {
         llvm_version: "16.0.5",
         git_hash: "",
         git_branch: "",
-        is_in_rerun_workspace: true,
+        is_in_enya_workspace: true,
         target_triple: "x86_64-unknown-linux-gnu",
         datetime: "",
     };

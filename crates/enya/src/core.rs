@@ -1,4 +1,4 @@
-use build_info::BuildInfo;
+use enya_build_info::BuildInfo;
 use enya_metrics_store::MetricsStore;
 
 #[derive(Clone)]
