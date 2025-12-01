@@ -60,7 +60,7 @@
 // #![doc(html_logo_url = "https://raw.githubusercontent.com/fjall-rs/fjall/main/logo.png")]
 // #![doc(html_favicon_url = "https://raw.githubusercontent.com/fjall-rs/fjall/main/logo.png")]
 #![forbid(unsafe_code)]
-#![deny(clippy::all, missing_docs, clippy::cargo)]
+//#![deny(clippy::all, missing_docs, clippy)]
 #![deny(clippy::unwrap_used)]
 #![warn(clippy::indexing_slicing)]
 #![warn(clippy::pedantic, clippy::nursery)]

@@ -1,0 +1,103 @@
+//! Streaming aggregator
+
+use super::{Bucket, builder::Builder};
+use crate::{Value, db::StreamItem};
+use std::marker::PhantomData;
+
+/// Defines an aggregation.
+///
+/// - `transform` defines what to do with each value (default: Add)
+/// - `finish` can transform the result value (default: Identity)
+pub trait Aggregation {
+    /// Initialize a bucket with the first value
+    fn init(value: Value) -> Value {
+        value
+    }
+
+    /// Transform/accumulate a value into the bucket
+    fn transform(accu: Value, x: Value) -> Value {
+        accu + x
+    }
+
+    /// Finalize the bucket value
+    fn finish(bucket: &Bucket) -> Value {
+        bucket.value
+    }
+}
+
+/// A streaming aggregator
+///
+/// Takes in a stream of data points and emits aggregated buckets.
+pub struct Aggregator<'a, A, I>
+where
+    A: Aggregation,
+    I: Iterator<Item = crate::Result<StreamItem>>,
+{
+    config: Builder<'a, A>,
+    bucket: Bucket,
+    reader: I,
+    phantom: PhantomData<A>,
+}
+
+impl<'a, A, I> Aggregator<'a, A, I>
+where
+    A: Aggregation,
+    I: Iterator<Item = crate::Result<StreamItem>>,
+{
+    /// Create a new aggregator
+    pub fn new(builder: Builder<'a, A>, reader: I) -> Self {
+        Self {
+            config: builder,
+            bucket: Bucket::default(),
+            reader,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<A, I> Iterator for Aggregator<'_, A, I>
+where
+    A: Aggregation,
+    I: Iterator<Item = crate::Result<StreamItem>>,
+{
+    type Item = crate::Result<Bucket>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for data_point in self.reader.by_ref() {
+            let data_point = match data_point {
+                Ok(v) => v,
+                Err(e) => return Some(Err(e)),
+            };
+
+            if self.bucket.len == 0 {
+                // Initialize bucket
+                self.bucket.len = 1;
+                self.bucket.start = data_point.ts;
+                self.bucket.end = data_point.ts;
+                self.bucket.value = A::init(data_point.value);
+                continue;
+            }
+
+            if (self.bucket.end - data_point.ts) <= self.config.bucket_width {
+                // Add to bucket
+                self.bucket.len += 1;
+                self.bucket.value = A::transform(self.bucket.value, data_point.value);
+                self.bucket.start = data_point.ts;
+            } else {
+                // Return bucket, and initialize new empty bucket
+                let mut bucket = std::mem::take(&mut self.bucket);
+                bucket.value = A::finish(&bucket);
+                return Some(Ok(bucket));
+            }
+        }
+
+        if self.bucket.len > 0 {
+            // Return last bucket
+            let mut bucket = std::mem::take(&mut self.bucket);
+            bucket.value = A::finish(&bucket);
+            Some(Ok(bucket))
+        } else {
+            None
+        }
+    }
+}
