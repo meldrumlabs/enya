@@ -8,15 +8,100 @@
 //!
 //! Data points are f32s by default, but can be switched to f64 using the `high_precision` feature flag.
 //!
-//! ## Key Prefix Strategy
+//! # Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────────────┐
+//! │                            MetricsStore                                 │
+//! │                     (adds default tags to writes)                       │
+//! └─────────────────────────────────────────────────────────────────────────┘
+//!                                     │
+//!                                     ▼
+//! ┌─────────────────────────────────────────────────────────────────────────┐
+//! │                              Database                                   │
+//! │                        (main entry point)                               │
+//! ├─────────────────────────────────────────────────────────────────────────┤
+//! │   Write Path                    │   Read Path                           │
+//! │   ────────────                  │   ─────────                           │
+//! │   write(metric, value, tags) ──►│◄── start_query(metric, filter, range) │
+//! │                                 │                                       │
+//! │   1. Format series key          │   1. Parse filter expression          │
+//! │   2. Lookup/create series ID    │   2. Evaluate against tag index       │
+//! │   3. Index tags (if new)        │   3. Get matching series IDs          │
+//! │   4. Store data point           │   4. Scan data for each series        │
+//! └─────────────────────────────────────────────────────────────────────────┘
+//!                                     │
+//!          ┌──────────────────────────┼──────────────────────────┐
+//!          ▼                          ▼                          ▼
+//! ┌─────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
+//! │  SeriesMapping  │     │      TagIndex       │     │      TagSets        │
+//! │     (smap)      │     │   (inverted index)  │     │  (series → tags)    │
+//! ├─────────────────┤     ├─────────────────────┤     ├─────────────────────┤
+//! │ s:{series_key}  │     │ t:{metric}#{k}:{v}  │     │ g:{series_id}       │
+//! │      ↓          │     │      ↓              │     │      ↓              │
+//! │   series_id     │     │  [postings list]    │     │  "k1:v1;k2:v2"      │
+//! └─────────────────┘     └─────────────────────┘     └─────────────────────┘
+//!                                     │
+//!                                     ▼
+//! ┌─────────────────────────────────────────────────────────────────────────┐
+//! │                             Storage                                     │
+//! │                      (SlateDB wrapper)                                  │
+//! ├─────────────────────────────────────────────────────────────────────────┤
+//! │   Key Format: d:{series_id:8}{!timestamp:16} → {value}                  │
+//! │                                                                         │
+//! │   • Timestamps inverted (!ts) for reverse chronological order           │
+//! │   • Merge operator for atomic postings list appends                     │
+//! └─────────────────────────────────────────────────────────────────────────┘
+//!                                     │
+//!                                     ▼
+//! ┌─────────────────────────────────────────────────────────────────────────┐
+//! │                         Object Storage                                  │
+//! │                    (S3, GCS, local filesystem)                          │
+//! └─────────────────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! # Components
+//!
+//! ## Core Database
+//!
+//! - **[`Database`]**: Main entry point for writes and queries
+//! - **[`MetricsStore`]**: Wrapper that adds default tags to every write
+//! - **[`DatabaseBuilder`]**: Builder for configuring and opening a database
+//!
+//! ## Indexing
+//!
+//! - **`SeriesMapping`** (`s:` prefix): Maps series key strings to compact u64 IDs
+//! - **`TagIndex`** (`t:` prefix): Inverted index mapping tag terms to series IDs
+//! - **`TagSets`** (`g:` prefix): Maps series ID back to its complete tag set
+//!
+//! ## Aggregation
+//!
+//! - **[`index::WheelIndex`]**: Pre-computed aggregates using µWheel for fast
+//!   time-range queries on recent data. Supports counters (`U64SumAggregator`)
+//!   and histograms (`DDSketchAggregator` for percentiles).
+//!
+//! ## Query System
+//!
+//! Filter expressions support:
+//! - Exact match: `env:prod`
+//! - Wildcard: `service:db.*`
+//! - Boolean: `env:prod AND service:db`
+//! - Negation: `!env:staging`
+//! - Grouping: `(env:prod OR env:staging) AND service:db`
+//!
+//! # Key Prefix Strategy
 //!
 //! Since `SlateDB` doesn't have column families, we use key prefixes:
-//! - `d:` - Data partition (time series points)
-//! - `s:` - Series mapping (series key -> series ID)
-//! - `t:` - Tag index (inverted index for queries)
-//! - `g:` - Tag sets (series ID -> tags)
 //!
-//! ## Basic usage
+//! | Prefix | Purpose                        | Format                                 |
+//! |--------|--------------------------------|----------------------------------------|
+//! | `d:`   | Data points (time series)      | `d:{series_id:8}{!ts:16}` → `{value}` |
+//! | `s:`   | Series mapping                 | `s:{series_key}` → `{series_id:8}`    |
+//! | `t:`   | Tag index (inverted)           | `t:{metric}#{k}:{v}` → `[postings]`   |
+//! | `g:`   | Tag sets                       | `g:{series_id:8}` → `"k1:v1;k2:v2"`   |
+//! | `c:`   | Counter                        | `c:next_series_id` → `{next_id:8}`    |
+//!
+//! # Basic usage
 //!
 //! ```ignore
 //! use enya_metrics_store::{Database, Duration, MetricName, tagset, timestamp};
@@ -61,6 +146,7 @@ mod db;
 mod db_builder;
 mod duration;
 mod error;
+pub mod index;
 mod merge;
 mod merge_operator;
 mod metric_name;

@@ -1863,6 +1863,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "criterion",
+ "enya-common",
  "futures",
  "log",
  "logos",
@@ -1871,6 +1872,7 @@ dependencies = [
  "tempfile",
  "test-log",
  "tokio",
+ "uwheel",
 ]
 
 [[package]]

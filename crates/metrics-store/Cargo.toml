@@ -19,12 +19,16 @@ byteorder.workspace = true
 log.workspace = true
 logos.workspace = true
 rustc-hash.workspace = true
-tokio = { workspace = true, features = ["sync", "rt"] }
+tokio = { workspace = true, features = ["sync", "rt", "time"] }
 
 # SlateDB for object storage backed LSM
 slatedb = "0.9"
 bytes = "1.6"
 futures = "0.3"
+
+# Wheel-based aggregate indexing
+uwheel.workspace = true
+enya-common = { path = "../common" }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
