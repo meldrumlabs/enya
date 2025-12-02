@@ -24,13 +24,6 @@ impl Aggregation for Average {
             );
         }
 
-        #[cfg(feature = "high_precision")]
-        {
-            bucket.value / (bucket.len as f64)
-        }
-        #[cfg(not(feature = "high_precision"))]
-        {
-            bucket.value / (bucket.len as f32)
-        }
+        bucket.value / (bucket.len as f64)
     }
 }

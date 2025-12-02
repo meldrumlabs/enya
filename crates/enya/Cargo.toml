@@ -24,7 +24,6 @@ pprof = { workspace = true, optional = true }
 
 [features]
 default = []
-high_precision = ["enya-metrics-store/high_precision"]
 pprof = ["dep:pprof"]
 
 [build-dependencies]

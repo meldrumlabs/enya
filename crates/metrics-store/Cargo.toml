@@ -12,7 +12,6 @@ repository.workspace = true
 
 [features]
 default = []
-high_precision = []
 
 [dependencies]
 byteorder.workspace = true

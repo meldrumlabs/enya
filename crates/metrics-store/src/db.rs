@@ -425,13 +425,7 @@ impl Iterator for DataPointIterator {
 
                 // Parse value
                 let mut cursor = Cursor::new(&kv.value[..]);
-                #[cfg(feature = "high_precision")]
                 let value = match cursor.read_f64::<BigEndian>() {
-                    Ok(v) => v,
-                    Err(e) => return Some(Err(e.into())),
-                };
-                #[cfg(not(feature = "high_precision"))]
-                let value = match cursor.read_f32::<BigEndian>() {
                     Ok(v) => v,
                     Err(e) => return Some(Err(e.into())),
                 };
