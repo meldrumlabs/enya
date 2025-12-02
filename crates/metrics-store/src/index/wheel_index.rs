@@ -181,7 +181,9 @@ impl WheelIndex {
     pub fn tick(&self) {
         let now_ms = current_time_ms();
         self.watermark_ms.store(now_ms, Ordering::Relaxed);
-        let _ = self.tx.send(Command::Tick { watermark_ms: now_ms });
+        let _ = self.tx.send(Command::Tick {
+            watermark_ms: now_ms,
+        });
     }
 
     /// Queries the sum aggregate over the last `seconds` for the given series.
@@ -204,12 +206,7 @@ impl WheelIndex {
     ///
     /// Returns `None` if no wheel exists, the wheel is not a histogram,
     /// or the percentile cannot be computed (e.g., empty sketch).
-    pub async fn query_percentile(
-        &self,
-        series_id: SeriesId,
-        seconds: u64,
-        p: f64,
-    ) -> Option<f64> {
+    pub async fn query_percentile(&self, series_id: SeriesId, seconds: u64, p: f64) -> Option<f64> {
         let (reply_tx, reply_rx) = oneshot::channel();
         let _ = self.tx.send(Command::QueryPercentile {
             series_id,
@@ -302,7 +299,8 @@ fn wheel_thread_main(mut rx: mpsc::UnboundedReceiver<Command>, initial_watermark
             } => {
                 let result = wheels.get(&series_id).and_then(|wheel| match wheel {
                     #[allow(clippy::cast_possible_wrap)] // seconds won't exceed i64::MAX
-                    #[allow(clippy::cast_precision_loss)] // acceptable for metrics display
+                    #[allow(clippy::cast_precision_loss)]
+                    // acceptable for metrics display
                     Wheel::Sum(w) => w
                         .read()
                         .interval(uwheel::Duration::seconds(seconds as i64))
@@ -321,7 +319,9 @@ fn wheel_thread_main(mut rx: mpsc::UnboundedReceiver<Command>, initial_watermark
                 let result = wheels.get(&series_id).and_then(|wheel| match wheel {
                     Wheel::Histogram(w) => {
                         #[allow(clippy::cast_possible_wrap)] // seconds won't exceed i64::MAX
-                        let partial = w.read().interval(uwheel::Duration::seconds(seconds as i64))?;
+                        let partial = w
+                            .read()
+                            .interval(uwheel::Duration::seconds(seconds as i64))?;
                         let sketch = partial.into_sketch();
                         sketch.quantile(percentile).ok().flatten()
                     }
@@ -393,6 +393,7 @@ pub fn spawn_ticker(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
 
@@ -440,7 +441,7 @@ mod tests {
 
         // Insert some latency values
         for i in 1..=100 {
-            index.insert(series_id, i as f64, MetricKind::Histogram);
+            index.insert(series_id, f64::from(i), MetricKind::Histogram);
         }
 
         // Give the wheel thread time to process
@@ -454,7 +455,7 @@ mod tests {
         // Query p50 should be around 50
         let p50 = index.query_percentile(series_id, 60, 0.5).await;
         assert!(p50.is_some(), "p50 query returned None");
-        let p50_val = p50.unwrap();
+        let p50_val = p50.expect("p50 should be Some");
         assert!(
             (45.0..=55.0).contains(&p50_val),
             "p50 should be around 50, got {p50_val}"
@@ -463,7 +464,7 @@ mod tests {
         // Query p99 should be around 99
         let p99 = index.query_percentile(series_id, 60, 0.99).await;
         assert!(p99.is_some(), "p99 query returned None");
-        let p99_val = p99.unwrap();
+        let p99_val = p99.expect("p99 should be Some");
         assert!(
             (95.0..=100.0).contains(&p99_val),
             "p99 should be around 99, got {p99_val}"
@@ -525,14 +526,14 @@ mod tests {
             let idx = index.clone();
             handles.push(tokio::spawn(async move {
                 for j in 0..100 {
-                    idx.insert(i, j as f64, MetricKind::Sum);
+                    idx.insert(i, f64::from(j), MetricKind::Sum);
                 }
             }));
         }
 
         // Wait for all inserts
         for h in handles {
-            h.await.unwrap();
+            h.await.expect("task should complete");
         }
 
         // Give the wheel thread time to process
@@ -601,7 +602,7 @@ mod tests {
 
         // Insert values 1-1000
         for i in 1..=1000 {
-            index.insert(series_id, i as f64, MetricKind::Histogram);
+            index.insert(series_id, f64::from(i), MetricKind::Histogram);
         }
 
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -610,10 +611,22 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Test various percentiles
-        let p10 = index.query_percentile(series_id, 60, 0.1).await.unwrap();
-        let p50 = index.query_percentile(series_id, 60, 0.5).await.unwrap();
-        let p90 = index.query_percentile(series_id, 60, 0.9).await.unwrap();
-        let p99 = index.query_percentile(series_id, 60, 0.99).await.unwrap();
+        let p10 = index
+            .query_percentile(series_id, 60, 0.1)
+            .await
+            .expect("p10 should exist");
+        let p50 = index
+            .query_percentile(series_id, 60, 0.5)
+            .await
+            .expect("p50 should exist");
+        let p90 = index
+            .query_percentile(series_id, 60, 0.9)
+            .await
+            .expect("p90 should exist");
+        let p99 = index
+            .query_percentile(series_id, 60, 0.99)
+            .await
+            .expect("p99 should exist");
 
         // Verify ordering: p10 < p50 < p90 < p99
         assert!(p10 < p50, "p10 ({p10}) should be less than p50 ({p50})");
@@ -689,7 +702,10 @@ mod tests {
         index.insert(1, 10.0, MetricKind::Sum);
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        assert!(!index.is_empty().await, "index should not be empty after insert");
+        assert!(
+            !index.is_empty().await,
+            "index should not be empty after insert"
+        );
 
         index.remove(1).await;
         assert!(index.is_empty().await, "index should be empty after remove");
