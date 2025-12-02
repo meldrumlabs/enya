@@ -16,10 +16,11 @@ mod ingestor;
 
 use std::{fs, net::SocketAddr, path::Path};
 
-use enya_metrics_store::MetricsStore;
+use enya_metrics_store::{Database, MetricsStore, object_store};
 use ingestor::Ingestor;
+use object_store::local::LocalFileSystem;
 use options::Options;
-use talna::Database;
+use std::sync::Arc;
 
 /// Serves the enya UI at 'addr'
 pub async fn serve(addr: impl Into<String>) {
@@ -32,7 +33,7 @@ pub async fn serve_with_options(addr: impl Into<String>, options: Options) {
     let socket_addr: SocketAddr = addr.parse().expect("Invalid SocketAddr format");
 
     let build_info = enya_build_info::build_info!();
-    let metrics_store = init_metrics_store(options.data_dir(), &build_info);
+    let metrics_store = init_metrics_store(options.data_dir(), &build_info).await;
     let core = core::Core::new(build_info, metrics_store);
     let ingestor = Ingestor::spawn(core.clone());
     if let Err(err) = server::setup_and_serve(core, socket_addr).await {
@@ -42,15 +43,25 @@ pub async fn serve_with_options(addr: impl Into<String>, options: Options) {
     ingestor.shutdown().await;
 }
 
-fn init_metrics_store(data_dir: &str, build_info: &enya_build_info::BuildInfo) -> MetricsStore {
+async fn init_metrics_store(
+    data_dir: &str,
+    build_info: &enya_build_info::BuildInfo,
+) -> MetricsStore {
     let metrics_dir = Path::new(data_dir).join("metrics");
     if let Err(err) = fs::create_dir_all(&metrics_dir) {
         panic!("Failed to create metrics directory {metrics_dir:?}: {err}");
     }
 
+    let object_store = Arc::new(
+        LocalFileSystem::new_with_prefix(&metrics_dir).unwrap_or_else(|err| {
+            panic!("Failed to create object store at {metrics_dir:?}: {err}")
+        }),
+    );
+
     let database = Database::builder()
-        .open(&metrics_dir)
-        .unwrap_or_else(|err| panic!("Failed to open talna database at {metrics_dir:?}: {err}"));
+        .open(object_store, "/")
+        .await
+        .unwrap_or_else(|err| panic!("Failed to open metrics database at {metrics_dir:?}: {err}"));
 
     let git_ver = (!build_info.git_hash.is_empty()).then(|| build_info.git_hash.to_owned());
     let git_timestamp = (!build_info.datetime.is_empty()).then(|| build_info.datetime.to_owned());

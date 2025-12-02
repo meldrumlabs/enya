@@ -2,18 +2,18 @@
 
 ## Metrics Store
 
-The metrics store is built on top of talna, a LSM-based storage engine for time-series. It also integrates uwheel for efficient
+The metrics store is a time-series LSM storage engine backed by SlateDB for object storage. It also integrates uwheel for efficient
 aggregation and filtering queries.
 
 Crates:
 
-- talna
+- enya-metrics-store
 - uwheel
 
 ```rust
-use talna::{Database, Duration, MetricName, tagset, timestamp};
+use enya_metrics_store::{Database, Duration, MetricName, tagset, timestamp};
 
-let db = Database::builder().open(path)?;
+let db = Database::builder().open(object_store, path).await?;
 
 let metric_name = MetricName::try_from("query.latency").unwrap();
 

@@ -4,7 +4,7 @@ This guide keeps contributors aligned with the current enya workspace. Scan it b
 
 ## Project Structure & Module Organization
 
-The workspace in `Cargo.toml` centers on `crates/*`: `enya` (Axum server), `metrics-store` (time-series LSM with Talna), `log-store` (Tantivy search), `talna` (fjall wrapper), `build-info`, and `ui` (egui/eframe). Shared spikes live in `examples/*`; static media live in `assets/`. Unit tests sit beside their modules, and cross-crate integration tests belong in each crate’s `tests/` directory so `cargo nextest` discovers them automatically.
+The workspace in `Cargo.toml` centers on `crates/*`: `enya` (Axum server), `metrics-store` (time-series LSM backed by SlateDB), `log-store` (Tantivy search), `build-info`, and `ui` (egui/eframe). Shared spikes live in `examples/*`; static media live in `assets/`. Unit tests sit beside their modules, and cross-crate integration tests belong in each crate's `tests/` directory so `cargo nextest` discovers them automatically.
 
 ## Build, Test, and Development Commands
 

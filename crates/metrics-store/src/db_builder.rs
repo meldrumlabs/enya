@@ -1,7 +1,7 @@
-//! Database builder for configuring and opening a talna-v2 database
+//! Database builder for configuring and opening the metrics database
 
 use crate::db::Database;
-use crate::merge_operator::TalnaMergeOperator;
+use crate::merge_operator::MetricsMergeOperator;
 use slatedb::Db;
 use slatedb::object_store::ObjectStore;
 use slatedb::object_store::path::Path;
@@ -41,10 +41,10 @@ impl Builder {
         path: impl Into<Path>,
     ) -> crate::Result<Database> {
         let path = path.into();
-        log::info!("Opening talna-v2 database at {path}");
+        log::info!("Opening metrics database at {path}");
 
         let db = Db::builder(path, object_store)
-            .with_merge_operator(Arc::new(TalnaMergeOperator))
+            .with_merge_operator(Arc::new(MetricsMergeOperator))
             .build()
             .await?;
         let db = Arc::new(db);

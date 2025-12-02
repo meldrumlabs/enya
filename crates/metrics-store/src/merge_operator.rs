@@ -18,13 +18,13 @@ use bytes::Bytes;
 use slatedb::{MergeOperator, MergeOperatorError};
 use std::io::Cursor;
 
-/// Merge operator for talna-v2 that handles postings lists
+/// Merge operator for metrics-store that handles postings lists
 ///
 /// This operator appends series IDs to postings lists atomically.
 /// Keys with prefix `t:` (tag index) use postings list append semantics.
-pub struct TalnaMergeOperator;
+pub struct MetricsMergeOperator;
 
-impl MergeOperator for TalnaMergeOperator {
+impl MergeOperator for MetricsMergeOperator {
     fn merge(
         &self,
         key: &Bytes,
@@ -65,7 +65,7 @@ impl MergeOperator for TalnaMergeOperator {
     clippy::option_if_let_else,
     clippy::single_match_else
 )]
-impl TalnaMergeOperator {
+impl MetricsMergeOperator {
     /// Parse an operand which can be either:
     /// - A raw series ID: 8 bytes `[series_id:u64]`
     /// - A previously merged postings list: 16+ bytes `[len:u64][id1:u64]...`
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_postings_list_merge_empty() {
-        let op = TalnaMergeOperator;
+        let op = MetricsMergeOperator;
         let key = Bytes::from_static(b"t:cpu.total#host:h-1");
 
         // First merge creates new list
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_postings_list_merge_append() {
-        let op = TalnaMergeOperator;
+        let op = MetricsMergeOperator;
         let key = Bytes::from_static(b"t:cpu.total#host:h-1");
 
         // Create existing list with one entry
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_postings_list_merge_batch() {
-        let op = TalnaMergeOperator;
+        let op = MetricsMergeOperator;
         let key = Bytes::from_static(b"t:cpu.total");
 
         // Create operands
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn test_postings_list_merge_batch_with_existing() {
-        let op = TalnaMergeOperator;
+        let op = MetricsMergeOperator;
         let key = Bytes::from_static(b"t:cpu.total");
 
         // Existing list
@@ -328,7 +328,7 @@ mod tests {
 
     #[test]
     fn test_postings_list_merge_multiple() {
-        let op = TalnaMergeOperator;
+        let op = MetricsMergeOperator;
         let key = Bytes::from_static(b"t:cpu.total");
 
         // Build list by merging multiple IDs
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_non_tag_key_passthrough() {
-        let op = TalnaMergeOperator;
+        let op = MetricsMergeOperator;
         let key = Bytes::from_static(b"s:some_series_key");
 
         let operand = Bytes::from_static(b"some_value");
