@@ -6,7 +6,7 @@
 //! The tagging and querying mechanism is modelled after Datadog's metrics service
 //! (<https://www.datadoghq.com/blog/engineering/timeseries-indexing-at-scale/>).
 //!
-//! Data points are f32s by default, but can be switched to f64 using the `high_precision` feature flag.
+//! Data points are stored as f64s.
 //!
 //! ## Key Prefix Strategy
 //!
@@ -101,12 +101,7 @@ pub use series_key::SeriesKey;
 pub type Timestamp = u128;
 
 /// Value used in time series
-#[cfg(feature = "high_precision")]
 pub type Value = f64;
-
-/// Value used in time series
-#[cfg(not(feature = "high_precision"))]
-pub type Value = f32;
 
 /// Macro to create a list of tags.
 ///
