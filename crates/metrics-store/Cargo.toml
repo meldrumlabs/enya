@@ -24,6 +24,8 @@ tokio = { workspace = true, features = ["sync", "rt", "time"] }
 slatedb = "0.9"
 bytes = "1.6"
 futures = "0.3"
+async-stream = "0.3"
+pin-project-lite = "0.2"
 
 # Wheel-based aggregate indexing
 uwheel.workspace = true

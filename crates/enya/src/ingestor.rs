@@ -405,6 +405,7 @@ mod tests {
             .await
             .expect("build sum")
             .collect()
+            .await
             .expect("collect sum");
         value_as_f64(result[GROUP][0].value)
     }
