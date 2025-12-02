@@ -1,15 +1,33 @@
 [package]
 name = "enya-metrics-store"
+description = "Simple, embeddable time series database using object storage (SlateDB)"
+license = "MIT OR Apache-2.0"
 version = "0.1.0"
 edition.workspace = true
-license.workspace = true
-description = "Metrics store for Enya"
+rust-version.workspace = true
+authors.workspace = true
+keywords = ["database", "lsm", "time series", "timeseries", "object-storage"]
+categories = ["data-structures", "database-implementations", "algorithms"]
 repository.workspace = true
-keywords = ["observability", "metrics"]
-categories = ["observability", "metrics"]
+
+[features]
+default = []
+high_precision = []
 
 [dependencies]
-talna.workspace = true
+byteorder.workspace = true
+log.workspace = true
+logos.workspace = true
+rustc-hash.workspace = true
+tokio = { workspace = true, features = ["sync", "rt"] }
+
+# SlateDB for object storage backed LSM
+slatedb = "0.9"
+bytes = "1.6"
+futures = "0.3"
 
 [dev-dependencies]
-tempfile = "3.13"
+criterion = { version = "0.5.1", features = ["html_reports"] }
+tempfile = "3.12.0"
+test-log = "0.2.16"
+tokio = { workspace = true, features = ["full", "macros"] }

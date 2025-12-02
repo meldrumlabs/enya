@@ -1,5 +1,6 @@
 use crate::core::Core;
 use enya_metrics_store::MetricsStore;
+use enya_metrics_store::{MetricName, Value};
 use metrics::{
     Counter, CounterFn, Gauge, GaugeFn, Histogram, HistogramFn, Key, KeyName, Metadata, Recorder,
     SharedString, Unit,
@@ -7,7 +8,6 @@ use metrics::{
 use std::sync::Arc;
 #[cfg(tokio_unstable)]
 use std::time::Duration;
-use talna::{MetricName, Value};
 use tokio::{
     select,
     sync::{mpsc, watch},
@@ -81,7 +81,7 @@ async fn metrics_ingest_loop(
             biased;
             msg = rx.recv() => {
                 match msg {
-                    Some(update) => persist_metric_event(core.metrics(), update),
+                    Some(update) => persist_metric_event(core.metrics(), update).await,
                     None => break,
                 }
             }
@@ -96,13 +96,13 @@ async fn metrics_ingest_loop(
     debug!("metrics ingestion loop exited");
 }
 
-fn persist_metric_event(store: &MetricsStore, update: MetricUpdate) {
+async fn persist_metric_event(store: &MetricsStore, update: MetricUpdate) {
     match update {
         MetricUpdate::Counter { key, update } => {
             let value = match update {
                 CounterUpdate::Increment(delta) | CounterUpdate::Absolute(delta) => delta as f64,
             };
-            persist_value(store, &key, value);
+            persist_value(store, &key, value).await;
         }
         MetricUpdate::Gauge { key, update } => {
             let value = match update {
@@ -110,13 +110,13 @@ fn persist_metric_event(store: &MetricsStore, update: MetricUpdate) {
                 GaugeUpdate::Decrement(delta) => -delta,
                 GaugeUpdate::Set(value) => value,
             };
-            persist_value(store, &key, value);
+            persist_value(store, &key, value).await;
         }
-        MetricUpdate::Histogram { key, value } => persist_value(store, &key, value),
+        MetricUpdate::Histogram { key, value } => persist_value(store, &key, value).await,
     }
 }
 
-fn persist_value(store: &MetricsStore, key: &Key, value: f64) {
+async fn persist_value(store: &MetricsStore, key: &Key, value: f64) {
     let metric = match MetricName::try_from(key.name()) {
         Ok(metric) => metric,
         Err(_) => {
@@ -135,7 +135,7 @@ fn persist_value(store: &MetricsStore, key: &Key, value: f64) {
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
 
-    if let Err(err) = store.ingest(metric, value as Value, &borrowed) {
+    if let Err(err) = store.ingest(metric, value as Value, &borrowed).await {
         warn!(error = ?err, metric = key.name(), "failed to write metric to store");
     }
 }
@@ -167,7 +167,7 @@ async fn tokio_metrics_loop(core: Core, mut shutdown_rx: watch::Receiver<bool>) 
         select! {
             _ = ticker.tick() => {
                 if let Some(metrics) = intervals.next() {
-                    persist_runtime_metrics(core.metrics(), &metrics);
+                    persist_runtime_metrics(core.metrics(), &metrics).await;
                 }
             }
             changed = shutdown_rx.changed() => {
@@ -182,44 +182,50 @@ async fn tokio_metrics_loop(core: Core, mut shutdown_rx: watch::Receiver<bool>) 
 }
 
 #[cfg(tokio_unstable)]
-fn persist_runtime_metrics(store: &MetricsStore, metrics: &tokio_metrics::RuntimeMetrics) {
+async fn persist_runtime_metrics(store: &MetricsStore, metrics: &tokio_metrics::RuntimeMetrics) {
     record_runtime_metric(
         store,
         "tokio.runtime.total_park_count",
         metrics.total_park_count as f64,
-    );
+    )
+    .await;
     record_runtime_metric(
         store,
         "tokio.runtime.injection_queue_depth",
         metrics.injection_queue_depth as f64,
-    );
+    )
+    .await;
     record_runtime_metric(
         store,
         "tokio.runtime.num_remote_schedules",
         metrics.num_remote_schedules as f64,
-    );
+    )
+    .await;
     record_runtime_metric(
         store,
         "tokio.runtime.budget_forced_yield_count",
         metrics.budget_forced_yield_count as f64,
-    );
+    )
+    .await;
     record_runtime_metric(
         store,
         "tokio.runtime.io_driver_ready_count",
         metrics.io_driver_ready_count as f64,
-    );
+    )
+    .await;
     record_runtime_metric(
         store,
         "tokio.runtime.mean_poll_duration_ns",
         metrics.mean_poll_duration.as_nanos() as f64,
-    );
+    )
+    .await;
 }
 
 #[cfg(tokio_unstable)]
-fn record_runtime_metric(store: &MetricsStore, name: &str, value: f64) {
+async fn record_runtime_metric(store: &MetricsStore, name: &str, value: f64) {
     match MetricName::try_from(name) {
         Ok(metric) => {
-            if let Err(err) = store.ingest(metric, value as Value, &[]) {
+            if let Err(err) = store.ingest(metric, value as Value, &[]).await {
                 warn!(error = ?err, metric = name, "failed to persist tokio runtime metric");
             }
         }
@@ -368,49 +374,54 @@ enum GaugeUpdate {
 mod tests {
     use super::*;
     use crate::util::value_as_f64;
-    use talna::{Database, MetricName};
+    use enya_metrics_store::{Database, MetricName, object_store};
+    use object_store::local::LocalFileSystem;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     const METRIC_NAME: &str = "enya.test.metric";
     const FILTER: &str = "env:test";
     const GROUP: &str = "test";
 
-    fn temp_store() -> (TempDir, MetricsStore) {
+    async fn temp_store() -> (TempDir, MetricsStore) {
         let dir = TempDir::new().expect("tempdir");
+        let object_store =
+            Arc::new(LocalFileSystem::new_with_prefix(dir.path()).expect("object store"));
         let db = Database::builder()
-            .open(dir.path())
-            .expect("open talna database");
+            .open(object_store, "/")
+            .await
+            .expect("open database");
         let store = MetricsStore::new(db, None, None);
         (dir, store)
     }
 
-    fn read_sum(store: &MetricsStore) -> f64 {
+    async fn read_sum(store: &MetricsStore) -> f64 {
         let metric = MetricName::try_from(METRIC_NAME).unwrap();
         let result = store
             .database()
             .sum(metric, "env")
             .filter(FILTER)
             .build()
+            .await
             .expect("build sum")
             .collect()
             .expect("collect sum");
         value_as_f64(result[GROUP][0].value)
     }
 
-    #[test]
-    fn persist_value_writes_metric_sample() {
-        let (_tmp, store) = temp_store();
+    #[tokio::test]
+    async fn persist_value_writes_metric_sample() {
+        let (_tmp, store) = temp_store().await;
         let key = Key::from_parts(METRIC_NAME, &[("env", GROUP)]);
 
-        persist_value(&store, &key, 42.5);
-        store.database().flush(true).unwrap();
+        persist_value(&store, &key, 42.5).await;
 
-        assert!((read_sum(&store) - 42.5).abs() < f64::EPSILON);
+        assert!((read_sum(&store).await - 42.5).abs() < f64::EPSILON);
     }
 
-    #[test]
-    fn persist_metric_event_handles_counter() {
-        let (_tmp, store) = temp_store();
+    #[tokio::test]
+    async fn persist_metric_event_handles_counter() {
+        let (_tmp, store) = temp_store().await;
         let key = Key::from_parts(METRIC_NAME, &[("env", GROUP)]);
 
         persist_metric_event(
@@ -419,14 +430,14 @@ mod tests {
                 key,
                 update: CounterUpdate::Increment(7),
             },
-        );
-        store.database().flush(true).unwrap();
-        assert!((read_sum(&store) - 7.0).abs() < f64::EPSILON);
+        )
+        .await;
+        assert!((read_sum(&store).await - 7.0).abs() < f64::EPSILON);
     }
 
-    #[test]
-    fn persist_metric_event_handles_gauge() {
-        let (_tmp, store) = temp_store();
+    #[tokio::test]
+    async fn persist_metric_event_handles_gauge() {
+        let (_tmp, store) = temp_store().await;
         let key = Key::from_parts(METRIC_NAME, &[("env", GROUP)]);
 
         persist_metric_event(
@@ -435,18 +446,17 @@ mod tests {
                 key,
                 update: GaugeUpdate::Set(-3.0),
             },
-        );
-        store.database().flush(true).unwrap();
-        assert!((read_sum(&store) - (-3.0)).abs() < f64::EPSILON);
+        )
+        .await;
+        assert!((read_sum(&store).await - (-3.0)).abs() < f64::EPSILON);
     }
 
-    #[test]
-    fn persist_metric_event_handles_histogram() {
-        let (_tmp, store) = temp_store();
+    #[tokio::test]
+    async fn persist_metric_event_handles_histogram() {
+        let (_tmp, store) = temp_store().await;
         let key = Key::from_parts(METRIC_NAME, &[("env", GROUP)]);
 
-        persist_metric_event(&store, MetricUpdate::Histogram { key, value: 5.5 });
-        store.database().flush(true).unwrap();
-        assert!((read_sum(&store) - 5.5).abs() < f64::EPSILON);
+        persist_metric_event(&store, MetricUpdate::Histogram { key, value: 5.5 }).await;
+        assert!((read_sum(&store).await - 5.5).abs() < f64::EPSILON);
     }
 }

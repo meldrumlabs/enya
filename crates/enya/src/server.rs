@@ -16,13 +16,13 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use enya_metrics_store::{Duration as MetricsDuration, MetricName, Timestamp};
 #[cfg(feature = "pprof")]
 use pprof::protos::Message;
 use serde::Deserialize;
 use std::net::SocketAddr;
 #[cfg(feature = "pprof")]
 use std::time::Duration;
-use talna::{MetricName, Timestamp};
 #[cfg(feature = "pprof")]
 use tokio::time::sleep;
 
@@ -99,8 +99,8 @@ pub struct MetricsPreviewQuery {
 
 #[derive(serde::Serialize)]
 struct MetricsPreviewBucket {
-    start: talna::Timestamp,
-    end: talna::Timestamp,
+    start: Timestamp,
+    end: Timestamp,
     value: f64,
     len: usize,
 }
@@ -136,14 +136,25 @@ pub async fn metrics_preview_handler(
 
     let filter = query.filter.clone().unwrap_or_else(|| "*".to_string());
 
-    match core
+    let agg = match core
         .metrics()
         .database()
         .sum(metric, &query.group_by)
         .filter(&filter)
         .build()
-        .and_then(|agg| agg.collect())
+        .await
     {
+        Ok(agg) => agg,
+        Err(err) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to build query: {err}"),
+            )
+                .into_response();
+        }
+    };
+
+    match agg.collect() {
         Ok(groups) => {
             let preview_groups = groups
                 .into_iter()
@@ -288,14 +299,14 @@ fn parse_duration(s: &str) -> Option<u128> {
     let n: f64 = num_str.parse().ok()?;
 
     let ns = match unit {
-        "s" => talna::Duration::seconds(n),
-        "m" => talna::Duration::minutes(n),
-        "h" => talna::Duration::hours(n),
-        "d" => talna::Duration::days(n),
-        "w" => talna::Duration::weeks(n),
-        "M" => talna::Duration::months(n),
-        "y" => talna::Duration::years(n),
-        "ms" => talna::Duration::millis(n),
+        "s" => MetricsDuration::seconds(n),
+        "m" => MetricsDuration::minutes(n),
+        "h" => MetricsDuration::hours(n),
+        "d" => MetricsDuration::days(n),
+        "w" => MetricsDuration::weeks(n),
+        "M" => MetricsDuration::months(n),
+        "y" => MetricsDuration::years(n),
+        "ms" => MetricsDuration::millis(n),
         _ => return None,
     };
 
@@ -349,15 +360,15 @@ pub async fn metrics_handler(
         }
     };
 
-    let now = talna::timestamp();
+    let now = enya_metrics_store::timestamp();
 
     let start_ts = query.start.as_ref().and_then(|s| parse_time_spec(s, now));
     let end_ts = query.end.as_ref().and_then(|s| parse_time_spec(s, now));
 
     let db = core.metrics().database();
 
-    // Helper macro to build and execute an aggregation
-    macro_rules! run_agg {
+    // Helper macro to build an aggregation builder with common settings
+    macro_rules! build_agg {
         ($builder:expr) => {{
             let mut builder = $builder.filter(&filter).granularity(granularity);
             if let Some(ts) = start_ts {
@@ -366,36 +377,49 @@ pub async fn metrics_handler(
             if let Some(ts) = end_ts {
                 builder = builder.end(ts);
             }
-            builder
-                .build()
-                .and_then(|agg| agg.collect())
-                .map(|collected| {
-                    collected
+            builder.build()
+        }};
+    }
+
+    // Helper to map collected results to MetricsGroup
+    macro_rules! map_groups {
+        ($collected:expr) => {{
+            $collected
+                .into_iter()
+                .map(|(group, buckets)| MetricsGroup {
+                    group,
+                    buckets: buckets
                         .into_iter()
-                        .map(|(group, buckets)| MetricsGroup {
-                            group,
-                            buckets: buckets
-                                .into_iter()
-                                .map(|b| MetricsBucket {
-                                    start: b.start,
-                                    end: b.end,
-                                    value: value_as_f64(b.value),
-                                    count: b.len,
-                                })
-                                .collect(),
+                        .map(|b| MetricsBucket {
+                            start: b.start,
+                            end: b.end,
+                            value: value_as_f64(b.value),
+                            count: b.len,
                         })
-                        .collect()
+                        .collect(),
                 })
+                .collect::<Vec<_>>()
+        }};
+    }
+
+    // Helper to run an aggregation and map results
+    macro_rules! run_agg {
+        ($builder:expr) => {{
+            async {
+                let agg = build_agg!($builder).await?;
+                let collected = agg.collect()?;
+                Ok::<_, enya_metrics_store::Error>(map_groups!(collected))
+            }
         }};
     }
 
     // Build and execute the query based on aggregation type
-    let result: Result<Vec<MetricsGroup>, talna::Error> = match query.agg {
-        AggregationType::Sum => run_agg!(db.sum(metric, &query.group_by)),
-        AggregationType::Avg => run_agg!(db.avg(metric, &query.group_by)),
-        AggregationType::Min => run_agg!(db.min(metric, &query.group_by)),
-        AggregationType::Max => run_agg!(db.max(metric, &query.group_by)),
-        AggregationType::Count => run_agg!(db.count(metric, &query.group_by)),
+    let result: Result<Vec<MetricsGroup>, enya_metrics_store::Error> = match query.agg {
+        AggregationType::Sum => run_agg!(db.sum(metric, &query.group_by)).await,
+        AggregationType::Avg => run_agg!(db.avg(metric, &query.group_by)).await,
+        AggregationType::Min => run_agg!(db.min(metric, &query.group_by)).await,
+        AggregationType::Max => run_agg!(db.max(metric, &query.group_by)).await,
+        AggregationType::Count => run_agg!(db.count(metric, &query.group_by)).await,
     };
 
     match result {
@@ -527,11 +551,16 @@ async fn cpu_profile_handler(Query(query): Query<CpuProfileQuery>) -> impl IntoR
 mod tests {
     use super::*;
     use axum_test::TestServer;
-    use enya_metrics_store::MetricsStore;
-    use talna::{Database, MetricName, tagset};
+    use enya_metrics_store::{Database, MetricName, MetricsStore, object_store};
+    use object_store::local::LocalFileSystem;
+    use std::sync::Arc;
 
-    fn create_test_core(dir: &std::path::Path) -> Core {
-        let db = Database::builder().open(dir).expect("database");
+    async fn create_test_core(dir: &std::path::Path) -> Core {
+        let object_store = Arc::new(LocalFileSystem::new_with_prefix(dir).expect("object store"));
+        let db = Database::builder()
+            .open(object_store, "/")
+            .await
+            .expect("database");
         let metrics_store = MetricsStore::new(db, None, None);
         let build_info = enya_build_info::build_info!();
         Core::new(build_info, metrics_store)
@@ -544,17 +573,16 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_endpoint_basic_query() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path());
+        let core = create_test_core(dir.path()).await;
 
         // Write some test data
         let m = metric("cpu.usage");
         let db = core.metrics().database();
-        db.write_at(m, 1000, 10.0, tagset!("host" => "server1", "env" => "prod"))
-            .unwrap();
-        db.write_at(m, 2000, 20.0, tagset!("host" => "server1", "env" => "prod"))
-            .unwrap();
-        db.write_at(m, 3000, 30.0, tagset!("host" => "server2", "env" => "prod"))
-            .unwrap();
+        let tags1 = [("host", "server1"), ("env", "prod")];
+        let tags2 = [("host", "server2"), ("env", "prod")];
+        db.write_at(m, 1000, 10.0, &tags1).await.unwrap();
+        db.write_at(m, 2000, 20.0, &tags1).await.unwrap();
+        db.write_at(m, 3000, 30.0, &tags2).await.unwrap();
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");
@@ -580,21 +608,16 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_endpoint_with_filter() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path());
+        let core = create_test_core(dir.path()).await;
 
         let m = metric("requests.count");
         let db = core.metrics().database();
-        db.write_at(m, 1000, 5.0, tagset!("service" => "api", "env" => "prod"))
-            .unwrap();
-        db.write_at(
-            m,
-            2000,
-            10.0,
-            tagset!("service" => "api", "env" => "staging"),
-        )
-        .unwrap();
-        db.write_at(m, 3000, 15.0, tagset!("service" => "web", "env" => "prod"))
-            .unwrap();
+        let tags_api_prod = [("service", "api"), ("env", "prod")];
+        let tags_api_staging = [("service", "api"), ("env", "staging")];
+        let tags_web_prod = [("service", "web"), ("env", "prod")];
+        db.write_at(m, 1000, 5.0, &tags_api_prod).await.unwrap();
+        db.write_at(m, 2000, 10.0, &tags_api_staging).await.unwrap();
+        db.write_at(m, 3000, 15.0, &tags_web_prod).await.unwrap();
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");
@@ -638,19 +661,16 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_endpoint_aggregation_types() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path());
+        let core = create_test_core(dir.path()).await;
 
         let m = metric("latency.ms");
         let db = core.metrics().database();
+        let tags = [("endpoint", "/api/users")];
         // Write multiple values for the same group to test aggregations
-        db.write_at(m, 1000, 10.0, tagset!("endpoint" => "/api/users"))
-            .unwrap();
-        db.write_at(m, 2000, 20.0, tagset!("endpoint" => "/api/users"))
-            .unwrap();
-        db.write_at(m, 3000, 30.0, tagset!("endpoint" => "/api/users"))
-            .unwrap();
-        db.write_at(m, 4000, 40.0, tagset!("endpoint" => "/api/users"))
-            .unwrap();
+        db.write_at(m, 1000, 10.0, &tags).await.unwrap();
+        db.write_at(m, 2000, 20.0, &tags).await.unwrap();
+        db.write_at(m, 3000, 30.0, &tags).await.unwrap();
+        db.write_at(m, 4000, 40.0, &tags).await.unwrap();
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");
@@ -729,7 +749,7 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_endpoint_invalid_metric_name() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path());
+        let core = create_test_core(dir.path()).await;
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");
@@ -748,7 +768,7 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_endpoint_invalid_granularity() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path());
+        let core = create_test_core(dir.path()).await;
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");
@@ -766,7 +786,7 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_endpoint_empty_result() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path());
+        let core = create_test_core(dir.path()).await;
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");
@@ -787,16 +807,16 @@ mod tests {
 
     #[test]
     fn test_parse_duration() {
-        assert_eq!(parse_duration("30s"), Some(talna::Duration::seconds(30.0)));
-        assert_eq!(parse_duration("5m"), Some(talna::Duration::minutes(5.0)));
-        assert_eq!(parse_duration("2h"), Some(talna::Duration::hours(2.0)));
-        assert_eq!(parse_duration("7d"), Some(talna::Duration::days(7.0)));
-        assert_eq!(parse_duration("1w"), Some(talna::Duration::weeks(1.0)));
-        assert_eq!(parse_duration("1M"), Some(talna::Duration::months(1.0)));
-        assert_eq!(parse_duration("1y"), Some(talna::Duration::years(1.0)));
+        assert_eq!(parse_duration("30s"), Some(MetricsDuration::seconds(30.0)));
+        assert_eq!(parse_duration("5m"), Some(MetricsDuration::minutes(5.0)));
+        assert_eq!(parse_duration("2h"), Some(MetricsDuration::hours(2.0)));
+        assert_eq!(parse_duration("7d"), Some(MetricsDuration::days(7.0)));
+        assert_eq!(parse_duration("1w"), Some(MetricsDuration::weeks(1.0)));
+        assert_eq!(parse_duration("1M"), Some(MetricsDuration::months(1.0)));
+        assert_eq!(parse_duration("1y"), Some(MetricsDuration::years(1.0)));
         assert_eq!(
             parse_duration("100ms"),
-            Some(talna::Duration::millis(100.0))
+            Some(MetricsDuration::millis(100.0))
         );
 
         // Raw nanoseconds
@@ -816,7 +836,7 @@ mod tests {
         assert_eq!(parse_time_spec("500000000000", now), Some(500000000000));
 
         // Relative duration (1 second ago)
-        let one_sec = talna::Duration::seconds(1.0);
+        let one_sec = MetricsDuration::seconds(1.0);
         assert_eq!(parse_time_spec("1s", now), Some(now - one_sec));
 
         // Empty

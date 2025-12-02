@@ -9,6 +9,7 @@ pub struct Duration;
     clippy::cast_precision_loss
 )]
 impl Duration {
+    const NANOS_PER_MILLI: u128 = 1_000_000;
     const NANOS_PER_SECOND: u128 = 1_000_000_000;
     const SECONDS_PER_MINUTE: u128 = 60;
     const SECONDS_PER_HOUR: u128 = 3600;
@@ -16,6 +17,12 @@ impl Duration {
     const DAYS_PER_WEEK: f64 = 7.0;
     const DAYS_PER_MONTH: f64 = 30.44; // Average month length
     const DAYS_PER_YEAR: f64 = 365.25; // Average year length
+
+    /// Returns the duration in nanoseconds for the given number of milliseconds.
+    #[must_use]
+    pub fn millis(n: f64) -> u128 {
+        (n * Self::NANOS_PER_MILLI as f64) as u128
+    }
 
     /// Returns the duration in nanoseconds for the given number of seconds.
     #[must_use]

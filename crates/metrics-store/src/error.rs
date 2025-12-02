@@ -1,8 +1,8 @@
-//! Error types for talna-v2
+//! Error types for metrics-store
 
 use std::fmt;
 
-/// Error type for talna-v2 operations
+/// Error type for metrics-store operations
 #[derive(Debug)]
 pub enum Error {
     /// I/O error
@@ -55,5 +55,5 @@ impl From<slatedb::object_store::Error> for Error {
     }
 }
 
-/// Result type for talna-v2 operations
+/// Result type for metrics-store operations
 pub type Result<T> = std::result::Result<T, Error>;

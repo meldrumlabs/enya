@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
 ## Acknowledgements
 
 - Enya takes inspiration from rerun.io for its egui-based UI.
-- Enya soft forks [talna](https://github.com/marvin-j97/talna), a time-series LSM storage made by [marvin-j97](https://github.com/marvin-j97).
+- Enya's metrics store is inspired by [talna](https://github.com/marvin-j97/talna), a time-series LSM storage made by [marvin-j97](https://github.com/marvin-j97), and uses [SlateDB](https://github.com/slatedb/slatedb) for object storage.
 
 ## License
 
