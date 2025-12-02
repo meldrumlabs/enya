@@ -100,6 +100,22 @@ impl Database {
         Storage::data_key(series_id, ts)
     }
 
+    /// Look up the series ID for a given metric name and tag set.
+    ///
+    /// Returns `None` if no series exists for this combination.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if an I/O error occurred.
+    pub async fn get_series_id(
+        &self,
+        metric: MetricName<'_>,
+        tags: &TagSet<'_>,
+    ) -> crate::Result<Option<SeriesId>> {
+        let series_key = SeriesKey::format(metric, tags);
+        self.0.smap.get(&series_key).await
+    }
+
     /// Prepare a query, returning streams for each matching series
     ///
     /// # Errors
@@ -297,7 +313,8 @@ impl Database {
         value: Value,
         tags: &TagSet<'_>,
     ) -> crate::Result<()> {
-        self.write_at(metric, timestamp(), value, tags).await
+        self.write_at(metric, timestamp(), value, tags).await?;
+        Ok(())
     }
 
     /// Write a data point at a specific timestamp.
@@ -308,7 +325,7 @@ impl Database {
         ts: Timestamp,
         value: Value,
         tags: &TagSet<'_>,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<SeriesId> {
         let series_key = SeriesKey::format(metric, tags);
         let series_id = self.0.smap.get(&series_key).await?;
 
@@ -327,7 +344,7 @@ impl Database {
             .put(data_point_key, Bytes::from(value.to_be_bytes().to_vec()))
             .await?;
 
-        Ok(())
+        Ok(series_id)
     }
 
     async fn initialize_new_series(
