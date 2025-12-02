@@ -15,10 +15,12 @@ use crate::tag_sets::{OwnedTagSets, TagSets};
 use crate::time::timestamp;
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::Bytes;
+use futures::Stream;
 use slatedb::Db;
 use std::io::Cursor;
 use std::marker::PhantomData;
 use std::ops::Bound;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -36,12 +38,15 @@ pub struct StreamItem {
     pub value: Value,
 }
 
+/// Type alias for a boxed async stream of stream items
+pub type DataPointStream = Pin<Box<dyn Stream<Item = crate::Result<StreamItem>> + Send>>;
+
 /// A series stream containing tags and data points
 pub struct SeriesStream {
     /// The tags for this series
     pub tags: OwnedTagSets,
-    /// The data point reader
-    pub reader: Box<dyn Iterator<Item = crate::Result<StreamItem>> + Send>,
+    /// The async data point stream
+    pub stream: DataPointStream,
 }
 
 /// Inner database state
@@ -113,15 +118,15 @@ impl Database {
             // Build range bounds for this series
             let (start_key, end_key) = Self::build_range_keys(series_id, min, max);
 
-            // Create iterator over data points
+            // Create async iterator over data points
             let iter = self.0.storage.db().scan(start_key..end_key).await?;
 
-            // Convert to StreamItem iterator
-            let reader = DataPointIterator::new(iter, series_id);
+            // Convert to async StreamItem stream
+            let stream = create_data_point_stream(iter, series_id);
 
             streams.push(SeriesStream {
                 tags,
-                reader: Box::new(reader),
+                stream: Box::pin(stream),
             });
         }
 
@@ -370,77 +375,56 @@ impl Database {
     }
 }
 
-/// Iterator over data points from `SlateDB` scan
-struct DataPointIterator {
-    inner: slatedb::DbIterator,
+/// Creates an async stream of data points from a `SlateDB` scan iterator.
+///
+/// This properly uses async/await instead of blocking the runtime.
+fn create_data_point_stream(
+    mut iter: slatedb::DbIterator,
     series_id: SeriesId,
-    exhausted: bool,
-}
+) -> impl Stream<Item = crate::Result<StreamItem>> + Send {
+    async_stream::try_stream! {
+        loop {
+            match iter.next().await {
+                Ok(Some(kv)) => {
+                    // Parse key to extract timestamp
+                    let key = kv.key;
+                    // Skip prefix (2 bytes) and series_id (8 bytes) to get timestamp
+                    if key.len() < 2 + 8 + 16 {
+                        Err(crate::Error::Io(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "key too short",
+                        )))?;
+                    }
 
-impl DataPointIterator {
-    fn new(inner: slatedb::DbIterator, series_id: SeriesId) -> Self {
-        Self {
-            inner,
-            series_id,
-            exhausted: false,
-        }
-    }
-}
+                    let Some(ts_bytes) = key.get(2 + 8..2 + 8 + 16) else {
+                        Err(crate::Error::Io(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "key too short for timestamp",
+                        )))?;
+                        continue;
+                    };
+                    let mut cursor = Cursor::new(ts_bytes);
+                    let inverted_ts = cursor.read_u128::<BigEndian>()?;
+                    let ts = !inverted_ts;
 
-impl Iterator for DataPointIterator {
-    type Item = crate::Result<StreamItem>;
+                    // Parse value
+                    let mut cursor = Cursor::new(&kv.value[..]);
+                    let value = cursor.read_f64::<BigEndian>()?;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.exhausted {
-            return None;
-        }
-
-        // Use blocking approach for now - in production would want async stream
-        let result = futures::executor::block_on(async { self.inner.next().await });
-
-        match result {
-            Ok(Some(kv)) => {
-                // Parse key to extract timestamp
-                let key = kv.key;
-                // Skip prefix (2 bytes) and series_id (8 bytes) to get timestamp
-                if key.len() < 2 + 8 + 16 {
-                    return Some(Err(crate::Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "key too short",
-                    ))));
+                    yield StreamItem {
+                        series_id,
+                        ts,
+                        value,
+                    };
                 }
-
-                let Some(ts_bytes) = key.get(2 + 8..2 + 8 + 16) else {
-                    return Some(Err(crate::Error::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "key too short for timestamp",
-                    ))));
-                };
-                let mut cursor = Cursor::new(ts_bytes);
-                let inverted_ts = match cursor.read_u128::<BigEndian>() {
-                    Ok(v) => v,
-                    Err(e) => return Some(Err(e.into())),
-                };
-                let ts = !inverted_ts;
-
-                // Parse value
-                let mut cursor = Cursor::new(&kv.value[..]);
-                let value = match cursor.read_f64::<BigEndian>() {
-                    Ok(v) => v,
-                    Err(e) => return Some(Err(e.into())),
-                };
-
-                Some(Ok(StreamItem {
-                    series_id: self.series_id,
-                    ts,
-                    value,
-                }))
+                Ok(None) => {
+                    // Iterator exhausted
+                    break;
+                }
+                Err(e) => {
+                    Err(e)?;
+                }
             }
-            Ok(None) => {
-                self.exhausted = true;
-                None
-            }
-            Err(e) => Some(Err(e.into())),
         }
     }
 }

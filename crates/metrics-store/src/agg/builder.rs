@@ -2,13 +2,10 @@
 
 use super::{GroupedAggregation, stream::Aggregation};
 use crate::{
-    Database, Timestamp,
-    agg::stream::Aggregator,
-    db::{SeriesStream, StreamItem},
-    merge::Merger,
-    timestamp,
+    Database, Timestamp, agg::stream::Aggregator, db::SeriesStream, merge::Merger, timestamp,
 };
 use std::marker::PhantomData;
+use std::pin::Pin;
 
 /// Builder for constructing aggregation queries
 pub struct Builder<'a, A: Aggregation> {
@@ -96,16 +93,7 @@ impl<'a, A: Aggregation> Builder<'a, A> {
 
     /// Build and execute the aggregation query
     #[allow(clippy::option_if_let_else)]
-    #[allow(clippy::type_complexity)]
-    pub async fn build(
-        self,
-    ) -> crate::Result<
-        GroupedAggregation<
-            'a,
-            A,
-            Merger<Box<dyn Iterator<Item = crate::Result<StreamItem>> + Send>>,
-        >,
-    > {
+    pub async fn build(self) -> crate::Result<GroupedAggregation<A, Pin<Box<Merger>>>> {
         use std::ops::Bound;
 
         let eligible_series = self
@@ -143,8 +131,8 @@ impl<'a, A: Aggregation> Builder<'a, A> {
         let map = map
             .into_iter()
             .map(|(group, serieses)| {
-                let merger = Merger::new(serieses.into_iter().map(|x| x.reader).collect());
-                (group, Aggregator::new(self.clone(), merger))
+                let merger = Merger::new(serieses.into_iter().map(|x| x.stream).collect());
+                (group, Aggregator::new(&self, Box::pin(merger)))
             })
             .collect();
 

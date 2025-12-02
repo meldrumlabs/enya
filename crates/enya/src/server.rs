@@ -154,7 +154,7 @@ pub async fn metrics_preview_handler(
         }
     };
 
-    match agg.collect() {
+    match agg.collect().await {
         Ok(groups) => {
             let preview_groups = groups
                 .into_iter()
@@ -407,7 +407,7 @@ pub async fn metrics_handler(
         ($builder:expr) => {{
             async {
                 let agg = build_agg!($builder).await?;
-                let collected = agg.collect()?;
+                let collected = agg.collect().await?;
                 Ok::<_, enya_metrics_store::Error>(map_groups!(collected))
             }
         }};
