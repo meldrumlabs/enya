@@ -12,6 +12,7 @@ repository.workspace = true
 
 [features]
 default = []
+lz4 = ["slatedb/lz4"]
 
 [dependencies]
 byteorder.workspace = true

@@ -8,9 +8,14 @@ use slatedb::object_store::ObjectStore;
 use slatedb::object_store::path::Path;
 use std::sync::Arc;
 
+#[cfg(feature = "lz4")]
+use slatedb::config::{CompressionCodec, Settings};
+
 /// Builder for creating a [`Database`] instance.
 pub struct Builder {
     cache_config: CacheConfig,
+    #[cfg(feature = "lz4")]
+    compression: Option<CompressionCodec>,
 }
 
 impl Default for Builder {
@@ -25,6 +30,8 @@ impl Builder {
     pub fn new() -> Self {
         Self {
             cache_config: CacheConfig::default(),
+            #[cfg(feature = "lz4")]
+            compression: None,
         }
     }
 
@@ -35,6 +42,19 @@ impl Builder {
     #[must_use]
     pub fn with_cache_config(mut self, config: CacheConfig) -> Self {
         self.cache_config = config;
+        self
+    }
+
+    /// Enables LZ4 compression for `SSTable` blocks.
+    ///
+    /// LZ4 provides fast compression and decompression with moderate
+    /// compression ratios, making it suitable for time series data.
+    ///
+    /// This option requires the `lz4` feature to be enabled.
+    #[cfg(feature = "lz4")]
+    #[must_use]
+    pub fn with_lz4_compression(mut self) -> Self {
+        self.compression = Some(CompressionCodec::Lz4);
         self
     }
 
@@ -56,10 +76,20 @@ impl Builder {
         let path = path.into();
         log::info!("Opening metrics database at {path}");
 
-        let db = Db::builder(path, object_store)
-            .with_merge_operator(Arc::new(MetricsMergeOperator))
-            .build()
-            .await?;
+        let mut builder =
+            Db::builder(path, object_store).with_merge_operator(Arc::new(MetricsMergeOperator));
+
+        #[cfg(feature = "lz4")]
+        if let Some(codec) = self.compression {
+            let settings = Settings {
+                compression_codec: Some(codec),
+                ..Settings::default()
+            };
+            builder = builder.with_settings(settings);
+            log::info!("SSTable compression enabled: LZ4");
+        }
+
+        let db = builder.build().await?;
         let db = Arc::new(db);
 
         let cache = LocalCache::new(&self.cache_config);
