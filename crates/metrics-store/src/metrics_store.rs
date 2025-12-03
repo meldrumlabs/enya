@@ -185,32 +185,40 @@ impl MetricsStore {
         value: Value,
         tags: &TagSet<'a>,
     ) -> Result<()> {
-        let series_id = if self.default_tags.is_empty() {
-            self.inner
-                .write_at(metric, crate::timestamp(), value, tags)
-                .await?
+        // Build the effective tag set (user tags + default tags)
+        let effective_tags: Vec<(&str, &str)> = if self.default_tags.is_empty() {
+            tags.to_vec()
         } else {
-            let mut merged_tags = Vec::with_capacity(tags.len() + self.default_tags.len());
+            let mut merged = Vec::with_capacity(tags.len() + self.default_tags.len());
 
-            for (key, value) in &self.default_tags {
-                if tags.iter().any(|(candidate, _)| *candidate == key.as_ref()) {
-                    continue;
+            // Add default tags that aren't overridden by user tags
+            for (key, val) in &self.default_tags {
+                if !tags.iter().any(|(k, _)| *k == key.as_ref()) {
+                    merged.push((key.as_ref(), val.as_ref()));
                 }
-
-                merged_tags.push((key.as_ref(), value.as_ref()));
             }
 
-            merged_tags.extend(tags.iter().copied());
-
-            self.inner
-                .write_at(metric, crate::timestamp(), value, &merged_tags)
-                .await?
+            merged.extend(tags.iter().copied());
+            merged
         };
+
+        let series_id = self
+            .inner
+            .write_at(metric, crate::timestamp(), value, &effective_tags)
+            .await?;
 
         // Dual-write to wheel index if configured
         if let Some(ref wheel_index) = self.wheel_index {
             let kind = self.metric_kind(metric.as_str());
             wheel_index.insert(series_id, value, kind);
+
+            // Record user-provided tag terms in the bloom filter for fast existence checks
+            // We only index user tags, not internal default tags (like git_ver, git_timestamp)
+            // Format: {metric}#{key}:{value} - hashed directly to avoid string allocation
+            let metric_str = metric.as_str();
+            for (key, val) in tags {
+                wheel_index.record_tag_components(metric_str, key, val);
+            }
         }
 
         Ok(())
@@ -310,6 +318,96 @@ impl MetricsStore {
         Ok(wheel_index
             .query_percentile(series_id, seconds, percentile)
             .await)
+    }
+
+    /// Checks if a tag term may have been seen in the last `seconds`.
+    ///
+    /// The term should be in the format `{metric}#{key}:{value}`.
+    ///
+    /// Returns `true` if the term was possibly seen (may be a false positive),
+    /// or `false` if it was definitely not seen. Returns `false` if no wheel
+    /// index is configured.
+    ///
+    /// This is useful for quickly filtering queries before performing expensive
+    /// storage lookups - if the bloom filter says a tag wasn't seen, we can
+    /// skip the lookup entirely.
+    pub async fn may_contain_tag(&self, term: &str, seconds: u64) -> bool {
+        match &self.wheel_index {
+            Some(wheel_index) => wheel_index.may_contain_tag(term, seconds).await,
+            None => false,
+        }
+    }
+
+    /// Checks if a tag term may have been seen in the specified time range.
+    ///
+    /// The term should be in the format `{metric}#{key}:{value}`.
+    /// The range is `[start_ms, end_ms)` (start inclusive, end exclusive).
+    ///
+    /// Returns `true` if the term was possibly seen (may be a false positive),
+    /// or `false` if it was definitely not seen. Returns `false` if no wheel
+    /// index is configured.
+    pub async fn may_contain_tag_range(&self, term: &str, start_ms: u64, end_ms: u64) -> bool {
+        match &self.wheel_index {
+            Some(wheel_index) => {
+                wheel_index
+                    .may_contain_tag_range(term, start_ms, end_ms)
+                    .await
+            }
+            None => false,
+        }
+    }
+
+    /// Checks if a tag term may have been seen in the last `seconds`, without allocating.
+    ///
+    /// This is the allocation-free version that takes metric, key, and value separately.
+    /// Use this method when querying tags that were recorded via `ingest()`.
+    ///
+    /// Returns `true` if the term was possibly seen (may be a false positive),
+    /// or `false` if it was definitely not seen. Returns `false` if no wheel
+    /// index is configured.
+    pub async fn may_contain_tag_components(
+        &self,
+        metric: &str,
+        key: &str,
+        value: &str,
+        seconds: u64,
+    ) -> bool {
+        match &self.wheel_index {
+            Some(wheel_index) => {
+                wheel_index
+                    .may_contain_tag_components(metric, key, value, seconds)
+                    .await
+            }
+            None => false,
+        }
+    }
+
+    /// Checks if a tag term may have been seen in the specified time range, without allocating.
+    ///
+    /// This is the allocation-free version that takes metric, key, and value separately.
+    /// Use this method when querying tags that were recorded via `ingest()`.
+    ///
+    /// The range is `[start_ms, end_ms)` (start inclusive, end exclusive).
+    ///
+    /// Returns `true` if the term was possibly seen (may be a false positive),
+    /// or `false` if it was definitely not seen. Returns `false` if no wheel
+    /// index is configured.
+    pub async fn may_contain_tag_range_components(
+        &self,
+        metric: &str,
+        key: &str,
+        value: &str,
+        start_ms: u64,
+        end_ms: u64,
+    ) -> bool {
+        match &self.wheel_index {
+            Some(wheel_index) => {
+                wheel_index
+                    .may_contain_tag_range_components(metric, key, value, start_ms, end_ms)
+                    .await
+            }
+            None => false,
+        }
     }
 }
 
@@ -473,6 +571,77 @@ mod tests {
         // Query methods should return None
         assert!(store.query_sum(1, 60).await.is_none());
         assert!(store.query_percentile(1, 60, 0.5).await.is_none());
+
+        // Close the database
+        store.database().close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_metrics_store_bloom_filter_on_ingest() {
+        let (store, _temp_dir) = create_test_store().await;
+
+        let wheel_index = store.wheel_index().unwrap();
+
+        // Tick to establish baseline watermark
+        wheel_index.tick();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Wait for the next second bucket
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Ingest some metrics with tags
+        let metric = MetricName::try_from("cpu.usage").unwrap();
+        store
+            .ingest(metric, 50.0, &[("host", "server1"), ("env", "prod")])
+            .await
+            .unwrap();
+        store
+            .ingest(metric, 60.0, &[("host", "server2"), ("env", "staging")])
+            .await
+            .unwrap();
+
+        // Give the wheel thread time to process
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Wait and tick to advance watermark
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        wheel_index.tick();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Bloom filter should contain the ingested tag terms
+        // Use may_contain_tag_components since ingest uses record_tag_components
+        assert!(
+            store
+                .may_contain_tag_components("cpu.usage", "host", "server1", 60)
+                .await
+        );
+        assert!(
+            store
+                .may_contain_tag_components("cpu.usage", "env", "prod", 60)
+                .await
+        );
+        assert!(
+            store
+                .may_contain_tag_components("cpu.usage", "host", "server2", 60)
+                .await
+        );
+        assert!(
+            store
+                .may_contain_tag_components("cpu.usage", "env", "staging", 60)
+                .await
+        );
+
+        // Tags that were never ingested should NOT be found (no false negatives)
+        assert!(
+            !store
+                .may_contain_tag_components("cpu.usage", "host", "server3", 60)
+                .await
+        );
+        assert!(
+            !store
+                .may_contain_tag_components("memory.used", "host", "server1", 60)
+                .await
+        );
 
         // Close the database
         store.database().close().await.unwrap();
