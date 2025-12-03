@@ -399,7 +399,9 @@ impl Database {
                 series_id
             } else {
                 // Track that we need to initialize this series
-                let id = self.initialize_new_series(&series_key, metric, tags).await?;
+                let id = self
+                    .initialize_new_series(&series_key, metric, tags)
+                    .await?;
                 new_series_count += 1;
                 id
             };
