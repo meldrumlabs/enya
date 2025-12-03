@@ -9,13 +9,13 @@
 //!
 //! ## Posting List Format
 //!
-//! Posting lists are stored as length-prefixed arrays of u64 series IDs:
-//! `[len:u64][id1:u64][id2:u64]...`
+//! Posting lists are stored as serialized `RoaringBitmap`s for efficient
+//! compression and set operations.
 
 use crate::storage::{Storage, prefix};
 use crate::{MetricName, SeriesId, TagSet};
-use byteorder::{BigEndian, ReadBytesExt};
 use bytes::Bytes;
+use roaring::RoaringBitmap;
 use std::io::{self, Cursor};
 
 /// Inverted index mapping tag terms to series IDs
@@ -55,8 +55,8 @@ impl TagIndex {
     async fn index_term(&self, term: &str, series_id: SeriesId) -> crate::Result<()> {
         let key = Storage::tag_index_key(term);
 
-        // Use merge operator to atomically append series ID to postings list
-        // The merge operator expects a single u64 series ID as the operand
+        // Use merge operator to atomically add series ID to postings list
+        // The merge operator expects a single u32 series ID as the operand
         let operand = Bytes::from(series_id.to_be_bytes().to_vec());
         self.storage.merge(key, operand).await
     }
@@ -87,7 +87,7 @@ impl TagIndex {
     ///
     /// Used for wildcard queries like `service:db.*`
     pub async fn query_prefix(&self, prefix_term: &str) -> crate::Result<Vec<SeriesId>> {
-        let mut ids = Vec::new();
+        let mut combined = RoaringBitmap::new();
 
         // Build the key range for prefix scan
         let start_key = Storage::tag_index_key(prefix_term);
@@ -102,33 +102,26 @@ impl TagIndex {
         let mut iter = self.storage.db().scan(start_key..end_key).await?;
 
         while let Some(kv) = iter.next().await? {
-            ids.extend(Self::deserialize_postings_list(&kv.value)?);
+            let bitmap = Self::deserialize_bitmap(&kv.value)?;
+            combined |= bitmap;
         }
 
-        // Deduplicate and sort
-        ids.sort_unstable();
-        ids.dedup();
-
-        Ok(ids)
+        // RoaringBitmap iterates in sorted order, so we just collect
+        Ok(combined.iter().collect())
     }
 
     fn deserialize_postings_list(bytes: &[u8]) -> crate::Result<Vec<SeriesId>> {
-        let mut reader = Cursor::new(bytes);
-        let len = reader.read_u64::<BigEndian>().map_err(crate::Error::from)?;
+        let bitmap = Self::deserialize_bitmap(bytes)?;
+        Ok(bitmap.iter().collect())
+    }
 
-        let capacity = usize::try_from(len).map_err(|_| {
+    fn deserialize_bitmap(bytes: &[u8]) -> crate::Result<RoaringBitmap> {
+        let mut cursor = Cursor::new(bytes);
+        RoaringBitmap::deserialize_from(&mut cursor).map_err(|e| {
             crate::Error::Io(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "postings list too large",
+                format!("failed to deserialize RoaringBitmap: {e}"),
             ))
-        })?;
-
-        let mut postings = Vec::with_capacity(capacity);
-
-        for _ in 0..len {
-            postings.push(reader.read_u64::<BigEndian>().map_err(crate::Error::from)?);
-        }
-
-        Ok(postings)
+        })
     }
 }

@@ -480,15 +480,15 @@ fn create_data_point_stream(
                 Ok(Some(kv)) => {
                     // Parse key to extract timestamp
                     let key = kv.key;
-                    // Skip prefix (2 bytes) and series_id (8 bytes) to get timestamp
-                    if key.len() < 2 + 8 + 16 {
+                    // Skip prefix (2 bytes) and series_id (4 bytes) to get timestamp
+                    if key.len() < 2 + 4 + 16 {
                         Err(crate::Error::Io(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
                             "key too short",
                         )))?;
                     }
 
-                    let Some(ts_bytes) = key.get(2 + 8..2 + 8 + 16) else {
+                    let Some(ts_bytes) = key.get(2 + 4..2 + 4 + 16) else {
                         Err(crate::Error::Io(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
                             "key too short for timestamp",

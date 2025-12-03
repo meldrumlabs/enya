@@ -47,7 +47,7 @@
 //! │                             Storage                                     │
 //! │                      (SlateDB wrapper)                                  │
 //! ├─────────────────────────────────────────────────────────────────────────┤
-//! │   Key Format: d:{series_id:8}{!timestamp:16} → {value}                  │
+//! │   Key Format: d:{series_id:4}{!timestamp:16} → {value}                  │
 //! │                                                                         │
 //! │   • Timestamps inverted (!ts) for reverse chronological order           │
 //! │   • Merge operator for atomic postings list appends                     │
@@ -70,7 +70,7 @@
 //!
 //! ## Indexing
 //!
-//! - **`SeriesMapping`** (`s:` prefix): Maps series key strings to compact u64 IDs
+//! - **`SeriesMapping`** (`s:` prefix): Maps series key strings to compact u32 IDs
 //! - **`TagIndex`** (`t:` prefix): Inverted index mapping tag terms to series IDs
 //! - **`TagSets`** (`g:` prefix): Maps series ID back to its complete tag set
 //!
@@ -95,11 +95,11 @@
 //!
 //! | Prefix | Purpose                        | Format                                 |
 //! |--------|--------------------------------|----------------------------------------|
-//! | `d:`   | Data points (time series)      | `d:{series_id:8}{!ts:16}` → `{value}` |
-//! | `s:`   | Series mapping                 | `s:{series_key}` → `{series_id:8}`    |
+//! | `d:`   | Data points (time series)      | `d:{series_id:4}{!ts:16}` → `{value}` |
+//! | `s:`   | Series mapping                 | `s:{series_key}` → `{series_id:4}`    |
 //! | `t:`   | Tag index (inverted)           | `t:{metric}#{k}:{v}` → `[postings]`   |
-//! | `g:`   | Tag sets                       | `g:{series_id:8}` → `"k1:v1;k2:v2"`   |
-//! | `c:`   | Counter                        | `c:next_series_id` → `{next_id:8}`    |
+//! | `g:`   | Tag sets                       | `g:{series_id:4}` → `"k1:v1;k2:v2"`   |
+//! | `c:`   | Counter                        | `c:next_series_id` → `{next_id:4}`    |
 //!
 //! # Basic usage
 //!
@@ -163,7 +163,7 @@ mod tag_index;
 mod tag_sets;
 mod time;
 
-type SeriesId = u64;
+type SeriesId = u32;
 type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
 
 pub use agg::{Bucket, GroupedAggregation};
