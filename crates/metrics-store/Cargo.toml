@@ -12,6 +12,7 @@ repository.workspace = true
 
 [features]
 default = []
+lz4 = ["slatedb/lz4"]
 
 [dependencies]
 byteorder.workspace = true
@@ -33,6 +34,9 @@ enya-common = { path = "../common" }
 
 # Local caching for performance with object storage
 foyer.workspace = true
+
+# Compressed bitmap for postings lists
+roaring = "0.10"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }

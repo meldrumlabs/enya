@@ -1870,6 +1870,7 @@ dependencies = [
  "log",
  "logos",
  "pin-project-lite",
+ "roaring 0.10.12",
  "rustc-hash 2.1.1",
  "slatedb",
  "tempfile",
@@ -3497,6 +3498,15 @@ checksum = "6bd8c0d6c6ed0cd30b3652886bb8711dc4bb01d637a68105a3d5158039b418e6"
 dependencies = [
  "cc",
  "libc",
+]
+
+[[package]]
+name = "lz4_flex"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
+dependencies = [
+ "twox-hash",
 ]
 
 [[package]]
@@ -5245,6 +5255,16 @@ dependencies = [
 
 [[package]]
 name = "roaring"
+version = "0.10.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19e8d2cfa184d94d0726d650a9f4a1be7f9b76ac9fdb954219878dc00c1c1e7b"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+]
+
+[[package]]
+name = "roaring"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f08d6a905edb32d74a5d5737a0c9d7e950c312f3c46cb0ca0a2ca09ea11878a0"
@@ -5701,6 +5721,7 @@ dependencies = [
  "foyer",
  "futures",
  "log",
+ "lz4_flex",
  "object_store",
  "once_cell",
  "ouroboros",
@@ -6663,7 +6684,7 @@ version = "0.3.0"
 source = "git+https://github.com/uwheel/uwheel.git#bb769ef3c1701c2fec6c258a08a6e863c22016f6"
 dependencies = [
  "fastbloom",
- "roaring",
+ "roaring 0.11.2",
  "serde",
  "time",
 ]

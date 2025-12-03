@@ -3,7 +3,7 @@
 //! A series key is a unique string identifier for a time series, formatted as:
 //! `{metric_name}#{key1:value1;key2:value2;...}` with tags sorted alphabetically.
 //!
-//! This module provides the mapping from these string keys to compact u64 series IDs
+//! This module provides the mapping from these string keys to compact u32 series IDs
 //! that are used in the data partition for efficient storage.
 //!
 //! ## Caching
@@ -25,14 +25,14 @@ use byteorder::{BigEndian, ReadBytesExt};
 use bytes::Bytes;
 use std::collections::HashSet;
 use std::io::Cursor;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Series mapping - maps series key strings to series IDs
 pub struct SeriesMapping {
     storage: Storage,
     cache: SeriesCache,
     /// In-memory series ID counter for fast allocation
-    next_id: AtomicU64,
+    next_id: AtomicU32,
 }
 
 impl SeriesMapping {
@@ -44,7 +44,7 @@ impl SeriesMapping {
         Self {
             storage,
             cache,
-            next_id: AtomicU64::new(0),
+            next_id: AtomicU32::new(0),
         }
     }
 
@@ -162,6 +162,6 @@ impl SeriesMapping {
 
     fn read_series_id(bytes: &[u8]) -> crate::Result<SeriesId> {
         let mut reader = Cursor::new(bytes);
-        reader.read_u64::<BigEndian>().map_err(crate::Error::from)
+        reader.read_u32::<BigEndian>().map_err(crate::Error::from)
     }
 }
