@@ -82,7 +82,7 @@ tracing-subscriber = "0.3"
 metrics = "0.24"
 
 
-uwheel = { git = "https://github.com/uwheel/uwheel.git" }
+uwheel = { git = "https://github.com/uwheel/uwheel.git", features = ["bloom"] }
 sketches-ddsketch = "0.3.0"
 
 [profile.release]

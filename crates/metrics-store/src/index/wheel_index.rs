@@ -13,18 +13,36 @@
 //! │                  │ ◄───────────── │  owns all wheels │
 //! └──────────────────┘   oneshot      └──────────────────┘
 //! ```
+//!
+//! The wheel thread owns:
+//! - Per-series numeric/histogram wheels for aggregation queries
+//! - A global bloom filter wheel for temporal tag existence checks
 
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use enya_common::aggregators::DDSketchAggregator;
+use rustc_hash::FxBuildHasher;
 use tokio::sync::{mpsc, oneshot};
+use uwheel::aggregator::bloom::BloomAggregator;
 use uwheel::aggregator::sum::U64SumAggregator;
-use uwheel::{Conf, Entry, HawConf, RwWheel};
+use uwheel::{Conf, Entry, HawConf, RwWheel, WheelRange};
 
 use crate::SeriesId;
+
+/// Hash type for tag terms in the bloom filter.
+type TagTermHash = u64;
+
+/// Bloom filter aggregator for tag term hashes.
+///
+/// Configuration:
+/// - 65,536 bits (~8KB per wheel slot)
+/// - 6 hash functions
+/// - Custom seed for deterministic hashing
+type TagBloomAggregator = BloomAggregator<TagTermHash, 65_536, 6, 0xE19A_B100_F1A7>;
 
 /// The kind of metric being tracked, which determines the wheel type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,6 +62,8 @@ enum Command {
         kind: MetricKind,
         ts_ms: u64,
     },
+    /// Record a tag term in the bloom filter.
+    RecordTag { term_hash: TagTermHash, ts_ms: u64 },
     /// Advance all wheels to the given watermark.
     Tick { watermark_ms: u64 },
     /// Query sum over last N seconds.
@@ -58,6 +78,19 @@ enum Command {
         seconds: u64,
         percentile: f64,
         reply: oneshot::Sender<Option<f64>>,
+    },
+    /// Check if a tag term may have been seen in the last N seconds.
+    MayContainTag {
+        term_hash: TagTermHash,
+        seconds: u64,
+        reply: oneshot::Sender<bool>,
+    },
+    /// Check if a tag term may have been seen in a time range.
+    MayContainTagRange {
+        term_hash: TagTermHash,
+        start_ms: u64,
+        end_ms: u64,
+        reply: oneshot::Sender<bool>,
     },
     /// Remove a wheel.
     Remove {
@@ -86,6 +119,15 @@ enum Wheel {
 /// wheel structure. It uses wall-clock time as its watermark, with a background
 /// ticker calling [`tick`](Self::tick) every second to advance all wheels.
 ///
+/// # Bloom Filter for Tag Existence
+///
+/// In addition to per-series numeric/histogram wheels, the index maintains a
+/// global bloom filter wheel for tracking tag terms over time. This enables
+/// fast probabilistic membership testing for time-range queries - if the bloom
+/// filter says a tag wasn't seen, it definitely wasn't (no false negatives).
+///
+/// Tag terms should be in the format `{metric}#{key}:{value}`.
+///
 /// # Thread Safety
 ///
 /// `WheelIndex` is `Send + Sync` and can be shared across threads. Internally,
@@ -103,12 +145,18 @@ enum Wheel {
 /// index.insert(series_id, 42.0, MetricKind::Sum).await;
 /// index.insert(latency_series_id, 150.0, MetricKind::Histogram).await;
 ///
+/// // Record tag terms for bloom filter
+/// index.record_tag("cpu.usage#env:prod");
+///
 /// // Tick to advance watermark (call every 1 second)
 /// index.tick().await;
 ///
 /// // Query aggregates
 /// let sum = index.query_sum(series_id, 60).await; // last 60 seconds
 /// let p99 = index.query_percentile(latency_series_id, 60, 0.99).await;
+///
+/// // Check if a tag was seen in the last 60 seconds
+/// let may_exist = index.may_contain_tag("cpu.usage#env:prod", 60).await;
 /// ```
 pub struct WheelIndex {
     /// Channel to send commands to the wheel thread.
@@ -217,6 +265,136 @@ impl WheelIndex {
         reply_rx.await.ok().flatten()
     }
 
+    /// Records a tag term in the bloom filter at the current time.
+    ///
+    /// The term should be in the format `{metric}#{key}:{value}`.
+    ///
+    /// This method is fire-and-forget; it does not wait for the record to complete.
+    pub fn record_tag(&self, term: &str) {
+        let ts_ms = current_time_ms();
+        let term_hash = hash_term(term);
+        let _ = self.tx.send(Command::RecordTag { term_hash, ts_ms });
+    }
+
+    /// Records a tag term in the bloom filter at the specified timestamp.
+    ///
+    /// The term should be in the format `{metric}#{key}:{value}`.
+    ///
+    /// This method is fire-and-forget; it does not wait for the record to complete.
+    pub fn record_tag_at(&self, term: &str, ts_ms: u64) {
+        let term_hash = hash_term(term);
+        let _ = self.tx.send(Command::RecordTag { term_hash, ts_ms });
+    }
+
+    /// Records a tag term in the bloom filter at the current time, without allocating.
+    ///
+    /// This is equivalent to `record_tag(&format!("{metric}#{key}:{value}"))` but
+    /// avoids the intermediate string allocation by hashing the components directly.
+    ///
+    /// This method is fire-and-forget; it does not wait for the record to complete.
+    pub fn record_tag_components(&self, metric: &str, key: &str, value: &str) {
+        let ts_ms = current_time_ms();
+        let term_hash = hash_term_components(metric, key, value);
+        let _ = self.tx.send(Command::RecordTag { term_hash, ts_ms });
+    }
+
+    /// Checks if a tag term may have been seen in the last `seconds`.
+    ///
+    /// Returns `true` if the term was possibly seen (may be a false positive),
+    /// or `false` if it was definitely not seen.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Check if "cpu.usage#env:prod" was seen in the last 60 seconds
+    /// let may_exist = index.may_contain_tag("cpu.usage#env:prod", 60).await;
+    /// if may_exist {
+    ///     // Tag might exist, perform actual storage lookup
+    /// } else {
+    ///     // Tag definitely doesn't exist in this time range, skip lookup
+    /// }
+    /// ```
+    pub async fn may_contain_tag(&self, term: &str, seconds: u64) -> bool {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let term_hash = hash_term(term);
+        let _ = self.tx.send(Command::MayContainTag {
+            term_hash,
+            seconds,
+            reply: reply_tx,
+        });
+        reply_rx.await.unwrap_or(false)
+    }
+
+    /// Checks if a tag term may have been seen in the specified time range.
+    ///
+    /// The range is `[start_ms, end_ms)` (start inclusive, end exclusive).
+    ///
+    /// Returns `true` if the term was possibly seen (may be a false positive),
+    /// or `false` if it was definitely not seen.
+    pub async fn may_contain_tag_range(&self, term: &str, start_ms: u64, end_ms: u64) -> bool {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let term_hash = hash_term(term);
+        let _ = self.tx.send(Command::MayContainTagRange {
+            term_hash,
+            start_ms,
+            end_ms,
+            reply: reply_tx,
+        });
+        reply_rx.await.unwrap_or(false)
+    }
+
+    /// Checks if a tag term may have been seen in the last `seconds`, without allocating.
+    ///
+    /// This is equivalent to `may_contain_tag(&format!("{metric}#{key}:{value}"), seconds)`
+    /// but uses the same component-based hashing as `record_tag_components`.
+    ///
+    /// Returns `true` if the term was possibly seen (may be a false positive),
+    /// or `false` if it was definitely not seen.
+    pub async fn may_contain_tag_components(
+        &self,
+        metric: &str,
+        key: &str,
+        value: &str,
+        seconds: u64,
+    ) -> bool {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let term_hash = hash_term_components(metric, key, value);
+        let _ = self.tx.send(Command::MayContainTag {
+            term_hash,
+            seconds,
+            reply: reply_tx,
+        });
+        reply_rx.await.unwrap_or(false)
+    }
+
+    /// Checks if a tag term may have been seen in the specified time range, without allocating.
+    ///
+    /// This is equivalent to `may_contain_tag_range(&format!("{metric}#{key}:{value}"), start_ms, end_ms)`
+    /// but uses the same component-based hashing as `record_tag_components`.
+    ///
+    /// The range is `[start_ms, end_ms)` (start inclusive, end exclusive).
+    ///
+    /// Returns `true` if the term was possibly seen (may be a false positive),
+    /// or `false` if it was definitely not seen.
+    pub async fn may_contain_tag_range_components(
+        &self,
+        metric: &str,
+        key: &str,
+        value: &str,
+        start_ms: u64,
+        end_ms: u64,
+    ) -> bool {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let term_hash = hash_term_components(metric, key, value);
+        let _ = self.tx.send(Command::MayContainTagRange {
+            term_hash,
+            start_ms,
+            end_ms,
+            reply: reply_tx,
+        });
+        reply_rx.await.unwrap_or(false)
+    }
+
     /// Removes the wheel for the given series, returning true if it existed.
     pub async fn remove(&self, series_id: SeriesId) -> bool {
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -255,9 +433,15 @@ impl Drop for WheelIndex {
 }
 
 /// Main loop for the wheel thread.
+#[allow(clippy::too_many_lines)] // Command dispatch requires handling all variants in one place
 fn wheel_thread_main(mut rx: mpsc::UnboundedReceiver<Command>, initial_watermark: u64) {
     let mut wheels: HashMap<SeriesId, Wheel> = HashMap::new();
     let mut watermark = initial_watermark;
+
+    // Create the global bloom filter wheel for tag existence checks
+    let haw_conf = HawConf::default().with_watermark(initial_watermark);
+    let conf = Conf::default().with_haw_conf(haw_conf);
+    let mut bloom_wheel: RwWheel<TagBloomAggregator> = RwWheel::with_conf(conf);
 
     while let Some(cmd) = rx.blocking_recv() {
         match cmd {
@@ -278,8 +462,13 @@ fn wheel_thread_main(mut rx: mpsc::UnboundedReceiver<Command>, initial_watermark
                 }
             }
 
+            Command::RecordTag { term_hash, ts_ms } => {
+                bloom_wheel.insert(Entry::new(term_hash, ts_ms));
+            }
+
             Command::Tick { watermark_ms } => {
                 watermark = watermark_ms;
+                // Advance per-series wheels
                 for wheel in wheels.values_mut() {
                     match wheel {
                         Wheel::Sum(w) => {
@@ -290,6 +479,8 @@ fn wheel_thread_main(mut rx: mpsc::UnboundedReceiver<Command>, initial_watermark
                         }
                     }
                 }
+                // Advance the bloom wheel
+                bloom_wheel.advance_to(watermark_ms);
             }
 
             Command::QuerySum {
@@ -330,6 +521,32 @@ fn wheel_thread_main(mut rx: mpsc::UnboundedReceiver<Command>, initial_watermark
                 let _ = reply.send(result);
             }
 
+            Command::MayContainTag {
+                term_hash,
+                seconds,
+                reply,
+            } => {
+                #[allow(clippy::cast_possible_wrap)] // seconds won't exceed i64::MAX
+                let result = bloom_wheel
+                    .read()
+                    .interval(uwheel::Duration::seconds(seconds as i64))
+                    .is_some_and(|partial| partial.contains(&term_hash));
+                let _ = reply.send(result);
+            }
+
+            Command::MayContainTagRange {
+                term_hash,
+                start_ms,
+                end_ms,
+                reply,
+            } => {
+                let result = bloom_wheel
+                    .read()
+                    .combine_range(WheelRange::new_unchecked(start_ms, end_ms))
+                    .is_some_and(|partial| partial.contains(&term_hash));
+                let _ = reply.send(result);
+            }
+
             Command::Remove { series_id, reply } => {
                 let existed = wheels.remove(&series_id).is_some();
                 let _ = reply.send(existed);
@@ -340,14 +557,15 @@ fn wheel_thread_main(mut rx: mpsc::UnboundedReceiver<Command>, initial_watermark
             }
 
             Command::SizeBytes { reply } => {
-                let size: usize = wheels
+                let series_size: usize = wheels
                     .values()
                     .map(|w| match w {
                         Wheel::Sum(w) => w.size_bytes(),
                         Wheel::Histogram(w) => w.size_bytes(),
                     })
                     .sum();
-                let _ = reply.send(size);
+                let bloom_size = bloom_wheel.size_bytes();
+                let _ = reply.send(series_size + bloom_size);
             }
 
             Command::Shutdown => {
@@ -375,6 +593,36 @@ fn current_time_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+/// Hashes a tag term to a u64 for the bloom filter.
+///
+/// Uses `FxHasher` from `rustc-hash` which is fast and deterministic
+/// (unlike `DefaultHasher` which can change between Rust versions).
+///
+/// This writes raw bytes to ensure compatibility with `hash_term_components`.
+fn hash_term(term: &str) -> TagTermHash {
+    use std::hash::Hasher;
+
+    let mut hasher = FxBuildHasher.build_hasher();
+    hasher.write(term.as_bytes());
+    hasher.finish()
+}
+
+/// Hashes tag term components directly without allocating a string.
+///
+/// This writes the raw bytes of each component to the hasher, producing
+/// the same hash as if the components were concatenated into a single string.
+fn hash_term_components(metric: &str, key: &str, value: &str) -> TagTermHash {
+    use std::hash::Hasher;
+
+    let mut hasher = FxBuildHasher.build_hasher();
+    hasher.write(metric.as_bytes());
+    hasher.write(b"#");
+    hasher.write(key.as_bytes());
+    hasher.write(b":");
+    hasher.write(value.as_bytes());
+    hasher.finish()
 }
 
 /// Spawns a background tokio task that ticks the wheel index every second.
@@ -745,5 +993,207 @@ mod tests {
         let index = WheelIndex::default();
         assert!(index.is_empty().await);
         assert!(index.watermark() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_bloom_record_and_query() {
+        let index = WheelIndex::new();
+
+        // Tick first to establish a baseline watermark
+        index.tick();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Wait at least 1 second so records happen in the next second bucket
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Record some tag terms
+        index.record_tag("cpu.usage#env:prod");
+        index.record_tag("cpu.usage#service:db");
+        index.record_tag("memory.used#env:prod");
+
+        // Give the wheel thread time to process
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Wait another second and tick to advance watermark
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        index.tick();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Recorded terms should be found
+        assert!(index.may_contain_tag("cpu.usage#env:prod", 60).await);
+        assert!(index.may_contain_tag("cpu.usage#service:db", 60).await);
+        assert!(index.may_contain_tag("memory.used#env:prod", 60).await);
+
+        // Non-recorded terms should NOT be found (no false negatives)
+        assert!(!index.may_contain_tag("disk.io#env:staging", 60).await);
+        assert!(!index.may_contain_tag("network.bytes#service:web", 60).await);
+    }
+
+    #[tokio::test]
+    async fn test_bloom_time_range_query() {
+        let index = WheelIndex::new();
+        let base_time = current_time_ms();
+
+        // Record at specific times
+        index.record_tag_at("cpu.usage#env:prod", base_time + 1000);
+        index.record_tag_at("memory.used#env:staging", base_time + 5000);
+
+        // Give the wheel thread time to process
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Manually advance watermark past the records
+        let _ = index.tx.send(Command::Tick {
+            watermark_ms: base_time + 10_000,
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Query specific range that includes first record
+        let found = index
+            .may_contain_tag_range("cpu.usage#env:prod", base_time, base_time + 3000)
+            .await;
+        assert!(found, "should find cpu.usage#env:prod in [base, base+3s]");
+
+        // Query specific range that includes second record
+        let found = index
+            .may_contain_tag_range(
+                "memory.used#env:staging",
+                base_time + 4000,
+                base_time + 7000,
+            )
+            .await;
+        assert!(
+            found,
+            "should find memory.used#env:staging in [base+4s, base+7s]"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bloom_concurrent_records() {
+        use std::sync::Arc;
+
+        let index = Arc::new(WheelIndex::new());
+
+        // Tick first to establish a baseline watermark
+        index.tick();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Wait at least 1 second so records happen in the next second bucket
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let mut handles = vec![];
+
+        // Spawn multiple tasks recording concurrently
+        for i in 0..10 {
+            let idx = index.clone();
+            handles.push(tokio::spawn(async move {
+                for j in 0..100 {
+                    let term = format!("metric{i}#tag:value{j}");
+                    idx.record_tag(&term);
+                }
+            }));
+        }
+
+        // Wait for all records
+        for h in handles {
+            h.await.expect("task should complete");
+        }
+
+        // Give the wheel thread time to process
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Wait another second and tick to advance watermark
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        index.tick();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Check some of the recorded terms
+        assert!(index.may_contain_tag("metric0#tag:value0", 60).await);
+        assert!(index.may_contain_tag("metric5#tag:value50", 60).await);
+        assert!(index.may_contain_tag("metric9#tag:value99", 60).await);
+    }
+
+    #[test]
+    fn test_hash_term_components_deterministic() {
+        // Verify that hash_term_components produces consistent results
+        // for the same input.
+
+        let test_cases = [
+            ("cpu.usage", "env", "prod"),
+            ("memory.used", "host", "server1"),
+            ("network.bytes", "service", "api"),
+            ("disk.io", "region", "us-east-1"),
+            ("", "key", "value"),    // empty metric
+            ("metric", "", "value"), // empty key
+            ("metric", "key", ""),   // empty value
+            ("a", "b", "c"),         // short strings
+            (
+                "metric.with.dots",
+                "key-with-dashes",
+                "value_with_underscores",
+            ),
+        ];
+
+        for (metric, key, value) in test_cases {
+            let hash1 = hash_term_components(metric, key, value);
+            let hash2 = hash_term_components(metric, key, value);
+
+            assert_eq!(
+                hash1, hash2,
+                "hash_term_components should be deterministic for ({metric}, {key}, {value})"
+            );
+        }
+
+        // Different inputs should produce different hashes (no collisions for these test cases)
+        let hash_a = hash_term_components("cpu.usage", "env", "prod");
+        let hash_b = hash_term_components("cpu.usage", "env", "staging");
+        let hash_c = hash_term_components("memory.used", "env", "prod");
+
+        assert_ne!(hash_a, hash_b, "different values should hash differently");
+        assert_ne!(hash_a, hash_c, "different metrics should hash differently");
+    }
+
+    #[tokio::test]
+    async fn test_record_tag_components_and_may_contain_tag_components() {
+        // Verify that recording via record_tag_components can be queried
+        // via may_contain_tag_components (both use component-based hashing).
+        let index = WheelIndex::new();
+
+        // Tick first to establish a baseline watermark
+        index.tick();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Wait at least 1 second so records happen in the next second bucket
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        // Record using components (allocation-free)
+        index.record_tag_components("cpu.usage", "env", "prod");
+        index.record_tag_components("memory.used", "host", "server1");
+
+        // Give the wheel thread time to process
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Wait another second and tick to advance watermark
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        index.tick();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Query using components (should find the records)
+        assert!(
+            index
+                .may_contain_tag_components("cpu.usage", "env", "prod", 60)
+                .await
+        );
+        assert!(
+            index
+                .may_contain_tag_components("memory.used", "host", "server1", 60)
+                .await
+        );
+
+        // Non-recorded terms should NOT be found
+        assert!(
+            !index
+                .may_contain_tag_components("cpu.usage", "env", "staging", 60)
+                .await
+        );
     }
 }
