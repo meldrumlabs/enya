@@ -32,14 +32,24 @@ jobs:
       - name: Set up Rust
         uses: ./.github/actions/setup-rust
 
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.8
+
       - name: Set up cargo cache
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "ci-${{ matrix.target }}"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Just Runner
         uses: extractions/setup-just@v2
 
       - name: Run +${{ matrix.target }}
         run: just features=all ${{ matrix.target }}
+        env:
+          RUSTC_WRAPPER: sccache
+          SCCACHE_GHA_ENABLED: "true"
 
 
   check_wasm:
@@ -47,13 +57,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          target: wasm32-unknown-unknown
-          override: true
-      - uses: actions-rs/cargo@v1
+          targets: wasm32-unknown-unknown
+
+      - name: Set up sccache
+        uses: mozilla-actions/sccache-action@v0.0.8
+
+      - name: Set up cargo cache
+        uses: Swatinem/rust-cache@v2
         with:
-          command: check
-          args: -p enya-ui --target wasm32-unknown-unknown
+          shared-key: "wasm32"
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Check wasm32
+        run: cargo check -p enya-ui --target wasm32-unknown-unknown
+        env:
+          RUSTC_WRAPPER: sccache
+          SCCACHE_GHA_ENABLED: "true"
