@@ -5,6 +5,14 @@
 /// Options enabling Enya customization
 pub mod options;
 
+/// DataFusion metrics integration.
+///
+/// Re-exports [`datafusion_enya`] when the `datafusion` feature is enabled.
+#[cfg(feature = "datafusion")]
+pub mod datafusion {
+    pub use datafusion_enya::*;
+}
+
 /// Axum server hosting API endpoints and Websocket connections
 mod server;
 
