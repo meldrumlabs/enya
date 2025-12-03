@@ -1,0 +1,24 @@
+[package]
+name = "datafusion-enya"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "DataFusion integration for Enya observability"
+repository.workspace = true
+readme = "README.md"
+keywords = ["datafusion", "observability"]
+categories = ["database", "observability"]
+
+[dependencies]
+datafusion = "50"
+metrics = { workspace = true }
+futures = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+metrics-util = "0.19"
+
+[features]
+default = []

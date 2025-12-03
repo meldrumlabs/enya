@@ -40,6 +40,8 @@ async fn main() -> Result<()> {
 
 ## Feature Flags
 
+- `datafusion`
+  - Enables DataFusion integration for tracking query performance and metadata changes
 - `cpu`
   - Enables CPU profiling using pprof
 - `jemalloc`

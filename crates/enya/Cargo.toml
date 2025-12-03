@@ -13,6 +13,7 @@ build = "build.rs"
 [dependencies]
 enya-build-info = { path = "../build-info" }
 enya-metrics-store.workspace = true
+datafusion-enya = { path = "../datafusion-enya", optional = true }
 
 tokio.workspace = true
 serde.workspace = true
@@ -25,6 +26,7 @@ pprof = { workspace = true, optional = true }
 [features]
 default = []
 pprof = ["dep:pprof"]
+datafusion = ["dep:datafusion-enya"]
 
 [build-dependencies]
 enya-build-tools.workspace = true
