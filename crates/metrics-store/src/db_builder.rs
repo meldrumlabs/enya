@@ -1,5 +1,6 @@
 //! Database builder for configuring and opening the metrics database
 
+use crate::cache::{CacheConfig, LocalCache};
 use crate::db::Database;
 use crate::merge_operator::MetricsMergeOperator;
 use slatedb::Db;
@@ -9,7 +10,7 @@ use std::sync::Arc;
 
 /// Builder for creating a [`Database`] instance.
 pub struct Builder {
-    // Future: add configuration options here
+    cache_config: CacheConfig,
 }
 
 impl Default for Builder {
@@ -22,7 +23,19 @@ impl Builder {
     /// Creates a new database builder with default options.
     #[must_use]
     pub fn new() -> Self {
-        Self {}
+        Self {
+            cache_config: CacheConfig::default(),
+        }
+    }
+
+    /// Sets the cache configuration.
+    ///
+    /// The local cache reduces object storage roundtrips for frequently
+    /// accessed metadata like series mappings and tag sets.
+    #[must_use]
+    pub fn with_cache_config(mut self, config: CacheConfig) -> Self {
+        self.cache_config = config;
+        self
     }
 
     /// Opens or creates a database at the specified path in the object store.
@@ -49,6 +62,13 @@ impl Builder {
             .await?;
         let db = Arc::new(db);
 
-        Ok(Database::from_db(db))
+        let cache = LocalCache::new(&self.cache_config);
+        log::info!(
+            "Initialized local cache (series: {}, tag_sets: {})",
+            self.cache_config.series_cache_capacity,
+            self.cache_config.tag_sets_cache_capacity
+        );
+
+        Database::from_db(db, &cache).await
     }
 }

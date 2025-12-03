@@ -1865,6 +1865,7 @@ dependencies = [
  "bytes",
  "criterion",
  "enya-common",
+ "foyer",
  "futures",
  "log",
  "logos",

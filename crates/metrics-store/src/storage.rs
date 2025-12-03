@@ -19,6 +19,9 @@ use bytes::Bytes;
 use slatedb::Db;
 use std::sync::Arc;
 
+// Re-export WriteBatch for convenience
+pub use slatedb::WriteBatch;
+
 /// Key prefixes for different data types
 pub mod prefix {
     /// Data partition prefix - stores actual time series data points
@@ -119,6 +122,14 @@ impl Storage {
     /// The merge operator is configured when opening the database.
     pub async fn merge(&self, key: Bytes, operand: Bytes) -> crate::Result<()> {
         self.db.merge(&key[..], &operand[..]).await?;
+        Ok(())
+    }
+
+    /// Write a batch of operations atomically
+    ///
+    /// All operations in the batch are applied atomically to the database.
+    pub async fn write_batch(&self, batch: WriteBatch) -> crate::Result<()> {
+        self.db.write(batch).await?;
         Ok(())
     }
 

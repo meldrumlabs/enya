@@ -6,10 +6,11 @@ use crate::SeriesId;
 use crate::TagSet;
 use crate::Timestamp;
 use crate::Value;
+use crate::cache::LocalCache;
 use crate::query::filter::parse_filter_query;
 use crate::series_key::SeriesKey;
 use crate::smap::SeriesMapping;
-use crate::storage::Storage;
+use crate::storage::{Storage, WriteBatch};
 use crate::tag_index::TagIndex;
 use crate::tag_sets::{OwnedTagSets, TagSets};
 use crate::time::timestamp;
@@ -78,22 +79,25 @@ impl Database {
         DatabaseBuilder::new()
     }
 
-    pub(crate) fn from_db(db: Arc<Db>) -> Self {
+    pub(crate) async fn from_db(db: Arc<Db>, cache: &LocalCache) -> crate::Result<Self> {
         log::info!("Initializing database components");
 
         let storage = Storage::new(db);
 
-        let smap = SeriesMapping::new(storage.clone());
+        let smap = SeriesMapping::new(storage.clone(), cache.series().clone());
         let tag_index = TagIndex::new(storage.clone());
-        let tag_sets = TagSets::new(storage.clone());
+        let tag_sets = TagSets::new(storage.clone(), cache.tag_sets().clone());
 
-        Self(Arc::new(DatabaseInner {
+        // Load series ID counter from storage
+        smap.load_counter().await?;
+
+        Ok(Self(Arc::new(DatabaseInner {
             storage,
             smap,
             tag_index,
             tag_sets,
             series_lock: RwLock::new(()),
-        }))
+        })))
     }
 
     fn format_data_point_key(series_id: SeriesId, ts: Timestamp) -> Bytes {
@@ -347,6 +351,75 @@ impl Database {
         Ok(series_id)
     }
 
+    /// Write multiple data points in a single batch operation.
+    ///
+    /// This is more efficient than calling `write()` multiple times when you have
+    /// many data points to write, as it reduces the number of storage operations.
+    ///
+    /// All data points in the batch are written atomically.
+    ///
+    /// # Arguments
+    ///
+    /// * `points` - Iterator of (metric, value, tags) tuples to write
+    ///
+    /// # Errors
+    ///
+    /// Returns error if an I/O error occurred.
+    pub async fn write_batch<'a>(
+        &self,
+        points: impl IntoIterator<Item = (MetricName<'a>, Value, &'a TagSet<'a>)>,
+    ) -> crate::Result<()> {
+        self.write_batch_at(points.into_iter().map(|(m, v, t)| (m, timestamp(), v, t)))
+            .await
+    }
+
+    /// Write multiple data points at specific timestamps in a single batch operation.
+    ///
+    /// This is the timestamped version of `write_batch()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `points` - Iterator of (metric, timestamp, value, tags) tuples to write
+    ///
+    /// # Errors
+    ///
+    /// Returns error if an I/O error occurred.
+    pub async fn write_batch_at<'a>(
+        &self,
+        points: impl IntoIterator<Item = (MetricName<'a>, Timestamp, Value, &'a TagSet<'a>)>,
+    ) -> crate::Result<()> {
+        let mut batch = WriteBatch::new();
+        let mut new_series_count = 0u64;
+
+        for (metric, ts, value, tags) in points {
+            let series_key = SeriesKey::format(metric, tags);
+            let series_id = self.0.smap.get(&series_key).await?;
+
+            let series_id = if let Some(series_id) = series_id {
+                series_id
+            } else {
+                // Track that we need to initialize this series
+                let id = self
+                    .initialize_new_series(&series_key, metric, tags)
+                    .await?;
+                new_series_count += 1;
+                id
+            };
+
+            let data_point_key = Self::format_data_point_key(series_id, ts);
+            batch.put(&data_point_key, value.to_be_bytes());
+        }
+
+        // Write all data points atomically
+        self.0.storage.write_batch(batch).await?;
+
+        if new_series_count > 0 {
+            log::trace!("Batch write created {new_series_count} new series");
+        }
+
+        Ok(())
+    }
+
     async fn initialize_new_series(
         &self,
         series_key: &str,
@@ -361,7 +434,7 @@ impl Database {
             return Ok(series_id);
         }
 
-        // Get next series ID
+        // Get next series ID (persists counter for crash safety)
         let series_id = self.0.smap.next_series_id().await?;
 
         log::trace!("Creating series {series_id} for key {series_key:?}");
@@ -382,12 +455,14 @@ impl Database {
 
     /// Close the database.
     ///
-    /// This flushes any pending writes to object storage.
+    /// This flushes the series ID counter and any pending writes to object storage.
     ///
     /// # Errors
     ///
     /// Returns error if an I/O error occurred.
     pub async fn close(&self) -> crate::Result<()> {
+        // Flush series ID counter before closing
+        self.0.smap.flush_counter().await?;
         self.0.storage.close().await
     }
 }

@@ -5,63 +5,132 @@
 //!
 //! This module provides the mapping from these string keys to compact u64 series IDs
 //! that are used in the data partition for efficient storage.
+//!
+//! ## Caching
+//!
+//! Since every write needs to check if a series exists, we use an in-memory cache
+//! to avoid object storage roundtrips for known series. With a single-writer model,
+//! cache invalidation is straightforward: we write-through on inserts.
+//!
+//! ## Series ID Counter
+//!
+//! The series ID counter is kept in memory for performance. With a single-writer
+//! model, we don't need to read-modify-write on every new series. The counter is
+//! persisted on flush/close to ensure durability across restarts.
 
 use crate::SeriesId;
+use crate::cache::SeriesCache;
 use crate::storage::{Storage, prefix};
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::Bytes;
 use std::collections::HashSet;
 use std::io::Cursor;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Series mapping - maps series key strings to series IDs
 pub struct SeriesMapping {
     storage: Storage,
+    cache: SeriesCache,
+    /// In-memory series ID counter for fast allocation
+    next_id: AtomicU64,
 }
 
 impl SeriesMapping {
-    /// Create a new series mapping
-    pub fn new(storage: Storage) -> Self {
-        Self { storage }
-    }
-
-    /// Get the series ID for a series key
-    pub async fn get(&self, series_key: &str) -> crate::Result<Option<SeriesId>> {
-        let key = Storage::smap_key(series_key);
-        match self.storage.get(&key).await? {
-            Some(bytes) => Ok(Some(Self::read_series_id(&bytes)?)),
-            None => Ok(None),
+    /// Create a new series mapping with the given cache.
+    ///
+    /// The counter starts at 0 and should be initialized from storage
+    /// using [`Self::load_counter`] before use.
+    pub fn new(storage: Storage, cache: SeriesCache) -> Self {
+        Self {
+            storage,
+            cache,
+            next_id: AtomicU64::new(0),
         }
     }
 
-    /// Insert a new series key -> series ID mapping
-    pub async fn insert(&self, series_key: &str, series_id: SeriesId) -> crate::Result<()> {
-        let key = Storage::smap_key(series_key);
-        self.storage
-            .put(key, Bytes::from(series_id.to_be_bytes().to_vec()))
-            .await
-    }
-
-    /// Get the next available series ID atomically
+    /// Load the series ID counter from storage.
     ///
-    /// This uses a counter stored in the database to ensure unique IDs
-    /// even across restarts.
-    pub async fn next_series_id(&self) -> crate::Result<SeriesId> {
-        // Read current counter
+    /// This should be called once during database initialization to restore
+    /// the counter value from the previous session.
+    pub async fn load_counter(&self) -> crate::Result<()> {
         let current = match self.storage.get(prefix::NEXT_SERIES_ID).await? {
             Some(bytes) => Self::read_series_id(&bytes)?,
             None => 0,
         };
+        self.next_id.store(current, Ordering::SeqCst);
+        log::info!("Loaded series ID counter: {current}");
+        Ok(())
+    }
 
-        // Increment and store
-        let next = current + 1;
+    /// Persist the series ID counter to storage.
+    ///
+    /// This should be called periodically and on database close to ensure
+    /// the counter survives restarts.
+    pub async fn flush_counter(&self) -> crate::Result<()> {
+        let current = self.next_id.load(Ordering::SeqCst);
         self.storage
             .put(
                 Bytes::from_static(prefix::NEXT_SERIES_ID),
-                Bytes::from(next.to_be_bytes().to_vec()),
+                Bytes::from(current.to_be_bytes().to_vec()),
             )
             .await?;
+        log::trace!("Flushed series ID counter: {current}");
+        Ok(())
+    }
 
-        Ok(current)
+    /// Get the series ID for a series key.
+    ///
+    /// Checks the local cache first to avoid object storage roundtrips.
+    pub async fn get(&self, series_key: &str) -> crate::Result<Option<SeriesId>> {
+        // Check cache first
+        if let Some(entry) = self.cache.get(series_key) {
+            return Ok(Some(*entry.value()));
+        }
+
+        // Cache miss - fetch from storage
+        let key = Storage::smap_key(series_key);
+        match self.storage.get(&key).await? {
+            Some(bytes) => {
+                let series_id = Self::read_series_id(&bytes)?;
+                // Populate cache on miss
+                self.cache.insert(series_key.to_string(), series_id);
+                Ok(Some(series_id))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Insert a new series key -> series ID mapping.
+    ///
+    /// Uses write-through caching: updates both cache and storage.
+    pub async fn insert(&self, series_key: &str, series_id: SeriesId) -> crate::Result<()> {
+        let key = Storage::smap_key(series_key);
+        self.storage
+            .put(key, Bytes::from(series_id.to_be_bytes().to_vec()))
+            .await?;
+
+        // Write-through: update cache after successful storage write
+        self.cache.insert(series_key.to_string(), series_id);
+        Ok(())
+    }
+
+    /// Get the next available series ID.
+    ///
+    /// This increments the counter and persists it to storage **before** returning
+    /// the ID. This ensures crash safety: if we crash after persisting but before
+    /// using the ID, we may have gaps in IDs but never collisions.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if persisting the counter fails.
+    pub async fn next_series_id(&self) -> crate::Result<SeriesId> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+
+        // Persist the incremented counter before returning
+        // This ensures crash safety: worst case we have ID gaps, never collisions
+        self.flush_counter().await?;
+
+        Ok(id)
     }
 
     /// List all series IDs in the mapping
