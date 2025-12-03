@@ -31,6 +31,9 @@ pin-project-lite = "0.2"
 uwheel.workspace = true
 enya-common = { path = "../common" }
 
+# Local caching for performance with object storage
+foyer.workspace = true
+
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
 tempfile = "3.12.0"

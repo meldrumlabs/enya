@@ -142,6 +142,7 @@
 #![warn(clippy::needless_lifetimes)]
 
 mod agg;
+mod cache;
 mod db;
 mod db_builder;
 mod duration;
@@ -166,6 +167,7 @@ type SeriesId = u64;
 type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
 
 pub use agg::{Bucket, GroupedAggregation};
+pub use cache::CacheConfig;
 pub use db::Database;
 pub use db_builder::Builder as DatabaseBuilder;
 pub use duration::Duration;
