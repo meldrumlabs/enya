@@ -9,10 +9,10 @@
 //!
 //! | Prefix | Purpose                      | Key Format                              |
 //! |--------|------------------------------|-----------------------------------------|
-//! | `d:`   | Time series data points      | `d:{series_id:8}{!timestamp:16}`        |
+//! | `d:`   | Time series data points      | `d:{series_id:4}{!timestamp:16}`        |
 //! | `s:`   | Series mapping               | `s:{series_key_string}`                 |
 //! | `t:`   | Tag index (inverted)         | `t:{metric}#{tag_key}:{tag_value}`      |
-//! | `g:`   | Tag sets (series -> tags)    | `g:{series_id:8}`                       |
+//! | `g:`   | Tag sets (series -> tags)    | `g:{series_id:4}`                       |
 //! | `c:`   | Counter (series ID generator)| `c:next_series_id`                      |
 
 use bytes::Bytes;
@@ -63,8 +63,8 @@ impl Storage {
 
     /// Build a prefixed key for data partition
     #[must_use]
-    pub fn data_key(series_id: u64, timestamp: u128) -> Bytes {
-        let mut key = Vec::with_capacity(2 + 8 + 16);
+    pub fn data_key(series_id: u32, timestamp: u128) -> Bytes {
+        let mut key = Vec::with_capacity(2 + 4 + 16);
         key.extend_from_slice(prefix::DATA);
         key.extend_from_slice(&series_id.to_be_bytes());
         // Invert timestamp for reverse chronological ordering
@@ -92,8 +92,8 @@ impl Storage {
 
     /// Build a prefixed key for tag sets
     #[must_use]
-    pub fn tag_sets_key(series_id: u64) -> Bytes {
-        let mut key = Vec::with_capacity(2 + 8);
+    pub fn tag_sets_key(series_id: u32) -> Bytes {
+        let mut key = Vec::with_capacity(2 + 4);
         key.extend_from_slice(prefix::TAG_SETS);
         key.extend_from_slice(&series_id.to_be_bytes());
         Bytes::from(key)
