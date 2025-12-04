@@ -193,7 +193,7 @@ mod tests {
             path: "test.parquet".to_string(),
             size_bytes: 1024,
         };
-        let debug_str = format!("{:?}", info);
+        let debug_str = format!("{info:?}");
         assert!(debug_str.contains("test.parquet"));
         assert!(debug_str.contains("1024"));
     }
