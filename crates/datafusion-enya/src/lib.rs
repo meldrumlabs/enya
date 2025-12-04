@@ -54,10 +54,12 @@
 
 mod error;
 mod optimizer_rule;
+mod parquet;
 mod wrapper;
 
 pub use error::Error;
 pub use optimizer_rule::EnyaPhysicalOptimizerRule;
+pub use parquet::{ParquetFileInfo, ParquetScanMetadata};
 pub use wrapper::MetricsExecWrapper;
 
 use datafusion::execution::SessionStateBuilder;
@@ -130,6 +132,45 @@ pub mod metric_names {
 
     /// Counter: Number of spill operations.
     pub const SPILL_COUNT: &str = "datafusion.spill_count";
+
+    // Parquet-specific metrics
+
+    /// Gauge: Number of Parquet files scanned.
+    /// Tagged with `query_id` and `table` when available.
+    pub const PARQUET_FILES_SCANNED: &str = "datafusion.parquet.files_scanned";
+
+    /// Gauge: Total size of Parquet files scanned in bytes.
+    /// Tagged with `query_id` and `table` when available.
+    pub const PARQUET_TOTAL_FILE_SIZE_BYTES: &str = "datafusion.parquet.total_file_size_bytes";
+
+    /// Gauge: Number of columns in the scanned Parquet schema.
+    /// Tagged with `query_id` and `table` when available.
+    pub const PARQUET_SCHEMA_COLUMNS: &str = "datafusion.parquet.schema_columns";
+
+    /// Gauge: Size of an individual Parquet file in bytes.
+    /// Tagged with `query_id`, `table`, and `file` when available.
+    pub const PARQUET_FILE_SIZE_BYTES: &str = "datafusion.parquet.file_size_bytes";
+
+    /// Counter: Row groups matched by statistics (not pruned).
+    pub const ROW_GROUPS_MATCHED_STATISTICS: &str = "datafusion.row_groups_matched_statistics";
+
+    /// Counter: Row groups matched by bloom filter (not pruned).
+    pub const ROW_GROUPS_MATCHED_BLOOM_FILTER: &str = "datafusion.row_groups_matched_bloom_filter";
+
+    /// Counter: Rows pruned by pushdown predicates.
+    pub const PUSHDOWN_ROWS_PRUNED: &str = "datafusion.pushdown_rows_pruned";
+
+    /// Counter: Rows matched by pushdown predicates.
+    pub const PUSHDOWN_ROWS_MATCHED: &str = "datafusion.pushdown_rows_matched";
+
+    /// Counter: Rows pruned by page index.
+    pub const PAGE_INDEX_ROWS_PRUNED: &str = "datafusion.page_index_rows_pruned";
+
+    /// Counter: Rows matched by page index.
+    pub const PAGE_INDEX_ROWS_MATCHED: &str = "datafusion.page_index_rows_matched";
+
+    /// Histogram: Time spent loading parquet metadata in nanoseconds.
+    pub const METADATA_LOAD_TIME_NS: &str = "datafusion.parquet.metadata_load_time_ns";
 }
 
 #[cfg(test)]

@@ -193,6 +193,7 @@ impl Builder {
 
     /// Builds the `SlateDB` settings from the builder configuration.
     fn build_settings(&self) -> Settings {
+        #[allow(unused_mut)]
         let mut settings = Settings {
             flush_interval: Some(self.flush_interval),
             l0_sst_size_bytes: self.l0_sst_size_bytes,
