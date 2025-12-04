@@ -43,17 +43,17 @@ deny:
 
 # Runs clippy checks across the workspace
 clippy:
-    cargo clippy --all-targets {{ _features }}  -- -D warnings
+    cargo clippy --all-targets {{ _features }} --profile ci -- -D warnings
 
 check-wasm:
-    cargo check -p enya-ui --target wasm32-unknown-unknown
+    cargo check -p enya-ui --target wasm32-unknown-unknown --profile ci
 
 # Run all lints
 lint: check-fmt clippy
 
 # Runs workspace tests using nextest
 test:
-    cargo nextest run {{ _features }}
+    cargo nextest run {{ _features }} --cargo-profile ci
 
 # Runs a local CI check (enables --all-features)
 ci: 
