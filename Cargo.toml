@@ -93,9 +93,18 @@ disallowed_types = "deny"
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
 
+[profile.dev]
+lto = "off"
+opt-level = 0
+debug = 0
+panic = "abort"
+
+[profile.ci]
+inherits = "dev"
+lto = "off"
+opt-level = 0
+debug = 0
+panic = "abort"
+
 [profile.release]
 opt-level = 2 # fast and small wasm
-
-# Optimize all dependencies even in debug builds:
-[profile.dev.package."*"]
-opt-level = 2

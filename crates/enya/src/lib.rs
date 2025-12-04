@@ -49,6 +49,13 @@ mod server;
 mod core;
 mod util;
 
+/// Test utilities for integration testing.
+#[doc(hidden)]
+pub mod testing {
+    pub use crate::core::Core;
+    pub use crate::server::build_router;
+}
+
 mod ingestor;
 
 use std::{fs, net::SocketAddr, path::Path};
