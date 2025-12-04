@@ -85,9 +85,18 @@ metrics = "0.24"
 uwheel = { git = "https://github.com/uwheel/uwheel.git", features = ["bloom"] }
 sketches-ddsketch = "0.3.0"
 
+[profile.dev]
+lto = "off"
+opt-level = 0
+debug = 0
+panic = "abort"
+
+[profile.ci]
+inherits = "dev"
+lto = "off"
+opt-level = 0
+debug = 0
+panic = "abort"
+
 [profile.release]
 opt-level = 2 # fast and small wasm
-
-# Optimize all dependencies even in debug builds:
-[profile.dev.package."*"]
-opt-level = 2

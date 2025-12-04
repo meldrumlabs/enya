@@ -58,6 +58,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -74,7 +77,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check wasm32
-        run: cargo check -p enya-ui --target wasm32-unknown-unknown
+        run: cargo check -p enya-ui --target wasm32-unknown-unknown --profile ci
         env:
           RUSTC_WRAPPER: sccache
           SCCACHE_GHA_ENABLED: "true"
