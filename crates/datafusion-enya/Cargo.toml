@@ -22,3 +22,6 @@ metrics-util = "0.19"
 
 [features]
 default = []
+
+[lints]
+workspace = true
