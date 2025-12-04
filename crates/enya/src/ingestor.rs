@@ -1,4 +1,5 @@
 use crate::core::Core;
+use crate::options::TaskMetricsOptions;
 use enya_metrics_store::MetricsStore;
 use enya_metrics_store::{MetricName, Value};
 use metrics::{
@@ -6,7 +7,6 @@ use metrics::{
     SharedString, Unit,
 };
 use std::sync::Arc;
-#[cfg(tokio_unstable)]
 use std::time::Duration;
 use tokio::{
     select,
@@ -27,7 +27,7 @@ pub struct Ingestor {
 }
 
 impl Ingestor {
-    pub fn spawn(core: Core) -> Self {
+    pub fn spawn(core: Core, task_metrics: &TaskMetricsOptions) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -38,8 +38,14 @@ impl Ingestor {
 
         let mut join_handles = vec![ingest_handle];
 
-        if let Some(tokio_handle) = spawn_tokio_metrics(core, shutdown_rx) {
+        if let Some(tokio_handle) = spawn_tokio_metrics(core.clone(), shutdown_rx.clone()) {
             join_handles.push(tokio_handle);
+        }
+
+        #[cfg(feature = "macros")]
+        if task_metrics.enabled {
+            let task_handle = spawn_task_monitor_metrics(core, shutdown_rx, task_metrics.interval);
+            join_handles.push(task_handle);
         }
 
         Self {
@@ -230,6 +236,143 @@ async fn record_runtime_metric(store: &MetricsStore, name: &str, value: f64) {
             }
         }
         Err(_) => error!(metric = name, "invalid runtime metric name"),
+    }
+}
+
+/// Spawns a background task that collects metrics from all registered TaskMonitors.
+#[cfg(feature = "macros")]
+fn spawn_task_monitor_metrics(
+    core: Core,
+    shutdown_rx: watch::Receiver<bool>,
+    interval: Duration,
+) -> JoinHandle<()> {
+    tokio::spawn(task_monitor_metrics_loop(core, shutdown_rx, interval))
+}
+
+/// Periodically collects metrics from all registered TaskMonitors.
+#[cfg(feature = "macros")]
+async fn task_monitor_metrics_loop(
+    core: Core,
+    mut shutdown_rx: watch::Receiver<bool>,
+    interval: Duration,
+) {
+    use crate::task_registry::registered_monitors;
+
+    let mut ticker = tokio::time::interval(interval);
+
+    loop {
+        select! {
+            _ = ticker.tick() => {
+                let monitors = registered_monitors();
+                for (task_name, monitor) in monitors {
+                    persist_task_metrics(core.metrics(), task_name, monitor).await;
+                }
+            }
+            changed = shutdown_rx.changed() => {
+                if changed.is_err() || *shutdown_rx.borrow() {
+                    break;
+                }
+            }
+        }
+    }
+
+    debug!("task monitor metrics loop exited");
+}
+
+/// Persists metrics from a single TaskMonitor.
+#[cfg(feature = "macros")]
+async fn persist_task_metrics(
+    store: &MetricsStore,
+    task_name: &str,
+    monitor: &tokio_metrics::TaskMonitor,
+) {
+    let metrics = monitor.cumulative();
+    let tags: &[(&str, &str)] = &[("task", task_name)];
+
+    // Poll metrics
+    record_task_metric(
+        store,
+        "task.poll.count",
+        metrics.total_poll_count as f64,
+        tags,
+    )
+    .await;
+    record_task_metric(
+        store,
+        "task.poll.duration_ns",
+        metrics.total_poll_duration.as_nanos() as f64,
+        tags,
+    )
+    .await;
+    record_task_metric(
+        store,
+        "task.poll.slow_count",
+        metrics.total_slow_poll_count as f64,
+        tags,
+    )
+    .await;
+
+    // Idle metrics
+    record_task_metric(
+        store,
+        "task.idle.duration_ns",
+        metrics.total_idle_duration.as_nanos() as f64,
+        tags,
+    )
+    .await;
+
+    // Scheduling metrics
+    record_task_metric(
+        store,
+        "task.scheduled.duration_ns",
+        metrics.total_scheduled_duration.as_nanos() as f64,
+        tags,
+    )
+    .await;
+    record_task_metric(
+        store,
+        "task.scheduled.long_count",
+        metrics.total_long_delay_count as f64,
+        tags,
+    )
+    .await;
+
+    // First poll delay
+    record_task_metric(
+        store,
+        "task.first_poll.delay_ns",
+        metrics.total_first_poll_delay.as_nanos() as f64,
+        tags,
+    )
+    .await;
+
+    // Task counts
+    record_task_metric(
+        store,
+        "task.instrumented.count",
+        metrics.instrumented_count as f64,
+        tags,
+    )
+    .await;
+    record_task_metric(
+        store,
+        "task.dropped.count",
+        metrics.dropped_count as f64,
+        tags,
+    )
+    .await;
+}
+
+/// Records a single task metric with tags.
+#[cfg(feature = "macros")]
+async fn record_task_metric(store: &MetricsStore, name: &str, value: f64, tags: &[(&str, &str)]) {
+    match MetricName::try_from(name) {
+        Ok(metric) => {
+            if let Err(err) = store.ingest(metric, value as Value, tags).await {
+                warn!(error = ?err, metric = name, "failed to persist task monitor metric");
+            }
+        }
+        Err(_) => warn!(metric = name, "invalid task metric name"),
     }
 }
 

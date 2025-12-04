@@ -13,6 +13,35 @@ pub mod datafusion {
     pub use datafusion_enya::*;
 }
 
+/// Global registry for TaskMonitor instances.
+///
+/// Available when the `macros` feature is enabled.
+#[cfg(feature = "macros")]
+pub mod task_registry;
+
+/// Procedural macros for task monitoring.
+///
+/// Re-exports [`enya_macros`] when the `macros` feature is enabled.
+/// These macros provide TaskMonitor instrumentation for async functions.
+///
+/// When using `#[monitor]`, the monitor is automatically registered
+/// with Enya and metrics will be collected periodically.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use enya::macros::monitor;
+///
+/// #[monitor]
+/// async fn my_background_task() {
+///     // Task work here - metrics collected automatically
+/// }
+/// ```
+#[cfg(feature = "macros")]
+pub mod macros {
+    pub use enya_macros::*;
+}
+
 /// Axum server hosting API endpoints and Websocket connections
 mod server;
 
@@ -43,7 +72,7 @@ pub async fn serve_with_options(addr: impl Into<String>, options: Options) {
     let build_info = enya_build_info::build_info!();
     let metrics_store = init_metrics_store(options.data_dir(), &build_info).await;
     let core = core::Core::new(build_info, metrics_store);
-    let ingestor = Ingestor::spawn(core.clone());
+    let ingestor = Ingestor::spawn(core.clone(), options.task_metrics());
     if let Err(err) = server::setup_and_serve(core, socket_addr).await {
         ingestor.shutdown().await;
         panic!("Failed to start enya server on {socket_addr}: {err}");

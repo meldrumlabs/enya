@@ -2975,8 +2975,10 @@ dependencies = [
  "datafusion-enya",
  "enya-build-info",
  "enya-build-tools",
+ "enya-macros",
  "enya-metrics-store",
  "metrics",
+ "parking_lot 0.11.2",
  "pprof",
  "serde",
  "serde_json",
@@ -3014,6 +3016,15 @@ name = "enya-log-store"
 version = "0.1.0"
 
 [[package]]
+name = "enya-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
 name = "enya-metrics-store"
 version = "0.1.0"
 dependencies = [
@@ -3026,6 +3037,7 @@ dependencies = [
  "futures",
  "log",
  "logos",
+ "parking_lot 0.11.2",
  "pin-project-lite",
  "roaring 0.10.12",
  "rustc-hash 2.1.1",
@@ -7804,9 +7816,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-metrics"
-version = "0.3.1"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eace09241d62c98b7eeb1107d4c5c64ca3bd7da92e8c218c153ab3a78f9be112"
+checksum = "a34e87dd30650518a4e041bca77c931f3f5a19621eecdcd794f5c1813bca9e98"
 dependencies = [
  "futures-util",
  "pin-project-lite",

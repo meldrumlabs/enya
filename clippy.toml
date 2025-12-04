@@ -1,0 +1,5 @@
+# Disallow std::sync locks in favor of parking_lot
+disallowed-types = [
+    { path = "std::sync::Mutex", reason = "use parking_lot::Mutex instead" },
+    { path = "std::sync::RwLock", reason = "use parking_lot::RwLock instead" },
+]

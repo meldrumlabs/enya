@@ -53,7 +53,7 @@ pub struct MetricsStore {
     /// Optional wheel index for pre-computed aggregates.
     wheel_index: Option<Arc<WheelIndex>>,
     /// Metric configurations for determining wheel index behavior.
-    metric_configs: Arc<std::sync::RwLock<crate::HashMap<String, MetricConfig>>>,
+    metric_configs: Arc<parking_lot::RwLock<crate::HashMap<String, MetricConfig>>>,
 }
 
 impl MetricsStore {
@@ -66,7 +66,7 @@ impl MetricsStore {
             git_date,
             default_tags: Vec::new(),
             wheel_index: None,
-            metric_configs: Arc::new(std::sync::RwLock::new(crate::HashMap::default())),
+            metric_configs: Arc::new(parking_lot::RwLock::new(crate::HashMap::default())),
         };
 
         if let Some(ref git_ver) = store.git_ver {
@@ -101,9 +101,9 @@ impl MetricsStore {
     /// This determines how the metric is aggregated in the wheel index.
     /// Metrics without an explicit configuration default to [`MetricKind::Sum`].
     pub fn register_metric(&self, metric_name: &str, config: MetricConfig) {
-        if let Ok(mut configs) = self.metric_configs.write() {
-            configs.insert(metric_name.to_string(), config);
-        }
+        self.metric_configs
+            .write()
+            .insert(metric_name.to_string(), config);
     }
 
     /// Returns the metric kind for a given metric name.
@@ -113,9 +113,8 @@ impl MetricsStore {
     pub fn metric_kind(&self, metric_name: &str) -> MetricKind {
         self.metric_configs
             .read()
-            .ok()
-            .and_then(|configs| configs.get(metric_name).map(|c| c.kind))
-            .unwrap_or(MetricKind::Sum)
+            .get(metric_name)
+            .map_or(MetricKind::Sum, |c| c.kind)
     }
 
     /// Returns the Git metadata associated with this store.

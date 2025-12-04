@@ -76,6 +76,7 @@ impl Builder {
         let path = path.into();
         log::info!("Opening metrics database at {path}");
 
+        #[allow(unused_mut)]
         let mut builder =
             Db::builder(path, object_store).with_merge_operator(Arc::new(MetricsMergeOperator));
 

@@ -38,8 +38,13 @@ foyer.workspace = true
 # Compressed bitmap for postings lists
 roaring = "0.10"
 
+parking_lot.workspace = true
+
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
 tempfile = "3.12.0"
 test-log = "0.2.16"
 tokio = { workspace = true, features = ["full", "macros"] }
+
+[lints]
+workspace = true

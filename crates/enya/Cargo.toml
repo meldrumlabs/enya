@@ -19,21 +19,24 @@ tokio.workspace = true
 serde.workspace = true
 axum = { workspace = true, features = ["json", "tokio", "http1", "query"] }
 metrics.workspace = true
-tokio-metrics = "0.3"
+tokio-metrics.workspace = true
 tracing.workspace = true
 pprof = { workspace = true, optional = true }
+enya-macros = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
 
 [features]
 default = []
 pprof = ["dep:pprof"]
 datafusion = ["dep:datafusion-enya"]
+macros = ["dep:enya-macros", "dep:parking_lot"]
 
 [build-dependencies]
 enya-build-tools.workspace = true
 chrono.workspace = true
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+[lints]
+workspace = true
 
 [dev-dependencies]
 tempfile = "3.13"
