@@ -424,7 +424,9 @@ mod tests {
         std::fs::create_dir_all(&store_path).unwrap();
         let object_store = Arc::new(LocalFileSystem::new_with_prefix(store_path).unwrap());
 
+        // Use fast flush interval for tests
         let db = crate::Database::builder()
+            .with_flush_interval(Duration::from_millis(100))
             .open(object_store, "/db")
             .await
             .unwrap();
