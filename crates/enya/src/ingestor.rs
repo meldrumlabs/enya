@@ -197,8 +197,8 @@ async fn persist_runtime_metrics(store: &MetricsStore, metrics: &tokio_metrics::
     .await;
     record_runtime_metric(
         store,
-        "tokio.runtime.injection_queue_depth",
-        metrics.injection_queue_depth as f64,
+        "tokio.runtime.blocking_queue_depth",
+        metrics.blocking_queue_depth as f64,
     )
     .await;
     record_runtime_metric(
