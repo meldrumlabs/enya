@@ -1,6 +1,7 @@
 use enya_build_info::BuildInfo;
 use enya_metrics_store::MetricsStore;
 
+/// Core application state shared across all Axum handlers.
 #[derive(Clone)]
 pub struct Core {
     build_info: BuildInfo,
