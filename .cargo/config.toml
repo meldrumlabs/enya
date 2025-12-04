@@ -4,10 +4,3 @@ rustflags = ["--cfg", "tokio_unstable"]
 # Use mold linking for linux builds
 [target.'cfg(target_os = "linux")']
 rustflags = ["--cfg", "tokio_unstable", "-C", "link-arg=-fuse-ld=mold"]
-
-[profile.ci]
-inherits = "dev"
-lto = "off"
-opt-level = 0
-debug = 0
-panic = 'abort'
