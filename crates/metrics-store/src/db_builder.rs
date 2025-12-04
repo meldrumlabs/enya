@@ -55,6 +55,8 @@ pub struct Builder {
     compression: Option<CompressionCodec>,
     /// Default TTL for data points in seconds
     default_ttl: Option<u64>,
+    /// Agent identifier for logging and diagnostics
+    agent_id: Option<String>,
 }
 
 impl Default for Builder {
@@ -80,6 +82,7 @@ impl Builder {
             #[cfg(feature = "lz4")]
             compression: None,
             default_ttl: None,
+            agent_id: None,
         }
     }
 
@@ -177,6 +180,26 @@ impl Builder {
         self
     }
 
+    /// Sets the agent identifier for this database instance.
+    ///
+    /// The agent ID is used in log messages to help identify which agent
+    /// instance is performing operations. This is useful when running
+    /// multiple agents or debugging distributed deployments.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let db = Builder::new()
+    ///     .with_agent_id("agent-prod-us-east-1")
+    ///     .open(object_store, "metrics")
+    ///     .await?;
+    /// ```
+    #[must_use]
+    pub fn with_agent_id(mut self, id: impl Into<String>) -> Self {
+        self.agent_id = Some(id.into());
+        self
+    }
+
     /// Opens or creates a database at the specified path in the object store.
     ///
     /// # Arguments
@@ -193,11 +216,17 @@ impl Builder {
         path: impl Into<Path>,
     ) -> crate::Result<Database> {
         let path = path.into();
-        log::info!("Opening metrics database at {path}");
+        let prefix = self
+            .agent_id
+            .as_ref()
+            .map(|id| format!("[{id}] "))
+            .unwrap_or_default();
+
+        log::info!("{prefix}Opening metrics database at {path}");
 
         let settings = self.build_settings();
         log::info!(
-            "SlateDB settings: flush_interval={:?}, l0_sst_size={}MiB, max_unflushed={}MiB, default_ttl={:?}",
+            "{prefix}SlateDB settings: flush_interval={:?}, l0_sst_size={}MiB, max_unflushed={}MiB, default_ttl={:?}",
             settings.flush_interval,
             settings.l0_sst_size_bytes / (1024 * 1024),
             settings.max_unflushed_bytes / (1024 * 1024),
@@ -213,12 +242,12 @@ impl Builder {
 
         let cache = LocalCache::new(&self.cache_config);
         log::info!(
-            "Initialized local cache (series: {}, tag_sets: {})",
+            "{prefix}Initialized local cache (series: {}, tag_sets: {})",
             self.cache_config.series_cache_capacity,
             self.cache_config.tag_sets_cache_capacity
         );
 
-        Database::from_db(db, &cache).await
+        Database::from_db(db, &cache, self.agent_id).await
     }
 
     /// Builds the `SlateDB` settings from the builder configuration.

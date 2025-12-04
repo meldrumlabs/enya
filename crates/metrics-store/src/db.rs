@@ -66,6 +66,9 @@ struct DatabaseInner {
 
     /// Lock for series creation to prevent races
     series_lock: RwLock<()>,
+
+    /// Optional agent ID to add as a default tag on all writes
+    agent_id: Option<String>,
 }
 
 /// An embeddable time series database backed by object storage
@@ -79,7 +82,11 @@ impl Database {
         DatabaseBuilder::new()
     }
 
-    pub(crate) async fn from_db(db: Arc<Db>, cache: &LocalCache) -> crate::Result<Self> {
+    pub(crate) async fn from_db(
+        db: Arc<Db>,
+        cache: &LocalCache,
+        agent_id: Option<String>,
+    ) -> crate::Result<Self> {
         log::info!("Initializing database components");
 
         let storage = Storage::new(db);
@@ -97,11 +104,29 @@ impl Database {
             tag_index,
             tag_sets,
             series_lock: RwLock::new(()),
+            agent_id,
         })))
     }
 
     fn format_data_point_key(series_id: SeriesId, ts: Timestamp) -> Bytes {
         Storage::data_key(series_id, ts)
+    }
+
+    /// Merges user-provided tags with the `enya_agent` tag if configured.
+    ///
+    /// Returns either the original tags (if no agent ID) or a new Vec with
+    /// the `enya_agent` tag prepended.
+    #[allow(clippy::option_if_let_else)]
+    fn merge_tags<'a>(&'a self, tags: &'a TagSet<'a>) -> Vec<(&'a str, &'a str)> {
+        match &self.0.agent_id {
+            Some(id) => {
+                let mut merged = Vec::with_capacity(tags.len() + 1);
+                merged.push(("enya_agent", id.as_str()));
+                merged.extend_from_slice(tags);
+                merged
+            }
+            None => tags.to_vec(),
+        }
     }
 
     /// Look up the series ID for a given metric name and tag set.
@@ -330,6 +355,9 @@ impl Database {
         value: Value,
         tags: &TagSet<'_>,
     ) -> crate::Result<SeriesId> {
+        let merged_tags = self.merge_tags(tags);
+        let tags: &TagSet<'_> = &merged_tags;
+
         let series_key = SeriesKey::format(metric, tags);
         let series_id = self.0.smap.get(&series_key).await?;
 
@@ -392,6 +420,9 @@ impl Database {
         let mut new_series_count = 0u64;
 
         for (metric, ts, value, tags) in points {
+            let merged_tags = self.merge_tags(tags);
+            let tags: &TagSet<'_> = &merged_tags;
+
             let series_key = SeriesKey::format(metric, tags);
             let series_id = self.0.smap.get(&series_key).await?;
 
