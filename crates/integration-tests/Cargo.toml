@@ -1,0 +1,20 @@
+[package]
+name = "enya-integration-tests"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+build = "build.rs"
+
+[dependencies]
+enya = { path = "../enya" }
+enya-build-info = { path = "../build-info" }
+enya-metrics-store = { path = "../metrics-store" }
+
+axum-test = "17"
+serde_json.workspace = true
+tempfile = "3.13"
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[build-dependencies]
+enya-build-tools.workspace = true
+chrono.workspace = true

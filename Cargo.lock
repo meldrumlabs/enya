@@ -3010,6 +3010,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "enya-integration-tests"
+version = "0.1.0"
+dependencies = [
+ "axum-test",
+ "chrono",
+ "enya",
+ "enya-build-info",
+ "enya-build-tools",
+ "enya-metrics-store",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "enya-log-store"
 version = "0.1.0"
 
