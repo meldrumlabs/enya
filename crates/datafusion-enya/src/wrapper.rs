@@ -8,7 +8,7 @@ use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream, TaskCo
 use datafusion::physical_plan::metrics::MetricsSet;
 use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use futures::Stream;
-use metrics::{counter, histogram};
+use metrics::{counter, gauge, histogram};
 use std::any::Any;
 use std::fmt;
 use std::pin::Pin;
@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::metric_names;
+use crate::parquet::ParquetScanMetadata;
 
 /// A wrapper around an [`ExecutionPlan`] that records metrics after execution.
 ///
@@ -108,6 +109,18 @@ impl ExecutionPlan for MetricsExecWrapper {
         let inner_stream = self.inner.execute(partition, context)?;
         let schema = inner_stream.schema();
 
+        // Extract parquet metadata from the plan (only on partition 0 to avoid redundant work)
+        let parquet_metadata = if partition == 0 {
+            let metadata = ParquetScanMetadata::from_plan(&self.inner);
+            if metadata.is_empty() {
+                None
+            } else {
+                Some(metadata)
+            }
+        } else {
+            None
+        };
+
         let recording_stream = MetricsRecordingStream {
             inner: inner_stream,
             plan: Arc::clone(&self.inner),
@@ -115,6 +128,7 @@ impl ExecutionPlan for MetricsExecWrapper {
             partition,
             recorded: false,
             schema,
+            parquet_metadata,
         };
 
         Ok(Box::pin(recording_stream))
@@ -133,6 +147,8 @@ struct MetricsRecordingStream {
     partition: usize,
     recorded: bool,
     schema: SchemaRef,
+    /// Pre-extracted parquet metadata (only recorded once per query).
+    parquet_metadata: Option<Vec<ParquetScanMetadata>>,
 }
 
 impl MetricsRecordingStream {
@@ -141,6 +157,11 @@ impl MetricsRecordingStream {
             return;
         }
         self.recorded = true;
+
+        // Record parquet metadata if available (only on partition 0 to avoid duplicates)
+        if self.partition == 0 {
+            self.record_parquet_metadata();
+        }
 
         let Some(metrics) = self.plan.metrics() else {
             return;
@@ -192,6 +213,37 @@ impl MetricsRecordingStream {
                     counter!(metric_names::ROW_GROUPS_PRUNED_BLOOM_FILTER, &labels)
                         .increment(count as u64);
                 }
+                "row_groups_matched_statistics" => {
+                    let count = value.as_usize();
+                    counter!(metric_names::ROW_GROUPS_MATCHED_STATISTICS, &labels)
+                        .increment(count as u64);
+                }
+                "row_groups_matched_bloom_filter" => {
+                    let count = value.as_usize();
+                    counter!(metric_names::ROW_GROUPS_MATCHED_BLOOM_FILTER, &labels)
+                        .increment(count as u64);
+                }
+                "pushdown_rows_pruned" => {
+                    let count = value.as_usize();
+                    counter!(metric_names::PUSHDOWN_ROWS_PRUNED, &labels).increment(count as u64);
+                }
+                "pushdown_rows_matched" => {
+                    let count = value.as_usize();
+                    counter!(metric_names::PUSHDOWN_ROWS_MATCHED, &labels).increment(count as u64);
+                }
+                "page_index_rows_pruned" => {
+                    let count = value.as_usize();
+                    counter!(metric_names::PAGE_INDEX_ROWS_PRUNED, &labels).increment(count as u64);
+                }
+                "page_index_rows_matched" => {
+                    let count = value.as_usize();
+                    counter!(metric_names::PAGE_INDEX_ROWS_MATCHED, &labels)
+                        .increment(count as u64);
+                }
+                "metadata_load_time" => {
+                    let nanos = value.as_usize();
+                    histogram!(metric_names::METADATA_LOAD_TIME_NS, &labels).record(nanos as f64);
+                }
                 "spilled_bytes" => {
                     let count = value.as_usize();
                     counter!(metric_names::SPILLED_BYTES, &labels).increment(count as u64);
@@ -201,6 +253,51 @@ impl MetricsRecordingStream {
                     counter!(metric_names::SPILL_COUNT, &labels).increment(count as u64);
                 }
                 _ => {}
+            }
+        }
+    }
+
+    fn record_parquet_metadata(&self) {
+        let Some(ref parquet_scans) = self.parquet_metadata else {
+            return;
+        };
+
+        for metadata in parquet_scans {
+            // Build base labels with query_id and table name
+            let mut base_labels: Vec<(&str, String)> = Vec::new();
+
+            if let Some(ref qid) = self.query_id {
+                base_labels.push(("query_id", qid.clone()));
+            }
+
+            if let Some(ref table) = metadata.table_name {
+                base_labels.push(("table", table.clone()));
+            }
+
+            // Record aggregate metrics with base labels
+            gauge!(metric_names::PARQUET_FILES_SCANNED, &base_labels)
+                .set(metadata.file_count as f64);
+
+            gauge!(metric_names::PARQUET_TOTAL_FILE_SIZE_BYTES, &base_labels)
+                .set(metadata.total_file_size_bytes as f64);
+
+            gauge!(metric_names::PARQUET_SCHEMA_COLUMNS, &base_labels)
+                .set(metadata.schema_column_count as f64);
+
+            // Record per-file metrics with file path label
+            for file in &metadata.files {
+                let mut file_labels = base_labels.clone();
+                // Extract just the filename from the path for the label
+                let filename = file
+                    .path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&file.path)
+                    .to_string();
+                file_labels.push(("file", filename));
+
+                gauge!(metric_names::PARQUET_FILE_SIZE_BYTES, &file_labels)
+                    .set(file.size_bytes as f64);
             }
         }
     }
