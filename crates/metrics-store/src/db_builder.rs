@@ -53,6 +53,10 @@ pub struct Builder {
     max_unflushed_bytes: usize,
     #[cfg(feature = "lz4")]
     compression: Option<CompressionCodec>,
+    /// Default TTL for data points in seconds
+    default_ttl: Option<u64>,
+    /// Agent identifier for logging and diagnostics
+    agent_id: Option<String>,
 }
 
 impl Default for Builder {
@@ -77,6 +81,8 @@ impl Builder {
             max_unflushed_bytes: DEFAULT_MAX_UNFLUSHED_BYTES,
             #[cfg(feature = "lz4")]
             compression: None,
+            default_ttl: None,
+            agent_id: None,
         }
     }
 
@@ -148,6 +154,52 @@ impl Builder {
         self
     }
 
+    /// Sets the default time-to-live (TTL) for data points.
+    ///
+    /// Data points older than the TTL will be automatically removed during
+    /// compaction. This helps bound storage growth for long-running agents.
+    ///
+    /// Note that TTL applies to data points only. Series metadata (mappings,
+    /// tag indices) are not affected and will persist indefinitely.
+    ///
+    /// Default: no TTL (data points persist until explicitly deleted)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// let db = Builder::new()
+    ///     .with_state_ttl(Duration::from_secs(7 * 24 * 60 * 60)) // 7 days
+    ///     .open(object_store, "metrics")
+    ///     .await?;
+    /// ```
+    #[must_use]
+    pub fn with_state_ttl(mut self, ttl: Duration) -> Self {
+        self.default_ttl = Some(ttl.as_secs());
+        self
+    }
+
+    /// Sets the agent identifier for this database instance.
+    ///
+    /// The agent ID is used in log messages to help identify which agent
+    /// instance is performing operations. This is useful when running
+    /// multiple agents or debugging distributed deployments.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let db = Builder::new()
+    ///     .with_agent_id("agent-prod-us-east-1")
+    ///     .open(object_store, "metrics")
+    ///     .await?;
+    /// ```
+    #[must_use]
+    pub fn with_agent_id(mut self, id: impl Into<String>) -> Self {
+        self.agent_id = Some(id.into());
+        self
+    }
+
     /// Opens or creates a database at the specified path in the object store.
     ///
     /// # Arguments
@@ -164,14 +216,21 @@ impl Builder {
         path: impl Into<Path>,
     ) -> crate::Result<Database> {
         let path = path.into();
-        log::info!("Opening metrics database at {path}");
+        let prefix = self
+            .agent_id
+            .as_ref()
+            .map(|id| format!("[{id}] "))
+            .unwrap_or_default();
+
+        log::info!("{prefix}Opening metrics database at {path}");
 
         let settings = self.build_settings();
         log::info!(
-            "SlateDB settings: flush_interval={:?}, l0_sst_size={}MiB, max_unflushed={}MiB",
+            "{prefix}SlateDB settings: flush_interval={:?}, l0_sst_size={}MiB, max_unflushed={}MiB, default_ttl={:?}",
             settings.flush_interval,
             settings.l0_sst_size_bytes / (1024 * 1024),
             settings.max_unflushed_bytes / (1024 * 1024),
+            settings.default_ttl.map(Duration::from_secs),
         );
 
         let builder = Db::builder(path, object_store)
@@ -183,12 +242,12 @@ impl Builder {
 
         let cache = LocalCache::new(&self.cache_config);
         log::info!(
-            "Initialized local cache (series: {}, tag_sets: {})",
+            "{prefix}Initialized local cache (series: {}, tag_sets: {})",
             self.cache_config.series_cache_capacity,
             self.cache_config.tag_sets_cache_capacity
         );
 
-        Database::from_db(db, &cache).await
+        Database::from_db(db, &cache, self.agent_id).await
     }
 
     /// Builds the `SlateDB` settings from the builder configuration.
@@ -198,6 +257,7 @@ impl Builder {
             flush_interval: Some(self.flush_interval),
             l0_sst_size_bytes: self.l0_sst_size_bytes,
             max_unflushed_bytes: self.max_unflushed_bytes,
+            default_ttl: self.default_ttl,
             ..Settings::default()
         };
 
