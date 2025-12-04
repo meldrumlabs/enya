@@ -53,6 +53,8 @@ pub struct Builder {
     max_unflushed_bytes: usize,
     #[cfg(feature = "lz4")]
     compression: Option<CompressionCodec>,
+    /// Default TTL for data points in seconds
+    default_ttl: Option<u64>,
 }
 
 impl Default for Builder {
@@ -77,6 +79,7 @@ impl Builder {
             max_unflushed_bytes: DEFAULT_MAX_UNFLUSHED_BYTES,
             #[cfg(feature = "lz4")]
             compression: None,
+            default_ttl: None,
         }
     }
 
@@ -148,6 +151,32 @@ impl Builder {
         self
     }
 
+    /// Sets the default time-to-live (TTL) for data points.
+    ///
+    /// Data points older than the TTL will be automatically removed during
+    /// compaction. This helps bound storage growth for long-running agents.
+    ///
+    /// Note that TTL applies to data points only. Series metadata (mappings,
+    /// tag indices) are not affected and will persist indefinitely.
+    ///
+    /// Default: no TTL (data points persist until explicitly deleted)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use std::time::Duration;
+    ///
+    /// let db = Builder::new()
+    ///     .with_state_ttl(Duration::from_secs(7 * 24 * 60 * 60)) // 7 days
+    ///     .open(object_store, "metrics")
+    ///     .await?;
+    /// ```
+    #[must_use]
+    pub fn with_state_ttl(mut self, ttl: Duration) -> Self {
+        self.default_ttl = Some(ttl.as_secs());
+        self
+    }
+
     /// Opens or creates a database at the specified path in the object store.
     ///
     /// # Arguments
@@ -168,10 +197,11 @@ impl Builder {
 
         let settings = self.build_settings();
         log::info!(
-            "SlateDB settings: flush_interval={:?}, l0_sst_size={}MiB, max_unflushed={}MiB",
+            "SlateDB settings: flush_interval={:?}, l0_sst_size={}MiB, max_unflushed={}MiB, default_ttl={:?}",
             settings.flush_interval,
             settings.l0_sst_size_bytes / (1024 * 1024),
             settings.max_unflushed_bytes / (1024 * 1024),
+            settings.default_ttl.map(Duration::from_secs),
         );
 
         let builder = Db::builder(path, object_store)
@@ -198,6 +228,7 @@ impl Builder {
             flush_interval: Some(self.flush_interval),
             l0_sst_size_bytes: self.l0_sst_size_bytes,
             max_unflushed_bytes: self.max_unflushed_bytes,
+            default_ttl: self.default_ttl,
             ..Settings::default()
         };
 
