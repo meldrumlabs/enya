@@ -5,9 +5,16 @@ use crate::components::{Component, MetricsTree};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
+/// The main dashboard layout with a fixed left panel for the MetricsTree
+/// and a flexible right area for tabbed views/charts.
 pub struct Dashboard {
-    tree: egui_tiles::Tree<Box<dyn Component>>,
+    /// The metrics tree browser (always visible in left panel)
+    metrics_tree: MetricsTree,
+    /// The tile tree for the viewport area (right side)
+    viewport_tree: egui_tiles::Tree<Box<dyn Component>>,
     behavior: TreeBehavior,
+    /// Width of the left panel in pixels
+    left_panel_width: f32,
 }
 
 impl Default for Dashboard {
@@ -16,43 +23,80 @@ impl Default for Dashboard {
         let tabs = Vec::new();
         let root = tiles.insert_tab_tile(tabs);
 
-        let tree = egui_tiles::Tree::new("dashboard_tree", root, tiles);
+        let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
         Self {
-            tree,
+            metrics_tree: MetricsTree::default(),
+            viewport_tree,
             behavior: TreeBehavior::default(),
+            left_panel_width: 280.0,
         }
     }
 }
 
 impl Dashboard {
+    /// Default left panel width
+    const DEFAULT_PANEL_WIDTH: f32 = 280.0;
+    /// Minimum left panel width
+    const MIN_PANEL_WIDTH: f32 = 200.0;
+    /// Maximum left panel width
+    const MAX_PANEL_WIDTH: f32 = 500.0;
+
     pub fn example(_api_key: String) -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
 
-        // Add the MetricsTree component with demo data
-        let metrics_tree: Box<dyn Component> = Box::new(MetricsTree::with_demo_metrics());
-        let metrics_tile = tiles.insert_pane(metrics_tree);
+        // Start with an empty viewport - users will add charts/views here
+        let tabs = Vec::new();
+        let root = tiles.insert_tab_tile(tabs);
 
-        let root = tiles.insert_tab_tile(vec![metrics_tile]);
-
-        let tree = egui_tiles::Tree::new("dashboard_tree", root, tiles);
+        let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
         Self {
-            tree,
+            metrics_tree: MetricsTree::with_demo_metrics(),
+            viewport_tree,
             behavior: TreeBehavior::default(),
+            left_panel_width: Self::DEFAULT_PANEL_WIDTH,
         }
     }
+
     pub fn show(&mut self, ui: &mut egui::Ui, app_state: &AppState) {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
 
+        // Update metrics tree theme
+        self.metrics_tree.set_theme(app_state.theme);
+
+        // Handle adding new tabs to viewport
         if let Some(parent) = self.behavior.add_child_to.take() {
             if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(_tabs))) =
-                self.tree.tiles.get_mut(parent)
+                self.viewport_tree.tiles.get_mut(parent)
             {
                 // Future: tabs.add_child(new_child) and tabs.set_active(new_child)
             }
         }
-        self.tree.ui(&mut self.behavior, ui);
+
+        // Left panel with MetricsTree (fixed, resizable)
+        egui::SidePanel::left("metrics_panel")
+            .resizable(true)
+            .default_width(self.left_panel_width)
+            .width_range(Self::MIN_PANEL_WIDTH..=Self::MAX_PANEL_WIDTH)
+            .show_inside(ui, |ui| {
+                self.metrics_tree.show(ui);
+            });
+
+        // Right area with the viewport (tabbed charts/views)
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            self.viewport_tree.ui(&mut self.behavior, ui);
+        });
+    }
+
+    /// Get a reference to the metrics tree for reading selection state
+    pub fn metrics_tree(&self) -> &MetricsTree {
+        &self.metrics_tree
+    }
+
+    /// Get a mutable reference to the metrics tree
+    pub fn metrics_tree_mut(&mut self) -> &mut MetricsTree {
+        &mut self.metrics_tree
     }
 }
 
