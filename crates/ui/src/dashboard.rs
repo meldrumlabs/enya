@@ -4,8 +4,8 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
 use crate::components::{
-    Component, InspectorPanel, InspectorTarget, MetricStats, MetricsTree, TimeRangeToolbar,
-    TimeSeriesChart, inspector_toggle_button,
+    Component, CustomQueriesPanel, InspectorPanel, InspectorTarget, MetricStats, MetricsTree,
+    TimeRangeToolbar, TimeSeriesChart, inspector_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -15,6 +15,12 @@ use crate::ui::colors::text_color;
 pub struct Dashboard {
     /// The metrics tree browser (always visible in left panel)
     metrics_tree: MetricsTree,
+    /// Custom queries panel (below metrics tree in left panel)
+    custom_queries: CustomQueriesPanel,
+    /// Whether the "Provided" section is expanded
+    provided_expanded: bool,
+    /// Whether the "Custom" section is expanded
+    custom_expanded: bool,
     /// The tile tree for the viewport area (right side)
     viewport_tree: egui_tiles::Tree<Box<dyn Component>>,
     behavior: TreeBehavior,
@@ -30,6 +36,8 @@ pub struct Dashboard {
     inspector: InspectorPanel,
     /// Track the last selected metric to detect changes
     last_selected_metric: Option<String>,
+    /// Unified filter text for searching both metrics and custom queries
+    filter: String,
 }
 
 impl Default for Dashboard {
@@ -41,6 +49,9 @@ impl Default for Dashboard {
         let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
         Self {
             metrics_tree: MetricsTree::default(),
+            custom_queries: CustomQueriesPanel::new(),
+            provided_expanded: true,
+            custom_expanded: false,
             viewport_tree,
             behavior: TreeBehavior::default(),
             left_panel_width: 280.0,
@@ -49,6 +60,7 @@ impl Default for Dashboard {
             time_range_toolbar: TimeRangeToolbar::new(),
             inspector: InspectorPanel::new(),
             last_selected_metric: None,
+            filter: String::new(),
         }
     }
 }
@@ -79,6 +91,9 @@ impl Dashboard {
 
         Self {
             metrics_tree: MetricsTree::with_demo_metrics(),
+            custom_queries: CustomQueriesPanel::with_demo_queries(),
+            provided_expanded: true,
+            custom_expanded: false,
             viewport_tree,
             behavior: TreeBehavior::default(),
             left_panel_width: Self::DEFAULT_PANEL_WIDTH,
@@ -87,6 +102,7 @@ impl Dashboard {
             time_range_toolbar: TimeRangeToolbar::new(),
             inspector: InspectorPanel::new(),
             last_selected_metric: None,
+            filter: String::new(),
         }
     }
 
@@ -97,6 +113,7 @@ impl Dashboard {
 
         // Update component themes
         self.metrics_tree.set_theme(app_state.theme);
+        self.custom_queries.set_theme(app_state.theme);
         self.time_range_toolbar.set_theme(app_state.theme);
         self.inspector.set_theme(app_state.theme);
 
@@ -108,18 +125,94 @@ impl Dashboard {
         // Update inspector when metric selection changes
         self.update_inspector_from_selection();
 
-        // Left panel with MetricsTree (fixed, resizable)
+        // Pass filter to both metrics tree and custom queries
+        self.metrics_tree.set_filter(&self.filter);
+        self.custom_queries.set_filter(&self.filter);
+
+        // Left panel with Provided (metrics) and Custom (queries) sections
+        let text_color = text_color(app_state.theme);
         egui::SidePanel::left("metrics_panel")
             .resizable(true)
             .default_width(self.left_panel_width)
             .width_range(Self::MIN_PANEL_WIDTH..=Self::MAX_PANEL_WIDTH)
             .show_inside(ui, |ui| {
-                self.metrics_tree.show(ui);
+                // Unified search box at the top
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
+                            .color(text_color.gamma_multiply(0.6)),
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.filter)
+                            .hint_text("Filter...")
+                            .desired_width(ui.available_width() - 8.0),
+                    );
+                });
 
-                // Check if a metric was double-clicked (add chart action)
-                if let Some(metric_name) = self.metrics_tree.take_pending_chart() {
-                    self.pending_chart = Some(metric_name);
-                }
+                ui.add_space(8.0);
+
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    // "Provided" section - contains the metrics tree
+                    let provided_header = format!("{} Provided", egui_phosphor::regular::PACKAGE);
+                    let provided_response = egui::CollapsingHeader::new(
+                        egui::RichText::new(provided_header)
+                            .color(text_color)
+                            .strong(),
+                    )
+                    .id_salt("provided_section")
+                    .default_open(self.provided_expanded)
+                    .show(ui, |ui| {
+                        self.metrics_tree.show(ui);
+
+                        // Check if a metric was double-clicked (add chart action)
+                        if let Some(metric_name) = self.metrics_tree.take_pending_chart() {
+                            self.pending_chart = Some(metric_name);
+                        }
+                    });
+
+                    // Update provided expanded state
+                    if provided_response.fully_open() {
+                        self.provided_expanded = true;
+                    } else if provided_response.openness < 0.5 {
+                        self.provided_expanded = false;
+                    }
+
+                    ui.add_space(4.0);
+
+                    // "Custom" section - contains the custom queries
+                    let custom_header = format!(
+                        "{} Custom ({})",
+                        egui_phosphor::regular::CODE,
+                        self.custom_queries.queries().len()
+                    );
+                    let custom_response = egui::CollapsingHeader::new(
+                        egui::RichText::new(custom_header)
+                            .color(text_color)
+                            .strong(),
+                    )
+                    .id_salt("custom_section")
+                    .default_open(self.custom_expanded)
+                    .show(ui, |ui| {
+                        self.custom_queries.show(ui);
+
+                        // Check if a custom query was double-clicked (add chart action)
+                        if let Some(query_id) = self.custom_queries.take_pending_chart() {
+                            if let Some(query) = self.custom_queries.get_query(query_id) {
+                                // Clone the values to avoid borrow issues
+                                let name = query.name.clone();
+                                let query_str = query.query.clone();
+                                self.add_chart_for_query(&name, &query_str);
+                            }
+                        }
+                    });
+
+                    // Update custom expanded state
+                    if custom_response.fully_open() {
+                        self.custom_expanded = true;
+                    } else if custom_response.openness < 0.5 {
+                        self.custom_expanded = false;
+                    }
+                });
             });
 
         // Right area with toolbar and viewport
@@ -212,6 +305,34 @@ impl Dashboard {
                 tabs.set_active(chart_tile);
                 self.open_charts.insert(metric_name.to_string());
                 log::debug!("Added chart for {metric_name}");
+            }
+        }
+    }
+
+    /// Add a chart for a custom query to the viewport
+    fn add_chart_for_query(&mut self, query_name: &str, query_str: &str) {
+        // Use query name as the unique key for duplicate detection
+        let chart_key = format!("query:{query_name}");
+        if self.open_charts.contains(&chart_key) {
+            log::debug!("Chart for query '{query_name}' already open");
+            return;
+        }
+
+        // Create the chart with a custom title showing the query
+        let mut chart = TimeSeriesChart::with_demo_data(query_name);
+        chart.set_title(format!("{query_name} [{query_str}]"));
+        let chart: Box<dyn Component> = Box::new(chart);
+        let chart_tile = self.viewport_tree.tiles.insert_pane(chart);
+
+        // Find the root tabs container and add the chart to it
+        if let Some(root_id) = self.viewport_tree.root() {
+            if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+                self.viewport_tree.tiles.get_mut(root_id)
+            {
+                tabs.add_child(chart_tile);
+                tabs.set_active(chart_tile);
+                self.open_charts.insert(chart_key);
+                log::debug!("Added chart for query '{query_name}'");
             }
         }
     }

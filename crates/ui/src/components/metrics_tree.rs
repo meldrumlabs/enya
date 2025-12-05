@@ -293,6 +293,16 @@ impl MetricsTree {
         self.theme = theme;
     }
 
+    /// Set the filter text (for external filtering from Dashboard)
+    pub fn set_filter(&mut self, filter: &str) {
+        self.filter = filter.to_string();
+    }
+
+    /// Get the current filter text
+    pub fn filter(&self) -> &str {
+        &self.filter
+    }
+
     /// Filter metrics by search text
     fn filtered_metrics(&self) -> impl Iterator<Item = &MetricInfo> {
         let filter_lower = self.filter.to_lowercase();
@@ -316,43 +326,9 @@ impl MetricsTree {
         groups
     }
 
-    /// Show the metrics tree panel
+    /// Show the metrics tree panel (search box is now handled by Dashboard)
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_color = text_color(self.theme);
-
-        // Header
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Metrics").color(text_color).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
-                    .button(
-                        RichText::new(egui_phosphor::regular::ARROWS_CLOCKWISE).color(text_color),
-                    )
-                    .clicked()
-                {
-                    // TODO: Trigger refresh from backend
-                }
-            });
-        });
-
-        ui.add_space(4.0);
-
-        // Search box
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
-                    .color(text_color.gamma_multiply(0.6)),
-            );
-            ui.add(
-                egui::TextEdit::singleline(&mut self.filter)
-                    .hint_text("Filter metrics...")
-                    .desired_width(ui.available_width() - 8.0),
-            );
-        });
-
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(4.0);
 
         // Collect metrics into owned data to avoid borrow issues
         let metrics_data: Vec<(MetricCategory, Vec<MetricInfo>)> = {
@@ -367,13 +343,10 @@ impl MetricsTree {
                 .collect()
         };
 
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                for (category, metrics) in &metrics_data {
-                    self.show_category(ui, category, metrics, text_color);
-                }
-            });
+        // Render categories directly (parent handles scrolling)
+        for (category, metrics) in &metrics_data {
+            self.show_category(ui, category, metrics, text_color);
+        }
     }
 
     fn show_category(
