@@ -218,30 +218,6 @@ impl TimeSeriesChart {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_color = text_color(self.theme);
 
-        // Header with metric name
-        ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(format!(
-                    "{} {}",
-                    egui_phosphor::regular::CHART_LINE,
-                    self.metric_name
-                ))
-                .color(text_color)
-                .strong(),
-            );
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Future: add controls like time range, refresh, etc.
-                ui.label(
-                    RichText::new(format!("{} series", self.series.len()))
-                        .color(text_color.gamma_multiply(0.6))
-                        .small(),
-                );
-            });
-        });
-
-        ui.add_space(8.0);
-
         if self.series.is_empty() {
             // Empty state
             ui.centered_and_justified(|ui| {
