@@ -150,11 +150,11 @@ impl EnyaApp {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let theme = self.state.theme;
 
+        // Open dashboard
+        UICommand::Dashboard.menu_button_ui(ui, theme, &self.command_sender);
+
         // Open Home
         UICommand::Home.menu_button_ui(ui, theme, &self.command_sender);
-
-        // Open dashboard
-        UICommand::Open.menu_button_ui(ui, theme, &self.command_sender);
 
         // Settings
         UICommand::Settings.menu_button_ui(ui, theme, &self.command_sender);
@@ -236,7 +236,7 @@ impl EnyaApp {
                 self.state.ui_state = UIState::Dashboard;
                 self.state.prev_ui_state = old;
             }
-            UICommand::Open => {
+            UICommand::Dashboard => {
                 self.state.prev_ui_state = self.state.ui_state;
                 self.state.ui_state = UIState::Dashboard;
             }
