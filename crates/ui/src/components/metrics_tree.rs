@@ -303,6 +303,14 @@ impl MetricsTree {
         &self.filter
     }
 
+    /// Check if there are any metrics matching the current filter
+    pub fn has_matching_metrics(&self) -> bool {
+        if self.filter.is_empty() {
+            return !self.metrics.is_empty();
+        }
+        self.filtered_metrics().next().is_some()
+    }
+
     /// Filter metrics by search text
     fn filtered_metrics(&self) -> impl Iterator<Item = &MetricInfo> {
         let filter_lower = self.filter.to_lowercase();

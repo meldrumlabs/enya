@@ -99,6 +99,14 @@ impl CustomQueriesPanel {
             || query.query.to_lowercase().contains(&filter_lower)
     }
 
+    /// Check if there are any queries matching the current filter
+    pub fn has_matching_queries(&self) -> bool {
+        if self.filter.is_empty() {
+            return !self.queries.is_empty();
+        }
+        self.queries.iter().any(|q| self.matches_filter(q))
+    }
+
     /// Add a new query
     pub fn add_query(&mut self, name: impl Into<String>, query: impl Into<String>) {
         self.queries

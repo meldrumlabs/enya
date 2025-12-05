@@ -152,16 +152,27 @@ impl Dashboard {
                 ui.add_space(8.0);
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
+                    // Auto-expand sections when filter has matches
+                    let has_filter = !self.filter.is_empty();
+                    let provided_has_matches = self.metrics_tree.has_matching_metrics();
+                    let custom_has_matches = self.custom_queries.has_matching_queries();
+
                     // "Provided" section - contains the metrics tree
                     let provided_header = format!("{} Provided", egui_phosphor::regular::PACKAGE);
-                    let provided_response = egui::CollapsingHeader::new(
+                    let mut provided_header_builder = egui::CollapsingHeader::new(
                         egui::RichText::new(provided_header)
                             .color(text_color)
                             .strong(),
                     )
                     .id_salt("provided_section")
-                    .default_open(self.provided_expanded)
-                    .show(ui, |ui| {
+                    .default_open(self.provided_expanded);
+
+                    // Force open when filtering and there are matches
+                    if has_filter && provided_has_matches {
+                        provided_header_builder = provided_header_builder.open(Some(true));
+                    }
+
+                    let provided_response = provided_header_builder.show(ui, |ui| {
                         self.metrics_tree.show(ui);
 
                         // Check if a metric was double-clicked (add chart action)
@@ -170,11 +181,13 @@ impl Dashboard {
                         }
                     });
 
-                    // Update provided expanded state
-                    if provided_response.fully_open() {
-                        self.provided_expanded = true;
-                    } else if provided_response.openness < 0.5 {
-                        self.provided_expanded = false;
+                    // Update provided expanded state (only when not filtering)
+                    if !has_filter {
+                        if provided_response.fully_open() {
+                            self.provided_expanded = true;
+                        } else if provided_response.openness < 0.5 {
+                            self.provided_expanded = false;
+                        }
                     }
 
                     ui.add_space(4.0);
@@ -185,14 +198,20 @@ impl Dashboard {
                         egui_phosphor::regular::CODE,
                         self.custom_queries.queries().len()
                     );
-                    let custom_response = egui::CollapsingHeader::new(
+                    let mut custom_header_builder = egui::CollapsingHeader::new(
                         egui::RichText::new(custom_header)
                             .color(text_color)
                             .strong(),
                     )
                     .id_salt("custom_section")
-                    .default_open(self.custom_expanded)
-                    .show(ui, |ui| {
+                    .default_open(self.custom_expanded);
+
+                    // Force open when filtering and there are matches
+                    if has_filter && custom_has_matches {
+                        custom_header_builder = custom_header_builder.open(Some(true));
+                    }
+
+                    let custom_response = custom_header_builder.show(ui, |ui| {
                         self.custom_queries.show(ui);
 
                         // Check if a custom query was double-clicked (add chart action)
@@ -206,11 +225,13 @@ impl Dashboard {
                         }
                     });
 
-                    // Update custom expanded state
-                    if custom_response.fully_open() {
-                        self.custom_expanded = true;
-                    } else if custom_response.openness < 0.5 {
-                        self.custom_expanded = false;
+                    // Update custom expanded state (only when not filtering)
+                    if !has_filter {
+                        if custom_response.fully_open() {
+                            self.custom_expanded = true;
+                        } else if custom_response.openness < 0.5 {
+                            self.custom_expanded = false;
+                        }
                     }
                 });
             });
