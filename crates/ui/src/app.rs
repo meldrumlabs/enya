@@ -68,8 +68,8 @@ impl AppState {
 #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub enum UIState {
     Settings,
-    Dashboard,
     #[default]
+    Dashboard,
     Home,
 }
 
@@ -102,6 +102,10 @@ impl EnyaApp {
             let state: AppState = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
             app.state = state;
         }
+
+        // Always start with Dashboard (ignore persisted ui_state)
+        app.state.ui_state = UIState::Dashboard;
+        app.state.prev_ui_state = UIState::Dashboard;
 
         match cc.egui_ctx.theme() {
             Theme::Light => app.state.theme = AppTheme::Light,
