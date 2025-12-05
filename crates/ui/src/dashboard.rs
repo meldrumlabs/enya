@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
-use crate::components::{Component, MetricsTree, TimeSeriesChart};
+use crate::components::{Component, MetricsTree, TimeRangeToolbar, TimeSeriesChart};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
@@ -21,6 +21,8 @@ pub struct Dashboard {
     open_charts: HashSet<String>,
     /// Pending chart to add (metric name)
     pending_chart: Option<String>,
+    /// Time range toolbar
+    time_range_toolbar: TimeRangeToolbar,
 }
 
 impl Default for Dashboard {
@@ -37,6 +39,7 @@ impl Default for Dashboard {
             left_panel_width: 280.0,
             open_charts: HashSet::new(),
             pending_chart: None,
+            time_range_toolbar: TimeRangeToolbar::new(),
         }
     }
 }
@@ -72,6 +75,7 @@ impl Dashboard {
             left_panel_width: Self::DEFAULT_PANEL_WIDTH,
             open_charts,
             pending_chart: None,
+            time_range_toolbar: TimeRangeToolbar::new(),
         }
     }
 
@@ -80,8 +84,9 @@ impl Dashboard {
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
 
-        // Update metrics tree theme
+        // Update component themes
         self.metrics_tree.set_theme(app_state.theme);
+        self.time_range_toolbar.set_theme(app_state.theme);
 
         // Handle adding a pending chart to the viewport
         if let Some(metric_name) = self.pending_chart.take() {
@@ -102,9 +107,21 @@ impl Dashboard {
                 }
             });
 
-        // Right area with the viewport (tabbed charts/views)
+        // Right area with toolbar and viewport
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            self.viewport_tree.ui(&mut self.behavior, ui);
+            // Top toolbar with time range controls
+            egui::TopBottomPanel::top("time_range_toolbar")
+                .resizable(false)
+                .show_inside(ui, |ui| {
+                    ui.add_space(4.0);
+                    self.time_range_toolbar.show(ui);
+                    ui.add_space(4.0);
+                });
+
+            // Main viewport area (tabbed charts/views)
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                self.viewport_tree.ui(&mut self.behavior, ui);
+            });
         });
     }
 
