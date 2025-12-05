@@ -140,6 +140,8 @@ pub struct MetricsTree {
     selection: MetricSelection,
     /// Current theme
     theme: AppTheme,
+    /// Pending chart to add (set on double-click)
+    pending_chart: Option<String>,
 }
 
 impl Default for MetricsTree {
@@ -162,7 +164,18 @@ impl MetricsTree {
             expanded_groups: HashSet::new(),
             selection: MetricSelection::default(),
             theme: AppTheme::default(),
+            pending_chart: None,
         }
+    }
+
+    /// Take the pending chart request (returns None if no pending chart)
+    pub fn take_pending_chart(&mut self) -> Option<String> {
+        self.pending_chart.take()
+    }
+
+    /// Request adding a chart for the given metric
+    pub fn request_chart(&mut self, metric_name: impl Into<String>) {
+        self.pending_chart = Some(metric_name.into());
     }
 
     /// Create with example/demo metrics for testing
@@ -456,6 +469,8 @@ impl MetricsTree {
     fn show_metric_item(&mut self, ui: &mut egui::Ui, metric: &MetricInfo, text_color: Color32) {
         let is_selected = self.selection.metric.as_deref() == Some(&metric.name);
 
+        let mut add_chart_requested = false;
+
         ui.horizontal(|ui| {
             ui.add_space(32.0); // Indent for leaf items
 
@@ -468,6 +483,11 @@ impl MetricsTree {
             if response.clicked() {
                 self.selection.metric = Some(metric.name.clone());
                 self.selection.tag_filters.clear();
+            }
+
+            // Double-click to add chart
+            if response.double_clicked() {
+                add_chart_requested = true;
             }
 
             // Show series count if > 1
@@ -487,7 +507,22 @@ impl MetricsTree {
                         .small(),
                 );
             }
+
+            // Add chart button (visible on hover or when selected)
+            if (is_selected || response.hovered())
+                && ui
+                    .small_button(egui_phosphor::regular::CHART_LINE)
+                    .on_hover_text("Add chart")
+                    .clicked()
+            {
+                add_chart_requested = true;
+            }
         });
+
+        // Handle chart request (outside the closure to avoid borrow issues)
+        if add_chart_requested {
+            self.pending_chart = Some(metric.name.clone());
+        }
 
         // Show tags as sub-items if selected and has tags
         if is_selected && !metric.tags.is_empty() {

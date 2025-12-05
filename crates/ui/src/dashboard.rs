@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
-use crate::components::{Component, MetricsTree};
+use crate::components::{Component, MetricsTree, TimeSeriesChart};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
@@ -15,6 +17,10 @@ pub struct Dashboard {
     behavior: TreeBehavior,
     /// Width of the left panel in pixels
     left_panel_width: f32,
+    /// Track which metrics already have charts open (by metric name)
+    open_charts: HashSet<String>,
+    /// Pending chart to add (metric name)
+    pending_chart: Option<String>,
 }
 
 impl Default for Dashboard {
@@ -29,6 +35,8 @@ impl Default for Dashboard {
             viewport_tree,
             behavior: TreeBehavior::default(),
             left_panel_width: 280.0,
+            open_charts: HashSet::new(),
+            pending_chart: None,
         }
     }
 }
@@ -44,16 +52,26 @@ impl Dashboard {
     pub fn example(_api_key: String) -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
 
-        // Start with an empty viewport - users will add charts/views here
-        let tabs = Vec::new();
-        let root = tiles.insert_tab_tile(tabs);
+        // Add a demo chart to show the UI
+        let demo_chart: Box<dyn Component> = Box::new(TimeSeriesChart::with_demo_data(
+            "tokio.runtime.total_park_count",
+        ));
+        let chart_tile = tiles.insert_pane(demo_chart);
+
+        let root = tiles.insert_tab_tile(vec![chart_tile]);
 
         let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
+
+        let mut open_charts = HashSet::new();
+        open_charts.insert("tokio.runtime.total_park_count".to_string());
+
         Self {
             metrics_tree: MetricsTree::with_demo_metrics(),
             viewport_tree,
             behavior: TreeBehavior::default(),
             left_panel_width: Self::DEFAULT_PANEL_WIDTH,
+            open_charts,
+            pending_chart: None,
         }
     }
 
@@ -65,13 +83,9 @@ impl Dashboard {
         // Update metrics tree theme
         self.metrics_tree.set_theme(app_state.theme);
 
-        // Handle adding new tabs to viewport
-        if let Some(parent) = self.behavior.add_child_to.take() {
-            if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(_tabs))) =
-                self.viewport_tree.tiles.get_mut(parent)
-            {
-                // Future: tabs.add_child(new_child) and tabs.set_active(new_child)
-            }
+        // Handle adding a pending chart to the viewport
+        if let Some(metric_name) = self.pending_chart.take() {
+            self.add_chart_for_metric(&metric_name);
         }
 
         // Left panel with MetricsTree (fixed, resizable)
@@ -81,12 +95,42 @@ impl Dashboard {
             .width_range(Self::MIN_PANEL_WIDTH..=Self::MAX_PANEL_WIDTH)
             .show_inside(ui, |ui| {
                 self.metrics_tree.show(ui);
+
+                // Check if a metric was double-clicked (add chart action)
+                if let Some(metric_name) = self.metrics_tree.take_pending_chart() {
+                    self.pending_chart = Some(metric_name);
+                }
             });
 
         // Right area with the viewport (tabbed charts/views)
         egui::CentralPanel::default().show_inside(ui, |ui| {
             self.viewport_tree.ui(&mut self.behavior, ui);
         });
+    }
+
+    /// Add a chart for the given metric to the viewport
+    fn add_chart_for_metric(&mut self, metric_name: &str) {
+        // Don't add duplicate charts
+        if self.open_charts.contains(metric_name) {
+            log::debug!("Chart for {metric_name} already open");
+            return;
+        }
+
+        // Create the chart (with demo data for now)
+        let chart: Box<dyn Component> = Box::new(TimeSeriesChart::with_demo_data(metric_name));
+        let chart_tile = self.viewport_tree.tiles.insert_pane(chart);
+
+        // Find the root tabs container and add the chart to it
+        if let Some(root_id) = self.viewport_tree.root() {
+            if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+                self.viewport_tree.tiles.get_mut(root_id)
+            {
+                tabs.add_child(chart_tile);
+                tabs.set_active(chart_tile);
+                self.open_charts.insert(metric_name.to_string());
+                log::debug!("Added chart for {metric_name}");
+            }
+        }
     }
 
     /// Get a reference to the metrics tree for reading selection state
