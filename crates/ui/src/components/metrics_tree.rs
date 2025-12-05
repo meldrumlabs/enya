@@ -87,6 +87,10 @@ impl MetricCategory {
 pub struct MetricInfo {
     /// Full metric name (e.g., "tokio.runtime.total_park_count")
     pub name: String,
+    /// Human-readable description
+    pub description: Option<String>,
+    /// Unit of measurement (e.g., "ms", "bytes", "count")
+    pub unit: Option<String>,
     /// Tags associated with this metric (key -> set of values)
     pub tags: HashMap<String, HashSet<String>>,
     /// Category for grouping
@@ -100,6 +104,8 @@ impl MetricInfo {
         let category = MetricCategory::from_metric_name(&name);
         Self {
             name,
+            description: None,
+            unit: None,
             tags: HashMap::new(),
             category,
             series_count: 0,
@@ -275,6 +281,11 @@ impl MetricsTree {
     /// Get the current selection
     pub fn selection(&self) -> &MetricSelection {
         &self.selection
+    }
+
+    /// Get a metric by name
+    pub fn get_metric(&self, name: &str) -> Option<&MetricInfo> {
+        self.metrics.iter().find(|m| m.name == name)
     }
 
     /// Set the theme

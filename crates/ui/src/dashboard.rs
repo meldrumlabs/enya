@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
-use crate::components::{Component, MetricsTree, TimeRangeToolbar, TimeSeriesChart};
+use crate::components::{
+    Component, InspectorPanel, InspectorTarget, MetricStats, MetricsTree, TimeRangeToolbar,
+    TimeSeriesChart, inspector_toggle_button,
+};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
@@ -23,6 +26,10 @@ pub struct Dashboard {
     pending_chart: Option<String>,
     /// Time range toolbar
     time_range_toolbar: TimeRangeToolbar,
+    /// Inspector panel (right side, collapsible)
+    inspector: InspectorPanel,
+    /// Track the last selected metric to detect changes
+    last_selected_metric: Option<String>,
 }
 
 impl Default for Dashboard {
@@ -40,6 +47,8 @@ impl Default for Dashboard {
             open_charts: HashSet::new(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
+            inspector: InspectorPanel::new(),
+            last_selected_metric: None,
         }
     }
 }
@@ -76,6 +85,8 @@ impl Dashboard {
             open_charts,
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
+            inspector: InspectorPanel::new(),
+            last_selected_metric: None,
         }
     }
 
@@ -87,11 +98,15 @@ impl Dashboard {
         // Update component themes
         self.metrics_tree.set_theme(app_state.theme);
         self.time_range_toolbar.set_theme(app_state.theme);
+        self.inspector.set_theme(app_state.theme);
 
         // Handle adding a pending chart to the viewport
         if let Some(metric_name) = self.pending_chart.take() {
             self.add_chart_for_metric(&metric_name);
         }
+
+        // Update inspector when metric selection changes
+        self.update_inspector_from_selection();
 
         // Left panel with MetricsTree (fixed, resizable)
         egui::SidePanel::left("metrics_panel")
@@ -109,20 +124,73 @@ impl Dashboard {
 
         // Right area with toolbar and viewport
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            // Top toolbar with time range controls
+            // Top toolbar with time range controls and inspector toggle
             egui::TopBottomPanel::top("time_range_toolbar")
                 .resizable(false)
                 .show_inside(ui, |ui| {
                     ui.add_space(4.0);
-                    self.time_range_toolbar.show(ui);
+                    ui.horizontal(|ui| {
+                        // Time range controls take most of the space
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            self.time_range_toolbar.show(ui);
+                        });
+
+                        // Inspector toggle on the right
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if inspector_toggle_button(
+                                ui,
+                                self.inspector.is_visible(),
+                                app_state.theme,
+                            )
+                            .clicked()
+                            {
+                                self.inspector.toggle();
+                            }
+                        });
+                    });
                     ui.add_space(4.0);
                 });
+
+            // Inspector panel (right side, collapsible)
+            self.inspector.show(ui);
 
             // Main viewport area (tabbed charts/views)
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 self.viewport_tree.ui(&mut self.behavior, ui);
             });
         });
+    }
+
+    /// Update the inspector panel based on the current metric selection
+    fn update_inspector_from_selection(&mut self) {
+        let current_selection = self.metrics_tree.selection().metric.clone();
+
+        // Only update if selection changed
+        if current_selection != self.last_selected_metric {
+            self.last_selected_metric = current_selection.clone();
+
+            if let Some(metric_name) = current_selection {
+                // Find the metric info
+                if let Some(metric_info) = self.metrics_tree.get_metric(&metric_name) {
+                    let target = InspectorTarget::Metric {
+                        name: metric_info.name.clone(),
+                        description: metric_info.description.clone(),
+                        unit: metric_info.unit.clone(),
+                        tags: metric_info
+                            .tags
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+                            .collect(),
+                        series_count: metric_info.series_count,
+                    };
+                    self.inspector.set_target(target);
+                    // Set demo stats for now
+                    self.inspector.set_stats(Some(MetricStats::demo()));
+                }
+            } else {
+                self.inspector.clear();
+            }
+        }
     }
 
     /// Add a chart for the given metric to the viewport
