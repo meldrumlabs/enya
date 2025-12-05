@@ -1,7 +1,7 @@
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
-use crate::components::Component;
+use crate::components::{Component, MetricsTree};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
@@ -28,7 +28,11 @@ impl Dashboard {
     pub fn example(_api_key: String) -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
 
-        let root = tiles.insert_tab_tile(vec![]);
+        // Add the MetricsTree component with demo data
+        let metrics_tree: Box<dyn Component> = Box::new(MetricsTree::with_demo_metrics());
+        let metrics_tile = tiles.insert_pane(metrics_tree);
+
+        let root = tiles.insert_tab_tile(vec![metrics_tile]);
 
         let tree = egui_tiles::Tree::new("dashboard_tree", root, tiles);
         Self {

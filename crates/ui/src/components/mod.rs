@@ -1,5 +1,9 @@
 use crate::theme::AppTheme;
 
+pub mod metrics_tree;
+
+pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
+
 /// Trait that defines an Enya Component
 pub trait Component {
     /// The core function that is responsible for drawing the component
