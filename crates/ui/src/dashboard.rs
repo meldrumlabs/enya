@@ -130,12 +130,10 @@ impl Dashboard {
                 .show_inside(ui, |ui| {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        // Time range controls take most of the space
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            self.time_range_toolbar.show(ui);
-                        });
+                        // Time range controls on the left
+                        self.time_range_toolbar.show(ui);
 
-                        // Inspector toggle on the right
+                        // Inspector toggle on the far right
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if inspector_toggle_button(
                                 ui,

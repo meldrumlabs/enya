@@ -291,14 +291,14 @@ impl TimeRangeToolbar {
                 self.changed = true;
             }
 
+            ui.separator();
+
             // Show current range description
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    RichText::new(self.time_range.format_range())
-                        .color(text_color.gamma_multiply(0.6))
-                        .small(),
-                );
-            });
+            ui.label(
+                RichText::new(self.time_range.format_range())
+                    .color(text_color.gamma_multiply(0.6))
+                    .small(),
+            );
         });
     }
 }
