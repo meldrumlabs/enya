@@ -153,9 +153,6 @@ impl EnyaApp {
         // Open dashboard
         UICommand::Dashboard.menu_button_ui(ui, theme, &self.command_sender);
 
-        // Open Home
-        UICommand::Home.menu_button_ui(ui, theme, &self.command_sender);
-
         // Settings
         UICommand::Settings.menu_button_ui(ui, theme, &self.command_sender);
 

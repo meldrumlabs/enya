@@ -145,7 +145,7 @@ impl UICommand {
         }
 
         match self {
-            Self::Home => smallvec![key(Key::H)],
+            Self::Home => smallvec![],
             Self::Help => smallvec![key(Key::X)],
             Self::Dashboard => smallvec![key(Key::D)],
             Self::Settings => smallvec![key(Key::S)],
