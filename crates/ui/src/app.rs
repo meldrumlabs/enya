@@ -118,7 +118,7 @@ impl EnyaApp {
     // This paints the top panel aka header
     fn show_top_panel(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.horizontal(|ui| {
                     self.menu_button_ui(ui);
 
@@ -332,7 +332,8 @@ fn replace_fonts(ctx: &egui::Context) {
 
     fonts.font_data.insert(
         "depature_mono".to_owned(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/DepartureMono-Regular.otf")),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/DepartureMono-Regular.otf"))
+            .into(),
     );
 
     // Put my font first (highest priority) for proportional text:

@@ -23,17 +23,17 @@ enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 tokio-metrics = "0.4"
 
-egui = "0.29"
-eframe = { version = "0.29", default-features = false, features = [
+egui = "0.33.2"
+eframe = { version = "0.33.2", default-features = false, features = [
   "default_fonts", # Embed the default egui fonts.
   "glow",          # Use the glow rendering backend. Alternative: "wgpu".
   "persistence",   # Enable restoring app state when restarting the app.
 ] }
-egui_plot = "0.29"
-egui_extras = { version = "0.29.1", features = ["image", "svg"] }
-egui-phosphor = { version = "0.7.3", features = ["thin"] }
+egui_plot = "0.34.0"
+egui_extras = { version = "0.33.2", features = ["image", "svg"] }
+egui-phosphor = { version = "0.11.0", features = ["thin"] }
 ehttp = { version = "0.5.0" }
-egui_tiles = { version = "0.10.1", features = ["serde"] }
+egui_tiles = { version = "0.14.0", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["wasmbind"] }
 itertools = "0.14.0"
 poll-promise = "0.2.1"

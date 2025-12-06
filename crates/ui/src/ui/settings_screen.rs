@@ -20,7 +20,7 @@ pub fn show_settings_ui(
     command_sender: &CommandSender,
 ) {
     egui::Frame {
-        inner_margin: egui::Margin::same(5.0),
+        inner_margin: egui::Margin::same(5),
         ..Default::default()
     }
     .show(ui, |ui| {
