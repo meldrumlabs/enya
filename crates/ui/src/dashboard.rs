@@ -4,8 +4,8 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
 use crate::components::{
-    Component, CustomQueriesPanel, InspectorPanel, InspectorTarget, MetricStats, MetricsTree,
-    TimeRangeToolbar, TimeSeriesChart, inspector_toggle_button,
+    Component, CustomQueriesPanel, FuzzyFinder, FuzzyItem, InspectorPanel, InspectorTarget,
+    MetricStats, MetricsTree, TimeRangeToolbar, TimeSeriesChart, inspector_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -36,8 +36,8 @@ pub struct Dashboard {
     inspector: InspectorPanel,
     /// Track the last selected metric to detect changes
     last_selected_metric: Option<String>,
-    /// Unified filter text for searching both metrics and custom queries
-    filter: String,
+    /// Fuzzy finder modal (telescope-style search)
+    fuzzy_finder: FuzzyFinder,
 }
 
 impl Default for Dashboard {
@@ -60,7 +60,7 @@ impl Default for Dashboard {
             time_range_toolbar: TimeRangeToolbar::new(),
             inspector: InspectorPanel::new(),
             last_selected_metric: None,
-            filter: String::new(),
+            fuzzy_finder: FuzzyFinder::new(),
         }
     }
 }
@@ -102,11 +102,11 @@ impl Dashboard {
             time_range_toolbar: TimeRangeToolbar::new(),
             inspector: InspectorPanel::new(),
             last_selected_metric: None,
-            filter: String::new(),
+            fuzzy_finder: FuzzyFinder::new(),
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, app_state: &AppState) {
+    pub fn show(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, app_state: &AppState) {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
@@ -125,9 +125,8 @@ impl Dashboard {
         // Update inspector when metric selection changes
         self.update_inspector_from_selection();
 
-        // Pass filter to both metrics tree and custom queries
-        self.metrics_tree.set_filter(&self.filter);
-        self.custom_queries.set_filter(&self.filter);
+        // Track if we need to open fuzzy finder (set inside closure, used after)
+        let mut open_fuzzy = false;
 
         // Left panel with Provided (metrics) and Custom (queries) sections
         let text_color = text_color(app_state.theme);
@@ -136,41 +135,38 @@ impl Dashboard {
             .default_width(self.left_panel_width)
             .width_range(Self::MIN_PANEL_WIDTH..=Self::MAX_PANEL_WIDTH)
             .show_inside(ui, |ui| {
-                // Unified search box at the top
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
-                            .color(text_color.gamma_multiply(0.6)),
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.filter)
-                            .hint_text("Filter...")
-                            .desired_width(ui.available_width() - 8.0),
-                    );
-                });
+                // Search button at the top (opens fuzzy finder)
+                let search_btn = egui::Button::new(
+                    egui::RichText::new(format!(
+                        "{}  Search...",
+                        egui_phosphor::regular::MAGNIFYING_GLASS
+                    ))
+                    .color(text_color.gamma_multiply(0.6)),
+                )
+                .fill(egui::Color32::TRANSPARENT)
+                .stroke(egui::Stroke::new(1.0, text_color.gamma_multiply(0.2)))
+                .rounding(4.0);
+
+                if ui
+                    .add_sized([ui.available_width(), 28.0], search_btn)
+                    .on_hover_text("Search metrics and queries (Cmd+K)")
+                    .clicked()
+                {
+                    open_fuzzy = true;
+                }
 
                 ui.add_space(8.0);
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    // Auto-expand sections when filter has matches
-                    let has_filter = !self.filter.is_empty();
-                    let provided_has_matches = self.metrics_tree.has_matching_metrics();
-                    let custom_has_matches = self.custom_queries.has_matching_queries();
-
                     // "Provided" section - contains the metrics tree
                     let provided_header = format!("{} Provided", egui_phosphor::regular::PACKAGE);
-                    let mut provided_header_builder = egui::CollapsingHeader::new(
+                    let provided_header_builder = egui::CollapsingHeader::new(
                         egui::RichText::new(provided_header)
                             .color(text_color)
                             .strong(),
                     )
                     .id_salt("provided_section")
                     .default_open(self.provided_expanded);
-
-                    // Force open when filtering and there are matches
-                    if has_filter && provided_has_matches {
-                        provided_header_builder = provided_header_builder.open(Some(true));
-                    }
 
                     let provided_response = provided_header_builder.show(ui, |ui| {
                         self.metrics_tree.show(ui);
@@ -181,13 +177,11 @@ impl Dashboard {
                         }
                     });
 
-                    // Update provided expanded state (only when not filtering)
-                    if !has_filter {
-                        if provided_response.fully_open() {
-                            self.provided_expanded = true;
-                        } else if provided_response.openness < 0.5 {
-                            self.provided_expanded = false;
-                        }
+                    // Update provided expanded state
+                    if provided_response.fully_open() {
+                        self.provided_expanded = true;
+                    } else if provided_response.openness < 0.5 {
+                        self.provided_expanded = false;
                     }
 
                     ui.add_space(4.0);
@@ -198,18 +192,13 @@ impl Dashboard {
                         egui_phosphor::regular::CODE,
                         self.custom_queries.queries().len()
                     );
-                    let mut custom_header_builder = egui::CollapsingHeader::new(
+                    let custom_header_builder = egui::CollapsingHeader::new(
                         egui::RichText::new(custom_header)
                             .color(text_color)
                             .strong(),
                     )
                     .id_salt("custom_section")
                     .default_open(self.custom_expanded);
-
-                    // Force open when filtering and there are matches
-                    if has_filter && custom_has_matches {
-                        custom_header_builder = custom_header_builder.open(Some(true));
-                    }
 
                     let custom_response = custom_header_builder.show(ui, |ui| {
                         self.custom_queries.show(ui);
@@ -225,16 +214,19 @@ impl Dashboard {
                         }
                     });
 
-                    // Update custom expanded state (only when not filtering)
-                    if !has_filter {
-                        if custom_response.fully_open() {
-                            self.custom_expanded = true;
-                        } else if custom_response.openness < 0.5 {
-                            self.custom_expanded = false;
-                        }
+                    // Update custom expanded state
+                    if custom_response.fully_open() {
+                        self.custom_expanded = true;
+                    } else if custom_response.openness < 0.5 {
+                        self.custom_expanded = false;
                     }
                 });
             });
+
+        // Open fuzzy finder if search button was clicked
+        if open_fuzzy {
+            self.open_fuzzy_finder();
+        }
 
         // Right area with toolbar and viewport
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -271,6 +263,51 @@ impl Dashboard {
                 self.viewport_tree.ui(&mut self.behavior, ui);
             });
         });
+
+        // Show fuzzy finder modal (rendered on top of everything)
+        self.fuzzy_finder.set_theme(app_state.theme);
+        if let Some(selected_item) = self.fuzzy_finder.show(ctx) {
+            self.handle_fuzzy_selection(selected_item);
+        }
+    }
+
+    /// Handle a selection from the fuzzy finder
+    fn handle_fuzzy_selection(&mut self, item: FuzzyItem) {
+        match item {
+            FuzzyItem::Metric { name, .. } => {
+                self.add_chart_for_metric(&name);
+            }
+            FuzzyItem::CustomQuery { name, query, .. } => {
+                self.add_chart_for_query(&name, &query);
+            }
+        }
+    }
+
+    /// Open the fuzzy finder modal
+    pub fn open_fuzzy_finder(&mut self) {
+        // Populate the fuzzy finder with current items
+        let mut items = Vec::new();
+
+        // Add all metrics
+        for metric in self.metrics_tree.metrics() {
+            items.push(FuzzyItem::Metric {
+                name: metric.name.clone(),
+                category: metric.category.label().to_string(),
+                description: metric.description.clone(),
+            });
+        }
+
+        // Add all custom queries
+        for query in self.custom_queries.queries() {
+            items.push(FuzzyItem::CustomQuery {
+                id: query.id,
+                name: query.name.clone(),
+                query: query.query.clone(),
+            });
+        }
+
+        self.fuzzy_finder.set_items(items);
+        self.fuzzy_finder.open();
     }
 
     /// Update the inspector panel based on the current metric selection

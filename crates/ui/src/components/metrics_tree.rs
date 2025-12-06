@@ -288,6 +288,11 @@ impl MetricsTree {
         self.metrics.iter().find(|m| m.name == name)
     }
 
+    /// Get all metrics
+    pub fn metrics(&self) -> &[MetricInfo] {
+        &self.metrics
+    }
+
     /// Set the theme
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;

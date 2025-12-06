@@ -1,12 +1,14 @@
 use crate::theme::AppTheme;
 
 pub mod custom_queries;
+pub mod fuzzy_finder;
 pub mod inspector;
 pub mod metrics_tree;
 pub mod time_range;
 pub mod time_series_chart;
 
 pub use custom_queries::{CustomQueriesPanel, CustomQuery};
+pub use fuzzy_finder::{FuzzyFinder, FuzzyItem};
 pub use inspector::{InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button};
 pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};

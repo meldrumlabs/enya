@@ -268,6 +268,10 @@ impl EnyaApp {
                 // trigger repaint to illustrate the connection status
                 egui_ctx.request_repaint();
             }
+
+            UICommand::OpenFuzzyFinder => {
+                self.open_fuzzy_finder();
+            }
         }
     }
 
@@ -291,8 +295,16 @@ impl EnyaApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // Safe since we initialized the example_dashboard
-            self.dashboard.as_mut().unwrap().show(ui, &self.state);
+            if let Some(dashboard) = self.dashboard.as_mut() {
+                dashboard.show(ui, ctx, &self.state);
+            }
         });
+    }
+
+    fn open_fuzzy_finder(&mut self) {
+        if let Some(dashboard) = self.dashboard.as_mut() {
+            dashboard.open_fuzzy_finder();
+        }
     }
 }
 
