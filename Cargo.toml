@@ -25,10 +25,11 @@ tokio-metrics = "0.4"
 
 egui = "0.33.2"
 eframe = { version = "0.33.2", default-features = false, features = [
-  "glow",        # Use the glow rendering backend. Alternative: "wgpu".
-  "persistence", # Enable restoring app state when restarting the app.
-  "x11",         # Linux X11 support
-  "wayland",     # Linux Wayland support
+  "default_fonts", # Embed the default egui fonts.
+  "glow",          # Use the glow rendering backend. Alternative: "wgpu".
+  "persistence",   # Enable restoring app state when restarting the app.
+  "x11",           # Linux X11 support
+  "wayland",       # Linux Wayland support
 ] }
 egui_plot = "0.34.0"
 egui_extras = { version = "0.33.2", features = ["image", "svg"] }
