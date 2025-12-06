@@ -15,7 +15,9 @@ pub use inspector::{
     InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button,
     metrics_panel_toggle_button,
 };
-pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
+pub use metrics_tree::{
+    MetricCategory, MetricInfo, MetricSelection, MetricsTree, TreeItem, VimMode,
+};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
 

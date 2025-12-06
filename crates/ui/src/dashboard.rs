@@ -306,6 +306,20 @@ impl Dashboard {
             });
         });
 
+        // Handle vim-style keyboard navigation for metrics tree
+        // Only when fuzzy finder and command palette are not open, and left panel is visible
+        if !self.fuzzy_finder.is_open()
+            && !self.command_palette.is_open()
+            && self.left_panel_visible
+        {
+            self.metrics_tree.handle_keyboard(ctx);
+
+            // Check if a chart was requested via keyboard (Enter or l on a metric)
+            if let Some(metric_name) = self.metrics_tree.take_pending_chart() {
+                self.pending_chart = Some(metric_name);
+            }
+        }
+
         // Show fuzzy finder modal (rendered on top of everything)
         self.fuzzy_finder.set_theme(app_state.theme);
         if let Some(selected_item) = self.fuzzy_finder.show(ctx) {

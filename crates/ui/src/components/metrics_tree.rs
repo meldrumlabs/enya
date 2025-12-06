@@ -1,9 +1,32 @@
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, RichText};
+use egui::{Color32, Key, RichText, collapsing_header::CollapsingState};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+
+/// Represents a navigable item in the tree for vim-style navigation
+#[derive(Debug, Clone, PartialEq)]
+pub enum TreeItem {
+    /// A category header
+    Category(MetricCategory),
+    /// A metric group (path)
+    Group {
+        category: MetricCategory,
+        path: String,
+    },
+    /// A metric leaf node
+    Metric { name: String },
+}
+
+/// Vim-style keybinding mode
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum VimMode {
+    #[default]
+    Normal,
+    /// Waiting for second key (e.g., 'g' pressed, waiting for 'g' or other)
+    PendingG,
+}
 
 /// Represents a metric category/section in the tree
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -148,6 +171,13 @@ pub struct MetricsTree {
     theme: AppTheme,
     /// Pending chart to add (set on double-click)
     pending_chart: Option<String>,
+    /// Focused item index for vim navigation (into the flat item list)
+    focus_index: Option<usize>,
+    /// Vim mode for multi-key commands
+    vim_mode: VimMode,
+    /// Whether the tree has keyboard focus (reserved for future use)
+    #[allow(dead_code)]
+    has_focus: bool,
 }
 
 impl Default for MetricsTree {
@@ -171,6 +201,9 @@ impl MetricsTree {
             selection: MetricSelection::default(),
             theme: AppTheme::default(),
             pending_chart: None,
+            focus_index: None,
+            vim_mode: VimMode::Normal,
+            has_focus: false,
         }
     }
 
@@ -339,9 +372,365 @@ impl MetricsTree {
         groups
     }
 
+    /// Build a flat list of navigable items based on current expansion state
+    fn build_flat_items(&self) -> Vec<TreeItem> {
+        // NOTE: This uses our internal tracking which is synced from egui's state
+        // in the show methods
+        let mut items = Vec::new();
+        let grouped = self.metrics_by_category();
+
+        for category in MetricCategory::all() {
+            let Some(metrics) = grouped.get(category) else {
+                continue;
+            };
+
+            // Add category header
+            items.push(TreeItem::Category(category.clone()));
+
+            // Only add children if expanded
+            if !self.expanded_categories.contains(category) {
+                continue;
+            }
+
+            // Group metrics by parent path within category
+            let mut by_group: HashMap<Option<&str>, Vec<&MetricInfo>> = HashMap::new();
+            for metric in metrics {
+                by_group
+                    .entry(metric.parent_path())
+                    .or_default()
+                    .push(metric);
+            }
+
+            // Sort groups for consistent display
+            let mut groups: Vec<_> = by_group.into_iter().collect();
+            groups.sort_by_key(|(path, _)| path.unwrap_or(""));
+
+            for (group_path, group_metrics) in groups {
+                if let Some(path) = group_path {
+                    if group_metrics.len() > 1 {
+                        // This is a group
+                        items.push(TreeItem::Group {
+                            category: category.clone(),
+                            path: path.to_string(),
+                        });
+
+                        // Add metrics if group is expanded
+                        if self.expanded_groups.contains(path) {
+                            for metric in group_metrics {
+                                items.push(TreeItem::Metric {
+                                    name: metric.name.clone(),
+                                });
+                            }
+                        }
+                    } else {
+                        // Single metric, add directly
+                        for metric in group_metrics {
+                            items.push(TreeItem::Metric {
+                                name: metric.name.clone(),
+                            });
+                        }
+                    }
+                } else {
+                    // No parent path, add directly
+                    for metric in group_metrics {
+                        items.push(TreeItem::Metric {
+                            name: metric.name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        items
+    }
+
+    /// Build a flat list of navigable items, querying egui's state for expansion
+    fn build_flat_items_with_ctx(&self, ctx: &egui::Context) -> Vec<TreeItem> {
+        let mut items = Vec::new();
+        let grouped = self.metrics_by_category();
+
+        for category in MetricCategory::all() {
+            let Some(metrics) = grouped.get(category) else {
+                continue;
+            };
+
+            // Add category header
+            items.push(TreeItem::Category(category.clone()));
+
+            // Check if category is expanded using egui's state
+            let cat_id = egui::Id::new(format!("cat_{category:?}"));
+            let cat_expanded =
+                CollapsingState::load_with_default_open(ctx, cat_id, false).is_open();
+            if !cat_expanded {
+                continue;
+            }
+
+            // Group metrics by parent path within category
+            let mut by_group: HashMap<Option<&str>, Vec<&MetricInfo>> = HashMap::new();
+            for metric in metrics {
+                by_group
+                    .entry(metric.parent_path())
+                    .or_default()
+                    .push(metric);
+            }
+
+            // Sort groups for consistent display
+            let mut groups: Vec<_> = by_group.into_iter().collect();
+            groups.sort_by_key(|(path, _)| path.unwrap_or(""));
+
+            for (group_path, group_metrics) in groups {
+                if let Some(path) = group_path {
+                    if group_metrics.len() > 1 {
+                        // This is a group
+                        items.push(TreeItem::Group {
+                            category: category.clone(),
+                            path: path.to_string(),
+                        });
+
+                        // Check if group is expanded using egui's state
+                        let group_id = egui::Id::new(format!("group_{path}"));
+                        let group_expanded =
+                            CollapsingState::load_with_default_open(ctx, group_id, false).is_open();
+                        if group_expanded {
+                            for metric in group_metrics {
+                                items.push(TreeItem::Metric {
+                                    name: metric.name.clone(),
+                                });
+                            }
+                        }
+                    } else {
+                        // Single metric, add directly
+                        for metric in group_metrics {
+                            items.push(TreeItem::Metric {
+                                name: metric.name.clone(),
+                            });
+                        }
+                    }
+                } else {
+                    // No parent path, add directly
+                    for metric in group_metrics {
+                        items.push(TreeItem::Metric {
+                            name: metric.name.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        items
+    }
+
+    /// Handle vim-style keyboard navigation
+    /// Returns true if a key was consumed
+    pub fn handle_keyboard(&mut self, ctx: &egui::Context) -> bool {
+        // Don't handle keys if something else has focus (e.g., text input)
+        if ctx.memory(|mem| mem.focused().is_some()) {
+            return false;
+        }
+
+        // Use the ctx-aware version to get accurate expansion state
+        let items = self.build_flat_items_with_ctx(ctx);
+        if items.is_empty() {
+            return false;
+        }
+
+        // Initialize focus if not set
+        if self.focus_index.is_none() {
+            self.focus_index = Some(0);
+        }
+
+        // Clamp focus index to valid range (items may have changed)
+        if let Some(idx) = self.focus_index {
+            if idx >= items.len() {
+                self.focus_index = Some(items.len().saturating_sub(1));
+            }
+        }
+
+        let mut consumed = false;
+        let mut toggle_category: Option<MetricCategory> = None;
+        let mut toggle_group: Option<String> = None;
+
+        ctx.input_mut(|input| {
+            // Handle pending 'g' mode
+            if self.vim_mode == VimMode::PendingG {
+                if input.consume_key(egui::Modifiers::NONE, Key::G) {
+                    // gg - go to top
+                    self.focus_index = Some(0);
+                    self.select_focused_item(&items);
+                    consumed = true;
+                }
+                // Any key press (including 'g') exits pending mode
+                self.vim_mode = VimMode::Normal;
+                if consumed {
+                    return;
+                }
+            }
+
+            // j - move down
+            if input.consume_key(egui::Modifiers::NONE, Key::J) {
+                let current = self.focus_index.unwrap_or(0);
+                if current + 1 < items.len() {
+                    self.focus_index = Some(current + 1);
+                    self.select_focused_item(&items);
+                }
+                consumed = true;
+                return;
+            }
+
+            // k - move up
+            if input.consume_key(egui::Modifiers::NONE, Key::K) {
+                let current = self.focus_index.unwrap_or(0);
+                if current > 0 {
+                    self.focus_index = Some(current - 1);
+                    self.select_focused_item(&items);
+                }
+                consumed = true;
+                return;
+            }
+
+            // l - expand / move right into children
+            if input.consume_key(egui::Modifiers::NONE, Key::L) {
+                if let Some(idx) = self.focus_index {
+                    if let Some(item) = items.get(idx) {
+                        match item {
+                            TreeItem::Category(cat) => {
+                                toggle_category = Some(cat.clone());
+                            }
+                            TreeItem::Group { path, .. } => {
+                                toggle_group = Some(path.clone());
+                            }
+                            TreeItem::Metric { name } => {
+                                // Select metric and add chart
+                                self.selection.metric = Some(name.clone());
+                                self.pending_chart = Some(name.clone());
+                            }
+                        }
+                    }
+                }
+                consumed = true;
+                return;
+            }
+
+            // h - collapse / move left to parent
+            if input.consume_key(egui::Modifiers::NONE, Key::H) {
+                if let Some(idx) = self.focus_index {
+                    if let Some(item) = items.get(idx) {
+                        match item {
+                            TreeItem::Category(cat) => {
+                                toggle_category = Some(cat.clone());
+                            }
+                            TreeItem::Group { path, .. } => {
+                                toggle_group = Some(path.clone());
+                            }
+                            TreeItem::Metric { .. } => {
+                                // Move focus to parent category/group
+                                self.move_to_parent(&items, idx);
+                            }
+                        }
+                    }
+                }
+                consumed = true;
+                return;
+            }
+
+            // g - start pending 'g' mode for gg
+            if input.consume_key(egui::Modifiers::NONE, Key::G) {
+                self.vim_mode = VimMode::PendingG;
+                consumed = true;
+                return;
+            }
+
+            // G (Shift+g) - go to bottom
+            if input.consume_key(egui::Modifiers::SHIFT, Key::G) {
+                if !items.is_empty() {
+                    self.focus_index = Some(items.len() - 1);
+                    self.select_focused_item(&items);
+                }
+                consumed = true;
+                return;
+            }
+
+            // Enter - select/toggle current item
+            if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
+                if let Some(idx) = self.focus_index {
+                    if let Some(item) = items.get(idx) {
+                        match item {
+                            TreeItem::Category(cat) => {
+                                toggle_category = Some(cat.clone());
+                            }
+                            TreeItem::Group { path, .. } => {
+                                toggle_group = Some(path.clone());
+                            }
+                            TreeItem::Metric { name } => {
+                                self.selection.metric = Some(name.clone());
+                                self.pending_chart = Some(name.clone());
+                            }
+                        }
+                    }
+                }
+                consumed = true;
+            }
+        });
+
+        // Toggle category/group state using egui's internal state
+        if let Some(cat) = toggle_category {
+            let id = egui::Id::new(format!("cat_{cat:?}"));
+            let mut state = CollapsingState::load_with_default_open(ctx, id, false);
+            state.set_open(!state.is_open());
+            state.store(ctx);
+        }
+        if let Some(path) = toggle_group {
+            let id = egui::Id::new(format!("group_{path}"));
+            let mut state = CollapsingState::load_with_default_open(ctx, id, false);
+            state.set_open(!state.is_open());
+            state.store(ctx);
+        }
+
+        // Request repaint if we consumed a key (to update visuals)
+        if consumed {
+            ctx.request_repaint();
+        }
+
+        consumed
+    }
+
+    /// Select the metric at the focused index (if it's a metric)
+    fn select_focused_item(&mut self, items: &[TreeItem]) {
+        if let Some(idx) = self.focus_index {
+            if let Some(TreeItem::Metric { name }) = items.get(idx) {
+                self.selection.metric = Some(name.clone());
+            }
+        }
+    }
+
+    /// Move focus to the parent category or group
+    fn move_to_parent(&mut self, items: &[TreeItem], current_idx: usize) {
+        // Search backwards for a Category or Group
+        for i in (0..current_idx).rev() {
+            if let Some(item) = items.get(i) {
+                match item {
+                    TreeItem::Category(_) | TreeItem::Group { .. } => {
+                        self.focus_index = Some(i);
+                        return;
+                    }
+                    TreeItem::Metric { .. } => continue,
+                }
+            }
+        }
+    }
+
+    /// Get the currently focused item
+    pub fn focused_item(&self) -> Option<TreeItem> {
+        let items = self.build_flat_items();
+        self.focus_index.and_then(|idx| items.get(idx).cloned())
+    }
+
     /// Show the metrics tree panel (search box is now handled by Dashboard)
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_color = text_color(self.theme);
+
+        // Build flat items for focus tracking
+        let flat_items = self.build_flat_items();
 
         // Collect metrics into owned data to avoid borrow issues
         let metrics_data: Vec<(MetricCategory, Vec<MetricInfo>)> = {
@@ -356,33 +745,56 @@ impl MetricsTree {
                 .collect()
         };
 
+        // Track item index for focus matching
+        let mut item_idx = 0;
+
         // Render categories directly (parent handles scrolling)
         for (category, metrics) in &metrics_data {
-            self.show_category(ui, category, metrics, text_color);
+            self.show_category_with_focus(
+                ui,
+                category,
+                metrics,
+                text_color,
+                &flat_items,
+                &mut item_idx,
+            );
         }
     }
 
-    fn show_category(
+    /// Show a category with focus tracking for vim navigation
+    fn show_category_with_focus(
         &mut self,
         ui: &mut egui::Ui,
         category: &MetricCategory,
         metrics: &[MetricInfo],
         text_color: Color32,
+        flat_items: &[TreeItem],
+        item_idx: &mut usize,
     ) {
-        let is_expanded = self.expanded_categories.contains(category);
+        let _is_expanded = self.expanded_categories.contains(category);
+        let is_focused = self.focus_index == Some(*item_idx);
 
-        // Build header text with icon
+        // Increment for category itself
+        *item_idx += 1;
+
+        // Build header text with icon and focus indicator
         let header_text = format!(
-            "{} {} ({})",
+            "{}{} {} ({})",
+            if is_focused { "▶ " } else { "" },
             category.icon(),
             category.label(),
             metrics.len()
         );
 
+        let header_color = if is_focused {
+            Color32::from_rgb(255, 215, 0) // Accent yellow for focus
+        } else {
+            text_color
+        };
+
         let response =
-            egui::CollapsingHeader::new(RichText::new(header_text).color(text_color).strong())
+            egui::CollapsingHeader::new(RichText::new(header_text).color(header_color).strong())
                 .id_salt(format!("cat_{category:?}"))
-                .default_open(is_expanded)
                 .show(ui, |ui| {
                     // Group metrics by parent path within category
                     let mut by_group: HashMap<Option<&str>, Vec<&MetricInfo>> = HashMap::new();
@@ -401,85 +813,140 @@ impl MetricsTree {
                         if let Some(path) = group_path {
                             // Show as sub-group if there are multiple metrics
                             if group_metrics.len() > 1 {
-                                self.show_metric_group(ui, path, &group_metrics, text_color);
+                                self.show_metric_group_with_focus(
+                                    ui,
+                                    path,
+                                    &group_metrics,
+                                    text_color,
+                                    flat_items,
+                                    item_idx,
+                                );
                             } else {
                                 // Single metric, show directly
                                 for metric in group_metrics {
-                                    self.show_metric_item(ui, metric, text_color);
+                                    self.show_metric_item_with_focus(
+                                        ui, metric, text_color, item_idx,
+                                    );
                                 }
                             }
                         } else {
                             // No parent path, show directly
                             for metric in group_metrics {
-                                self.show_metric_item(ui, metric, text_color);
+                                self.show_metric_item_with_focus(ui, metric, text_color, item_idx);
                             }
                         }
                     }
                 });
 
-        // Update expanded state based on response
+        // Sync our expanded state with the header's actual state
+        // This allows both mouse clicks and keyboard to control expansion
         if response.fully_open() {
             self.expanded_categories.insert(category.clone());
-        } else if response.openness < 0.5 {
+        } else if !response.fully_open() && response.openness < 0.1 {
             self.expanded_categories.remove(category);
+        }
+
+        // Handle click to set focus
+        if response.header_response.clicked() {
+            self.focus_index = Some(*item_idx - 1);
         }
     }
 
-    fn show_metric_group(
+    /// Show a metric group with focus tracking
+    fn show_metric_group_with_focus(
         &mut self,
         ui: &mut egui::Ui,
         group_path: &str,
         metrics: &[&MetricInfo],
         text_color: Color32,
+        _flat_items: &[TreeItem],
+        item_idx: &mut usize,
     ) {
-        let is_expanded = self.expanded_groups.contains(group_path);
+        let _is_expanded = self.expanded_groups.contains(group_path);
+        let is_focused = self.focus_index == Some(*item_idx);
 
-        // Build header text with folder icon
+        // Increment for group itself
+        *item_idx += 1;
+
+        // Build header text with folder icon and focus indicator
         let header_text = format!(
-            "{} {} ({})",
+            "{}{} {} ({})",
+            if is_focused { "▶ " } else { "" },
             egui_phosphor::regular::FOLDER,
             group_path,
             metrics.len()
         );
 
-        ui.indent(group_path, |ui| {
-            let response = egui::CollapsingHeader::new(
-                RichText::new(header_text).color(text_color.gamma_multiply(0.9)),
-            )
-            .id_salt(format!("group_{group_path}"))
-            .default_open(is_expanded)
-            .show(ui, |ui| {
-                for metric in metrics {
-                    self.show_metric_item(ui, metric, text_color);
-                }
-            });
+        let header_color = if is_focused {
+            Color32::from_rgb(255, 215, 0) // Accent yellow for focus
+        } else {
+            text_color.gamma_multiply(0.9)
+        };
 
-            // Update expanded state based on response
+        ui.indent(group_path, |ui| {
+            let response =
+                egui::CollapsingHeader::new(RichText::new(header_text).color(header_color))
+                    .id_salt(format!("group_{group_path}"))
+                    .show(ui, |ui| {
+                        for metric in metrics {
+                            self.show_metric_item_with_focus(ui, metric, text_color, item_idx);
+                        }
+                    });
+
+            // Sync our expanded state with the header's actual state
             if response.fully_open() {
                 self.expanded_groups.insert(group_path.to_string());
-            } else if response.openness < 0.5 {
+            } else if !response.fully_open() && response.openness < 0.1 {
                 self.expanded_groups.remove(group_path);
+            }
+
+            // Handle click to set focus
+            if response.header_response.clicked() {
+                self.focus_index = Some(*item_idx - 1);
             }
         });
     }
 
-    fn show_metric_item(&mut self, ui: &mut egui::Ui, metric: &MetricInfo, text_color: Color32) {
+    /// Show a metric item with focus tracking
+    fn show_metric_item_with_focus(
+        &mut self,
+        ui: &mut egui::Ui,
+        metric: &MetricInfo,
+        text_color: Color32,
+        item_idx: &mut usize,
+    ) {
         let is_selected = self.selection.metric.as_deref() == Some(&metric.name);
+        let is_focused = self.focus_index == Some(*item_idx);
+
+        // Increment for this metric
+        *item_idx += 1;
 
         let mut add_chart_requested = false;
+
+        // Determine the display color based on focus/selection
+        let display_color = if is_focused {
+            Color32::from_rgb(255, 215, 0) // Accent yellow for focus
+        } else {
+            text_color
+        };
+
+        // Focus indicator prefix
+        let focus_prefix = if is_focused { "▶ " } else { "  " };
 
         ui.horizontal(|ui| {
             ui.add_space(32.0); // Indent for leaf items
 
-            // Selection highlight
+            // Selection highlight with focus indicator
+            let label_text = format!("{}{}", focus_prefix, metric.display_name());
             let response = ui.selectable_label(
-                is_selected,
-                RichText::new(metric.display_name()).color(text_color),
+                is_selected || is_focused,
+                RichText::new(label_text).color(display_color),
             );
 
             if response.clicked() {
                 self.selection.metric = Some(metric.name.clone());
                 self.selection.tag_filters.clear();
+                self.focus_index = Some(*item_idx - 1);
             }
 
             // Double-click to add chart
