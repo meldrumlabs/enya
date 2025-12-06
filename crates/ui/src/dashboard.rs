@@ -87,6 +87,15 @@ impl Default for Dashboard {
     }
 }
 
+/// Direction for vim-style navigation
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum NavDirection {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 impl Dashboard {
     /// Default left panel width
     const DEFAULT_PANEL_WIDTH: f32 = 280.0;
@@ -315,6 +324,10 @@ impl Dashboard {
         // Show command palette modal
         self.command_palette.set_theme(app_state.theme);
         let cmd_result = self.command_palette.show(ctx);
+
+        // Handle vim-style keyboard navigation for viewport
+        self.handle_viewport_keyboard(ctx);
+
         self.handle_command_result(cmd_result)
     }
 
@@ -491,11 +504,299 @@ impl Dashboard {
     pub fn metrics_tree_mut(&mut self) -> &mut MetricsTree {
         &mut self.metrics_tree
     }
+
+    /// Get all pane tile IDs in the viewport (for navigation)
+    fn get_pane_tile_ids(&self) -> Vec<TileId> {
+        let mut pane_ids = Vec::new();
+
+        if let Some(root_id) = self.viewport_tree.root() {
+            self.collect_pane_ids(root_id, &mut pane_ids);
+        }
+
+        pane_ids
+    }
+
+    /// Recursively collect all pane tile IDs
+    fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>) {
+        if let Some(tile) = self.viewport_tree.tiles.get(tile_id) {
+            match tile {
+                Tile::Pane(_) => {
+                    pane_ids.push(tile_id);
+                }
+                Tile::Container(container) => {
+                    for child_id in container.children() {
+                        self.collect_pane_ids(*child_id, pane_ids);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Find sibling tile in a given direction, respecting container layout
+    fn find_sibling_in_direction(
+        &self,
+        current_id: TileId,
+        direction: NavDirection,
+    ) -> Option<TileId> {
+        // Find the parent container of the current tile
+        if let Some(root_id) = self.viewport_tree.root() {
+            return self.find_sibling_recursive(root_id, current_id, direction);
+        }
+        None
+    }
+
+    /// Recursively search for a sibling in the given direction
+    fn find_sibling_recursive(
+        &self,
+        container_id: TileId,
+        target_id: TileId,
+        direction: NavDirection,
+    ) -> Option<TileId> {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+
+            // Check if target is a direct child
+            if let Some(idx) = children.iter().position(|&id| id == target_id) {
+                // Determine if direction matches container orientation
+                let container_kind = container.kind();
+                let container_is_horizontal = matches!(
+                    container_kind,
+                    egui_tiles::ContainerKind::Tabs
+                        | egui_tiles::ContainerKind::Horizontal
+                        | egui_tiles::ContainerKind::Grid
+                );
+                let container_is_vertical =
+                    matches!(container_kind, egui_tiles::ContainerKind::Vertical);
+
+                let nav_is_horizontal =
+                    matches!(direction, NavDirection::Left | NavDirection::Right);
+                let nav_is_vertical = matches!(direction, NavDirection::Up | NavDirection::Down);
+
+                // Navigate within this container if orientation matches
+                if (container_is_horizontal && nav_is_horizontal)
+                    || (container_is_vertical && nav_is_vertical)
+                {
+                    let next_idx = match direction {
+                        NavDirection::Left | NavDirection::Up => {
+                            if idx > 0 {
+                                Some(idx - 1)
+                            } else {
+                                None
+                            }
+                        }
+                        NavDirection::Right | NavDirection::Down => {
+                            if idx + 1 < children.len() {
+                                Some(idx + 1)
+                            } else {
+                                None
+                            }
+                        }
+                    };
+
+                    if let Some(next_idx) = next_idx {
+                        // Get the target tile (might be a container, so get first/last pane)
+                        let next_tile_id = children[next_idx];
+                        return Some(self.get_edge_pane(next_tile_id, direction));
+                    }
+                }
+                // Target is direct child but direction doesn't match container orientation
+                // No sibling in this direction at this level
+                return None;
+            }
+
+            // Check if target is in a nested container (target is NOT a direct child)
+            for &child_id in &children {
+                if child_id != target_id && self.contains_tile(child_id, target_id) {
+                    // First try to find sibling within the nested container
+                    if let Some(sibling) =
+                        self.find_sibling_recursive(child_id, target_id, direction)
+                    {
+                        return Some(sibling);
+                    }
+                    // If not found in nested container, try to find sibling at this level
+                    // by treating the nested container as the target
+                    return self.find_sibling_recursive(container_id, child_id, direction);
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if a container (recursively) contains a specific tile
+    fn contains_tile(&self, container_id: TileId, target_id: TileId) -> bool {
+        if container_id == target_id {
+            return true;
+        }
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            for child_id in container.children() {
+                if self.contains_tile(*child_id, target_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Get the first or last pane within a tile (handles nested containers)
+    fn get_edge_pane(&self, tile_id: TileId, direction: NavDirection) -> TileId {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(tile_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+            if !children.is_empty() {
+                // When navigating right/down, get the first child; when left/up, get the last
+                let edge_child = match direction {
+                    NavDirection::Right | NavDirection::Down => children[0],
+                    NavDirection::Left | NavDirection::Up => children[children.len() - 1],
+                };
+                return self.get_edge_pane(edge_child, direction);
+            }
+        }
+        // It's a pane or empty container
+        tile_id
+    }
+
+    /// Handle vim-style keyboard navigation for the viewport
+    /// Returns true if a key was consumed
+    pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> bool {
+        // Don't handle keys if a text field or modal has focus
+        if ctx.memory(|mem| mem.focused().is_some()) {
+            return false;
+        }
+
+        // Don't handle if fuzzy finder or command palette is open
+        if self.fuzzy_finder.is_open() || self.command_palette.is_open() {
+            return false;
+        }
+
+        let pane_ids = self.get_pane_tile_ids();
+        if pane_ids.is_empty() {
+            return false;
+        }
+
+        let current_focus = self.behavior.focused_tile();
+
+        let mut consumed = false;
+        let mut should_clear_focus = false;
+        let mut new_tile_id: Option<TileId> = None;
+
+        ctx.input_mut(|input| {
+            // h or left arrow - move left
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+            {
+                if let Some(current_id) = current_focus {
+                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
+                } else {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // l or right arrow - move right
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+            {
+                if let Some(current_id) = current_focus {
+                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
+                } else {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // j or down arrow - move down
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+            {
+                if let Some(current_id) = current_focus {
+                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
+                } else {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // k or up arrow - move up
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+            {
+                if let Some(current_id) = current_focus {
+                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
+                } else {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // Escape - clear focus
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                should_clear_focus = true;
+                consumed = true;
+            }
+        });
+
+        if should_clear_focus {
+            self.behavior.set_focused_tile(None);
+        } else if let Some(tile_id) = new_tile_id {
+            // Set focus and also switch to that tab if it's in a tabs container
+            self.behavior.set_focused_tile(Some(tile_id));
+            self.activate_tile(tile_id);
+        }
+
+        if consumed {
+            ctx.request_repaint();
+            log::debug!(
+                "Viewport navigation: focus is now {:?}",
+                self.behavior.focused_tile()
+            );
+        }
+
+        consumed
+    }
+
+    /// Activate a tile (make it the active tab in its parent container)
+    fn activate_tile(&mut self, tile_id: TileId) {
+        // Find the parent tabs container and set this tile as active
+        if let Some(root_id) = self.viewport_tree.root() {
+            self.activate_tile_in_container(root_id, tile_id);
+        }
+    }
+
+    /// Recursively find and activate a tile in its parent tabs container
+    fn activate_tile_in_container(&mut self, container_id: TileId, target_id: TileId) -> bool {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+
+            // Check if target is a direct child
+            if children.contains(&target_id) {
+                // Set this tile as active in the tabs container
+                if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+                    self.viewport_tree.tiles.get_mut(container_id)
+                {
+                    tabs.set_active(target_id);
+                    return true;
+                }
+            }
+
+            // Recursively search children
+            for child_id in children {
+                if self.activate_tile_in_container(child_id, target_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 #[derive(Default, Clone)]
 struct TreeBehavior {
     add_child_to: Option<egui_tiles::TileId>,
+    /// Currently focused tile for vim-style navigation
+    focused_tile_id: Option<egui_tiles::TileId>,
     theme: AppTheme,
     api_key: String,
 }
@@ -506,6 +807,12 @@ impl TreeBehavior {
     }
     pub fn set_keys(&mut self, api_key: String) {
         self.api_key = api_key;
+    }
+    pub fn set_focused_tile(&mut self, tile_id: Option<egui_tiles::TileId>) {
+        self.focused_tile_id = tile_id;
+    }
+    pub fn focused_tile(&self) -> Option<egui_tiles::TileId> {
+        self.focused_tile_id
     }
 }
 
@@ -527,7 +834,26 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         component.set_api_key(&self.api_key);
 
         component.show(ui);
+
         egui_tiles::UiResponse::None
+    }
+
+    fn paint_on_top_of_tile(
+        &self,
+        painter: &egui::Painter,
+        _style: &egui::Style,
+        tile_id: egui_tiles::TileId,
+        rect: egui::Rect,
+    ) {
+        // Draw focus border on top of the entire tile (including tab bar)
+        if self.focused_tile_id == Some(tile_id) {
+            let focus_color = match self.theme {
+                AppTheme::Light => egui::Color32::from_rgb(40, 100, 220),
+                AppTheme::Dark => egui::Color32::from_rgb(80, 160, 255),
+            };
+
+            painter.rect_stroke(rect, 4.0, egui::Stroke::new(3.0, focus_color));
+        }
     }
     fn top_bar_right_ui(
         &mut self,
