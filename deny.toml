@@ -46,6 +46,7 @@ allow = [
   "LicenseRef-UFL-1.0",
   "CDLA-Permissive-2.0",
   "bzip2-1.0.6",
+  "Ubuntu-font-1.0",              # https://ubuntu.com/legal/font-licence - used by egui default fonts
 ]
 exceptions = []
 

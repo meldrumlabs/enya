@@ -387,9 +387,11 @@ impl TreeBehavior {
 
 impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     fn tab_title_for_pane(&mut self, component: &Box<dyn Component>) -> egui::WidgetText {
-        egui::WidgetText::RichText(component.label())
+        component
+            .label()
             .color(text_color(self.theme))
             .strong()
+            .into()
     }
 
     fn pane_ui(

@@ -1,5 +1,5 @@
 use egui::{
-    Color32, Rounding, Stroke, Visuals,
+    Color32, CornerRadius, Stroke, Visuals,
     style::{Selection, WidgetVisuals, Widgets},
 };
 
@@ -17,7 +17,7 @@ pub fn white_theme() -> Visuals {
                 bg_fill: white,
                 weak_bg_fill: light_black,
                 bg_stroke: Stroke::new(1.0, black),
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fg_stroke: Stroke::new(1.0, black),
                 expansion: 0.0,
             },
@@ -25,7 +25,7 @@ pub fn white_theme() -> Visuals {
                 bg_fill: white,
                 weak_bg_fill: light_black,
                 bg_stroke: Stroke::new(1.0, black),
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fg_stroke: Stroke::new(1.0, black),
                 expansion: 0.0,
             },
@@ -33,7 +33,7 @@ pub fn white_theme() -> Visuals {
                 bg_fill: light_black,
                 weak_bg_fill: light_black,
                 bg_stroke: Stroke::new(1.5, black),
-                rounding: Rounding::same(3.0),
+                corner_radius: CornerRadius::same(3),
                 fg_stroke: Stroke::new(1.5, black),
                 expansion: 1.0,
             },
@@ -41,7 +41,7 @@ pub fn white_theme() -> Visuals {
                 bg_fill: light_black,
                 weak_bg_fill: light_black,
                 bg_stroke: Stroke::new(2.0, black),
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fg_stroke: Stroke::new(2.0, black),
                 expansion: 1.0,
             },
@@ -49,7 +49,7 @@ pub fn white_theme() -> Visuals {
                 bg_fill: light_black,
                 weak_bg_fill: light_black,
                 bg_stroke: Stroke::new(1.0, black),
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fg_stroke: Stroke::new(1.0, black),
                 expansion: 0.0,
             },
@@ -58,7 +58,6 @@ pub fn white_theme() -> Visuals {
             bg_fill: Color32::from_rgb(144, 209, 255),
             stroke: Stroke::new(1.0, Color32::from_rgb(0, 148, 255)),
         },
-        window_rounding: Rounding::same(6.0),
         window_fill: white,
         window_stroke: Stroke::new(1.0, black),
         ..Default::default()
@@ -320,7 +319,7 @@ pub fn gruvbox_theme() -> Visuals {
                 bg_fill: bg0_h, // Hard dark background
                 weak_bg_fill: bg0_h,
                 bg_stroke: Stroke::new(1.0, bg1), // Subtle separator
-                rounding: Rounding::same(2.0),    // Subtle rounding for retro feel
+                corner_radius: CornerRadius::same(2), // Subtle rounding for retro feel
                 fg_stroke: Stroke::new(1.0, fg4), // Subdued text
                 expansion: 0.0,
             },
@@ -328,7 +327,7 @@ pub fn gruvbox_theme() -> Visuals {
                 bg_fill: bg0_h,                     // Consistent dark background
                 weak_bg_fill: Color32::TRANSPARENT, // No button background
                 bg_stroke: Stroke::new(1.0, bg1),   // Light stroke for definition
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fg_stroke: Stroke::new(1.0, fg1), // Default text
                 expansion: 0.0,
             },
@@ -336,7 +335,7 @@ pub fn gruvbox_theme() -> Visuals {
                 bg_fill: yellow, // Gruvbox yellow for hover
                 weak_bg_fill: aqua,
                 bg_stroke: Stroke::new(1.5, bg1), // Slightly bolder stroke
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fg_stroke: Stroke::new(1.5, fg0), // Strong text
                 expansion: 1.0,                   // Subtle expansion
             },
@@ -344,7 +343,7 @@ pub fn gruvbox_theme() -> Visuals {
                 bg_fill: orange, // Gruvbox orange for active
                 weak_bg_fill: orange,
                 bg_stroke: Stroke::new(1.5, bg1),
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fg_stroke: Stroke::new(2.0, fg0), // Strong text
                 expansion: 1.0,
             },
@@ -352,7 +351,7 @@ pub fn gruvbox_theme() -> Visuals {
                 bg_fill: aqua, // Consistent with hover
                 weak_bg_fill: aqua,
                 bg_stroke: Stroke::new(1.0, bg1),
-                rounding: Rounding::same(2.0),
+                corner_radius: CornerRadius::same(2),
                 fg_stroke: Stroke::new(1.0, fg1), // Default text
                 expansion: 1.0,
             },
@@ -361,22 +360,21 @@ pub fn gruvbox_theme() -> Visuals {
             bg_fill: blue,                  // Gruvbox blue for selections
             stroke: Stroke::new(1.5, aqua), // Lighter aqua for stroke
         },
-        window_rounding: Rounding::same(4.0), // Moderate rounding for windows
         window_fill: bg2,                     // Lighter bg for tooltips/menus
         window_stroke: Stroke::new(1.0, bg1), // Subtle window stroke
         panel_fill: bg0_h,                    // Hard dark background
         faint_bg_color: bg1,                  // Subtle highlight for stripes
         extreme_bg_color: bg0,                // Slightly lighter for text edits
         popup_shadow: egui::epaint::Shadow {
-            offset: [2.0, 2.0].into(),
-            blur: 10.0,
-            spread: 0.0,
+            offset: [2, 2],
+            blur: 10,
+            spread: 0,
             color: Color32::from_black_alpha(64), // Subtle shadow
         },
         window_shadow: egui::epaint::Shadow {
-            offset: [2.0, 2.0].into(),
-            blur: 10.0,
-            spread: 0.0,
+            offset: [2, 2],
+            blur: 10,
+            spread: 0,
             color: Color32::from_black_alpha(64),
         },
         striped: true, // Gruvbox often uses stripes for tables
@@ -580,13 +578,13 @@ pub fn black_theme() -> Visuals {
     let accent_bright = Color32::from_rgb(255, 235, 59); // Brightest accent (e.g., hover text)
 
     // KEY CHANGE: Zero rounding for the square, blocky pixel look.
-    let block_rounding = Rounding::same(0.0);
+    let block_rounding = CornerRadius::same(0);
 
     // KEY CHANGE: Define a zero-blur, zero-offset shadow for a flat, non-skeuomorphic UI.
     let flat_shadow = egui::epaint::Shadow {
-        offset: [0.0, 0.0].into(),
-        blur: 0.0,
-        spread: 0.0,
+        offset: [0, 0],
+        blur: 0,
+        spread: 0,
         color: Color32::TRANSPARENT,
     };
 
@@ -601,7 +599,7 @@ pub fn black_theme() -> Visuals {
                 bg_fill: inner_black,
                 weak_bg_fill: inner_black,
                 bg_stroke: Stroke::new(1.0, border_gray),
-                rounding: block_rounding,
+                corner_radius: block_rounding,
                 fg_stroke: Stroke::new(1.0, text_white),
                 expansion: 0.0,
             },
@@ -610,7 +608,7 @@ pub fn black_theme() -> Visuals {
                 bg_fill: inner_black,
                 weak_bg_fill: Color32::TRANSPARENT,
                 bg_stroke: Stroke::NONE,
-                rounding: block_rounding,
+                corner_radius: block_rounding,
                 fg_stroke: Stroke::new(1.0, text_white),
                 expansion: 0.0,
             },
@@ -619,7 +617,7 @@ pub fn black_theme() -> Visuals {
                 bg_fill: inner_black,
                 weak_bg_fill: inner_black,
                 bg_stroke: Stroke::new(1.0, accent_bright),
-                rounding: block_rounding,
+                corner_radius: block_rounding,
                 fg_stroke: Stroke::new(1.0, accent_bright),
                 expansion: 1.0,
             },
@@ -628,7 +626,7 @@ pub fn black_theme() -> Visuals {
                 bg_fill: accent_yellow,
                 weak_bg_fill: accent_yellow,
                 bg_stroke: Stroke::new(1.0, accent_yellow),
-                rounding: block_rounding,
+                corner_radius: block_rounding,
                 fg_stroke: Stroke::new(1.0, extreme_black), // Black text on accent background
                 expansion: 0.0,
             },
@@ -637,7 +635,7 @@ pub fn black_theme() -> Visuals {
                 bg_fill: inner_black,
                 weak_bg_fill: inner_black,
                 bg_stroke: Stroke::new(1.0, accent_yellow),
-                rounding: block_rounding,
+                corner_radius: block_rounding,
                 fg_stroke: Stroke::new(1.0, accent_yellow),
                 expansion: 1.0,
             },
@@ -651,7 +649,6 @@ pub fn black_theme() -> Visuals {
         },
 
         // KEY CHANGE: Window is square and has a sharp accent border.
-        window_rounding: Rounding::same(0.0),
         window_fill: extreme_black,
         window_stroke: Stroke::new(1.0, accent_yellow),
 

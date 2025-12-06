@@ -5,7 +5,6 @@ use egui::Visuals;
 use egui::style::Selection;
 use egui::style::TextCursorStyle;
 use egui::style::Widgets;
-use egui::vec2;
 
 #[derive(
     Clone,
@@ -56,9 +55,9 @@ pub fn light() -> Visuals {
         error_fg_color: Color32::from_rgb(255, 0, 0),  // error text remains as is
 
         window_shadow: Shadow {
-            offset: vec2(10.0, 20.0),
-            blur: 15.0,
-            spread: 0.0,
+            offset: [10, 20],
+            blur: 15,
+            spread: 0,
             color: Color32::from_black_alpha(25),
         },
         // Set window fill to pure white:
@@ -70,9 +69,9 @@ pub fn light() -> Visuals {
         panel_fill: Color32::from_rgb(255, 255, 255),
 
         popup_shadow: Shadow {
-            offset: vec2(6.0, 10.0),
-            blur: 8.0,
-            spread: 0.0,
+            offset: [6, 10],
+            blur: 8,
+            spread: 0,
             color: Color32::from_black_alpha(25),
         },
 

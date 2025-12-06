@@ -9,7 +9,7 @@ use super::colors::{apply_button_theme, text_color};
 
 pub fn welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState, command_sender: &CommandSender) {
     egui::Frame {
-        inner_margin: egui::Margin::same(5.0),
+        inner_margin: egui::Margin::same(5),
         ..Default::default()
     }
     .show(ui, |ui| {

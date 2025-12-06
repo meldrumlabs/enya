@@ -118,7 +118,7 @@ impl EnyaApp {
     // This paints the top panel aka header
     fn show_top_panel(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.horizontal(|ui| {
                     self.menu_button_ui(ui);
 
@@ -330,7 +330,8 @@ fn setup_fonts(ctx: &egui::Context) {
     // Add DepartureMono font
     fonts.font_data.insert(
         "departure_mono".to_owned(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/DepartureMono-Regular.otf")),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/DepartureMono-Regular.otf"))
+            .into(),
     );
 
     // Add Phosphor icons font

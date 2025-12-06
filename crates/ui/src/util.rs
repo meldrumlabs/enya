@@ -11,7 +11,12 @@ pub fn color_image_to_icon_data(image: epaint::ColorImage) -> egui::IconData {
 }
 
 pub fn svg_to_icon_data(svg_bytes: &[u8], size_hint: Option<SizeHint>) -> egui::IconData {
-    let image = load_svg_bytes_with_size(svg_bytes, size_hint).unwrap();
+    let size = size_hint.unwrap_or(SizeHint::Size {
+        width: 256,
+        height: 256,
+        maintain_aspect_ratio: true,
+    });
+    let image = load_svg_bytes_with_size(svg_bytes, size, &Default::default()).unwrap();
     color_image_to_icon_data(image)
 }
 pub fn png_to_icon_data(png_bytes: &[u8]) -> egui::IconData {
