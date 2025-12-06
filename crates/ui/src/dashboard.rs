@@ -4,12 +4,27 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
 use crate::components::{
-    Component, CustomQueriesPanel, FuzzyFinder, FuzzyItem, InspectorPanel, InspectorTarget,
-    MetricStats, MetricsTree, TimeRangeToolbar, TimeSeriesChart, inspector_toggle_button,
-    metrics_panel_toggle_button,
+    CommandPalette, CommandResult, Component, CustomQueriesPanel, FuzzyFinder, FuzzyItem,
+    InspectorPanel, InspectorTarget, MetricStats, MetricsTree, TimeRangeToolbar, TimeSeriesChart,
+    inspector_toggle_button, metrics_panel_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+
+/// Actions that the Dashboard needs the App to handle
+#[derive(Debug, Clone, PartialEq)]
+pub enum DashboardAction {
+    /// No action needed
+    None,
+    /// Toggle the theme
+    ToggleTheme,
+    /// Set a specific theme
+    SetTheme(AppTheme),
+    /// Open settings
+    OpenSettings,
+    /// Show help
+    ShowHelp,
+}
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
 /// and a flexible right area for tabbed views/charts.
@@ -41,6 +56,8 @@ pub struct Dashboard {
     last_selected_metric: Option<String>,
     /// Fuzzy finder modal (telescope-style search)
     fuzzy_finder: FuzzyFinder,
+    /// Command palette (neovim-style `:` commands)
+    command_palette: CommandPalette,
 }
 
 impl Default for Dashboard {
@@ -65,6 +82,7 @@ impl Default for Dashboard {
             inspector: InspectorPanel::new(),
             last_selected_metric: None,
             fuzzy_finder: FuzzyFinder::new(),
+            command_palette: CommandPalette::new(),
         }
     }
 }
@@ -108,10 +126,16 @@ impl Dashboard {
             inspector: InspectorPanel::new(),
             last_selected_metric: None,
             fuzzy_finder: FuzzyFinder::new(),
+            command_palette: CommandPalette::new(),
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, app_state: &AppState) {
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        app_state: &AppState,
+    ) -> DashboardAction {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
@@ -287,6 +311,46 @@ impl Dashboard {
         if let Some(selected_item) = self.fuzzy_finder.show(ctx) {
             self.handle_fuzzy_selection(selected_item);
         }
+
+        // Show command palette modal
+        self.command_palette.set_theme(app_state.theme);
+        let cmd_result = self.command_palette.show(ctx);
+        self.handle_command_result(cmd_result)
+    }
+
+    /// Handle a command result from the command palette
+    fn handle_command_result(&mut self, result: CommandResult) -> DashboardAction {
+        match result {
+            CommandResult::ToggleTheme => DashboardAction::ToggleTheme,
+            CommandResult::SetTheme(theme) => DashboardAction::SetTheme(theme),
+            CommandResult::ToggleMetricsPanel => {
+                self.left_panel_visible = !self.left_panel_visible;
+                DashboardAction::None
+            }
+            CommandResult::ToggleInspectorPanel => {
+                self.inspector.toggle();
+                DashboardAction::None
+            }
+            CommandResult::OpenSearch => {
+                self.open_fuzzy_finder();
+                DashboardAction::None
+            }
+            CommandResult::OpenSettings => DashboardAction::OpenSettings,
+            CommandResult::ShowHelp => DashboardAction::ShowHelp,
+            CommandResult::CloseTab => {
+                // TODO: Implement tab closing
+                log::debug!("Close tab command received");
+                DashboardAction::None
+            }
+            CommandResult::SplitHorizontal | CommandResult::SplitVertical => {
+                // TODO: Implement splits
+                log::debug!("Split command received");
+                DashboardAction::None
+            }
+            CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
+                DashboardAction::None
+            }
+        }
     }
 
     /// Handle a selection from the fuzzy finder
@@ -326,6 +390,11 @@ impl Dashboard {
 
         self.fuzzy_finder.set_items(items);
         self.fuzzy_finder.open();
+    }
+
+    /// Open the command palette modal
+    pub fn open_command_palette(&mut self) {
+        self.command_palette.open();
     }
 
     /// Update the inspector panel based on the current metric selection

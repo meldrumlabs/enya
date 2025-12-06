@@ -9,7 +9,7 @@ use crate::command::CommandSender;
 use crate::command::UICommand;
 use crate::command::UICommandSender;
 use crate::command::command_channel;
-use crate::dashboard::Dashboard;
+use crate::dashboard::{Dashboard, DashboardAction};
 use crate::theme::AppTheme;
 use crate::theme::light;
 use crate::ui::colors::text_color;
@@ -272,6 +272,10 @@ impl EnyaApp {
             UICommand::OpenFuzzyFinder => {
                 self.open_fuzzy_finder();
             }
+
+            UICommand::OpenCommandPalette => {
+                self.open_command_palette();
+            }
         }
     }
 
@@ -293,17 +297,49 @@ impl EnyaApp {
             self.dashboard = Some(Dashboard::example(self.state.settings.api_key.clone()));
         }
 
+        let mut dashboard_action = DashboardAction::None;
+
         egui::CentralPanel::default().show(ctx, |ui| {
             // Safe since we initialized the example_dashboard
             if let Some(dashboard) = self.dashboard.as_mut() {
-                dashboard.show(ui, ctx, &self.state);
+                dashboard_action = dashboard.show(ui, ctx, &self.state);
             }
         });
+
+        // Handle actions from the dashboard (e.g., from command palette)
+        self.handle_dashboard_action(ctx, dashboard_action);
+    }
+
+    fn handle_dashboard_action(&mut self, ctx: &egui::Context, action: DashboardAction) {
+        match action {
+            DashboardAction::None => {}
+            DashboardAction::ToggleTheme => {
+                self.command_sender.send_ui(UICommand::ToggleTheme);
+            }
+            DashboardAction::SetTheme(theme) => {
+                self.command_sender.send_ui(UICommand::Theme(theme));
+            }
+            DashboardAction::OpenSettings => {
+                self.command_sender.send_ui(UICommand::Settings);
+            }
+            DashboardAction::ShowHelp => {
+                ctx.open_url(egui::output::OpenUrl {
+                    url: "https://enya.dev/contact".to_owned(),
+                    new_tab: true,
+                });
+            }
+        }
     }
 
     fn open_fuzzy_finder(&mut self) {
         if let Some(dashboard) = self.dashboard.as_mut() {
             dashboard.open_fuzzy_finder();
+        }
+    }
+
+    fn open_command_palette(&mut self) {
+        if let Some(dashboard) = self.dashboard.as_mut() {
+            dashboard.open_command_palette();
         }
     }
 }

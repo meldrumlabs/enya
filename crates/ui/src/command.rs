@@ -25,6 +25,7 @@ pub enum UICommand {
     Theme(AppTheme),
     ToggleTheme,
     OpenFuzzyFinder,
+    OpenCommandPalette,
 }
 
 impl UICommand {
@@ -48,6 +49,7 @@ impl UICommand {
             Self::CloseSettings => ("Close Settings…", "Close Enya Settings"),
             Self::ConnectionStatus(_) => ("", ""),
             Self::OpenFuzzyFinder => ("Search...", "Open fuzzy finder to search metrics"),
+            Self::OpenCommandPalette => ("Command Palette", "Open command palette"),
         }
     }
 
@@ -166,6 +168,8 @@ impl UICommand {
             Self::OpenExampleDashboard(_) => smallvec![],
             Self::ConnectionStatus(_) => smallvec![],
             Self::OpenFuzzyFinder => smallvec![cmd_key(Key::K, os), cmd_key(Key::P, os)],
+            // ':' key (colon) - no modifiers needed since it's already the shifted key
+            Self::OpenCommandPalette => smallvec![key(Key::Colon)],
         }
     }
 

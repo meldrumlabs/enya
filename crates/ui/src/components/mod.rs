@@ -1,5 +1,6 @@
 use crate::theme::AppTheme;
 
+pub mod command_palette;
 pub mod custom_queries;
 pub mod fuzzy_finder;
 pub mod inspector;
@@ -7,6 +8,7 @@ pub mod metrics_tree;
 pub mod time_range;
 pub mod time_series_chart;
 
+pub use command_palette::{CommandPalette, CommandResult};
 pub use custom_queries::{CustomQueriesPanel, CustomQuery};
 pub use fuzzy_finder::{FuzzyFinder, FuzzyItem};
 pub use inspector::{
