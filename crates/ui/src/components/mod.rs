@@ -1,5 +1,17 @@
 use crate::theme::AppTheme;
 
+pub mod custom_queries;
+pub mod inspector;
+pub mod metrics_tree;
+pub mod time_range;
+pub mod time_series_chart;
+
+pub use custom_queries::{CustomQueriesPanel, CustomQuery};
+pub use inspector::{InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button};
+pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
+pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
+pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
+
 /// Trait that defines an Enya Component
 pub trait Component {
     /// The core function that is responsible for drawing the component
