@@ -16,7 +16,7 @@ pub trait UICommandSender {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum_macros::EnumIter)]
 pub enum UICommand {
     Home,
-    Open,
+    Dashboard,
     OpenExampleDashboard(usize),
     Settings,
     Help,
@@ -39,7 +39,7 @@ impl UICommand {
         match self {
             Self::Home => ("Home", "Open Welcome Screen"),
             Self::Help => ("Help", "Get help with any Playground issues"),
-            Self::Open => ("Open", "Open Enya Dashboard"),
+            Self::Dashboard => ("Dashboard", "Open Enya Dashboard"),
             Self::OpenExampleDashboard(_) => ("...", "Create an Enya dashboard"),
             Self::Settings => ("Settings…", "Open Enya Settings"),
             Self::Theme(_) => ("...", "..."),
@@ -145,9 +145,9 @@ impl UICommand {
         }
 
         match self {
-            Self::Home => smallvec![key(Key::H)],
+            Self::Home => smallvec![],
             Self::Help => smallvec![key(Key::X)],
-            Self::Open => smallvec![key(Key::O)],
+            Self::Dashboard => smallvec![key(Key::D)],
             Self::Settings => smallvec![key(Key::S)],
             Self::CloseSettings => smallvec![],
             Self::ToggleTheme => smallvec![key(Key::T)],

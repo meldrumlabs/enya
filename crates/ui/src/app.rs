@@ -68,8 +68,8 @@ impl AppState {
 #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub enum UIState {
     Settings,
-    Dashboard,
     #[default]
+    Dashboard,
     Home,
 }
 
@@ -91,12 +91,8 @@ impl EnyaApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
-        let mut fonts = egui::FontDefinitions::default();
-        egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Thin);
-
-        cc.egui_ctx.set_fonts(fonts);
-
-        replace_fonts(&cc.egui_ctx);
+        // Set up fonts with both DepartureMono and Phosphor icons
+        setup_fonts(&cc.egui_ctx);
 
         let mut app = Self::default();
 
@@ -106,6 +102,10 @@ impl EnyaApp {
             let state: AppState = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
             app.state = state;
         }
+
+        // Always start with Dashboard (ignore persisted ui_state)
+        app.state.ui_state = UIState::Dashboard;
+        app.state.prev_ui_state = UIState::Dashboard;
 
         match cc.egui_ctx.theme() {
             Theme::Light => app.state.theme = AppTheme::Light,
@@ -150,11 +150,8 @@ impl EnyaApp {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let theme = self.state.theme;
 
-        // Open Home
-        UICommand::Home.menu_button_ui(ui, theme, &self.command_sender);
-
         // Open dashboard
-        UICommand::Open.menu_button_ui(ui, theme, &self.command_sender);
+        UICommand::Dashboard.menu_button_ui(ui, theme, &self.command_sender);
 
         // Settings
         UICommand::Settings.menu_button_ui(ui, theme, &self.command_sender);
@@ -236,7 +233,7 @@ impl EnyaApp {
                 self.state.ui_state = UIState::Dashboard;
                 self.state.prev_ui_state = old;
             }
-            UICommand::Open => {
+            UICommand::Dashboard => {
                 self.state.prev_ui_state = self.state.ui_state;
                 self.state.ui_state = UIState::Dashboard;
             }
@@ -327,27 +324,31 @@ impl eframe::App for EnyaApp {
     }
 }
 
-fn replace_fonts(ctx: &egui::Context) {
+fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
+    // Add DepartureMono font
     fonts.font_data.insert(
-        "depature_mono".to_owned(),
+        "departure_mono".to_owned(),
         egui::FontData::from_static(include_bytes!("../assets/fonts/DepartureMono-Regular.otf")),
     );
 
-    // Put my font first (highest priority) for proportional text:
+    // Add Phosphor icons font
+    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+
+    // Put DepartureMono first (highest priority) for proportional text:
     fonts
         .families
         .entry(egui::FontFamily::Proportional)
         .or_default()
-        .insert(0, "depature_mono".to_owned());
+        .insert(0, "departure_mono".to_owned());
 
-    // Put my font as last fallback for monospace:
+    // Put DepartureMono as last fallback for monospace:
     fonts
         .families
         .entry(egui::FontFamily::Monospace)
         .or_default()
-        .push("depature_mono".to_owned());
+        .push("departure_mono".to_owned());
 
     // Tell egui to use these fonts:
     ctx.set_fonts(fonts);
