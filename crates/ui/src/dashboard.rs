@@ -6,6 +6,7 @@ use crate::app::AppState;
 use crate::components::{
     Component, CustomQueriesPanel, FuzzyFinder, FuzzyItem, InspectorPanel, InspectorTarget,
     MetricStats, MetricsTree, TimeRangeToolbar, TimeSeriesChart, inspector_toggle_button,
+    metrics_panel_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -26,6 +27,8 @@ pub struct Dashboard {
     behavior: TreeBehavior,
     /// Width of the left panel in pixels
     left_panel_width: f32,
+    /// Whether the left panel (metrics tree) is visible
+    left_panel_visible: bool,
     /// Track which metrics already have charts open (by metric name)
     open_charts: HashSet<String>,
     /// Pending chart to add (metric name)
@@ -55,6 +58,7 @@ impl Default for Dashboard {
             viewport_tree,
             behavior: TreeBehavior::default(),
             left_panel_width: 280.0,
+            left_panel_visible: true,
             open_charts: HashSet::new(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
@@ -97,6 +101,7 @@ impl Dashboard {
             viewport_tree,
             behavior: TreeBehavior::default(),
             left_panel_width: Self::DEFAULT_PANEL_WIDTH,
+            left_panel_visible: true,
             open_charts,
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
@@ -130,98 +135,102 @@ impl Dashboard {
 
         // Left panel with Provided (metrics) and Custom (queries) sections
         let text_color = text_color(app_state.theme);
-        egui::SidePanel::left("metrics_panel")
-            .resizable(true)
-            .default_width(self.left_panel_width)
-            .width_range(Self::MIN_PANEL_WIDTH..=Self::MAX_PANEL_WIDTH)
-            .show_inside(ui, |ui| {
-                // Search button at the top (opens fuzzy finder)
-                let search_btn = egui::Button::new(
-                    egui::RichText::new(format!(
-                        "{}  Search...",
-                        egui_phosphor::regular::MAGNIFYING_GLASS
-                    ))
-                    .color(text_color.gamma_multiply(0.6)),
-                )
-                .fill(egui::Color32::TRANSPARENT)
-                .stroke(egui::Stroke::new(1.0, text_color.gamma_multiply(0.2)))
-                .rounding(4.0);
 
-                if ui
-                    .add_sized([ui.available_width(), 28.0], search_btn)
-                    .on_hover_text("Search metrics and queries (Cmd+K)")
-                    .clicked()
-                {
-                    open_fuzzy = true;
-                }
-
-                ui.add_space(8.0);
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    // "Provided" section - contains the metrics tree
-                    let provided_header = format!("{} Provided", egui_phosphor::regular::PACKAGE);
-                    let provided_header_builder = egui::CollapsingHeader::new(
-                        egui::RichText::new(provided_header)
-                            .color(text_color)
-                            .strong(),
+        if self.left_panel_visible {
+            egui::SidePanel::left("metrics_panel")
+                .resizable(true)
+                .default_width(self.left_panel_width)
+                .width_range(Self::MIN_PANEL_WIDTH..=Self::MAX_PANEL_WIDTH)
+                .show_inside(ui, |ui| {
+                    // Search button at the top (opens fuzzy finder)
+                    let search_btn = egui::Button::new(
+                        egui::RichText::new(format!(
+                            "{}  Search...",
+                            egui_phosphor::regular::MAGNIFYING_GLASS
+                        ))
+                        .color(text_color.gamma_multiply(0.6)),
                     )
-                    .id_salt("provided_section")
-                    .default_open(self.provided_expanded);
+                    .fill(egui::Color32::TRANSPARENT)
+                    .stroke(egui::Stroke::new(1.0, text_color.gamma_multiply(0.2)))
+                    .rounding(4.0);
 
-                    let provided_response = provided_header_builder.show(ui, |ui| {
-                        self.metrics_tree.show(ui);
-
-                        // Check if a metric was double-clicked (add chart action)
-                        if let Some(metric_name) = self.metrics_tree.take_pending_chart() {
-                            self.pending_chart = Some(metric_name);
-                        }
-                    });
-
-                    // Update provided expanded state
-                    if provided_response.fully_open() {
-                        self.provided_expanded = true;
-                    } else if provided_response.openness < 0.5 {
-                        self.provided_expanded = false;
+                    if ui
+                        .add_sized([ui.available_width(), 28.0], search_btn)
+                        .on_hover_text("Search metrics and queries (Cmd+K)")
+                        .clicked()
+                    {
+                        open_fuzzy = true;
                     }
 
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
 
-                    // "Custom" section - contains the custom queries
-                    let custom_header = format!(
-                        "{} Custom ({})",
-                        egui_phosphor::regular::CODE,
-                        self.custom_queries.queries().len()
-                    );
-                    let custom_header_builder = egui::CollapsingHeader::new(
-                        egui::RichText::new(custom_header)
-                            .color(text_color)
-                            .strong(),
-                    )
-                    .id_salt("custom_section")
-                    .default_open(self.custom_expanded);
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        // "Provided" section - contains the metrics tree
+                        let provided_header =
+                            format!("{} Provided", egui_phosphor::regular::PACKAGE);
+                        let provided_header_builder = egui::CollapsingHeader::new(
+                            egui::RichText::new(provided_header)
+                                .color(text_color)
+                                .strong(),
+                        )
+                        .id_salt("provided_section")
+                        .default_open(self.provided_expanded);
 
-                    let custom_response = custom_header_builder.show(ui, |ui| {
-                        self.custom_queries.show(ui);
+                        let provided_response = provided_header_builder.show(ui, |ui| {
+                            self.metrics_tree.show(ui);
 
-                        // Check if a custom query was double-clicked (add chart action)
-                        if let Some(query_id) = self.custom_queries.take_pending_chart() {
-                            if let Some(query) = self.custom_queries.get_query(query_id) {
-                                // Clone the values to avoid borrow issues
-                                let name = query.name.clone();
-                                let query_str = query.query.clone();
-                                self.add_chart_for_query(&name, &query_str);
+                            // Check if a metric was double-clicked (add chart action)
+                            if let Some(metric_name) = self.metrics_tree.take_pending_chart() {
+                                self.pending_chart = Some(metric_name);
                             }
+                        });
+
+                        // Update provided expanded state
+                        if provided_response.fully_open() {
+                            self.provided_expanded = true;
+                        } else if provided_response.openness < 0.5 {
+                            self.provided_expanded = false;
+                        }
+
+                        ui.add_space(4.0);
+
+                        // "Custom" section - contains the custom queries
+                        let custom_header = format!(
+                            "{} Custom ({})",
+                            egui_phosphor::regular::CODE,
+                            self.custom_queries.queries().len()
+                        );
+                        let custom_header_builder = egui::CollapsingHeader::new(
+                            egui::RichText::new(custom_header)
+                                .color(text_color)
+                                .strong(),
+                        )
+                        .id_salt("custom_section")
+                        .default_open(self.custom_expanded);
+
+                        let custom_response = custom_header_builder.show(ui, |ui| {
+                            self.custom_queries.show(ui);
+
+                            // Check if a custom query was double-clicked (add chart action)
+                            if let Some(query_id) = self.custom_queries.take_pending_chart() {
+                                if let Some(query) = self.custom_queries.get_query(query_id) {
+                                    // Clone the values to avoid borrow issues
+                                    let name = query.name.clone();
+                                    let query_str = query.query.clone();
+                                    self.add_chart_for_query(&name, &query_str);
+                                }
+                            }
+                        });
+
+                        // Update custom expanded state
+                        if custom_response.fully_open() {
+                            self.custom_expanded = true;
+                        } else if custom_response.openness < 0.5 {
+                            self.custom_expanded = false;
                         }
                     });
-
-                    // Update custom expanded state
-                    if custom_response.fully_open() {
-                        self.custom_expanded = true;
-                    } else if custom_response.openness < 0.5 {
-                        self.custom_expanded = false;
-                    }
                 });
-            });
+        }
 
         // Open fuzzy finder if search button was clicked
         if open_fuzzy {
@@ -236,7 +245,16 @@ impl Dashboard {
                 .show_inside(ui, |ui| {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        // Time range controls on the left
+                        // Metrics panel toggle on the left
+                        if metrics_panel_toggle_button(ui, self.left_panel_visible, app_state.theme)
+                            .clicked()
+                        {
+                            self.left_panel_visible = !self.left_panel_visible;
+                        }
+
+                        ui.add_space(8.0);
+
+                        // Time range controls
                         self.time_range_toolbar.show(ui);
 
                         // Inspector toggle on the far right

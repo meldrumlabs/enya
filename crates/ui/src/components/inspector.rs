@@ -458,3 +458,26 @@ pub fn inspector_toggle_button(
         "Show inspector"
     })
 }
+
+/// Button to toggle the metrics panel (left sidebar)
+pub fn metrics_panel_toggle_button(
+    ui: &mut egui::Ui,
+    is_visible: bool,
+    theme: AppTheme,
+) -> egui::Response {
+    let text_color = text_color(theme);
+    // Use SIDEBAR (bar on left) to mirror SIDEBAR_SIMPLE (bar on right) used for inspector
+    let icon = egui_phosphor::regular::SIDEBAR;
+
+    let button = if is_visible {
+        egui::Button::new(RichText::new(icon).strong()).fill(ui.visuals().selection.bg_fill)
+    } else {
+        egui::Button::new(RichText::new(icon).color(text_color.gamma_multiply(0.7)))
+    };
+
+    ui.add(button).on_hover_text(if is_visible {
+        "Hide metrics panel"
+    } else {
+        "Show metrics panel"
+    })
+}

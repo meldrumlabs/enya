@@ -9,7 +9,10 @@ pub mod time_series_chart;
 
 pub use custom_queries::{CustomQueriesPanel, CustomQuery};
 pub use fuzzy_finder::{FuzzyFinder, FuzzyItem};
-pub use inspector::{InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button};
+pub use inspector::{
+    InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button,
+    metrics_panel_toggle_button,
+};
 pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
