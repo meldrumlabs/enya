@@ -11,6 +11,27 @@ use crate::components::{
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
+/// A floating window containing a chart/component
+pub struct FloatingWindow {
+    /// Unique identifier for the floating window
+    pub id: u64,
+    /// The component being displayed
+    pub component: Box<dyn Component>,
+    /// Whether the window is open
+    pub open: bool,
+}
+
+impl FloatingWindow {
+    /// Create a new floating window from a component
+    pub fn new(id: u64, component: Box<dyn Component>) -> Self {
+        Self {
+            id,
+            component,
+            open: true,
+        }
+    }
+}
+
 /// Actions that the Dashboard needs the App to handle
 #[derive(Debug, Clone, PartialEq)]
 pub enum DashboardAction {
@@ -24,6 +45,8 @@ pub enum DashboardAction {
     OpenSettings,
     /// Show help
     ShowHelp,
+    /// Show a notification
+    Notify { level: String, message: String },
 }
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
@@ -62,6 +85,10 @@ pub struct Dashboard {
     zen_mode: bool,
     /// Fullscreen mode - show only one pane maximized
     fullscreen_tile: Option<TileId>,
+    /// Floating windows (popped out charts)
+    floating_windows: Vec<FloatingWindow>,
+    /// Next floating window ID
+    next_floating_id: u64,
 }
 
 impl Default for Dashboard {
@@ -89,6 +116,8 @@ impl Default for Dashboard {
             command_palette: CommandPalette::new(),
             zen_mode: false,
             fullscreen_tile: None,
+            floating_windows: Vec::new(),
+            next_floating_id: 1,
         }
     }
 }
@@ -144,6 +173,8 @@ impl Dashboard {
             command_palette: CommandPalette::new(),
             zen_mode: false,
             fullscreen_tile: None,
+            floating_windows: Vec::new(),
+            next_floating_id: 1,
         }
     }
 
@@ -359,10 +390,76 @@ impl Dashboard {
         self.command_palette.set_theme(app_state.theme);
         let cmd_result = self.command_palette.show(ctx);
 
+        // Show floating windows
+        self.show_floating_windows(ctx, app_state.theme);
+
         // Handle vim-style keyboard navigation for viewport
         self.handle_viewport_keyboard(ctx);
 
         self.handle_command_result(cmd_result)
+    }
+
+    /// Show all floating windows
+    fn show_floating_windows(&mut self, ctx: &egui::Context, theme: AppTheme) {
+        let text_col = text_color(theme);
+        let mut windows_to_dock: Vec<u64> = Vec::new();
+        let mut windows_to_close: Vec<u64> = Vec::new();
+
+        for floating in &mut self.floating_windows {
+            if !floating.open {
+                windows_to_close.push(floating.id);
+                continue;
+            }
+
+            floating.component.set_theme(theme);
+
+            let title = floating.component.name();
+            let mut open = floating.open;
+
+            egui::Window::new(
+                egui::RichText::new(format!("{} {}", egui_phosphor::regular::CHART_LINE, title))
+                    .color(text_col),
+            )
+            .id(egui::Id::new(format!("floating_window_{}", floating.id)))
+            .open(&mut open)
+            .resizable(true)
+            .collapsible(true)
+            .default_size([600.0, 350.0])
+            .min_width(400.0)
+            .min_height(250.0)
+            .show(ctx, |ui| {
+                // Dock button at top right
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button(egui::RichText::new(egui_phosphor::regular::LAYOUT))
+                            .on_hover_text("Dock back to tiled layout (D)")
+                            .clicked()
+                        {
+                            windows_to_dock.push(floating.id);
+                        }
+                    });
+                });
+
+                // Give the chart most of the remaining space
+                let available = ui.available_size();
+                ui.allocate_ui(available, |ui| {
+                    floating.component.show(ui);
+                });
+            });
+
+            floating.open = open;
+        }
+
+        // Remove closed windows
+        for id in windows_to_close {
+            self.floating_windows.retain(|w| w.id != id);
+        }
+
+        // Dock windows back (handled after the loop to avoid borrow issues)
+        for id in windows_to_dock {
+            self.dock_floating_window(id);
+        }
     }
 
     /// Handle a command result from the command palette
@@ -405,6 +502,18 @@ impl Dashboard {
                 self.toggle_fullscreen();
                 DashboardAction::None
             }
+            CommandResult::FloatPane => {
+                self.float_focused_pane();
+                DashboardAction::None
+            }
+            CommandResult::DockAll => {
+                self.dock_all_floating();
+                DashboardAction::None
+            }
+            CommandResult::TestNotify(level) => DashboardAction::Notify {
+                level: level.clone(),
+                message: format!("Test notification ({level})"),
+            },
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -496,6 +605,82 @@ impl Dashboard {
     /// Check if fullscreen mode is active
     pub fn is_fullscreen(&self) -> bool {
         self.fullscreen_tile.is_some()
+    }
+
+    /// Float the currently focused pane into a draggable window
+    pub fn float_focused_pane(&mut self) {
+        let focused_id = if let Some(id) = self.behavior.focused_tile() {
+            id
+        } else {
+            // No pane focused - try to float the first available pane
+            let pane_ids = self.get_pane_tile_ids();
+            if let Some(&first_pane) = pane_ids.first() {
+                self.behavior.set_focused_tile(Some(first_pane));
+                first_pane
+            } else {
+                log::debug!("No panes to float");
+                return;
+            }
+        };
+
+        // Make sure it's actually a pane
+        if let Some(Tile::Pane(_)) = self.viewport_tree.tiles.get(focused_id) {
+            // Remove the pane from the tile tree and move it to floating
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.remove(focused_id) {
+                let id = self.next_floating_id;
+                self.next_floating_id += 1;
+
+                let floating = FloatingWindow::new(id, component);
+                self.floating_windows.push(floating);
+
+                // Clear focus since the pane is now floating
+                self.behavior.set_focused_tile(None);
+
+                log::debug!("Floated pane {focused_id:?} as floating window {id}");
+            }
+        } else {
+            log::debug!("Focused tile {focused_id:?} is not a pane");
+        }
+    }
+
+    /// Dock a floating window back into the tiled layout
+    fn dock_floating_window(&mut self, floating_id: u64) {
+        // Find and remove the floating window
+        let floating_idx = self
+            .floating_windows
+            .iter()
+            .position(|w| w.id == floating_id);
+
+        if let Some(idx) = floating_idx {
+            let floating = self.floating_windows.remove(idx);
+
+            // Insert the component back into the tile tree
+            let new_tile_id = self.viewport_tree.tiles.insert_pane(floating.component);
+
+            // Add to viewport
+            if self.add_tile_to_viewport(new_tile_id) {
+                self.behavior.set_focused_tile(Some(new_tile_id));
+                log::debug!("Docked floating window {floating_id} back as tile {new_tile_id:?}");
+            }
+        }
+    }
+
+    /// Dock all floating windows back into the tiled layout
+    pub fn dock_all_floating(&mut self) {
+        let floating_ids: Vec<u64> = self.floating_windows.iter().map(|w| w.id).collect();
+        for id in floating_ids {
+            self.dock_floating_window(id);
+        }
+    }
+
+    /// Check if there are any floating windows
+    pub fn has_floating_windows(&self) -> bool {
+        !self.floating_windows.is_empty()
+    }
+
+    /// Get the count of floating windows
+    pub fn floating_window_count(&self) -> usize {
+        self.floating_windows.len()
     }
 
     /// Update the inspector panel based on the current metric selection
@@ -893,6 +1078,8 @@ impl Dashboard {
         let mut should_close_focused = false;
         let mut should_toggle_zen = false;
         let mut should_toggle_fullscreen = false;
+        let mut should_float_pane = false;
+        let mut should_dock_all = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -905,6 +1092,18 @@ impl Dashboard {
             // F - toggle fullscreen for focused pane
             if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
                 should_toggle_fullscreen = true;
+                consumed = true;
+                return;
+            }
+            // W - float focused pane into a window
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                should_float_pane = true;
+                consumed = true;
+                return;
+            }
+            // D - dock all floating windows
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                should_dock_all = true;
                 consumed = true;
                 return;
             }
@@ -978,6 +1177,10 @@ impl Dashboard {
             self.toggle_zen_mode();
         } else if should_toggle_fullscreen {
             self.toggle_fullscreen();
+        } else if should_float_pane {
+            self.float_focused_pane();
+        } else if should_dock_all {
+            self.dock_all_floating();
         } else if should_close_focused {
             if let Some(tile_id) = current_focus {
                 self.close_tile(tile_id);

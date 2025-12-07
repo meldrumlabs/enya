@@ -8,7 +8,7 @@ use crate::command::CommandSender;
 use crate::command::UICommand;
 use crate::command::UICommandSender;
 use crate::command::command_channel;
-use crate::components::{StatusLine, StatusMode};
+use crate::components::{NotificationManager, StatusLine, StatusMode};
 use crate::dashboard::{Dashboard, DashboardAction};
 use crate::theme::AppTheme;
 use crate::theme::light;
@@ -33,6 +33,9 @@ pub struct EnyaApp {
 
     // Status line component
     status_line: StatusLine,
+
+    // Notification manager
+    notifications: NotificationManager,
 }
 
 // Serializable state that can be persiste
@@ -86,6 +89,7 @@ impl Default for EnyaApp {
             is_connected: false,
             build_info: build_info!(),
             status_line: StatusLine::new(),
+            notifications: NotificationManager::new(),
         }
     }
 }
@@ -351,6 +355,17 @@ impl EnyaApp {
                     new_tab: true,
                 });
             }
+            DashboardAction::Notify { level, message } => {
+                use crate::components::{Notification, NotificationLevel};
+                let notification_level = match level.to_lowercase().as_str() {
+                    "success" | "ok" => NotificationLevel::Success,
+                    "warn" | "warning" => NotificationLevel::Warn,
+                    "error" | "err" => NotificationLevel::Error,
+                    _ => NotificationLevel::Info,
+                };
+                self.notifications
+                    .notify(Notification::new(message, notification_level));
+            }
         }
     }
 
@@ -386,6 +401,10 @@ impl eframe::App for EnyaApp {
 
         // Draw bottom panel with connection info etc.
         self.show_bottom_panel(ctx);
+
+        // Draw notifications (on top of everything)
+        self.notifications.set_theme(self.state.theme);
+        self.notifications.show(ctx);
 
         // Check for possible key board shortcut triggers
         self.check_keyboard_shortcuts(ctx);
