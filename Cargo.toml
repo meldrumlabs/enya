@@ -19,6 +19,7 @@ members = ["crates/*", "examples/*"]
 enya = { path = "crates/enya", version = "0.1.0" }
 enya-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
 enya-macros = { path = "crates/macros", version = "0.1.0" }
+enya-lang = { path = "crates/lang", version = "0.1.0" }
 enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 tokio-metrics = "0.4"
