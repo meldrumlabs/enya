@@ -847,12 +847,21 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     ) {
         // Draw focus border on top of the entire tile (including tab bar)
         if self.focused_tile_id == Some(tile_id) {
+            // Vim-inspired purple focus color
             let focus_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgb(40, 100, 220),
-                AppTheme::Dark => egui::Color32::from_rgb(80, 160, 255),
+                AppTheme::Light => egui::Color32::from_rgb(130, 80, 180),
+                AppTheme::Dark => egui::Color32::from_rgb(180, 130, 255),
             };
 
-            painter.rect_stroke(rect, 4.0, egui::Stroke::new(3.0, focus_color));
+            // Shrink the rect inward so the border stroke is fully visible
+            let border_width = 3.0;
+            let inset_rect = rect.shrink(border_width / 2.0);
+
+            painter.rect_stroke(
+                inset_rect,
+                4.0,
+                egui::Stroke::new(border_width, focus_color),
+            );
         }
     }
     fn top_bar_right_ui(
