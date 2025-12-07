@@ -1,0 +1,19 @@
+[package]
+name = "enya-lang"
+description = "Query language for Enya time series database"
+license = "MIT OR Apache-2.0"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+keywords = ["query", "parser", "timeseries", "language"]
+categories = ["parser-implementations"]
+repository.workspace = true
+readme = "README.md"
+
+[dependencies]
+logos.workspace = true
+smallvec.workspace = true
+
+[lints]
+workspace = true

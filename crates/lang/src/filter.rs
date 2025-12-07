@@ -1,42 +1,32 @@
-//! Filter query parsing and evaluation
-//!
-//! Supports filter expressions like:
-//! - `env:prod` - exact match
-//! - `service:db.*` - wildcard match
-//! - `env:prod AND service:db` - AND
-//! - `env:prod OR env:staging` - OR
-//! - `!env:prod` - NOT
-//! - `(env:prod OR env:staging) AND service:db` - grouping
+//! Filter query parsing and AST representation.
 
-use crate::SeriesId;
-use crate::query::lexer::{self, tokenize_filter_query};
-use crate::smap::SeriesMapping;
-use crate::tag_index::TagIndex;
+use crate::error::Error;
+use crate::lexer::{self, tokenize_filter_query};
 use std::collections::VecDeque;
 
-/// A tag key-value pair
-#[derive(Debug, Eq, PartialEq)]
+/// A tag key-value pair.
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Tag<'a> {
-    /// The tag key
+    /// The tag key.
     pub key: &'a str,
-    /// The tag value
+    /// The tag value.
     pub value: &'a str,
 }
 
-/// AST node for filter queries
-#[derive(Debug, Eq, PartialEq)]
+/// AST node for filter queries.
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum Node<'a> {
-    /// AND of multiple conditions
+    /// AND of multiple conditions.
     And(Vec<Self>),
-    /// OR of multiple conditions
+    /// OR of multiple conditions.
     Or(Vec<Self>),
-    /// Exact tag match
+    /// Exact tag match.
     Eq(Tag<'a>),
-    /// Wildcard (prefix) match
+    /// Wildcard (prefix) match.
     Wildcard(Tag<'a>),
-    /// NOT condition
+    /// NOT condition.
     Not(Box<Self>),
-    /// Match all series for the metric
+    /// Match all series for the metric.
     AllStar,
 }
 
@@ -69,93 +59,6 @@ impl std::fmt::Display for Node<'_> {
     }
 }
 
-/// Compute intersection of multiple sorted series ID vectors
-pub fn intersection(vecs: &[Vec<SeriesId>]) -> Vec<SeriesId> {
-    if vecs.is_empty() || vecs.iter().any(Vec::is_empty) {
-        return vec![];
-    }
-
-    let Some(first_vec) = vecs.first() else {
-        return vec![];
-    };
-
-    let mut result = Vec::new();
-
-    'outer: for &elem in first_vec {
-        if vecs.iter().skip(1).any(|vec| !vec.contains(&elem)) {
-            continue 'outer;
-        }
-        result.push(elem);
-    }
-
-    result
-}
-
-/// Compute union of multiple series ID vectors
-#[must_use]
-pub fn union(vecs: &[Vec<SeriesId>]) -> Vec<SeriesId> {
-    let mut result = vec![];
-
-    for vec in vecs {
-        result.extend(vec);
-    }
-
-    result.sort_unstable();
-    result.dedup();
-
-    result
-}
-
-impl Node<'_> {
-    /// Evaluate the filter expression to get matching series IDs
-    pub async fn evaluate(
-        &self,
-        smap: &SeriesMapping,
-        tag_index: &TagIndex,
-        metric_name: &str,
-    ) -> crate::Result<Vec<SeriesId>> {
-        match self {
-            Node::AllStar => tag_index.query_eq(metric_name).await,
-            Node::Eq(leaf) => {
-                tag_index
-                    .query_eq(&TagIndex::format_key(metric_name, leaf.key, leaf.value))
-                    .await
-            }
-            Node::Wildcard(leaf) => {
-                tag_index
-                    .query_prefix(&TagIndex::format_key(metric_name, leaf.key, leaf.value))
-                    .await
-            }
-            Node::And(children) => {
-                let mut ids = Vec::with_capacity(children.len());
-                for child in children {
-                    ids.push(Box::pin(child.evaluate(smap, tag_index, metric_name)).await?);
-                }
-                Ok(intersection(&ids))
-            }
-            Node::Or(children) => {
-                let mut ids = Vec::with_capacity(children.len());
-                for child in children {
-                    ids.push(Box::pin(child.evaluate(smap, tag_index, metric_name)).await?);
-                }
-                Ok(union(&ids))
-            }
-            Node::Not(node) => {
-                let mut all_ids = smap.list_all().await?;
-                let excluded = Box::pin(node.evaluate(smap, tag_index, metric_name)).await?;
-
-                for id in excluded {
-                    all_ids.remove(&id);
-                }
-
-                let mut ids: Vec<_> = all_ids.into_iter().collect();
-                ids.sort_unstable();
-                Ok(ids)
-            }
-        }
-    }
-}
-
 #[derive(Debug)]
 #[allow(dead_code)]
 enum Item<'a> {
@@ -164,27 +67,21 @@ enum Item<'a> {
     And,
     Or,
     Not,
-    ParanOpen,
-    ParanClose,
+    ParenOpen,
+    ParenClose,
 }
 
-fn split_identifier(value: &str) -> Result<(&str, &str), crate::Error> {
-    value.split_once(':').ok_or(crate::Error::InvalidQuery)
+fn split_identifier(value: &str) -> Result<(&str, &str), Error> {
+    value.split_once(':').ok_or(Error::InvalidQuery)
 }
 
-fn push_identifier<'a>(
-    output_queue: &mut VecDeque<Item<'a>>,
-    id: &'a str,
-) -> Result<(), crate::Error> {
+fn push_identifier<'a>(output_queue: &mut VecDeque<Item<'a>>, id: &'a str) -> Result<(), Error> {
     let (key, value) = split_identifier(id)?;
     output_queue.push_back(Item::Identifier((key, value)));
     Ok(())
 }
 
-fn push_wildcard<'a>(
-    output_queue: &mut VecDeque<Item<'a>>,
-    id: &'a str,
-) -> Result<(), crate::Error> {
+fn push_wildcard<'a>(output_queue: &mut VecDeque<Item<'a>>, id: &'a str) -> Result<(), Error> {
     let (key, value) = split_identifier(id)?;
     output_queue.push_back(Item::Wildcard((key, value.trim_end_matches('*'))));
     Ok(())
@@ -203,39 +100,39 @@ where
         if !should_pop {
             break;
         }
-        let op = op_stack.pop_back().ok_or(crate::Error::InvalidQuery)?;
+        let op = op_stack.pop_back().ok_or(Error::InvalidQuery)?;
         output_queue.push_back(op);
     }
     Ok(())
 }
 
-fn handle_paran_close<'a>(
+fn handle_paren_close<'a>(
     output_queue: &mut VecDeque<Item<'a>>,
     op_stack: &mut VecDeque<Item<'a>>,
 ) -> crate::Result<()> {
     loop {
         let Some(top_op) = op_stack.back() else {
-            return Err(crate::Error::InvalidQuery);
+            return Err(Error::InvalidQuery);
         };
 
-        if matches!(top_op, Item::ParanOpen) {
+        if matches!(top_op, Item::ParenOpen) {
             break;
         }
 
-        let op = op_stack.pop_back().ok_or(crate::Error::InvalidQuery)?;
+        let op = op_stack.pop_back().ok_or(Error::InvalidQuery)?;
         output_queue.push_back(op);
     }
 
-    let open = op_stack.pop_back().ok_or(crate::Error::InvalidQuery)?;
-    if !matches!(open, Item::ParanOpen) {
-        return Err(crate::Error::InvalidQuery);
+    let open = op_stack.pop_back().ok_or(Error::InvalidQuery)?;
+    if !matches!(open, Item::ParenOpen) {
+        return Err(Error::InvalidQuery);
     }
 
     Ok(())
 }
 
 fn pop_node<'a>(buf: &mut Vec<Node<'a>>) -> crate::Result<Node<'a>> {
-    buf.pop().ok_or(crate::Error::InvalidQuery)
+    buf.pop().ok_or(Error::InvalidQuery)
 }
 
 fn build_ast<'a>(output_queue: VecDeque<Item<'a>>) -> crate::Result<Node<'a>> {
@@ -263,19 +160,22 @@ fn build_ast<'a>(output_queue: VecDeque<Item<'a>>) -> crate::Result<Node<'a>> {
                 let node = pop_node(&mut buf)?;
                 buf.push(Node::Not(Box::new(node)));
             }
-            Item::ParanOpen | Item::ParanClose => return Err(crate::Error::InvalidQuery),
+            Item::ParenOpen | Item::ParenClose => return Err(Error::InvalidQuery),
         }
     }
 
     match buf.len() {
         1 => pop_node(&mut buf),
-        _ => Err(crate::Error::InvalidQuery),
+        _ => Err(Error::InvalidQuery),
     }
 }
 
-/// Parse a filter query expression into an AST
-#[doc(hidden)]
-pub fn parse_filter_query(s: &str) -> Result<Node, crate::Error> {
+/// Parse a filter query expression into an AST.
+///
+/// # Errors
+///
+/// Returns an error if the query syntax is invalid.
+pub fn parse_filter_query(s: &str) -> Result<Node, Error> {
     if s.trim() == "*" {
         return Ok(Node::AllStar);
     }
@@ -284,7 +184,7 @@ pub fn parse_filter_query(s: &str) -> Result<Node, crate::Error> {
     let mut op_stack = VecDeque::new();
 
     for tok in tokenize_filter_query(s) {
-        let tok = tok.map_err(|()| crate::Error::InvalidQuery)?;
+        let tok = tok.map_err(|()| Error::InvalidQuery)?;
 
         match tok {
             lexer::Token::Identifier(id) => push_identifier(&mut output_queue, id)?,
@@ -304,18 +204,18 @@ pub fn parse_filter_query(s: &str) -> Result<Node, crate::Error> {
             lexer::Token::Not => {
                 op_stack.push_back(Item::Not);
             }
-            lexer::Token::ParanOpen => {
-                op_stack.push_back(Item::ParanOpen);
+            lexer::Token::ParenOpen => {
+                op_stack.push_back(Item::ParenOpen);
             }
-            lexer::Token::ParanClose => {
-                handle_paran_close(&mut output_queue, &mut op_stack)?;
+            lexer::Token::ParenClose => {
+                handle_paren_close(&mut output_queue, &mut op_stack)?;
             }
         }
     }
 
     while let Some(top_op) = op_stack.pop_back() {
-        if matches!(top_op, Item::ParanOpen) {
-            return Err(crate::Error::InvalidQuery);
+        if matches!(top_op, Item::ParenOpen) {
+            return Err(Error::InvalidQuery);
         }
         output_queue.push_back(top_op);
     }
@@ -375,22 +275,6 @@ mod tests {
                 value: "db-"
             }),
             parse_filter_query("service:db-*").unwrap()
-        );
-    }
-
-    #[test]
-    fn test_intersection() {
-        assert_eq!(
-            [1, 3],
-            *intersection(&[vec![1, 2, 3, 4, 5], vec![1, 3, 5], vec![1, 3]]),
-        );
-    }
-
-    #[test]
-    fn test_union() {
-        assert_eq!(
-            [1, 2, 4, 8],
-            *union(&[vec![1, 8], vec![1, 2], vec![1, 2, 4], vec![2, 4, 8]]),
         );
     }
 }

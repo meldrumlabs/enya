@@ -1,8 +1,8 @@
-//! Lexer for filter query expressions
+//! Lexer for filter query expressions.
 
 use logos::Logos;
 
-/// Token type for filter query lexing
+/// Token type for filter query lexing.
 #[derive(Logos, Debug, PartialEq, Eq)]
 #[logos(skip r"[ \r\t\n\f]+")] // Ignore whitespace between tokens
 pub enum Token<'a> {
@@ -20,11 +20,11 @@ pub enum Token<'a> {
 
     /// Opening parenthesis
     #[token("(")]
-    ParanOpen,
+    ParenOpen,
 
     /// Closing parenthesis
     #[token(")")]
-    ParanClose,
+    ParenClose,
 
     /// Wildcard match (e.g., `service:db.*`)
     #[regex("[a-zA-Z_-]+:[a-zA-Z0-9_\\-.]*\\*")]
@@ -35,7 +35,7 @@ pub enum Token<'a> {
     Identifier(&'a str),
 }
 
-/// Tokenize a filter query expression
+/// Tokenize a filter query expression.
 pub fn tokenize_filter_query(s: &str) -> impl Iterator<Item = Result<Token, ()>> + '_ {
     Token::lexer(s)
 }
