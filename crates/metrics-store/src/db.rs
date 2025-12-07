@@ -7,7 +7,8 @@ use crate::TagSet;
 use crate::Timestamp;
 use crate::Value;
 use crate::cache::LocalCache;
-use crate::query::filter::parse_filter_query;
+use crate::query::evaluate::evaluate_filter;
+use crate::query::parse_filter_query;
 use crate::series_key::SeriesKey;
 use crate::smap::SeriesMapping;
 use crate::storage::{Storage, WriteBatch};
@@ -220,9 +221,7 @@ impl Database {
             return Err(crate::Error::InvalidQuery);
         };
 
-        let series_ids = filter
-            .evaluate(&self.0.smap, &self.0.tag_index, metric)
-            .await?;
+        let series_ids = evaluate_filter(&filter, &self.0.smap, &self.0.tag_index, metric).await?;
 
         if series_ids.is_empty() {
             log::debug!("Query {filter_expr:?} did not match any series");

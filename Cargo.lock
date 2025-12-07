@@ -2597,6 +2597,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "enya-lang"
+version = "0.1.0"
+dependencies = [
+ "logos",
+ "smallvec",
+]
+
+[[package]]
 name = "enya-log-store"
 version = "0.1.0"
 
@@ -2618,10 +2626,10 @@ dependencies = [
  "bytes",
  "criterion",
  "enya-common",
+ "enya-lang",
  "foyer",
  "futures",
  "log",
- "logos",
  "parking_lot 0.11.2",
  "pin-project-lite",
  "roaring 0.10.12",
@@ -2648,6 +2656,7 @@ dependencies = [
  "enya-build-info",
  "enya-build-tools",
  "ewebsock",
+ "fuzzy-matcher",
  "gloo-timers",
  "image",
  "log",
@@ -2660,6 +2669,7 @@ dependencies = [
  "strum_macros 0.21.1",
  "wasm-bindgen-futures",
  "web-sys",
+ "web-time",
 ]
 
 [[package]]
@@ -3202,6 +3212,15 @@ dependencies = [
  "pin-project-lite",
  "pin-utils",
  "slab",
+]
+
+[[package]]
+name = "fuzzy-matcher"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54614a3312934d066701a80f20f15fa3b56d67ac7722b39eea5b4c9dd1d66c94"
+dependencies = [
+ "thread_local",
 ]
 
 [[package]]

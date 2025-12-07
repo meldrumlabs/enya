@@ -1,4 +1,3 @@
-use egui::RichText;
 use egui::Theme;
 use egui::Visuals;
 use enya_build_info::BuildInfo;
@@ -9,10 +8,10 @@ use crate::command::CommandSender;
 use crate::command::UICommand;
 use crate::command::UICommandSender;
 use crate::command::command_channel;
-use crate::dashboard::Dashboard;
+use crate::components::{NotificationManager, StatusLine, StatusMode};
+use crate::dashboard::{Dashboard, DashboardAction};
 use crate::theme::AppTheme;
 use crate::theme::light;
-use crate::ui::colors::text_color;
 use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::ui::settings_screen::show_settings_ui;
@@ -31,6 +30,12 @@ pub struct EnyaApp {
     // Channels for ui commands
     pub command_sender: CommandSender,
     pub command_receiver: CommandReceiver,
+
+    // Status line component
+    status_line: StatusLine,
+
+    // Notification manager
+    notifications: NotificationManager,
 }
 
 // Serializable state that can be persiste
@@ -83,6 +88,8 @@ impl Default for EnyaApp {
             state: AppState::default(),
             is_connected: false,
             build_info: build_info!(),
+            status_line: StatusLine::new(),
+            notifications: NotificationManager::new(),
         }
     }
 }
@@ -115,83 +122,57 @@ impl EnyaApp {
         app
     }
 
-    // This paints the top panel aka header
-    fn show_top_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                ui.horizontal(|ui| {
-                    self.menu_button_ui(ui);
-
-                    ui.add_space(12.0);
-
-                    ui.separator();
-                    egui::warn_if_debug_build(ui);
-                });
-            });
-        });
-    }
-
-    // Paints the menu button at the header top left
-    pub fn menu_button_ui(&mut self, ui: &mut egui::Ui) {
-        pub fn small_icon_size() -> egui::Vec2 {
-            egui::Vec2::splat(24.0)
-        }
-
-        let icon = crate::ui::icons::ICON_COLOR;
-        let image = icon.as_image().fit_to_exact_size(small_icon_size());
-
-        ui.menu_image_button(image, |ui| {
-            self.menu_ui(ui);
-        });
-    }
-
-    // List of commands under the menu button
-    fn menu_ui(&mut self, ui: &mut egui::Ui) {
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        let theme = self.state.theme;
-
-        // Open dashboard
-        UICommand::Dashboard.menu_button_ui(ui, theme, &self.command_sender);
-
-        // Settings
-        UICommand::Settings.menu_button_ui(ui, theme, &self.command_sender);
-
-        ui.add_space(12.0);
-        // Get Help
-        UICommand::Help.menu_button_ui(ui, theme, &self.command_sender);
-    }
-
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
         if let Some(cmd) = UICommand::listen_for_kb_shortcut(egui_ctx) {
             self.command_sender.send_ui(cmd);
         }
     }
 
-    // Paints the bottom panel aka footer
+    // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            let color = text_color(self.state.theme);
-            ui.horizontal(|ui| {
-                ui.separator();
-                ui.label(
-                    RichText::new(egui_phosphor::regular::NETWORK_X)
-                        .color(color)
-                        .strong(),
-                );
-                ui.separator();
-                if self.is_connected {
-                    ui.label(RichText::new("CONNECTED").color(color).strong());
-                } else if ui
-                    .label(RichText::new("NOT CONNECTED").color(color).strong())
-                    .on_hover_and_drag_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                {
-                    // Make settings pop up
-                    self.command_sender.send_ui(UICommand::Settings);
+        // Update status line state
+        self.status_line.set_theme(self.state.theme);
+        self.status_line.set_connected(self.is_connected);
+
+        // Set mode based on current UI state
+        let mode = match self.state.ui_state {
+            UIState::Dashboard => {
+                // Check if command palette or fuzzy finder is open, or zen/fullscreen mode is active
+                if let Some(ref dashboard) = self.dashboard {
+                    if dashboard.is_command_palette_open() {
+                        StatusMode::Command
+                    } else if dashboard.is_fuzzy_finder_open() {
+                        StatusMode::Search
+                    } else if dashboard.is_fullscreen() {
+                        StatusMode::Fullscreen
+                    } else if dashboard.is_zen_mode() {
+                        StatusMode::Zen
+                    } else {
+                        StatusMode::Normal
+                    }
+                } else {
+                    StatusMode::Normal
                 }
-                ui.separator();
+            }
+            UIState::Settings => StatusMode::Settings,
+            UIState::Home => StatusMode::Home,
+        };
+        self.status_line.set_mode(mode);
+
+        // Set open tabs count from dashboard
+        if let Some(ref dashboard) = self.dashboard {
+            self.status_line.set_open_tabs(dashboard.open_tabs_count());
+            self.status_line
+                .set_selected_metric(dashboard.selected_metric());
+            self.status_line
+                .set_viewport_info(dashboard.viewport_info());
+        }
+
+        egui::TopBottomPanel::bottom("bottom_panel")
+            .resizable(false)
+            .show(ctx, |ui| {
+                self.status_line.show(ui);
             });
-        });
     }
 
     // This draws the main panel
@@ -268,6 +249,14 @@ impl EnyaApp {
                 // trigger repaint to illustrate the connection status
                 egui_ctx.request_repaint();
             }
+
+            UICommand::OpenFuzzyFinder => {
+                self.open_fuzzy_finder();
+            }
+
+            UICommand::OpenCommandPalette => {
+                self.open_command_palette();
+            }
         }
     }
 
@@ -289,10 +278,70 @@ impl EnyaApp {
             self.dashboard = Some(Dashboard::example(self.state.settings.api_key.clone()));
         }
 
+        let mut dashboard_action = DashboardAction::None;
+
         egui::CentralPanel::default().show(ctx, |ui| {
             // Safe since we initialized the example_dashboard
-            self.dashboard.as_mut().unwrap().show(ui, &self.state);
+            if let Some(dashboard) = self.dashboard.as_mut() {
+                dashboard_action = dashboard.show(ui, ctx, &self.state);
+            }
         });
+
+        // Handle actions from the dashboard (e.g., from command palette)
+        self.handle_dashboard_action(ctx, dashboard_action);
+    }
+
+    fn handle_dashboard_action(&mut self, ctx: &egui::Context, action: DashboardAction) {
+        match action {
+            DashboardAction::None => {}
+            DashboardAction::ToggleTheme => {
+                self.command_sender.send_ui(UICommand::ToggleTheme);
+            }
+            DashboardAction::SetTheme(theme) => {
+                self.command_sender.send_ui(UICommand::Theme(theme));
+            }
+            DashboardAction::OpenSettings => {
+                self.command_sender.send_ui(UICommand::Settings);
+            }
+            DashboardAction::ShowHelp => {
+                ctx.open_url(egui::output::OpenUrl {
+                    url: "https://enya.dev/contact".to_owned(),
+                    new_tab: true,
+                });
+            }
+            DashboardAction::Notify { level, message } => {
+                use crate::components::{Notification, NotificationLevel};
+                let notification_level = match level.to_lowercase().as_str() {
+                    "success" | "ok" => NotificationLevel::Success,
+                    "warn" | "warning" => NotificationLevel::Warn,
+                    "error" | "err" => NotificationLevel::Error,
+                    _ => NotificationLevel::Info,
+                };
+                self.notifications
+                    .notify(Notification::new(message, notification_level));
+            }
+            DashboardAction::TrackRecentPlot {
+                name,
+                metric_name,
+                is_query,
+            } => {
+                self.state
+                    .settings
+                    .add_recent_plot(name, metric_name, is_query);
+            }
+        }
+    }
+
+    fn open_fuzzy_finder(&mut self) {
+        if let Some(dashboard) = self.dashboard.as_mut() {
+            dashboard.open_fuzzy_finder();
+        }
+    }
+
+    fn open_command_palette(&mut self) {
+        if let Some(dashboard) = self.dashboard.as_mut() {
+            dashboard.open_command_palette();
+        }
     }
 }
 
@@ -307,14 +356,17 @@ impl eframe::App for EnyaApp {
         // Set theme for the context
         ctx.set_visuals(self.state.visuals());
 
-        // Draw header panel
-        self.show_top_panel(ctx);
+        // No header panel - neovim-style UI uses only status bar at bottom
 
         // Draw main content
         self.show_main_content(ctx);
 
         // Draw bottom panel with connection info etc.
         self.show_bottom_panel(ctx);
+
+        // Draw notifications (on top of everything)
+        self.notifications.set_theme(self.state.theme);
+        self.notifications.show(ctx);
 
         // Check for possible key board shortcut triggers
         self.check_keyboard_shortcuts(ctx);

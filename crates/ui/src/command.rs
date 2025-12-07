@@ -24,6 +24,8 @@ pub enum UICommand {
     ConnectionStatus(bool),
     Theme(AppTheme),
     ToggleTheme,
+    OpenFuzzyFinder,
+    OpenCommandPalette,
 }
 
 impl UICommand {
@@ -46,6 +48,8 @@ impl UICommand {
             Self::ToggleTheme => ("Toggle Theme...", "Toogles the application theme"),
             Self::CloseSettings => ("Close Settings…", "Close Enya Settings"),
             Self::ConnectionStatus(_) => ("", ""),
+            Self::OpenFuzzyFinder => ("Search...", "Open fuzzy finder to search metrics"),
+            Self::OpenCommandPalette => ("Command Palette", "Open command palette"),
         }
     }
 
@@ -139,14 +143,23 @@ impl UICommand {
     }
 
     /// All keyboard shortcuts, with the primary first.
-    pub fn kb_shortcuts(self, _os: OperatingSystem) -> SmallVec<[KeyboardShortcut; 2]> {
+    pub fn kb_shortcuts(self, os: OperatingSystem) -> SmallVec<[KeyboardShortcut; 2]> {
         fn key(key: Key) -> KeyboardShortcut {
             KeyboardShortcut::new(Modifiers::NONE, key)
         }
 
+        fn cmd_key(key: Key, os: OperatingSystem) -> KeyboardShortcut {
+            let modifiers = if os == OperatingSystem::Mac {
+                Modifiers::MAC_CMD
+            } else {
+                Modifiers::CTRL
+            };
+            KeyboardShortcut::new(modifiers, key)
+        }
+
         match self {
             Self::Home => smallvec![],
-            Self::Help => smallvec![key(Key::X)],
+            Self::Help => smallvec![], // Help accessed via ? on landing page or :help command
             Self::Dashboard => smallvec![key(Key::D)],
             Self::Settings => smallvec![key(Key::S)],
             Self::CloseSettings => smallvec![],
@@ -154,6 +167,9 @@ impl UICommand {
             Self::Theme(_) => smallvec![],
             Self::OpenExampleDashboard(_) => smallvec![],
             Self::ConnectionStatus(_) => smallvec![],
+            Self::OpenFuzzyFinder => smallvec![cmd_key(Key::K, os), cmd_key(Key::P, os)],
+            // ':' key (colon) - no modifiers needed since it's already the shifted key
+            Self::OpenCommandPalette => smallvec![key(Key::Colon)],
         }
     }
 

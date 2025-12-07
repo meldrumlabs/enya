@@ -1,14 +1,27 @@
 use crate::theme::AppTheme;
 
+pub mod command_palette;
 pub mod custom_queries;
+pub mod fuzzy_finder;
 pub mod inspector;
+pub mod landing_page;
 pub mod metrics_tree;
+pub mod notifications;
+pub mod status_line;
 pub mod time_range;
 pub mod time_series_chart;
 
+pub use command_palette::{CommandPalette, CommandResult};
 pub use custom_queries::{CustomQueriesPanel, CustomQuery};
-pub use inspector::{InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button};
+pub use fuzzy_finder::{FuzzyFinder, FuzzyItem};
+pub use inspector::{
+    InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button,
+    metrics_panel_toggle_button,
+};
+pub use landing_page::{LandingPage, LandingPageAction};
 pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
+pub use notifications::{Notification, NotificationLevel, NotificationManager};
+pub use status_line::{StatusLine, StatusMode};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
 

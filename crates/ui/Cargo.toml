@@ -28,6 +28,7 @@ serde = { workspace = true, features = ["derive"] }
 enya-build-info = { path = "../build-info" }
 strum_macros = { workspace = true }
 strum = { workspace = true }
+fuzzy-matcher = { workspace = true }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -42,7 +43,8 @@ rustls = { workspace = true, features = ["ring"] }
 ewebsock = { workspace = true }
 parking_lot = { workspace = true, features = ["wasm-bindgen", "serde"] }
 wasm-bindgen-futures = { workspace = true }
-web-sys = { workspace = true }                                           # to access the DOM (to hide the loading text)
+web-sys = { workspace = true }
+web-time = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 
 [build-dependencies]

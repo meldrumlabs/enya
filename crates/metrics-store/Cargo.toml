@@ -17,7 +17,7 @@ lz4 = ["slatedb/lz4"]
 [dependencies]
 byteorder.workspace = true
 log.workspace = true
-logos.workspace = true
+enya-lang.workspace = true
 rustc-hash.workspace = true
 tokio = { workspace = true, features = ["sync", "rt", "time"] }
 
