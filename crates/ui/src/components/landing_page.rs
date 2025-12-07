@@ -659,12 +659,15 @@ impl LandingPage {
 
             // ? - Help (check for '?' character in text input, or Shift+/)
             // First check raw text events for '?' which works across keyboard layouts
-            let has_question_mark = input.events.iter().any(|e| {
-                matches!(e, egui::Event::Text(t) if t == "?")
-            });
+            let has_question_mark = input
+                .events
+                .iter()
+                .any(|e| matches!(e, egui::Event::Text(t) if t == "?"));
             if has_question_mark || input.consume_key(egui::Modifiers::SHIFT, egui::Key::Slash) {
                 // Consume the text event to prevent it from being handled elsewhere
-                input.events.retain(|e| !matches!(e, egui::Event::Text(t) if t == "?"));
+                input
+                    .events
+                    .retain(|e| !matches!(e, egui::Event::Text(t) if t == "?"));
                 action = LandingPageAction::ShowHelp;
                 return;
             }
