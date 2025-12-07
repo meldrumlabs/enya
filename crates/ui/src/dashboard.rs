@@ -560,6 +560,36 @@ impl Dashboard {
         &mut self.metrics_tree
     }
 
+    /// Check if the command palette is currently open
+    pub fn is_command_palette_open(&self) -> bool {
+        self.command_palette.is_open()
+    }
+
+    /// Check if the fuzzy finder is currently open
+    pub fn is_fuzzy_finder_open(&self) -> bool {
+        self.fuzzy_finder.is_open()
+    }
+
+    /// Get the number of open tabs/charts
+    pub fn open_tabs_count(&self) -> usize {
+        self.open_charts.len()
+    }
+
+    /// Get the currently selected metric name
+    pub fn selected_metric(&self) -> Option<String> {
+        self.metrics_tree.selection().metric.clone()
+    }
+
+    /// Get viewport info (e.g., pane layout description)
+    pub fn viewport_info(&self) -> Option<String> {
+        let pane_count = self.get_pane_tile_ids().len();
+        if pane_count > 1 {
+            Some(format!("{pane_count} panes"))
+        } else {
+            None
+        }
+    }
+
     /// Split panes horizontally (`:split` - panes stacked vertically, one above another)
     fn split_panes_horizontal(&mut self) {
         let pane_ids = self.get_pane_tile_ids();
