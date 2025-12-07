@@ -12,6 +12,27 @@ use crate::components::{
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
+/// A floating window containing a chart/component
+pub struct FloatingWindow {
+    /// Unique identifier for the floating window
+    pub id: u64,
+    /// The component being displayed
+    pub component: Box<dyn Component>,
+    /// Whether the window is open
+    pub open: bool,
+}
+
+impl FloatingWindow {
+    /// Create a new floating window from a component
+    pub fn new(id: u64, component: Box<dyn Component>) -> Self {
+        Self {
+            id,
+            component,
+            open: true,
+        }
+    }
+}
+
 /// Actions that the Dashboard needs the App to handle
 #[derive(Debug, Clone, PartialEq)]
 pub enum DashboardAction {
@@ -25,6 +46,8 @@ pub enum DashboardAction {
     OpenSettings,
     /// Show help
     ShowHelp,
+    /// Show a notification
+    Notify { level: String, message: String },
 }
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
@@ -63,6 +86,14 @@ pub struct Dashboard {
     buffer_editor: BufferEditor,
     /// Track which tile is being edited (to apply changes back)
     editing_tile_id: Option<TileId>,
+    /// Zen mode - hide all panels for distraction-free viewing
+    zen_mode: bool,
+    /// Fullscreen mode - show only one pane maximized
+    fullscreen_tile: Option<TileId>,
+    /// Floating windows (popped out charts)
+    floating_windows: Vec<FloatingWindow>,
+    /// Next floating window ID
+    next_floating_id: u64,
 }
 
 impl Default for Dashboard {
@@ -90,6 +121,10 @@ impl Default for Dashboard {
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
             editing_tile_id: None,
+            zen_mode: false,
+            fullscreen_tile: None,
+            floating_windows: Vec::new(),
+            next_floating_id: 1,
         }
     }
 }
@@ -145,6 +180,10 @@ impl Dashboard {
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
             editing_tile_id: None,
+            zen_mode: false,
+            fullscreen_tile: None,
+            floating_windows: Vec::new(),
+            next_floating_id: 1,
         }
     }
 
@@ -178,7 +217,8 @@ impl Dashboard {
         // Left panel with Provided (metrics) and Custom (queries) sections
         let text_color = text_color(app_state.theme);
 
-        if self.left_panel_visible {
+        // In zen mode, hide the left panel
+        if self.left_panel_visible && !self.zen_mode {
             egui::SidePanel::left("metrics_panel")
                 .resizable(true)
                 .default_width(self.left_panel_width)
@@ -281,46 +321,71 @@ impl Dashboard {
 
         // Right area with toolbar and viewport
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            // Top toolbar with time range controls and inspector toggle
-            egui::TopBottomPanel::top("time_range_toolbar")
-                .resizable(false)
-                .show_inside(ui, |ui| {
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        // Metrics panel toggle on the left
-                        if metrics_panel_toggle_button(ui, self.left_panel_visible, app_state.theme)
-                            .clicked()
-                        {
-                            self.left_panel_visible = !self.left_panel_visible;
-                        }
-
-                        ui.add_space(8.0);
-
-                        // Time range controls
-                        self.time_range_toolbar.show(ui);
-
-                        // Inspector toggle on the far right
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if inspector_toggle_button(
+            // Top toolbar with time range controls and inspector toggle (hidden in zen mode)
+            if !self.zen_mode {
+                egui::TopBottomPanel::top("time_range_toolbar")
+                    .resizable(false)
+                    .show_inside(ui, |ui| {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            // Metrics panel toggle on the left
+                            if metrics_panel_toggle_button(
                                 ui,
-                                self.inspector.is_visible(),
+                                self.left_panel_visible,
                                 app_state.theme,
                             )
                             .clicked()
                             {
-                                self.inspector.toggle();
+                                self.left_panel_visible = !self.left_panel_visible;
                             }
-                        });
-                    });
-                    ui.add_space(4.0);
-                });
 
-            // Inspector panel (right side, collapsible)
-            self.inspector.show(ui);
+                            ui.add_space(8.0);
+
+                            // Time range controls
+                            self.time_range_toolbar.show(ui);
+
+                            // Inspector toggle on the far right
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if inspector_toggle_button(
+                                        ui,
+                                        self.inspector.is_visible(),
+                                        app_state.theme,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.inspector.toggle();
+                                    }
+                                },
+                            );
+                        });
+                        ui.add_space(4.0);
+                    });
+
+                // Inspector panel (right side, collapsible) - hidden in zen mode
+                self.inspector.show(ui);
+            }
 
             // Main viewport area (tabbed charts/views)
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                self.viewport_tree.ui(&mut self.behavior, ui);
+                // Check if we're in fullscreen mode for a specific pane
+                if let Some(fullscreen_id) = self.fullscreen_tile {
+                    // Render only the fullscreen pane
+                    if let Some(Tile::Pane(component)) =
+                        self.viewport_tree.tiles.get_mut(fullscreen_id)
+                    {
+                        component.set_theme(self.behavior.theme);
+                        component.set_api_key(&self.behavior.api_key);
+                        component.show(ui);
+                    } else {
+                        // Tile no longer exists, exit fullscreen
+                        self.fullscreen_tile = None;
+                        self.viewport_tree.ui(&mut self.behavior, ui);
+                    }
+                } else {
+                    self.viewport_tree.ui(&mut self.behavior, ui);
+                }
             });
         });
 
@@ -346,6 +411,9 @@ impl Dashboard {
             BufferEditorResult::None => {}
         }
 
+        // Show floating windows
+        self.show_floating_windows(ctx, app_state.theme);
+
         // Handle vim-style keyboard navigation for viewport
         // (only if no modal is open)
         if !self.buffer_editor.is_open() {
@@ -353,6 +421,69 @@ impl Dashboard {
         }
 
         self.handle_command_result(cmd_result)
+    }
+
+    /// Show all floating windows
+    fn show_floating_windows(&mut self, ctx: &egui::Context, theme: AppTheme) {
+        let text_col = text_color(theme);
+        let mut windows_to_dock: Vec<u64> = Vec::new();
+        let mut windows_to_close: Vec<u64> = Vec::new();
+
+        for floating in &mut self.floating_windows {
+            if !floating.open {
+                windows_to_close.push(floating.id);
+                continue;
+            }
+
+            floating.component.set_theme(theme);
+
+            let title = floating.component.name();
+            let mut open = floating.open;
+
+            egui::Window::new(
+                egui::RichText::new(format!("{} {}", egui_phosphor::regular::CHART_LINE, title))
+                    .color(text_col),
+            )
+            .id(egui::Id::new(format!("floating_window_{}", floating.id)))
+            .open(&mut open)
+            .resizable(true)
+            .collapsible(true)
+            .default_size([600.0, 350.0])
+            .min_width(400.0)
+            .min_height(250.0)
+            .show(ctx, |ui| {
+                // Dock button at top right
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button(egui::RichText::new(egui_phosphor::regular::LAYOUT))
+                            .on_hover_text("Dock back to tiled layout (D)")
+                            .clicked()
+                        {
+                            windows_to_dock.push(floating.id);
+                        }
+                    });
+                });
+
+                // Give the chart most of the remaining space
+                let available = ui.available_size();
+                ui.allocate_ui(available, |ui| {
+                    floating.component.show(ui);
+                });
+            });
+
+            floating.open = open;
+        }
+
+        // Remove closed windows
+        for id in windows_to_close {
+            self.floating_windows.retain(|w| w.id != id);
+        }
+
+        // Dock windows back (handled after the loop to avoid borrow issues)
+        for id in windows_to_dock {
+            self.dock_floating_window(id);
+        }
     }
 
     /// Handle a command result from the command palette
@@ -401,6 +532,26 @@ impl Dashboard {
                 self.create_new_buffer();
                 DashboardAction::None
             }
+            CommandResult::ToggleZenMode => {
+                self.toggle_zen_mode();
+                DashboardAction::None
+            }
+            CommandResult::ToggleFullscreen => {
+                self.toggle_fullscreen();
+                DashboardAction::None
+            }
+            CommandResult::FloatPane => {
+                self.float_focused_pane();
+                DashboardAction::None
+            }
+            CommandResult::DockAll => {
+                self.dock_all_floating();
+                DashboardAction::None
+            }
+            CommandResult::TestNotify(level) => DashboardAction::Notify {
+                level: level.clone(),
+                message: format!("Test notification ({level})"),
+            },
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -517,6 +668,125 @@ impl Dashboard {
     /// Open the command palette modal
     pub fn open_command_palette(&mut self) {
         self.command_palette.open();
+    }
+
+    /// Toggle zen mode (distraction-free view)
+    pub fn toggle_zen_mode(&mut self) {
+        self.zen_mode = !self.zen_mode;
+        log::debug!("Zen mode: {}", self.zen_mode);
+    }
+
+    /// Check if zen mode is active
+    pub fn is_zen_mode(&self) -> bool {
+        self.zen_mode
+    }
+
+    /// Toggle fullscreen for the currently focused pane
+    pub fn toggle_fullscreen(&mut self) {
+        if self.fullscreen_tile.is_some() {
+            // Exit fullscreen
+            self.fullscreen_tile = None;
+            log::debug!("Exited fullscreen mode");
+        } else if let Some(focused_id) = self.behavior.focused_tile() {
+            // Enter fullscreen for focused pane
+            // Verify it's actually a pane (not a container)
+            if matches!(
+                self.viewport_tree.tiles.get(focused_id),
+                Some(Tile::Pane(_))
+            ) {
+                self.fullscreen_tile = Some(focused_id);
+                log::debug!("Entered fullscreen mode for tile {focused_id:?}");
+            }
+        } else {
+            // No pane focused - try to fullscreen the first available pane
+            let pane_ids = self.get_pane_tile_ids();
+            if let Some(&first_pane) = pane_ids.first() {
+                self.fullscreen_tile = Some(first_pane);
+                self.behavior.set_focused_tile(Some(first_pane));
+                log::debug!("Entered fullscreen mode for first pane {first_pane:?}");
+            }
+        }
+    }
+
+    /// Check if fullscreen mode is active
+    pub fn is_fullscreen(&self) -> bool {
+        self.fullscreen_tile.is_some()
+    }
+
+    /// Float the currently focused pane into a draggable window
+    pub fn float_focused_pane(&mut self) {
+        let focused_id = if let Some(id) = self.behavior.focused_tile() {
+            id
+        } else {
+            // No pane focused - try to float the first available pane
+            let pane_ids = self.get_pane_tile_ids();
+            if let Some(&first_pane) = pane_ids.first() {
+                self.behavior.set_focused_tile(Some(first_pane));
+                first_pane
+            } else {
+                log::debug!("No panes to float");
+                return;
+            }
+        };
+
+        // Make sure it's actually a pane
+        if let Some(Tile::Pane(_)) = self.viewport_tree.tiles.get(focused_id) {
+            // Remove the pane from the tile tree and move it to floating
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.remove(focused_id) {
+                let id = self.next_floating_id;
+                self.next_floating_id += 1;
+
+                let floating = FloatingWindow::new(id, component);
+                self.floating_windows.push(floating);
+
+                // Clear focus since the pane is now floating
+                self.behavior.set_focused_tile(None);
+
+                log::debug!("Floated pane {focused_id:?} as floating window {id}");
+            }
+        } else {
+            log::debug!("Focused tile {focused_id:?} is not a pane");
+        }
+    }
+
+    /// Dock a floating window back into the tiled layout
+    fn dock_floating_window(&mut self, floating_id: u64) {
+        // Find and remove the floating window
+        let floating_idx = self
+            .floating_windows
+            .iter()
+            .position(|w| w.id == floating_id);
+
+        if let Some(idx) = floating_idx {
+            let floating = self.floating_windows.remove(idx);
+
+            // Insert the component back into the tile tree
+            let new_tile_id = self.viewport_tree.tiles.insert_pane(floating.component);
+
+            // Add to viewport
+            if self.add_tile_to_viewport(new_tile_id) {
+                self.behavior.set_focused_tile(Some(new_tile_id));
+                log::debug!("Docked floating window {floating_id} back as tile {new_tile_id:?}");
+            }
+        }
+    }
+
+    /// Dock all floating windows back into the tiled layout
+    pub fn dock_all_floating(&mut self) {
+        let floating_ids: Vec<u64> = self.floating_windows.iter().map(|w| w.id).collect();
+        for id in floating_ids {
+            self.dock_floating_window(id);
+        }
+    }
+
+    /// Check if there are any floating windows
+    pub fn has_floating_windows(&self) -> bool {
+        !self.floating_windows.is_empty()
+    }
+
+    /// Get the count of floating windows
+    pub fn floating_window_count(&self) -> usize {
+        self.floating_windows.len()
     }
 
     /// Update the inspector panel based on the current metric selection
@@ -673,6 +943,36 @@ impl Dashboard {
     /// Get a mutable reference to the metrics tree
     pub fn metrics_tree_mut(&mut self) -> &mut MetricsTree {
         &mut self.metrics_tree
+    }
+
+    /// Check if the command palette is currently open
+    pub fn is_command_palette_open(&self) -> bool {
+        self.command_palette.is_open()
+    }
+
+    /// Check if the fuzzy finder is currently open
+    pub fn is_fuzzy_finder_open(&self) -> bool {
+        self.fuzzy_finder.is_open()
+    }
+
+    /// Get the number of open tabs/charts
+    pub fn open_tabs_count(&self) -> usize {
+        self.open_charts.len()
+    }
+
+    /// Get the currently selected metric name
+    pub fn selected_metric(&self) -> Option<String> {
+        self.metrics_tree.selection().metric.clone()
+    }
+
+    /// Get viewport info (e.g., pane layout description)
+    pub fn viewport_info(&self) -> Option<String> {
+        let pane_count = self.get_pane_tile_ids().len();
+        if pane_count > 1 {
+            Some(format!("{pane_count} panes"))
+        } else {
+            None
+        }
     }
 
     /// Split panes horizontally (`:split` - panes stacked vertically, one above another)
@@ -894,22 +1194,47 @@ impl Dashboard {
         }
 
         let pane_ids = self.get_pane_tile_ids();
-        if pane_ids.is_empty() {
-            return false;
-        }
-
         let current_focus = self.behavior.focused_tile();
 
         let mut consumed = false;
         let mut should_clear_focus = false;
         let mut should_close_focused = false;
         let mut should_edit_buffer = false;
+        let mut should_toggle_zen = false;
+        let mut should_toggle_fullscreen = false;
+        let mut should_float_pane = false;
+        let mut should_dock_all = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
             // e - enter edit mode on focused pane (vim-style)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
                 should_edit_buffer = true;
+                consumed = true;
+                return;
+            }
+
+            // Z - toggle zen mode (works even with no panes)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Z) {
+                should_toggle_zen = true;
+                consumed = true;
+                return;
+            }
+            // F - toggle fullscreen for focused pane
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+                should_toggle_fullscreen = true;
+                consumed = true;
+                return;
+            }
+            // W - float focused pane into a window
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                should_float_pane = true;
+                consumed = true;
+                return;
+            }
+            // D - dock all floating windows
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                should_dock_all = true;
                 consumed = true;
                 return;
             }
@@ -982,6 +1307,14 @@ impl Dashboard {
 
         if should_edit_buffer {
             self.edit_focused_buffer();
+        } else if should_toggle_zen {
+            self.toggle_zen_mode();
+        } else if should_toggle_fullscreen {
+            self.toggle_fullscreen();
+        } else if should_float_pane {
+            self.float_focused_pane();
+        } else if should_dock_all {
+            self.dock_all_floating();
         } else if should_close_focused {
             if let Some(tile_id) = current_focus {
                 self.close_tile(tile_id);

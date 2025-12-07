@@ -9,8 +9,10 @@ pub mod custom_queries;
 pub mod fuzzy_finder;
 pub mod inspector;
 pub mod metrics_tree;
+pub mod notifications;
 pub mod query_pane;
 pub mod query_state;
+pub mod status_line;
 pub mod time_range;
 pub mod time_series_chart;
 
@@ -24,8 +26,10 @@ pub use inspector::{
     metrics_panel_toggle_button,
 };
 pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
+pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use query_pane::{QueryPane, QueryPaneAction};
 pub use query_state::{AggregationMode, Granularity, QueryState};
+pub use status_line::{StatusLine, StatusMode};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
 

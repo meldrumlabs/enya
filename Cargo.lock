@@ -2598,6 +2598,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "enya-lang"
+version = "0.1.0"
+dependencies = [
+ "logos",
+ "smallvec",
+]
+
+[[package]]
 name = "enya-log-store"
 version = "0.1.0"
 
@@ -2619,10 +2627,10 @@ dependencies = [
  "bytes",
  "criterion",
  "enya-common",
+ "enya-lang",
  "foyer",
  "futures",
  "log",
- "logos",
  "parking_lot 0.11.2",
  "pin-project-lite",
  "roaring 0.10.12",

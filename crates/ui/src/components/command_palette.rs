@@ -59,6 +59,16 @@ pub enum CommandResult {
     EditBuffer,
     /// Create a new buffer (:new or :enew)
     NewBuffer,
+    /// Toggle zen mode (distraction-free view)
+    ToggleZenMode,
+    /// Toggle fullscreen for focused pane
+    ToggleFullscreen,
+    /// Float the focused pane into a draggable window
+    FloatPane,
+    /// Dock all floating windows back to tiled layout
+    DockAll,
+    /// Show a test notification
+    TestNotify(String),
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -137,6 +147,36 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "new",
         aliases: &["enew", "buffer"],
         description: "Create a new buffer",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "zen",
+        aliases: &["z", "focus", "distraction-free"],
+        description: "Toggle zen mode (distraction-free view)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "fullscreen",
+        aliases: &["full", "maximize", "max"],
+        description: "Toggle fullscreen for focused chart",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "notify",
+        aliases: &["n", "toast"],
+        description: "Show a test notification (info/success/warn/error)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "float",
+        aliases: &["fl", "popup", "detach"],
+        description: "Float focused chart into a draggable window",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "dock",
+        aliases: &["d", "attach", "tile"],
+        description: "Dock all floating windows back to tiled layout",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -340,6 +380,14 @@ impl CommandPalette {
             }
             "edit" => CommandResult::EditBuffer,
             "new" => CommandResult::NewBuffer,
+            "zen" => CommandResult::ToggleZenMode,
+            "fullscreen" => CommandResult::ToggleFullscreen,
+            "float" => CommandResult::FloatPane,
+            "dock" => CommandResult::DockAll,
+            "notify" => {
+                let level = args.first().copied().unwrap_or("info");
+                CommandResult::TestNotify(level.to_string())
+            }
             _ => CommandResult::None,
         }
     }
