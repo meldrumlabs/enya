@@ -4,9 +4,9 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
 use crate::components::{
-    CommandPalette, CommandResult, Component, CustomQueriesPanel, FuzzyFinder, FuzzyItem,
-    InspectorPanel, InspectorTarget, MetricStats, MetricsTree, TimeRangeToolbar, TimeSeriesChart,
-    inspector_toggle_button, metrics_panel_toggle_button,
+    Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
+    CustomQueriesPanel, FuzzyFinder, FuzzyItem, InspectorPanel, InspectorTarget, MetricStats,
+    MetricsTree, QueryPane, TimeRangeToolbar, inspector_toggle_button, metrics_panel_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -58,6 +58,10 @@ pub struct Dashboard {
     fuzzy_finder: FuzzyFinder,
     /// Command palette (neovim-style `:` commands)
     command_palette: CommandPalette,
+    /// Buffer editor modal (for editing queries)
+    buffer_editor: BufferEditor,
+    /// Track which tile is being edited (to apply changes back)
+    editing_tile_id: Option<TileId>,
 }
 
 impl Default for Dashboard {
@@ -83,6 +87,8 @@ impl Default for Dashboard {
             last_selected_metric: None,
             fuzzy_finder: FuzzyFinder::new(),
             command_palette: CommandPalette::new(),
+            buffer_editor: BufferEditor::new(),
+            editing_tile_id: None,
         }
     }
 }
@@ -107,13 +113,13 @@ impl Dashboard {
     pub fn example(_api_key: String) -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
 
-        // Add a demo chart to show the UI
-        let demo_chart: Box<dyn Component> = Box::new(TimeSeriesChart::with_demo_data(
+        // Add a demo QueryPane (buffer + chart) to show the UI
+        let demo_pane: Box<dyn Component> = Box::new(QueryPane::with_demo_metric(
             "tokio.runtime.total_park_count",
         ));
-        let chart_tile = tiles.insert_pane(demo_chart);
+        let pane_tile = tiles.insert_pane(demo_pane);
 
-        let root = tiles.insert_tab_tile(vec![chart_tile]);
+        let root = tiles.insert_tab_tile(vec![pane_tile]);
 
         let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
 
@@ -136,6 +142,8 @@ impl Dashboard {
             last_selected_metric: None,
             fuzzy_finder: FuzzyFinder::new(),
             command_palette: CommandPalette::new(),
+            buffer_editor: BufferEditor::new(),
+            editing_tile_id: None,
         }
     }
 
@@ -325,8 +333,23 @@ impl Dashboard {
         self.command_palette.set_theme(app_state.theme);
         let cmd_result = self.command_palette.show(ctx);
 
+        // Show buffer editor modal
+        self.buffer_editor.set_theme(app_state.theme);
+        match self.buffer_editor.show(ctx) {
+            BufferEditorResult::Saved(query) => {
+                self.apply_buffer_editor_result(query);
+            }
+            BufferEditorResult::Cancelled => {
+                self.editing_tile_id = None;
+            }
+            BufferEditorResult::None => {}
+        }
+
         // Handle vim-style keyboard navigation for viewport
-        self.handle_viewport_keyboard(ctx);
+        // (only if no modal is open)
+        if !self.buffer_editor.is_open() {
+            self.handle_viewport_keyboard(ctx);
+        }
 
         self.handle_command_result(cmd_result)
     }
@@ -351,8 +374,10 @@ impl Dashboard {
             CommandResult::OpenSettings => DashboardAction::OpenSettings,
             CommandResult::ShowHelp => DashboardAction::ShowHelp,
             CommandResult::CloseTab => {
-                // TODO: Implement tab closing
-                log::debug!("Close tab command received");
+                // Close the focused tile
+                if let Some(tile_id) = self.behavior.focused_tile() {
+                    self.close_tile(tile_id);
+                }
                 DashboardAction::None
             }
             CommandResult::SplitHorizontal => {
@@ -363,8 +388,87 @@ impl Dashboard {
                 self.split_panes_vertical();
                 DashboardAction::None
             }
+            CommandResult::SaveBuffer(name) => {
+                self.save_focused_buffer(name);
+                DashboardAction::None
+            }
+            CommandResult::EditBuffer => {
+                self.edit_focused_buffer();
+                DashboardAction::None
+            }
+            CommandResult::NewBuffer => {
+                self.create_new_buffer();
+                DashboardAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
+            }
+        }
+    }
+
+    /// Save the focused buffer (execute its query), optionally setting a name
+    fn save_focused_buffer(&mut self, name: Option<String>) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                // Try to downcast to QueryPane and save
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    if let Some(ref new_name) = name {
+                        query_pane.set_name(new_name);
+                    }
+                    if query_pane.save() {
+                        log::debug!("Buffer saved");
+                    }
+                } else if let Some(buffer) = component.as_any_mut().downcast_mut::<Buffer>() {
+                    if let Some(ref new_name) = name {
+                        buffer.set_name(new_name);
+                    }
+                    if buffer.save() {
+                        log::debug!("Buffer saved");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Enter edit mode on the focused buffer - opens the modal editor
+    fn edit_focused_buffer(&mut self) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                // Try to downcast to QueryPane and get query info
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    let query = query_pane.saved_query().to_string();
+                    let name = query_pane.name().to_string();
+                    self.buffer_editor.open(&query, &name);
+                    self.editing_tile_id = Some(tile_id);
+                    log::debug!("Opening buffer editor for QueryPane");
+                } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                    let query = buffer.saved_content().to_string();
+                    let name = buffer.name().to_string();
+                    self.buffer_editor.open(&query, &name);
+                    self.editing_tile_id = Some(tile_id);
+                    log::debug!("Opening buffer editor for Buffer");
+                }
+            }
+        }
+    }
+
+    /// Apply the result from the buffer editor modal
+    fn apply_buffer_editor_result(&mut self, query: String) {
+        if let Some(tile_id) = self.editing_tile_id.take() {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                // Try to downcast to QueryPane and apply
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    query_pane.set_query_and_save(&query);
+                    log::debug!("Applied query to QueryPane: {query}");
+                } else if let Some(buffer) = component.as_any_mut().downcast_mut::<Buffer>() {
+                    buffer.set_content(&query);
+                    buffer.save();
+                    log::debug!("Applied query to Buffer: {query}");
+                }
             }
         }
     }
@@ -453,14 +557,14 @@ impl Dashboard {
             return;
         }
 
-        // Create the chart (with demo data for now)
-        let chart: Box<dyn Component> = Box::new(TimeSeriesChart::with_demo_data(metric_name));
-        let chart_tile = self.viewport_tree.tiles.insert_pane(chart);
+        // Create a QueryPane (buffer + chart) for the metric
+        let pane: Box<dyn Component> = Box::new(QueryPane::with_demo_metric(metric_name));
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
-        if self.add_tile_to_viewport(chart_tile) {
+        if self.add_tile_to_viewport(pane_tile) {
             self.open_charts.insert(metric_name.to_string());
-            self.behavior.set_focused_tile(Some(chart_tile));
-            log::debug!("Added chart for {metric_name}");
+            self.behavior.set_focused_tile(Some(pane_tile));
+            log::debug!("Added query pane for {metric_name}");
         }
     }
 
@@ -473,16 +577,25 @@ impl Dashboard {
             return;
         }
 
-        // Create the chart with a custom title showing the query
-        let mut chart = TimeSeriesChart::with_demo_data(query_name);
-        chart.set_title(format!("{query_name} [{query_str}]"));
-        let chart: Box<dyn Component> = Box::new(chart);
-        let chart_tile = self.viewport_tree.tiles.insert_pane(chart);
+        // Create a QueryPane with the query
+        let pane: Box<dyn Component> = Box::new(QueryPane::with_name(query_str, query_name));
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
-        if self.add_tile_to_viewport(chart_tile) {
+        if self.add_tile_to_viewport(pane_tile) {
             self.open_charts.insert(chart_key);
-            self.behavior.set_focused_tile(Some(chart_tile));
-            log::debug!("Added chart for query '{query_name}'");
+            self.behavior.set_focused_tile(Some(pane_tile));
+            log::debug!("Added query pane for '{query_name}'");
+        }
+    }
+
+    /// Create a new empty buffer in the viewport
+    fn create_new_buffer(&mut self) {
+        let buffer: Box<dyn Component> = Box::new(Buffer::new(""));
+        let buffer_tile = self.viewport_tree.tiles.insert_pane(buffer);
+
+        if self.add_tile_to_viewport(buffer_tile) {
+            self.behavior.set_focused_tile(Some(buffer_tile));
+            log::debug!("Created new buffer");
         }
     }
 
@@ -765,8 +878,16 @@ impl Dashboard {
             return false;
         }
 
-        // Don't handle if fuzzy finder or command palette is open
-        if self.fuzzy_finder.is_open() || self.command_palette.is_open() {
+        // Don't handle if fuzzy finder, command palette, or buffer editor is open
+        if self.fuzzy_finder.is_open()
+            || self.command_palette.is_open()
+            || self.buffer_editor.is_open()
+        {
+            return false;
+        }
+
+        // Check if any buffer is in insert mode - if so, don't handle navigation keys
+        if self.is_any_buffer_in_insert_mode() {
             return false;
         }
 
@@ -780,9 +901,17 @@ impl Dashboard {
         let mut consumed = false;
         let mut should_clear_focus = false;
         let mut should_close_focused = false;
+        let mut should_edit_buffer = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
+            // e - enter edit mode on focused pane (vim-style)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
+                should_edit_buffer = true;
+                consumed = true;
+                return;
+            }
+
             // h or left arrow - move left
             if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
@@ -849,7 +978,9 @@ impl Dashboard {
             }
         });
 
-        if should_close_focused {
+        if should_edit_buffer {
+            self.edit_focused_buffer();
+        } else if should_close_focused {
             if let Some(tile_id) = current_focus {
                 self.close_tile(tile_id);
             }
@@ -870,6 +1001,27 @@ impl Dashboard {
         }
 
         consumed
+    }
+
+    /// Check if any buffer in the viewport is currently in insert mode
+    fn is_any_buffer_in_insert_mode(&self) -> bool {
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                // Check QueryPane
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    if query_pane.buffer_mode() == BufferMode::Insert {
+                        return true;
+                    }
+                }
+                // Check Buffer
+                if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                    if buffer.mode() == BufferMode::Insert {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Activate a tile (make it the active tab in its parent container)
