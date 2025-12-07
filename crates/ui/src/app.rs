@@ -1,4 +1,3 @@
-use egui::RichText;
 use egui::Theme;
 use egui::Visuals;
 use enya_build_info::BuildInfo;
@@ -9,10 +8,10 @@ use crate::command::CommandSender;
 use crate::command::UICommand;
 use crate::command::UICommandSender;
 use crate::command::command_channel;
+use crate::components::{NotificationManager, StatusLine, StatusMode};
 use crate::dashboard::{Dashboard, DashboardAction};
 use crate::theme::AppTheme;
 use crate::theme::light;
-use crate::ui::colors::text_color;
 use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::ui::settings_screen::show_settings_ui;
@@ -31,6 +30,12 @@ pub struct EnyaApp {
     // Channels for ui commands
     pub command_sender: CommandSender,
     pub command_receiver: CommandReceiver,
+
+    // Status line component
+    status_line: StatusLine,
+
+    // Notification manager
+    notifications: NotificationManager,
 }
 
 // Serializable state that can be persiste
@@ -83,6 +88,8 @@ impl Default for EnyaApp {
             state: AppState::default(),
             is_connected: false,
             build_info: build_info!(),
+            status_line: StatusLine::new(),
+            notifications: NotificationManager::new(),
         }
     }
 }
@@ -167,31 +174,51 @@ impl EnyaApp {
         }
     }
 
-    // Paints the bottom panel aka footer
+    // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            let color = text_color(self.state.theme);
-            ui.horizontal(|ui| {
-                ui.separator();
-                ui.label(
-                    RichText::new(egui_phosphor::regular::NETWORK_X)
-                        .color(color)
-                        .strong(),
-                );
-                ui.separator();
-                if self.is_connected {
-                    ui.label(RichText::new("CONNECTED").color(color).strong());
-                } else if ui
-                    .label(RichText::new("NOT CONNECTED").color(color).strong())
-                    .on_hover_and_drag_cursor(egui::CursorIcon::PointingHand)
-                    .clicked()
-                {
-                    // Make settings pop up
-                    self.command_sender.send_ui(UICommand::Settings);
+        // Update status line state
+        self.status_line.set_theme(self.state.theme);
+        self.status_line.set_connected(self.is_connected);
+
+        // Set mode based on current UI state
+        let mode = match self.state.ui_state {
+            UIState::Dashboard => {
+                // Check if command palette or fuzzy finder is open, or zen/fullscreen mode is active
+                if let Some(ref dashboard) = self.dashboard {
+                    if dashboard.is_command_palette_open() {
+                        StatusMode::Command
+                    } else if dashboard.is_fuzzy_finder_open() {
+                        StatusMode::Search
+                    } else if dashboard.is_fullscreen() {
+                        StatusMode::Fullscreen
+                    } else if dashboard.is_zen_mode() {
+                        StatusMode::Zen
+                    } else {
+                        StatusMode::Normal
+                    }
+                } else {
+                    StatusMode::Normal
                 }
-                ui.separator();
+            }
+            UIState::Settings => StatusMode::Settings,
+            UIState::Home => StatusMode::Home,
+        };
+        self.status_line.set_mode(mode);
+
+        // Set open tabs count from dashboard
+        if let Some(ref dashboard) = self.dashboard {
+            self.status_line.set_open_tabs(dashboard.open_tabs_count());
+            self.status_line
+                .set_selected_metric(dashboard.selected_metric());
+            self.status_line
+                .set_viewport_info(dashboard.viewport_info());
+        }
+
+        egui::TopBottomPanel::bottom("bottom_panel")
+            .resizable(false)
+            .show(ctx, |ui| {
+                self.status_line.show(ui);
             });
-        });
     }
 
     // This draws the main panel
@@ -328,6 +355,17 @@ impl EnyaApp {
                     new_tab: true,
                 });
             }
+            DashboardAction::Notify { level, message } => {
+                use crate::components::{Notification, NotificationLevel};
+                let notification_level = match level.to_lowercase().as_str() {
+                    "success" | "ok" => NotificationLevel::Success,
+                    "warn" | "warning" => NotificationLevel::Warn,
+                    "error" | "err" => NotificationLevel::Error,
+                    _ => NotificationLevel::Info,
+                };
+                self.notifications
+                    .notify(Notification::new(message, notification_level));
+            }
         }
     }
 
@@ -363,6 +401,10 @@ impl eframe::App for EnyaApp {
 
         // Draw bottom panel with connection info etc.
         self.show_bottom_panel(ctx);
+
+        // Draw notifications (on top of everything)
+        self.notifications.set_theme(self.state.theme);
+        self.notifications.show(ctx);
 
         // Check for possible key board shortcut triggers
         self.check_keyboard_shortcuts(ctx);

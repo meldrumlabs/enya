@@ -1,8 +1,11 @@
-use egui::{Color32, FontId, Key, RichText, TextFormat, text::LayoutJob};
+use egui::{Color32, FontId, Key, RichText, Stroke, TextFormat, text::LayoutJob};
+use egui_plot::{Line, Plot, PlotPoints};
 use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+
+use super::time_series_chart::DataPoint;
 
 /// An item that can be searched in the fuzzy finder
 #[derive(Debug, Clone)]
@@ -58,7 +61,7 @@ pub struct FuzzyResult {
     pub match_positions: Vec<usize>,
 }
 
-/// A telescope/fzf-style fuzzy finder modal
+/// A telescope/fzf-style fuzzy finder modal with live preview
 pub struct FuzzyFinder {
     /// Current search query
     query: String,
@@ -76,6 +79,12 @@ pub struct FuzzyFinder {
     matcher: SkimMatcherV2,
     /// Whether query changed and results need refresh
     needs_refresh: bool,
+    /// Whether to show the preview pane
+    show_preview: bool,
+    /// Cache of last selected item name for preview generation
+    last_preview_item: Option<String>,
+    /// Cached preview data points
+    preview_data: Vec<DataPoint>,
 }
 
 impl Default for FuzzyFinder {
@@ -95,6 +104,9 @@ impl FuzzyFinder {
             theme: AppTheme::default(),
             matcher: SkimMatcherV2::default(),
             needs_refresh: true,
+            show_preview: true,
+            last_preview_item: None,
+            preview_data: Vec::new(),
         }
     }
 
@@ -121,6 +133,8 @@ impl FuzzyFinder {
         self.is_open = false;
         self.query.clear();
         self.selected_index = 0;
+        self.last_preview_item = None;
+        self.preview_data.clear();
     }
 
     /// Set the searchable items
@@ -183,23 +197,27 @@ impl FuzzyFinder {
 
         let mut selected_item: Option<FuzzyItem> = None;
         let mut should_close = false;
+        let mut toggle_preview = false;
 
         // Handle keyboard input first (before rendering)
-        let (navigate_up, navigate_down, confirm, escape) = ctx.input(|i| {
+        let (navigate_up, navigate_down, confirm, escape, ctrl_p) = ctx.input(|i| {
             (
-                i.key_pressed(Key::ArrowUp)
-                    || (i.key_pressed(Key::K) && i.modifiers.ctrl)
-                    || (i.key_pressed(Key::P) && i.modifiers.ctrl),
+                i.key_pressed(Key::ArrowUp) || (i.key_pressed(Key::K) && i.modifiers.ctrl),
                 i.key_pressed(Key::ArrowDown)
                     || (i.key_pressed(Key::J) && i.modifiers.ctrl)
                     || (i.key_pressed(Key::N) && i.modifiers.ctrl),
                 i.key_pressed(Key::Enter),
                 i.key_pressed(Key::Escape),
+                i.key_pressed(Key::P) && i.modifiers.ctrl,
             )
         });
 
         if escape {
             should_close = true;
+        }
+
+        if ctrl_p {
+            toggle_preview = true;
         }
 
         if navigate_up && self.selected_index > 0 {
@@ -215,13 +233,26 @@ impl FuzzyFinder {
             should_close = true;
         }
 
-        // Main finder popup (no backdrop dimming for terminal-like experience)
+        // Calculate popup dimensions
         let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.6).clamp(400.0, 700.0);
-        let popup_max_height = (screen_rect.height() * 0.6).min(500.0);
+        let list_width = (screen_rect.width() * 0.35).clamp(350.0, 500.0);
+        let preview_width = if self.show_preview {
+            (screen_rect.width() * 0.35).clamp(300.0, 450.0)
+        } else {
+            0.0
+        };
+        let total_width = list_width + preview_width;
+        let popup_max_height = (screen_rect.height() * 0.65).min(550.0);
+
+        // Get the currently selected result for preview
+        let selected_result_for_preview = if !self.results.is_empty() {
+            Some(self.results[self.selected_index].clone())
+        } else {
+            None
+        };
 
         egui::Area::new(egui::Id::new("fuzzy_finder_popup"))
-            .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
+            .anchor(egui::Align2::CENTER_TOP, [0.0, 60.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let bg_color = match self.theme {
@@ -231,6 +262,10 @@ impl FuzzyFinder {
                 let border_color = match self.theme {
                     AppTheme::Light => Color32::from_rgb(200, 200, 200),
                     AppTheme::Dark => Color32::from_rgb(60, 60, 70),
+                };
+                let separator_color = match self.theme {
+                    AppTheme::Light => Color32::from_rgb(220, 220, 220),
+                    AppTheme::Dark => Color32::from_rgb(50, 50, 55),
                 };
 
                 egui::Frame::new()
@@ -245,9 +280,10 @@ impl FuzzyFinder {
                         color: Color32::from_black_alpha(80),
                     })
                     .show(ui, |ui| {
-                        ui.set_width(popup_width);
+                        ui.set_width(total_width);
+                        ui.set_max_height(popup_max_height);
 
-                        // Search input section
+                        // Search input section (spans full width)
                         ui.horizontal(|ui| {
                             ui.add_space(12.0);
                             ui.label(
@@ -264,7 +300,7 @@ impl FuzzyFinder {
                                         .color(text_color(self.theme).gamma_multiply(0.4)),
                                 )
                                 .frame(false)
-                                .desired_width(popup_width - 60.0);
+                                .desired_width(total_width - 60.0);
 
                             let response = ui.add(text_edit);
 
@@ -280,11 +316,7 @@ impl FuzzyFinder {
 
                         ui.add_space(8.0);
 
-                        // Separator
-                        let separator_color = match self.theme {
-                            AppTheme::Light => Color32::from_rgb(220, 220, 220),
-                            AppTheme::Dark => Color32::from_rgb(50, 50, 55),
-                        };
+                        // Separator below search
                         ui.painter().hline(
                             ui.available_rect_before_wrap().x_range(),
                             ui.cursor().top(),
@@ -292,34 +324,66 @@ impl FuzzyFinder {
                         );
                         ui.add_space(4.0);
 
-                        // Results section
-                        let results_height = popup_max_height - 60.0;
-                        egui::ScrollArea::vertical()
-                            .max_height(results_height)
-                            .auto_shrink([false, true])
-                            .show(ui, |ui| {
-                                if self.results.is_empty() {
-                                    ui.add_space(20.0);
-                                    ui.vertical_centered(|ui| {
-                                        ui.label(
-                                            RichText::new("No results found")
-                                                .color(text_color(self.theme).gamma_multiply(0.5))
-                                                .size(14.0),
-                                        );
-                                    });
-                                    ui.add_space(20.0);
-                                } else {
-                                    for (i, result) in self.results.iter().enumerate() {
-                                        let is_selected = i == self.selected_index;
-                                        let clicked =
-                                            self.render_result_row(ui, result, is_selected);
-                                        if clicked {
-                                            selected_item = Some(result.item.clone());
-                                            should_close = true;
+                        // Main content area: results list + preview pane
+                        let content_height = popup_max_height - 90.0;
+                        ui.horizontal(|ui| {
+                            // Results list (left side)
+                            ui.vertical(|ui| {
+                                ui.set_width(list_width);
+                                ui.set_height(content_height);
+
+                                egui::ScrollArea::vertical()
+                                    .max_height(content_height)
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        ui.set_width(list_width - 8.0);
+                                        if self.results.is_empty() {
+                                            ui.add_space(20.0);
+                                            ui.vertical_centered(|ui| {
+                                                ui.label(
+                                                    RichText::new("No results found")
+                                                        .color(
+                                                            text_color(self.theme)
+                                                                .gamma_multiply(0.5),
+                                                        )
+                                                        .size(14.0),
+                                                );
+                                            });
+                                            ui.add_space(20.0);
+                                        } else {
+                                            for (i, result) in self.results.iter().enumerate() {
+                                                let is_selected = i == self.selected_index;
+                                                let clicked =
+                                                    self.render_result_row(ui, result, is_selected);
+                                                if clicked {
+                                                    selected_item = Some(result.item.clone());
+                                                    should_close = true;
+                                                }
+                                            }
                                         }
-                                    }
-                                }
+                                    });
                             });
+
+                            // Preview pane (right side)
+                            if self.show_preview {
+                                // Vertical separator between list and preview
+                                let line_rect = ui.available_rect_before_wrap();
+                                ui.painter().vline(
+                                    line_rect.left(),
+                                    line_rect.y_range(),
+                                    egui::Stroke::new(1.0, separator_color),
+                                );
+
+                                ui.vertical(|ui| {
+                                    ui.set_width(preview_width);
+                                    ui.set_height(content_height);
+                                    self.render_preview_pane(
+                                        ui,
+                                        selected_result_for_preview.as_ref(),
+                                    );
+                                });
+                            }
+                        });
 
                         ui.add_space(4.0);
 
@@ -339,12 +403,19 @@ impl FuzzyFinder {
                             ui.label(RichText::new("↵").color(hint_color).size(11.0));
                             ui.label(RichText::new("select").color(hint_color).size(11.0));
                             ui.add_space(12.0);
+                            ui.label(RichText::new("ctrl+p").color(hint_color).size(11.0));
+                            ui.label(RichText::new("preview").color(hint_color).size(11.0));
+                            ui.add_space(12.0);
                             ui.label(RichText::new("esc").color(hint_color).size(11.0));
                             ui.label(RichText::new("close").color(hint_color).size(11.0));
                         });
                         ui.add_space(8.0);
                     });
             });
+
+        if toggle_preview {
+            self.toggle_preview();
+        }
 
         if should_close {
             self.close();
@@ -491,5 +562,185 @@ impl FuzzyFinder {
         }
 
         ui.fonts_mut(|f| f.layout_job(job))
+    }
+
+    /// Generate demo preview data for a given item name
+    fn generate_preview_data(&mut self, item_name: &str) {
+        // Only regenerate if the item changed
+        if self.last_preview_item.as_deref() == Some(item_name) {
+            return;
+        }
+
+        self.last_preview_item = Some(item_name.to_string());
+        self.preview_data.clear();
+
+        // Generate deterministic demo data based on the item name
+        let seed: u64 = item_name.bytes().map(|b| b as u64).sum();
+        let now = 1_700_000_000.0;
+        let duration = 3600.0; // 1 hour
+        let num_points = 60;
+
+        for i in 0..num_points {
+            let t = now + (i as f64 / num_points as f64) * duration;
+            // Create a unique but deterministic wave pattern based on seed
+            let phase = (seed % 10) as f64 * 0.3;
+            let amplitude = 20.0 + (seed % 30) as f64;
+            let base = 50.0 + amplitude * ((t / 300.0) + phase).sin();
+            let noise = ((t * (17.0 + (seed % 7) as f64)).sin()) * 5.0;
+            self.preview_data.push(DataPoint {
+                timestamp: t,
+                value: base + noise,
+            });
+        }
+    }
+
+    /// Render the preview chart pane
+    fn render_preview_pane(&mut self, ui: &mut egui::Ui, selected_item: Option<&FuzzyResult>) {
+        let text_col = text_color(self.theme);
+        let bg_color = match self.theme {
+            AppTheme::Light => Color32::from_rgb(245, 247, 250),
+            AppTheme::Dark => Color32::from_rgb(25, 27, 32),
+        };
+
+        egui::Frame::new()
+            .fill(bg_color)
+            .inner_margin(12.0)
+            .show(ui, |ui| {
+                if let Some(result) = selected_item {
+                    // Generate preview data if needed
+                    self.generate_preview_data(result.item.search_text());
+
+                    // Header with item info
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(result.item.icon()).color(text_col).size(16.0));
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(result.item.search_text())
+                                .color(text_col)
+                                .strong()
+                                .size(14.0),
+                        );
+                    });
+
+                    // Description or query info
+                    match &result.item {
+                        FuzzyItem::Metric {
+                            description,
+                            category,
+                            ..
+                        } => {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!("Category: {category}"))
+                                    .color(text_col.gamma_multiply(0.6))
+                                    .size(11.0),
+                            );
+                            if let Some(desc) = description {
+                                ui.label(
+                                    RichText::new(desc)
+                                        .color(text_col.gamma_multiply(0.5))
+                                        .size(11.0)
+                                        .italics(),
+                                );
+                            }
+                        }
+                        FuzzyItem::CustomQuery { query, .. } => {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!("Query: {query}"))
+                                    .color(text_col.gamma_multiply(0.6))
+                                    .size(11.0)
+                                    .monospace(),
+                            );
+                        }
+                    }
+
+                    ui.add_space(8.0);
+
+                    // Separator line
+                    let separator_color = match self.theme {
+                        AppTheme::Light => Color32::from_rgb(220, 220, 220),
+                        AppTheme::Dark => Color32::from_rgb(50, 50, 55),
+                    };
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+                    ui.add_space(8.0);
+
+                    // Preview chart with proper background
+                    if !self.preview_data.is_empty() {
+                        let chart_color = match self.theme {
+                            AppTheme::Light => Color32::from_rgb(59, 130, 246),
+                            AppTheme::Dark => Color32::from_rgb(97, 175, 239),
+                        };
+
+                        // Chart background and grid colors
+                        let plot_bg = match self.theme {
+                            AppTheme::Light => Color32::from_rgb(252, 252, 254),
+                            AppTheme::Dark => Color32::from_rgb(18, 20, 24),
+                        };
+
+                        let points: PlotPoints<'_> = self
+                            .preview_data
+                            .iter()
+                            .map(|p| [p.timestamp, p.value])
+                            .collect();
+
+                        // Wrap plot in a frame with background
+                        egui::Frame::new()
+                            .fill(plot_bg)
+                            .corner_radius(4.0)
+                            .inner_margin(4.0)
+                            .show(ui, |ui| {
+                                let plot = Plot::new("fuzzy_preview_plot")
+                                    .show_axes(true)
+                                    .show_grid(true)
+                                    .allow_zoom(false)
+                                    .allow_drag(false)
+                                    .allow_scroll(false)
+                                    .allow_boxed_zoom(false)
+                                    .allow_double_click_reset(false)
+                                    .show_x(false)
+                                    .show_y(false)
+                                    .auto_bounds(egui::Vec2b::new(true, true))
+                                    .height(ui.available_height() - 8.0);
+
+                                plot.show(ui, |plot_ui| {
+                                    let line = Line::new("preview", points)
+                                        .color(chart_color)
+                                        .stroke(Stroke::new(2.0, chart_color));
+                                    plot_ui.line(line);
+                                });
+                            });
+
+                        // Preview label
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Preview (demo data)")
+                                    .color(text_col.gamma_multiply(0.4))
+                                    .size(10.0)
+                                    .italics(),
+                            );
+                        });
+                    }
+                } else {
+                    // No selection - show placeholder
+                    ui.centered_and_justified(|ui| {
+                        ui.label(
+                            RichText::new("Select an item to preview")
+                                .color(text_col.gamma_multiply(0.4))
+                                .italics(),
+                        );
+                    });
+                }
+            });
+    }
+
+    /// Toggle preview pane visibility
+    pub fn toggle_preview(&mut self) {
+        self.show_preview = !self.show_preview;
     }
 }
