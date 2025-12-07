@@ -511,6 +511,45 @@ impl Dashboard {
         }
     }
 
+    /// Close a tile and remove it from the viewport
+    fn close_tile(&mut self, tile_id: TileId) {
+        // Get the pane's label before removing it (for open_charts tracking)
+        let label = if let Some(egui_tiles::Tile::Pane(component)) =
+            self.viewport_tree.tiles.get(tile_id)
+        {
+            Some(component.label().text().to_string())
+        } else {
+            None
+        };
+
+        // Find the next tile to focus before removing
+        let pane_ids = self.get_pane_tile_ids();
+        let next_focus = if pane_ids.len() > 1 {
+            // Try to find a sibling to focus
+            self.find_sibling_in_direction(tile_id, NavDirection::Right)
+                .or_else(|| self.find_sibling_in_direction(tile_id, NavDirection::Left))
+                .or_else(|| self.find_sibling_in_direction(tile_id, NavDirection::Down))
+                .or_else(|| self.find_sibling_in_direction(tile_id, NavDirection::Up))
+                .or_else(|| pane_ids.iter().find(|&&id| id != tile_id).copied())
+        } else {
+            None
+        };
+
+        // Remove the tile from the tree
+        self.viewport_tree.tiles.remove(tile_id);
+
+        // Remove from open_charts tracking
+        if let Some(label) = label {
+            self.open_charts.remove(&label);
+            // Also try removing with query: prefix
+            self.open_charts.remove(&format!("query:{label}"));
+            log::debug!("Closed tile: {label}");
+        }
+
+        // Update focus to next tile
+        self.behavior.set_focused_tile(next_focus);
+    }
+
     /// Get a reference to the metrics tree for reading selection state
     pub fn metrics_tree(&self) -> &MetricsTree {
         &self.metrics_tree
@@ -740,6 +779,7 @@ impl Dashboard {
 
         let mut consumed = false;
         let mut should_clear_focus = false;
+        let mut should_close_focused = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -795,6 +835,13 @@ impl Dashboard {
                 return;
             }
 
+            // x - close focused pane
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::X) && current_focus.is_some() {
+                should_close_focused = true;
+                consumed = true;
+                return;
+            }
+
             // Escape - clear focus
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
                 should_clear_focus = true;
@@ -802,7 +849,11 @@ impl Dashboard {
             }
         });
 
-        if should_clear_focus {
+        if should_close_focused {
+            if let Some(tile_id) = current_focus {
+                self.close_tile(tile_id);
+            }
+        } else if should_clear_focus {
             self.behavior.set_focused_tile(None);
         } else if let Some(tile_id) = new_tile_id {
             // Set focus and also switch to that tab if it's in a tabs container
