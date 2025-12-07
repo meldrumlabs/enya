@@ -179,12 +179,16 @@ impl EnyaApp {
         // Set mode based on current UI state
         let mode = match self.state.ui_state {
             UIState::Dashboard => {
-                // Check if command palette or fuzzy finder is open
+                // Check if command palette or fuzzy finder is open, or zen/fullscreen mode is active
                 if let Some(ref dashboard) = self.dashboard {
                     if dashboard.is_command_palette_open() {
                         StatusMode::Command
                     } else if dashboard.is_fuzzy_finder_open() {
                         StatusMode::Search
+                    } else if dashboard.is_fullscreen() {
+                        StatusMode::Fullscreen
+                    } else if dashboard.is_zen_mode() {
+                        StatusMode::Zen
                     } else {
                         StatusMode::Normal
                     }

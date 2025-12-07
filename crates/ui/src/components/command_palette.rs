@@ -53,6 +53,10 @@ pub enum CommandResult {
     SplitVertical,
     /// Close current tab
     CloseTab,
+    /// Toggle zen mode (distraction-free view)
+    ToggleZenMode,
+    /// Toggle fullscreen for focused pane
+    ToggleFullscreen,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -113,6 +117,18 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "close",
         aliases: &["q", "quit"],
         description: "Close current tab",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "zen",
+        aliases: &["z", "focus", "distraction-free"],
+        description: "Toggle zen mode (distraction-free view)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "fullscreen",
+        aliases: &["full", "maximize", "max"],
+        description: "Toggle fullscreen for focused chart",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -304,6 +320,8 @@ impl CommandPalette {
             }
             "vsplit" => CommandResult::SplitVertical,
             "close" => CommandResult::CloseTab,
+            "zen" => CommandResult::ToggleZenMode,
+            "fullscreen" => CommandResult::ToggleFullscreen,
             _ => CommandResult::None,
         }
     }

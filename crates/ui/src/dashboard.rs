@@ -58,6 +58,10 @@ pub struct Dashboard {
     fuzzy_finder: FuzzyFinder,
     /// Command palette (neovim-style `:` commands)
     command_palette: CommandPalette,
+    /// Zen mode - hide all panels for distraction-free viewing
+    zen_mode: bool,
+    /// Fullscreen mode - show only one pane maximized
+    fullscreen_tile: Option<TileId>,
 }
 
 impl Default for Dashboard {
@@ -83,6 +87,8 @@ impl Default for Dashboard {
             last_selected_metric: None,
             fuzzy_finder: FuzzyFinder::new(),
             command_palette: CommandPalette::new(),
+            zen_mode: false,
+            fullscreen_tile: None,
         }
     }
 }
@@ -136,6 +142,8 @@ impl Dashboard {
             last_selected_metric: None,
             fuzzy_finder: FuzzyFinder::new(),
             command_palette: CommandPalette::new(),
+            zen_mode: false,
+            fullscreen_tile: None,
         }
     }
 
@@ -169,7 +177,8 @@ impl Dashboard {
         // Left panel with Provided (metrics) and Custom (queries) sections
         let text_color = text_color(app_state.theme);
 
-        if self.left_panel_visible {
+        // In zen mode, hide the left panel
+        if self.left_panel_visible && !self.zen_mode {
             egui::SidePanel::left("metrics_panel")
                 .resizable(true)
                 .default_width(self.left_panel_width)
@@ -272,46 +281,71 @@ impl Dashboard {
 
         // Right area with toolbar and viewport
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            // Top toolbar with time range controls and inspector toggle
-            egui::TopBottomPanel::top("time_range_toolbar")
-                .resizable(false)
-                .show_inside(ui, |ui| {
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        // Metrics panel toggle on the left
-                        if metrics_panel_toggle_button(ui, self.left_panel_visible, app_state.theme)
-                            .clicked()
-                        {
-                            self.left_panel_visible = !self.left_panel_visible;
-                        }
-
-                        ui.add_space(8.0);
-
-                        // Time range controls
-                        self.time_range_toolbar.show(ui);
-
-                        // Inspector toggle on the far right
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if inspector_toggle_button(
+            // Top toolbar with time range controls and inspector toggle (hidden in zen mode)
+            if !self.zen_mode {
+                egui::TopBottomPanel::top("time_range_toolbar")
+                    .resizable(false)
+                    .show_inside(ui, |ui| {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            // Metrics panel toggle on the left
+                            if metrics_panel_toggle_button(
                                 ui,
-                                self.inspector.is_visible(),
+                                self.left_panel_visible,
                                 app_state.theme,
                             )
                             .clicked()
                             {
-                                self.inspector.toggle();
+                                self.left_panel_visible = !self.left_panel_visible;
                             }
-                        });
-                    });
-                    ui.add_space(4.0);
-                });
 
-            // Inspector panel (right side, collapsible)
-            self.inspector.show(ui);
+                            ui.add_space(8.0);
+
+                            // Time range controls
+                            self.time_range_toolbar.show(ui);
+
+                            // Inspector toggle on the far right
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if inspector_toggle_button(
+                                        ui,
+                                        self.inspector.is_visible(),
+                                        app_state.theme,
+                                    )
+                                    .clicked()
+                                    {
+                                        self.inspector.toggle();
+                                    }
+                                },
+                            );
+                        });
+                        ui.add_space(4.0);
+                    });
+
+                // Inspector panel (right side, collapsible) - hidden in zen mode
+                self.inspector.show(ui);
+            }
 
             // Main viewport area (tabbed charts/views)
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                self.viewport_tree.ui(&mut self.behavior, ui);
+                // Check if we're in fullscreen mode for a specific pane
+                if let Some(fullscreen_id) = self.fullscreen_tile {
+                    // Render only the fullscreen pane
+                    if let Some(Tile::Pane(component)) =
+                        self.viewport_tree.tiles.get_mut(fullscreen_id)
+                    {
+                        component.set_theme(self.behavior.theme);
+                        component.set_api_key(&self.behavior.api_key);
+                        component.show(ui);
+                    } else {
+                        // Tile no longer exists, exit fullscreen
+                        self.fullscreen_tile = None;
+                        self.viewport_tree.ui(&mut self.behavior, ui);
+                    }
+                } else {
+                    self.viewport_tree.ui(&mut self.behavior, ui);
+                }
             });
         });
 
@@ -363,6 +397,14 @@ impl Dashboard {
                 self.split_panes_vertical();
                 DashboardAction::None
             }
+            CommandResult::ToggleZenMode => {
+                self.toggle_zen_mode();
+                DashboardAction::None
+            }
+            CommandResult::ToggleFullscreen => {
+                self.toggle_fullscreen();
+                DashboardAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -411,6 +453,49 @@ impl Dashboard {
     /// Open the command palette modal
     pub fn open_command_palette(&mut self) {
         self.command_palette.open();
+    }
+
+    /// Toggle zen mode (distraction-free view)
+    pub fn toggle_zen_mode(&mut self) {
+        self.zen_mode = !self.zen_mode;
+        log::debug!("Zen mode: {}", self.zen_mode);
+    }
+
+    /// Check if zen mode is active
+    pub fn is_zen_mode(&self) -> bool {
+        self.zen_mode
+    }
+
+    /// Toggle fullscreen for the currently focused pane
+    pub fn toggle_fullscreen(&mut self) {
+        if self.fullscreen_tile.is_some() {
+            // Exit fullscreen
+            self.fullscreen_tile = None;
+            log::debug!("Exited fullscreen mode");
+        } else if let Some(focused_id) = self.behavior.focused_tile() {
+            // Enter fullscreen for focused pane
+            // Verify it's actually a pane (not a container)
+            if matches!(
+                self.viewport_tree.tiles.get(focused_id),
+                Some(Tile::Pane(_))
+            ) {
+                self.fullscreen_tile = Some(focused_id);
+                log::debug!("Entered fullscreen mode for tile {focused_id:?}");
+            }
+        } else {
+            // No pane focused - try to fullscreen the first available pane
+            let pane_ids = self.get_pane_tile_ids();
+            if let Some(&first_pane) = pane_ids.first() {
+                self.fullscreen_tile = Some(first_pane);
+                self.behavior.set_focused_tile(Some(first_pane));
+                log::debug!("Entered fullscreen mode for first pane {first_pane:?}");
+            }
+        }
+    }
+
+    /// Check if fullscreen mode is active
+    pub fn is_fullscreen(&self) -> bool {
+        self.fullscreen_tile.is_some()
     }
 
     /// Update the inspector panel based on the current metric selection
@@ -801,18 +886,28 @@ impl Dashboard {
         }
 
         let pane_ids = self.get_pane_tile_ids();
-        if pane_ids.is_empty() {
-            return false;
-        }
-
         let current_focus = self.behavior.focused_tile();
 
         let mut consumed = false;
         let mut should_clear_focus = false;
         let mut should_close_focused = false;
+        let mut should_toggle_zen = false;
+        let mut should_toggle_fullscreen = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
+            // Z - toggle zen mode (works even with no panes)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Z) {
+                should_toggle_zen = true;
+                consumed = true;
+                return;
+            }
+            // F - toggle fullscreen for focused pane
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+                should_toggle_fullscreen = true;
+                consumed = true;
+                return;
+            }
             // h or left arrow - move left
             if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
@@ -879,7 +974,11 @@ impl Dashboard {
             }
         });
 
-        if should_close_focused {
+        if should_toggle_zen {
+            self.toggle_zen_mode();
+        } else if should_toggle_fullscreen {
+            self.toggle_fullscreen();
+        } else if should_close_focused {
             if let Some(tile_id) = current_focus {
                 self.close_tile(tile_id);
             }
