@@ -246,14 +246,13 @@ impl TimeSeriesChart {
             for (i, series) in self.series.iter().enumerate() {
                 let color = series.color.unwrap_or_else(|| self.series_color(i));
 
-                let points: PlotPoints = series
+                let points: PlotPoints<'_> = series
                     .points
                     .iter()
                     .map(|p| [p.timestamp, p.value])
                     .collect();
 
-                let line = Line::new(points)
-                    .name(series.label())
+                let line = Line::new(series.label(), points)
                     .color(color)
                     .stroke(Stroke::new(2.0, color));
 
