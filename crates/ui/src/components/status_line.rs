@@ -63,11 +63,11 @@ impl StatusMode {
             },
             Self::Search => match theme {
                 AppTheme::Light => Color32::from_rgb(140, 140, 150), // Muted gray
-                AppTheme::Dark => Color32::from_rgb(180, 180, 190), // Light gray
+                AppTheme::Dark => Color32::from_rgb(180, 180, 190),  // Light gray
             },
             Self::Zen => match theme {
-                AppTheme::Light => Color32::from_rgb(80, 80, 85),  // Dark gray
-                AppTheme::Dark => Color32::from_rgb(60, 60, 65),   // Muted dark gray
+                AppTheme::Light => Color32::from_rgb(80, 80, 85), // Dark gray
+                AppTheme::Dark => Color32::from_rgb(60, 60, 65),  // Muted dark gray
             },
             Self::Fullscreen => match theme {
                 AppTheme::Light => Color32::from_rgb(100, 100, 110), // Dark gray

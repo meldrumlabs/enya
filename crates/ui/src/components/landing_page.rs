@@ -147,17 +147,6 @@ impl LandingPage {
                 .size(14.0)
                 .color(muted_color),
         );
-
-        // Decorative separator
-        ui.add_space(16.0);
-        let separator_width = 200.0;
-        let separator_rect = egui::Rect::from_center_size(
-            ui.cursor().center_top() + egui::vec2(0.0, 4.0),
-            egui::vec2(separator_width, 2.0),
-        );
-        ui.painter()
-            .rect_filled(separator_rect, 1.0, muted_color.gamma_multiply(0.3));
-        ui.add_space(12.0);
     }
 
     /// Show the two-column recent items section
@@ -430,16 +419,7 @@ impl LandingPage {
         muted_color: Color32,
     ) -> LandingPageAction {
         let mut action = LandingPageAction::None;
-
-        // Decorative separator
-        let separator_width = 400.0;
-        let separator_rect = egui::Rect::from_center_size(
-            ui.cursor().center_top() + egui::vec2(0.0, 4.0),
-            egui::vec2(separator_width, 1.0),
-        );
-        ui.painter()
-            .rect_filled(separator_rect, 0.5, muted_color.gamma_multiply(0.3));
-        ui.add_space(24.0);
+        let _ = muted_color; // unused now
 
         // Shortcuts row
         ui.horizontal(|ui| {
@@ -600,8 +580,8 @@ impl LandingPage {
             rect.center_top() + egui::vec2(0.0, 58.0),
             egui::Align2::CENTER_CENTER,
             shortcut,
-            egui::FontId::proportional(10.0),
-            text_col.gamma_multiply(0.4),
+            egui::FontId::proportional(13.0),
+            text_col.gamma_multiply(0.6),
         );
 
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -611,8 +591,7 @@ impl LandingPage {
     fn show_footer(&self, ui: &mut egui::Ui, muted_color: Color32) {
         ui.label(
             RichText::new(format!(
-                "{}  Press : for commands  •  v{}",
-                egui_phosphor::regular::TERMINAL,
+                "v{}  •  Developed by Meldrum Labs",
                 env!("CARGO_PKG_VERSION")
             ))
             .size(11.0)
@@ -678,8 +657,14 @@ impl LandingPage {
                 return;
             }
 
-            // ? - Help
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::Slash) {
+            // ? - Help (check for '?' character in text input, or Shift+/)
+            // First check raw text events for '?' which works across keyboard layouts
+            let has_question_mark = input.events.iter().any(|e| {
+                matches!(e, egui::Event::Text(t) if t == "?")
+            });
+            if has_question_mark || input.consume_key(egui::Modifiers::SHIFT, egui::Key::Slash) {
+                // Consume the text event to prevent it from being handled elsewhere
+                input.events.retain(|e| !matches!(e, egui::Event::Text(t) if t == "?"));
                 action = LandingPageAction::ShowHelp;
                 return;
             }

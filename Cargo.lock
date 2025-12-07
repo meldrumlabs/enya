@@ -2670,6 +2670,7 @@ dependencies = [
  "strum_macros 0.21.1",
  "wasm-bindgen-futures",
  "web-sys",
+ "web-time",
 ]
 
 [[package]]

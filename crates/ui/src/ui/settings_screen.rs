@@ -52,10 +52,7 @@ impl AppSettings {
 
     /// Add a recent plot entry, updating timestamp if it already exists
     pub fn add_recent_plot(&mut self, name: String, metric_name: String, is_query: bool) {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+        let timestamp = crate::util::now_unix_secs();
 
         // Remove existing entry with same metric_name
         self.recent_plots.retain(|p| p.metric_name != metric_name);
@@ -77,10 +74,7 @@ impl AppSettings {
 
     /// Add a recent workspace entry, updating timestamp if it already exists
     pub fn add_recent_workspace(&mut self, name: String, description: String) {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
+        let timestamp = crate::util::now_unix_secs();
 
         // Remove existing entry with same name
         self.recent_workspaces.retain(|w| w.name != name);

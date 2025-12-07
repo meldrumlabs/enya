@@ -2,6 +2,34 @@ pub use egui::SizeHint;
 use egui::epaint;
 pub use egui_extras::image::{load_svg_bytes, load_svg_bytes_with_size};
 
+// Re-export web-time's Instant for WASM, std::time::Instant for native
+// web-time is a drop-in replacement that works in browsers (used by egui/eframe/rerun)
+#[cfg(not(target_arch = "wasm32"))]
+pub use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+pub use web_time::Instant;
+
+/// Get the current Unix timestamp in seconds.
+/// Works on both native and WASM platforms.
+#[inline]
+pub fn now_unix_secs() -> i64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use web_time::SystemTime;
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0)
+    }
+}
+
 pub fn color_image_to_icon_data(image: epaint::ColorImage) -> egui::IconData {
     egui::IconData {
         width: image.size[0] as u32,

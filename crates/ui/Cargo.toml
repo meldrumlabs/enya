@@ -43,7 +43,8 @@ rustls = { workspace = true, features = ["ring"] }
 ewebsock = { workspace = true }
 parking_lot = { workspace = true, features = ["wasm-bindgen", "serde"] }
 wasm-bindgen-futures = { workspace = true }
-web-sys = { workspace = true }                                           # to access the DOM (to hide the loading text)
+web-sys = { workspace = true }
+web-time = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 
 [build-dependencies]
