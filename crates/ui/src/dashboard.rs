@@ -516,9 +516,19 @@ impl Dashboard {
             return;
         }
 
+        // Preserve focus on the currently focused pane, or first pane
+        let focus_pane = self
+            .behavior
+            .focused_tile()
+            .filter(|id| pane_ids.contains(id))
+            .or_else(|| pane_ids.first().copied());
+
         // Create a new vertical container (panes stacked on top of each other)
         let new_root = self.viewport_tree.tiles.insert_vertical_tile(pane_ids);
         self.viewport_tree.root = Some(new_root);
+
+        // Restore focus
+        self.behavior.set_focused_tile(focus_pane);
         log::debug!("Split panes horizontally (vertical layout)");
     }
 
@@ -530,9 +540,19 @@ impl Dashboard {
             return;
         }
 
+        // Preserve focus on the currently focused pane, or first pane
+        let focus_pane = self
+            .behavior
+            .focused_tile()
+            .filter(|id| pane_ids.contains(id))
+            .or_else(|| pane_ids.first().copied());
+
         // Create a new horizontal container (panes side by side)
         let new_root = self.viewport_tree.tiles.insert_horizontal_tile(pane_ids);
         self.viewport_tree.root = Some(new_root);
+
+        // Restore focus
+        self.behavior.set_focused_tile(focus_pane);
         log::debug!("Split panes vertically (horizontal layout)");
     }
 
