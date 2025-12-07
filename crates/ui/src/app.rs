@@ -122,52 +122,6 @@ impl EnyaApp {
         app
     }
 
-    // This paints the top panel aka header
-    fn show_top_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::MenuBar::new().ui(ui, |ui| {
-                ui.horizontal(|ui| {
-                    self.menu_button_ui(ui);
-
-                    ui.add_space(12.0);
-
-                    ui.separator();
-                    egui::warn_if_debug_build(ui);
-                });
-            });
-        });
-    }
-
-    // Paints the menu button at the header top left
-    pub fn menu_button_ui(&mut self, ui: &mut egui::Ui) {
-        pub fn small_icon_size() -> egui::Vec2 {
-            egui::Vec2::splat(24.0)
-        }
-
-        let icon = crate::ui::icons::ICON_COLOR;
-        let image = icon.as_image().fit_to_exact_size(small_icon_size());
-
-        ui.menu_image_button(image, |ui| {
-            self.menu_ui(ui);
-        });
-    }
-
-    // List of commands under the menu button
-    fn menu_ui(&mut self, ui: &mut egui::Ui) {
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        let theme = self.state.theme;
-
-        // Open dashboard
-        UICommand::Dashboard.menu_button_ui(ui, theme, &self.command_sender);
-
-        // Settings
-        UICommand::Settings.menu_button_ui(ui, theme, &self.command_sender);
-
-        ui.add_space(12.0);
-        // Get Help
-        UICommand::Help.menu_button_ui(ui, theme, &self.command_sender);
-    }
-
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
         if let Some(cmd) = UICommand::listen_for_kb_shortcut(egui_ctx) {
             self.command_sender.send_ui(cmd);
@@ -366,6 +320,15 @@ impl EnyaApp {
                 self.notifications
                     .notify(Notification::new(message, notification_level));
             }
+            DashboardAction::TrackRecentPlot {
+                name,
+                metric_name,
+                is_query,
+            } => {
+                self.state
+                    .settings
+                    .add_recent_plot(name, metric_name, is_query);
+            }
         }
     }
 
@@ -393,8 +356,7 @@ impl eframe::App for EnyaApp {
         // Set theme for the context
         ctx.set_visuals(self.state.visuals());
 
-        // Draw header panel
-        self.show_top_panel(ctx);
+        // No header panel - neovim-style UI uses only status bar at bottom
 
         // Draw main content
         self.show_main_content(ctx);

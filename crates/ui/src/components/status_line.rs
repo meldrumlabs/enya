@@ -42,35 +42,36 @@ impl StatusMode {
     }
 
     /// Get the background color for this mode's segment
+    /// Uses Enya's color scheme: golden yellow primary, white/gray secondary
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
             Self::Normal => match theme {
-                AppTheme::Light => Color32::from_rgb(98, 114, 164), // Muted blue
-                AppTheme::Dark => Color32::from_rgb(97, 175, 239),  // Bright blue
+                AppTheme::Light => Color32::from_rgb(180, 140, 20), // Golden yellow
+                AppTheme::Dark => Color32::from_rgb(255, 200, 50),  // Bright gold
             },
             Self::Settings => match theme {
-                AppTheme::Light => Color32::from_rgb(152, 195, 121), // Green
-                AppTheme::Dark => Color32::from_rgb(152, 195, 121),
+                AppTheme::Light => Color32::from_rgb(120, 120, 130), // Gray
+                AppTheme::Dark => Color32::from_rgb(160, 160, 170),  // Light gray
             },
             Self::Home => match theme {
-                AppTheme::Light => Color32::from_rgb(198, 120, 221), // Purple
-                AppTheme::Dark => Color32::from_rgb(198, 120, 221),
+                AppTheme::Light => Color32::from_rgb(180, 140, 20), // Golden yellow
+                AppTheme::Dark => Color32::from_rgb(255, 200, 50),  // Bright gold
             },
             Self::Command => match theme {
-                AppTheme::Light => Color32::from_rgb(229, 192, 123), // Yellow/orange
-                AppTheme::Dark => Color32::from_rgb(229, 192, 123),
+                AppTheme::Light => Color32::from_rgb(200, 160, 40), // Warm gold
+                AppTheme::Dark => Color32::from_rgb(255, 210, 80),  // Light gold
             },
             Self::Search => match theme {
-                AppTheme::Light => Color32::from_rgb(86, 182, 194), // Cyan
-                AppTheme::Dark => Color32::from_rgb(86, 182, 194),
+                AppTheme::Light => Color32::from_rgb(140, 140, 150), // Muted gray
+                AppTheme::Dark => Color32::from_rgb(180, 180, 190), // Light gray
             },
             Self::Zen => match theme {
-                AppTheme::Light => Color32::from_rgb(80, 80, 80), // Dark gray
-                AppTheme::Dark => Color32::from_rgb(60, 60, 65),  // Muted dark gray
+                AppTheme::Light => Color32::from_rgb(80, 80, 85),  // Dark gray
+                AppTheme::Dark => Color32::from_rgb(60, 60, 65),   // Muted dark gray
             },
             Self::Fullscreen => match theme {
-                AppTheme::Light => Color32::from_rgb(239, 68, 68), // Red
-                AppTheme::Dark => Color32::from_rgb(239, 68, 68),  // Red
+                AppTheme::Light => Color32::from_rgb(100, 100, 110), // Dark gray
+                AppTheme::Dark => Color32::from_rgb(140, 140, 150),  // Medium gray
             },
         }
     }

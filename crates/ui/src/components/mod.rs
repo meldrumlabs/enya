@@ -4,6 +4,7 @@ pub mod command_palette;
 pub mod custom_queries;
 pub mod fuzzy_finder;
 pub mod inspector;
+pub mod landing_page;
 pub mod metrics_tree;
 pub mod notifications;
 pub mod status_line;
@@ -17,6 +18,7 @@ pub use inspector::{
     InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button,
     metrics_panel_toggle_button,
 };
+pub use landing_page::{LandingPage, LandingPageAction};
 pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
 pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use status_line::{StatusLine, StatusMode};
