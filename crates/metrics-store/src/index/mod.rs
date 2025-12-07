@@ -36,4 +36,4 @@
 
 mod wheel_index;
 
-pub use wheel_index::{MetricKind, WheelIndex, spawn_ticker};
+pub use wheel_index::{MetricKind, WheelIndex, current_time_ms, spawn_ticker};
