@@ -10,6 +10,7 @@ pub mod fuzzy_finder;
 pub mod inspector;
 pub mod metrics_tree;
 pub mod query_pane;
+pub mod query_state;
 pub mod time_range;
 pub mod time_series_chart;
 
@@ -24,6 +25,7 @@ pub use inspector::{
 };
 pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
 pub use query_pane::{QueryPane, QueryPaneAction};
+pub use query_state::{AggregationMode, Granularity, QueryState};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
 

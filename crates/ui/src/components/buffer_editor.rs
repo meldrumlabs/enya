@@ -1,5 +1,6 @@
 use egui::{Color32, FontId, Key, RichText};
 
+use crate::components::query_state::QueryState;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
@@ -8,14 +9,15 @@ use crate::ui::colors::text_color;
 pub enum BufferEditorResult {
     /// No action (modal still open or was cancelled)
     None,
-    /// Query was saved - contains the new query string
-    Saved(String),
+    /// Query was saved - contains the query string and query state
+    Saved(String, QueryState),
     /// Editor was cancelled (Escape pressed)
     Cancelled,
 }
 
 /// A modal overlay for editing buffer queries, styled like the fuzzy finder.
 /// Opens as a transparent overlay so the chart remains visible underneath.
+/// Includes keybindings for aggregation mode and granularity.
 pub struct BufferEditor {
     /// Whether the editor is currently open
     is_open: bool,
@@ -29,6 +31,10 @@ pub struct BufferEditor {
     theme: AppTheme,
     /// Whether the text input should request focus
     needs_focus: bool,
+    /// Query state (aggregation, granularity, time range)
+    query_state: QueryState,
+    /// Original query state (for revert on cancel)
+    original_query_state: QueryState,
 }
 
 impl Default for BufferEditor {
@@ -46,6 +52,8 @@ impl BufferEditor {
             buffer_name: String::new(),
             theme: AppTheme::default(),
             needs_focus: false,
+            query_state: QueryState::default(),
+            original_query_state: QueryState::default(),
         }
     }
 
@@ -59,13 +67,20 @@ impl BufferEditor {
         self.is_open
     }
 
-    /// Open the editor with the given query and buffer name
+    /// Open the editor with the given query, buffer name, and query state
     pub fn open(&mut self, query: &str, buffer_name: &str) {
+        self.open_with_state(query, buffer_name, QueryState::default());
+    }
+
+    /// Open the editor with a specific query state
+    pub fn open_with_state(&mut self, query: &str, buffer_name: &str, state: QueryState) {
         self.is_open = true;
         self.query = query.to_string();
         self.original_query = query.to_string();
         self.buffer_name = buffer_name.to_string();
         self.needs_focus = true;
+        self.query_state = state.clone();
+        self.original_query_state = state;
     }
 
     /// Close the editor without saving
@@ -74,6 +89,8 @@ impl BufferEditor {
         self.query.clear();
         self.original_query.clear();
         self.buffer_name.clear();
+        self.query_state = QueryState::default();
+        self.original_query_state = QueryState::default();
     }
 
     /// Get the current query content
@@ -81,9 +98,14 @@ impl BufferEditor {
         &self.query
     }
 
+    /// Get the current query state
+    pub fn query_state(&self) -> &QueryState {
+        &self.query_state
+    }
+
     /// Check if the query has been modified
     pub fn is_modified(&self) -> bool {
-        self.query != self.original_query
+        self.query != self.original_query || self.query_state != self.original_query_state
     }
 
     /// Show the buffer editor modal. Returns the result of the interaction.
@@ -105,6 +127,45 @@ impl BufferEditor {
             // Ctrl+Enter or Cmd+Enter - save and close
             if input.key_pressed(Key::Enter) && input.modifiers.command {
                 should_save = true;
+            }
+        });
+
+        // Handle aggregation keybindings (Ctrl+key)
+        ctx.input(|input| {
+            if input.modifiers.ctrl {
+                // Ctrl+S - toggle sum
+                if input.key_pressed(Key::S) {
+                    self.query_state.set_sum();
+                }
+                // Ctrl+A - toggle avg
+                if input.key_pressed(Key::A) {
+                    self.query_state.set_avg();
+                }
+                // Ctrl+P - cycle percentiles (p50 -> p95 -> p99 -> off)
+                if input.key_pressed(Key::P) {
+                    self.query_state.cycle_percentiles();
+                }
+                // Ctrl+M - toggle min
+                if input.key_pressed(Key::M) {
+                    self.query_state.set_min();
+                }
+                // Ctrl+X - toggle max
+                if input.key_pressed(Key::X) {
+                    self.query_state.set_max();
+                }
+                // Ctrl+G - cycle granularity
+                if input.key_pressed(Key::G) {
+                    self.query_state.cycle_granularity();
+                }
+            }
+            // < and > to adjust granularity (no modifier needed)
+            if input.key_pressed(Key::Period) && input.modifiers.shift {
+                // > key (shift+period) - increase granularity
+                self.query_state.cycle_granularity();
+            }
+            if input.key_pressed(Key::Comma) && input.modifiers.shift {
+                // < key (shift+comma) - decrease granularity
+                self.query_state.cycle_granularity_back();
             }
         });
 
@@ -274,6 +335,86 @@ impl BufferEditor {
 
                         ui.add_space(8.0);
 
+                        // Status line showing aggregation state
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+
+                            let status_bg = match self.theme {
+                                AppTheme::Light => Color32::from_rgb(235, 240, 250),
+                                AppTheme::Dark => Color32::from_rgb(40, 45, 55),
+                            };
+
+                            egui::Frame::new()
+                                .fill(status_bg)
+                                .corner_radius(4.0)
+                                .inner_margin(egui::vec2(8.0, 4.0))
+                                .show(ui, |ui| {
+                                    let agg_color = if self.query_state.aggregation
+                                        == crate::components::query_state::AggregationMode::None
+                                    {
+                                        text_color(self.theme).gamma_multiply(0.5)
+                                    } else {
+                                        Color32::from_rgb(100, 180, 100)
+                                    };
+
+                                    // Aggregation badge
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "[{}]",
+                                            self.query_state.aggregation.label()
+                                        ))
+                                        .color(agg_color)
+                                        .size(12.0)
+                                        .strong(),
+                                    );
+
+                                    ui.add_space(8.0);
+
+                                    // Time range
+                                    ui.label(
+                                        RichText::new(&self.query_state.time_range_label)
+                                            .color(text_color(self.theme).gamma_multiply(0.7))
+                                            .size(12.0),
+                                    );
+
+                                    ui.add_space(8.0);
+
+                                    // Granularity
+                                    ui.label(
+                                        RichText::new(self.query_state.granularity.label())
+                                            .color(text_color(self.theme).gamma_multiply(0.7))
+                                            .size(12.0),
+                                    );
+                                });
+
+                            ui.add_space(16.0);
+
+                            // Aggregation keyboard hints
+                            let hint_color = text_color(self.theme).gamma_multiply(0.35);
+                            ui.label(RichText::new("^s").color(hint_color).size(10.0));
+                            ui.label(RichText::new("sum").color(hint_color).size(10.0));
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("^a").color(hint_color).size(10.0));
+                            ui.label(RichText::new("avg").color(hint_color).size(10.0));
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("^p").color(hint_color).size(10.0));
+                            ui.label(RichText::new("p95").color(hint_color).size(10.0));
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("</>").color(hint_color).size(10.0));
+                            ui.label(RichText::new("granularity").color(hint_color).size(10.0));
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Separator
+                        ui.painter().hline(
+                            ui.available_rect_before_wrap().x_range(),
+                            ui.cursor().top(),
+                            egui::Stroke::new(1.0, separator_color),
+                        );
+
+                        ui.add_space(8.0);
+
                         // Footer with keyboard hints and save button
                         ui.horizontal(|ui| {
                             ui.add_space(16.0);
@@ -327,8 +468,9 @@ impl BufferEditor {
         // Handle save/close
         if should_save {
             let saved_query = self.query.clone();
+            let saved_state = self.query_state.clone();
             self.close();
-            result = BufferEditorResult::Saved(saved_query);
+            result = BufferEditorResult::Saved(saved_query, saved_state);
         } else if should_close {
             self.close();
             result = BufferEditorResult::Cancelled;

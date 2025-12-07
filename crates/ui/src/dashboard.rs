@@ -6,7 +6,8 @@ use crate::app::AppState;
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
     CustomQueriesPanel, FuzzyFinder, FuzzyItem, InspectorPanel, InspectorTarget, MetricStats,
-    MetricsTree, QueryPane, TimeRangeToolbar, inspector_toggle_button, metrics_panel_toggle_button,
+    MetricsTree, QueryPane, QueryState, TimeRangeToolbar, inspector_toggle_button,
+    metrics_panel_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -336,8 +337,8 @@ impl Dashboard {
         // Show buffer editor modal
         self.buffer_editor.set_theme(app_state.theme);
         match self.buffer_editor.show(ctx) {
-            BufferEditorResult::Saved(query) => {
-                self.apply_buffer_editor_result(query);
+            BufferEditorResult::Saved(query, query_state) => {
+                self.apply_buffer_editor_result(query, query_state);
             }
             BufferEditorResult::Cancelled => {
                 self.editing_tile_id = None;
@@ -440,7 +441,8 @@ impl Dashboard {
                 if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
                     let query = query_pane.saved_query().to_string();
                     let name = query_pane.name().to_string();
-                    self.buffer_editor.open(&query, &name);
+                    let state = query_pane.query_state().clone();
+                    self.buffer_editor.open_with_state(&query, &name, state);
                     self.editing_tile_id = Some(tile_id);
                     log::debug!("Opening buffer editor for QueryPane");
                 } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
@@ -455,14 +457,14 @@ impl Dashboard {
     }
 
     /// Apply the result from the buffer editor modal
-    fn apply_buffer_editor_result(&mut self, query: String) {
+    fn apply_buffer_editor_result(&mut self, query: String, query_state: QueryState) {
         if let Some(tile_id) = self.editing_tile_id.take() {
             if let Some(egui_tiles::Tile::Pane(component)) =
                 self.viewport_tree.tiles.get_mut(tile_id)
             {
                 // Try to downcast to QueryPane and apply
                 if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                    query_pane.set_query_and_save(&query);
+                    query_pane.set_query_state_and_save(&query, query_state.clone());
                     log::debug!("Applied query to QueryPane: {query}");
                 } else if let Some(buffer) = component.as_any_mut().downcast_mut::<Buffer>() {
                     buffer.set_content(&query);

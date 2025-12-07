@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use egui::{Color32, RichText};
 
 use crate::components::buffer::{Buffer, BufferAction, BufferMode};
+use crate::components::query_state::QueryState;
 use crate::components::time_series_chart::{DataPoint, Series, TimeSeriesChart};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -15,6 +16,7 @@ static NEXT_PANE_ID: AtomicUsize = AtomicUsize::new(1000);
 /// - The buffer holds the query (e.g., "env:prod AND service:db")
 /// - When saved (:w), the query is executed and the chart updates
 /// - Press 'e' to edit the query, Escape to return to normal mode
+/// - Query state (aggregation, granularity) is a view preference set via keybindings
 pub struct QueryPane {
     /// Unique identifier for this pane
     id: usize,
@@ -28,6 +30,8 @@ pub struct QueryPane {
     api_key: String,
     /// Whether the buffer edit area is expanded (shown)
     buffer_expanded: bool,
+    /// Query state (aggregation, granularity, time range)
+    query_state: QueryState,
 }
 
 impl Default for QueryPane {
@@ -55,6 +59,7 @@ impl QueryPane {
             theme: AppTheme::default(),
             api_key: String::new(),
             buffer_expanded: false,
+            query_state: QueryState::default(),
         }
     }
 
@@ -145,6 +150,19 @@ impl QueryPane {
         self.buffer.set_content(query);
         self.buffer.save();
         self.refresh_chart();
+    }
+
+    /// Set the query content, query state, and save (used by the modal editor)
+    pub fn set_query_state_and_save(&mut self, query: &str, state: QueryState) {
+        self.buffer.set_content(query);
+        self.buffer.save();
+        self.query_state = state;
+        self.refresh_chart();
+    }
+
+    /// Get the current query state
+    pub fn query_state(&self) -> &QueryState {
+        &self.query_state
     }
 
     /// Toggle buffer visibility
