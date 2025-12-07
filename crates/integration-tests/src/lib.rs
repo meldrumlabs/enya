@@ -7,13 +7,15 @@ mod tests {
     use axum_test::TestServer;
     use enya::testing::{Core, build_router};
     use enya_metrics_store::{Database, MetricName, MetricsStore, object_store};
-    use object_store::local::LocalFileSystem;
+    use object_store::memory::InMemory;
     use std::sync::Arc;
+    use std::time::Duration;
 
-    /// Creates a test server with a fresh metrics store.
-    async fn test_server(dir: &std::path::Path) -> (TestServer, MetricsStore) {
-        let object_store = Arc::new(LocalFileSystem::new_with_prefix(dir).expect("object store"));
+    /// Creates a test server with a fresh in-memory metrics store.
+    async fn test_server() -> (TestServer, MetricsStore) {
+        let object_store = Arc::new(InMemory::new());
         let db = Database::builder()
+            .with_flush_interval(Duration::from_millis(10))
             .open(object_store, "/")
             .await
             .expect("database");
@@ -35,8 +37,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_endpoint_returns_success() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, _store) = test_server(dir.path()).await;
+        let (server, _store) = test_server().await;
 
         let response = server.get("/api/health").await;
         response.assert_status_ok();
@@ -51,8 +52,7 @@ mod tests {
 
     #[tokio::test]
     async fn ingested_data_is_queryable() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         // Ingest data directly via the store
         let m = metric("request.count");
@@ -76,8 +76,7 @@ mod tests {
 
     #[tokio::test]
     async fn multiple_series_ingestion() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("cpu.usage");
         store
@@ -111,8 +110,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_exact_match() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("http.requests");
         store
@@ -155,8 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_and_expression() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("db.queries");
         store
@@ -191,8 +188,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_or_expression() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("cache.hits");
         store
@@ -225,8 +221,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_not_expression() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("error.count");
         store
@@ -264,8 +259,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_wildcard_expression() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("app.events");
         store
@@ -302,8 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_complex_nested_expression() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("api.latency");
         store
@@ -350,8 +343,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_all_star() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("all.metrics");
         store.ingest(m, 1.0, &[("tag", "a")]).await.expect("ingest");
@@ -377,8 +369,7 @@ mod tests {
 
     #[tokio::test]
     async fn aggregation_sum() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("counter.total");
         let db = store.database();
@@ -403,8 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn aggregation_avg() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("latency.avg");
         let db = store.database();
@@ -429,8 +419,7 @@ mod tests {
 
     #[tokio::test]
     async fn aggregation_min() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("temp.min");
         let db = store.database();
@@ -460,8 +449,7 @@ mod tests {
 
     #[tokio::test]
     async fn aggregation_max() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("temp.max");
         let db = store.database();
@@ -491,8 +479,7 @@ mod tests {
 
     #[tokio::test]
     async fn aggregation_count() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("events.count");
         let db = store.database();
@@ -532,8 +519,7 @@ mod tests {
 
     #[tokio::test]
     async fn query_with_granularity() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("requests.per.second");
         let db = store.database();
@@ -571,8 +557,7 @@ mod tests {
 
     #[tokio::test]
     async fn preview_endpoint_works() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("preview.metric");
         store
@@ -598,8 +583,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_metric_name_returns_error() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, _store) = test_server(dir.path()).await;
+        let (server, _store) = test_server().await;
 
         let response = server
             .get("/api/metrics")
@@ -612,8 +596,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_granularity_returns_error() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, _store) = test_server(dir.path()).await;
+        let (server, _store) = test_server().await;
 
         let response = server
             .get("/api/metrics")
@@ -627,8 +610,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_result_for_nonexistent_metric() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, _store) = test_server(dir.path()).await;
+        let (server, _store) = test_server().await;
 
         let response = server
             .get("/api/metrics")
@@ -644,8 +626,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_no_match_returns_empty() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let (server, store) = test_server(dir.path()).await;
+        let (server, store) = test_server().await;
 
         let m = metric("some.metric");
         store

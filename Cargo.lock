@@ -2593,7 +2593,6 @@ dependencies = [
  "enya-build-tools",
  "enya-metrics-store",
  "serde_json",
- "tempfile",
  "tokio",
 ]
 

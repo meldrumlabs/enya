@@ -12,7 +12,6 @@ enya-metrics-store = { path = "../metrics-store" }
 
 axum-test = "17"
 serde_json.workspace = true
-tempfile = "3.13"
 tokio = { workspace = true, features = ["rt", "macros"] }
 
 [build-dependencies]

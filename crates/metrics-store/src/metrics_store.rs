@@ -223,6 +223,59 @@ impl MetricsStore {
         Ok(())
     }
 
+    /// Ingests a metric data point at a specific timestamp (for testing).
+    ///
+    /// Like `ingest`, but allows specifying the timestamp for the wheel index.
+    /// This is primarily useful for testing where wall-clock time cannot be used.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if an I/O error occurred.
+    #[cfg(test)]
+    pub async fn ingest_at<'a>(
+        &self,
+        metric: MetricName<'a>,
+        value: Value,
+        tags: &TagSet<'a>,
+        ts_ms: u64,
+    ) -> Result<()> {
+        // Build the effective tag set (user tags + default tags)
+        let effective_tags: Vec<(&str, &str)> = if self.default_tags.is_empty() {
+            tags.to_vec()
+        } else {
+            let mut merged = Vec::with_capacity(tags.len() + self.default_tags.len());
+
+            // Add default tags that aren't overridden by user tags
+            for (key, val) in &self.default_tags {
+                if !tags.iter().any(|(k, _)| *k == key.as_ref()) {
+                    merged.push((key.as_ref(), val.as_ref()));
+                }
+            }
+
+            merged.extend(tags.iter().copied());
+            merged
+        };
+
+        let series_id = self
+            .inner
+            .write_at(metric, crate::timestamp(), value, &effective_tags)
+            .await?;
+
+        // Dual-write to wheel index if configured
+        if let Some(ref wheel_index) = self.wheel_index {
+            let kind = self.metric_kind(metric.as_str());
+            wheel_index.insert_at(series_id, value, kind, ts_ms);
+
+            // Record user-provided tag terms in the bloom filter for fast existence checks
+            let metric_str = metric.as_str();
+            for (key, val) in tags {
+                wheel_index.record_tag_components_at(metric_str, key, val, ts_ms);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Queries the sum aggregate over the last `seconds` for the given series.
     ///
     /// This is a fast query that uses the wheel index if available.
@@ -414,14 +467,15 @@ impl MetricsStore {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use slatedb::object_store::local::LocalFileSystem;
+    use crate::index::current_time_ms;
+    use slatedb::object_store::memory::InMemory;
     use std::time::Duration;
 
-    async fn create_test_store() -> (MetricsStore, tempfile::TempDir) {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let store_path = temp_dir.path().join("store");
-        std::fs::create_dir_all(&store_path).unwrap();
-        let object_store = Arc::new(LocalFileSystem::new_with_prefix(store_path).unwrap());
+    /// Small delay to let the wheel thread process commands.
+    const PROCESS_DELAY: Duration = Duration::from_millis(10);
+
+    async fn create_test_store() -> MetricsStore {
+        let object_store = Arc::new(InMemory::new());
 
         // Use fast flush interval for tests
         let db = crate::Database::builder()
@@ -431,38 +485,37 @@ mod tests {
             .unwrap();
 
         let wheel_index = Arc::new(WheelIndex::new());
-        let store = MetricsStore::new(db, None, None).with_wheel_index(wheel_index);
-
-        (store, temp_dir)
+        MetricsStore::new(db, None, None).with_wheel_index(wheel_index)
     }
 
     #[tokio::test]
     async fn test_metrics_store_with_wheel_index_sum() {
-        let (store, _temp_dir) = create_test_store().await;
-
+        let store = create_test_store().await;
         let wheel_index = store.wheel_index().unwrap();
+        let base_time = current_time_ms();
 
-        // Tick to establish baseline watermark
-        wheel_index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait for the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Ingest some counter values
+        // Ingest some counter values at a specific time
         let metric = MetricName::try_from("test.counter").unwrap();
         let tags: &[(&str, &str)] = &[("host", "h1")];
-        store.ingest(metric, 10.0, tags).await.unwrap();
-        store.ingest(metric, 20.0, tags).await.unwrap();
-        store.ingest(metric, 30.0, tags).await.unwrap();
+        store
+            .ingest_at(metric, 10.0, tags, base_time + 1000)
+            .await
+            .unwrap();
+        store
+            .ingest_at(metric, 20.0, tags, base_time + 1000)
+            .await
+            .unwrap();
+        store
+            .ingest_at(metric, 30.0, tags, base_time + 1000)
+            .await
+            .unwrap();
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait and tick to advance watermark
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        wheel_index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark past the insert timestamps
+        wheel_index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Verify the wheel index has at least one wheel
         assert!(!wheel_index.is_empty().await);
@@ -477,34 +530,45 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_store_with_wheel_index_histogram() {
-        let (store, _temp_dir) = create_test_store().await;
-
+        let store = create_test_store().await;
         let wheel_index = store.wheel_index().unwrap();
+        let base_time = current_time_ms();
 
         // Register the metric as a histogram
         store.register_metric("test.latency", MetricConfig::histogram());
 
-        // Tick to establish baseline watermark
-        wheel_index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait for the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Ingest latency values
+        // Ingest first value via full path to establish series in database
         let metric = MetricName::try_from("test.latency").unwrap();
         let tags: &[(&str, &str)] = &[("service", "api")];
-        for i in 1..=100 {
-            store.ingest(metric, f64::from(i), tags).await.unwrap();
+        store
+            .ingest_at(metric, 1.0, tags, base_time + 1000)
+            .await
+            .unwrap();
+
+        // Get the series_id that was created
+        let series_id = store
+            .database()
+            .get_series_id(metric, tags)
+            .await
+            .unwrap()
+            .expect("series should exist after ingest");
+
+        // Insert remaining values directly to wheel index (fast, bypasses db writes)
+        for i in 2..=100 {
+            wheel_index.insert_at(
+                series_id,
+                f64::from(i),
+                MetricKind::Histogram,
+                base_time + 1000,
+            );
         }
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait and tick to advance watermark
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        wheel_index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark past the insert timestamps
+        wheel_index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Verify the wheel index has at least one wheel
         assert!(!wheel_index.is_empty().await);
@@ -527,7 +591,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_store_metric_kind_default() {
-        let (store, _temp_dir) = create_test_store().await;
+        let store = create_test_store().await;
 
         // Default should be Sum
         assert_eq!(store.metric_kind("unknown.metric"), MetricKind::Sum);
@@ -546,12 +610,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_store_without_wheel_index() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let store_path = temp_dir.path().join("store");
-        std::fs::create_dir_all(&store_path).unwrap();
-        let object_store = Arc::new(LocalFileSystem::new_with_prefix(store_path).unwrap());
+        let object_store = Arc::new(InMemory::new());
 
         let db = crate::Database::builder()
+            .with_flush_interval(Duration::from_millis(10))
             .open(object_store, "/db")
             .await
             .unwrap();
@@ -579,35 +641,37 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_store_bloom_filter_on_ingest() {
-        let (store, _temp_dir) = create_test_store().await;
-
+        let store = create_test_store().await;
         let wheel_index = store.wheel_index().unwrap();
+        let base_time = current_time_ms();
 
-        // Tick to establish baseline watermark
-        wheel_index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait for the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Ingest some metrics with tags
+        // Ingest some metrics with tags at a specific time
         let metric = MetricName::try_from("cpu.usage").unwrap();
         store
-            .ingest(metric, 50.0, &[("host", "server1"), ("env", "prod")])
+            .ingest_at(
+                metric,
+                50.0,
+                &[("host", "server1"), ("env", "prod")],
+                base_time + 1000,
+            )
             .await
             .unwrap();
         store
-            .ingest(metric, 60.0, &[("host", "server2"), ("env", "staging")])
+            .ingest_at(
+                metric,
+                60.0,
+                &[("host", "server2"), ("env", "staging")],
+                base_time + 1000,
+            )
             .await
             .unwrap();
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait and tick to advance watermark
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        wheel_index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark past the insert timestamps
+        wheel_index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Bloom filter should contain the ingested tag terms
         // Use may_contain_tag_components since ingest uses record_tag_components
