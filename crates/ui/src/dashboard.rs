@@ -457,16 +457,10 @@ impl Dashboard {
         let chart: Box<dyn Component> = Box::new(TimeSeriesChart::with_demo_data(metric_name));
         let chart_tile = self.viewport_tree.tiles.insert_pane(chart);
 
-        // Find the root tabs container and add the chart to it
-        if let Some(root_id) = self.viewport_tree.root() {
-            if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs))) =
-                self.viewport_tree.tiles.get_mut(root_id)
-            {
-                tabs.add_child(chart_tile);
-                tabs.set_active(chart_tile);
-                self.open_charts.insert(metric_name.to_string());
-                log::debug!("Added chart for {metric_name}");
-            }
+        if self.add_tile_to_viewport(chart_tile) {
+            self.open_charts.insert(metric_name.to_string());
+            self.behavior.set_focused_tile(Some(chart_tile));
+            log::debug!("Added chart for {metric_name}");
         }
     }
 
@@ -485,16 +479,35 @@ impl Dashboard {
         let chart: Box<dyn Component> = Box::new(chart);
         let chart_tile = self.viewport_tree.tiles.insert_pane(chart);
 
-        // Find the root tabs container and add the chart to it
-        if let Some(root_id) = self.viewport_tree.root() {
-            if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs))) =
-                self.viewport_tree.tiles.get_mut(root_id)
-            {
-                tabs.add_child(chart_tile);
-                tabs.set_active(chart_tile);
-                self.open_charts.insert(chart_key);
-                log::debug!("Added chart for query '{query_name}'");
+        if self.add_tile_to_viewport(chart_tile) {
+            self.open_charts.insert(chart_key);
+            self.behavior.set_focused_tile(Some(chart_tile));
+            log::debug!("Added chart for query '{query_name}'");
+        }
+    }
+
+    /// Add a tile to the viewport, handling different container types
+    /// Returns true if the tile was successfully added
+    fn add_tile_to_viewport(&mut self, tile_id: TileId) -> bool {
+        let Some(root_id) = self.viewport_tree.root() else {
+            return false;
+        };
+
+        match self.viewport_tree.tiles.get_mut(root_id) {
+            Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs))) => {
+                tabs.add_child(tile_id);
+                tabs.set_active(tile_id);
+                true
             }
+            Some(egui_tiles::Tile::Container(egui_tiles::Container::Linear(linear))) => {
+                linear.add_child(tile_id);
+                true
+            }
+            Some(egui_tiles::Tile::Container(egui_tiles::Container::Grid(grid))) => {
+                grid.add_child(tile_id);
+                true
+            }
+            _ => false,
         }
     }
 
