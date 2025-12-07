@@ -5,8 +5,8 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 use crate::app::AppState;
 use crate::components::{
     CommandPalette, CommandResult, Component, CustomQueriesPanel, FuzzyFinder, FuzzyItem,
-    InspectorPanel, InspectorTarget, MetricStats, MetricsTree, TimeRangeToolbar, TimeSeriesChart,
-    inspector_toggle_button, metrics_panel_toggle_button,
+    InspectorPanel, InspectorTarget, LandingPage, LandingPageAction, MetricStats, MetricsTree,
+    TimeRangeToolbar, TimeSeriesChart, inspector_toggle_button, metrics_panel_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -47,6 +47,12 @@ pub enum DashboardAction {
     ShowHelp,
     /// Show a notification
     Notify { level: String, message: String },
+    /// Track a recently opened plot
+    TrackRecentPlot {
+        name: String,
+        metric_name: String,
+        is_query: bool,
+    },
 }
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
@@ -89,6 +95,10 @@ pub struct Dashboard {
     floating_windows: Vec<FloatingWindow>,
     /// Next floating window ID
     next_floating_id: u64,
+    /// Landing page component (shown when no charts are open)
+    landing_page: LandingPage,
+    /// Whether to show the landing page
+    show_landing: bool,
 }
 
 impl Default for Dashboard {
@@ -118,6 +128,8 @@ impl Default for Dashboard {
             fullscreen_tile: None,
             floating_windows: Vec::new(),
             next_floating_id: 1,
+            landing_page: LandingPage::new(),
+            show_landing: true,
         }
     }
 }
@@ -142,18 +154,10 @@ impl Dashboard {
     pub fn example(_api_key: String) -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
 
-        // Add a demo chart to show the UI
-        let demo_chart: Box<dyn Component> = Box::new(TimeSeriesChart::with_demo_data(
-            "tokio.runtime.total_park_count",
-        ));
-        let chart_tile = tiles.insert_pane(demo_chart);
-
-        let root = tiles.insert_tab_tile(vec![chart_tile]);
+        // Start with empty tabs - show landing page first
+        let root = tiles.insert_tab_tile(vec![]);
 
         let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
-
-        let mut open_charts = HashSet::new();
-        open_charts.insert("tokio.runtime.total_park_count".to_string());
 
         Self {
             metrics_tree: MetricsTree::with_demo_metrics(),
@@ -164,7 +168,7 @@ impl Dashboard {
             behavior: TreeBehavior::default(),
             left_panel_width: Self::DEFAULT_PANEL_WIDTH,
             left_panel_visible: true,
-            open_charts,
+            open_charts: HashSet::new(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             inspector: InspectorPanel::new(),
@@ -175,6 +179,8 @@ impl Dashboard {
             fullscreen_tile: None,
             floating_windows: Vec::new(),
             next_floating_id: 1,
+            landing_page: LandingPage::new(),
+            show_landing: true, // Start with landing page
         }
     }
 
@@ -193,14 +199,29 @@ impl Dashboard {
         self.custom_queries.set_theme(app_state.theme);
         self.time_range_toolbar.set_theme(app_state.theme);
         self.inspector.set_theme(app_state.theme);
+        self.landing_page.set_theme(app_state.theme);
 
         // Handle adding a pending chart to the viewport
         if let Some(metric_name) = self.pending_chart.take() {
-            self.add_chart_for_metric(&metric_name);
+            let action = self.add_chart_for_metric_with_tracking(&metric_name);
+            if action != DashboardAction::None {
+                return action;
+            }
         }
 
         // Update inspector when metric selection changes
         self.update_inspector_from_selection();
+
+        // Check if we should show landing page (no open charts)
+        let has_charts = !self.open_charts.is_empty() || !self.floating_windows.is_empty();
+        if !has_charts && !self.show_landing {
+            self.show_landing = true;
+        }
+
+        // Show landing page if enabled and no charts open
+        if self.show_landing && !has_charts {
+            return self.show_landing_page(ui, ctx, app_state);
+        }
 
         // Track if we need to open fuzzy finder (set inside closure, used after)
         let mut open_fuzzy = false;
@@ -383,7 +404,7 @@ impl Dashboard {
         // Show fuzzy finder modal (rendered on top of everything)
         self.fuzzy_finder.set_theme(app_state.theme);
         if let Some(selected_item) = self.fuzzy_finder.show(ctx) {
-            self.handle_fuzzy_selection(selected_item);
+            return self.handle_fuzzy_selection_with_tracking(selected_item);
         }
 
         // Show command palette modal
@@ -397,6 +418,128 @@ impl Dashboard {
         self.handle_viewport_keyboard(ctx);
 
         self.handle_command_result(cmd_result)
+    }
+
+    /// Show the landing page and handle its actions
+    fn show_landing_page(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        app_state: &AppState,
+    ) -> DashboardAction {
+        // Show the landing page in the central panel
+        let mut landing_action = LandingPageAction::None;
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            landing_action = self.landing_page.show(
+                ui,
+                ctx,
+                &app_state.settings.recent_plots,
+                &app_state.settings.recent_workspaces,
+            );
+        });
+
+        // Handle landing page actions
+        match landing_action {
+            LandingPageAction::OpenPlot {
+                metric_name,
+                is_query,
+            } => {
+                self.show_landing = false;
+                if is_query {
+                    // For queries, we need to find the query by name
+                    if let Some(query) = self
+                        .custom_queries
+                        .queries()
+                        .iter()
+                        .find(|q| q.name == metric_name)
+                    {
+                        let name = query.name.clone();
+                        let query_str = query.query.clone();
+                        self.add_chart_for_query(&name, &query_str);
+                    }
+                } else {
+                    self.pending_chart = Some(metric_name);
+                }
+            }
+            LandingPageAction::OpenWorkspace { name: _ } => {
+                // TODO: Implement workspace loading
+                log::debug!("Workspace loading not yet implemented");
+            }
+            LandingPageAction::OpenFuzzyFinder => {
+                self.open_fuzzy_finder();
+            }
+            LandingPageAction::OpenSettings => {
+                return DashboardAction::OpenSettings;
+            }
+            LandingPageAction::ShowHelp => {
+                return DashboardAction::ShowHelp;
+            }
+            LandingPageAction::NewPlot => {
+                // Open fuzzy finder to select a metric for a new plot
+                self.open_fuzzy_finder();
+            }
+            LandingPageAction::None => {}
+        }
+
+        // Show fuzzy finder modal (rendered on top of everything)
+        self.fuzzy_finder.set_theme(app_state.theme);
+        if let Some(selected_item) = self.fuzzy_finder.show(ctx) {
+            return self.handle_fuzzy_selection_with_tracking(selected_item);
+        }
+
+        // Show command palette modal
+        self.command_palette.set_theme(app_state.theme);
+        let cmd_result = self.command_palette.show(ctx);
+
+        self.handle_command_result(cmd_result)
+    }
+
+    /// Add a chart for a metric and return a tracking action
+    fn add_chart_for_metric_with_tracking(&mut self, metric_name: &str) -> DashboardAction {
+        // Don't add duplicate charts
+        if self.open_charts.contains(metric_name) {
+            log::debug!("Chart for {metric_name} already open");
+            return DashboardAction::None;
+        }
+
+        // Create the chart (with demo data for now)
+        let chart: Box<dyn Component> = Box::new(TimeSeriesChart::with_demo_data(metric_name));
+        let chart_tile = self.viewport_tree.tiles.insert_pane(chart);
+
+        if self.add_tile_to_viewport(chart_tile) {
+            self.open_charts.insert(metric_name.to_string());
+            self.behavior.set_focused_tile(Some(chart_tile));
+            self.show_landing = false;
+            log::debug!("Added chart for {metric_name}");
+
+            // Return action to track this in recent plots
+            return DashboardAction::TrackRecentPlot {
+                name: metric_name.to_string(),
+                metric_name: metric_name.to_string(),
+                is_query: false,
+            };
+        }
+
+        DashboardAction::None
+    }
+
+    /// Handle fuzzy selection and return tracking action
+    fn handle_fuzzy_selection_with_tracking(&mut self, item: FuzzyItem) -> DashboardAction {
+        match item {
+            FuzzyItem::Metric { name, .. } => {
+                self.show_landing = false;
+                self.add_chart_for_metric_with_tracking(&name)
+            }
+            FuzzyItem::CustomQuery { name, query, .. } => {
+                self.show_landing = false;
+                self.add_chart_for_query(&name, &query);
+                DashboardAction::TrackRecentPlot {
+                    name: name.clone(),
+                    metric_name: name,
+                    is_query: true,
+                }
+            }
+        }
     }
 
     /// Show all floating windows
@@ -514,20 +657,14 @@ impl Dashboard {
                 level: level.clone(),
                 message: format!("Test notification ({level})"),
             },
-            CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
+            CommandResult::ShowLandingPage => {
+                self.show_landing = true;
+                // Close all charts to trigger landing page display
+                self.close_all_charts();
                 DashboardAction::None
             }
-        }
-    }
-
-    /// Handle a selection from the fuzzy finder
-    fn handle_fuzzy_selection(&mut self, item: FuzzyItem) {
-        match item {
-            FuzzyItem::Metric { name, .. } => {
-                self.add_chart_for_metric(&name);
-            }
-            FuzzyItem::CustomQuery { name, query, .. } => {
-                self.add_chart_for_query(&name, &query);
+            CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
+                DashboardAction::None
             }
         }
     }
@@ -715,25 +852,6 @@ impl Dashboard {
         }
     }
 
-    /// Add a chart for the given metric to the viewport
-    fn add_chart_for_metric(&mut self, metric_name: &str) {
-        // Don't add duplicate charts
-        if self.open_charts.contains(metric_name) {
-            log::debug!("Chart for {metric_name} already open");
-            return;
-        }
-
-        // Create the chart (with demo data for now)
-        let chart: Box<dyn Component> = Box::new(TimeSeriesChart::with_demo_data(metric_name));
-        let chart_tile = self.viewport_tree.tiles.insert_pane(chart);
-
-        if self.add_tile_to_viewport(chart_tile) {
-            self.open_charts.insert(metric_name.to_string());
-            self.behavior.set_focused_tile(Some(chart_tile));
-            log::debug!("Added chart for {metric_name}");
-        }
-    }
-
     /// Add a chart for a custom query to the viewport
     fn add_chart_for_query(&mut self, query_name: &str, query_str: &str) {
         // Use query name as the unique key for duplicate detection
@@ -818,6 +936,26 @@ impl Dashboard {
 
         // Update focus to next tile
         self.behavior.set_focused_tile(next_focus);
+    }
+
+    /// Close all charts and reset the viewport to show landing page
+    fn close_all_charts(&mut self) {
+        // Close all floating windows
+        self.floating_windows.clear();
+
+        // Get all pane tile IDs and close them
+        let pane_ids = self.get_pane_tile_ids();
+        for tile_id in pane_ids {
+            self.viewport_tree.tiles.remove(tile_id);
+        }
+
+        // Clear tracking
+        self.open_charts.clear();
+        self.behavior.set_focused_tile(None);
+        self.fullscreen_tile = None;
+        self.zen_mode = false;
+
+        log::debug!("Closed all charts, showing landing page");
     }
 
     /// Get a reference to the metrics tree for reading selection state
@@ -1296,10 +1434,10 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     ) {
         // Draw focus border on top of the entire tile (including tab bar)
         if self.focused_tile_id == Some(tile_id) {
-            // Vim-inspired purple focus color
+            // White/gray focus color to match Enya's color scheme
             let focus_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgb(130, 80, 180),
-                AppTheme::Dark => egui::Color32::from_rgb(180, 130, 255),
+                AppTheme::Light => egui::Color32::from_rgb(120, 120, 130),
+                AppTheme::Dark => egui::Color32::from_rgb(200, 200, 210),
             };
 
             // Shrink the rect inward so the border stroke is fully visible
