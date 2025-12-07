@@ -216,7 +216,7 @@ impl FuzzyFinder {
         }
 
         // Main finder popup (no backdrop dimming for terminal-like experience)
-        let screen_rect = ctx.screen_rect();
+        let screen_rect = ctx.available_rect();
         let popup_width = (screen_rect.width() * 0.6).clamp(400.0, 700.0);
         let popup_max_height = (screen_rect.height() * 0.6).min(500.0);
 
@@ -233,15 +233,15 @@ impl FuzzyFinder {
                     AppTheme::Dark => Color32::from_rgb(60, 60, 70),
                 };
 
-                egui::Frame::none()
+                egui::Frame::new()
                     .fill(bg_color)
                     .stroke(egui::Stroke::new(1.0, border_color))
-                    .rounding(8.0)
+                    .corner_radius(8.0)
                     .inner_margin(0.0)
                     .shadow(egui::epaint::Shadow {
-                        offset: [0.0, 4.0].into(),
-                        blur: 16.0,
-                        spread: 0.0,
+                        offset: [0, 4],
+                        blur: 16,
+                        spread: 0,
                         color: Color32::from_black_alpha(80),
                     })
                     .show(ui, |ui| {
@@ -490,6 +490,6 @@ impl FuzzyFinder {
             job.append(&ch.to_string(), 0.0, format);
         }
 
-        ui.fonts(|f| f.layout_job(job))
+        ui.fonts_mut(|f| f.layout_job(job))
     }
 }

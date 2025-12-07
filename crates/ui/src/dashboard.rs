@@ -185,7 +185,7 @@ impl Dashboard {
                     )
                     .fill(egui::Color32::TRANSPARENT)
                     .stroke(egui::Stroke::new(1.0, text_color.gamma_multiply(0.2)))
-                    .rounding(4.0);
+                    .corner_radius(4.0);
 
                     if ui
                         .add_sized([ui.available_width(), 28.0], search_btn)
@@ -978,6 +978,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                 inset_rect,
                 4.0,
                 egui::Stroke::new(border_width, focus_color),
+                egui::StrokeKind::Outside,
             );
         }
     }
