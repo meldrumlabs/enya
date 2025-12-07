@@ -1,6 +1,9 @@
 use egui::{Color32, FontId, Key, RichText, Stroke, TextFormat, text::LayoutJob};
 use egui_plot::{Line, Plot, PlotPoints};
-use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
+};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -76,7 +79,7 @@ pub struct FuzzyFinder {
     /// Current theme
     theme: AppTheme,
     /// The fuzzy matcher
-    matcher: SkimMatcherV2,
+    matcher: Matcher,
     /// Whether query changed and results need refresh
     needs_refresh: bool,
     /// Whether to show the preview pane
@@ -102,7 +105,7 @@ impl FuzzyFinder {
             selected_index: 0,
             is_open: false,
             theme: AppTheme::default(),
-            matcher: SkimMatcherV2::default(),
+            matcher: Matcher::new(Config::DEFAULT),
             needs_refresh: true,
             show_preview: true,
             last_preview_item: None,
@@ -160,15 +163,26 @@ impl FuzzyFinder {
             self.results
                 .sort_by(|a, b| a.item.search_text().cmp(b.item.search_text()));
         } else {
+            // Parse the query into a pattern for fuzzy matching
+            let pattern = Pattern::new(
+                &self.query,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            );
+
             // Fuzzy match and score items
+            let mut indices: Vec<u32> = Vec::new();
+            let mut buf = Vec::new();
             for item in &self.items {
-                if let Some((score, indices)) =
-                    self.matcher.fuzzy_indices(item.search_text(), &self.query)
-                {
+                indices.clear();
+                let haystack = Utf32Str::new(item.search_text(), &mut buf);
+
+                if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
                     self.results.push(FuzzyResult {
                         item: item.clone(),
-                        score,
-                        match_positions: indices,
+                        score: i64::from(score),
+                        match_positions: indices.iter().map(|&i| i as usize).collect(),
                     });
                 }
             }
