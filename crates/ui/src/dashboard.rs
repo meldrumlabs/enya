@@ -355,9 +355,12 @@ impl Dashboard {
                 log::debug!("Close tab command received");
                 DashboardAction::None
             }
-            CommandResult::SplitHorizontal | CommandResult::SplitVertical => {
-                // TODO: Implement splits
-                log::debug!("Split command received");
+            CommandResult::SplitHorizontal => {
+                self.split_panes_horizontal();
+                DashboardAction::None
+            }
+            CommandResult::SplitVertical => {
+                self.split_panes_vertical();
                 DashboardAction::None
             }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
@@ -503,6 +506,34 @@ impl Dashboard {
     /// Get a mutable reference to the metrics tree
     pub fn metrics_tree_mut(&mut self) -> &mut MetricsTree {
         &mut self.metrics_tree
+    }
+
+    /// Split panes horizontally (`:split` - panes stacked vertically, one above another)
+    fn split_panes_horizontal(&mut self) {
+        let pane_ids = self.get_pane_tile_ids();
+        if pane_ids.len() < 2 {
+            log::debug!("Need at least 2 panes to split");
+            return;
+        }
+
+        // Create a new vertical container (panes stacked on top of each other)
+        let new_root = self.viewport_tree.tiles.insert_vertical_tile(pane_ids);
+        self.viewport_tree.root = Some(new_root);
+        log::debug!("Split panes horizontally (vertical layout)");
+    }
+
+    /// Split panes vertically (`:vsplit` - panes side by side)
+    fn split_panes_vertical(&mut self) {
+        let pane_ids = self.get_pane_tile_ids();
+        if pane_ids.len() < 2 {
+            log::debug!("Need at least 2 panes to split");
+            return;
+        }
+
+        // Create a new horizontal container (panes side by side)
+        let new_root = self.viewport_tree.tiles.insert_horizontal_tile(pane_ids);
+        self.viewport_tree.root = Some(new_root);
+        log::debug!("Split panes vertically (horizontal layout)");
     }
 
     /// Get all pane tile IDs in the viewport (for navigation)
