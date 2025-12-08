@@ -56,6 +56,12 @@ pub enum CommandResult {
     SplitVertical,
     /// Close current tab
     CloseTab,
+    /// Save the current buffer (:w [name])
+    SaveBuffer(Option<String>),
+    /// Edit the current buffer (:e) - enter insert mode
+    EditBuffer,
+    /// Create a new buffer (:new or :enew)
+    NewBuffer,
     /// Toggle zen mode (distraction-free view)
     ToggleZenMode,
     /// Toggle fullscreen for focused pane
@@ -128,6 +134,24 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "close",
         aliases: &["q", "quit"],
         description: "Close current tab",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "write",
+        aliases: &["w", "save"],
+        description: "Save buffer (:w [name])",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "edit",
+        aliases: &["e"],
+        description: "Edit buffer (enter insert mode)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "new",
+        aliases: &["enew", "buffer"],
+        description: "Create a new buffer",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -371,6 +395,18 @@ impl CommandPalette {
             }
             "vsplit" => CommandResult::SplitVertical,
             "close" => CommandResult::CloseTab,
+            "write" => {
+                // :w or :w name - save buffer with optional name
+                let name = if args.is_empty() {
+                    None
+                } else {
+                    // Join all args as the name (allows spaces in names)
+                    Some(args.join(" "))
+                };
+                CommandResult::SaveBuffer(name)
+            }
+            "edit" => CommandResult::EditBuffer,
+            "new" => CommandResult::NewBuffer,
             "zen" => CommandResult::ToggleZenMode,
             "fullscreen" => CommandResult::ToggleFullscreen,
             "float" => CommandResult::FloatPane,
