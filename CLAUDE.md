@@ -13,7 +13,7 @@ This runs:
 - `cargo clippy --all-targets --all-features -- -D warnings` - Linting with warnings as errors
 - `cargo machete` - Unused dependency detection
 - `cargo nextest run --all-features` - All tests
-- `cargo check -p enya-ui --target wasm32-unknown-unknown` - WASM build check
+- `cargo check -p enya-editor --target wasm32-unknown-unknown` - WASM build check
 
 ## Key Lint Rules
 

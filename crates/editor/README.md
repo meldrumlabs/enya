@@ -1,6 +1,6 @@
-# Enya UI
+# Enya Editor
 
-A neovim-inspired UI for the Enya metrics dashboard, built with [egui](https://github.com/emilk/egui).
+A neovim-inspired editor for the Enya metrics dashboard, built with [egui](https://github.com/emilk/egui).
 
 ## Neovim-Inspired Features
 
@@ -175,10 +175,10 @@ crates/ui/src/
 
 ```bash
 # Native build
-cargo build -p enya-ui
+cargo build -p enya-editor
 
 # WASM build (for web)
-cargo build -p enya-ui --target wasm32-unknown-unknown
+cargo build -p enya-editor --target wasm32-unknown-unknown
 ```
 
 ## Running CI Checks

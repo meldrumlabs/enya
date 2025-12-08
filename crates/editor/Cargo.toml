@@ -1,5 +1,5 @@
 [package]
-name = "enya-ui"
+name = "enya-editor"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

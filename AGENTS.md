@@ -4,7 +4,7 @@ This guide keeps contributors aligned with the current enya workspace. Scan it b
 
 ## Project Structure & Module Organization
 
-The workspace in `Cargo.toml` centers on `crates/*`: `enya` (Axum server), `metrics-store` (time-series LSM backed by SlateDB), `log-store` (Tantivy search), `build-info`, and `ui` (egui/eframe). Shared spikes live in `examples/*`; static media live in `assets/`. Unit tests sit beside their modules, and cross-crate integration tests belong in each crate's `tests/` directory so `cargo nextest` discovers them automatically.
+The workspace in `Cargo.toml` centers on `crates/*`: `enya` (Axum server), `metrics-store` (time-series LSM backed by SlateDB), `log-store` (Tantivy search), `build-info`, and `editor` (egui/eframe). Shared spikes live in `examples/*`; static media live in `assets/`. Unit tests sit beside their modules, and cross-crate integration tests belong in each crate's `tests/` directory so `cargo nextest` discovers them automatically.
 
 ## Build, Test, and Development Commands
 
@@ -15,7 +15,7 @@ just fmt          # cargo fmt --all
 just clippy       # cargo clippy --all-targets -D warnings
 just test         # cargo nextest run (respects features=...)
 just ci           # Enables all features, runs lint+machete+test+check-wasm
-just check-wasm   # `enya-ui` against wasm32-unknown-unknown
+just check-wasm   # `enya-editor` against wasm32-unknown-unknown
 ```
 
 Run `just install` one time to fetch `cargo-nextest`, `cargo-machete`, and `cargo-deny`.
