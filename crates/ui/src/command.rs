@@ -159,7 +159,7 @@ impl UICommand {
 
         match self {
             Self::Home => smallvec![],
-            Self::Help => smallvec![key(Key::X)],
+            Self::Help => smallvec![], // Help accessed via ? on landing page or :help command
             Self::Dashboard => smallvec![key(Key::D)],
             Self::Settings => smallvec![key(Key::S)],
             Self::CloseSettings => smallvec![],

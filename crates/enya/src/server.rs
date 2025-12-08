@@ -552,12 +552,14 @@ mod tests {
     use super::*;
     use axum_test::TestServer;
     use enya_metrics_store::{Database, MetricName, MetricsStore, object_store};
-    use object_store::local::LocalFileSystem;
+    use object_store::memory::InMemory;
     use std::sync::Arc;
+    use std::time::Duration;
 
-    async fn create_test_core(dir: &std::path::Path) -> Core {
-        let object_store = Arc::new(LocalFileSystem::new_with_prefix(dir).expect("object store"));
+    async fn create_test_core() -> Core {
+        let object_store = Arc::new(InMemory::new());
         let db = Database::builder()
+            .with_flush_interval(Duration::from_millis(10))
             .open(object_store, "/")
             .await
             .expect("database");
@@ -572,8 +574,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_endpoint_basic_query() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path()).await;
+        let core = create_test_core().await;
 
         // Write some test data
         let m = metric("cpu.usage");
@@ -607,8 +608,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_endpoint_with_filter() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path()).await;
+        let core = create_test_core().await;
 
         let m = metric("requests.count");
         let db = core.metrics().database();
@@ -660,8 +660,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_endpoint_aggregation_types() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path()).await;
+        let core = create_test_core().await;
 
         let m = metric("latency.ms");
         let db = core.metrics().database();
@@ -748,8 +747,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_endpoint_invalid_metric_name() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path()).await;
+        let core = create_test_core().await;
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");
@@ -767,8 +765,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_endpoint_invalid_granularity() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path()).await;
+        let core = create_test_core().await;
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");
@@ -785,8 +782,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_metrics_endpoint_empty_result() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let core = create_test_core(dir.path()).await;
+        let core = create_test_core().await;
 
         let app = build_router(core);
         let server = TestServer::new(app).expect("test server");

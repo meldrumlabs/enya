@@ -69,6 +69,8 @@ pub enum CommandResult {
     DockAll,
     /// Show a test notification
     TestNotify(String),
+    /// Show the landing page (home screen)
+    ShowLandingPage,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -177,6 +179,12 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "dock",
         aliases: &["d", "attach", "tile"],
         description: "Dock all floating windows back to tiled layout",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "home",
+        aliases: &["landing", "start", "welcome"],
+        description: "Show the landing page / home screen",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -388,6 +396,7 @@ impl CommandPalette {
                 let level = args.first().copied().unwrap_or("info");
                 CommandResult::TestNotify(level.to_string())
             }
+            "home" => CommandResult::ShowLandingPage,
             _ => CommandResult::None,
         }
     }

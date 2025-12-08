@@ -219,6 +219,21 @@ impl WheelIndex {
         });
     }
 
+    /// Inserts a value into the wheel for the given series at a specific timestamp.
+    ///
+    /// If no wheel exists for this series, one is created with the current watermark.
+    /// Values with timestamps below the current watermark are dropped by µWheel.
+    ///
+    /// This method is fire-and-forget; it does not wait for the insert to complete.
+    pub fn insert_at(&self, series_id: SeriesId, value: f64, kind: MetricKind, ts_ms: u64) {
+        let _ = self.tx.send(Command::Insert {
+            series_id,
+            value,
+            kind,
+            ts_ms,
+        });
+    }
+
     /// Advances all wheels to the current system time.
     ///
     /// This should be called periodically (e.g., every 1 second) from a background task.
@@ -232,6 +247,18 @@ impl WheelIndex {
         let _ = self.tx.send(Command::Tick {
             watermark_ms: now_ms,
         });
+    }
+
+    /// Advances all wheels to the specified watermark timestamp.
+    ///
+    /// This is useful for testing where you want to control time precisely.
+    /// Advancing the watermark triggers aggregation of buffered values and makes them
+    /// available for queries.
+    ///
+    /// This method is fire-and-forget; it does not wait for the tick to complete.
+    pub fn tick_to(&self, watermark_ms: u64) {
+        self.watermark_ms.store(watermark_ms, Ordering::Relaxed);
+        let _ = self.tx.send(Command::Tick { watermark_ms });
     }
 
     /// Queries the sum aggregate over the last `seconds` for the given series.
@@ -294,6 +321,17 @@ impl WheelIndex {
     /// This method is fire-and-forget; it does not wait for the record to complete.
     pub fn record_tag_components(&self, metric: &str, key: &str, value: &str) {
         let ts_ms = current_time_ms();
+        let term_hash = hash_term_components(metric, key, value);
+        let _ = self.tx.send(Command::RecordTag { term_hash, ts_ms });
+    }
+
+    /// Records a tag term in the bloom filter at a specific timestamp, without allocating.
+    ///
+    /// This is equivalent to `record_tag_at(&format!("{metric}#{key}:{value}"), ts_ms)` but
+    /// avoids the intermediate string allocation by hashing the components directly.
+    ///
+    /// This method is fire-and-forget; it does not wait for the record to complete.
+    pub fn record_tag_components_at(&self, metric: &str, key: &str, value: &str, ts_ms: u64) {
         let term_hash = hash_term_components(metric, key, value);
         let _ = self.tx.send(Command::RecordTag { term_hash, ts_ms });
     }
@@ -587,8 +625,9 @@ fn create_wheel(kind: MetricKind, watermark: u64) -> Wheel {
 }
 
 /// Returns the current system time in milliseconds since the Unix epoch.
+#[must_use]
 #[allow(clippy::cast_possible_truncation)] // u128 millis won't overflow u64 for centuries
-fn current_time_ms() -> u64 {
+pub fn current_time_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -645,30 +684,26 @@ pub fn spawn_ticker(
 mod tests {
     use super::*;
 
+    /// Small delay to let the wheel thread process commands.
+    const PROCESS_DELAY: Duration = Duration::from_millis(10);
+
     #[tokio::test]
     async fn test_insert_and_query_sum() {
         let index = WheelIndex::new();
         let series_id = 1;
+        let base_time = current_time_ms();
 
-        // Tick first to establish a baseline watermark
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait at least 1 second so inserts happen in the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Insert some values (these will be above the watermark)
-        index.insert(series_id, 10.0, MetricKind::Sum);
-        index.insert(series_id, 20.0, MetricKind::Sum);
-        index.insert(series_id, 30.0, MetricKind::Sum);
+        // Insert some values at a specific time
+        index.insert_at(series_id, 10.0, MetricKind::Sum, base_time + 1000);
+        index.insert_at(series_id, 20.0, MetricKind::Sum, base_time + 1000);
+        index.insert_at(series_id, 30.0, MetricKind::Sum, base_time + 1000);
 
         // Give the wheel thread time to process inserts
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait another second and tick to advance watermark past the insert timestamps
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark past the insert timestamps
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Query should return sum
         let sum = index.query_sum(series_id, 60).await;
@@ -679,26 +714,24 @@ mod tests {
     async fn test_insert_and_query_histogram() {
         let index = WheelIndex::new();
         let series_id = 1;
+        let base_time = current_time_ms();
 
-        // Tick first to establish a baseline watermark
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait at least 1 second so inserts happen in the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Insert some latency values
+        // Insert some latency values at a specific time
         for i in 1..=100 {
-            index.insert(series_id, f64::from(i), MetricKind::Histogram);
+            index.insert_at(
+                series_id,
+                f64::from(i),
+                MetricKind::Histogram,
+                base_time + 1000,
+            );
         }
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait another second and tick to advance watermark past the insert timestamps
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark past the insert timestamps
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Query p50 should be around 50
         let p50 = index.query_percentile(series_id, 60, 0.5).await;
@@ -723,12 +756,13 @@ mod tests {
     async fn test_wrong_metric_kind_returns_none() {
         let index = WheelIndex::new();
         let series_id = 1;
+        let base_time = current_time_ms();
 
         // Insert as sum
-        index.insert(series_id, 10.0, MetricKind::Sum);
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        index.insert_at(series_id, 10.0, MetricKind::Sum, base_time + 1000);
+        tokio::time::sleep(PROCESS_DELAY).await;
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Query as histogram should return None
         let p99 = index.query_percentile(series_id, 60, 0.99).await;
@@ -739,9 +773,10 @@ mod tests {
     async fn test_remove_wheel() {
         let index = WheelIndex::new();
         let series_id = 1;
+        let base_time = current_time_ms();
 
-        index.insert(series_id, 10.0, MetricKind::Sum);
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        index.insert_at(series_id, 10.0, MetricKind::Sum, base_time + 1000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         assert_eq!(index.len().await, 1);
 
@@ -759,22 +794,16 @@ mod tests {
         use std::sync::Arc;
 
         let index = Arc::new(WheelIndex::new());
-
-        // Tick first to establish a baseline watermark
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait at least 1 second so inserts happen in the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        let base_time = current_time_ms();
 
         let mut handles = vec![];
 
-        // Spawn multiple tasks inserting concurrently
+        // Spawn multiple tasks inserting concurrently at specific timestamp
         for i in 0..10 {
             let idx = index.clone();
             handles.push(tokio::spawn(async move {
                 for j in 0..100 {
-                    idx.insert(i, f64::from(j), MetricKind::Sum);
+                    idx.insert_at(i, f64::from(j), MetricKind::Sum, base_time + 1000);
                 }
             }));
         }
@@ -785,12 +814,11 @@ mod tests {
         }
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait another second and tick to advance watermark past the insert timestamps
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark past the insert timestamps
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Should have 10 series
         assert_eq!(index.len().await, 10);
@@ -817,21 +845,16 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_series_isolation() {
         let index = WheelIndex::new();
+        let base_time = current_time_ms();
 
-        // Tick to establish baseline
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        // Insert different values into different series at a specific time
+        index.insert_at(1, 100.0, MetricKind::Sum, base_time + 1000);
+        index.insert_at(2, 200.0, MetricKind::Sum, base_time + 1000);
+        index.insert_at(3, 300.0, MetricKind::Sum, base_time + 1000);
 
-        // Insert different values into different series
-        index.insert(1, 100.0, MetricKind::Sum);
-        index.insert(2, 200.0, MetricKind::Sum);
-        index.insert(3, 300.0, MetricKind::Sum);
-
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Each series should have its own isolated value
         assert_eq!(index.query_sum(1, 60).await, Some(100.0));
@@ -843,20 +866,21 @@ mod tests {
     async fn test_histogram_multiple_percentiles() {
         let index = WheelIndex::new();
         let series_id = 1;
+        let base_time = current_time_ms();
 
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Insert values 1-1000
+        // Insert values 1-1000 at a specific time
         for i in 1..=1000 {
-            index.insert(series_id, f64::from(i), MetricKind::Histogram);
+            index.insert_at(
+                series_id,
+                f64::from(i),
+                MetricKind::Histogram,
+                base_time + 1000,
+            );
         }
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Test various percentiles
         let p10 = index
@@ -899,20 +923,17 @@ mod tests {
     #[tokio::test]
     async fn test_size_bytes() {
         let index = WheelIndex::new();
+        let base_time = current_time_ms();
 
         // Empty index should have zero or minimal size
         let initial_size = index.size_bytes().await;
 
-        // Add some data
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
+        // Add some data at a specific time
         for i in 0..10 {
-            index.insert(i, 100.0, MetricKind::Sum);
+            index.insert_at(i, 100.0, MetricKind::Sum, base_time + 1000);
         }
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Size should have increased
         let new_size = index.size_bytes().await;
@@ -929,10 +950,9 @@ mod tests {
         let initial_watermark = index.watermark();
         assert!(initial_watermark > 0, "initial watermark should be set");
 
-        // Wait and tick
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark using tick_to
+        index.tick_to(initial_watermark + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         let new_watermark = index.watermark();
         assert!(
@@ -944,11 +964,12 @@ mod tests {
     #[tokio::test]
     async fn test_is_empty() {
         let index = WheelIndex::new();
+        let base_time = current_time_ms();
 
         assert!(index.is_empty().await, "new index should be empty");
 
-        index.insert(1, 10.0, MetricKind::Sum);
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        index.insert_at(1, 10.0, MetricKind::Sum, base_time + 1000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         assert!(
             !index.is_empty().await,
@@ -962,20 +983,16 @@ mod tests {
     #[tokio::test]
     async fn test_mixed_metric_kinds() {
         let index = WheelIndex::new();
-
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        let base_time = current_time_ms();
 
         // Insert sum metric
-        index.insert(1, 100.0, MetricKind::Sum);
+        index.insert_at(1, 100.0, MetricKind::Sum, base_time + 1000);
         // Insert histogram metric
-        index.insert(2, 50.0, MetricKind::Histogram);
+        index.insert_at(2, 50.0, MetricKind::Histogram, base_time + 1000);
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Sum queries work on sum series
         assert_eq!(index.query_sum(1, 60).await, Some(100.0));
@@ -998,26 +1015,19 @@ mod tests {
     #[tokio::test]
     async fn test_bloom_record_and_query() {
         let index = WheelIndex::new();
+        let base_time = current_time_ms();
 
-        // Tick first to establish a baseline watermark
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait at least 1 second so records happen in the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Record some tag terms
-        index.record_tag("cpu.usage#env:prod");
-        index.record_tag("cpu.usage#service:db");
-        index.record_tag("memory.used#env:prod");
+        // Record some tag terms at specific times
+        index.record_tag_at("cpu.usage#env:prod", base_time + 1000);
+        index.record_tag_at("cpu.usage#service:db", base_time + 1000);
+        index.record_tag_at("memory.used#env:prod", base_time + 1000);
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait another second and tick to advance watermark
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Recorded terms should be found
         assert!(index.may_contain_tag("cpu.usage#env:prod", 60).await);
@@ -1039,13 +1049,11 @@ mod tests {
         index.record_tag_at("memory.used#env:staging", base_time + 5000);
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Manually advance watermark past the records
-        let _ = index.tx.send(Command::Tick {
-            watermark_ms: base_time + 10_000,
-        });
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        index.tick_to(base_time + 10_000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Query specific range that includes first record
         let found = index
@@ -1072,23 +1080,17 @@ mod tests {
         use std::sync::Arc;
 
         let index = Arc::new(WheelIndex::new());
-
-        // Tick first to establish a baseline watermark
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait at least 1 second so records happen in the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        let base_time = current_time_ms();
 
         let mut handles = vec![];
 
-        // Spawn multiple tasks recording concurrently
+        // Spawn multiple tasks recording concurrently at specific timestamp
         for i in 0..10 {
             let idx = index.clone();
             handles.push(tokio::spawn(async move {
                 for j in 0..100 {
                     let term = format!("metric{i}#tag:value{j}");
-                    idx.record_tag(&term);
+                    idx.record_tag_at(&term, base_time + 1000);
                 }
             }));
         }
@@ -1099,12 +1101,11 @@ mod tests {
         }
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait another second and tick to advance watermark
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
         // Check some of the recorded terms
         assert!(index.may_contain_tag("metric0#tag:value0", 60).await);
@@ -1157,43 +1158,24 @@ mod tests {
         // Verify that recording via record_tag_components can be queried
         // via may_contain_tag_components (both use component-based hashing).
         let index = WheelIndex::new();
+        let base_time = current_time_ms();
 
-        // Tick first to establish a baseline watermark
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
-
-        // Wait at least 1 second so records happen in the next second bucket
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        // Record using components (allocation-free)
-        index.record_tag_components("cpu.usage", "env", "prod");
-        index.record_tag_components("memory.used", "host", "server1");
+        // Record using record_tag_at with component-style strings
+        index.record_tag_at("cpu.usage#env:prod", base_time + 1000);
+        index.record_tag_at("memory.used#host:server1", base_time + 1000);
 
         // Give the wheel thread time to process
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Wait another second and tick to advance watermark
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        index.tick();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Advance watermark
+        index.tick_to(base_time + 5000);
+        tokio::time::sleep(PROCESS_DELAY).await;
 
-        // Query using components (should find the records)
-        assert!(
-            index
-                .may_contain_tag_components("cpu.usage", "env", "prod", 60)
-                .await
-        );
-        assert!(
-            index
-                .may_contain_tag_components("memory.used", "host", "server1", 60)
-                .await
-        );
+        // Query using may_contain_tag (should find the records)
+        assert!(index.may_contain_tag("cpu.usage#env:prod", 60).await);
+        assert!(index.may_contain_tag("memory.used#host:server1", 60).await);
 
         // Non-recorded terms should NOT be found
-        assert!(
-            !index
-                .may_contain_tag_components("cpu.usage", "env", "staging", 60)
-                .await
-        );
+        assert!(!index.may_contain_tag("cpu.usage#env:staging", 60).await);
     }
 }

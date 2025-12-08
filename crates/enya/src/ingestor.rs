@@ -518,24 +518,22 @@ mod tests {
     use super::*;
     use crate::util::value_as_f64;
     use enya_metrics_store::{Database, MetricName, object_store};
-    use object_store::local::LocalFileSystem;
+    use object_store::memory::InMemory;
     use std::sync::Arc;
-    use tempfile::TempDir;
+    use std::time::Duration;
 
     const METRIC_NAME: &str = "enya.test.metric";
     const FILTER: &str = "env:test";
     const GROUP: &str = "test";
 
-    async fn temp_store() -> (TempDir, MetricsStore) {
-        let dir = TempDir::new().expect("tempdir");
-        let object_store =
-            Arc::new(LocalFileSystem::new_with_prefix(dir.path()).expect("object store"));
+    async fn temp_store() -> MetricsStore {
+        let object_store = Arc::new(InMemory::new());
         let db = Database::builder()
+            .with_flush_interval(Duration::from_millis(10))
             .open(object_store, "/")
             .await
             .expect("open database");
-        let store = MetricsStore::new(db, None, None);
-        (dir, store)
+        MetricsStore::new(db, None, None)
     }
 
     async fn read_sum(store: &MetricsStore) -> f64 {
@@ -555,7 +553,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_value_writes_metric_sample() {
-        let (_tmp, store) = temp_store().await;
+        let store = temp_store().await;
         let key = Key::from_parts(METRIC_NAME, &[("env", GROUP)]);
 
         persist_value(&store, &key, 42.5).await;
@@ -565,7 +563,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_metric_event_handles_counter() {
-        let (_tmp, store) = temp_store().await;
+        let store = temp_store().await;
         let key = Key::from_parts(METRIC_NAME, &[("env", GROUP)]);
 
         persist_metric_event(
@@ -581,7 +579,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_metric_event_handles_gauge() {
-        let (_tmp, store) = temp_store().await;
+        let store = temp_store().await;
         let key = Key::from_parts(METRIC_NAME, &[("env", GROUP)]);
 
         persist_metric_event(
@@ -597,7 +595,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_metric_event_handles_histogram() {
-        let (_tmp, store) = temp_store().await;
+        let store = temp_store().await;
         let key = Key::from_parts(METRIC_NAME, &[("env", GROUP)]);
 
         persist_metric_event(&store, MetricUpdate::Histogram { key, value: 5.5 }).await;

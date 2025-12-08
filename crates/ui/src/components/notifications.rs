@@ -3,11 +3,12 @@
 //! Displays toast-style notifications in the corner of the screen with different
 //! severity levels, icons, and auto-dismiss functionality.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use egui::{Color32, RichText, Ui};
 
 use crate::theme::AppTheme;
+use crate::util::Instant;
 
 /// Notification severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
