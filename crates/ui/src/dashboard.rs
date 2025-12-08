@@ -54,6 +54,8 @@ pub enum DashboardAction {
         metric_name: String,
         is_query: bool,
     },
+    /// Take a screenshot of the window (optionally with a custom path)
+    TakeScreenshot(Option<String>),
 }
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
@@ -701,6 +703,7 @@ impl Dashboard {
                 self.close_all_charts();
                 DashboardAction::None
             }
+            CommandResult::TakeScreenshot(path) => DashboardAction::TakeScreenshot(path),
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
