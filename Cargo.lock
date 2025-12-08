@@ -2655,6 +2655,7 @@ dependencies = [
  "env_logger",
  "enya-build-info",
  "enya-build-tools",
+ "enya-lang",
  "ewebsock",
  "gloo-timers",
  "image",
