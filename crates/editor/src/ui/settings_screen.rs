@@ -10,6 +10,7 @@ use super::colors::text_color;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {
+    #[serde(default)]
     pub api_key: String,
     /// Recent plots that were opened (metric name, timestamp)
     #[serde(default)]
