@@ -454,6 +454,9 @@ impl EnyaApp {
             DashboardAction::SharePane(pane_index) => {
                 self.share_pane(pane_index);
             }
+            DashboardAction::QuitApp => {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
     }
 
@@ -1119,6 +1122,28 @@ impl eframe::App for EnyaApp {
         // Handle screenshot events
         self.handle_screenshot_events(ctx);
 
+        // Custom title bar drag area (since native title bar is hidden)
+        // The entire top 32px area acts as a drag region for moving the window
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let title_bar_height = 32.0;
+            let screen_width = ctx.content_rect().width();
+            let title_bar_rect = egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(screen_width, title_bar_height),
+            );
+            // Check if pointer is in the title bar area and being dragged
+            let pointer_in_title_bar = ctx.input(|i| {
+                i.pointer
+                    .interact_pos()
+                    .is_some_and(|pos| title_bar_rect.contains(pos))
+            });
+            let is_dragging = ctx.input(|i| i.pointer.button_down(egui::PointerButton::Primary));
+            if pointer_in_title_bar && is_dragging {
+                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+        }
+
         // No header panel - neovim-style UI uses only status bar at bottom
 
         // Draw main content
@@ -1159,12 +1184,12 @@ fn setup_fonts(ctx: &egui::Context) {
         .or_default()
         .insert(0, "departure_mono".to_owned());
 
-    // Put DepartureMono as last fallback for monospace:
+    // Put DepartureMono first (highest priority) for monospace too:
     fonts
         .families
         .entry(egui::FontFamily::Monospace)
         .or_default()
-        .push("departure_mono".to_owned());
+        .insert(0, "departure_mono".to_owned());
 
     // Tell egui to use these fonts:
     ctx.set_fonts(fonts);

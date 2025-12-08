@@ -77,6 +77,9 @@ pub fn light() -> Visuals {
 
         text_cursor: TextCursorStyle {
             stroke: Stroke::new(2.0, Color32::from_rgb(0, 83, 125)),
+            blink: true,
+            on_duration: 0.5,
+            off_duration: 0.5,
             ..Default::default()
         },
         ..Visuals::dark()

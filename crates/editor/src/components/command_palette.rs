@@ -57,6 +57,8 @@ pub enum CommandResult {
     SplitVertical,
     /// Close current tab
     CloseTab,
+    /// Quit the application
+    QuitApp,
     /// Save the current buffer (:w [name])
     SaveBuffer(Option<String>),
     /// Edit the current buffer (:e) - enter insert mode
@@ -153,6 +155,12 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "close",
         aliases: &["q", "quit"],
         description: "Close current tab",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "exit",
+        aliases: &[],
+        description: "Quit application",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -456,6 +464,7 @@ impl CommandPalette {
             }
             "vsplit" => CommandResult::SplitVertical,
             "close" => CommandResult::CloseTab,
+            "exit" => CommandResult::QuitApp,
             "write" => {
                 // :w or :w name - save buffer with optional name
                 let name = if args.is_empty() {

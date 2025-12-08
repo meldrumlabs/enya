@@ -69,6 +69,8 @@ pub enum DashboardAction {
     ShareWorkspace,
     /// Share a single pane as URL (encodes to base64 and copies to clipboard)
     SharePane(usize),
+    /// Quit the application
+    QuitApp,
 }
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
@@ -721,6 +723,7 @@ impl Dashboard {
                 }
                 DashboardAction::None
             }
+            CommandResult::QuitApp => DashboardAction::QuitApp,
             CommandResult::SplitHorizontal => {
                 self.split_panes_horizontal();
                 DashboardAction::None

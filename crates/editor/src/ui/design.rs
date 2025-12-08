@@ -1,6 +1,6 @@
 use egui::{
     Color32, CornerRadius, Stroke, Visuals,
-    style::{Selection, WidgetVisuals, Widgets},
+    style::{Selection, TextCursorStyle, WidgetVisuals, Widgets},
 };
 
 pub fn white_theme() -> Visuals {
@@ -382,6 +382,15 @@ pub fn gruvbox_theme() -> Visuals {
         error_fg_color: red,   // Gruvbox red for errors
         warn_fg_color: orange, // Gruvbox orange for warnings
         hyperlink_color: blue, // Gruvbox blue for links
+
+        // Blinking cursor for terminal aesthetic
+        text_cursor: TextCursorStyle {
+            stroke: Stroke::new(2.0, fg0),
+            blink: true,
+            on_duration: 0.5,
+            off_duration: 0.5,
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -662,6 +671,15 @@ pub fn black_theme() -> Visuals {
         extreme_bg_color: extreme_black,
 
         warn_fg_color: text_white,
+
+        // Blinking cursor for terminal aesthetic
+        text_cursor: TextCursorStyle {
+            stroke: Stroke::new(2.0, accent_yellow),
+            blink: true,
+            on_duration: 0.5,
+            off_duration: 0.5,
+            ..Default::default()
+        },
 
         striped: false,
         clip_rect_margin: 0.0,
