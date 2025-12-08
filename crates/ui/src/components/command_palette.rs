@@ -65,8 +65,8 @@ pub enum CommandResult {
     TestNotify(String),
     /// Show the landing page (home screen)
     ShowLandingPage,
-    /// Take a screenshot of the active plot
-    TakeScreenshot,
+    /// Take a screenshot of the window (optionally with a custom path)
+    TakeScreenshot(Option<String>),
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -168,8 +168,8 @@ const COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         name: "screenshot",
         aliases: &["ss", "snap", "capture"],
-        description: "Take a screenshot of the window",
-        kind: CommandKind::NoArgs,
+        description: "Take a screenshot (optional: path to save)",
+        kind: CommandKind::SingleArg,
     },
 ];
 
@@ -369,7 +369,15 @@ impl CommandPalette {
                 CommandResult::TestNotify(level.to_string())
             }
             "home" => CommandResult::ShowLandingPage,
-            "screenshot" => CommandResult::TakeScreenshot,
+            "screenshot" => {
+                // Join all args as the path (handles paths with spaces)
+                let path = if args.is_empty() {
+                    None
+                } else {
+                    Some(args.join(" "))
+                };
+                CommandResult::TakeScreenshot(path)
+            }
             _ => CommandResult::None,
         }
     }

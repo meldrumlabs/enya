@@ -36,6 +36,10 @@ pub struct EnyaApp {
 
     // Notification manager
     notifications: NotificationManager,
+
+    // Pending screenshot path (used when screenshot event arrives)
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_screenshot_path: Option<String>,
 }
 
 // Serializable state that can be persiste
@@ -90,6 +94,8 @@ impl Default for EnyaApp {
             build_info: build_info!(),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_screenshot_path: None,
         }
     }
 }
@@ -329,7 +335,15 @@ impl EnyaApp {
                     .settings
                     .add_recent_plot(name, metric_name, is_query);
             }
-            DashboardAction::TakeScreenshot => {
+            DashboardAction::TakeScreenshot(path) => {
+                // Store the custom path for when the screenshot event arrives
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.pending_screenshot_path = path;
+                }
+                #[cfg(target_arch = "wasm32")]
+                let _ = path; // Path is ignored on WASM (browser handles download location)
+
                 // Request a screenshot from egui
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
             }
@@ -368,15 +382,27 @@ impl EnyaApp {
         let timestamp = now_unix_secs();
         let filename = format!("enya_screenshot_{timestamp}.png");
 
-        // Get the downloads or pictures directory
+        // Get the save path (custom path or default to Pictures directory)
         #[cfg(not(target_arch = "wasm32"))]
         let save_path = {
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            let pictures_dir = std::path::PathBuf::from(&home).join("Pictures");
-            if pictures_dir.exists() {
-                pictures_dir.join(&filename)
+            if let Some(custom_path) = self.pending_screenshot_path.take() {
+                let path = std::path::PathBuf::from(&custom_path);
+                // If it's a directory, append the filename
+                if path.is_dir() {
+                    path.join(&filename)
+                } else {
+                    // Use as-is (user specified full path with filename)
+                    path
+                }
             } else {
-                std::path::PathBuf::from(&home).join(&filename)
+                // Default: save to Pictures or home directory
+                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                let pictures_dir = std::path::PathBuf::from(&home).join("Pictures");
+                if pictures_dir.exists() {
+                    pictures_dir.join(&filename)
+                } else {
+                    std::path::PathBuf::from(&home).join(&filename)
+                }
             }
         };
 
