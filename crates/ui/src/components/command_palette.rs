@@ -4,6 +4,7 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
+use super::tags::TagPath;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
@@ -84,6 +85,14 @@ pub enum CommandResult {
     ListWorkspaces,
     /// Share workspace as URL (:share)
     ShareWorkspace,
+    /// Set tag filter (None = clear filter)
+    SetTagFilter(Option<TagPath>),
+    /// Add tag to focused buffer
+    AddTag(TagPath),
+    /// Remove tag from focused buffer
+    RemoveTag(TagPath),
+    /// Show all tags
+    ShowTags,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -228,6 +237,18 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "share",
         aliases: &["export", "url"],
         description: "Share current workspace as URL (copies to clipboard)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "tag",
+        aliases: &["#"],
+        description: "Filter by tag or add/remove tags (+tag, -tag)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "tags",
+        aliases: &["taglist", "tl"],
+        description: "Show all tags with buffer counts",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -484,8 +505,46 @@ impl CommandPalette {
             }
             "workspaces" => CommandResult::ListWorkspaces,
             "share" => CommandResult::ShareWorkspace,
+            "tag" => self.execute_tag_command(args),
+            "tags" => CommandResult::ShowTags,
             _ => CommandResult::None,
         }
+    }
+
+    /// Execute the :tag command with various subcommands
+    fn execute_tag_command(&self, args: &[&str]) -> CommandResult {
+        if args.is_empty() {
+            // :tag with no args - clear the filter
+            return CommandResult::SetTagFilter(None);
+        }
+
+        let arg = args[0];
+
+        // Check for add/remove prefixes
+        if let Some(tag_name) = arg.strip_prefix('+') {
+            // :tag +production - add tag to focused buffer
+            let path = TagPath::parse(tag_name);
+            if path.is_empty() {
+                return CommandResult::Error("Empty tag path".to_string());
+            }
+            return CommandResult::AddTag(path);
+        }
+
+        if let Some(tag_name) = arg.strip_prefix('-') {
+            // :tag -production - remove tag from focused buffer
+            let path = TagPath::parse(tag_name);
+            if path.is_empty() {
+                return CommandResult::Error("Empty tag path".to_string());
+            }
+            return CommandResult::RemoveTag(path);
+        }
+
+        // :tag production - set filter
+        let path = TagPath::parse(arg);
+        if path.is_empty() {
+            return CommandResult::SetTagFilter(None);
+        }
+        CommandResult::SetTagFilter(Some(path))
     }
 
     /// Show the command palette. Returns a CommandResult if a command was executed.

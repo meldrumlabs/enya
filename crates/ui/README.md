@@ -25,6 +25,8 @@ Press `:` to open the command palette (similar to neovim's command mode).
 | `:help` | `h`, `?` | Open help/documentation |
 | `:share` | | Share workspace as URL (copies to clipboard) |
 | `:screenshot` | `ss` | Capture window screenshot |
+| `:tag` | `#` | Manage tags (see below) |
+| `:tags` | `taglist`, `tl` | Show all tags |
 
 ### Fuzzy Finder (Telescope-style)
 
@@ -32,11 +34,33 @@ Press `Ctrl+P` to open the fuzzy finder for quick metric and query search.
 
 - **Live preview**: See a chart preview of the selected metric
 - **Fuzzy matching**: Type partial names to filter results
+- **Tag search**: Type `#` to search and open tagged queries
 - **Keyboard navigation**:
   - `↑`/`↓` or `Ctrl+K`/`Ctrl+J` - Navigate results
-  - `Enter` - Select item
+  - `Enter` - Select item (for tags, opens all queries with that tag)
   - `Ctrl+P` - Toggle preview pane
   - `Esc` - Close
+
+### Hierarchical Tags
+
+Organize queries with hierarchical tags (e.g., `production/api/latency`).
+
+#### Tag Commands
+
+| Command | Description |
+|---------|-------------|
+| `:tag +production` | Add tag to focused chart |
+| `:tag -production` | Remove tag from focused chart |
+| `:tag production` | Filter queries by tag |
+| `:tag` | Clear tag filter |
+| `:tags` | Show all defined tags |
+
+#### Usage
+
+1. **Add tags**: Focus a chart and run `:tag +mytag` (auto-saves raw metrics as queries)
+2. **Search by tag**: In fuzzy finder, type `#` then tag name (e.g., `#prod`)
+3. **Open tagged queries**: Select a tag in fuzzy finder to open all queries with that tag
+4. **Hierarchical paths**: Use `/` for hierarchy (e.g., `production/api` matches `production/api/latency`)
 
 ### Keyboard Shortcuts
 
@@ -140,6 +164,8 @@ crates/ui/src/
 │   ├── notifications.rs     # nvim-notify-style toasts
 │   ├── metrics_tree.rs      # Metrics browser sidebar
 │   ├── inspector.rs         # Metric details panel
+│   ├── tags.rs              # Hierarchical tagging system
+│   ├── custom_queries.rs    # Saved queries with tags
 │   ├── time_range.rs        # Time range selection toolbar
 │   └── time_series_chart.rs # Chart rendering component
 └── theme.rs            # Light/dark theme definitions

@@ -6,8 +6,8 @@ use crate::app::AppState;
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
     CustomQueriesPanel, FuzzyFinder, FuzzyItem, InspectorPanel, InspectorTarget, LandingPage,
-    LandingPageAction, MetricStats, MetricsTree, QueryPane, QueryState, TimeRangeToolbar,
-    inspector_toggle_button, metrics_panel_toggle_button,
+    LandingPageAction, MetricStats, MetricsTree, QueryPane, QueryState, TagFilter, TagPath,
+    TimeRangeToolbar, inspector_toggle_button, metrics_panel_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -121,6 +121,8 @@ pub struct Dashboard {
     show_landing: bool,
     /// Last time 'y' was pressed (for yy detection)
     last_y_press: Option<crate::util::Instant>,
+    /// Tag filter for filtering queries/buffers
+    tag_filter: TagFilter,
 }
 
 impl Default for Dashboard {
@@ -155,6 +157,7 @@ impl Default for Dashboard {
             landing_page: LandingPage::new(),
             show_landing: true,
             last_y_press: None,
+            tag_filter: TagFilter::new(),
         }
     }
 }
@@ -209,6 +212,7 @@ impl Dashboard {
             landing_page: LandingPage::new(),
             show_landing: true, // Start with landing page
             last_y_press: None,
+            tag_filter: TagFilter::new(),
         }
     }
 
@@ -583,6 +587,48 @@ impl Dashboard {
                     is_query: true,
                 }
             }
+            FuzzyItem::Tag { path, .. } => {
+                // Find all queries with this tag and open them
+                let queries_to_open: Vec<(String, String)> = self
+                    .custom_queries
+                    .queries()
+                    .iter()
+                    .filter(|q| q.has_tag(&path))
+                    .map(|q| (q.name.clone(), q.query.clone()))
+                    .collect();
+
+                if queries_to_open.is_empty() {
+                    return DashboardAction::Notify {
+                        level: "info".to_string(),
+                        message: format!("No queries found with tag #{path}"),
+                    };
+                }
+
+                self.show_landing = false;
+                let count = queries_to_open.len();
+
+                // Open each query in the viewport
+                for (name, query) in &queries_to_open {
+                    self.add_chart_for_query(name, query);
+                }
+
+                // Track the first query as the "recent" one
+                if let Some((name, _)) = queries_to_open.first() {
+                    return DashboardAction::TrackRecentPlot {
+                        name: name.clone(),
+                        metric_name: name.clone(),
+                        is_query: true,
+                    };
+                }
+
+                DashboardAction::Notify {
+                    level: "info".to_string(),
+                    message: format!(
+                        "Opened {count} quer{} with tag #{path}",
+                        if count == 1 { "y" } else { "ies" }
+                    ),
+                }
+            }
         }
     }
 
@@ -726,6 +772,55 @@ impl Dashboard {
             CommandResult::LoadWorkspace(name) => DashboardAction::LoadWorkspace(name),
             CommandResult::ListWorkspaces => DashboardAction::ListWorkspaces,
             CommandResult::ShareWorkspace => DashboardAction::ShareWorkspace,
+            CommandResult::SetTagFilter(path) => {
+                self.set_tag_filter(path);
+                DashboardAction::None
+            }
+            CommandResult::AddTag(path) => {
+                if let Some(query_name) = self.add_tag_to_focused(&path) {
+                    DashboardAction::Notify {
+                        level: "info".to_string(),
+                        message: format!("Added #{path} to \"{query_name}\""),
+                    }
+                } else {
+                    DashboardAction::Notify {
+                        level: "warn".to_string(),
+                        message:
+                            "No query focused. Focus a query chart or select one in the panel."
+                                .to_string(),
+                    }
+                }
+            }
+            CommandResult::RemoveTag(path) => {
+                if let Some(query_name) = self.remove_tag_from_focused(&path) {
+                    DashboardAction::Notify {
+                        level: "info".to_string(),
+                        message: format!("Removed #{path} from \"{query_name}\""),
+                    }
+                } else {
+                    DashboardAction::Notify {
+                        level: "warn".to_string(),
+                        message:
+                            "No query focused. Focus a query chart or select one in the panel."
+                                .to_string(),
+                    }
+                }
+            }
+            CommandResult::ShowTags => {
+                // Show all tags as a notification for now
+                let tags = self.custom_queries.all_tags();
+                if tags.is_empty() {
+                    DashboardAction::Notify {
+                        level: "info".to_string(),
+                        message: "No tags defined".to_string(),
+                    }
+                } else {
+                    DashboardAction::Notify {
+                        level: "info".to_string(),
+                        message: format!("Tags: {}", tags.join(", ")),
+                    }
+                }
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -824,6 +919,24 @@ impl Dashboard {
         }
 
         self.fuzzy_finder.set_items(items);
+
+        // Collect tags with counts and query names from custom queries
+        let mut tag_info: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        for query in self.custom_queries.queries() {
+            for tag in &query.tags {
+                tag_info
+                    .entry(tag.clone())
+                    .or_default()
+                    .push(query.name.clone());
+            }
+        }
+        let tags: Vec<(String, usize, Vec<String>)> = tag_info
+            .into_iter()
+            .map(|(path, names)| (path, names.len(), names))
+            .collect();
+        self.fuzzy_finder.set_tags(tags);
+
         self.fuzzy_finder.open();
     }
 
@@ -1136,6 +1249,143 @@ impl Dashboard {
         } else {
             None
         }
+    }
+
+    /// Get the current tag filter display string
+    pub fn tag_filter_display(&self) -> String {
+        self.tag_filter.display()
+    }
+
+    /// Set the tag filter
+    pub fn set_tag_filter(&mut self, path: Option<TagPath>) {
+        self.tag_filter.set(path.clone());
+
+        // Update the custom queries panel filter
+        let tag_str = path.as_ref().map(|p| p.as_str());
+        self.custom_queries.set_tag_filter(tag_str.as_deref());
+
+        log::debug!("Tag filter set to: {}", self.tag_filter.display());
+    }
+
+    /// Get the name of the currently focused chart in the viewport
+    fn focused_chart_name(&self) -> Option<String> {
+        let tile_id = self.behavior.focused_tile()?;
+        if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+            Some(component.name())
+        } else {
+            None
+        }
+    }
+
+    /// Find a query by name and return its ID
+    fn find_query_id_by_name(&self, name: &str) -> Option<u64> {
+        self.custom_queries
+            .queries()
+            .iter()
+            .find(|q| q.name == name)
+            .map(|q| q.id)
+    }
+
+    /// Add a tag to the focused chart's query
+    /// Returns Some(query_name) if successful, None if no matching query
+    /// If the focused chart is a raw metric (not a saved query), auto-creates a query entry for it
+    pub fn add_tag_to_focused(&mut self, tag: &TagPath) -> Option<String> {
+        // First try the focused chart in the viewport
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                let chart_name = component.name();
+
+                // Check if this is already a saved query
+                if let Some(query_id) = self.find_query_id_by_name(&chart_name) {
+                    self.custom_queries
+                        .add_tag_to_query(query_id, &tag.as_str());
+                    log::debug!("Added tag '{tag}' to query '{chart_name}' (id: {query_id})");
+                    return Some(chart_name);
+                }
+
+                // Not a saved query - try to auto-save it as a query
+                // Get the query string from the pane
+                let query_str = component
+                    .as_any()
+                    .downcast_ref::<QueryPane>()
+                    .map(|qp| qp.saved_query().to_string())
+                    .or_else(|| {
+                        component
+                            .as_any()
+                            .downcast_ref::<Buffer>()
+                            .map(|b| b.saved_content().to_string())
+                    });
+
+                if let Some(query_str) = query_str {
+                    // Auto-create a custom query entry with the tag
+                    self.custom_queries.add_query_with_tags(
+                        &chart_name,
+                        &query_str,
+                        vec![tag.as_str()],
+                    );
+                    log::debug!(
+                        "Auto-created query '{chart_name}' with tag '{tag}' (query: {query_str})"
+                    );
+                    return Some(chart_name);
+                }
+
+                log::debug!("Focused chart '{chart_name}' could not be converted to a query");
+                return None;
+            }
+        }
+
+        // Fall back to selected query in left panel
+        if let Some(query_id) = self.custom_queries.selected() {
+            self.custom_queries
+                .add_tag_to_query(query_id, &tag.as_str());
+            let query_name = self
+                .custom_queries
+                .queries()
+                .iter()
+                .find(|q| q.id == query_id)
+                .map(|q| q.name.clone());
+            log::debug!("Added tag '{tag}' to selected query {query_id}");
+            return query_name;
+        }
+
+        log::debug!("No focused chart or selected query to add tag to");
+        None
+    }
+
+    /// Remove a tag from the focused chart's query
+    /// Returns Some(query_name) if successful, None if no matching query
+    pub fn remove_tag_from_focused(&mut self, tag: &TagPath) -> Option<String> {
+        // First try the focused chart in the viewport
+        if let Some(chart_name) = self.focused_chart_name() {
+            if let Some(query_id) = self.find_query_id_by_name(&chart_name) {
+                self.custom_queries
+                    .remove_tag_from_query(query_id, &tag.as_str());
+                log::debug!("Removed tag '{tag}' from query '{chart_name}' (id: {query_id})");
+                return Some(chart_name);
+            }
+            // Chart exists but is not a custom query (might be a metric)
+            log::debug!(
+                "Focused chart '{chart_name}' is not a custom query - tags only work on queries"
+            );
+            return None;
+        }
+
+        // Fall back to selected query in left panel
+        if let Some(query_id) = self.custom_queries.selected() {
+            self.custom_queries
+                .remove_tag_from_query(query_id, &tag.as_str());
+            let query_name = self
+                .custom_queries
+                .queries()
+                .iter()
+                .find(|q| q.id == query_id)
+                .map(|q| q.name.clone());
+            log::debug!("Removed tag '{tag}' from selected query {query_id}");
+            return query_name;
+        }
+
+        log::debug!("No focused chart or selected query to remove tag from");
+        None
     }
 
     /// Split panes horizontally (`:split` - panes stacked vertically, one above another)

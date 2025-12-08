@@ -1,5 +1,6 @@
 use egui::{Color32, FontId, Key, RichText};
 
+use crate::components::query_completion::{CompletionResult, QueryCompletion};
 use crate::components::query_state::QueryState;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -35,6 +36,14 @@ pub struct BufferEditor {
     query_state: QueryState,
     /// Original query state (for revert on cancel)
     original_query_state: QueryState,
+    /// Query completion popup
+    completion: QueryCompletion,
+    /// Cursor position in the text edit (byte offset)
+    cursor_position: usize,
+    /// Last known text edit rect for positioning completion popup
+    text_edit_rect: Option<egui::Rect>,
+    /// Pending cursor position to set after completion (if Some, will be applied next frame)
+    pending_cursor: Option<usize>,
 }
 
 impl Default for BufferEditor {
@@ -45,7 +54,7 @@ impl Default for BufferEditor {
 
 impl BufferEditor {
     pub fn new() -> Self {
-        Self {
+        let mut editor = Self {
             is_open: false,
             query: String::new(),
             original_query: String::new(),
@@ -54,12 +63,111 @@ impl BufferEditor {
             needs_focus: false,
             query_state: QueryState::default(),
             original_query_state: QueryState::default(),
-        }
+            completion: QueryCompletion::new(),
+            cursor_position: 0,
+            text_edit_rect: None,
+            pending_cursor: None,
+        };
+
+        // TODO: Load tag keys and values from metrics store instead of these defaults.
+        // The dashboard should call set_tag_keys() and set_tag_values() with actual
+        // data from the metrics store when it loads or when new metrics are ingested.
+        editor.init_default_completions();
+
+        editor
+    }
+
+    /// Initialize default completion suggestions.
+    /// This provides a reasonable starting set of tag keys and values.
+    fn init_default_completions(&mut self) {
+        // Common tag keys used in metrics
+        let default_keys = vec![
+            "env".to_string(),
+            "service".to_string(),
+            "region".to_string(),
+            "host".to_string(),
+            "instance".to_string(),
+            "status".to_string(),
+            "method".to_string(),
+            "endpoint".to_string(),
+        ];
+        self.completion.set_tag_keys(default_keys);
+
+        // Common values for each key
+        self.completion.set_tag_values(
+            "env",
+            vec![
+                "prod".to_string(),
+                "staging".to_string(),
+                "dev".to_string(),
+                "test".to_string(),
+            ],
+        );
+        self.completion.set_tag_values(
+            "service",
+            vec![
+                "api".to_string(),
+                "web".to_string(),
+                "db".to_string(),
+                "cache".to_string(),
+                "worker".to_string(),
+            ],
+        );
+        self.completion.set_tag_values(
+            "region",
+            vec![
+                "us-east-1".to_string(),
+                "us-west-2".to_string(),
+                "eu-west-1".to_string(),
+                "ap-southeast-1".to_string(),
+            ],
+        );
+        self.completion.set_tag_values(
+            "status",
+            vec![
+                "2xx".to_string(),
+                "4xx".to_string(),
+                "5xx".to_string(),
+                "ok".to_string(),
+                "error".to_string(),
+            ],
+        );
+        self.completion.set_tag_values(
+            "method",
+            vec![
+                "GET".to_string(),
+                "POST".to_string(),
+                "PUT".to_string(),
+                "DELETE".to_string(),
+                "PATCH".to_string(),
+            ],
+        );
     }
 
     /// Set the theme
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
+        self.completion.set_theme(theme);
+    }
+
+    /// Set known tag keys for completion
+    pub fn set_tag_keys(&mut self, keys: Vec<String>) {
+        self.completion.set_tag_keys(keys);
+    }
+
+    /// Set known tag values for a specific key
+    pub fn set_tag_values(&mut self, key: &str, values: Vec<String>) {
+        self.completion.set_tag_values(key, values);
+    }
+
+    /// Get a reference to the completion component
+    pub fn completion(&self) -> &QueryCompletion {
+        &self.completion
+    }
+
+    /// Get a mutable reference to the completion component
+    pub fn completion_mut(&mut self) -> &mut QueryCompletion {
+        &mut self.completion
     }
 
     /// Check if the editor is currently open
@@ -91,6 +199,10 @@ impl BufferEditor {
         self.buffer_name.clear();
         self.query_state = QueryState::default();
         self.original_query_state = QueryState::default();
+        self.completion.close();
+        self.cursor_position = 0;
+        self.text_edit_rect = None;
+        self.pending_cursor = None;
     }
 
     /// Get the current query content
@@ -118,17 +230,19 @@ impl BufferEditor {
         let mut should_close = false;
         let mut should_save = false;
 
-        // Handle keyboard shortcuts
-        ctx.input(|input| {
-            // Escape - cancel and close
-            if input.key_pressed(Key::Escape) {
-                should_close = true;
-            }
-            // Ctrl+Enter or Cmd+Enter - save and close
-            if input.key_pressed(Key::Enter) && input.modifiers.command {
-                should_save = true;
-            }
-        });
+        // Handle keyboard shortcuts (when completion is not open)
+        if !self.completion.is_open() {
+            ctx.input(|input| {
+                // Escape - cancel and close
+                if input.key_pressed(Key::Escape) {
+                    should_close = true;
+                }
+                // Ctrl+Enter or Cmd+Enter - save and close
+                if input.key_pressed(Key::Enter) && input.modifiers.command {
+                    should_save = true;
+                }
+            });
+        }
 
         // Handle aggregation keybindings (Ctrl+key)
         ctx.input(|input| {
@@ -299,11 +413,38 @@ impl BufferEditor {
                         ui.add_space(8.0);
 
                         // Query text editor
-                        ui.horizontal(|ui| {
+                        let text_edit_id = egui::Id::new("buffer_editor_query_input");
+
+                        // Apply pending cursor position if set
+                        if let Some(cursor_pos) = self.pending_cursor.take() {
+                            if let Some(mut state) =
+                                egui::text_edit::TextEditState::load(ui.ctx(), text_edit_id)
+                            {
+                                let ccursor = egui::text::CCursor::new(cursor_pos);
+                                state
+                                    .cursor
+                                    .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
+                                state.store(ui.ctx(), text_edit_id);
+                            }
+                        }
+
+                        // Track if completion is open for focus management
+                        let completion_is_open = self.completion.is_open();
+
+                        // Handle completion keyboard before rendering
+                        // Using key_pressed (not consume_key) similar to FuzzyFinder
+                        let completion_result = if completion_is_open {
+                            self.completion.handle_keyboard_ctx(ui.ctx())
+                        } else {
+                            None
+                        };
+
+                        let text_edit_output = ui.horizontal(|ui| {
                             ui.add_space(16.0);
 
                             let editor_width = popup_width - 32.0;
-                            let text_edit = egui::TextEdit::multiline(&mut self.query)
+                            let output = egui::TextEdit::multiline(&mut self.query)
+                                .id(text_edit_id)
                                 .font(FontId::monospace(14.0))
                                 .hint_text(
                                     RichText::new("Enter query (e.g., env:prod AND service:db)")
@@ -311,18 +452,53 @@ impl BufferEditor {
                                 )
                                 .desired_width(editor_width)
                                 .desired_rows(4)
-                                .lock_focus(true);
-
-                            let response = ui.add(text_edit);
+                                .lock_focus(true)
+                                .show(ui);
 
                             // Request focus on first show
                             if self.needs_focus {
-                                response.request_focus();
+                                output.response.request_focus();
                                 self.needs_focus = false;
                             }
 
                             ui.add_space(16.0);
+
+                            output
                         });
+
+                        // Update cursor position from text edit state
+                        let output = text_edit_output.inner;
+                        if let Some(cursor_range) = output.cursor_range {
+                            // Use the primary cursor position (character index)
+                            self.cursor_position = cursor_range.primary.index;
+                        }
+
+                        // Store text edit rect for completion popup positioning
+                        self.text_edit_rect = Some(output.response.rect);
+
+                        // Handle completion result after UI rendering
+                        match completion_result {
+                            Some(CompletionResult::Selected(_)) => {
+                                if let Some((new_query, new_cursor)) = self
+                                    .completion
+                                    .apply_completion(&self.query, self.cursor_position)
+                                {
+                                    self.query = new_query;
+                                    self.cursor_position = new_cursor;
+                                    self.pending_cursor = Some(new_cursor);
+                                }
+                                self.completion.close();
+                            }
+                            Some(CompletionResult::Dismissed) => {
+                                self.completion.close();
+                            }
+                            Some(CompletionResult::None) | None => {}
+                        }
+
+                        // Update completion when text changes or cursor moves
+                        if output.response.changed() || output.response.has_focus() {
+                            self.completion.update(&self.query, self.cursor_position);
+                        }
 
                         ui.add_space(12.0);
 
@@ -464,6 +640,36 @@ impl BufferEditor {
                         ui.add_space(12.0);
                     });
             });
+
+        // Show completion popup if open (rendered in a separate area on top)
+        if self.completion.is_open() {
+            if let Some(text_rect) = self.text_edit_rect {
+                egui::Area::new(egui::Id::new("buffer_editor_completion"))
+                    .fixed_pos(egui::pos2(text_rect.left(), text_rect.bottom() + 4.0))
+                    .order(egui::Order::Tooltip)
+                    .show(ctx, |ui| {
+                        match self.completion.show(ui, text_rect) {
+                            CompletionResult::Selected(_) => {
+                                // Apply the selected completion
+                                if let Some((new_query, new_cursor)) = self
+                                    .completion
+                                    .apply_completion(&self.query, self.cursor_position)
+                                {
+                                    self.query = new_query;
+                                    self.cursor_position = new_cursor;
+                                    // Set pending cursor to move the TextEdit cursor next frame
+                                    self.pending_cursor = Some(new_cursor);
+                                }
+                                self.completion.close();
+                            }
+                            CompletionResult::Dismissed => {
+                                self.completion.close();
+                            }
+                            CompletionResult::None => {}
+                        }
+                    });
+            }
+        }
 
         // Handle save/close
         if should_save {
