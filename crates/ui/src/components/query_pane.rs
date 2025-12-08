@@ -32,6 +32,8 @@ pub struct QueryPane {
     buffer_expanded: bool,
     /// Query state (aggregation, granularity, time range)
     query_state: QueryState,
+    /// User-defined tag for organizing panes (e.g., "Critical", "Warning")
+    tag: String,
 }
 
 impl Default for QueryPane {
@@ -60,6 +62,7 @@ impl QueryPane {
             api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
+            tag: String::new(),
         }
     }
 
@@ -67,6 +70,18 @@ impl QueryPane {
     pub fn with_name(query: impl Into<String>, name: impl Into<String>) -> Self {
         let mut pane = Self::new(query);
         pane.buffer.set_name(name);
+        pane
+    }
+
+    /// Create a query pane with a custom name and tag
+    pub fn with_name_and_tag(
+        query: impl Into<String>,
+        name: impl Into<String>,
+        tag: impl Into<String>,
+    ) -> Self {
+        let mut pane = Self::new(query);
+        pane.buffer.set_name(name);
+        pane.tag = tag.into();
         pane
     }
 
@@ -103,6 +118,16 @@ impl QueryPane {
     /// Set the buffer name
     pub fn set_name(&mut self, name: &str) {
         self.buffer.set_name(name);
+    }
+
+    /// Get the user-defined tag
+    pub fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    /// Set the user-defined tag
+    pub fn set_tag(&mut self, tag: &str) {
+        self.tag = tag.to_string();
     }
 
     /// Get the buffer mode
@@ -163,6 +188,11 @@ impl QueryPane {
     /// Get the current query state
     pub fn query_state(&self) -> &QueryState {
         &self.query_state
+    }
+
+    /// Set the query state (aggregation, granularity, time range)
+    pub fn set_query_state(&mut self, state: QueryState) {
+        self.query_state = state;
     }
 
     /// Toggle buffer visibility
