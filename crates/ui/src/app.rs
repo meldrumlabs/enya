@@ -362,12 +362,10 @@ impl EnyaApp {
     /// Save a screenshot image to disk
     fn save_screenshot(&mut self, image: &std::sync::Arc<egui::ColorImage>) {
         use crate::components::{Notification, NotificationLevel};
+        use crate::util::now_unix_secs;
 
-        // Generate filename with timestamp
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        // Generate filename with timestamp (works on both native and WASM)
+        let timestamp = now_unix_secs();
         let filename = format!("enya_screenshot_{timestamp}.png");
 
         // Get the downloads or pictures directory
