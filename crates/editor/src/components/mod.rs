@@ -34,7 +34,7 @@ pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, QueryCompletion};
 pub use query_pane::{QueryPane, QueryPaneAction};
 pub use query_state::{AggregationMode, Granularity, QueryState};
-pub use status_line::{StatusLine, StatusMode};
+pub use status_line::{Sparkline, StatusLine, StatusMode};
 pub use tags::{TagFilter, TagPath, TagTree};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
