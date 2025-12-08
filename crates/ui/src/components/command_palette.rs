@@ -65,6 +65,8 @@ pub enum CommandResult {
     TestNotify(String),
     /// Show the landing page (home screen)
     ShowLandingPage,
+    /// Take a screenshot of the active plot
+    TakeScreenshot,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -161,6 +163,12 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "home",
         aliases: &["landing", "start", "welcome"],
         description: "Show the landing page / home screen",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "screenshot",
+        aliases: &["ss", "snap", "capture"],
+        description: "Take a screenshot of the window",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -361,6 +369,7 @@ impl CommandPalette {
                 CommandResult::TestNotify(level.to_string())
             }
             "home" => CommandResult::ShowLandingPage,
+            "screenshot" => CommandResult::TakeScreenshot,
             _ => CommandResult::None,
         }
     }

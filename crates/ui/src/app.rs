@@ -329,6 +329,10 @@ impl EnyaApp {
                     .settings
                     .add_recent_plot(name, metric_name, is_query);
             }
+            DashboardAction::TakeScreenshot => {
+                // Request a screenshot from egui
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            }
         }
     }
 
@@ -343,6 +347,95 @@ impl EnyaApp {
             dashboard.open_command_palette();
         }
     }
+
+    /// Handle screenshot events from egui
+    fn handle_screenshot_events(&mut self, ctx: &egui::Context) {
+        ctx.input(|i| {
+            for event in &i.raw.events {
+                if let egui::Event::Screenshot { image, .. } = event {
+                    self.save_screenshot(image);
+                }
+            }
+        });
+    }
+
+    /// Save a screenshot image to disk
+    fn save_screenshot(&mut self, image: &std::sync::Arc<egui::ColorImage>) {
+        use crate::components::{Notification, NotificationLevel};
+
+        // Generate filename with timestamp
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let filename = format!("enya_screenshot_{timestamp}.png");
+
+        // Get the downloads or pictures directory
+        #[cfg(not(target_arch = "wasm32"))]
+        let save_path = {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            let pictures_dir = std::path::PathBuf::from(&home).join("Pictures");
+            if pictures_dir.exists() {
+                pictures_dir.join(&filename)
+            } else {
+                std::path::PathBuf::from(&home).join(&filename)
+            }
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let _save_path = std::path::PathBuf::from(&filename);
+
+        // Convert ColorImage to image buffer
+        let width = image.width() as u32;
+        let height = image.height() as u32;
+        let pixels: Vec<u8> = image
+            .pixels
+            .iter()
+            .flat_map(|c| [c.r(), c.g(), c.b(), c.a()])
+            .collect();
+
+        // Save the image
+        match image::RgbaImage::from_raw(width, height, pixels) {
+            Some(img_buffer) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                match img_buffer.save(&save_path) {
+                    Ok(()) => {
+                        log::info!("Screenshot saved to: {}", save_path.display());
+                        self.notifications.notify(Notification::new(
+                            format!("Screenshot saved: {}", save_path.display()),
+                            NotificationLevel::Success,
+                        ));
+                    }
+                    Err(e) => {
+                        log::error!("Failed to save screenshot: {e}");
+                        self.notifications.notify(Notification::new(
+                            format!("Failed to save screenshot: {e}"),
+                            NotificationLevel::Error,
+                        ));
+                    }
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    // For WASM, we can't save to disk directly
+                    // Just show a notification that screenshot was captured
+                    log::info!("Screenshot captured (WASM - save not supported)");
+                    self.notifications.notify(Notification::new(
+                        "Screenshot captured (save not supported in browser)".to_string(),
+                        NotificationLevel::Info,
+                    ));
+                    let _ = img_buffer; // Suppress unused warning
+                }
+            }
+            None => {
+                log::error!("Failed to create image buffer from screenshot");
+                self.notifications.notify(Notification::new(
+                    "Failed to create screenshot image".to_string(),
+                    NotificationLevel::Error,
+                ));
+            }
+        }
+    }
 }
 
 impl eframe::App for EnyaApp {
@@ -355,6 +448,9 @@ impl eframe::App for EnyaApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Set theme for the context
         ctx.set_visuals(self.state.visuals());
+
+        // Handle screenshot events
+        self.handle_screenshot_events(ctx);
 
         // No header panel - neovim-style UI uses only status bar at bottom
 
