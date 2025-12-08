@@ -1,5 +1,8 @@
 use egui::{Color32, FontId, Key, RichText, TextFormat, text::LayoutJob};
-use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
+use nucleo_matcher::{
+    Config, Matcher, Utf32Str,
+    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
+};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -206,7 +209,7 @@ pub struct CommandPalette {
     /// Current theme
     theme: AppTheme,
     /// Fuzzy matcher for command completion
-    matcher: SkimMatcherV2,
+    matcher: Matcher,
     /// Filtered command suggestions
     suggestions: Vec<CommandMatch>,
     /// Currently selected suggestion index
@@ -227,7 +230,7 @@ impl CommandPalette {
             input: String::new(),
             is_open: false,
             theme: AppTheme::default(),
-            matcher: SkimMatcherV2::default(),
+            matcher: Matcher::new(Config::DEFAULT),
             suggestions: Vec::new(),
             selected_index: 0,
             error_message: None,
@@ -281,25 +284,41 @@ impl CommandPalette {
             self.suggestions
                 .sort_by(|a, b| a.command.name.cmp(b.command.name));
         } else {
+            // Create a pattern for fuzzy matching
+            let pattern = Pattern::new(
+                cmd_part,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            );
+
+            let mut indices: Vec<u32> = Vec::new();
+            let mut buf = Vec::new();
+
             // Fuzzy match commands
             for cmd in COMMANDS {
                 // Check main name
-                if let Some((score, positions)) = self.matcher.fuzzy_indices(cmd.name, cmd_part) {
+                indices.clear();
+                let haystack = Utf32Str::new(cmd.name, &mut buf);
+                if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
                     self.suggestions.push(CommandMatch {
                         command: cmd,
-                        score,
-                        match_positions: positions,
+                        score: i64::from(score),
+                        match_positions: indices.iter().map(|&i| i as usize).collect(),
                     });
                     continue;
                 }
 
                 // Check aliases
                 for alias in cmd.aliases {
-                    if let Some((score, positions)) = self.matcher.fuzzy_indices(alias, cmd_part) {
+                    indices.clear();
+                    let haystack = Utf32Str::new(alias, &mut buf);
+                    if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices)
+                    {
                         self.suggestions.push(CommandMatch {
                             command: cmd,
-                            score,
-                            match_positions: positions,
+                            score: i64::from(score),
+                            match_positions: indices.iter().map(|&i| i as usize).collect(),
                         });
                         break;
                     }
