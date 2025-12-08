@@ -14,6 +14,7 @@ pub mod notifications;
 pub mod query_pane;
 pub mod query_state;
 pub mod status_line;
+pub mod tags;
 pub mod time_range;
 pub mod time_series_chart;
 
@@ -32,6 +33,7 @@ pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use query_pane::{QueryPane, QueryPaneAction};
 pub use query_state::{AggregationMode, Granularity, QueryState};
 pub use status_line::{StatusLine, StatusMode};
+pub use tags::{TagFilter, TagPath, TagTree};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
 
