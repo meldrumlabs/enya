@@ -25,6 +25,15 @@ pub enum FuzzyItem {
         name: String,
         query: String,
     },
+    /// A tag for filtering (shown when query starts with #)
+    Tag {
+        /// The full tag path (e.g., "production/api")
+        path: String,
+        /// Number of buffers with this tag
+        count: usize,
+        /// Names of queries that have this tag (for display)
+        query_names: Vec<String>,
+    },
 }
 
 impl FuzzyItem {
@@ -33,14 +42,31 @@ impl FuzzyItem {
         match self {
             Self::Metric { name, .. } => name,
             Self::CustomQuery { name, .. } => name,
+            Self::Tag { path, .. } => path,
         }
     }
 
     /// Get a secondary label for display
-    pub fn category_label(&self) -> &str {
+    pub fn category_label(&self) -> String {
         match self {
-            Self::Metric { category, .. } => category,
-            Self::CustomQuery { .. } => "Query",
+            Self::Metric { category, .. } => category.clone(),
+            Self::CustomQuery { .. } => "Query".to_string(),
+            Self::Tag {
+                query_names, count, ..
+            } => {
+                if query_names.is_empty() {
+                    format!("{count} items")
+                } else if query_names.len() <= 3 {
+                    query_names.join(", ")
+                } else {
+                    format!(
+                        "{}, {} (+{} more)",
+                        query_names[0],
+                        query_names[1],
+                        query_names.len() - 2
+                    )
+                }
+            }
         }
     }
 
@@ -49,6 +75,7 @@ impl FuzzyItem {
         match self {
             Self::Metric { .. } => egui_phosphor::regular::CHART_LINE,
             Self::CustomQuery { .. } => egui_phosphor::regular::CODE,
+            Self::Tag { .. } => egui_phosphor::regular::HASH,
         }
     }
 }
@@ -68,8 +95,10 @@ pub struct FuzzyResult {
 pub struct FuzzyFinder {
     /// Current search query
     query: String,
-    /// All searchable items
+    /// All searchable items (metrics, queries)
     items: Vec<FuzzyItem>,
+    /// All available tags for # mode
+    tag_items: Vec<FuzzyItem>,
     /// Filtered and scored results
     results: Vec<FuzzyResult>,
     /// Currently selected index in results
@@ -101,6 +130,7 @@ impl FuzzyFinder {
         Self {
             query: String::new(),
             items: Vec::new(),
+            tag_items: Vec::new(),
             results: Vec::new(),
             selected_index: 0,
             is_open: false,
@@ -146,11 +176,77 @@ impl FuzzyFinder {
         self.needs_refresh = true;
     }
 
+    /// Set the available tags for # mode
+    /// Each tag is (path, count, query_names)
+    pub fn set_tags(&mut self, tags: Vec<(String, usize, Vec<String>)>) {
+        self.tag_items = tags
+            .into_iter()
+            .map(|(path, count, query_names)| FuzzyItem::Tag {
+                path,
+                count,
+                query_names,
+            })
+            .collect();
+        self.needs_refresh = true;
+    }
+
+    /// Check if we're in tag mode (query starts with #)
+    fn is_tag_mode(&self) -> bool {
+        self.query.starts_with('#')
+    }
+
     /// Refresh the filtered results based on the current query
     fn refresh_results(&mut self) {
         self.results.clear();
 
-        if self.query.is_empty() {
+        // Check if we're in tag mode
+        if self.is_tag_mode() {
+            // Get the search query without # prefix (owned to avoid borrow issues)
+            let search = self
+                .query
+                .strip_prefix('#')
+                .unwrap_or(&self.query)
+                .trim()
+                .to_string();
+            if search.is_empty() {
+                // Show all tags when just "#" is typed
+                for item in &self.tag_items {
+                    self.results.push(FuzzyResult {
+                        item: item.clone(),
+                        score: 0,
+                        match_positions: Vec::new(),
+                    });
+                }
+                // Sort alphabetically
+                self.results
+                    .sort_by(|a, b| a.item.search_text().cmp(b.item.search_text()));
+            } else {
+                // Fuzzy match tags using nucleo-matcher
+                let pattern = Pattern::new(
+                    &search,
+                    CaseMatching::Ignore,
+                    Normalization::Smart,
+                    AtomKind::Fuzzy,
+                );
+
+                let mut indices: Vec<u32> = Vec::new();
+                let mut buf = Vec::new();
+                for item in &self.tag_items {
+                    indices.clear();
+                    let haystack = Utf32Str::new(item.search_text(), &mut buf);
+
+                    if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices)
+                    {
+                        self.results.push(FuzzyResult {
+                            item: item.clone(),
+                            score: i64::from(score),
+                            match_positions: indices.iter().map(|&i| i as usize).collect(),
+                        });
+                    }
+                }
+                self.results.sort_by(|a, b| b.score.cmp(&a.score));
+            }
+        } else if self.query.is_empty() {
             // Show all items when query is empty, sorted by name
             for item in &self.items {
                 self.results.push(FuzzyResult {
@@ -310,7 +406,7 @@ impl FuzzyFinder {
                             let text_edit = egui::TextEdit::singleline(&mut self.query)
                                 .font(FontId::proportional(16.0))
                                 .hint_text(
-                                    RichText::new("Search metrics and queries...")
+                                    RichText::new("Search metrics and queries (# for tags)...")
                                         .color(text_color(self.theme).gamma_multiply(0.4)),
                                 )
                                 .frame(false)
@@ -666,6 +762,52 @@ impl FuzzyFinder {
                                     .size(11.0)
                                     .monospace(),
                             );
+                        }
+                        FuzzyItem::Tag {
+                            path,
+                            count,
+                            query_names,
+                        } => {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!("#{path}"))
+                                    .color(text_col.gamma_multiply(0.7))
+                                    .size(12.0),
+                            );
+                            ui.label(
+                                RichText::new(format!(
+                                    "{count} quer{}",
+                                    if *count == 1 { "y" } else { "ies" }
+                                ))
+                                .color(text_col.gamma_multiply(0.5))
+                                .size(11.0),
+                            );
+                            // Show query names
+                            if !query_names.is_empty() {
+                                ui.add_space(8.0);
+                                ui.label(
+                                    RichText::new("Queries:")
+                                        .color(text_col.gamma_multiply(0.6))
+                                        .size(10.0),
+                                );
+                                for name in query_names.iter().take(5) {
+                                    ui.label(
+                                        RichText::new(format!("  • {name}"))
+                                            .color(text_col.gamma_multiply(0.5))
+                                            .size(10.0),
+                                    );
+                                }
+                                if query_names.len() > 5 {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "  (+{} more)",
+                                            query_names.len() - 5
+                                        ))
+                                        .color(text_col.gamma_multiply(0.4))
+                                        .size(10.0),
+                                    );
+                                }
+                            }
                         }
                     }
 
