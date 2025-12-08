@@ -46,7 +46,7 @@ clippy:
     cargo clippy --all-targets {{ _features }} --profile ci -- -D warnings
 
 check-wasm:
-    cargo check -p enya-ui --target wasm32-unknown-unknown --profile ci
+    cargo check -p enya-editor --target wasm32-unknown-unknown --profile ci
 
 # Run all lints
 lint: check-fmt clippy

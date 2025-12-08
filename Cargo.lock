@@ -2619,6 +2619,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "enya-editor"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chrono",
+ "eframe",
+ "egui",
+ "egui-phosphor",
+ "egui_extras",
+ "egui_plot",
+ "egui_tiles",
+ "env_logger",
+ "enya-build-info",
+ "enya-build-tools",
+ "enya-lang",
+ "ewebsock",
+ "gloo-timers",
+ "image",
+ "js-sys",
+ "log",
+ "lz4_flex",
+ "mimalloc",
+ "nucleo-matcher",
+ "parking_lot 0.11.2",
+ "postcard",
+ "rustls",
+ "serde",
+ "smallvec",
+ "strum 0.21.0",
+ "strum_macros 0.21.1",
+ "toml 0.8.23",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
+]
+
+[[package]]
 name = "enya-integration-tests"
 version = "0.1.0"
 dependencies = [
@@ -2675,44 +2713,6 @@ dependencies = [
  "test-log",
  "tokio",
  "uwheel",
-]
-
-[[package]]
-name = "enya-ui"
-version = "0.1.0"
-dependencies = [
- "base64",
- "chrono",
- "eframe",
- "egui",
- "egui-phosphor",
- "egui_extras",
- "egui_plot",
- "egui_tiles",
- "env_logger",
- "enya-build-info",
- "enya-build-tools",
- "enya-lang",
- "ewebsock",
- "gloo-timers",
- "image",
- "js-sys",
- "log",
- "lz4_flex",
- "mimalloc",
- "nucleo-matcher",
- "parking_lot 0.11.2",
- "postcard",
- "rustls",
- "serde",
- "smallvec",
- "strum 0.21.0",
- "strum_macros 0.21.1",
- "toml 0.8.23",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "web-time",
 ]
 
 [[package]]

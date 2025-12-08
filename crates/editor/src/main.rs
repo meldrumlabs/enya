@@ -22,7 +22,7 @@ fn main() -> eframe::Result {
             .with_inner_size([400.0, 300.0])
             .with_min_inner_size([300.0, 220.0])
             .with_icon(
-                enya_ui::util::png_to_icon_data(&include_bytes!("../assets/logo.png")[..]), //.expect("Failed to load icon"),
+                enya_editor::util::png_to_icon_data(&include_bytes!("../assets/logo.png")[..]), //.expect("Failed to load icon"),
             ),
         ..Default::default()
     };
@@ -30,7 +30,7 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Enya",
         native_options,
-        Box::new(|cc| Ok(Box::new(enya_ui::EnyaApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(enya_editor::EnyaApp::new(cc)))),
     )
 }
 
@@ -62,7 +62,7 @@ fn main() {
                 web_options,
                 Box::new(|cc| {
                     egui_extras::install_image_loaders(&cc.egui_ctx);
-                    Ok(Box::new(enya_ui::EnyaApp::new(cc)))
+                    Ok(Box::new(enya_editor::EnyaApp::new(cc)))
                 }),
             )
             .await;
