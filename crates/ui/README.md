@@ -23,6 +23,8 @@ Press `:` to open the command palette (similar to neovim's command mode).
 | `:notify` | `n`, `toast` | Show a test notification (`info`/`success`/`warn`/`error`) |
 | `:settings` | `set`, `options`, `config` | Open settings |
 | `:help` | `h`, `?` | Open help/documentation |
+| `:share` | | Share workspace as URL (copies to clipboard) |
+| `:screenshot` | `ss` | Capture window screenshot |
 | `:tag` | `#` | Manage tags (see below) |
 | `:tags` | `taglist`, `tl` | Show all tags |
 
@@ -72,6 +74,7 @@ Organize queries with hierarchical tags (e.g., `production/api/latency`).
 | `L` / `→` | Move focus right |
 | `Esc` | Clear focus |
 | `X` | Close focused pane |
+| `yy` | Yank (share) focused pane as URL |
 
 #### View Modes
 
@@ -135,6 +138,18 @@ Maximize a single chart pane to fill the entire viewport:
 - Toggle with `F` key or `:fullscreen` command
 - All other panes are temporarily hidden
 - Status line shows "FULLSCREEN" mode indicator
+
+### URL Sharing
+
+Share your workspace or individual panes via URL:
+
+- **Full workspace**: Use `:share` command to copy a URL containing your entire workspace layout
+- **Single pane**: Use `yy` (vim-style yank) on a focused pane to share just that query
+
+URLs are compact using binary encoding (postcard + LZ4 compression + base64) and can be shared at `enya.build/editor`:
+
+- `?workspace=...` - Full workspace with all panes and layout
+- `?pane=...` - Single pane with just one query
 
 ## Architecture
 

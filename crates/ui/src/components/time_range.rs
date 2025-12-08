@@ -197,6 +197,12 @@ impl TimeRangeToolbar {
         &self.time_range
     }
 
+    /// Set the time range preset
+    pub fn set_preset(&mut self, preset: TimeRangePreset) {
+        self.time_range.set_preset(preset);
+        self.changed = true;
+    }
+
     /// Check if the time range changed this frame
     pub fn changed(&self) -> bool {
         self.changed

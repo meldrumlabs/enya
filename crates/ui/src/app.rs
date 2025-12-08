@@ -40,6 +40,10 @@ pub struct EnyaApp {
     // Pending screenshot path (used when screenshot event arrives)
     #[cfg(not(target_arch = "wasm32"))]
     pending_screenshot_path: Option<String>,
+
+    // Whether we've checked URL for workspace parameter (WASM only)
+    #[cfg(target_arch = "wasm32")]
+    checked_url_workspace: bool,
 }
 
 // Serializable state that can be persiste
@@ -96,6 +100,8 @@ impl Default for EnyaApp {
             notifications: NotificationManager::new(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_screenshot_path: None,
+            #[cfg(target_arch = "wasm32")]
+            checked_url_workspace: false,
         }
     }
 }
@@ -119,6 +125,10 @@ impl EnyaApp {
         // Always start with Dashboard (ignore persisted ui_state)
         app.state.ui_state = UIState::Dashboard;
         app.state.prev_ui_state = UIState::Dashboard;
+
+        // Ensure the default example workspace exists on first run
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::ensure_default_workspace();
 
         match cc.egui_ctx.theme() {
             Theme::Light => app.state.theme = AppTheme::Light,
@@ -284,6 +294,19 @@ impl EnyaApp {
             self.dashboard = Some(Dashboard::example(self.state.settings.api_key.clone()));
         }
 
+        // On WASM, check for workspace or pane parameter in URL on first frame
+        #[cfg(target_arch = "wasm32")]
+        if !self.checked_url_workspace {
+            self.checked_url_workspace = true;
+            // Check for full workspace first, then single pane
+            if let Some(workspace_param) = Self::get_url_workspace_param() {
+                self.load_workspace(&workspace_param);
+            } else if let Some(pane_param) = Self::get_url_pane_param() {
+                // Single pane uses the same decoder (returns a single-pane workspace)
+                self.load_workspace(&pane_param);
+            }
+        }
+
         let mut dashboard_action = DashboardAction::None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -346,6 +369,21 @@ impl EnyaApp {
 
                 // Request a screenshot from egui
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            }
+            DashboardAction::SaveWorkspace(name) => {
+                self.save_workspace(name.as_deref());
+            }
+            DashboardAction::LoadWorkspace(name) => {
+                self.load_workspace(&name);
+            }
+            DashboardAction::ListWorkspaces => {
+                self.list_workspaces();
+            }
+            DashboardAction::ShareWorkspace => {
+                self.share_workspace();
+            }
+            DashboardAction::SharePane(pane_index) => {
+                self.share_pane(pane_index);
             }
         }
     }
@@ -514,6 +552,484 @@ impl EnyaApp {
         let _ = web_sys::Url::revoke_object_url(&url);
 
         Ok(())
+    }
+
+    // =========================================================================
+    // Workspace management
+    // =========================================================================
+
+    /// Get the workspace directory path
+    #[cfg(not(target_arch = "wasm32"))]
+    fn workspace_dir() -> std::path::PathBuf {
+        // Look for .enya/workspaces in current directory or home
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let enya_dir = cwd.join(".enya").join("workspaces");
+        if enya_dir.exists() || std::fs::create_dir_all(&enya_dir).is_ok() {
+            return enya_dir;
+        }
+
+        // Fallback to home directory
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let home_enya = std::path::PathBuf::from(&home)
+            .join(".enya")
+            .join("workspaces");
+        let _ = std::fs::create_dir_all(&home_enya);
+        home_enya
+    }
+
+    /// Ensure the default example workspace exists
+    #[cfg(not(target_arch = "wasm32"))]
+    fn ensure_default_workspace() {
+        use crate::workspace::DEFAULT_WORKSPACE_TOML;
+
+        let dir = Self::workspace_dir();
+        let example_path = dir.join("example.toml");
+
+        // Only create if it doesn't exist
+        if !example_path.exists() {
+            if let Err(e) = std::fs::write(&example_path, DEFAULT_WORKSPACE_TOML) {
+                log::warn!("Failed to create default workspace: {e}");
+            } else {
+                log::info!("Created default workspace: {}", example_path.display());
+            }
+        }
+    }
+
+    /// Save the current workspace to a file
+    fn save_workspace(&mut self, name: Option<&str>) {
+        use crate::components::{Notification, NotificationLevel};
+
+        let workspace_name = name.unwrap_or("default");
+
+        // Get workspace from dashboard
+        // TODO: Pass actual endpoint when endpoint tracking is implemented
+        let Some(dashboard) = self.dashboard.as_ref() else {
+            self.notifications.notify(Notification::new(
+                "Dashboard not initialized".to_string(),
+                NotificationLevel::Error,
+            ));
+            return;
+        };
+        let workspace = dashboard.to_workspace(workspace_name, self.state.theme, None);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dir = Self::workspace_dir();
+            let path = dir.join(format!("{workspace_name}.toml"));
+
+            match workspace.save(&path) {
+                Ok(()) => {
+                    log::info!("Workspace saved to: {}", path.display());
+                    self.notifications.notify(Notification::new(
+                        format!("Workspace saved: {workspace_name}"),
+                        NotificationLevel::Success,
+                    ));
+                }
+                Err(e) => {
+                    log::error!("Failed to save workspace: {e}");
+                    self.notifications.notify(Notification::new(
+                        format!("Failed to save workspace: {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // On web, encode to base64 and show the URL
+            match workspace.to_base64() {
+                Ok(encoded) => {
+                    let url = format!("?workspace={encoded}");
+                    log::info!("Workspace encoded for URL: {url}");
+                    self.notifications.notify(Notification::new(
+                        format!(
+                            "Workspace '{workspace_name}' ready to share (see console for URL)"
+                        ),
+                        NotificationLevel::Success,
+                    ));
+                }
+                Err(e) => {
+                    self.notifications.notify(Notification::new(
+                        format!("Failed to encode workspace: {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Load a workspace from a file
+    fn load_workspace(&mut self, name: &str) {
+        use crate::components::{Notification, NotificationLevel};
+        use crate::workspace::Workspace;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dir = Self::workspace_dir();
+            let path = dir.join(format!("{name}.toml"));
+
+            match Workspace::load(&path) {
+                Ok(workspace) => {
+                    if let Err(e) = workspace.validate() {
+                        self.notifications.notify(Notification::new(
+                            format!("Invalid workspace: {e}"),
+                            NotificationLevel::Error,
+                        ));
+                        return;
+                    }
+
+                    if let Some(dashboard) = self.dashboard.as_mut() {
+                        let connection =
+                            dashboard.load_workspace(&workspace, &mut self.state.theme);
+
+                        // TODO: Apply connection settings when endpoint tracking is implemented
+                        if let Some(conn) = connection {
+                            if !conn.endpoint.is_empty() {
+                                log::info!("Workspace specifies endpoint: {}", conn.endpoint);
+                            }
+                        }
+
+                        // Add to recent workspaces
+                        self.state.settings.add_recent_workspace(
+                            name.to_string(),
+                            workspace.workspace.description.clone(),
+                        );
+
+                        log::info!("Workspace loaded: {name}");
+                        self.notifications.notify(Notification::new(
+                            format!("Workspace loaded: {name}"),
+                            NotificationLevel::Success,
+                        ));
+                    } else {
+                        self.notifications.notify(Notification::new(
+                            "Dashboard not initialized".to_string(),
+                            NotificationLevel::Error,
+                        ));
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to load workspace '{name}': {e}");
+                    self.notifications.notify(Notification::new(
+                        format!("Failed to load workspace '{name}': {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            // On web, first check for built-in workspaces, then try base64
+            let workspace_result = if name == "example" {
+                // Load built-in example workspace
+                Ok(Workspace::default_example())
+            } else {
+                // Try to decode from base64 (for shared URLs)
+                Workspace::from_base64(name)
+            };
+
+            match workspace_result {
+                Ok(workspace) => {
+                    if let Err(e) = workspace.validate() {
+                        self.notifications.notify(Notification::new(
+                            format!("Invalid workspace: {e}"),
+                            NotificationLevel::Error,
+                        ));
+                        return;
+                    }
+
+                    if let Some(dashboard) = self.dashboard.as_mut() {
+                        let connection =
+                            dashboard.load_workspace(&workspace, &mut self.state.theme);
+
+                        // TODO: Apply connection settings when endpoint tracking is implemented
+                        if let Some(conn) = connection {
+                            if !conn.endpoint.is_empty() {
+                                log::info!("Workspace specifies endpoint: {}", conn.endpoint);
+                            }
+                        }
+
+                        // Add to recent workspaces
+                        self.state.settings.add_recent_workspace(
+                            workspace.workspace.name.clone(),
+                            workspace.workspace.description.clone(),
+                        );
+
+                        self.notifications.notify(Notification::new(
+                            format!("Workspace loaded: {}", workspace.workspace.name),
+                            NotificationLevel::Success,
+                        ));
+                    } else {
+                        self.notifications.notify(Notification::new(
+                            "Dashboard not initialized".to_string(),
+                            NotificationLevel::Error,
+                        ));
+                    }
+                }
+                Err(e) => {
+                    self.notifications.notify(Notification::new(
+                        format!("Failed to load workspace: {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Share the current workspace as a URL (copies to clipboard)
+    fn share_workspace(&mut self) {
+        use crate::components::{Notification, NotificationLevel};
+
+        // Get workspace from dashboard
+        let Some(dashboard) = self.dashboard.as_ref() else {
+            self.notifications.notify(Notification::new(
+                "Dashboard not initialized".to_string(),
+                NotificationLevel::Error,
+            ));
+            return;
+        };
+
+        let workspace = dashboard.to_workspace("shared", self.state.theme, None);
+
+        match workspace.to_base64() {
+            Ok(encoded) => {
+                // Build the full URL
+                #[cfg(target_arch = "wasm32")]
+                let full_url = {
+                    // Get the current page URL and append the workspace parameter
+                    let base_url = web_sys::window()
+                        .and_then(|w| w.location().href().ok())
+                        .unwrap_or_else(|| "https://enya.build/editor".to_string());
+
+                    // Remove any existing query string
+                    let base_url = base_url.split('?').next().unwrap_or(&base_url);
+                    format!("{base_url}?workspace={encoded}")
+                };
+
+                #[cfg(not(target_arch = "wasm32"))]
+                let full_url = format!("https://enya.build/editor?workspace={encoded}");
+
+                // Copy to clipboard
+                #[cfg(target_arch = "wasm32")]
+                {
+                    if let Err(e) = Self::copy_to_clipboard_wasm(&full_url) {
+                        log::error!("Failed to copy to clipboard: {e}");
+                        self.notifications.notify(Notification::new(
+                            format!("Failed to copy URL: {e}"),
+                            NotificationLevel::Error,
+                        ));
+                        return;
+                    }
+                }
+
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    // On native, just log the URL (clipboard support would need additional deps)
+                    log::info!("Share URL: {full_url}");
+                }
+
+                self.notifications.notify(Notification::new(
+                    "Workspace URL copied to clipboard!".to_string(),
+                    NotificationLevel::Success,
+                ));
+            }
+            Err(e) => {
+                log::error!("Failed to encode workspace: {e}");
+                self.notifications.notify(Notification::new(
+                    format!("Failed to encode workspace: {e}"),
+                    NotificationLevel::Error,
+                ));
+            }
+        }
+    }
+
+    /// Share a single pane as a URL (copies to clipboard)
+    fn share_pane(&mut self, pane_index: usize) {
+        use crate::components::{Notification, NotificationLevel};
+
+        // Get workspace from dashboard
+        let Some(dashboard) = self.dashboard.as_ref() else {
+            self.notifications.notify(Notification::new(
+                "Dashboard not initialized".to_string(),
+                NotificationLevel::Error,
+            ));
+            return;
+        };
+
+        let workspace = dashboard.to_workspace("shared", self.state.theme, None);
+
+        match workspace.pane_to_base64(pane_index) {
+            Ok(encoded) => {
+                // Build the full URL
+                #[cfg(target_arch = "wasm32")]
+                let full_url = {
+                    // Get the current page URL and append the pane parameter
+                    let base_url = web_sys::window()
+                        .and_then(|w| w.location().href().ok())
+                        .unwrap_or_else(|| "https://enya.build/editor".to_string());
+
+                    // Remove any existing query string
+                    let base_url = base_url.split('?').next().unwrap_or(&base_url);
+                    format!("{base_url}?pane={encoded}")
+                };
+
+                #[cfg(not(target_arch = "wasm32"))]
+                let full_url = format!("https://enya.build/editor?pane={encoded}");
+
+                // Copy to clipboard
+                #[cfg(target_arch = "wasm32")]
+                {
+                    if let Err(e) = Self::copy_to_clipboard_wasm(&full_url) {
+                        log::error!("Failed to copy to clipboard: {e}");
+                        self.notifications.notify(Notification::new(
+                            format!("Failed to copy URL: {e}"),
+                            NotificationLevel::Error,
+                        ));
+                        return;
+                    }
+                }
+
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    // On native, just log the URL (clipboard support would need additional deps)
+                    log::info!("Share URL: {full_url}");
+                }
+
+                self.notifications.notify(Notification::new(
+                    "Pane URL copied to clipboard!".to_string(),
+                    NotificationLevel::Success,
+                ));
+            }
+            Err(e) => {
+                log::error!("Failed to encode pane: {e}");
+                self.notifications.notify(Notification::new(
+                    format!("Failed to encode pane: {e}"),
+                    NotificationLevel::Error,
+                ));
+            }
+        }
+    }
+
+    /// Copy text to clipboard (WASM only)
+    #[cfg(target_arch = "wasm32")]
+    fn copy_to_clipboard_wasm(text: &str) -> Result<(), String> {
+        let window = web_sys::window().ok_or("No window")?;
+        let navigator = window.navigator();
+        let clipboard = navigator.clipboard();
+
+        // Use the clipboard API to write text
+        let text = text.to_string();
+        let promise = clipboard.write_text(&text);
+
+        // We don't need to await the promise - just fire and forget
+        // The clipboard write happens asynchronously
+        let _ = promise;
+
+        Ok(())
+    }
+
+    /// Get workspace parameter from URL (WASM only)
+    /// Returns the base64-encoded workspace if ?workspace=... is present
+    #[cfg(target_arch = "wasm32")]
+    fn get_url_workspace_param() -> Option<String> {
+        let window = web_sys::window()?;
+        let location = window.location();
+        let search = location.search().ok()?;
+
+        // Parse query string for workspace parameter
+        // Format: ?workspace=base64encodedtoml
+        if search.starts_with('?') {
+            for param in search[1..].split('&') {
+                if let Some(value) = param.strip_prefix("workspace=") {
+                    if !value.is_empty() {
+                        log::info!("Found workspace parameter in URL");
+                        return Some(value.to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Get pane parameter from URL (WASM only)
+    /// Returns the base64-encoded single pane if ?pane=... is present
+    #[cfg(target_arch = "wasm32")]
+    fn get_url_pane_param() -> Option<String> {
+        let window = web_sys::window()?;
+        let location = window.location();
+        let search = location.search().ok()?;
+
+        // Parse query string for pane parameter
+        // Format: ?pane=base64encodedsingle
+        if search.starts_with('?') {
+            for param in search[1..].split('&') {
+                if let Some(value) = param.strip_prefix("pane=") {
+                    if !value.is_empty() {
+                        log::info!("Found pane parameter in URL");
+                        return Some(value.to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// List available workspaces
+    fn list_workspaces(&mut self) {
+        use crate::components::{Notification, NotificationLevel};
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dir = Self::workspace_dir();
+            match std::fs::read_dir(&dir) {
+                Ok(entries) => {
+                    let workspaces: Vec<String> = entries
+                        .filter_map(|e| e.ok())
+                        .filter_map(|e| {
+                            let path = e.path();
+                            if path.extension().is_some_and(|ext| ext == "toml") {
+                                path.file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .map(|s| s.to_string())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    if workspaces.is_empty() {
+                        self.notifications.notify(Notification::new(
+                            format!("No workspaces found in {}", dir.display()),
+                            NotificationLevel::Info,
+                        ));
+                    } else {
+                        let list = workspaces.join(", ");
+                        log::info!("Available workspaces: {list}");
+                        self.notifications.notify(Notification::new(
+                            format!("Workspaces: {list}"),
+                            NotificationLevel::Info,
+                        ));
+                    }
+                }
+                Err(e) => {
+                    self.notifications.notify(Notification::new(
+                        format!("Failed to list workspaces: {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.notifications.notify(Notification::new(
+                "Workspace listing not available on web. Use :source <base64> to load.".to_string(),
+                NotificationLevel::Info,
+            ));
+        }
     }
 }
 

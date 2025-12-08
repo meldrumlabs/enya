@@ -102,6 +102,11 @@ impl InspectorPanel {
         self.visible
     }
 
+    /// Set panel visibility
+    pub fn set_visible(&mut self, visible: bool) {
+        self.visible = visible;
+    }
+
     /// Toggle panel visibility
     pub fn toggle(&mut self) {
         self.visible = !self.visible;

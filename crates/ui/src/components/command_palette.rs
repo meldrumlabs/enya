@@ -77,6 +77,14 @@ pub enum CommandResult {
     ShowLandingPage,
     /// Take a screenshot of the window (optionally with a custom path)
     TakeScreenshot(Option<String>),
+    /// Save workspace (:mksession [name])
+    SaveWorkspace(Option<String>),
+    /// Load workspace (:source <name>)
+    LoadWorkspace(String),
+    /// List available workspaces (:workspaces)
+    ListWorkspaces,
+    /// Share workspace as URL (:share)
+    ShareWorkspace,
     /// Set tag filter (None = clear filter)
     SetTagFilter(Option<TagPath>),
     /// Add tag to focused buffer
@@ -206,6 +214,30 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &["ss", "snap", "capture"],
         description: "Take a screenshot (optional: path to save)",
         kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "mksession",
+        aliases: &["mks", "savews", "saveworkspace"],
+        description: "Save workspace (:mksession [name])",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "source",
+        aliases: &["so", "loadws", "loadworkspace"],
+        description: "Load workspace (:source <name>)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "workspaces",
+        aliases: &["ws", "sessions"],
+        description: "List available workspaces",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "share",
+        aliases: &["export", "url"],
+        description: "Share current workspace as URL (copies to clipboard)",
+        kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "tag",
@@ -454,6 +486,25 @@ impl CommandPalette {
                 };
                 CommandResult::TakeScreenshot(path)
             }
+            "mksession" => {
+                // :mksession or :mksession name - save workspace with optional name
+                let name = if args.is_empty() {
+                    None
+                } else {
+                    Some(args.join(" "))
+                };
+                CommandResult::SaveWorkspace(name)
+            }
+            "source" => {
+                // :source name - load workspace by name
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :source <workspace-name>".to_string())
+                } else {
+                    CommandResult::LoadWorkspace(args.join(" "))
+                }
+            }
+            "workspaces" => CommandResult::ListWorkspaces,
+            "share" => CommandResult::ShareWorkspace,
             "tag" => self.execute_tag_command(args),
             "tags" => CommandResult::ShowTags,
             _ => CommandResult::None,
