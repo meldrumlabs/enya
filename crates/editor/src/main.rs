@@ -23,7 +23,11 @@ fn main() -> eframe::Result {
             .with_min_inner_size([300.0, 220.0])
             .with_icon(
                 enya_editor::util::png_to_icon_data(&include_bytes!("../assets/logo.png")[..]), //.expect("Failed to load icon"),
-            ),
+            )
+            // Terminal-style: remove native title bar, use full content area
+            .with_fullsize_content_view(true)
+            .with_titlebar_buttons_shown(false)
+            .with_titlebar_shown(false),
         ..Default::default()
     };
 
