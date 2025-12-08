@@ -12,6 +12,9 @@ pub struct CustomQuery {
     pub name: String,
     /// The query string (e.g., "env:prod AND service:db")
     pub query: String,
+    /// Hierarchical tags (e.g., ["production/api", "critical"])
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl CustomQuery {
@@ -20,7 +23,43 @@ impl CustomQuery {
             id,
             name: name.into(),
             query: query.into(),
+            tags: Vec::new(),
         }
+    }
+
+    /// Create a new query with tags
+    pub fn with_tags(
+        id: u64,
+        name: impl Into<String>,
+        query: impl Into<String>,
+        tags: Vec<String>,
+    ) -> Self {
+        Self {
+            id,
+            name: name.into(),
+            query: query.into(),
+            tags,
+        }
+    }
+
+    /// Add a tag to this query
+    pub fn add_tag(&mut self, tag: impl Into<String>) {
+        let tag = tag.into();
+        if !self.tags.contains(&tag) {
+            self.tags.push(tag);
+        }
+    }
+
+    /// Remove a tag from this query
+    pub fn remove_tag(&mut self, tag: &str) {
+        self.tags.retain(|t| t != tag);
+    }
+
+    /// Check if this query has a specific tag (or is a descendant of it)
+    pub fn has_tag(&self, tag_prefix: &str) -> bool {
+        self.tags
+            .iter()
+            .any(|t| t == tag_prefix || t.starts_with(&format!("{tag_prefix}/")))
     }
 }
 
@@ -46,6 +85,8 @@ pub struct CustomQueriesPanel {
     selected: Option<u64>,
     /// Filter text (set externally from Dashboard)
     filter: String,
+    /// Active tag filter (set externally from Dashboard)
+    tag_filter: Option<String>,
 }
 
 impl Default for CustomQueriesPanel {
@@ -67,15 +108,28 @@ impl CustomQueriesPanel {
             pending_chart: None,
             selected: None,
             filter: String::new(),
+            tag_filter: None,
         }
     }
 
     /// Create with demo queries for testing
     pub fn with_demo_queries() -> Self {
         let mut panel = Self::new();
-        panel.add_query("Prod DB Latency", "env:prod AND service:db");
-        panel.add_query("API Errors", "status:5xx AND service:api");
-        panel.add_query("High Memory", "memory_usage > 80%");
+        panel.add_query_with_tags(
+            "Prod DB Latency",
+            "env:prod AND service:db",
+            vec!["production/db".to_string(), "latency".to_string()],
+        );
+        panel.add_query_with_tags(
+            "API Errors",
+            "status:5xx AND service:api",
+            vec!["production/api".to_string(), "critical".to_string()],
+        );
+        panel.add_query_with_tags(
+            "High Memory",
+            "memory_usage > 80%",
+            vec!["production".to_string(), "critical".to_string()],
+        );
         panel
     }
 
@@ -89,14 +143,36 @@ impl CustomQueriesPanel {
         self.filter = filter.to_string();
     }
 
-    /// Check if a query matches the current filter
+    /// Set the tag filter (for filtering by hierarchical tags)
+    pub fn set_tag_filter(&mut self, tag: Option<&str>) {
+        self.tag_filter = tag.map(|s| s.to_string());
+    }
+
+    /// Get the current tag filter
+    pub fn tag_filter(&self) -> Option<&str> {
+        self.tag_filter.as_deref()
+    }
+
+    /// Check if a query matches the current filter (text and tag)
     fn matches_filter(&self, query: &CustomQuery) -> bool {
-        if self.filter.is_empty() {
-            return true;
+        // Check text filter
+        if !self.filter.is_empty() {
+            let filter_lower = self.filter.to_lowercase();
+            let matches_text = query.name.to_lowercase().contains(&filter_lower)
+                || query.query.to_lowercase().contains(&filter_lower);
+            if !matches_text {
+                return false;
+            }
         }
-        let filter_lower = self.filter.to_lowercase();
-        query.name.to_lowercase().contains(&filter_lower)
-            || query.query.to_lowercase().contains(&filter_lower)
+
+        // Check tag filter
+        if let Some(ref tag_filter) = self.tag_filter {
+            if !query.has_tag(tag_filter) {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// Check if there are any queries matching the current filter
@@ -112,6 +188,44 @@ impl CustomQueriesPanel {
         self.queries
             .push(CustomQuery::new(self.next_id, name, query));
         self.next_id += 1;
+    }
+
+    /// Add a new query with tags
+    pub fn add_query_with_tags(
+        &mut self,
+        name: impl Into<String>,
+        query: impl Into<String>,
+        tags: Vec<String>,
+    ) {
+        self.queries
+            .push(CustomQuery::with_tags(self.next_id, name, query, tags));
+        self.next_id += 1;
+    }
+
+    /// Add a tag to a query by id
+    pub fn add_tag_to_query(&mut self, query_id: u64, tag: &str) {
+        if let Some(query) = self.queries.iter_mut().find(|q| q.id == query_id) {
+            query.add_tag(tag);
+        }
+    }
+
+    /// Remove a tag from a query by id
+    pub fn remove_tag_from_query(&mut self, query_id: u64, tag: &str) {
+        if let Some(query) = self.queries.iter_mut().find(|q| q.id == query_id) {
+            query.remove_tag(tag);
+        }
+    }
+
+    /// Get all unique tags across all queries
+    pub fn all_tags(&self) -> Vec<String> {
+        let mut tags: Vec<String> = self
+            .queries
+            .iter()
+            .flat_map(|q| q.tags.iter().cloned())
+            .collect();
+        tags.sort();
+        tags.dedup();
+        tags
     }
 
     /// Remove a query by id
@@ -346,6 +460,16 @@ impl CustomQueriesPanel {
                 }
             });
 
+            // Show tag chips below the query name (if any tags exist)
+            if !query.tags.is_empty() {
+                ui.horizontal(|ui| {
+                    ui.add_space(48.0); // Indent to align with query name
+                    for tag in &query.tags {
+                        self.show_tag_chip(ui, tag, text_color);
+                    }
+                });
+            }
+
             // Handle actions outside the closure
             if open_chart {
                 self.pending_chart = Some(query.id);
@@ -357,6 +481,32 @@ impl CustomQueriesPanel {
                 self.remove_query(query.id);
             }
         }
+    }
+
+    /// Render a tag chip
+    fn show_tag_chip(&self, ui: &mut egui::Ui, tag: &str, text_color: Color32) {
+        let chip_bg = match self.theme {
+            AppTheme::Light => Color32::from_rgb(230, 235, 245),
+            AppTheme::Dark => Color32::from_rgb(50, 55, 70),
+        };
+        let chip_text = text_color.gamma_multiply(0.7);
+
+        // Get short display name (last segment of path)
+        let display_name = tag.rsplit('/').next().unwrap_or(tag);
+
+        egui::Frame::new()
+            .fill(chip_bg)
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::symmetric(6, 2))
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(format!("#{display_name}"))
+                        .color(chip_text)
+                        .size(10.0),
+                );
+            })
+            .response
+            .on_hover_text(format!("Tag: {tag}"));
     }
 
     fn show_edit_form(&mut self, ui: &mut egui::Ui, query_id: u64, text_color: Color32) {
