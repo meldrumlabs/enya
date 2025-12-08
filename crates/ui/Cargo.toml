@@ -43,7 +43,16 @@ rustls = { workspace = true, features = ["ring"] }
 ewebsock = { workspace = true }
 parking_lot = { workspace = true, features = ["wasm-bindgen", "serde"] }
 wasm-bindgen-futures = { workspace = true }
-web-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }
+web-sys = { workspace = true, features = [
+  "Blob",
+  "BlobPropertyBag",
+  "Document",
+  "HtmlAnchorElement",
+  "Url",
+  "Window",
+] }
 web-time = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 

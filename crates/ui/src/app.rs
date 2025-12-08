@@ -380,9 +380,6 @@ impl EnyaApp {
             }
         };
 
-        #[cfg(target_arch = "wasm32")]
-        let _save_path = std::path::PathBuf::from(&filename);
-
         // Convert ColorImage to image buffer
         let width = image.width() as u32;
         let height = image.height() as u32;
@@ -415,14 +412,23 @@ impl EnyaApp {
 
                 #[cfg(target_arch = "wasm32")]
                 {
-                    // For WASM, we can't save to disk directly
-                    // Just show a notification that screenshot was captured
-                    log::info!("Screenshot captured (WASM - save not supported)");
-                    self.notifications.notify(Notification::new(
-                        "Screenshot captured (save not supported in browser)".to_string(),
-                        NotificationLevel::Info,
-                    ));
-                    let _ = img_buffer; // Suppress unused warning
+                    // For WASM, trigger a browser download
+                    match Self::trigger_browser_download(&filename, &img_buffer) {
+                        Ok(()) => {
+                            log::info!("Screenshot download triggered: {filename}");
+                            self.notifications.notify(Notification::new(
+                                format!("Screenshot downloading: {filename}"),
+                                NotificationLevel::Success,
+                            ));
+                        }
+                        Err(e) => {
+                            log::error!("Failed to trigger download: {e}");
+                            self.notifications.notify(Notification::new(
+                                format!("Failed to download screenshot: {e}"),
+                                NotificationLevel::Error,
+                            ));
+                        }
+                    }
                 }
             }
             None => {
@@ -433,6 +439,55 @@ impl EnyaApp {
                 ));
             }
         }
+    }
+
+    /// Trigger a browser download for the screenshot (WASM only)
+    #[cfg(target_arch = "wasm32")]
+    fn trigger_browser_download(
+        filename: &str,
+        img_buffer: &image::RgbaImage,
+    ) -> Result<(), String> {
+        use std::io::Cursor;
+        use wasm_bindgen::JsCast;
+
+        // Encode the image as PNG
+        let mut png_data = Vec::new();
+        img_buffer
+            .write_to(&mut Cursor::new(&mut png_data), image::ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode PNG: {e}"))?;
+
+        // Create a Blob from the PNG data
+        let uint8_array = js_sys::Uint8Array::from(png_data.as_slice());
+        let array = js_sys::Array::new();
+        array.push(&uint8_array);
+
+        let options = web_sys::BlobPropertyBag::new();
+        options.set_type("image/png");
+
+        let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&array, &options)
+            .map_err(|e| format!("Failed to create Blob: {e:?}"))?;
+
+        // Create an object URL for the blob
+        let url = web_sys::Url::create_object_url_with_blob(&blob)
+            .map_err(|e| format!("Failed to create object URL: {e:?}"))?;
+
+        // Create a temporary anchor element and trigger download
+        let window = web_sys::window().ok_or("No window")?;
+        let document = window.document().ok_or("No document")?;
+        let anchor: web_sys::HtmlAnchorElement = document
+            .create_element("a")
+            .map_err(|e| format!("Failed to create element: {e:?}"))?
+            .dyn_into()
+            .map_err(|_| "Failed to cast to anchor")?;
+
+        anchor.set_href(&url);
+        anchor.set_download(filename);
+        anchor.click();
+
+        // Clean up the object URL
+        let _ = web_sys::Url::revoke_object_url(&url);
+
+        Ok(())
     }
 }
 
