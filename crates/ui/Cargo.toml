@@ -25,6 +25,10 @@ smallvec = { workspace = true }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+base64 = { workspace = true }
+lz4_flex = "0.11"
+postcard = { version = "1.1", features = ["alloc"] }
 enya-build-info = { path = "../build-info" }
 strum_macros = { workspace = true }
 strum = { workspace = true }
@@ -48,8 +52,11 @@ js-sys = { workspace = true }
 web-sys = { workspace = true, features = [
   "Blob",
   "BlobPropertyBag",
+  "Clipboard",
   "Document",
   "HtmlAnchorElement",
+  "Location",
+  "Navigator",
   "Url",
   "Window",
 ] }

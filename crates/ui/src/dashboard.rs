@@ -11,6 +11,9 @@ use crate::components::{
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::workspace::{
+    ConnectionConfig, PaneConfig, TimeConfig, ViewConfig, Workspace, WorkspaceMeta,
+};
 
 /// A floating window containing a chart/component
 pub struct FloatingWindow {
@@ -56,6 +59,16 @@ pub enum DashboardAction {
     },
     /// Take a screenshot of the window (optionally with a custom path)
     TakeScreenshot(Option<String>),
+    /// Save workspace with optional name
+    SaveWorkspace(Option<String>),
+    /// Load workspace by name
+    LoadWorkspace(String),
+    /// List available workspaces
+    ListWorkspaces,
+    /// Share workspace as URL (encodes to base64 and copies to clipboard)
+    ShareWorkspace,
+    /// Share a single pane as URL (encodes to base64 and copies to clipboard)
+    SharePane(usize),
 }
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
@@ -106,6 +119,8 @@ pub struct Dashboard {
     landing_page: LandingPage,
     /// Whether to show the landing page
     show_landing: bool,
+    /// Last time 'y' was pressed (for yy detection)
+    last_y_press: Option<crate::util::Instant>,
 }
 
 impl Default for Dashboard {
@@ -139,6 +154,7 @@ impl Default for Dashboard {
             next_floating_id: 1,
             landing_page: LandingPage::new(),
             show_landing: true,
+            last_y_press: None,
         }
     }
 }
@@ -192,6 +208,7 @@ impl Dashboard {
             next_floating_id: 1,
             landing_page: LandingPage::new(),
             show_landing: true, // Start with landing page
+            last_y_press: None,
         }
     }
 
@@ -440,7 +457,9 @@ impl Dashboard {
         // Handle vim-style keyboard navigation for viewport
         // (only if no modal is open)
         if !self.buffer_editor.is_open() {
-            self.handle_viewport_keyboard(ctx);
+            if let Some(action) = self.handle_viewport_keyboard(ctx) {
+                return action;
+            }
         }
 
         self.handle_command_result(cmd_result)
@@ -487,9 +506,8 @@ impl Dashboard {
                     self.pending_chart = Some(metric_name);
                 }
             }
-            LandingPageAction::OpenWorkspace { name: _ } => {
-                // TODO: Implement workspace loading
-                log::debug!("Workspace loading not yet implemented");
+            LandingPageAction::OpenWorkspace { name } => {
+                return DashboardAction::LoadWorkspace(name);
             }
             LandingPageAction::OpenFuzzyFinder => {
                 self.open_fuzzy_finder();
@@ -704,6 +722,10 @@ impl Dashboard {
                 DashboardAction::None
             }
             CommandResult::TakeScreenshot(path) => DashboardAction::TakeScreenshot(path),
+            CommandResult::SaveWorkspace(name) => DashboardAction::SaveWorkspace(name),
+            CommandResult::LoadWorkspace(name) => DashboardAction::LoadWorkspace(name),
+            CommandResult::ListWorkspaces => DashboardAction::ListWorkspaces,
+            CommandResult::ShareWorkspace => DashboardAction::ShareWorkspace,
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -1314,11 +1336,11 @@ impl Dashboard {
     }
 
     /// Handle vim-style keyboard navigation for the viewport
-    /// Returns true if a key was consumed
-    pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> bool {
+    /// Returns an optional DashboardAction if a key triggered an action
+    pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<DashboardAction> {
         // Don't handle keys if a text field or modal has focus
         if ctx.memory(|mem| mem.focused().is_some()) {
-            return false;
+            return None;
         }
 
         // Don't handle if fuzzy finder, command palette, or buffer editor is open
@@ -1326,12 +1348,12 @@ impl Dashboard {
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
         {
-            return false;
+            return None;
         }
 
         // Check if any buffer is in insert mode - if so, don't handle navigation keys
         if self.is_any_buffer_in_insert_mode() {
-            return false;
+            return None;
         }
 
         let pane_ids = self.get_pane_tile_ids();
@@ -1345,9 +1367,28 @@ impl Dashboard {
         let mut should_toggle_fullscreen = false;
         let mut should_float_pane = false;
         let mut should_dock_all = false;
+        let mut should_share_pane = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
+            // yy - share focused pane (vim-style yank)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Y) && current_focus.is_some() {
+                let now = crate::util::Instant::now();
+                if let Some(last_press) = self.last_y_press {
+                    // If second y within 500ms, trigger share
+                    if now.duration_since(last_press).as_millis() < 500 {
+                        should_share_pane = true;
+                        self.last_y_press = None;
+                        consumed = true;
+                        return;
+                    }
+                }
+                // First y - record time
+                self.last_y_press = Some(now);
+                consumed = true;
+                return;
+            }
+
             // e - enter edit mode on focused pane (vim-style)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
                 should_edit_buffer = true;
@@ -1446,6 +1487,17 @@ impl Dashboard {
             }
         });
 
+        // Handle share pane action (yy)
+        if should_share_pane {
+            if let Some(tile_id) = current_focus {
+                // Find the pane index for the focused tile
+                if let Some(pane_index) = self.get_pane_index(tile_id) {
+                    ctx.request_repaint();
+                    return Some(DashboardAction::SharePane(pane_index));
+                }
+            }
+        }
+
         if should_edit_buffer {
             self.edit_focused_buffer();
         } else if should_toggle_zen {
@@ -1476,7 +1528,14 @@ impl Dashboard {
             );
         }
 
-        consumed
+        None
+    }
+
+    /// Get the pane index for a given tile ID (0-indexed position in the pane list)
+    fn get_pane_index(&self, tile_id: TileId) -> Option<usize> {
+        self.get_pane_tile_ids()
+            .iter()
+            .position(|&id| id == tile_id)
     }
 
     /// Check if any buffer in the viewport is currently in insert mode
@@ -1532,6 +1591,129 @@ impl Dashboard {
             }
         }
         false
+    }
+
+    // =========================================================================
+    // Workspace serialization/deserialization
+    // =========================================================================
+
+    /// Serialize the current dashboard state to a Workspace
+    pub fn to_workspace(&self, name: &str, theme: AppTheme, endpoint: Option<&str>) -> Workspace {
+        let mut panes = Vec::new();
+
+        // Collect all QueryPane data from the viewport tree
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    let state = query_pane.query_state();
+                    panes.push(PaneConfig::from_query_state(
+                        query_pane.saved_query(),
+                        query_pane.name(),
+                        query_pane.tag(),
+                        state,
+                    ));
+                }
+            }
+        }
+
+        Workspace {
+            workspace: WorkspaceMeta {
+                name: name.to_string(),
+                description: String::new(),
+                version: crate::workspace::WORKSPACE_VERSION,
+            },
+            connection: endpoint.map_or_else(ConnectionConfig::default, |e| {
+                ConnectionConfig::with_endpoint(e)
+            }),
+            view: ViewConfig {
+                theme: match theme {
+                    AppTheme::Light => "light".to_string(),
+                    AppTheme::Dark => "dark".to_string(),
+                },
+                metrics_panel: self.left_panel_visible,
+                inspector: self.inspector.is_visible(),
+                zen_mode: self.zen_mode,
+            },
+            time: TimeConfig::from_preset(self.time_range_toolbar.time_range().preset),
+            panes,
+        }
+    }
+
+    /// Load a workspace into the dashboard, replacing current state
+    /// Returns the connection config if specified in the workspace
+    pub fn load_workspace(
+        &mut self,
+        workspace: &Workspace,
+        theme: &mut AppTheme,
+    ) -> Option<ConnectionConfig> {
+        // Apply view settings
+        *theme = workspace.view.app_theme();
+        self.left_panel_visible = workspace.view.metrics_panel;
+        self.inspector.set_visible(workspace.view.inspector);
+        self.zen_mode = workspace.view.zen_mode;
+
+        // Apply time range
+        self.time_range_toolbar
+            .set_preset(workspace.time.to_preset());
+
+        // Clear existing panes
+        self.clear_all_panes();
+
+        // Add panes from workspace
+        for pane_config in &workspace.panes {
+            let mut query_pane = QueryPane::new(&pane_config.query);
+            if !pane_config.name.is_empty() {
+                query_pane.set_name(&pane_config.name);
+            }
+            if !pane_config.tag.is_empty() {
+                query_pane.set_tag(&pane_config.tag);
+            }
+
+            // Apply query state
+            let state = pane_config.to_query_state(&workspace.time.preset);
+            query_pane.set_query_state(state);
+
+            // Track the chart
+            self.open_charts.insert(pane_config.query.clone());
+
+            // Add to viewport
+            let tile_id = self.viewport_tree.tiles.insert_pane(Box::new(query_pane));
+            self.add_tile_to_viewport(tile_id);
+        }
+
+        // Hide landing page if we have panes
+        if !workspace.panes.is_empty() {
+            self.show_landing = false;
+        }
+
+        // Return connection config if present
+        if workspace.connection.is_empty() {
+            None
+        } else {
+            Some(workspace.connection.clone())
+        }
+    }
+
+    /// Clear all panes from the viewport
+    fn clear_all_panes(&mut self) {
+        // Get all pane IDs
+        let pane_ids = self.get_pane_tile_ids();
+
+        // Remove each pane
+        for tile_id in pane_ids {
+            self.viewport_tree.tiles.remove(tile_id);
+        }
+
+        // Reset the tree with an empty tabs container
+        let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
+        let tabs = Vec::new();
+        let root = tiles.insert_tab_tile(tabs);
+        self.viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
+
+        // Clear tracking
+        self.open_charts.clear();
+        self.behavior.set_focused_tile(None);
+        self.show_landing = true;
     }
 }
 
