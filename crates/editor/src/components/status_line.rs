@@ -3,9 +3,127 @@
 //! The status line displays contextual information at the bottom of the screen
 //! in a segmented bar style similar to Neovim's lualine plugin.
 
+use std::collections::VecDeque;
+
 use egui::{Color32, Layout, Ui};
 
 use crate::theme::AppTheme;
+
+/// Unicode block characters for sparkline rendering (1/8 to 8/8 height)
+const SPARKLINE_BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+/// Maximum number of data points to show in a sparkline
+const SPARKLINE_MAX_POINTS: usize = 15;
+
+/// A sparkline displays a mini chart of recent values
+#[derive(Debug, Clone)]
+pub struct Sparkline {
+    /// The label/name for this sparkline
+    pub label: String,
+    /// Recent values (newest at back)
+    values: VecDeque<f64>,
+    /// Minimum value for scaling (if None, auto-scale)
+    min: Option<f64>,
+    /// Maximum value for scaling (if None, auto-scale)
+    max: Option<f64>,
+    /// Unit suffix for display (e.g., "%", "ms")
+    pub unit: String,
+}
+
+impl Sparkline {
+    /// Create a new sparkline with the given label
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            values: VecDeque::with_capacity(SPARKLINE_MAX_POINTS),
+            min: None,
+            max: None,
+            unit: String::new(),
+        }
+    }
+
+    /// Set the unit suffix (e.g., "%", "ms", "req/s")
+    pub fn with_unit(mut self, unit: impl Into<String>) -> Self {
+        self.unit = unit.into();
+        self
+    }
+
+    /// Set fixed min/max bounds for scaling
+    pub fn with_bounds(mut self, min: f64, max: f64) -> Self {
+        self.min = Some(min);
+        self.max = Some(max);
+        self
+    }
+
+    /// Push a new value to the sparkline
+    pub fn push(&mut self, value: f64) {
+        if self.values.len() >= SPARKLINE_MAX_POINTS {
+            self.values.pop_front();
+        }
+        self.values.push_back(value);
+    }
+
+    /// Get the current (most recent) value
+    pub fn current_value(&self) -> Option<f64> {
+        self.values.back().copied()
+    }
+
+    /// Render the sparkline as a string of block characters
+    pub fn render(&self) -> String {
+        if self.values.is_empty() {
+            return String::new();
+        }
+
+        // Calculate min/max for scaling
+        let (min, max) = if let (Some(min), Some(max)) = (self.min, self.max) {
+            (min, max)
+        } else {
+            let min = self.values.iter().copied().fold(f64::INFINITY, f64::min);
+            let max = self
+                .values
+                .iter()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max);
+            // Add small padding if min == max to avoid division by zero
+            if (max - min).abs() < f64::EPSILON {
+                (min - 1.0, max + 1.0)
+            } else {
+                (min, max)
+            }
+        };
+
+        let range = max - min;
+
+        self.values
+            .iter()
+            .map(|&v| {
+                // Normalize value to 0.0-1.0 range
+                let normalized = ((v - min) / range).clamp(0.0, 1.0);
+                // Map to block index (0-7)
+                let index = (normalized * 7.0).round() as usize;
+                SPARKLINE_BLOCKS[index.min(7)]
+            })
+            .collect()
+    }
+
+    /// Format the current value for display
+    pub fn format_current(&self) -> String {
+        match self.current_value() {
+            Some(v) => {
+                if self.unit == "%" {
+                    format!("{:.0}{}", v, self.unit)
+                } else if v >= 1000.0 {
+                    format!("{:.1}k{}", v / 1000.0, self.unit)
+                } else if v >= 100.0 {
+                    format!("{:.0}{}", v, self.unit)
+                } else {
+                    format!("{:.1}{}", v, self.unit)
+                }
+            }
+            None => "—".to_string(),
+        }
+    }
+}
 
 /// Mode indicator for the status line (similar to vim modes)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -124,6 +242,8 @@ pub struct StatusLine {
     branch_info: Option<String>,
     /// Viewport info (e.g., "2 panes")
     viewport_info: Option<String>,
+    /// Optional sparkline to display in the status bar
+    sparkline: Option<Sparkline>,
 }
 
 impl Default for StatusLine {
@@ -136,6 +256,7 @@ impl Default for StatusLine {
             selected_metric: None,
             branch_info: None,
             viewport_info: None,
+            sparkline: None,
         }
     }
 }
@@ -179,6 +300,11 @@ impl StatusLine {
     /// Set viewport info
     pub fn set_viewport_info(&mut self, info: Option<String>) {
         self.viewport_info = info;
+    }
+
+    /// Set a sparkline to display in the status bar
+    pub fn set_sparkline(&mut self, sparkline: Option<Sparkline>) {
+        self.sparkline = sparkline;
     }
 
     /// Get the background color for segments based on theme
@@ -275,6 +401,11 @@ impl StatusLine {
                 padding,
                 false,
             );
+        }
+
+        // Sparkline with current value
+        if let Some(ref sparkline) = self.sparkline {
+            self.render_sparkline_segment(ui, sparkline, height, padding);
         }
     }
 
@@ -425,6 +556,89 @@ impl StatusLine {
                 &content,
                 egui::FontId::proportional(12.0),
                 fg_color,
+            );
+        }
+    }
+
+    /// Render a sparkline segment with current value and label
+    /// Format: "▁▂▃▅▇▅▃▂▄▆▇▅▃ 16.7ms 60 fps"
+    fn render_sparkline_segment(
+        &self,
+        ui: &mut Ui,
+        sparkline: &Sparkline,
+        height: f32,
+        padding: f32,
+    ) {
+        let bg_color = self.segment_bg();
+        let fg_color = self.segment_fg();
+
+        // Sparkline color - use a cyan/teal for the chart to stand out
+        let sparkline_color = match self.theme {
+            AppTheme::Light => Color32::from_rgb(20, 140, 140), // Teal
+            AppTheme::Dark => Color32::from_rgb(80, 200, 200),  // Bright cyan
+        };
+
+        // Build the content: "▁▂▃▅▇ 16.7ms label"
+        let chart = sparkline.render();
+        let value = sparkline.format_current();
+        let label = &sparkline.label;
+
+        // Calculate widths for each part
+        let chart_galley = ui.painter().layout_no_wrap(
+            chart.clone(),
+            egui::FontId::proportional(12.0),
+            sparkline_color,
+        );
+        let value_galley = ui.painter().layout_no_wrap(
+            format!(" {value}"),
+            egui::FontId::proportional(12.0),
+            fg_color,
+        );
+        let label_galley = ui.painter().layout_no_wrap(
+            format!(" {label}"),
+            egui::FontId::proportional(12.0),
+            fg_color,
+        );
+
+        let total_width =
+            chart_galley.size().x + value_galley.size().x + label_galley.size().x + padding * 2.0;
+
+        // Allocate the rectangle
+        let (rect, _response) =
+            ui.allocate_exact_size(egui::vec2(total_width, height), egui::Sense::hover());
+
+        if ui.is_rect_visible(rect) {
+            // Draw background
+            ui.painter().rect_filled(rect, 0.0, bg_color);
+
+            // Draw sparkline chart (colored)
+            let chart_x = rect.min.x + padding;
+            ui.painter().text(
+                egui::pos2(chart_x, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                &chart,
+                egui::FontId::proportional(12.0),
+                sparkline_color,
+            );
+
+            // Draw value
+            let value_x = chart_x + chart_galley.size().x;
+            ui.painter().text(
+                egui::pos2(value_x, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                format!(" {value}"),
+                egui::FontId::proportional(12.0),
+                fg_color,
+            );
+
+            // Draw label (slightly muted)
+            let label_x = value_x + value_galley.size().x;
+            ui.painter().text(
+                egui::pos2(label_x, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                format!(" {label}"),
+                egui::FontId::proportional(12.0),
+                fg_color.gamma_multiply(0.7),
             );
         }
     }

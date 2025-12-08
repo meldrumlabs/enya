@@ -8,7 +8,7 @@ use crate::command::CommandSender;
 use crate::command::UICommand;
 use crate::command::UICommandSender;
 use crate::command::command_channel;
-use crate::components::{NotificationManager, StatusLine, StatusMode};
+use crate::components::{NotificationManager, Sparkline, StatusLine, StatusMode};
 use crate::dashboard::{Dashboard, DashboardAction};
 use crate::theme::AppTheme;
 use crate::theme::light;
@@ -16,6 +16,60 @@ use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::ui::settings_screen::show_settings_ui;
 use crate::ui::welcome_screen::welcome_section_ui;
+use crate::util::Instant;
+
+/// Tracks internal editor metrics for the status line sparkline
+struct EditorMetrics {
+    /// Recent frame times in milliseconds
+    frame_times: std::collections::VecDeque<f64>,
+    /// Last frame timestamp
+    last_frame: Option<Instant>,
+}
+
+impl Default for EditorMetrics {
+    fn default() -> Self {
+        Self {
+            frame_times: std::collections::VecDeque::with_capacity(15),
+            last_frame: None,
+        }
+    }
+}
+
+impl EditorMetrics {
+    /// Record a new frame and return the frame time in ms
+    fn record_frame(&mut self) -> f64 {
+        let now = Instant::now();
+        let frame_time = if let Some(last) = self.last_frame {
+            now.duration_since(last).as_secs_f64() * 1000.0
+        } else {
+            16.67 // Default ~60fps assumption for first frame
+        };
+        self.last_frame = Some(now);
+
+        // Keep last 15 frame times
+        if self.frame_times.len() >= 15 {
+            self.frame_times.pop_front();
+        }
+        self.frame_times.push_back(frame_time);
+
+        frame_time
+    }
+
+    /// Get the frame times for sparkline display
+    fn frame_times(&self) -> Vec<f64> {
+        self.frame_times.iter().copied().collect()
+    }
+
+    /// Get current FPS (based on recent frame time)
+    fn fps(&self) -> f64 {
+        if let Some(&last_time) = self.frame_times.back() {
+            if last_time > 0.0 {
+                return 1000.0 / last_time;
+            }
+        }
+        60.0
+    }
+}
 
 /// The core App
 pub struct EnyaApp {
@@ -36,6 +90,9 @@ pub struct EnyaApp {
 
     // Notification manager
     notifications: NotificationManager,
+
+    // Internal editor metrics (frame times, etc.)
+    editor_metrics: EditorMetrics,
 
     // Pending screenshot path (used when screenshot event arrives)
     #[cfg(not(target_arch = "wasm32"))]
@@ -98,6 +155,7 @@ impl Default for EnyaApp {
             build_info: build_info!(),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
+            editor_metrics: EditorMetrics::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_screenshot_path: None,
             #[cfg(target_arch = "wasm32")]
@@ -182,6 +240,17 @@ impl EnyaApp {
                 .set_selected_metric(dashboard.selected_metric());
             self.status_line
                 .set_viewport_info(dashboard.viewport_info());
+        }
+
+        // Update sparkline with editor frame time metrics
+        let frame_times = self.editor_metrics.frame_times();
+        if !frame_times.is_empty() {
+            let fps = self.editor_metrics.fps();
+            let mut sparkline = Sparkline::new(format!("{fps:.0} fps")).with_unit("ms");
+            for value in frame_times {
+                sparkline.push(value);
+            }
+            self.status_line.set_sparkline(Some(sparkline));
         }
 
         egui::TopBottomPanel::bottom("bottom_panel")
@@ -1041,6 +1110,9 @@ impl eframe::App for EnyaApp {
 
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Record frame time for editor metrics sparkline
+        self.editor_metrics.record_frame();
+
         // Set theme for the context
         ctx.set_visuals(self.state.visuals());
 
