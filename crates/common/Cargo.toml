@@ -16,6 +16,10 @@ keywords.workspace = true
 uwheel = { workspace = true, features = ["bloom"] }
 sketches-ddsketch.workspace = true
 
+# Required for WASM builds (fastbloom -> getrandom)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { workspace = true }
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 

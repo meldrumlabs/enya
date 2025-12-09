@@ -23,6 +23,7 @@ egui_tiles = { workspace = true, features = ["serde"] }
 egui_plot = { workspace = true }
 smallvec = { workspace = true }
 enya-lang = { workspace = true }
+enya-common = { workspace = true }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

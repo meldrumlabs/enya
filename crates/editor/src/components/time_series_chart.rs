@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use egui::{Color32, Key, RichText, Stroke};
-use egui_plot::{Line, Plot, PlotBounds, PlotPoints};
+use egui_plot::{Line, LineStyle, Plot, PlotBounds, PlotPoints, VLine};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+
+// Re-export CommitMarker from common crate
+pub use enya_common::CommitMarker;
 
 /// Zoom factor for keyboard-based zoom controls
 const ZOOM_FACTOR: f64 = 1.25;
@@ -73,7 +76,7 @@ impl Series {
 
 /// Actions that can be triggered by zoom keybindings
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum ZoomAction {
+enum ChartAction {
     None,
     ZoomInY,
     ZoomOutY,
@@ -82,6 +85,10 @@ enum ZoomAction {
     ResetZoom,
     GoToStart,
     GoToEnd,
+    /// Navigate to next commit marker (])
+    NextCommit,
+    /// Navigate to previous commit marker ([)
+    PrevCommit,
 }
 
 /// A time series chart component
@@ -92,6 +99,10 @@ pub struct TimeSeriesChart {
     metric_name: String,
     /// All series to display
     series: Vec<Series>,
+    /// Git commit markers to display as vertical annotations
+    commits: Vec<CommitMarker>,
+    /// Whether to show commit markers
+    show_commits: bool,
     /// Current theme
     theme: AppTheme,
     /// API key (not used currently, but required by Component trait)
@@ -104,6 +115,8 @@ pub struct TimeSeriesChart {
     title: String,
     /// Whether we're waiting for a second 'g' press (for gg command)
     pending_g: bool,
+    /// Whether we're waiting for 'c' after '[' or ']' (for commit navigation)
+    pending_bracket: Option<char>,
 }
 
 impl Default for TimeSeriesChart {
@@ -120,11 +133,14 @@ impl TimeSeriesChart {
             title: name.clone(),
             metric_name: name,
             series: Vec::new(),
+            commits: Vec::new(),
+            show_commits: true,
             theme: AppTheme::default(),
             api_key: String::new(),
             show_legend: true,
             y_label: None,
             pending_g: false,
+            pending_bracket: None,
         }
     }
 
@@ -178,7 +194,70 @@ impl TimeSeriesChart {
                 .with_color(Color32::from_rgb(16, 185, 129)), // Green
         );
 
+        // Add some demo commit markers spread across the time range
+        chart.add_commit(CommitMarker::new(
+            "a1b2c3d",
+            now + duration * 0.1,
+            "Fix connection pooling",
+        ));
+        chart.add_commit(CommitMarker::new(
+            "e4f5g6h",
+            now + duration * 0.35,
+            "Add retry logic",
+        ));
+        chart.add_commit(CommitMarker::new(
+            "i7j8k9l",
+            now + duration * 0.5,
+            "Update dependencies",
+        ));
+        chart.add_commit(CommitMarker::new(
+            "m0n1o2p",
+            now + duration * 0.7,
+            "Refactor auth module",
+        ));
+        chart.add_commit(CommitMarker::new(
+            "q3r4s5t",
+            now + duration * 0.9,
+            "Performance improvements",
+        ));
+
         chart
+    }
+
+    /// Add a commit marker to the chart
+    pub fn add_commit(&mut self, commit: CommitMarker) {
+        self.commits.push(commit);
+        // Keep commits sorted by timestamp for navigation
+        self.commits.sort_by(|a, b| {
+            a.timestamp
+                .partial_cmp(&b.timestamp)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    /// Set all commit markers at once
+    pub fn set_commits(&mut self, commits: Vec<CommitMarker>) {
+        self.commits = commits;
+        self.commits.sort_by(|a, b| {
+            a.timestamp
+                .partial_cmp(&b.timestamp)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    /// Clear all commit markers
+    pub fn clear_commits(&mut self) {
+        self.commits.clear();
+    }
+
+    /// Set whether to show commit markers
+    pub fn set_show_commits(&mut self, show: bool) {
+        self.show_commits = show;
+    }
+
+    /// Toggle commit markers visibility
+    pub fn toggle_commits(&mut self) {
+        self.show_commits = !self.show_commits;
     }
 
     /// Add a series to the chart
@@ -236,68 +315,115 @@ impl TimeSeriesChart {
         }
     }
 
-    /// Handle keyboard input and return the appropriate zoom action
-    fn handle_keyboard(&mut self, ctx: &egui::Context) -> ZoomAction {
+    /// Handle keyboard input and return the appropriate chart action
+    fn handle_keyboard(&mut self, ctx: &egui::Context) -> ChartAction {
         // Only handle keys when no text field is focused
         if ctx.memory(|mem| mem.focused().is_some()) {
             self.pending_g = false;
-            return ZoomAction::None;
+            self.pending_bracket = None;
+            return ChartAction::None;
         }
 
         let action = ctx.input(|input| {
+            // Check for 'c' after pending bracket for commit navigation
+            if self.pending_bracket.is_some() && input.key_pressed(Key::C) {
+                return match self.pending_bracket {
+                    Some(']') => ChartAction::NextCommit,
+                    Some('[') => ChartAction::PrevCommit,
+                    _ => ChartAction::None,
+                };
+            }
+
+            // Check for bracket keys ([ and ])
+            if input.key_pressed(Key::OpenBracket) {
+                return ChartAction::None; // Will be handled in state machine
+            }
+            if input.key_pressed(Key::CloseBracket) {
+                return ChartAction::None; // Will be handled in state machine
+            }
+
             // Zoom in Y-axis: + or =
             if input.key_pressed(Key::Plus)
                 || (input.key_pressed(Key::Equals) && !input.modifiers.shift)
             {
-                return ZoomAction::ZoomInY;
+                return ChartAction::ZoomInY;
             }
 
             // Zoom out Y-axis: -
             if input.key_pressed(Key::Minus) {
-                return ZoomAction::ZoomOutY;
+                return ChartAction::ZoomOutY;
             }
 
             // Zoom in X-axis: > or .
             if input.key_pressed(Key::Period) {
-                return ZoomAction::ZoomInX;
+                return ChartAction::ZoomInX;
             }
 
             // Zoom out X-axis: < or ,
             if input.key_pressed(Key::Comma) {
-                return ZoomAction::ZoomOutX;
+                return ChartAction::ZoomOutX;
             }
 
             // Reset zoom: 0
             if input.key_pressed(Key::Num0) {
-                return ZoomAction::ResetZoom;
+                return ChartAction::ResetZoom;
             }
 
             // Go to end: G (shift + g)
             if input.key_pressed(Key::G) && input.modifiers.shift {
-                return ZoomAction::GoToEnd;
+                return ChartAction::GoToEnd;
             }
 
             // Go to start: g (without shift) - need double press
             if input.key_pressed(Key::G) && !input.modifiers.shift {
-                return ZoomAction::GoToStart;
+                return ChartAction::GoToStart;
             }
 
-            ZoomAction::None
+            ChartAction::None
         });
 
+        // Handle bracket state machine for ]c and [c
+        let bracket_pressed = ctx.input(|input| {
+            if input.key_pressed(Key::CloseBracket) {
+                Some(']')
+            } else if input.key_pressed(Key::OpenBracket) {
+                Some('[')
+            } else {
+                None
+            }
+        });
+
+        if let Some(bracket) = bracket_pressed {
+            self.pending_bracket = Some(bracket);
+            self.pending_g = false;
+            return ChartAction::None;
+        }
+
+        // Handle commit navigation from pending bracket
+        if action == ChartAction::NextCommit || action == ChartAction::PrevCommit {
+            self.pending_bracket = None;
+            self.pending_g = false;
+            return action;
+        }
+
+        // Clear pending bracket if another key was pressed
+        if action != ChartAction::None {
+            self.pending_bracket = None;
+        }
+
         // Handle gg (double g) state machine
-        if action == ZoomAction::GoToStart {
+        if action == ChartAction::GoToStart {
             if self.pending_g {
                 self.pending_g = false;
-                return ZoomAction::GoToStart;
+                return ChartAction::GoToStart;
             } else {
                 self.pending_g = true;
-                return ZoomAction::None;
+                return ChartAction::None;
             }
-        } else if action == ZoomAction::GoToEnd {
+        } else if action == ChartAction::GoToEnd {
             self.pending_g = false;
-            return ZoomAction::GoToEnd;
-        } else if action != ZoomAction::None {
+            return ChartAction::GoToEnd;
+        } else if action != ChartAction::None {
             self.pending_g = false;
         }
 
@@ -337,8 +463,25 @@ impl TimeSeriesChart {
         }
 
         // Handle keyboard zoom/navigation
-        let zoom_action = self.handle_keyboard(ui.ctx());
+        let chart_action = self.handle_keyboard(ui.ctx());
         let data_time_range = self.data_time_range();
+
+        // Pre-compute commit navigation targets (need to do this outside the plot closure
+        // since we need &self which would conflict with the mutable borrow for find_*_commit)
+        let commits_for_nav: Vec<f64> = self.commits.iter().map(|c| c.timestamp).collect();
+
+        // Clone commits for rendering (to avoid borrow issues in closure)
+        let commits_to_render: Vec<_> = if self.show_commits {
+            self.commits.clone()
+        } else {
+            Vec::new()
+        };
+
+        // Commit marker color - subtle but visible
+        let commit_color = match self.theme {
+            AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 193, 7, 180), // Amber
+            AppTheme::Light => Color32::from_rgba_unmultiplied(245, 158, 11, 200), // Darker amber
+        };
 
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         let plot = Plot::new(format!("plot_{}", self.id))
@@ -352,36 +495,36 @@ impl TimeSeriesChart {
             .allow_scroll(true);
 
         plot.show(ui, |plot_ui| {
-            // Apply zoom action inside the plot closure where we have access to plot_ui
-            match zoom_action {
-                ZoomAction::ZoomInY => {
+            // Apply chart action inside the plot closure where we have access to plot_ui
+            match chart_action {
+                ChartAction::ZoomInY => {
                     plot_ui.zoom_bounds(
                         egui::Vec2::new(1.0, ZOOM_FACTOR as f32),
                         plot_ui.plot_bounds().center(),
                     );
                 }
-                ZoomAction::ZoomOutY => {
+                ChartAction::ZoomOutY => {
                     plot_ui.zoom_bounds(
                         egui::Vec2::new(1.0, 1.0 / ZOOM_FACTOR as f32),
                         plot_ui.plot_bounds().center(),
                     );
                 }
-                ZoomAction::ZoomInX => {
+                ChartAction::ZoomInX => {
                     plot_ui.zoom_bounds(
                         egui::Vec2::new(ZOOM_FACTOR as f32, 1.0),
                         plot_ui.plot_bounds().center(),
                     );
                 }
-                ZoomAction::ZoomOutX => {
+                ChartAction::ZoomOutX => {
                     plot_ui.zoom_bounds(
                         egui::Vec2::new(1.0 / ZOOM_FACTOR as f32, 1.0),
                         plot_ui.plot_bounds().center(),
                     );
                 }
-                ZoomAction::ResetZoom => {
+                ChartAction::ResetZoom => {
                     plot_ui.set_auto_bounds(egui::Vec2b::new(true, true));
                 }
-                ZoomAction::GoToStart => {
+                ChartAction::GoToStart => {
                     if let Some((min_t, _max_t)) = data_time_range {
                         let bounds = plot_ui.plot_bounds();
                         let width = bounds.max()[0] - bounds.min()[0];
@@ -392,7 +535,7 @@ impl TimeSeriesChart {
                         plot_ui.set_plot_bounds(new_bounds);
                     }
                 }
-                ZoomAction::GoToEnd => {
+                ChartAction::GoToEnd => {
                     if let Some((_min_t, max_t)) = data_time_range {
                         let bounds = plot_ui.plot_bounds();
                         let width = bounds.max()[0] - bounds.min()[0];
@@ -403,7 +546,82 @@ impl TimeSeriesChart {
                         plot_ui.set_plot_bounds(new_bounds);
                     }
                 }
-                ZoomAction::None => {}
+                ChartAction::NextCommit => {
+                    let current_center = plot_ui.plot_bounds().center().x;
+                    if let Some(&next_t) = commits_for_nav.iter().find(|&&t| t > current_center) {
+                        let bounds = plot_ui.plot_bounds();
+                        let width = bounds.max()[0] - bounds.min()[0];
+                        let half_width = width / 2.0;
+                        let new_bounds = PlotBounds::from_min_max(
+                            [next_t - half_width, bounds.min()[1]],
+                            [next_t + half_width, bounds.max()[1]],
+                        );
+                        plot_ui.set_plot_bounds(new_bounds);
+                    }
+                }
+                ChartAction::PrevCommit => {
+                    let current_center = plot_ui.plot_bounds().center().x;
+                    if let Some(&prev_t) =
+                        commits_for_nav.iter().rev().find(|&&t| t < current_center)
+                    {
+                        let bounds = plot_ui.plot_bounds();
+                        let width = bounds.max()[0] - bounds.min()[0];
+                        let half_width = width / 2.0;
+                        let new_bounds = PlotBounds::from_min_max(
+                            [prev_t - half_width, bounds.min()[1]],
+                            [prev_t + half_width, bounds.max()[1]],
+                        );
+                        plot_ui.set_plot_bounds(new_bounds);
+                    }
+                }
+                ChartAction::None => {}
+            }
+
+            // Draw commit markers as vertical lines
+            for commit in &commits_to_render {
+                // Truncate message to ~30 chars for legend readability
+                let msg_preview = if commit.message.len() > 30 {
+                    format!("{}...", &commit.message[..27])
+                } else {
+                    commit.message.clone()
+                };
+                let label = format!("{} {}", commit.short_hash(), msg_preview);
+                let vline = VLine::new(label, commit.timestamp)
+                    .color(commit_color)
+                    .style(LineStyle::dashed_dense())
+                    .stroke(Stroke::new(1.5, commit_color));
+
+                plot_ui.vline(vline);
+            }
+
+            // Check for hover near commit markers and show tooltip
+            if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
+                let bounds = plot_ui.plot_bounds();
+                let view_width = bounds.max()[0] - bounds.min()[0];
+                // Hover threshold: 1% of the visible time range
+                let hover_threshold = view_width * 0.01;
+
+                for commit in &commits_to_render {
+                    let distance = (pointer_pos.x - commit.timestamp).abs();
+                    if distance < hover_threshold {
+                        // Show tooltip at pointer using the new Tooltip API
+                        egui::containers::Tooltip::for_widget(plot_ui.response())
+                            .at_pointer()
+                            .show(|ui| {
+                                ui.set_max_width(300.0);
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        RichText::new(commit.short_hash())
+                                            .monospace()
+                                            .strong()
+                                            .color(commit_color),
+                                    );
+                                    ui.label(&commit.message);
+                                });
+                            });
+                        break; // Only show one tooltip at a time
+                    }
+                }
             }
 
             // Draw all series

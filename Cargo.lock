@@ -2614,6 +2614,7 @@ name = "enya-common"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "getrandom 0.3.4",
  "sketches-ddsketch",
  "uwheel",
 ]
@@ -2633,6 +2634,7 @@ dependencies = [
  "env_logger",
  "enya-build-info",
  "enya-build-tools",
+ "enya-common",
  "enya-lang",
  "ewebsock",
  "gloo-timers",
