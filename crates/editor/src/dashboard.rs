@@ -5,9 +5,10 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 use crate::app::AppState;
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    CustomQueriesPanel, FuzzyFinder, FuzzyItem, InfoOverlay, InspectorPanel, InspectorTarget,
-    LandingPage, LandingPageAction, MetricStats, MetricsTree, QueryPane, QueryState, TagFilter,
-    TagPath, TimeRangeToolbar, inspector_toggle_button, metrics_panel_toggle_button,
+    CustomQueriesPanel, InfoOverlay, InspectorPanel, InspectorTarget, LandingPage,
+    LandingPageAction, MetricItem, MetricStats, MetricsFinder, MetricsTree, QueryFinder, QueryItem,
+    QueryPane, QueryState, TagFilter, TagPath, TimeRangeToolbar, inspector_toggle_button,
+    metrics_panel_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -99,8 +100,10 @@ pub struct Dashboard {
     inspector: InspectorPanel,
     /// Track the last selected metric to detect changes
     last_selected_metric: Option<String>,
-    /// Fuzzy finder modal (telescope-style search)
-    fuzzy_finder: FuzzyFinder,
+    /// Fuzzy finder modal for metrics (telescope-style search)
+    metrics_finder: MetricsFinder,
+    /// Query finder modal for saved queries (with side-by-side preview)
+    query_finder: QueryFinder,
     /// Command palette (neovim-style `:` commands)
     command_palette: CommandPalette,
     /// Buffer editor modal (for editing queries)
@@ -148,7 +151,8 @@ impl Default for Dashboard {
             time_range_toolbar: TimeRangeToolbar::new(),
             inspector: InspectorPanel::new(),
             last_selected_metric: None,
-            fuzzy_finder: FuzzyFinder::new(),
+            metrics_finder: MetricsFinder::new(),
+            query_finder: QueryFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
             editing_tile_id: None,
@@ -204,7 +208,8 @@ impl Dashboard {
             time_range_toolbar: TimeRangeToolbar::new(),
             inspector: InspectorPanel::new(),
             last_selected_metric: None,
-            fuzzy_finder: FuzzyFinder::new(),
+            metrics_finder: MetricsFinder::new(),
+            query_finder: QueryFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
             editing_tile_id: None,
@@ -364,7 +369,7 @@ impl Dashboard {
 
         // Open fuzzy finder if search button was clicked
         if open_fuzzy {
-            self.open_fuzzy_finder();
+            self.open_metrics_finder();
         }
 
         // Right area with toolbar and viewport
@@ -438,9 +443,15 @@ impl Dashboard {
         });
 
         // Show fuzzy finder modal (rendered on top of everything)
-        self.fuzzy_finder.set_theme(app_state.theme);
-        if let Some(selected_item) = self.fuzzy_finder.show(ctx) {
-            return self.handle_fuzzy_selection_with_tracking(selected_item);
+        self.metrics_finder.set_theme(app_state.theme);
+        if let Some(selected_item) = self.metrics_finder.show(ctx) {
+            return self.handle_metric_selection_with_tracking(selected_item);
+        }
+
+        // Show query finder modal (rendered on top of everything)
+        self.query_finder.set_theme(app_state.theme);
+        if let Some(selected_query) = self.query_finder.show(ctx) {
+            return self.handle_query_selection_with_tracking(selected_query);
         }
 
         // Show command palette modal
@@ -518,7 +529,10 @@ impl Dashboard {
                 return DashboardAction::LoadWorkspace(name);
             }
             LandingPageAction::OpenFuzzyFinder => {
-                self.open_fuzzy_finder();
+                self.open_metrics_finder();
+            }
+            LandingPageAction::OpenQueryFinder => {
+                self.open_query_finder();
             }
             LandingPageAction::ShowInfo => {
                 self.info_overlay.open();
@@ -526,17 +540,19 @@ impl Dashboard {
             LandingPageAction::ShowHelp => {
                 return DashboardAction::ShowHelp;
             }
-            LandingPageAction::NewPlot => {
-                // Open fuzzy finder to select a metric for a new plot
-                self.open_fuzzy_finder();
-            }
             LandingPageAction::None => {}
         }
 
         // Show fuzzy finder modal (rendered on top of everything)
-        self.fuzzy_finder.set_theme(app_state.theme);
-        if let Some(selected_item) = self.fuzzy_finder.show(ctx) {
-            return self.handle_fuzzy_selection_with_tracking(selected_item);
+        self.metrics_finder.set_theme(app_state.theme);
+        if let Some(selected_item) = self.metrics_finder.show(ctx) {
+            return self.handle_metric_selection_with_tracking(selected_item);
+        }
+
+        // Show query finder modal (rendered on top of everything)
+        self.query_finder.set_theme(app_state.theme);
+        if let Some(selected_query) = self.query_finder.show(ctx) {
+            return self.handle_query_selection_with_tracking(selected_query);
         }
 
         // Show command palette modal
@@ -579,64 +595,20 @@ impl Dashboard {
         DashboardAction::None
     }
 
-    /// Handle fuzzy selection and return tracking action
-    fn handle_fuzzy_selection_with_tracking(&mut self, item: FuzzyItem) -> DashboardAction {
-        match item {
-            FuzzyItem::Metric { name, .. } => {
-                self.show_landing = false;
-                self.add_chart_for_metric_with_tracking(&name)
-            }
-            FuzzyItem::CustomQuery { name, query, .. } => {
-                self.show_landing = false;
-                self.add_chart_for_query(&name, &query);
-                DashboardAction::TrackRecentPlot {
-                    name: name.clone(),
-                    metric_name: name,
-                    is_query: true,
-                }
-            }
-            FuzzyItem::Tag { path, .. } => {
-                // Find all queries with this tag and open them
-                let queries_to_open: Vec<(String, String)> = self
-                    .custom_queries
-                    .queries()
-                    .iter()
-                    .filter(|q| q.has_tag(&path))
-                    .map(|q| (q.name.clone(), q.query.clone()))
-                    .collect();
+    /// Handle fuzzy selection (metrics only) and return tracking action
+    fn handle_metric_selection_with_tracking(&mut self, item: MetricItem) -> DashboardAction {
+        self.show_landing = false;
+        self.add_chart_for_metric_with_tracking(&item.name)
+    }
 
-                if queries_to_open.is_empty() {
-                    return DashboardAction::Notify {
-                        level: "info".to_string(),
-                        message: format!("No queries found with tag #{path}"),
-                    };
-                }
-
-                self.show_landing = false;
-                let count = queries_to_open.len();
-
-                // Open each query in the viewport
-                for (name, query) in &queries_to_open {
-                    self.add_chart_for_query(name, query);
-                }
-
-                // Track the first query as the "recent" one
-                if let Some((name, _)) = queries_to_open.first() {
-                    return DashboardAction::TrackRecentPlot {
-                        name: name.clone(),
-                        metric_name: name.clone(),
-                        is_query: true,
-                    };
-                }
-
-                DashboardAction::Notify {
-                    level: "info".to_string(),
-                    message: format!(
-                        "Opened {count} quer{} with tag #{path}",
-                        if count == 1 { "y" } else { "ies" }
-                    ),
-                }
-            }
+    /// Handle query selection and return tracking action
+    fn handle_query_selection_with_tracking(&mut self, item: QueryItem) -> DashboardAction {
+        self.show_landing = false;
+        self.add_chart_for_query(&item.name, &item.query);
+        DashboardAction::TrackRecentPlot {
+            name: item.name.clone(),
+            metric_name: item.name,
+            is_query: true,
         }
     }
 
@@ -717,7 +689,7 @@ impl Dashboard {
                 DashboardAction::None
             }
             CommandResult::OpenSearch => {
-                self.open_fuzzy_finder();
+                self.open_metrics_finder();
                 DashboardAction::None
             }
             CommandResult::ShowInfo => {
@@ -907,49 +879,44 @@ impl Dashboard {
         }
     }
 
-    /// Open the fuzzy finder modal
-    pub fn open_fuzzy_finder(&mut self) {
-        // Populate the fuzzy finder with current items
-        let mut items = Vec::new();
-
-        // Add all metrics
-        for metric in self.metrics_tree.metrics() {
-            items.push(FuzzyItem::Metric {
+    /// Open the metrics finder modal (for metrics only)
+    pub fn open_metrics_finder(&mut self) {
+        // Populate the metrics finder with all metric info including tags
+        let items: Vec<MetricItem> = self
+            .metrics_tree
+            .metrics()
+            .iter()
+            .map(|metric| MetricItem {
                 name: metric.name.clone(),
                 category: metric.category.label().to_string(),
                 description: metric.description.clone(),
-            });
-        }
-
-        // Add all custom queries
-        for query in self.custom_queries.queries() {
-            items.push(FuzzyItem::CustomQuery {
-                id: query.id,
-                name: query.name.clone(),
-                query: query.query.clone(),
-            });
-        }
-
-        self.fuzzy_finder.set_items(items);
-
-        // Collect tags with counts and query names from custom queries
-        let mut tag_info: std::collections::HashMap<String, Vec<String>> =
-            std::collections::HashMap::new();
-        for query in self.custom_queries.queries() {
-            for tag in &query.tags {
-                tag_info
-                    .entry(tag.clone())
-                    .or_default()
-                    .push(query.name.clone());
-            }
-        }
-        let tags: Vec<(String, usize, Vec<String>)> = tag_info
-            .into_iter()
-            .map(|(path, names)| (path, names.len(), names))
+                unit: metric.unit.clone(),
+                tags: metric.tags.clone(),
+                series_count: metric.series_count,
+            })
             .collect();
-        self.fuzzy_finder.set_tags(tags);
 
-        self.fuzzy_finder.open();
+        self.metrics_finder.set_items(items);
+        self.metrics_finder.open();
+    }
+
+    /// Open the query finder modal (for saved queries)
+    pub fn open_query_finder(&mut self) {
+        // Populate the query finder with saved queries
+        let queries: Vec<QueryItem> = self
+            .custom_queries
+            .queries()
+            .iter()
+            .map(|q| QueryItem {
+                id: q.id,
+                name: q.name.clone(),
+                query: q.query.clone(),
+                tags: q.tags.clone(),
+            })
+            .collect();
+
+        self.query_finder.set_queries(queries);
+        self.query_finder.open();
     }
 
     /// Open the command palette modal
@@ -1239,8 +1206,8 @@ impl Dashboard {
     }
 
     /// Check if the fuzzy finder is currently open
-    pub fn is_fuzzy_finder_open(&self) -> bool {
-        self.fuzzy_finder.is_open()
+    pub fn is_metrics_finder_open(&self) -> bool {
+        self.metrics_finder.is_open()
     }
 
     /// Get the number of open tabs/charts
@@ -1606,7 +1573,7 @@ impl Dashboard {
         }
 
         // Don't handle if fuzzy finder, command palette, or buffer editor is open
-        if self.fuzzy_finder.is_open()
+        if self.metrics_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
         {

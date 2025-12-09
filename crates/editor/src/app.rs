@@ -202,7 +202,7 @@ impl EnyaApp {
                 if let Some(ref dashboard) = self.dashboard {
                     if dashboard.is_command_palette_open() {
                         StatusMode::Command
-                    } else if dashboard.is_fuzzy_finder_open() {
+                    } else if dashboard.is_metrics_finder_open() {
                         StatusMode::Search
                     } else if dashboard.is_fullscreen() {
                         StatusMode::Fullscreen
@@ -302,7 +302,7 @@ impl EnyaApp {
             }
 
             UICommand::OpenFuzzyFinder => {
-                self.open_fuzzy_finder();
+                self.open_metrics_finder();
             }
 
             UICommand::OpenCommandPalette => {
@@ -417,9 +417,9 @@ impl EnyaApp {
         }
     }
 
-    fn open_fuzzy_finder(&mut self) {
+    fn open_metrics_finder(&mut self) {
         if let Some(dashboard) = self.dashboard.as_mut() {
-            dashboard.open_fuzzy_finder();
+            dashboard.open_metrics_finder();
         }
     }
 
