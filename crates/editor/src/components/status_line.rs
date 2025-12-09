@@ -131,8 +131,6 @@ pub enum StatusMode {
     /// Normal dashboard mode
     #[default]
     Normal,
-    /// Settings mode
-    Settings,
     /// Home/welcome screen
     Home,
     /// Command mode (when command palette is open)
@@ -150,7 +148,6 @@ impl StatusMode {
     pub fn label(&self) -> &'static str {
         match self {
             Self::Normal => "NORMAL",
-            Self::Settings => "SETTINGS",
             Self::Home => "HOME",
             Self::Command => "COMMAND",
             Self::Search => "SEARCH",
@@ -166,10 +163,6 @@ impl StatusMode {
             Self::Normal => match theme {
                 AppTheme::Light => Color32::from_rgb(180, 140, 20), // Golden yellow
                 AppTheme::Dark => Color32::from_rgb(255, 200, 50),  // Bright gold
-            },
-            Self::Settings => match theme {
-                AppTheme::Light => Color32::from_rgb(120, 120, 130), // Gray
-                AppTheme::Dark => Color32::from_rgb(160, 160, 170),  // Light gray
             },
             Self::Home => match theme {
                 AppTheme::Light => Color32::from_rgb(180, 140, 20), // Golden yellow
@@ -201,7 +194,7 @@ impl StatusMode {
             // Golden/yellow backgrounds - use dark text
             Self::Normal | Self::Home | Self::Command => Color32::from_rgb(40, 44, 52),
             // Gray backgrounds in light theme need light text, dark theme need dark text
-            Self::Settings | Self::Search => match theme {
+            Self::Search => match theme {
                 AppTheme::Light => Color32::from_rgb(248, 248, 242),
                 AppTheme::Dark => Color32::from_rgb(40, 44, 52),
             },
