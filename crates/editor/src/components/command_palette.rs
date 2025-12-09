@@ -95,6 +95,8 @@ pub enum CommandResult {
     RemoveTag(TagPath),
     /// Show all tags
     ShowTags,
+    /// Toggle commit markers visibility on charts
+    ToggleCommits,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -257,6 +259,12 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "tags",
         aliases: &["taglist", "tl"],
         description: "Show all tags with buffer counts",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "commits",
+        aliases: &["git", "markers"],
+        description: "Toggle git commit markers on charts",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -516,6 +524,7 @@ impl CommandPalette {
             "share" => CommandResult::ShareWorkspace,
             "tag" => self.execute_tag_command(args),
             "tags" => CommandResult::ShowTags,
+            "commits" => CommandResult::ToggleCommits,
             _ => CommandResult::None,
         }
     }

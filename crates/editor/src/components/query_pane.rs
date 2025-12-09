@@ -4,7 +4,7 @@ use egui::{Color32, RichText};
 
 use crate::components::buffer::{Buffer, BufferAction, BufferMode};
 use crate::components::query_state::QueryState;
-use crate::components::time_series_chart::{DataPoint, Series, TimeSeriesChart};
+use crate::components::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 
@@ -128,6 +128,11 @@ impl QueryPane {
     /// Set the user-defined tag
     pub fn set_tag(&mut self, tag: &str) {
         self.tag = tag.to_string();
+    }
+
+    /// Toggle commit markers visibility on the chart
+    pub fn toggle_commits(&mut self) {
+        self.chart.toggle_commits();
     }
 
     /// Get the buffer mode
@@ -273,6 +278,33 @@ impl QueryPane {
                 .with_points(points2)
                 .with_color(Color32::from_rgb(16, 185, 129)),
         );
+
+        // Add demo commit markers spread across the time range
+        chart.add_commit(CommitMarker::new(
+            "a1b2c3d",
+            now + duration * 0.1,
+            "Fix connection pooling",
+        ));
+        chart.add_commit(CommitMarker::new(
+            "e4f5g6h",
+            now + duration * 0.35,
+            "Add retry logic",
+        ));
+        chart.add_commit(CommitMarker::new(
+            "i7j8k9l",
+            now + duration * 0.5,
+            "Update dependencies",
+        ));
+        chart.add_commit(CommitMarker::new(
+            "m0n1o2p",
+            now + duration * 0.7,
+            "Refactor auth module",
+        ));
+        chart.add_commit(CommitMarker::new(
+            "q3r4s5t",
+            now + duration * 0.9,
+            "Performance improvements",
+        ));
     }
 
     /// Render the query pane

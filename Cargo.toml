@@ -17,6 +17,7 @@ members = ["crates/*", "examples/*"]
 
 [workspace.dependencies]
 enya = { path = "crates/enya", version = "0.1.0" }
+enya-common = { path = "crates/common", version = "0.1.0" }
 enya-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
 enya-macros = { path = "crates/macros", version = "0.1.0" }
 enya-lang = { path = "crates/lang", version = "0.1.0" }
@@ -95,11 +96,14 @@ metrics = "0.24"
 uwheel = { git = "https://github.com/uwheel/uwheel.git", features = ["bloom"] }
 sketches-ddsketch = "0.3.0"
 
+# getrandom needs wasm_js feature for WASM builds
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 [workspace.lints.clippy]
 disallowed_types = "deny"
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)', 'cfg(getrandom_backend)'] }
 
 [profile.dev]
 lto = "off"

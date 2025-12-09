@@ -805,6 +805,10 @@ impl Dashboard {
                     }
                 }
             }
+            CommandResult::ToggleCommits => {
+                self.toggle_commits_on_focused();
+                DashboardAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -832,6 +836,20 @@ impl Dashboard {
                     if buffer.save() {
                         log::debug!("Buffer saved");
                     }
+                }
+            }
+        }
+    }
+
+    /// Toggle commit markers on the focused chart
+    fn toggle_commits_on_focused(&mut self) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    query_pane.toggle_commits();
+                    log::debug!("Toggled commit markers");
                 }
             }
         }
