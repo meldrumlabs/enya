@@ -184,13 +184,29 @@ impl StatusMode {
                 AppTheme::Dark => Color32::from_rgb(180, 180, 190),  // Light gray
             },
             Self::Zen => match theme {
-                AppTheme::Light => Color32::from_rgb(80, 80, 85), // Dark gray
-                AppTheme::Dark => Color32::from_rgb(60, 60, 65),  // Muted dark gray
+                AppTheme::Light => Color32::from_rgb(120, 100, 160), // Soft purple
+                AppTheme::Dark => Color32::from_rgb(180, 150, 220),  // Light purple
             },
             Self::Fullscreen => match theme {
-                AppTheme::Light => Color32::from_rgb(100, 100, 110), // Dark gray
-                AppTheme::Dark => Color32::from_rgb(140, 140, 150),  // Medium gray
+                AppTheme::Light => Color32::from_rgb(80, 140, 160), // Teal
+                AppTheme::Dark => Color32::from_rgb(120, 200, 220), // Bright cyan
             },
+        }
+    }
+
+    /// Get the text color for this mode's segment
+    /// Uses dark text on bright backgrounds, light text on dark backgrounds
+    pub fn text_color(&self, theme: AppTheme) -> Color32 {
+        match self {
+            // Golden/yellow backgrounds - use dark text
+            Self::Normal | Self::Home | Self::Command => Color32::from_rgb(40, 44, 52),
+            // Gray backgrounds in light theme need light text, dark theme need dark text
+            Self::Settings | Self::Search => match theme {
+                AppTheme::Light => Color32::from_rgb(248, 248, 242),
+                AppTheme::Dark => Color32::from_rgb(40, 44, 52),
+            },
+            // Purple/cyan backgrounds - use dark text for contrast
+            Self::Zen | Self::Fullscreen => Color32::from_rgb(40, 44, 52),
         }
     }
 }
@@ -356,7 +372,7 @@ impl StatusLine {
     fn render_left_section(&self, ui: &mut Ui, height: f32, padding: f32) {
         // Mode indicator (like vim mode in lualine)
         let mode_color = self.mode.color(self.theme);
-        let mode_text_color = Color32::from_rgb(40, 44, 52); // Dark text on colored bg
+        let mode_text_color = self.mode.text_color(self.theme);
 
         self.render_segment(
             ui,
@@ -427,7 +443,7 @@ impl StatusLine {
                 &position_text,
                 Some(egui_phosphor::regular::TABS),
                 self.mode.color(self.theme),
-                Color32::from_rgb(40, 44, 52),
+                self.mode.text_color(self.theme),
                 height,
                 padding,
                 true,
