@@ -227,8 +227,8 @@ impl QueryPane {
             .bytes()
             .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
         let now = 1_700_000_000.0;
-        let duration = 3600.0;
-        let num_points = 60;
+        let duration = 86400.0; // 24 hours of data (easier to test gg/G navigation)
+        let num_points = 240; // One point every 6 minutes
 
         // Series 1
         let base1 = 50.0 + (hash % 50) as f64;

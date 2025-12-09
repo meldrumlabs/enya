@@ -85,6 +85,18 @@ Organize queries with hierarchical tags (e.g., `production/api/latency`).
 | `W` | Float focused pane into a window |
 | `D` | Dock all floating windows |
 
+#### Chart Zoom Controls
+
+| Key | Action |
+|-----|--------|
+| `+` / `=` | Zoom in on Y-axis (values) |
+| `-` | Zoom out on Y-axis (values) |
+| `.` / `>` | Zoom in on X-axis (time) |
+| `,` / `<` | Zoom out on X-axis (time) |
+| `0` | Reset zoom to fit all data |
+| `gg` | Go to start of data |
+| `G` | Go to end of data |
+
 #### Global Shortcuts
 
 | Key | Action |
