@@ -13,14 +13,14 @@ pub enum LandingPageAction {
     OpenPlot { metric_name: String, is_query: bool },
     /// Open a workspace
     OpenWorkspace { name: String },
-    /// Open the fuzzy finder
+    /// Open the fuzzy finder for metrics
     OpenFuzzyFinder,
+    /// Open the query finder for saved queries
+    OpenQueryFinder,
     /// Show info overlay
     ShowInfo,
     /// Show help
     ShowHelp,
-    /// Create a new plot
-    NewPlot,
 }
 
 /// The dashboard-nvim inspired landing page component
@@ -451,13 +451,13 @@ impl LandingPage {
 
             ui.add_space(gap);
 
-            // New Plot (n)
+            // Queries (q)
             if self
                 .show_shortcut_button(
                     ui,
-                    egui_phosphor::regular::PLUS,
-                    "New Plot",
-                    "n",
+                    egui_phosphor::regular::CODE,
+                    "Queries",
+                    "q",
                     text_col,
                     accent_color,
                     self.shortcut_focused == Some(1),
@@ -465,7 +465,7 @@ impl LandingPage {
                 )
                 .clicked()
             {
-                action = LandingPageAction::NewPlot;
+                action = LandingPageAction::OpenQueryFinder;
             }
 
             ui.add_space(gap);
@@ -645,9 +645,9 @@ impl LandingPage {
                 return;
             }
 
-            // n - New plot
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
-                action = LandingPageAction::NewPlot;
+            // q - Open queries (query finder)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Q) {
+                action = LandingPageAction::OpenQueryFinder;
                 return;
             }
 
