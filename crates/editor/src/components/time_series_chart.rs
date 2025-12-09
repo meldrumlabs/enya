@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use egui::{Color32, RichText, Stroke};
-use egui_plot::{Line, Plot, PlotPoints};
+use egui::{Color32, Key, RichText, Stroke};
+use egui_plot::{Line, Plot, PlotBounds, PlotPoints};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+
+/// Zoom factor for keyboard-based zoom controls
+const ZOOM_FACTOR: f64 = 1.25;
 
 /// Global counter for unique component IDs
 static NEXT_ID: AtomicUsize = AtomicUsize::new(100);
@@ -68,6 +71,19 @@ impl Series {
     }
 }
 
+/// Actions that can be triggered by zoom keybindings
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ZoomAction {
+    None,
+    ZoomInY,
+    ZoomOutY,
+    ZoomInX,
+    ZoomOutX,
+    ResetZoom,
+    GoToStart,
+    GoToEnd,
+}
+
 /// A time series chart component
 pub struct TimeSeriesChart {
     /// Unique identifier for this chart
@@ -86,6 +102,8 @@ pub struct TimeSeriesChart {
     y_label: Option<String>,
     /// Chart title (shown in tab)
     title: String,
+    /// Whether we're waiting for a second 'g' press (for gg command)
+    pending_g: bool,
 }
 
 impl Default for TimeSeriesChart {
@@ -106,6 +124,7 @@ impl TimeSeriesChart {
             api_key: String::new(),
             show_legend: true,
             y_label: None,
+            pending_g: false,
         }
     }
 
@@ -116,8 +135,8 @@ impl TimeSeriesChart {
 
         // Generate some demo data
         let now = 1700000000.0; // Some fixed timestamp
-        let duration = 3600.0; // 1 hour of data
-        let num_points = 60;
+        let duration = 86400.0; // 24 hours of data (easier to test gg/G navigation)
+        let num_points = 240; // One point every 6 minutes
 
         // Series 1: Baseline with some noise
         let points1: Vec<DataPoint> = (0..num_points)
@@ -198,6 +217,93 @@ impl TimeSeriesChart {
         self.theme = theme;
     }
 
+    /// Get the time range (min, max timestamps) of all data in the chart
+    fn data_time_range(&self) -> Option<(f64, f64)> {
+        let mut min_t = f64::MAX;
+        let mut max_t = f64::MIN;
+
+        for series in &self.series {
+            for point in &series.points {
+                min_t = min_t.min(point.timestamp);
+                max_t = max_t.max(point.timestamp);
+            }
+        }
+
+        if min_t <= max_t {
+            Some((min_t, max_t))
+        } else {
+            None
+        }
+    }
+
+    /// Handle keyboard input and return the appropriate zoom action
+    fn handle_keyboard(&mut self, ctx: &egui::Context) -> ZoomAction {
+        // Only handle keys when no text field is focused
+        if ctx.memory(|mem| mem.focused().is_some()) {
+            self.pending_g = false;
+            return ZoomAction::None;
+        }
+
+        let action = ctx.input(|input| {
+            // Zoom in Y-axis: + or =
+            if input.key_pressed(Key::Plus)
+                || (input.key_pressed(Key::Equals) && !input.modifiers.shift)
+            {
+                return ZoomAction::ZoomInY;
+            }
+
+            // Zoom out Y-axis: -
+            if input.key_pressed(Key::Minus) {
+                return ZoomAction::ZoomOutY;
+            }
+
+            // Zoom in X-axis: > or .
+            if input.key_pressed(Key::Period) {
+                return ZoomAction::ZoomInX;
+            }
+
+            // Zoom out X-axis: < or ,
+            if input.key_pressed(Key::Comma) {
+                return ZoomAction::ZoomOutX;
+            }
+
+            // Reset zoom: 0
+            if input.key_pressed(Key::Num0) {
+                return ZoomAction::ResetZoom;
+            }
+
+            // Go to end: G (shift + g)
+            if input.key_pressed(Key::G) && input.modifiers.shift {
+                return ZoomAction::GoToEnd;
+            }
+
+            // Go to start: g (without shift) - need double press
+            if input.key_pressed(Key::G) && !input.modifiers.shift {
+                return ZoomAction::GoToStart;
+            }
+
+            ZoomAction::None
+        });
+
+        // Handle gg (double g) state machine
+        if action == ZoomAction::GoToStart {
+            if self.pending_g {
+                self.pending_g = false;
+                return ZoomAction::GoToStart;
+            } else {
+                self.pending_g = true;
+                return ZoomAction::None;
+            }
+        } else if action == ZoomAction::GoToEnd {
+            self.pending_g = false;
+            return ZoomAction::GoToEnd;
+        } else if action != ZoomAction::None {
+            self.pending_g = false;
+        }
+
+        action
+    }
+
     /// Get a default color for series index
     fn series_color(&self, index: usize) -> Color32 {
         // A palette of distinct colors
@@ -230,7 +336,11 @@ impl TimeSeriesChart {
             return;
         }
 
-        // The plot
+        // Handle keyboard zoom/navigation
+        let zoom_action = self.handle_keyboard(ui.ctx());
+        let data_time_range = self.data_time_range();
+
+        // The plot - let egui_plot manage bounds internally via its ID-based memory
         let plot = Plot::new(format!("plot_{}", self.id))
             .legend(egui_plot::Legend::default().position(egui_plot::Corner::RightTop))
             .x_axis_label("Time")
@@ -239,10 +349,64 @@ impl TimeSeriesChart {
             .show_grid(true)
             .allow_zoom(true)
             .allow_drag(true)
-            .allow_scroll(true)
-            .auto_bounds(egui::Vec2b::new(true, true));
+            .allow_scroll(true);
 
         plot.show(ui, |plot_ui| {
+            // Apply zoom action inside the plot closure where we have access to plot_ui
+            match zoom_action {
+                ZoomAction::ZoomInY => {
+                    plot_ui.zoom_bounds(
+                        egui::Vec2::new(1.0, ZOOM_FACTOR as f32),
+                        plot_ui.plot_bounds().center(),
+                    );
+                }
+                ZoomAction::ZoomOutY => {
+                    plot_ui.zoom_bounds(
+                        egui::Vec2::new(1.0, 1.0 / ZOOM_FACTOR as f32),
+                        plot_ui.plot_bounds().center(),
+                    );
+                }
+                ZoomAction::ZoomInX => {
+                    plot_ui.zoom_bounds(
+                        egui::Vec2::new(ZOOM_FACTOR as f32, 1.0),
+                        plot_ui.plot_bounds().center(),
+                    );
+                }
+                ZoomAction::ZoomOutX => {
+                    plot_ui.zoom_bounds(
+                        egui::Vec2::new(1.0 / ZOOM_FACTOR as f32, 1.0),
+                        plot_ui.plot_bounds().center(),
+                    );
+                }
+                ZoomAction::ResetZoom => {
+                    plot_ui.set_auto_bounds(egui::Vec2b::new(true, true));
+                }
+                ZoomAction::GoToStart => {
+                    if let Some((min_t, _max_t)) = data_time_range {
+                        let bounds = plot_ui.plot_bounds();
+                        let width = bounds.max()[0] - bounds.min()[0];
+                        let new_bounds = PlotBounds::from_min_max(
+                            [min_t, bounds.min()[1]],
+                            [min_t + width, bounds.max()[1]],
+                        );
+                        plot_ui.set_plot_bounds(new_bounds);
+                    }
+                }
+                ZoomAction::GoToEnd => {
+                    if let Some((_min_t, max_t)) = data_time_range {
+                        let bounds = plot_ui.plot_bounds();
+                        let width = bounds.max()[0] - bounds.min()[0];
+                        let new_bounds = PlotBounds::from_min_max(
+                            [max_t - width, bounds.min()[1]],
+                            [max_t, bounds.max()[1]],
+                        );
+                        plot_ui.set_plot_bounds(new_bounds);
+                    }
+                }
+                ZoomAction::None => {}
+            }
+
+            // Draw all series
             for (i, series) in self.series.iter().enumerate() {
                 let color = series.color.unwrap_or_else(|| self.series_color(i));
 
