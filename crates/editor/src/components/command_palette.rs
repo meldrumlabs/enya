@@ -47,8 +47,8 @@ pub enum CommandResult {
     ToggleInspectorPanel,
     /// Open the fuzzy finder
     OpenSearch,
-    /// Open settings
-    OpenSettings,
+    /// Show info overlay with build info
+    ShowInfo,
     /// Show help
     ShowHelp,
     /// Horizontal split
@@ -116,9 +116,9 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "settings",
-        aliases: &["set", "preferences", "prefs"],
-        description: "Open settings panel",
+        name: "info",
+        aliases: &["version", "ver", "about"],
+        description: "Show version and build info",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -444,7 +444,7 @@ impl CommandPalette {
                 }
             }
             "search" => CommandResult::OpenSearch,
-            "settings" => CommandResult::OpenSettings,
+            "info" => CommandResult::ShowInfo,
             "help" => CommandResult::ShowHelp,
             "metrics" => CommandResult::ToggleMetricsPanel,
             "inspector" => CommandResult::ToggleInspectorPanel,

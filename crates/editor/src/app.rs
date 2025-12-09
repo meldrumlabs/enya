@@ -1,7 +1,5 @@
 use egui::Theme;
 use egui::Visuals;
-use enya_build_info::BuildInfo;
-use enya_build_info::build_info;
 
 use crate::command::CommandReceiver;
 use crate::command::CommandSender;
@@ -14,7 +12,6 @@ use crate::theme::AppTheme;
 use crate::theme::light;
 use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
-use crate::ui::settings_screen::show_settings_ui;
 use crate::ui::welcome_screen::welcome_section_ui;
 use crate::util::Instant;
 
@@ -79,8 +76,6 @@ pub struct EnyaApp {
 
     is_connected: bool,
 
-    build_info: BuildInfo,
-
     // Channels for ui commands
     pub command_sender: CommandSender,
     pub command_receiver: CommandReceiver,
@@ -103,7 +98,7 @@ pub struct EnyaApp {
     checked_url_workspace: bool,
 }
 
-// Serializable state that can be persiste
+// Serializable state that can be persisted
 #[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct AppState {
@@ -111,7 +106,6 @@ pub struct AppState {
     /// Current active Theme
     pub(crate) theme: AppTheme,
     pub(crate) ui_state: UIState,
-    pub(crate) prev_ui_state: UIState,
     #[serde(skip)]
     pub(crate) active_dashboard: Dashboard,
 }
@@ -124,20 +118,15 @@ impl AppState {
             AppTheme::Dark => black_theme(),
         }
     }
-    /// Returns the current previous UIState
+    /// Returns the current UIState
     fn ui_state(&self) -> &UIState {
         &self.ui_state
-    }
-    /// Returns the previous UIState
-    fn prev_ui_state(&self) -> &UIState {
-        &self.prev_ui_state
     }
 }
 
 /// Which current state the UI is in
 #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
 pub enum UIState {
-    Settings,
     #[default]
     Dashboard,
     Home,
@@ -152,7 +141,6 @@ impl Default for EnyaApp {
             command_receiver,
             state: AppState::default(),
             is_connected: false,
-            build_info: build_info!(),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
             editor_metrics: EditorMetrics::default(),
@@ -182,7 +170,6 @@ impl EnyaApp {
 
         // Always start with Dashboard (ignore persisted ui_state)
         app.state.ui_state = UIState::Dashboard;
-        app.state.prev_ui_state = UIState::Dashboard;
 
         // Ensure the default example workspace exists on first run
         #[cfg(not(target_arch = "wasm32"))]
@@ -228,7 +215,6 @@ impl EnyaApp {
                     StatusMode::Normal
                 }
             }
-            UIState::Settings => StatusMode::Settings,
             UIState::Home => StatusMode::Home,
         };
         self.status_line.set_mode(mode);
@@ -264,7 +250,6 @@ impl EnyaApp {
     #[inline]
     fn show_main_content(&mut self, ctx: &egui::Context) {
         match self.state.ui_state() {
-            UIState::Settings => self.draw_settings(ctx),
             UIState::Dashboard => self.draw_dashboard(ctx),
             UIState::Home => self.draw_home(ctx),
         }
@@ -276,31 +261,13 @@ impl EnyaApp {
             self.run_ui_command(egui_ctx, cmd);
         }
     }
-    // updates UI state both current and previous
+    // updates UI state
     fn run_ui_command(&mut self, egui_ctx: &egui::Context, cmd: UICommand) {
-        let ui_state = self.state.ui_state();
-        let prev_ui_state = self.state.prev_ui_state();
         match cmd {
             UICommand::Home => {
                 self.state.ui_state = UIState::Home;
-                self.state.prev_ui_state = UIState::Home;
-            }
-            UICommand::Settings => {
-                if let UIState::Settings = prev_ui_state {
-                    self.state.prev_ui_state = UIState::Dashboard;
-                } else {
-                    self.state.prev_ui_state = *ui_state;
-                }
-
-                self.state.ui_state = UIState::Settings;
-            }
-            UICommand::CloseSettings => {
-                let old = *ui_state;
-                self.state.ui_state = UIState::Dashboard;
-                self.state.prev_ui_state = old;
             }
             UICommand::Dashboard => {
-                self.state.prev_ui_state = self.state.ui_state;
                 self.state.ui_state = UIState::Dashboard;
             }
 
@@ -311,7 +278,6 @@ impl EnyaApp {
                 });
             }
             UICommand::OpenExampleDashboard(_id) => {
-                self.state.prev_ui_state = self.state.ui_state;
                 self.state.ui_state = UIState::Dashboard;
             }
             UICommand::Theme(theme) => {
@@ -346,15 +312,9 @@ impl EnyaApp {
     }
 
     #[inline]
-    fn draw_settings(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            show_settings_ui(ui, self.build_info, &mut self.state, &self.command_sender);
-        });
-    }
-    #[inline]
     fn draw_home(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            welcome_section_ui(ui, &self.state, &self.command_sender);
+            welcome_section_ui(ui, &self.state);
         });
     }
 
@@ -397,9 +357,6 @@ impl EnyaApp {
             }
             DashboardAction::SetTheme(theme) => {
                 self.command_sender.send_ui(UICommand::Theme(theme));
-            }
-            DashboardAction::OpenSettings => {
-                self.command_sender.send_ui(UICommand::Settings);
             }
             DashboardAction::ShowHelp => {
                 ctx.open_url(egui::output::OpenUrl {

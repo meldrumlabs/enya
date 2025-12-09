@@ -15,8 +15,8 @@ pub enum LandingPageAction {
     OpenWorkspace { name: String },
     /// Open the fuzzy finder
     OpenFuzzyFinder,
-    /// Open settings
-    OpenSettings,
+    /// Show info overlay
+    ShowInfo,
     /// Show help
     ShowHelp,
     /// Create a new plot
@@ -470,13 +470,13 @@ impl LandingPage {
 
             ui.add_space(gap);
 
-            // Settings (s)
+            // Info (i)
             if self
                 .show_shortcut_button(
                     ui,
-                    egui_phosphor::regular::GEAR,
-                    "Settings",
-                    "s",
+                    egui_phosphor::regular::INFO,
+                    "Info",
+                    "i",
                     text_col,
                     accent_color,
                     self.shortcut_focused == Some(2),
@@ -484,7 +484,7 @@ impl LandingPage {
                 )
                 .clicked()
             {
-                action = LandingPageAction::OpenSettings;
+                action = LandingPageAction::ShowInfo;
             }
 
             ui.add_space(gap);
@@ -651,9 +651,9 @@ impl LandingPage {
                 return;
             }
 
-            // s - Settings
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::S) {
-                action = LandingPageAction::OpenSettings;
+            // i - Info
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::I) {
+                action = LandingPageAction::ShowInfo;
                 return;
             }
 

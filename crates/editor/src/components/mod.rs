@@ -7,6 +7,7 @@ pub mod buffer_editor;
 pub mod command_palette;
 pub mod custom_queries;
 pub mod fuzzy_finder;
+pub mod info_overlay;
 pub mod inspector;
 pub mod landing_page;
 pub mod metrics_tree;
@@ -24,6 +25,7 @@ pub use buffer_editor::{BufferEditor, BufferEditorResult};
 pub use command_palette::{CommandPalette, CommandResult};
 pub use custom_queries::{CustomQueriesPanel, CustomQuery};
 pub use fuzzy_finder::{FuzzyFinder, FuzzyItem};
+pub use info_overlay::InfoOverlay;
 pub use inspector::{
     InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button,
     metrics_panel_toggle_button,

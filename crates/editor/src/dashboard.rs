@@ -5,9 +5,9 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 use crate::app::AppState;
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    CustomQueriesPanel, FuzzyFinder, FuzzyItem, InspectorPanel, InspectorTarget, LandingPage,
-    LandingPageAction, MetricStats, MetricsTree, QueryPane, QueryState, TagFilter, TagPath,
-    TimeRangeToolbar, inspector_toggle_button, metrics_panel_toggle_button,
+    CustomQueriesPanel, FuzzyFinder, FuzzyItem, InfoOverlay, InspectorPanel, InspectorTarget,
+    LandingPage, LandingPageAction, MetricStats, MetricsTree, QueryPane, QueryState, TagFilter,
+    TagPath, TimeRangeToolbar, inspector_toggle_button, metrics_panel_toggle_button,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -45,8 +45,6 @@ pub enum DashboardAction {
     ToggleTheme,
     /// Set a specific theme
     SetTheme(AppTheme),
-    /// Open settings
-    OpenSettings,
     /// Show help
     ShowHelp,
     /// Show a notification
@@ -125,6 +123,8 @@ pub struct Dashboard {
     last_y_press: Option<crate::util::Instant>,
     /// Tag filter for filtering queries/buffers
     tag_filter: TagFilter,
+    /// Info overlay (shows build/version info)
+    info_overlay: InfoOverlay,
 }
 
 impl Default for Dashboard {
@@ -160,6 +160,7 @@ impl Default for Dashboard {
             show_landing: true,
             last_y_press: None,
             tag_filter: TagFilter::new(),
+            info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
         }
     }
 }
@@ -215,6 +216,7 @@ impl Dashboard {
             show_landing: true, // Start with landing page
             last_y_press: None,
             tag_filter: TagFilter::new(),
+            info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
         }
     }
 
@@ -518,8 +520,8 @@ impl Dashboard {
             LandingPageAction::OpenFuzzyFinder => {
                 self.open_fuzzy_finder();
             }
-            LandingPageAction::OpenSettings => {
-                return DashboardAction::OpenSettings;
+            LandingPageAction::ShowInfo => {
+                self.info_overlay.open();
             }
             LandingPageAction::ShowHelp => {
                 return DashboardAction::ShowHelp;
@@ -540,6 +542,10 @@ impl Dashboard {
         // Show command palette modal
         self.command_palette.set_theme(app_state.theme);
         let cmd_result = self.command_palette.show(ctx);
+
+        // Show info overlay modal
+        self.info_overlay.set_theme(app_state.theme);
+        self.info_overlay.show(ctx);
 
         self.handle_command_result(cmd_result)
     }
@@ -714,7 +720,10 @@ impl Dashboard {
                 self.open_fuzzy_finder();
                 DashboardAction::None
             }
-            CommandResult::OpenSettings => DashboardAction::OpenSettings,
+            CommandResult::ShowInfo => {
+                self.info_overlay.open();
+                DashboardAction::None
+            }
             CommandResult::ShowHelp => DashboardAction::ShowHelp,
             CommandResult::CloseTab => {
                 // Close the focused tile
