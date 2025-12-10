@@ -4,6 +4,7 @@ use egui::{Color32, RichText};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// Represents a metric category/section in the tree
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -36,12 +37,12 @@ impl MetricCategory {
 
     pub fn icon(&self) -> &'static str {
         match self {
-            Self::Tokio => egui_phosphor::regular::LIGHTNING,
-            Self::Tasks => egui_phosphor::regular::LIST_CHECKS,
-            Self::DataFusion => egui_phosphor::regular::DATABASE,
-            Self::System => egui_phosphor::regular::CPU,
-            Self::Application => egui_phosphor::regular::CUBE,
-            Self::Other => egui_phosphor::regular::DOTS_THREE,
+            Self::Tokio => semantic_icons::category::TOKIO,
+            Self::Tasks => semantic_icons::category::TASKS,
+            Self::DataFusion => semantic_icons::category::DATAFUSION,
+            Self::System => semantic_icons::category::SYSTEM,
+            Self::Application => semantic_icons::category::APPLICATION,
+            Self::Other => semantic_icons::category::OTHER,
         }
     }
 
@@ -120,6 +121,11 @@ impl MetricInfo {
     /// Parent path for grouping (all but last segment)
     pub fn parent_path(&self) -> Option<&str> {
         self.name.rsplit_once('.').map(|(parent, _)| parent)
+    }
+
+    /// Get semantic icon based on metric name/type
+    pub fn icon(&self) -> &'static str {
+        semantic_icons::metric_type_icon(&self.name)
     }
 }
 
@@ -437,7 +443,7 @@ impl MetricsTree {
         // Build header text with folder icon
         let header_text = format!(
             "{} {} ({})",
-            egui_phosphor::regular::FOLDER,
+            semantic_icons::file::FOLDER,
             group_path,
             metrics.len()
         );
@@ -471,6 +477,13 @@ impl MetricsTree {
         ui.horizontal(|ui| {
             ui.add_space(32.0); // Indent for leaf items
 
+            // Semantic icon based on metric type
+            ui.label(
+                RichText::new(metric.icon())
+                    .color(text_color.gamma_multiply(0.6))
+                    .size(12.0),
+            );
+
             // Selection highlight
             let response = ui.selectable_label(
                 is_selected,
@@ -499,7 +512,7 @@ impl MetricsTree {
             // Show tag indicator if has tags
             if !metric.tags.is_empty() {
                 ui.label(
-                    RichText::new(egui_phosphor::regular::TAG)
+                    RichText::new(semantic_icons::file::TAG)
                         .color(text_color.gamma_multiply(0.4))
                         .small(),
                 );
@@ -508,7 +521,7 @@ impl MetricsTree {
             // Add chart button (visible on hover or when selected)
             if (is_selected || response.hovered())
                 && ui
-                    .small_button(egui_phosphor::regular::CHART_LINE)
+                    .small_button(semantic_icons::action::ADD_CHART)
                     .on_hover_text("Add chart")
                     .clicked()
             {
@@ -590,10 +603,7 @@ impl super::Component for MetricsTree {
     }
 
     fn label(&self) -> egui::RichText {
-        egui::RichText::new(format!(
-            "{} Metrics",
-            egui_phosphor::regular::TREE_STRUCTURE
-        ))
+        egui::RichText::new(format!("{} Metrics", semantic_icons::file::TREE))
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

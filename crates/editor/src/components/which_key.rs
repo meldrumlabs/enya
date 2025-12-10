@@ -7,6 +7,7 @@ use egui::{Color32, FontId, Key, RichText};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// A keybinding with its key and description
 #[derive(Clone)]
@@ -61,7 +62,7 @@ impl WhichKey {
         vec![
             KeybindingGroup {
                 name: "Navigation",
-                icon: egui_phosphor::regular::COMPASS,
+                icon: semantic_icons::nav::COMPASS,
                 bindings: vec![
                     Keybinding {
                         key: "h / ←",
@@ -83,7 +84,7 @@ impl WhichKey {
             },
             KeybindingGroup {
                 name: "Panes",
-                icon: egui_phosphor::regular::SQUARES_FOUR,
+                icon: semantic_icons::nav::PANES,
                 bindings: vec![
                     Keybinding {
                         key: "x",
@@ -105,7 +106,7 @@ impl WhichKey {
             },
             KeybindingGroup {
                 name: "Editor",
-                icon: egui_phosphor::regular::PENCIL_SIMPLE,
+                icon: semantic_icons::action::EDIT,
                 bindings: vec![
                     Keybinding {
                         key: "e",
@@ -119,7 +120,7 @@ impl WhichKey {
             },
             KeybindingGroup {
                 name: "View",
-                icon: egui_phosphor::regular::EYE,
+                icon: semantic_icons::mode::VIEW,
                 bindings: vec![
                     Keybinding {
                         key: "z",
@@ -137,7 +138,7 @@ impl WhichKey {
             },
             KeybindingGroup {
                 name: "Search & Commands",
-                icon: egui_phosphor::regular::MAGNIFYING_GLASS,
+                icon: semantic_icons::action::SEARCH,
                 bindings: vec![
                     Keybinding {
                         key: ":",
@@ -163,7 +164,7 @@ impl WhichKey {
             },
             KeybindingGroup {
                 name: "Chart Controls",
-                icon: egui_phosphor::regular::CHART_LINE,
+                icon: semantic_icons::action::CHART,
                 bindings: vec![
                     Keybinding {
                         key: "+ / =",
@@ -288,7 +289,7 @@ impl WhichKey {
                         ui.horizontal(|ui| {
                             ui.add_space(16.0);
                             ui.label(
-                                RichText::new(egui_phosphor::regular::KEYBOARD)
+                                RichText::new(semantic_icons::keyboard::KEYBOARD)
                                     .color(muted_text)
                                     .size(20.0),
                             );

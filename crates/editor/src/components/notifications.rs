@@ -8,6 +8,7 @@ use std::time::Duration;
 use egui::{Color32, RichText, Ui};
 
 use crate::theme::AppTheme;
+use crate::ui::semantic_icons;
 use crate::util::Instant;
 
 /// Notification severity level
@@ -27,10 +28,10 @@ impl NotificationLevel {
     /// Get the icon for this notification level
     pub fn icon(&self) -> &'static str {
         match self {
-            Self::Info => egui_phosphor::regular::INFO,
-            Self::Success => egui_phosphor::regular::CHECK_CIRCLE,
-            Self::Warn => egui_phosphor::regular::WARNING,
-            Self::Error => egui_phosphor::regular::X_CIRCLE,
+            Self::Info => semantic_icons::status::INFO,
+            Self::Success => semantic_icons::status::SUCCESS,
+            Self::Warn => semantic_icons::status::WARNING,
+            Self::Error => semantic_icons::status::ERROR,
         }
     }
 
@@ -337,7 +338,7 @@ impl NotificationManager {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let close_btn = ui.add(
                             egui::Button::new(
-                                RichText::new(egui_phosphor::regular::X)
+                                RichText::new(semantic_icons::action::CLOSE)
                                     .color(muted_color.gamma_multiply(opacity))
                                     .size(14.0),
                             )

@@ -4,6 +4,7 @@ use egui::{Color32, FontId, Key, RichText, Stroke, TextEdit, Vec2};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// Global counter for unique buffer IDs
 static NEXT_BUFFER_ID: AtomicUsize = AtomicUsize::new(1);
@@ -528,8 +529,8 @@ impl super::Component for Buffer {
 
     fn label(&self) -> egui::RichText {
         let icon = match self.mode {
-            BufferMode::Normal => egui_phosphor::regular::FILE_TEXT,
-            BufferMode::Insert => egui_phosphor::regular::PENCIL_SIMPLE,
+            BufferMode::Normal => semantic_icons::file::TEXT,
+            BufferMode::Insert => semantic_icons::action::EDIT,
         };
 
         let title = self.display_title();

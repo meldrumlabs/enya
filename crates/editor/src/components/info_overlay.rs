@@ -5,6 +5,7 @@ use enya_build_info::BuildInfo;
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// A modal overlay that displays build and version information
 pub struct InfoOverlay {
@@ -107,7 +108,7 @@ impl InfoOverlay {
                         ui.horizontal(|ui| {
                             ui.add_space(16.0);
                             ui.label(
-                                RichText::new(egui_phosphor::regular::INFO)
+                                RichText::new(semantic_icons::status::INFO)
                                     .color(muted_text)
                                     .size(20.0),
                             );

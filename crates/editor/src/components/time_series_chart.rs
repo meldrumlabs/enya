@@ -6,6 +6,7 @@ use egui_plot::{Line, LineStyle, Plot, PlotBounds, PlotPoints, VLine};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 // Re-export CommitMarker from common crate
 pub use enya_common::CommitMarker;
@@ -451,13 +452,20 @@ impl TimeSeriesChart {
         let text_color = text_color(self.theme);
 
         if self.series.is_empty() {
-            // Empty state
+            // Empty state with icon
             ui.centered_and_justified(|ui| {
-                ui.label(
-                    RichText::new("No data to display")
-                        .color(text_color.gamma_multiply(0.5))
-                        .italics(),
-                );
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(semantic_icons::empty::NO_DATA)
+                            .size(semantic_icons::SIZE_ITEM)
+                            .color(text_color.gamma_multiply(0.5)),
+                    );
+                    ui.label(
+                        RichText::new("No data to display")
+                            .color(text_color.gamma_multiply(0.5))
+                            .italics(),
+                    );
+                });
             });
             return;
         }
@@ -608,14 +616,24 @@ impl TimeSeriesChart {
                         egui::containers::Tooltip::for_widget(plot_ui.response())
                             .at_pointer()
                             .show(|ui| {
-                                ui.set_max_width(300.0);
+                                ui.set_max_width(350.0);
                                 ui.vertical(|ui| {
-                                    ui.label(
-                                        RichText::new(commit.short_hash())
-                                            .monospace()
-                                            .strong()
-                                            .color(commit_color),
-                                    );
+                                    // Header with git icon and hash
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(semantic_icons::git::COMMIT)
+                                                .size(semantic_icons::SIZE_ITEM)
+                                                .color(commit_color),
+                                        );
+                                        ui.label(
+                                            RichText::new(commit.short_hash())
+                                                .monospace()
+                                                .strong()
+                                                .color(commit_color),
+                                        );
+                                    });
+                                    ui.add_space(4.0);
+                                    // Commit message
                                     ui.label(&commit.message);
                                 });
                             });
@@ -694,11 +712,7 @@ impl super::Component for TimeSeriesChart {
     }
 
     fn label(&self) -> egui::RichText {
-        egui::RichText::new(format!(
-            "{} {}",
-            egui_phosphor::regular::CHART_LINE,
-            self.title
-        ))
+        egui::RichText::new(format!("{} {}", semantic_icons::action::CHART, self.title))
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

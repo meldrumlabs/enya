@@ -13,6 +13,7 @@ use crate::components::{
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// Toggle button for the metrics panel visibility
 fn metrics_panel_toggle_button(
@@ -21,7 +22,7 @@ fn metrics_panel_toggle_button(
     theme: AppTheme,
 ) -> egui::Response {
     let text_col = text_color(theme);
-    let icon = egui_phosphor::regular::SIDEBAR;
+    let icon = semantic_icons::nav::SIDEBAR;
 
     let button = if is_visible {
         egui::Button::new(RichText::new(icon).strong()).fill(ui.visuals().selection.bg_fill)
@@ -304,7 +305,7 @@ impl Dashboard {
                     let search_btn = egui::Button::new(
                         egui::RichText::new(format!(
                             "{}  Search...",
-                            egui_phosphor::regular::MAGNIFYING_GLASS
+                            semantic_icons::action::SEARCH
                         ))
                         .color(text_color.gamma_multiply(0.6)),
                     )
@@ -324,8 +325,7 @@ impl Dashboard {
 
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         // "Provided" section - contains the metrics tree
-                        let provided_header =
-                            format!("{} Provided", egui_phosphor::regular::PACKAGE);
+                        let provided_header = format!("{} Provided", semantic_icons::file::FOLDER);
                         let provided_header_builder = egui::CollapsingHeader::new(
                             egui::RichText::new(provided_header)
                                 .color(text_color)
@@ -355,7 +355,7 @@ impl Dashboard {
                         // "Custom" section - contains the custom queries
                         let custom_header = format!(
                             "{} Custom ({})",
-                            egui_phosphor::regular::CODE,
+                            semantic_icons::file::CODE,
                             self.custom_queries.queries().len()
                         );
                         let custom_header_builder = egui::CollapsingHeader::new(
@@ -685,7 +685,7 @@ impl Dashboard {
             let mut open = floating.open;
 
             egui::Window::new(
-                egui::RichText::new(format!("{} {}", egui_phosphor::regular::CHART_LINE, title))
+                egui::RichText::new(format!("{} {}", semantic_icons::action::CHART, title))
                     .color(text_col),
             )
             .id(egui::Id::new(format!("floating_window_{}", floating.id)))
@@ -700,7 +700,7 @@ impl Dashboard {
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
-                            .small_button(egui::RichText::new(egui_phosphor::regular::LAYOUT))
+                            .small_button(egui::RichText::new(semantic_icons::nav::GRID))
                             .on_hover_text("Dock back to tiled layout (D)")
                             .clicked()
                         {

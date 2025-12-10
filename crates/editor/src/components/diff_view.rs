@@ -5,6 +5,7 @@ use egui_plot::{Line, Plot, PlotPoints};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 use super::time_series_chart::{DataPoint, Series};
 
@@ -371,7 +372,7 @@ impl DiffView {
         // Header bar
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(format!("{} Diff Mode", egui_phosphor::regular::GIT_DIFF))
+                RichText::new(format!("{} Diff Mode", semantic_icons::git::DIFF))
                     .color(text_col)
                     .strong(),
             );
@@ -396,7 +397,7 @@ impl DiffView {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 // Close button
                 if ui
-                    .small_button(RichText::new(egui_phosphor::regular::X).size(14.0))
+                    .small_button(RichText::new(semantic_icons::action::CLOSE).size(14.0))
                     .on_hover_text("Exit diff mode (:diffoff, Escape, or X)")
                     .clicked()
                 {
@@ -407,9 +408,7 @@ impl DiffView {
 
                 // Swap button
                 if ui
-                    .small_button(
-                        RichText::new(egui_phosphor::regular::ARROWS_LEFT_RIGHT).size(14.0),
-                    )
+                    .small_button(RichText::new(semantic_icons::action::SWAP).size(14.0))
                     .on_hover_text("Swap base and compare (dx)")
                     .clicked()
                 {
@@ -645,11 +644,11 @@ impl DiffView {
                     let overall_regressed = !avg_delta.improved && !p99_delta.improved;
 
                     let status_icon = if overall_improved {
-                        egui_phosphor::regular::CHECK_CIRCLE
+                        semantic_icons::status::SUCCESS
                     } else if overall_regressed {
-                        egui_phosphor::regular::WARNING_CIRCLE
+                        semantic_icons::status::WARNING
                     } else {
-                        egui_phosphor::regular::MINUS_CIRCLE
+                        semantic_icons::diff::REMOVED
                     };
 
                     let status_color = if overall_improved {
@@ -756,7 +755,7 @@ impl super::Component for DiffView {
     fn label(&self) -> egui::RichText {
         egui::RichText::new(format!(
             "{} {} ({})",
-            egui_phosphor::regular::GIT_DIFF,
+            semantic_icons::git::DIFF,
             self.metric_name,
             self.offset.label()
         ))

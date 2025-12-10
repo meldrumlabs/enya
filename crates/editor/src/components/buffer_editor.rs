@@ -4,6 +4,7 @@ use crate::components::query_completion::{CompletionResult, QueryCompletion};
 use crate::components::query_state::QueryState;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// Result of the buffer editor modal
 #[derive(Debug, Clone)]
@@ -398,7 +399,7 @@ impl BufferEditor {
                         ui.horizontal(|ui| {
                             ui.add_space(16.0);
                             ui.label(
-                                RichText::new(egui_phosphor::regular::CODE)
+                                RichText::new(semantic_icons::file::CODE)
                                     .color(text_color(self.theme).gamma_multiply(0.6))
                                     .size(14.0),
                             );
@@ -613,7 +614,7 @@ impl BufferEditor {
                                     let save_btn = egui::Button::new(
                                         RichText::new(format!(
                                             "{} Save",
-                                            egui_phosphor::regular::FLOPPY_DISK
+                                            semantic_icons::action::SAVE
                                         ))
                                         .size(12.0),
                                     )
