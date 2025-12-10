@@ -136,7 +136,7 @@ Organize queries with hierarchical tags (e.g., `production/api/latency`).
 
 A segmented status bar at the bottom of the screen showing:
 
-- **Mode indicator**: Current mode (NORMAL, COMMAND, SEARCH, ZEN, FULLSCREEN, DIFF)
+- **Mode indicator**: Current mode (NORMAL, COMMAND, SEARCH, ZEN, FULLSCREEN, DIFF, V-MULTI)
 - **Connection status**: Server connection state
 - **Selected metric**: Currently selected metric name
 - **Viewport info**: Current layout information
@@ -178,6 +178,57 @@ Maximize a single chart pane to fill the entire viewport:
 - All other panes are temporarily hidden
 - Status line shows "FULLSCREEN" mode indicator
 
+### Visual-Block Mode (Multi-Pane Selection)
+
+Select and edit multiple panes simultaneously, inspired by Vim's visual-block mode (`Ctrl+V`) and Zed's multibuffer concept.
+
+#### Entering Visual-Block Mode
+
+Press `Ctrl+V` with a focused pane to enter visual-block mode. The status line shows "V-MULTI".
+
+#### Selection
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move cursor down and select pane |
+| `k` / `↑` | Move cursor up and select pane |
+| `h` / `←` | Move cursor left and select pane |
+| `l` / `→` | Move cursor right and select pane |
+| `Space` | Toggle selection on current pane |
+| `a` | Select all panes |
+| `n` | Deselect all panes |
+| `Escape` | Exit visual-block mode |
+
+Selected panes are highlighted with a purple tint and border.
+
+#### Multi-Edit Overlay
+
+Press `e` after selecting panes to open the multi-edit overlay:
+
+- **Stacked excerpts**: Edit each pane's query in a labeled text field
+- **Find/Replace**: Search and replace across all selected panes at once
+- **Match count**: Shows number of matches found
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Cycle through excerpts |
+| `Shift+Tab` | Cycle backwards |
+| `⌘⇧R` | Replace all matches |
+| `⌘↵` | Apply changes and close |
+| `Escape` | Cancel and close |
+
+#### Use Case Example
+
+To change `env:staging` to `env:production` across multiple query panes:
+
+1. `Ctrl+V` - Enter visual-block mode
+2. `j`/`k` - Navigate to select the panes you want to edit
+3. `e` - Open multi-edit overlay
+4. Type `env:staging` in Find field
+5. Type `env:production` in Replace field
+6. `⌘⇧R` - Replace all
+7. `⌘↵` - Apply changes
+
 ### URL Sharing
 
 Share your workspace or individual panes via URL:
@@ -206,6 +257,7 @@ crates/ui/src/
 │   ├── tags.rs              # Hierarchical tagging system
 │   ├── custom_queries.rs    # Saved queries with tags
 │   ├── diff_view.rs         # Side-by-side time period comparison
+│   ├── multi_edit.rs        # Multi-pane editing overlay
 │   ├── time_range.rs        # Time range selection toolbar
 │   └── time_series_chart.rs # Chart rendering component
 └── theme.rs            # Light/dark theme definitions

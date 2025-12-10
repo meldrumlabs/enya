@@ -7,9 +7,10 @@ use egui::RichText;
 
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    CustomQueriesPanel, DiffOffset, DiffView, DiffViewAction, InfoOverlay, LandingPage,
-    LandingPageAction, MetricItem, MetricsFinder, MetricsTree, QueryFinder, QueryItem, QueryPane,
-    QueryState, TagFilter, TagPath, TimeRangeToolbar, WhichKey,
+    CustomQueriesPanel, DiffOffset, DiffView, DiffViewAction, EditExcerpt, InfoOverlay,
+    LandingPage, LandingPageAction, MetricItem, MetricsFinder, MetricsTree, MultiEditOverlay,
+    MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState, TagFilter, TagPath,
+    TimeRangeToolbar, WhichKey,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -162,6 +163,10 @@ pub struct Dashboard {
     viewport_content_height: f32,
     /// Visible height of the viewport
     viewport_visible_height: f32,
+    /// Visual multi-select mode state (None = not in visual-multi mode)
+    visual_multi_state: Option<VisualMultiState>,
+    /// Multi-edit overlay for editing multiple panes simultaneously
+    multi_edit_overlay: MultiEditOverlay,
 }
 
 impl Default for Dashboard {
@@ -204,6 +209,8 @@ impl Default for Dashboard {
             viewport_scroll_target: 0.0,
             viewport_content_height: 0.0,
             viewport_visible_height: 0.0,
+            visual_multi_state: None,
+            multi_edit_overlay: MultiEditOverlay::new(),
         }
     }
 }
@@ -215,6 +222,64 @@ enum NavDirection {
     Right,
     Up,
     Down,
+}
+
+/// State for visual multi-select mode
+/// Allows selecting multiple panes for batch operations (e.g., find & replace across queries)
+#[derive(Debug, Clone, Default)]
+pub struct VisualMultiState {
+    /// The panes that are currently selected
+    pub selected_tile_ids: HashSet<TileId>,
+    /// The pane that currently has the cursor (for j/k navigation)
+    pub cursor_tile_id: Option<TileId>,
+}
+
+impl VisualMultiState {
+    /// Create a new visual multi state with the given starting pane
+    pub fn new(starting_tile_id: TileId) -> Self {
+        let mut selected = HashSet::new();
+        selected.insert(starting_tile_id);
+        Self {
+            selected_tile_ids: selected,
+            cursor_tile_id: Some(starting_tile_id),
+        }
+    }
+
+    /// Toggle selection of a pane
+    pub fn toggle_selection(&mut self, tile_id: TileId) {
+        if self.selected_tile_ids.contains(&tile_id) {
+            self.selected_tile_ids.remove(&tile_id);
+        } else {
+            self.selected_tile_ids.insert(tile_id);
+        }
+    }
+
+    /// Check if a pane is selected
+    pub fn is_selected(&self, tile_id: TileId) -> bool {
+        self.selected_tile_ids.contains(&tile_id)
+    }
+
+    /// Get the number of selected panes
+    pub fn selection_count(&self) -> usize {
+        self.selected_tile_ids.len()
+    }
+
+    /// Move cursor to a new pane
+    pub fn set_cursor(&mut self, tile_id: TileId) {
+        self.cursor_tile_id = Some(tile_id);
+    }
+
+    /// Select all given panes
+    pub fn select_all(&mut self, tile_ids: &[TileId]) {
+        for &tile_id in tile_ids {
+            self.selected_tile_ids.insert(tile_id);
+        }
+    }
+
+    /// Clear all selections
+    pub fn clear_selection(&mut self) {
+        self.selected_tile_ids.clear();
+    }
 }
 
 impl Dashboard {
@@ -266,6 +331,8 @@ impl Dashboard {
             viewport_scroll_target: 0.0,
             viewport_content_height: 0.0,
             viewport_visible_height: 0.0,
+            visual_multi_state: None,
+            multi_edit_overlay: MultiEditOverlay::new(),
         }
     }
 
@@ -278,6 +345,14 @@ impl Dashboard {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
+
+        // Sync visual-multi state to behavior for rendering
+        let (is_visual_multi, selected_ids) = match &self.visual_multi_state {
+            Some(state) => (true, state.selected_tile_ids.clone()),
+            None => (false, HashSet::new()),
+        };
+        self.behavior
+            .set_visual_multi_state(is_visual_multi, selected_ids);
 
         // Update component themes
         self.metrics_tree.set_theme(app_state.theme);
@@ -589,6 +664,15 @@ impl Dashboard {
                 self.editing_tile_id = None;
             }
             BufferEditorResult::None => {}
+        }
+
+        // Show multi-edit overlay
+        self.multi_edit_overlay.set_theme(app_state.theme);
+        match self.multi_edit_overlay.show(ctx) {
+            MultiEditResult::Applied(changes) => {
+                self.apply_multi_edit_changes(changes);
+            }
+            MultiEditResult::Cancelled | MultiEditResult::None => {}
         }
 
         // Show floating windows
@@ -1764,10 +1848,11 @@ impl Dashboard {
             return None;
         }
 
-        // Don't handle if fuzzy finder, command palette, buffer editor, or which-key is open
+        // Don't handle if fuzzy finder, command palette, buffer editor, multi-edit, or which-key is open
         if self.metrics_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
+            || self.multi_edit_overlay.is_open()
             || self.which_key.is_open()
         {
             return None;
@@ -1793,6 +1878,11 @@ impl Dashboard {
             return None;
         }
 
+        // Handle visual-multi mode keyboard shortcuts
+        if self.visual_multi_state.is_some() {
+            return self.handle_visual_multi_keyboard(ctx);
+        }
+
         // Check if any buffer is in insert mode - if so, don't handle navigation keys
         if self.is_any_buffer_in_insert_mode() {
             return None;
@@ -1811,6 +1901,7 @@ impl Dashboard {
         let mut should_dock_all = false;
         let mut should_share_pane = false;
         let mut should_open_which_key = false;
+        let mut should_enter_visual_multi = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -1860,6 +1951,13 @@ impl Dashboard {
             // D - dock all floating windows
             if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                 should_dock_all = true;
+                consumed = true;
+                return;
+            }
+
+            // Ctrl+V - enter visual-block (multi-select) mode (requires a focused pane)
+            if input.consume_key(egui::Modifiers::CTRL, egui::Key::V) && current_focus.is_some() {
+                should_enter_visual_multi = true;
                 consumed = true;
                 return;
             }
@@ -1950,6 +2048,10 @@ impl Dashboard {
 
         if should_open_which_key {
             self.which_key.open();
+        } else if should_enter_visual_multi {
+            if let Some(tile_id) = current_focus {
+                self.enter_visual_multi_mode(tile_id);
+            }
         } else if should_edit_buffer {
             self.edit_focused_buffer();
         } else if should_toggle_zen {
@@ -2011,6 +2113,279 @@ impl Dashboard {
             }
         }
         false
+    }
+
+    // =========================================================================
+    // Visual Multi-Select Mode
+    // =========================================================================
+
+    /// Check if we're in visual-multi mode
+    pub fn is_visual_multi_mode(&self) -> bool {
+        self.visual_multi_state.is_some()
+    }
+
+    /// Get the number of selected panes in visual-multi mode
+    pub fn visual_multi_selection_count(&self) -> usize {
+        self.visual_multi_state
+            .as_ref()
+            .map(|s| s.selection_count())
+            .unwrap_or(0)
+    }
+
+    /// Enter visual-multi mode starting from the given pane
+    fn enter_visual_multi_mode(&mut self, starting_tile_id: TileId) {
+        log::debug!("Entering visual-multi mode with tile {starting_tile_id:?}");
+        self.visual_multi_state = Some(VisualMultiState::new(starting_tile_id));
+        // Sync the cursor to the behavior so the focus border is drawn
+        self.behavior.set_focused_tile(Some(starting_tile_id));
+    }
+
+    /// Exit visual-multi mode
+    fn exit_visual_multi_mode(&mut self) {
+        log::debug!("Exiting visual-multi mode");
+        self.visual_multi_state = None;
+    }
+
+    /// Handle keyboard input while in visual-multi mode
+    fn handle_visual_multi_keyboard(&mut self, ctx: &egui::Context) -> Option<DashboardAction> {
+        let pane_ids = self.get_pane_tile_ids();
+
+        // Get current cursor position from visual-multi state
+        let cursor_tile_id = self
+            .visual_multi_state
+            .as_ref()
+            .and_then(|s| s.cursor_tile_id);
+
+        let mut consumed = false;
+        let mut should_exit = false;
+        let mut should_toggle_selection = false;
+        let mut should_select_all = false;
+        let mut should_clear_selection = false;
+        let mut should_open_multi_edit = false;
+        let mut new_cursor_id: Option<TileId> = None;
+
+        ctx.input_mut(|input| {
+            // Escape - exit visual-multi mode
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                should_exit = true;
+                consumed = true;
+                return;
+            }
+
+            // e - open multi-edit overlay for selected panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
+                should_open_multi_edit = true;
+                consumed = true;
+                return;
+            }
+
+            // Space - toggle selection on current pane
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                should_toggle_selection = true;
+                consumed = true;
+                return;
+            }
+
+            // a - select all panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                should_select_all = true;
+                consumed = true;
+                return;
+            }
+
+            // n - clear all selections (select none)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
+                should_clear_selection = true;
+                consumed = true;
+                return;
+            }
+
+            // j or down arrow - move cursor down
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+            {
+                if let Some(current_id) = cursor_tile_id {
+                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
+                } else {
+                    new_cursor_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // k or up arrow - move cursor up
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+            {
+                if let Some(current_id) = cursor_tile_id {
+                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
+                } else {
+                    new_cursor_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // h or left arrow - move cursor left
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+            {
+                if let Some(current_id) = cursor_tile_id {
+                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
+                } else {
+                    new_cursor_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // l or right arrow - move cursor right
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+            {
+                if let Some(current_id) = cursor_tile_id {
+                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
+                } else {
+                    new_cursor_id = pane_ids.first().copied();
+                }
+                consumed = true;
+            }
+        });
+
+        // Apply actions
+        if should_exit {
+            self.exit_visual_multi_mode();
+        } else if should_open_multi_edit {
+            self.open_multi_edit_for_selected();
+        } else if should_toggle_selection {
+            if let (Some(state), Some(tile_id)) = (self.visual_multi_state.as_mut(), cursor_tile_id)
+            {
+                state.toggle_selection(tile_id);
+            }
+        } else if should_select_all {
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                state.select_all(&pane_ids);
+            }
+        } else if should_clear_selection {
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                state.clear_selection();
+            }
+        } else if let Some(tile_id) = new_cursor_id {
+            // Move cursor to the new pane and select it (visual-line style)
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                state.set_cursor(tile_id);
+                // Auto-select the pane when navigating to it
+                state.selected_tile_ids.insert(tile_id);
+            }
+            // Also update the behavior's focused tile to show the focus border
+            self.behavior.set_focused_tile(Some(tile_id));
+            self.activate_tile(tile_id);
+            self.scroll_to_focused_tile(ctx);
+        }
+
+        if consumed {
+            ctx.request_repaint();
+            log::debug!(
+                "Visual-multi mode: cursor is now {:?}, {} selected",
+                self.visual_multi_state
+                    .as_ref()
+                    .and_then(|s| s.cursor_tile_id),
+                self.visual_multi_selection_count()
+            );
+        }
+
+        None
+    }
+
+    /// Open the multi-edit overlay for all selected panes in visual-multi mode
+    fn open_multi_edit_for_selected(&mut self) {
+        let selected_ids: Vec<TileId> = self
+            .visual_multi_state
+            .as_ref()
+            .map(|s| s.selected_tile_ids.iter().copied().collect())
+            .unwrap_or_default();
+
+        if selected_ids.is_empty() {
+            log::debug!("No panes selected for multi-edit");
+            return;
+        }
+
+        // Collect excerpts from selected panes
+        let mut excerpts = Vec::new();
+        for tile_id in selected_ids {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                // Try to get query content from QueryPane
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    excerpts.push(EditExcerpt::new(
+                        query_pane.id(),
+                        query_pane.name().to_string(),
+                        query_pane.query().to_string(),
+                    ));
+                }
+                // Try to get content from Buffer
+                else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                    excerpts.push(EditExcerpt::new(
+                        buffer.id(),
+                        buffer.name().to_string(),
+                        buffer.content().to_string(),
+                    ));
+                }
+            }
+        }
+
+        if excerpts.is_empty() {
+            log::debug!("No query panes found in selection");
+            return;
+        }
+
+        log::debug!("Opening multi-edit with {} excerpts", excerpts.len());
+        self.multi_edit_overlay.open(excerpts);
+
+        // Exit visual-multi mode when opening the overlay
+        self.exit_visual_multi_mode();
+    }
+
+    /// Check if multi-edit overlay is open
+    pub fn is_multi_edit_open(&self) -> bool {
+        self.multi_edit_overlay.is_open()
+    }
+
+    /// Apply changes from multi-edit back to source panes
+    fn apply_multi_edit_changes(&mut self, changes: Vec<(usize, String)>) {
+        for (source_id, new_content) in changes {
+            // Find the pane with this source_id and update its content
+            for tile_id in self.get_pane_tile_ids() {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get_mut(tile_id)
+                {
+                    // Try QueryPane
+                    if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                        if query_pane.id() == source_id {
+                            query_pane.set_query_and_save(&new_content);
+                            log::debug!(
+                                "Applied multi-edit change to QueryPane {} ({})",
+                                source_id,
+                                query_pane.name()
+                            );
+                            break;
+                        }
+                    }
+                    // Try Buffer
+                    else if let Some(buffer) = component.as_any_mut().downcast_mut::<Buffer>() {
+                        if buffer.id() == source_id {
+                            buffer.set_content(&new_content);
+                            buffer.save();
+                            log::debug!(
+                                "Applied multi-edit change to Buffer {} ({})",
+                                source_id,
+                                buffer.name()
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Activate a tile (make it the active tab in its parent container)
@@ -2303,6 +2678,10 @@ struct TreeBehavior {
     add_child_to: Option<egui_tiles::TileId>,
     /// Currently focused tile for vim-style navigation
     focused_tile_id: Option<egui_tiles::TileId>,
+    /// Selected tiles in visual-multi mode (empty when not in visual-multi mode)
+    selected_tile_ids: HashSet<egui_tiles::TileId>,
+    /// Whether we're currently in visual-multi mode
+    is_visual_multi_mode: bool,
     theme: AppTheme,
     api_key: String,
 }
@@ -2319,6 +2698,14 @@ impl TreeBehavior {
     }
     pub fn focused_tile(&self) -> Option<egui_tiles::TileId> {
         self.focused_tile_id
+    }
+    pub fn set_visual_multi_state(
+        &mut self,
+        is_active: bool,
+        selected_ids: HashSet<egui_tiles::TileId>,
+    ) {
+        self.is_visual_multi_mode = is_active;
+        self.selected_tile_ids = selected_ids;
     }
 }
 
@@ -2353,12 +2740,50 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         tile_id: egui_tiles::TileId,
         rect: egui::Rect,
     ) {
+        let is_focused = self.focused_tile_id == Some(tile_id);
+        let is_selected = self.is_visual_multi_mode && self.selected_tile_ids.contains(&tile_id);
+
+        // In visual-multi mode, draw selection indicator for selected panes
+        if is_selected {
+            // Magenta/purple selection color to match V-MULTI status line color
+            let selection_color = match self.theme {
+                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(180, 100, 180, 60),
+                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(220, 140, 220, 50),
+            };
+
+            // Fill the entire tile with a subtle selection tint
+            painter.rect_filled(rect, 4.0, selection_color);
+
+            // Draw selection border
+            let border_color = match self.theme {
+                AppTheme::Light => egui::Color32::from_rgb(180, 100, 180),
+                AppTheme::Dark => egui::Color32::from_rgb(220, 140, 220),
+            };
+            let border_width = 2.0;
+            let inset_rect = rect.shrink(border_width / 2.0);
+            painter.rect_stroke(
+                inset_rect,
+                4.0,
+                egui::Stroke::new(border_width, border_color),
+                egui::StrokeKind::Outside,
+            );
+        }
+
         // Draw focus border on top of the entire tile (including tab bar)
-        if self.focused_tile_id == Some(tile_id) {
+        // This shows which pane has the cursor in visual-multi mode
+        if is_focused {
             // White/gray focus color to match Enya's color scheme
-            let focus_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgb(120, 120, 130),
-                AppTheme::Dark => egui::Color32::from_rgb(200, 200, 210),
+            // Use brighter color in visual-multi mode to distinguish cursor from selection
+            let focus_color = if self.is_visual_multi_mode {
+                match self.theme {
+                    AppTheme::Light => egui::Color32::from_rgb(100, 100, 110),
+                    AppTheme::Dark => egui::Color32::from_rgb(255, 255, 255),
+                }
+            } else {
+                match self.theme {
+                    AppTheme::Light => egui::Color32::from_rgb(120, 120, 130),
+                    AppTheme::Dark => egui::Color32::from_rgb(200, 200, 210),
+                }
             };
 
             // Shrink the rect inward so the border stroke is fully visible

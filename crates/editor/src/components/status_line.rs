@@ -144,6 +144,8 @@ pub enum StatusMode {
     Fullscreen,
     /// Diff mode (comparing time periods)
     Diff,
+    /// Visual multi-select mode (selecting multiple panes)
+    VisualMulti,
 }
 
 impl StatusMode {
@@ -157,6 +159,7 @@ impl StatusMode {
             Self::Zen => "ZEN",
             Self::Fullscreen => "FULLSCREEN",
             Self::Diff => "DIFF",
+            Self::VisualMulti => "V-MULTI",
         }
     }
 
@@ -192,6 +195,10 @@ impl StatusMode {
                 AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue
                 AppTheme::Dark => Color32::from_rgb(96, 165, 250),  // Bright blue
             },
+            Self::VisualMulti => match theme {
+                AppTheme::Light => Color32::from_rgb(180, 100, 180), // Purple/magenta
+                AppTheme::Dark => Color32::from_rgb(220, 140, 220),  // Bright magenta
+            },
         }
     }
 
@@ -207,7 +214,7 @@ impl StatusMode {
                 AppTheme::Dark => Color32::from_rgb(40, 44, 52),
             },
             // Purple/cyan backgrounds - use dark text for contrast
-            Self::Zen | Self::Fullscreen => Color32::from_rgb(40, 44, 52),
+            Self::Zen | Self::Fullscreen | Self::VisualMulti => Color32::from_rgb(40, 44, 52),
             // Blue backgrounds - use white text
             Self::Diff => Color32::from_rgb(255, 255, 255),
         }
