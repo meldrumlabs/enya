@@ -204,6 +204,8 @@ impl EnyaApp {
                         StatusMode::Command
                     } else if dashboard.is_metrics_finder_open() {
                         StatusMode::Search
+                    } else if dashboard.is_visual_multi_mode() {
+                        StatusMode::VisualMulti
                     } else if dashboard.is_fullscreen() {
                         StatusMode::Fullscreen
                     } else if dashboard.is_zen_mode() {
