@@ -861,9 +861,12 @@ impl QueryFinder {
                                     .height(chart_height - 30.0);
 
                                 plot.show(ui, |plot_ui| {
+                                    // PlanetScale-style: thin line with soft gradient fill
                                     let line = Line::new("preview", points)
                                         .color(line_color)
-                                        .stroke(Stroke::new(2.0, line_color));
+                                        .stroke(Stroke::new(1.5, line_color))
+                                        .fill(0.0)
+                                        .fill_alpha(0.15);
                                     plot_ui.line(line);
                                 });
                             }

@@ -143,10 +143,11 @@ pub fn generate_demo_preview_data(item_name: &str) -> Vec<DataPoint> {
 }
 
 /// Get the chart line color for the given theme
+/// Uses the modern, muted PlanetScale-style palette
 pub fn chart_color(theme: AppTheme) -> Color32 {
     match theme {
-        AppTheme::Light => Color32::from_rgb(59, 130, 246),
-        AppTheme::Dark => Color32::from_rgb(97, 175, 239),
+        AppTheme::Light => Color32::from_rgb(99, 179, 237), // Soft sky blue
+        AppTheme::Dark => Color32::from_rgb(99, 179, 237),  // Soft sky blue
     }
 }
 
