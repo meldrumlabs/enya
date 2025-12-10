@@ -2574,6 +2574,13 @@ dependencies = [
 name = "enya"
 version = "0.1.0"
 dependencies = [
+ "enya-agent",
+]
+
+[[package]]
+name = "enya-agent"
+version = "0.1.0"
+dependencies = [
  "axum",
  "axum-test",
  "chrono",
