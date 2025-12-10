@@ -9,6 +9,7 @@ use nucleo_matcher::{
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 use super::finder_utils::{
     FinderColors, FinderKeyboardInput, chart_color, create_highlighted_text,
@@ -309,7 +310,7 @@ impl QueryFinder {
                         ui.horizontal(|ui| {
                             ui.add_space(12.0);
                             ui.label(
-                                RichText::new(egui_phosphor::regular::CODE)
+                                RichText::new(semantic_icons::file::CODE)
                                     .color(text_color(self.theme).gamma_multiply(0.6))
                                     .size(18.0),
                             );
@@ -483,7 +484,7 @@ impl QueryFinder {
 
         // Icon
         let icon_galley = ui.painter().layout_no_wrap(
-            egui_phosphor::regular::CODE.to_string(),
+            semantic_icons::file::CODE.to_string(),
             FontId::proportional(14.0),
             text_col.gamma_multiply(0.6),
         );
@@ -732,7 +733,7 @@ impl QueryFinder {
                     // Header with item info
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new(egui_phosphor::regular::CODE)
+                            RichText::new(semantic_icons::file::CODE)
                                 .color(text_col)
                                 .size(16.0),
                         );

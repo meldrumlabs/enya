@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 use egui::{Color32, Layout, Ui};
 
 use crate::theme::AppTheme;
+use crate::ui::semantic_icons;
 
 /// Unicode block characters for sparkline rendering (1/8 to 8/8 height)
 const SPARKLINE_BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -262,6 +263,8 @@ pub struct StatusLine {
     viewport_info: Option<String>,
     /// Optional sparkline to display in the status bar
     sparkline: Option<Sparkline>,
+    /// Timestamp of last data refresh (for relative time display)
+    last_refresh: Option<std::time::Instant>,
 }
 
 impl Default for StatusLine {
@@ -275,6 +278,7 @@ impl Default for StatusLine {
             branch_info: None,
             viewport_info: None,
             sparkline: None,
+            last_refresh: None,
         }
     }
 }
@@ -323,6 +327,30 @@ impl StatusLine {
     /// Set a sparkline to display in the status bar
     pub fn set_sparkline(&mut self, sparkline: Option<Sparkline>) {
         self.sparkline = sparkline;
+    }
+
+    /// Mark the last refresh time (call when data is updated)
+    pub fn mark_refresh(&mut self) {
+        self.last_refresh = Some(std::time::Instant::now());
+    }
+
+    /// Format the relative time since last refresh
+    fn format_relative_time(&self) -> Option<String> {
+        let elapsed = self.last_refresh?.elapsed();
+        let secs = elapsed.as_secs();
+
+        let result = if secs < 5 {
+            "just now".to_string()
+        } else if secs < 60 {
+            format!("{secs}s ago")
+        } else if secs < 3600 {
+            let mins = secs / 60;
+            format!("{mins}m ago")
+        } else {
+            let hours = secs / 3600;
+            format!("{hours}h ago")
+        };
+        Some(result)
     }
 
     /// Get the background color for segments based on theme
@@ -379,7 +407,7 @@ impl StatusLine {
         self.render_segment(
             ui,
             self.mode.label(),
-            Some(egui_phosphor::regular::COMMAND),
+            Some(semantic_icons::mode::COMMAND),
             mode_color,
             mode_text_color,
             height,
@@ -389,10 +417,13 @@ impl StatusLine {
 
         // Git branch / project info (if available)
         if let Some(ref branch) = self.branch_info {
+            // Separator
+            self.render_separator(ui, height);
+
             self.render_segment(
                 ui,
                 branch,
-                Some(egui_phosphor::regular::GIT_BRANCH),
+                Some(semantic_icons::git::BRANCH),
                 self.segment_bg(),
                 self.segment_fg(),
                 height,
@@ -403,6 +434,9 @@ impl StatusLine {
 
         // Selected metric
         if let Some(ref metric) = self.selected_metric {
+            // Separator
+            self.render_separator(ui, height);
+
             // Truncate long metric names
             let display_name = if metric.len() > 30 {
                 format!("{}...", &metric[..27])
@@ -412,7 +446,7 @@ impl StatusLine {
             self.render_segment(
                 ui,
                 &display_name,
-                Some(egui_phosphor::regular::CHART_LINE_UP),
+                Some(semantic_icons::action::CHART),
                 self.segment_bg_secondary(),
                 self.segment_fg(),
                 height,
@@ -423,7 +457,28 @@ impl StatusLine {
 
         // Sparkline with current value
         if let Some(ref sparkline) = self.sparkline {
+            // Separator
+            self.render_separator(ui, height);
+
             self.render_sparkline_segment(ui, sparkline, height, padding);
+        }
+    }
+
+    /// Render a subtle separator between segments (left-to-right)
+    fn render_separator(&self, ui: &mut Ui, height: f32) {
+        let separator_width = 16.0;
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
+
+        if ui.is_rect_visible(rect) {
+            let sep_color = self.segment_fg().gamma_multiply(0.3);
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                semantic_icons::statusline::SEPARATOR,
+                egui::FontId::proportional(semantic_icons::SIZE_INLINE),
+                sep_color,
+            );
         }
     }
 
@@ -443,7 +498,7 @@ impl StatusLine {
             self.render_segment_rtl(
                 ui,
                 &position_text,
-                Some(egui_phosphor::regular::TABS),
+                Some(semantic_icons::nav::TABS),
                 self.mode.color(self.theme),
                 self.mode.text_color(self.theme),
                 height,
@@ -451,30 +506,53 @@ impl StatusLine {
                 true,
             );
 
+            // Separator
+            self.render_separator_rtl(ui, height);
+
             // Viewport info (e.g., pane layout)
             if let Some(ref viewport) = self.viewport_info {
                 self.render_segment_rtl(
                     ui,
                     viewport,
-                    Some(egui_phosphor::regular::SQUARES_FOUR),
+                    Some(semantic_icons::nav::GRID),
                     self.segment_bg(),
                     self.segment_fg(),
                     height,
                     padding,
                     false,
                 );
+
+                // Separator
+                self.render_separator_rtl(ui, height);
+            }
+
+            // Last refresh time
+            if let Some(ref relative_time) = self.format_relative_time() {
+                self.render_segment_rtl(
+                    ui,
+                    relative_time,
+                    Some(semantic_icons::statusline::CLOCK),
+                    self.segment_bg(),
+                    self.segment_fg(),
+                    height,
+                    padding,
+                    false,
+                );
+
+                // Separator
+                self.render_separator_rtl(ui, height);
             }
 
             // Connection status
             let (conn_icon, conn_text, conn_color) = if self.is_connected {
                 (
-                    egui_phosphor::regular::WIFI_HIGH,
+                    semantic_icons::status::CONNECTED,
                     "CONNECTED",
                     Color32::from_rgb(152, 195, 121), // Green
                 )
             } else {
                 (
-                    egui_phosphor::regular::WIFI_SLASH,
+                    semantic_icons::status::DISCONNECTED,
                     "OFFLINE",
                     Color32::from_rgb(224, 108, 117), // Red
                 )
@@ -490,6 +568,24 @@ impl StatusLine {
                 false,
             );
         });
+    }
+
+    /// Render a subtle separator between segments (right-to-left)
+    fn render_separator_rtl(&self, ui: &mut Ui, height: f32) {
+        let separator_width = 16.0;
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
+
+        if ui.is_rect_visible(rect) {
+            let sep_color = self.segment_fg().gamma_multiply(0.3);
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                semantic_icons::statusline::SEPARATOR,
+                egui::FontId::proportional(semantic_icons::SIZE_INLINE),
+                sep_color,
+            );
+        }
     }
 
     /// Render a single segment (left-to-right)

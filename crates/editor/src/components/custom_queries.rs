@@ -2,6 +2,7 @@ use egui::{Color32, RichText};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// A user-defined custom query
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -269,7 +270,7 @@ impl CustomQueriesPanel {
             if ui
                 .button(RichText::new(format!(
                     "{} New Query",
-                    egui_phosphor::regular::PLUS
+                    semantic_icons::action::ADD
                 )))
                 .clicked()
             {
@@ -353,7 +354,7 @@ impl CustomQueriesPanel {
                 ui.horizontal(|ui| {
                     if ui
                         .button(
-                            RichText::new(format!("{} Save", egui_phosphor::regular::CHECK))
+                            RichText::new(format!("{} Save", semantic_icons::action::CONFIRM))
                                 .color(egui::Color32::from_rgb(34, 197, 94)),
                         )
                         .clicked()
@@ -370,7 +371,7 @@ impl CustomQueriesPanel {
 
                     if ui
                         .button(
-                            RichText::new(format!("{} Cancel", egui_phosphor::regular::X))
+                            RichText::new(format!("{} Cancel", semantic_icons::action::CANCEL))
                                 .color(text_color.gamma_multiply(0.7)),
                         )
                         .clicked()
@@ -405,7 +406,7 @@ impl CustomQueriesPanel {
 
                 // Query icon
                 ui.label(
-                    RichText::new(egui_phosphor::regular::TERMINAL)
+                    RichText::new(semantic_icons::mode::COMMAND)
                         .color(text_color.gamma_multiply(0.6)),
                 );
 
@@ -430,7 +431,7 @@ impl CustomQueriesPanel {
                 if is_selected || is_hovered {
                     // Open as chart
                     if ui
-                        .small_button(egui_phosphor::regular::CHART_LINE)
+                        .small_button(semantic_icons::action::CHART)
                         .on_hover_text("Open as chart")
                         .clicked()
                     {
@@ -439,7 +440,7 @@ impl CustomQueriesPanel {
 
                     // Edit
                     if ui
-                        .small_button(egui_phosphor::regular::PENCIL)
+                        .small_button(semantic_icons::action::EDIT)
                         .on_hover_text("Edit query")
                         .clicked()
                     {
@@ -449,7 +450,7 @@ impl CustomQueriesPanel {
                     // Delete
                     if ui
                         .small_button(
-                            RichText::new(egui_phosphor::regular::TRASH)
+                            RichText::new(semantic_icons::action::DELETE)
                                 .color(egui::Color32::from_rgb(239, 68, 68)),
                         )
                         .on_hover_text("Delete query")
@@ -557,7 +558,7 @@ impl CustomQueriesPanel {
             ui.add_space(24.0);
             if ui
                 .button(
-                    RichText::new(format!("{} Save", egui_phosphor::regular::CHECK))
+                    RichText::new(format!("{} Save", semantic_icons::action::CONFIRM))
                         .color(egui::Color32::from_rgb(34, 197, 94)),
                 )
                 .clicked()
@@ -567,7 +568,7 @@ impl CustomQueriesPanel {
 
             if ui
                 .button(
-                    RichText::new(format!("{} Cancel", egui_phosphor::regular::X))
+                    RichText::new(format!("{} Cancel", semantic_icons::action::CANCEL))
                         .color(text_color.gamma_multiply(0.7)),
                 )
                 .clicked()

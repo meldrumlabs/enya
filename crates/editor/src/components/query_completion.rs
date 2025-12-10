@@ -7,6 +7,7 @@ use enya_lang::completion::{Context, analyze, syntax_suggestions};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// A suggestion item for the completion popup
 #[derive(Debug, Clone)]
@@ -46,10 +47,10 @@ impl CompletionKind {
 
     fn icon(self) -> &'static str {
         match self {
-            Self::Keyword => egui_phosphor::regular::TEXT_AA,
-            Self::Operator => egui_phosphor::regular::BRACKETS_CURLY,
-            Self::TagKey => egui_phosphor::regular::TAG,
-            Self::TagValue => egui_phosphor::regular::HASH,
+            Self::Keyword => semantic_icons::completion::KEYWORD,
+            Self::Operator => semantic_icons::completion::OPERATOR,
+            Self::TagKey => semantic_icons::completion::TAG_KEY,
+            Self::TagValue => semantic_icons::completion::TAG_VALUE,
         }
     }
 }

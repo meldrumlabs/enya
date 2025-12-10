@@ -7,6 +7,7 @@ use crate::components::query_state::QueryState;
 use crate::components::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// Global counter for unique pane IDs
 static NEXT_PANE_ID: AtomicUsize = AtomicUsize::new(1000);
@@ -317,9 +318,9 @@ impl QueryPane {
             ui.horizontal(|ui| {
                 // Toggle button for buffer visibility
                 let toggle_icon = if self.buffer_expanded {
-                    egui_phosphor::regular::CARET_DOWN
+                    semantic_icons::nav::EXPAND
                 } else {
-                    egui_phosphor::regular::CARET_RIGHT
+                    semantic_icons::nav::COLLAPSE
                 };
 
                 let toggle_btn = egui::Button::new(
@@ -374,9 +375,7 @@ impl QueryPane {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Edit button
                     if ui
-                        .small_button(
-                            RichText::new(egui_phosphor::regular::PENCIL_SIMPLE).size(12.0),
-                        )
+                        .small_button(RichText::new(semantic_icons::action::EDIT).size(12.0))
                         .on_hover_text("Edit query (e)")
                         .clicked()
                     {
@@ -452,8 +451,8 @@ impl super::Component for QueryPane {
 
     fn label(&self) -> egui::RichText {
         let icon = match self.buffer.mode() {
-            BufferMode::Normal => egui_phosphor::regular::CHART_LINE,
-            BufferMode::Insert => egui_phosphor::regular::PENCIL_SIMPLE,
+            BufferMode::Normal => semantic_icons::action::CHART,
+            BufferMode::Insert => semantic_icons::action::EDIT,
         };
 
         let title = self.buffer.display_title();

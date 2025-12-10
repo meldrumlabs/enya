@@ -4,6 +4,7 @@ use egui::RichText;
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// Predefined time range presets
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -244,12 +245,12 @@ impl TimeRangeToolbar {
             // Custom range button (future: opens a date picker)
             let custom_button = if self.time_range.preset == TimeRangePreset::Custom {
                 egui::Button::new(
-                    RichText::new(format!("{} Custom", egui_phosphor::regular::CALENDAR)).strong(),
+                    RichText::new(format!("{} Custom", semantic_icons::time::CALENDAR)).strong(),
                 )
                 .fill(ui.visuals().selection.bg_fill)
             } else {
                 egui::Button::new(
-                    RichText::new(format!("{} Custom", egui_phosphor::regular::CALENDAR))
+                    RichText::new(format!("{} Custom", semantic_icons::time::CALENDAR))
                         .color(text_color.gamma_multiply(0.7)),
                 )
             };
@@ -266,7 +267,7 @@ impl TimeRangeToolbar {
             ui.separator();
 
             // Auto-refresh toggle
-            let refresh_icon = egui_phosphor::regular::ARROWS_CLOCKWISE;
+            let refresh_icon = semantic_icons::action::REFRESH;
 
             let auto_button = if self.auto_refresh {
                 egui::Button::new(RichText::new(refresh_icon).strong())
@@ -289,7 +290,7 @@ impl TimeRangeToolbar {
 
             // Manual refresh button
             if ui
-                .button(RichText::new(egui_phosphor::regular::ARROW_CLOCKWISE).color(text_color))
+                .button(RichText::new(semantic_icons::action::RELOAD).color(text_color))
                 .on_hover_text("Refresh now")
                 .clicked()
             {

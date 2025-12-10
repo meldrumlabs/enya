@@ -10,6 +10,7 @@ use nucleo_matcher::{
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 use super::finder_utils::{
     FinderColors, FinderKeyboardInput, create_highlighted_text, render_keyboard_hints,
@@ -43,9 +44,9 @@ impl MetricItem {
         &self.category
     }
 
-    /// Get the icon for metrics
+    /// Get the icon for this metric based on its name/type
     pub fn icon(&self) -> &'static str {
-        egui_phosphor::regular::CHART_LINE
+        semantic_icons::metric_type_icon(&self.name)
     }
 }
 
@@ -268,7 +269,7 @@ impl MetricsFinder {
                         ui.horizontal(|ui| {
                             ui.add_space(12.0);
                             ui.label(
-                                RichText::new(egui_phosphor::regular::MAGNIFYING_GLASS)
+                                RichText::new(semantic_icons::action::SEARCH)
                                     .color(text_color(self.theme).gamma_multiply(0.6))
                                     .size(18.0),
                             );

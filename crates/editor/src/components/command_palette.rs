@@ -7,6 +7,7 @@ use nucleo_matcher::{
 use super::tags::TagPath;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 
 /// A command that can be executed from the command palette
 #[derive(Debug, Clone)]
@@ -706,7 +707,7 @@ impl CommandPalette {
                                 ui.label(
                                     RichText::new(format!(
                                         "{} {}",
-                                        egui_phosphor::regular::WARNING,
+                                        semantic_icons::status::WARNING,
                                         error
                                     ))
                                     .color(Color32::from_rgb(220, 80, 80))

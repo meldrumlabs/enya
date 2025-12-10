@@ -1131,8 +1131,8 @@ fn setup_fonts(ctx: &egui::Context) {
             .into(),
     );
 
-    // Add Phosphor icons font
-    egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
+    // Add Nerd Fonts icons
+    egui_nerdfonts::add_to_fonts(&mut fonts, egui_nerdfonts::Variant::Regular);
 
     // Put DepartureMono first (highest priority) for proportional text:
     fonts

@@ -2,6 +2,7 @@ use egui::{Color32, NumExt, RichText, Vec2};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 use crate::ui::settings_screen::{RecentPlotEntry, WorkspaceEntry};
 
 /// Action returned by the landing page
@@ -216,12 +217,12 @@ impl LandingPage {
         let mut action = LandingPageAction::None;
 
         // Section header (white/light text color, not accent)
-        let header_text = format!("{}  Recent Plots", egui_phosphor::regular::CHART_LINE);
+        let header_text = format!("{}  Recent Plots", semantic_icons::action::CHART);
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(header_text)
                     .strong()
-                    .size(16.0)
+                    .size(semantic_icons::SIZE_HEADER)
                     .color(text_col),
             );
         });
@@ -233,12 +234,19 @@ impl LandingPage {
         ui.add_space(4.0);
 
         if recent_plots.is_empty() {
-            ui.label(
-                RichText::new("No recent plots")
-                    .size(13.0)
-                    .color(muted_color)
-                    .italics(),
-            );
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(semantic_icons::empty::NO_PLOTS)
+                        .size(semantic_icons::SIZE_ITEM)
+                        .color(muted_color),
+                );
+                ui.label(
+                    RichText::new("No recent plots")
+                        .size(13.0)
+                        .color(muted_color)
+                        .italics(),
+                );
+            });
         } else {
             for (idx, plot) in recent_plots.iter().enumerate().take(8) {
                 let is_selected = self.plots_focused && self.selected_plot_index == Some(idx);
@@ -247,9 +255,9 @@ impl LandingPage {
                     ui,
                     &plot.name,
                     if plot.is_query {
-                        egui_phosphor::regular::CODE
+                        semantic_icons::file::CODE
                     } else {
-                        egui_phosphor::regular::CHART_LINE_UP
+                        semantic_icons::action::CHART
                     },
                     text_col,
                     accent_color,
@@ -286,12 +294,12 @@ impl LandingPage {
         let mut action = LandingPageAction::None;
 
         // Section header (white/light text color, not accent)
-        let header_text = format!("{}  Recent Workspaces", egui_phosphor::regular::FOLDER_OPEN);
+        let header_text = format!("{}  Recent Workspaces", semantic_icons::file::FOLDER_OPEN);
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(header_text)
                     .strong()
-                    .size(16.0)
+                    .size(semantic_icons::SIZE_HEADER)
                     .color(text_col),
             );
         });
@@ -303,12 +311,19 @@ impl LandingPage {
         ui.add_space(4.0);
 
         if recent_workspaces.is_empty() {
-            ui.label(
-                RichText::new("No recent workspaces")
-                    .size(13.0)
-                    .color(muted_color)
-                    .italics(),
-            );
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(semantic_icons::empty::NO_WORKSPACES)
+                        .size(semantic_icons::SIZE_ITEM)
+                        .color(muted_color),
+                );
+                ui.label(
+                    RichText::new("No recent workspaces")
+                        .size(13.0)
+                        .color(muted_color)
+                        .italics(),
+                );
+            });
         } else {
             for (idx, workspace) in recent_workspaces.iter().enumerate().take(8) {
                 let is_selected = !self.plots_focused && self.selected_workspace_index == Some(idx);
@@ -316,7 +331,7 @@ impl LandingPage {
                 let response = self.show_list_item(
                     ui,
                     &workspace.name,
-                    egui_phosphor::regular::FOLDER,
+                    semantic_icons::file::FOLDER,
                     text_col,
                     accent_color,
                     is_selected,
@@ -436,7 +451,7 @@ impl LandingPage {
             if self
                 .show_shortcut_button(
                     ui,
-                    egui_phosphor::regular::MAGNIFYING_GLASS,
+                    semantic_icons::action::SEARCH,
                     "Metrics",
                     "m",
                     text_col,
@@ -455,7 +470,7 @@ impl LandingPage {
             if self
                 .show_shortcut_button(
                     ui,
-                    egui_phosphor::regular::CODE,
+                    semantic_icons::file::CODE,
                     "Queries",
                     "q",
                     text_col,
@@ -474,7 +489,7 @@ impl LandingPage {
             if self
                 .show_shortcut_button(
                     ui,
-                    egui_phosphor::regular::INFO,
+                    semantic_icons::status::INFO,
                     "Info",
                     "i",
                     text_col,
@@ -493,7 +508,7 @@ impl LandingPage {
             if self
                 .show_shortcut_button(
                     ui,
-                    egui_phosphor::regular::QUESTION,
+                    semantic_icons::status::QUESTION,
                     "Help",
                     "?",
                     text_col,
@@ -562,7 +577,7 @@ impl LandingPage {
             rect.center_top() + egui::vec2(0.0, 20.0),
             egui::Align2::CENTER_CENTER,
             icon,
-            egui::FontId::proportional(20.0),
+            egui::FontId::proportional(semantic_icons::SIZE_LARGE),
             icon_color,
         );
 
