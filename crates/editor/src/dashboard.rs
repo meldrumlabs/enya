@@ -7,9 +7,9 @@ use egui::RichText;
 
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    CustomQueriesPanel, InfoOverlay, LandingPage, LandingPageAction, MetricItem, MetricsFinder,
-    MetricsTree, QueryFinder, QueryItem, QueryPane, QueryState, TagFilter, TagPath,
-    TimeRangeToolbar, WhichKey,
+    CustomQueriesPanel, DiffOffset, DiffView, DiffViewAction, InfoOverlay, LandingPage,
+    LandingPageAction, MetricItem, MetricsFinder, MetricsTree, QueryFinder, QueryItem, QueryPane,
+    QueryState, TagFilter, TagPath, TimeRangeToolbar, WhichKey,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -149,6 +149,10 @@ pub struct Dashboard {
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
     which_key: WhichKey,
+    /// Diff view for comparing time periods (shown when in diff mode)
+    diff_view: Option<DiffView>,
+    /// Whether diff mode is active
+    diff_mode: bool,
 }
 
 impl Default for Dashboard {
@@ -185,6 +189,8 @@ impl Default for Dashboard {
             tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
+            diff_view: None,
+            diff_mode: false,
         }
     }
 }
@@ -241,6 +247,8 @@ impl Dashboard {
             tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
+            diff_view: None,
+            diff_mode: false,
         }
     }
 
@@ -418,8 +426,24 @@ impl Dashboard {
 
             // Main viewport area (tabbed charts/views)
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                // Check if we're in fullscreen mode for a specific pane
-                if let Some(fullscreen_id) = self.fullscreen_tile {
+                // Check if we're in diff mode
+                if self.diff_mode {
+                    if let Some(ref mut diff_view) = self.diff_view {
+                        diff_view.set_theme(app_state.theme);
+                        let action = diff_view.show(ui);
+                        match action {
+                            DiffViewAction::Close => {
+                                self.diff_mode = false;
+                                self.diff_view = None;
+                            }
+                            DiffViewAction::OffsetChanged(offset) => {
+                                // Update the diff view with new offset
+                                diff_view.set_offset(offset);
+                            }
+                            _ => {}
+                        }
+                    }
+                } else if let Some(fullscreen_id) = self.fullscreen_tile {
                     // Render only the fullscreen pane
                     if let Some(Tile::Pane(component)) =
                         self.viewport_tree.tiles.get_mut(fullscreen_id)
@@ -836,6 +860,14 @@ impl Dashboard {
                 self.toggle_commits_on_focused();
                 DashboardAction::None
             }
+            CommandResult::EnterDiffMode(offset) => {
+                self.enter_diff_mode(offset);
+                DashboardAction::None
+            }
+            CommandResult::SwapDiff => {
+                self.swap_diff();
+                DashboardAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -879,6 +911,52 @@ impl Dashboard {
                     log::debug!("Toggled commit markers");
                 }
             }
+        }
+    }
+
+    /// Enter diff mode - shows side-by-side comparison view
+    fn enter_diff_mode(&mut self, offset_str: Option<String>) {
+        // Parse the offset or default to 7 days
+        let offset = offset_str
+            .as_ref()
+            .and_then(|s| DiffOffset::parse(s))
+            .unwrap_or(DiffOffset::OneWeek);
+
+        // Get the focused metric name if available
+        let metric_name = if let Some(tile_id) = self.behavior.focused_tile() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    query_pane.name().to_string()
+                } else {
+                    "Untitled Metric".to_string()
+                }
+            } else {
+                "Untitled Metric".to_string()
+            }
+        } else {
+            "Demo Metric".to_string()
+        };
+
+        // Create a diff view with demo data
+        let diff_view = DiffView::with_demo_data(&metric_name, offset);
+        self.diff_view = Some(diff_view);
+        self.diff_mode = true;
+
+        log::debug!("Entered diff mode with offset: {}", offset.label());
+    }
+
+    /// Exit diff mode
+    fn exit_diff_mode(&mut self) {
+        self.diff_mode = false;
+        self.diff_view = None;
+        log::debug!("Exited diff mode");
+    }
+
+    /// Swap diff base and compare
+    fn swap_diff(&mut self) {
+        if let Some(ref mut diff_view) = self.diff_view {
+            diff_view.swap();
+            log::debug!("Swapped diff base and compare");
         }
     }
 
@@ -1591,6 +1669,26 @@ impl Dashboard {
             || self.buffer_editor.is_open()
             || self.which_key.is_open()
         {
+            return None;
+        }
+
+        // Handle diff mode keyboard shortcuts first
+        if self.diff_mode {
+            let mut should_exit = false;
+            ctx.input_mut(|input| {
+                // X or Escape exits diff mode
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::X)
+                    || input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                {
+                    should_exit = true;
+                }
+            });
+            if should_exit {
+                self.exit_diff_mode();
+                ctx.request_repaint();
+                return None;
+            }
+            // Don't process other keyboard shortcuts while in diff mode
             return None;
         }
 

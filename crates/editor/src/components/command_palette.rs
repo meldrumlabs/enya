@@ -95,6 +95,10 @@ pub enum CommandResult {
     ShowTags,
     /// Toggle commit markers visibility on charts
     ToggleCommits,
+    /// Enter diff mode with optional offset (e.g., "-7d")
+    EnterDiffMode(Option<String>),
+    /// Swap diff base and compare
+    SwapDiff,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -257,6 +261,18 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "commits",
         aliases: &["git", "markers"],
         description: "Toggle git commit markers on charts",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "diff",
+        aliases: &["compare", "cmp"],
+        description: "Enter diff mode (:diff [-7d] to compare with past)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "diffswap",
+        aliases: &["dx", "swap"],
+        description: "Swap diff base and compare",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -516,6 +532,16 @@ impl CommandPalette {
             "tag" => self.execute_tag_command(args),
             "tags" => CommandResult::ShowTags,
             "commits" => CommandResult::ToggleCommits,
+            "diff" => {
+                // :diff or :diff -7d
+                let offset = if args.is_empty() {
+                    None
+                } else {
+                    Some(args.join(" "))
+                };
+                CommandResult::EnterDiffMode(offset)
+            }
+            "diffswap" => CommandResult::SwapDiff,
             _ => CommandResult::None,
         }
     }

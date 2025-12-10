@@ -27,6 +27,33 @@ Press `:` to open the command palette (similar to neovim's command mode).
 | `:screenshot` | `ss` | Capture window screenshot |
 | `:tag` | `#` | Manage tags (see below) |
 | `:tags` | `taglist`, `tl` | Show all tags |
+| `:diff` | `compare`, `cmp` | Enter diff mode (compare time periods) |
+| `:diffswap` | `dx`, `swap` | Swap baseline and comparison in diff mode |
+
+### Diff Mode
+
+Compare metrics across different time periods with side-by-side charts:
+
+```
+:diff          # Enter diff mode with default 1-day offset
+:diff -7d      # Compare with 7 days ago
+:diff -1h      # Compare with 1 hour ago
+```
+
+#### Features
+
+- **Side-by-side comparison**: Baseline (left) vs current (right) time periods
+- **Offset presets**: Quick buttons for 1h, 1d, 7d, 30d offsets
+- **Statistics summary**: Shows delta for avg, p99 with improvement/regression indicators
+- **Swap periods**: Use `:diffswap` or `dx` to flip baseline and comparison
+- **Exit**: Press `X`, `Escape`, or click the close button
+
+#### Keyboard Shortcuts in Diff Mode
+
+| Key | Action |
+|-----|--------|
+| `X` | Exit diff mode |
+| `Escape` | Exit diff mode |
 
 ### Fuzzy Finder (Telescope-style)
 
@@ -109,7 +136,7 @@ Organize queries with hierarchical tags (e.g., `production/api/latency`).
 
 A segmented status bar at the bottom of the screen showing:
 
-- **Mode indicator**: Current mode (NORMAL, COMMAND, SEARCH, ZEN, FULLSCREEN, SETTINGS)
+- **Mode indicator**: Current mode (NORMAL, COMMAND, SEARCH, ZEN, FULLSCREEN, DIFF)
 - **Connection status**: Server connection state
 - **Selected metric**: Currently selected metric name
 - **Viewport info**: Current layout information
@@ -178,6 +205,7 @@ crates/ui/src/
 │   ├── inspector.rs         # Metric details panel
 │   ├── tags.rs              # Hierarchical tagging system
 │   ├── custom_queries.rs    # Saved queries with tags
+│   ├── diff_view.rs         # Side-by-side time period comparison
 │   ├── time_range.rs        # Time range selection toolbar
 │   └── time_series_chart.rs # Chart rendering component
 └── theme.rs            # Light/dark theme definitions

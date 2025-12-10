@@ -141,6 +141,8 @@ pub enum StatusMode {
     Zen,
     /// Fullscreen mode (single pane maximized)
     Fullscreen,
+    /// Diff mode (comparing time periods)
+    Diff,
 }
 
 impl StatusMode {
@@ -153,6 +155,7 @@ impl StatusMode {
             Self::Search => "SEARCH",
             Self::Zen => "ZEN",
             Self::Fullscreen => "FULLSCREEN",
+            Self::Diff => "DIFF",
         }
     }
 
@@ -184,6 +187,10 @@ impl StatusMode {
                 AppTheme::Light => Color32::from_rgb(80, 140, 160), // Teal
                 AppTheme::Dark => Color32::from_rgb(120, 200, 220), // Bright cyan
             },
+            Self::Diff => match theme {
+                AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue
+                AppTheme::Dark => Color32::from_rgb(96, 165, 250),  // Bright blue
+            },
         }
     }
 
@@ -200,6 +207,8 @@ impl StatusMode {
             },
             // Purple/cyan backgrounds - use dark text for contrast
             Self::Zen | Self::Fullscreen => Color32::from_rgb(40, 44, 52),
+            // Blue backgrounds - use white text
+            Self::Diff => Color32::from_rgb(255, 255, 255),
         }
     }
 }
