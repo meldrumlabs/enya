@@ -17,6 +17,7 @@ members = ["crates/*", "examples/*"]
 
 [workspace.dependencies]
 enya = { path = "crates/enya", version = "0.1.0" }
+enya-agent = { path = "crates/agent", version = "0.1.0" }
 enya-common = { path = "crates/common", version = "0.1.0" }
 enya-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
 enya-macros = { path = "crates/macros", version = "0.1.0" }
