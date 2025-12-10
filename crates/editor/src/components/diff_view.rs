@@ -605,9 +605,12 @@ impl DiffView {
                 let points: PlotPoints<'_> =
                     s.points.iter().map(|p| [p.timestamp, p.value]).collect();
 
+                // PlanetScale-style: thin line with soft gradient fill
                 let line = Line::new(s.label(), points)
                     .color(color)
-                    .stroke(Stroke::new(2.0, color));
+                    .stroke(Stroke::new(1.5, color))
+                    .fill(0.0)
+                    .fill_alpha(0.15);
 
                 plot_ui.line(line);
             }
@@ -702,14 +705,15 @@ impl DiffView {
     }
 
     /// Get a default color for series index
+    /// Uses a modern, muted palette inspired by PlanetScale's sleek dashboard aesthetic
     fn series_color(&self, index: usize) -> Color32 {
         const PALETTE: &[Color32] = &[
-            Color32::from_rgb(59, 130, 246), // Blue
-            Color32::from_rgb(16, 185, 129), // Green
-            Color32::from_rgb(245, 158, 11), // Amber
-            Color32::from_rgb(239, 68, 68),  // Red
-            Color32::from_rgb(139, 92, 246), // Purple
-            Color32::from_rgb(236, 72, 153), // Pink
+            Color32::from_rgb(99, 179, 237),  // Soft sky blue
+            Color32::from_rgb(94, 234, 212),  // Soft teal
+            Color32::from_rgb(129, 140, 248), // Soft indigo
+            Color32::from_rgb(192, 132, 252), // Soft purple
+            Color32::from_rgb(251, 191, 36),  // Soft amber
+            Color32::from_rgb(244, 114, 182), // Soft pink
         ];
         PALETTE[index % PALETTE.len()]
     }

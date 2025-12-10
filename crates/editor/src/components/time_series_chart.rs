@@ -172,7 +172,7 @@ impl TimeSeriesChart {
             Series::new(name.clone())
                 .with_tag("host", "server1")
                 .with_points(points1)
-                .with_color(Color32::from_rgb(59, 130, 246)), // Blue
+                .with_color(Color32::from_rgb(99, 179, 237)), // Soft sky blue
         );
 
         // Series 2: Higher values
@@ -192,7 +192,7 @@ impl TimeSeriesChart {
             Series::new(name)
                 .with_tag("host", "server2")
                 .with_points(points2)
-                .with_color(Color32::from_rgb(16, 185, 129)), // Green
+                .with_color(Color32::from_rgb(94, 234, 212)), // Soft teal
         );
 
         // Add some demo commit markers spread across the time range
@@ -432,17 +432,18 @@ impl TimeSeriesChart {
     }
 
     /// Get a default color for series index
+    /// Uses a modern, muted palette inspired by PlanetScale's sleek dashboard aesthetic
     fn series_color(&self, index: usize) -> Color32 {
-        // A palette of distinct colors
+        // A modern, muted palette - teals, purples, and soft accent colors
         const PALETTE: &[Color32] = &[
-            Color32::from_rgb(59, 130, 246), // Blue
-            Color32::from_rgb(16, 185, 129), // Green
-            Color32::from_rgb(245, 158, 11), // Amber
-            Color32::from_rgb(239, 68, 68),  // Red
-            Color32::from_rgb(139, 92, 246), // Purple
-            Color32::from_rgb(236, 72, 153), // Pink
-            Color32::from_rgb(14, 165, 233), // Cyan
-            Color32::from_rgb(34, 197, 94),  // Emerald
+            Color32::from_rgb(99, 179, 237),  // Soft sky blue
+            Color32::from_rgb(129, 140, 248), // Soft indigo
+            Color32::from_rgb(94, 234, 212),  // Soft teal
+            Color32::from_rgb(192, 132, 252), // Soft purple
+            Color32::from_rgb(251, 191, 36),  // Soft amber
+            Color32::from_rgb(244, 114, 182), // Soft pink
+            Color32::from_rgb(52, 211, 153),  // Soft emerald
+            Color32::from_rgb(248, 113, 113), // Soft coral
         ];
         PALETTE[index % PALETTE.len()]
     }
@@ -642,7 +643,7 @@ impl TimeSeriesChart {
                 }
             }
 
-            // Draw all series
+            // Draw all series with sleek styling (gradient fill + thin lines)
             for (i, series) in self.series.iter().enumerate() {
                 let color = series.color.unwrap_or_else(|| self.series_color(i));
 
@@ -652,9 +653,12 @@ impl TimeSeriesChart {
                     .map(|p| [p.timestamp, p.value])
                     .collect();
 
+                // PlanetScale-style: thin line with soft gradient fill underneath
                 let line = Line::new(series.label(), points)
                     .color(color)
-                    .stroke(Stroke::new(2.0, color));
+                    .stroke(Stroke::new(1.5, color))
+                    .fill(0.0) // Fill down to y=0
+                    .fill_alpha(0.15); // Subtle gradient fill
 
                 plot_ui.line(line);
             }
