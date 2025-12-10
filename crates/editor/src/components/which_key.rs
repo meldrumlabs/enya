@@ -129,6 +129,10 @@ impl WhichKey {
                         key: "t",
                         description: "Toggle theme",
                     },
+                    Keybinding {
+                        key: ":diff",
+                        description: "Compare time periods",
+                    },
                 ],
             },
             KeybindingGroup {
