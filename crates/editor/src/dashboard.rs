@@ -3,15 +3,38 @@ use std::collections::HashSet;
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
+use egui::RichText;
+
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    CustomQueriesPanel, InfoOverlay, InspectorPanel, InspectorTarget, LandingPage,
-    LandingPageAction, MetricItem, MetricStats, MetricsFinder, MetricsTree, QueryFinder, QueryItem,
-    QueryPane, QueryState, TagFilter, TagPath, TimeRangeToolbar, inspector_toggle_button,
-    metrics_panel_toggle_button,
+    CustomQueriesPanel, InfoOverlay, LandingPage, LandingPageAction, MetricItem, MetricsFinder,
+    MetricsTree, QueryFinder, QueryItem, QueryPane, QueryState, TagFilter, TagPath,
+    TimeRangeToolbar, WhichKey,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+
+/// Toggle button for the metrics panel visibility
+fn metrics_panel_toggle_button(
+    ui: &mut egui::Ui,
+    is_visible: bool,
+    theme: AppTheme,
+) -> egui::Response {
+    let text_col = text_color(theme);
+    let icon = egui_phosphor::regular::SIDEBAR;
+
+    let button = if is_visible {
+        egui::Button::new(RichText::new(icon).strong()).fill(ui.visuals().selection.bg_fill)
+    } else {
+        egui::Button::new(RichText::new(icon).color(text_col.gamma_multiply(0.7)))
+    };
+
+    ui.add(button).on_hover_text(if is_visible {
+        "Hide metrics panel"
+    } else {
+        "Show metrics panel"
+    })
+}
 use crate::workspace::{
     ConnectionConfig, PaneConfig, TimeConfig, ViewConfig, Workspace, WorkspaceMeta,
 };
@@ -96,10 +119,6 @@ pub struct Dashboard {
     pending_chart: Option<String>,
     /// Time range toolbar
     time_range_toolbar: TimeRangeToolbar,
-    /// Inspector panel (right side, collapsible)
-    inspector: InspectorPanel,
-    /// Track the last selected metric to detect changes
-    last_selected_metric: Option<String>,
     /// Fuzzy finder modal for metrics (telescope-style search)
     metrics_finder: MetricsFinder,
     /// Query finder modal for saved queries (with side-by-side preview)
@@ -128,6 +147,8 @@ pub struct Dashboard {
     tag_filter: TagFilter,
     /// Info overlay (shows build/version info)
     info_overlay: InfoOverlay,
+    /// Which-key overlay (shows available keybindings)
+    which_key: WhichKey,
 }
 
 impl Default for Dashboard {
@@ -149,8 +170,6 @@ impl Default for Dashboard {
             open_charts: HashSet::new(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
-            inspector: InspectorPanel::new(),
-            last_selected_metric: None,
             metrics_finder: MetricsFinder::new(),
             query_finder: QueryFinder::new(),
             command_palette: CommandPalette::new(),
@@ -165,6 +184,7 @@ impl Default for Dashboard {
             last_y_press: None,
             tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
+            which_key: WhichKey::new(),
         }
     }
 }
@@ -206,8 +226,6 @@ impl Dashboard {
             open_charts: HashSet::new(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
-            inspector: InspectorPanel::new(),
-            last_selected_metric: None,
             metrics_finder: MetricsFinder::new(),
             query_finder: QueryFinder::new(),
             command_palette: CommandPalette::new(),
@@ -222,6 +240,7 @@ impl Dashboard {
             last_y_press: None,
             tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
+            which_key: WhichKey::new(),
         }
     }
 
@@ -239,7 +258,6 @@ impl Dashboard {
         self.metrics_tree.set_theme(app_state.theme);
         self.custom_queries.set_theme(app_state.theme);
         self.time_range_toolbar.set_theme(app_state.theme);
-        self.inspector.set_theme(app_state.theme);
         self.landing_page.set_theme(app_state.theme);
 
         // Handle adding a pending chart to the viewport
@@ -249,9 +267,6 @@ impl Dashboard {
                 return action;
             }
         }
-
-        // Update inspector when metric selection changes
-        self.update_inspector_from_selection();
 
         // Check if we should show landing page (no open charts)
         let has_charts = !self.open_charts.is_empty() || !self.floating_windows.is_empty();
@@ -374,7 +389,7 @@ impl Dashboard {
 
         // Right area with toolbar and viewport
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            // Top toolbar with time range controls and inspector toggle (hidden in zen mode)
+            // Top toolbar with time range controls (hidden in zen mode)
             if !self.zen_mode {
                 egui::TopBottomPanel::top("time_range_toolbar")
                     .resizable(false)
@@ -396,28 +411,9 @@ impl Dashboard {
 
                             // Time range controls
                             self.time_range_toolbar.show(ui);
-
-                            // Inspector toggle on the far right
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    if inspector_toggle_button(
-                                        ui,
-                                        self.inspector.is_visible(),
-                                        app_state.theme,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.inspector.toggle();
-                                    }
-                                },
-                            );
                         });
                         ui.add_space(4.0);
                     });
-
-                // Inspector panel (right side, collapsible) - hidden in zen mode
-                self.inspector.show(ui);
             }
 
             // Main viewport area (tabbed charts/views)
@@ -472,6 +468,37 @@ impl Dashboard {
 
         // Show floating windows
         self.show_floating_windows(ctx, app_state.theme);
+
+        // Show info overlay modal
+        self.info_overlay.set_theme(app_state.theme);
+        self.info_overlay.show(ctx);
+
+        // Show which-key overlay modal
+        self.which_key.set_theme(app_state.theme);
+        self.which_key.show(ctx);
+
+        // Handle ? key for which-key overlay (bypasses focus check so it works even with chart focus)
+        if !self.which_key.is_open()
+            && !self.metrics_finder.is_open()
+            && !self.command_palette.is_open()
+            && !self.buffer_editor.is_open()
+        {
+            ctx.input_mut(|input| {
+                // Check for '?' character in text input (works across keyboard layouts)
+                let has_question_mark = input
+                    .events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::Text(t) if t == "?"));
+                if has_question_mark || input.consume_key(egui::Modifiers::SHIFT, egui::Key::Slash)
+                {
+                    // Consume the text event to prevent it from being handled elsewhere
+                    input
+                        .events
+                        .retain(|e| !matches!(e, egui::Event::Text(t) if t == "?"));
+                    self.which_key.open();
+                }
+            });
+        }
 
         // Handle vim-style keyboard navigation for viewport
         // (only if no modal is open)
@@ -538,7 +565,7 @@ impl Dashboard {
                 self.info_overlay.open();
             }
             LandingPageAction::ShowHelp => {
-                return DashboardAction::ShowHelp;
+                self.which_key.open();
             }
             LandingPageAction::None => {}
         }
@@ -562,6 +589,10 @@ impl Dashboard {
         // Show info overlay modal
         self.info_overlay.set_theme(app_state.theme);
         self.info_overlay.show(ctx);
+
+        // Show which-key overlay modal
+        self.which_key.set_theme(app_state.theme);
+        self.which_key.show(ctx);
 
         self.handle_command_result(cmd_result)
     }
@@ -682,10 +713,6 @@ impl Dashboard {
             CommandResult::SetTheme(theme) => DashboardAction::SetTheme(theme),
             CommandResult::ToggleMetricsPanel => {
                 self.left_panel_visible = !self.left_panel_visible;
-                DashboardAction::None
-            }
-            CommandResult::ToggleInspectorPanel => {
-                self.inspector.toggle();
                 DashboardAction::None
             }
             CommandResult::OpenSearch => {
@@ -1059,38 +1086,6 @@ impl Dashboard {
     /// Get the count of floating windows
     pub fn floating_window_count(&self) -> usize {
         self.floating_windows.len()
-    }
-
-    /// Update the inspector panel based on the current metric selection
-    fn update_inspector_from_selection(&mut self) {
-        let current_selection = self.metrics_tree.selection().metric.clone();
-
-        // Only update if selection changed
-        if current_selection != self.last_selected_metric {
-            self.last_selected_metric = current_selection.clone();
-
-            if let Some(metric_name) = current_selection {
-                // Find the metric info
-                if let Some(metric_info) = self.metrics_tree.get_metric(&metric_name) {
-                    let target = InspectorTarget::Metric {
-                        name: metric_info.name.clone(),
-                        description: metric_info.description.clone(),
-                        unit: metric_info.unit.clone(),
-                        tags: metric_info
-                            .tags
-                            .iter()
-                            .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
-                            .collect(),
-                        series_count: metric_info.series_count,
-                    };
-                    self.inspector.set_target(target);
-                    // Set demo stats for now
-                    self.inspector.set_stats(Some(MetricStats::demo()));
-                }
-            } else {
-                self.inspector.clear();
-            }
-        }
     }
 
     /// Add a chart for a custom query to the viewport
@@ -1590,10 +1585,11 @@ impl Dashboard {
             return None;
         }
 
-        // Don't handle if fuzzy finder, command palette, or buffer editor is open
+        // Don't handle if fuzzy finder, command palette, buffer editor, or which-key is open
         if self.metrics_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
+            || self.which_key.is_open()
         {
             return None;
         }
@@ -1615,6 +1611,7 @@ impl Dashboard {
         let mut should_float_pane = false;
         let mut should_dock_all = false;
         let mut should_share_pane = false;
+        let mut should_open_which_key = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -1664,6 +1661,13 @@ impl Dashboard {
             // D - dock all floating windows
             if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                 should_dock_all = true;
+                consumed = true;
+                return;
+            }
+
+            // ? - open which-key help overlay (Shift+/ on US keyboards)
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::Slash) {
+                should_open_which_key = true;
                 consumed = true;
                 return;
             }
@@ -1745,7 +1749,9 @@ impl Dashboard {
             }
         }
 
-        if should_edit_buffer {
+        if should_open_which_key {
+            self.which_key.open();
+        } else if should_edit_buffer {
             self.edit_focused_buffer();
         } else if should_toggle_zen {
             self.toggle_zen_mode();
@@ -1878,7 +1884,7 @@ impl Dashboard {
                     AppTheme::Dark => "dark".to_string(),
                 },
                 metrics_panel: self.left_panel_visible,
-                inspector: self.inspector.is_visible(),
+                inspector: false, // Inspector panel removed
                 zen_mode: self.zen_mode,
             },
             time: TimeConfig::from_preset(self.time_range_toolbar.time_range().preset),
@@ -1896,7 +1902,6 @@ impl Dashboard {
         // Apply view settings
         *theme = workspace.view.app_theme();
         self.left_panel_visible = workspace.view.metrics_panel;
-        self.inspector.set_visible(workspace.view.inspector);
         self.zen_mode = workspace.view.zen_mode;
 
         // Apply time range

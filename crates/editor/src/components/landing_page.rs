@@ -432,13 +432,13 @@ impl LandingPage {
             let offset = ((ui.available_width() - total_width) / 2.0).at_least(0.0);
             ui.add_space(offset);
 
-            // Find Metrics (f)
+            // Metrics (m)
             if self
                 .show_shortcut_button(
                     ui,
                     egui_phosphor::regular::MAGNIFYING_GLASS,
-                    "Find Metrics",
-                    "f",
+                    "Metrics",
+                    "m",
                     text_col,
                     accent_color,
                     self.shortcut_focused == Some(0),
@@ -639,8 +639,8 @@ impl LandingPage {
                 }
             }
 
-            // f - Find metrics (fuzzy finder)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+            // m - Find metrics (fuzzy finder)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
                 action = LandingPageAction::OpenFuzzyFinder;
                 return;
             }
