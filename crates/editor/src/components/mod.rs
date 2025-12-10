@@ -8,7 +8,6 @@ pub mod command_palette;
 pub mod custom_queries;
 pub mod finder_utils;
 pub mod info_overlay;
-pub mod inspector;
 pub mod landing_page;
 pub mod metrics_finder;
 pub mod metrics_tree;
@@ -21,16 +20,13 @@ pub mod status_line;
 pub mod tags;
 pub mod time_range;
 pub mod time_series_chart;
+pub mod which_key;
 
 pub use buffer::{Buffer, BufferAction, BufferMode};
 pub use buffer_editor::{BufferEditor, BufferEditorResult};
 pub use command_palette::{CommandPalette, CommandResult};
 pub use custom_queries::{CustomQueriesPanel, CustomQuery};
 pub use info_overlay::InfoOverlay;
-pub use inspector::{
-    InspectorPanel, InspectorTarget, MetricStats, inspector_toggle_button,
-    metrics_panel_toggle_button,
-};
 pub use landing_page::{LandingPage, LandingPageAction};
 pub use metrics_finder::{MetricItem, MetricsFinder};
 pub use metrics_tree::{MetricCategory, MetricInfo, MetricSelection, MetricsTree};
@@ -43,6 +39,7 @@ pub use status_line::{Sparkline, StatusLine, StatusMode};
 pub use tags::{TagFilter, TagPath, TagTree};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
+pub use which_key::WhichKey;
 
 /// Trait that defines an Enya Component
 pub trait Component: Any {

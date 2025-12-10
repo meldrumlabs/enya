@@ -43,8 +43,6 @@ pub enum CommandResult {
     SetTheme(AppTheme),
     /// Toggle the metrics panel
     ToggleMetricsPanel,
-    /// Toggle the inspector panel
-    ToggleInspectorPanel,
     /// Open the fuzzy finder
     OpenSearch,
     /// Show info overlay with build info
@@ -133,12 +131,6 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "metrics",
         aliases: &["m"],
         description: "Toggle metrics panel visibility",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "inspector",
-        aliases: &["i", "info"],
-        description: "Toggle inspector panel visibility",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -455,7 +447,6 @@ impl CommandPalette {
             "info" => CommandResult::ShowInfo,
             "help" => CommandResult::ShowHelp,
             "metrics" => CommandResult::ToggleMetricsPanel,
-            "inspector" => CommandResult::ToggleInspectorPanel,
             "split" => {
                 if args.is_empty() {
                     CommandResult::SplitHorizontal
