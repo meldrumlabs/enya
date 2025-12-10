@@ -153,6 +153,14 @@ pub struct Dashboard {
     diff_view: Option<DiffView>,
     /// Whether diff mode is active
     diff_mode: bool,
+    /// Current scroll offset for smooth scrolling (0.0 to 1.0, percentage)
+    viewport_scroll_offset: f32,
+    /// Target scroll offset for smooth animation
+    viewport_scroll_target: f32,
+    /// Total content height of the viewport (for scrollbar calculations)
+    viewport_content_height: f32,
+    /// Visible height of the viewport
+    viewport_visible_height: f32,
 }
 
 impl Default for Dashboard {
@@ -191,6 +199,10 @@ impl Default for Dashboard {
             which_key: WhichKey::new(),
             diff_view: None,
             diff_mode: false,
+            viewport_scroll_offset: 0.0,
+            viewport_scroll_target: 0.0,
+            viewport_content_height: 0.0,
+            viewport_visible_height: 0.0,
         }
     }
 }
@@ -249,6 +261,10 @@ impl Dashboard {
             which_key: WhichKey::new(),
             diff_view: None,
             diff_mode: false,
+            viewport_scroll_offset: 0.0,
+            viewport_scroll_target: 0.0,
+            viewport_content_height: 0.0,
+            viewport_visible_height: 0.0,
         }
     }
 
@@ -457,7 +473,92 @@ impl Dashboard {
                         self.viewport_tree.ui(&mut self.behavior, ui);
                     }
                 } else {
-                    self.viewport_tree.ui(&mut self.behavior, ui);
+                    // Store available rect before layout for scrollbar positioning
+                    let full_rect = ui.available_rect_before_wrap();
+
+                    // Scrollbar dimensions
+                    const SCROLLBAR_WIDTH: f32 = 10.0; // Width including padding
+
+                    // Calculate if we need scrolling
+                    const MIN_PANE_HEIGHT: f32 = 300.0;
+                    let pane_count = self.get_pane_tile_ids().len();
+                    let min_content_height = pane_count as f32 * MIN_PANE_HEIGHT;
+                    let needs_scrollbar = min_content_height > full_rect.height();
+
+                    // Layout: main content area + scrollbar gutter on right
+                    ui.horizontal(|ui| {
+                        // Main viewport area (takes remaining space minus scrollbar)
+                        let viewport_width = if needs_scrollbar {
+                            full_rect.width() - SCROLLBAR_WIDTH
+                        } else {
+                            full_rect.width()
+                        };
+
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(viewport_width, full_rect.height()),
+                            egui::Layout::top_down(egui::Align::LEFT),
+                            |ui| {
+                                self.viewport_visible_height = ui.available_height();
+
+                                // Animate scroll offset towards target (smooth scrolling)
+                                let scroll_speed = 12.0; // Higher = faster animation
+                                let dt = ctx.input(|i| i.predicted_dt);
+                                let diff =
+                                    self.viewport_scroll_target - self.viewport_scroll_offset;
+                                if diff.abs() > 0.5 {
+                                    self.viewport_scroll_offset += diff * scroll_speed * dt;
+                                    ctx.request_repaint();
+                                } else {
+                                    self.viewport_scroll_offset = self.viewport_scroll_target;
+                                }
+
+                                // Set tree height to enable scrolling when content exceeds viewport
+                                if min_content_height > self.viewport_visible_height {
+                                    self.viewport_tree.set_height(min_content_height);
+                                } else {
+                                    self.viewport_tree.set_height(f32::INFINITY);
+                                }
+
+                                // Create ScrollArea with controlled offset
+                                let scroll_output = egui::ScrollArea::vertical()
+                                    .id_salt("viewport_scroll")
+                                    .scroll_bar_visibility(
+                                        egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                                    )
+                                    .vertical_scroll_offset(self.viewport_scroll_offset)
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        self.viewport_tree.ui(&mut self.behavior, ui);
+                                    });
+
+                                // Update scroll state from ScrollArea output
+                                self.viewport_content_height = scroll_output.content_size.y;
+
+                                // Sync scroll offset if user scrolled with mouse
+                                let current_offset = scroll_output.state.offset.y;
+                                if (current_offset - self.viewport_scroll_offset).abs() > 1.0 {
+                                    self.viewport_scroll_offset = current_offset;
+                                    self.viewport_scroll_target = current_offset;
+                                }
+                            },
+                        );
+
+                        // Scrollbar gutter on the right (only if needed)
+                        if needs_scrollbar {
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(SCROLLBAR_WIDTH, full_rect.height()),
+                                egui::Layout::top_down(egui::Align::Center),
+                                |ui| {
+                                    let scrollbar_rect = ui.available_rect_before_wrap();
+                                    self.draw_scrollbar(
+                                        ui.painter(),
+                                        scrollbar_rect,
+                                        app_state.theme,
+                                    );
+                                },
+                            );
+                        }
+                    });
                 }
             });
         });
@@ -1869,6 +1970,8 @@ impl Dashboard {
             // Set focus and also switch to that tab if it's in a tabs container
             self.behavior.set_focused_tile(Some(tile_id));
             self.activate_tile(tile_id);
+            // Trigger smooth scroll to bring the focused tile into view
+            self.scroll_to_focused_tile(ctx);
         }
 
         if consumed {
@@ -2064,6 +2167,134 @@ impl Dashboard {
         self.open_charts.clear();
         self.behavior.set_focused_tile(None);
         self.show_landing = true;
+    }
+
+    /// Draw nvim-style scrollbar indicator in the scrollbar gutter
+    fn draw_scrollbar(&self, painter: &egui::Painter, gutter_rect: egui::Rect, theme: AppTheme) {
+        // Only draw if content is taller than visible area
+        if self.viewport_content_height <= self.viewport_visible_height {
+            return;
+        }
+
+        // Scrollbar dimensions - slim and elegant
+        let scrollbar_width = 4.0;
+        let margin_vertical = 8.0;
+        let scrollbar_x = gutter_rect.center().x - scrollbar_width / 2.0;
+
+        // Calculate scrollbar track area
+        let track_top = gutter_rect.top() + margin_vertical;
+        let track_bottom = gutter_rect.bottom() - margin_vertical;
+        let track_height = track_bottom - track_top;
+
+        // Calculate thumb position and size
+        let visible_ratio = self.viewport_visible_height / self.viewport_content_height;
+        let thumb_height = (track_height * visible_ratio).max(24.0); // Minimum thumb size
+
+        let max_scroll = self.viewport_content_height - self.viewport_visible_height;
+        let scroll_ratio = if max_scroll > 0.0 {
+            (self.viewport_scroll_offset / max_scroll).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let thumb_top = track_top + (track_height - thumb_height) * scroll_ratio;
+
+        let track_rect = egui::Rect::from_min_size(
+            egui::pos2(scrollbar_x, track_top),
+            egui::vec2(scrollbar_width, track_height),
+        );
+
+        let thumb_rect = egui::Rect::from_min_size(
+            egui::pos2(scrollbar_x, thumb_top),
+            egui::vec2(scrollbar_width, thumb_height),
+        );
+
+        // Theme-aware colors
+        let (track_color, thumb_color, thumb_highlight) = match theme {
+            AppTheme::Light => (
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 15),
+                egui::Color32::from_rgba_unmultiplied(80, 80, 90, 140),
+                egui::Color32::from_rgba_unmultiplied(60, 60, 70, 180),
+            ),
+            AppTheme::Dark => (
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 8),
+                egui::Color32::from_rgba_unmultiplied(140, 140, 160, 120),
+                egui::Color32::from_rgba_unmultiplied(180, 180, 200, 160),
+            ),
+        };
+
+        // Draw track with rounded ends
+        painter.rect_filled(track_rect, scrollbar_width / 2.0, track_color);
+
+        // Draw thumb with subtle gradient effect (using layered rectangles)
+        // Base thumb
+        painter.rect_filled(thumb_rect, scrollbar_width / 2.0, thumb_color);
+
+        // Inner highlight (slightly smaller, brighter) for depth
+        let highlight_inset = 0.5;
+        let highlight_rect = thumb_rect.shrink2(egui::vec2(highlight_inset, 1.0));
+        painter.rect_filled(
+            highlight_rect,
+            (scrollbar_width - highlight_inset * 2.0) / 2.0,
+            thumb_highlight,
+        );
+
+        // Top cap highlight for a glossy effect
+        let cap_height = 3.0_f32.min(thumb_height / 4.0);
+        let cap_rect =
+            egui::Rect::from_min_size(thumb_rect.min, egui::vec2(scrollbar_width, cap_height));
+        let cap_color = match theme {
+            AppTheme::Light => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 40),
+            AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25),
+        };
+        painter.rect_filled(cap_rect, scrollbar_width / 2.0, cap_color);
+    }
+
+    /// Scroll viewport to make the focused tile visible
+    fn scroll_to_focused_tile(&mut self, ctx: &egui::Context) {
+        let focused_id = match self.behavior.focused_tile() {
+            Some(id) => id,
+            None => return,
+        };
+
+        // Get all pane IDs in order
+        let pane_ids = self.get_pane_tile_ids();
+        if pane_ids.is_empty() {
+            return;
+        }
+
+        // Find the index of the focused pane
+        let focused_index = match pane_ids.iter().position(|&id| id == focused_id) {
+            Some(idx) => idx,
+            None => return,
+        };
+
+        // Calculate approximate position of the focused tile
+        // Assume each pane takes equal height for simplicity
+        let pane_count = pane_ids.len();
+        if pane_count == 0 {
+            return;
+        }
+
+        let pane_height = self.viewport_content_height / pane_count as f32;
+        let target_top = focused_index as f32 * pane_height;
+        let target_bottom = target_top + pane_height;
+
+        // Calculate scroll target to bring tile into view (with some padding)
+        let padding = 20.0;
+        let view_top = self.viewport_scroll_offset;
+        let view_bottom = view_top + self.viewport_visible_height;
+
+        if target_top < view_top + padding {
+            // Tile is above the visible area, scroll up
+            self.viewport_scroll_target = (target_top - padding).max(0.0);
+            ctx.request_repaint();
+        } else if target_bottom > view_bottom - padding {
+            // Tile is below the visible area, scroll down
+            let max_scroll = (self.viewport_content_height - self.viewport_visible_height).max(0.0);
+            self.viewport_scroll_target =
+                (target_bottom - self.viewport_visible_height + padding).clamp(0.0, max_scroll);
+            ctx.request_repaint();
+        }
     }
 }
 
