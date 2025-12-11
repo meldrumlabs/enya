@@ -7,10 +7,10 @@ use egui::RichText;
 
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    CustomQueriesPanel, DiffOffset, DiffView, DiffViewAction, EditExcerpt, InfoOverlay,
-    LandingPage, LandingPageAction, MetricItem, MetricsFinder, MetricsTree, MultiEditOverlay,
-    MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState, TagFilter, TagPath,
-    TimeRangeToolbar, WhichKey,
+    CustomQueriesPanel, Diagnostic, DiagnosticsPane, DiffOffset, DiffView, DiffViewAction,
+    EditExcerpt, InfoOverlay, LandingPage, LandingPageAction, MetricItem, MetricsFinder,
+    MetricsTree, MultiEditOverlay, MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState,
+    TagFilter, TagPath, TimeRangeToolbar, WhichKey,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -169,6 +169,12 @@ pub struct Dashboard {
     visual_multi_state: Option<VisualMultiState>,
     /// Multi-edit overlay for editing multiple panes simultaneously
     multi_edit_overlay: MultiEditOverlay,
+    /// Diagnostics pane for showing query validation errors
+    diagnostics_pane: DiagnosticsPane,
+    /// Whether the diagnostics pane is visible in the viewport
+    diagnostics_visible: bool,
+    /// Tile ID of the diagnostics pane (if added to viewport)
+    diagnostics_tile_id: Option<TileId>,
 }
 
 impl Default for Dashboard {
@@ -213,6 +219,9 @@ impl Default for Dashboard {
             viewport_visible_height: 0.0,
             visual_multi_state: None,
             multi_edit_overlay: MultiEditOverlay::new(),
+            diagnostics_pane: DiagnosticsPane::new(),
+            diagnostics_visible: false,
+            diagnostics_tile_id: None,
         }
     }
 }
@@ -335,6 +344,9 @@ impl Dashboard {
             viewport_visible_height: 0.0,
             visual_multi_state: None,
             multi_edit_overlay: MultiEditOverlay::new(),
+            diagnostics_pane: DiagnosticsPane::new(),
+            diagnostics_visible: false,
+            diagnostics_tile_id: None,
         }
     }
 
@@ -1059,10 +1071,70 @@ impl Dashboard {
                 DashboardAction::None
             }
             CommandResult::Connect(endpoint) => DashboardAction::Connect(endpoint),
+            CommandResult::ToggleDiagnostics => {
+                self.toggle_diagnostics();
+                DashboardAction::None
+            }
+            CommandResult::ShowDiagnostics => {
+                self.show_diagnostics();
+                DashboardAction::None
+            }
+            CommandResult::HideDiagnostics => {
+                self.hide_diagnostics();
+                DashboardAction::None
+            }
+            CommandResult::ClearDiagnostics => {
+                self.clear_diagnostics();
+                DashboardAction::Notify {
+                    level: "info".to_string(),
+                    message: "Cleared all diagnostics".to_string(),
+                }
+            }
+            CommandResult::NextDiagnostic => {
+                self.diagnostics_pane.select_next();
+                // Show notification with current diagnostic
+                if let Some(pane_id) = self.diagnostics_pane.selected_pane_id() {
+                    // Focus the pane associated with the diagnostic
+                    if let Some(tile_id) = self.find_tile_by_pane_id(pane_id) {
+                        self.behavior.set_focused_tile(Some(tile_id));
+                    }
+                }
+                DashboardAction::None
+            }
+            CommandResult::PrevDiagnostic => {
+                self.diagnostics_pane.select_prev();
+                // Focus the pane associated with the diagnostic
+                if let Some(pane_id) = self.diagnostics_pane.selected_pane_id() {
+                    if let Some(tile_id) = self.find_tile_by_pane_id(pane_id) {
+                        self.behavior.set_focused_tile(Some(tile_id));
+                    }
+                }
+                DashboardAction::None
+            }
+            CommandResult::TestDiagnostics => {
+                self.add_test_diagnostics();
+                self.show_diagnostics();
+                DashboardAction::Notify {
+                    level: "info".to_string(),
+                    message: "Added test diagnostics".to_string(),
+                }
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
         }
+    }
+
+    /// Find a tile by the pane's component ID
+    fn find_tile_by_pane_id(&self, pane_id: usize) -> Option<TileId> {
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if component.id() == pane_id {
+                    return Some(tile_id);
+                }
+            }
+        }
+        None
     }
 
     /// Save the focused buffer (execute its query), optionally setting a name
@@ -1476,6 +1548,134 @@ impl Dashboard {
 
         log::debug!("Closed all charts, showing landing page");
     }
+
+    // ==================== Diagnostics Methods ====================
+
+    /// Toggle the diagnostics pane visibility
+    pub fn toggle_diagnostics(&mut self) {
+        if self.diagnostics_visible {
+            self.hide_diagnostics();
+        } else {
+            self.show_diagnostics();
+        }
+    }
+
+    /// Show the diagnostics pane in the viewport
+    pub fn show_diagnostics(&mut self) {
+        if self.diagnostics_visible {
+            return;
+        }
+
+        // Create a new diagnostics pane with existing diagnostics and add it to the viewport
+        let diagnostics = self.diagnostics_pane.diagnostics();
+        let pane: Box<dyn Component> = Box::new(DiagnosticsPane::with_diagnostics(diagnostics));
+        let tile_id = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(tile_id) {
+            self.diagnostics_tile_id = Some(tile_id);
+            self.diagnostics_visible = true;
+            self.show_landing = false;
+            log::debug!("Showing diagnostics pane");
+        }
+    }
+
+    /// Hide the diagnostics pane
+    pub fn hide_diagnostics(&mut self) {
+        if !self.diagnostics_visible {
+            return;
+        }
+
+        if let Some(tile_id) = self.diagnostics_tile_id.take() {
+            self.close_tile(tile_id);
+        }
+        self.diagnostics_visible = false;
+        log::debug!("Hiding diagnostics pane");
+    }
+
+    /// Add a diagnostic to the diagnostics pane
+    pub fn add_diagnostic(&mut self, diagnostic: Diagnostic) {
+        self.diagnostics_pane.add(diagnostic);
+    }
+
+    /// Clear all diagnostics
+    pub fn clear_diagnostics(&mut self) {
+        self.diagnostics_pane.clear();
+    }
+
+    /// Clear diagnostics for a specific pane
+    pub fn clear_diagnostics_for_pane(&mut self, pane_id: usize) {
+        self.diagnostics_pane.clear_for_pane(pane_id);
+    }
+
+    /// Get diagnostics count
+    pub fn diagnostics_count(&self) -> usize {
+        self.diagnostics_pane.count()
+    }
+
+    /// Check if there are any errors
+    pub fn has_diagnostic_errors(&self) -> bool {
+        self.diagnostics_pane.has_errors()
+    }
+
+    /// Check if the diagnostics pane is visible
+    pub fn is_diagnostics_visible(&self) -> bool {
+        self.diagnostics_visible
+    }
+
+    /// Add test diagnostics for demonstration purposes
+    fn add_test_diagnostics(&mut self) {
+        use crate::components::{DiagnosticLevel, DiagnosticSource};
+
+        // Clear existing diagnostics first
+        self.diagnostics_pane.clear();
+
+        // Add sample error
+        self.diagnostics_pane.add(
+            Diagnostic::error("Invalid query syntax: unbalanced parentheses")
+                .with_source(DiagnosticSource::QuerySyntax)
+                .with_code("E001")
+                .with_line(1)
+                .with_column(15)
+                .with_pane(1, "cpu.usage"),
+        );
+
+        // Add sample warning
+        self.diagnostics_pane.add(
+            Diagnostic::warning("Unknown tag key 'evn' - did you mean 'env'?")
+                .with_source(DiagnosticSource::QueryValidation)
+                .with_code("W001")
+                .with_line(1)
+                .with_column(1)
+                .with_pane(2, "memory.used"),
+        );
+
+        // Add sample info
+        self.diagnostics_pane.add(
+            Diagnostic::new(DiagnosticLevel::Info, "Query returned 0 results")
+                .with_source(DiagnosticSource::DataConnection)
+                .with_pane(1, "cpu.usage"),
+        );
+
+        // Add sample hint
+        self.diagnostics_pane.add(
+            Diagnostic::hint("Consider using 'env:prod*' for prefix matching")
+                .with_source(DiagnosticSource::QueryValidation)
+                .with_code("H001")
+                .with_line(1)
+                .with_column(5)
+                .with_pane(3, "disk.free"),
+        );
+
+        // Add another error without location
+        self.diagnostics_pane.add(
+            Diagnostic::error("Connection timeout to metrics server")
+                .with_source(DiagnosticSource::DataConnection),
+        );
+
+        log::debug!("Added {} test diagnostics", self.diagnostics_pane.count());
+    }
+
+    // ==================== End Diagnostics Methods ====================
 
     /// Get a reference to the metrics tree for reading selection state
     pub fn metrics_tree(&self) -> &MetricsTree {
