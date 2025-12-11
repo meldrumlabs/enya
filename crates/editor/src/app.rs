@@ -6,7 +6,10 @@ use crate::command::CommandSender;
 use crate::command::UICommand;
 use crate::command::UICommandSender;
 use crate::command::command_channel;
-use crate::components::{NotificationManager, Sparkline, StatusLine, StatusMode};
+use crate::components::{
+    Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
+};
+use crate::connection::ConnectionManager;
 use crate::dashboard::{Dashboard, DashboardAction};
 use crate::theme::AppTheme;
 use crate::theme::light;
@@ -74,7 +77,8 @@ pub struct EnyaApp {
 
     dashboard: Option<Dashboard>,
 
-    is_connected: bool,
+    // Agent connection manager
+    connection: ConnectionManager,
 
     // Channels for ui commands
     pub command_sender: CommandSender,
@@ -140,7 +144,7 @@ impl Default for EnyaApp {
             command_sender,
             command_receiver,
             state: AppState::default(),
-            is_connected: false,
+            connection: ConnectionManager::new(),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
             editor_metrics: EditorMetrics::default(),
@@ -193,7 +197,8 @@ impl EnyaApp {
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
         // Update status line state
         self.status_line.set_theme(self.state.theme);
-        self.status_line.set_connected(self.is_connected);
+        self.status_line
+            .set_connected(self.connection.status().is_connected());
 
         // Set mode based on current UI state
         let mode = match self.state.ui_state {
@@ -297,9 +302,9 @@ impl EnyaApp {
                 egui_ctx.request_repaint();
             }
 
-            UICommand::ConnectionStatus(connected) => {
-                self.is_connected = connected;
-                // trigger repaint to illustrate the connection status
+            UICommand::ConnectionStatus(_connected) => {
+                // External connection status updates are currently unused.
+                // Connection status is now managed by ConnectionManager.
                 egui_ctx.request_repaint();
             }
 
@@ -416,6 +421,9 @@ impl EnyaApp {
             DashboardAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
+            DashboardAction::Connect(endpoint) => {
+                self.connection.connect(&endpoint, ctx);
+            }
         }
     }
 
@@ -440,6 +448,31 @@ impl EnyaApp {
                 }
             }
         });
+    }
+
+    /// Poll the connection manager for completed health checks
+    fn poll_connection(&mut self) {
+        if let Some(result) = self.connection.poll() {
+            match result {
+                Ok(health) => {
+                    let short_hash = if health.git_hash.len() >= 7 {
+                        &health.git_hash[..7]
+                    } else {
+                        &health.git_hash
+                    };
+                    self.notifications.notify(Notification::new(
+                        format!("Connected to agent v{} ({})", health.version, short_hash),
+                        NotificationLevel::Success,
+                    ));
+                }
+                Err(e) => {
+                    self.notifications.notify(Notification::new(
+                        format!("Connection failed: {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
+        }
     }
 
     /// Save a screenshot image to disk
@@ -1080,6 +1113,9 @@ impl eframe::App for EnyaApp {
 
         // Handle screenshot events
         self.handle_screenshot_events(ctx);
+
+        // Poll connection manager for completed health checks
+        self.poll_connection();
 
         // Custom title bar drag area (since native title bar is hidden)
         // The entire top 32px area acts as a drag region for moving the window

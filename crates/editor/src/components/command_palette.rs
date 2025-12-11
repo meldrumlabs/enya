@@ -100,6 +100,8 @@ pub enum CommandResult {
     EnterDiffMode(Option<String>),
     /// Swap diff base and compare
     SwapDiff,
+    /// Connect to agent endpoint
+    Connect(String),
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -276,6 +278,12 @@ const COMMANDS: &[PaletteCommand] = &[
         description: "Swap diff base and compare",
         kind: CommandKind::NoArgs,
     },
+    PaletteCommand {
+        name: "connect",
+        aliases: &["conn"],
+        description: "Connect to agent (:connect <url>)",
+        kind: CommandKind::SingleArg,
+    },
 ];
 
 /// A match result for command completion
@@ -302,6 +310,12 @@ pub struct CommandPalette {
     selected_index: usize,
     /// Error message to display (clears on next input)
     error_message: Option<String>,
+    /// Whether to move cursor to end on next render (for pre-filled text)
+    cursor_to_end: bool,
+    /// Whether to center the palette vertically (for landing page)
+    centered: bool,
+    /// Whether to request focus on next render (only once when opening)
+    needs_focus: bool,
 }
 
 impl Default for CommandPalette {
@@ -320,6 +334,9 @@ impl CommandPalette {
             suggestions: Vec::new(),
             selected_index: 0,
             error_message: None,
+            cursor_to_end: false,
+            centered: false,
+            needs_focus: false,
         }
     }
 
@@ -339,6 +356,20 @@ impl CommandPalette {
         self.input.clear();
         self.error_message = None;
         self.selected_index = 0;
+        self.centered = false;
+        self.needs_focus = true;
+        self.refresh_suggestions();
+    }
+
+    /// Open the command palette with pre-filled text, centered on screen
+    pub fn open_with_text(&mut self, text: &str) {
+        self.is_open = true;
+        self.input = text.to_string();
+        self.error_message = None;
+        self.selected_index = 0;
+        self.cursor_to_end = true;
+        self.centered = true;
+        self.needs_focus = true;
         self.refresh_suggestions();
     }
 
@@ -543,6 +574,13 @@ impl CommandPalette {
                 CommandResult::EnterDiffMode(offset)
             }
             "diffswap" => CommandResult::SwapDiff,
+            "connect" => {
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :connect <url>".to_string())
+                } else {
+                    CommandResult::Connect(args.join(" "))
+                }
+            }
             _ => CommandResult::None,
         }
     }
@@ -631,8 +669,15 @@ impl CommandPalette {
         let screen_rect = ctx.available_rect();
         let popup_width = (screen_rect.width() * 0.5).clamp(350.0, 600.0);
 
+        // Position: centered vertically when opened from landing page, otherwise near top
+        let (anchor, offset) = if self.centered {
+            (egui::Align2::CENTER_CENTER, [0.0, -50.0])
+        } else {
+            (egui::Align2::CENTER_TOP, [0.0, 80.0])
+        };
+
         egui::Area::new(egui::Id::new("command_palette"))
-            .anchor(egui::Align2::CENTER_TOP, [0.0, 80.0])
+            .anchor(anchor, offset)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let bg_color = match self.theme {
@@ -678,7 +723,27 @@ impl CommandPalette {
                                 .desired_width(popup_width - 50.0);
 
                             let response = ui.add(text_edit);
-                            response.request_focus();
+
+                            // Only request focus once when opening (not every frame)
+                            if self.needs_focus {
+                                response.request_focus();
+                                self.needs_focus = false;
+                            }
+
+                            // Move cursor to end if we pre-filled text
+                            if self.cursor_to_end {
+                                if let Some(mut state) =
+                                    egui::TextEdit::load_state(ui.ctx(), response.id)
+                                {
+                                    let ccursor =
+                                        egui::text::CCursor::new(self.input.chars().count());
+                                    state.cursor.set_char_range(Some(
+                                        egui::text::CCursorRange::one(ccursor),
+                                    ));
+                                    state.store(ui.ctx(), response.id);
+                                }
+                                self.cursor_to_end = false;
+                            }
 
                             if response.changed() {
                                 self.error_message = None;

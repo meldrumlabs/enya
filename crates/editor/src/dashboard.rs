@@ -95,6 +95,8 @@ pub enum DashboardAction {
     SharePane(usize),
     /// Quit the application
     QuitApp,
+    /// Connect to an agent endpoint
+    Connect(String),
 }
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
@@ -776,6 +778,9 @@ impl Dashboard {
             LandingPageAction::ShowHelp => {
                 self.which_key.open();
             }
+            LandingPageAction::OpenConnect => {
+                self.open_command_palette_with_text("connect ");
+            }
             LandingPageAction::None => {}
         }
 
@@ -1053,6 +1058,7 @@ impl Dashboard {
                 self.swap_diff();
                 DashboardAction::None
             }
+            CommandResult::Connect(endpoint) => DashboardAction::Connect(endpoint),
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -1230,6 +1236,11 @@ impl Dashboard {
     /// Open the command palette modal
     pub fn open_command_palette(&mut self) {
         self.command_palette.open();
+    }
+
+    /// Open the command palette with pre-filled text
+    pub fn open_command_palette_with_text(&mut self, text: &str) {
+        self.command_palette.open_with_text(text);
     }
 
     /// Toggle zen mode (distraction-free view)
