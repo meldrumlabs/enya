@@ -98,7 +98,7 @@ pub struct TimeSeriesChart {
     /// Unique identifier for this chart
     id: usize,
     /// The metric name being displayed
-    metric_name: String,
+    pub(crate) metric_name: String,
     /// All series to display
     series: Vec<Series>,
     /// Git commit markers to display as vertical annotations
@@ -106,7 +106,7 @@ pub struct TimeSeriesChart {
     /// Whether to show commit markers
     show_commits: bool,
     /// Current theme
-    theme: AppTheme,
+    pub(crate) theme: AppTheme,
     /// API key (not used currently, but required by Component trait)
     api_key: String,
     /// Whether to show the legend

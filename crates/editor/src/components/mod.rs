@@ -24,6 +24,7 @@ pub mod status_line;
 pub mod tags;
 pub mod time_range;
 pub mod time_series_chart;
+pub mod visualization;
 pub mod which_key;
 
 pub use buffer::{Buffer, BufferAction, BufferMode};
@@ -50,6 +51,10 @@ pub use status_line::{Sparkline, StatusLine, StatusMode};
 pub use tags::{TagFilter, TagPath, TagTree};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
+pub use visualization::{
+    Bar, BarChartViz, GaugeChart, SparklineViz, StatChart, Threshold, Visualization,
+    VisualizationType,
+};
 pub use which_key::WhichKey;
 
 /// Trait that defines an Enya Component

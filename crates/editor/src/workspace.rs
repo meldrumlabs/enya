@@ -93,7 +93,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::components::{AggregationMode, Granularity, QueryState, TimeRangePreset};
+use crate::components::{
+    AggregationMode, Granularity, QueryState, TimeRangePreset, VisualizationType,
+};
 use crate::theme::AppTheme;
 
 /// Compact workspace representation for URL sharing (postcard binary format)
@@ -115,10 +117,10 @@ struct CompactSinglePane {
     query: String,
     /// Optional display name
     name: Option<String>,
-    /// Packed header: bits 0-2 = time preset, bit 3 = theme, bits 4-6 = aggregation, bit 7 = unused
+    /// Packed header: bits 0-2 = time preset, bit 3 = theme, bits 4-6 = aggregation
     header: u8,
-    /// Granularity index (0-5)
-    gran: u8,
+    /// Packed flags: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-7)
+    flags: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +132,8 @@ struct CompactPane {
     tag: Option<String>,
     /// Packed: bits 0-2 = granularity (0-5), bits 3-5 = aggregation (0-7)
     flags: u8,
+    /// Visualization type (0-7)
+    viz: u8,
 }
 
 impl CompactWorkspace {
@@ -175,6 +179,14 @@ impl CompactWorkspace {
                         "1d" => 5,
                         _ => 1,
                     };
+                    let viz: u8 = match p.visualization.as_str() {
+                        "time_series" => 0,
+                        "stat" => 1,
+                        "gauge" => 2,
+                        "bar_chart" => 3,
+                        "sparkline" => 4,
+                        _ => 0,
+                    };
                     // Pack: bits 0-2 = granularity, bits 3-5 = aggregation
                     let flags = gran | (agg << 3);
 
@@ -191,6 +203,7 @@ impl CompactWorkspace {
                             Some(p.tag.clone())
                         },
                         flags,
+                        viz,
                     }
                 })
                 .collect(),
@@ -254,6 +267,15 @@ impl CompactWorkspace {
                         _ => "5m",
                     }
                     .to_string(),
+                    visualization: match p.viz {
+                        0 => "time_series",
+                        1 => "stat",
+                        2 => "gauge",
+                        3 => "bar_chart",
+                        4 => "sparkline",
+                        _ => "time_series",
+                    }
+                    .to_string(),
                 }
             })
             .collect();
@@ -294,8 +316,18 @@ impl CompactSinglePane {
             "1d" => 5,
             _ => 1,
         };
-        // Pack: bits 0-2 = time, bit 3 = theme, bits 4-6 = aggregation
+        let viz: u8 = match pane.visualization.as_str() {
+            "time_series" => 0,
+            "stat" => 1,
+            "gauge" => 2,
+            "bar_chart" => 3,
+            "sparkline" => 4,
+            _ => 0,
+        };
+        // Pack header: bits 0-2 = time, bit 3 = theme, bits 4-6 = aggregation
         let header = time_idx | (theme_bit << 3) | (agg << 4);
+        // Pack flags: bits 0-2 = granularity, bits 3-5 = visualization
+        let flags = gran | (viz << 3);
 
         Self {
             query: pane.query.clone(),
@@ -305,7 +337,7 @@ impl CompactSinglePane {
                 Some(pane.name.clone())
             },
             header,
-            gran,
+            flags,
         }
     }
 
@@ -314,6 +346,9 @@ impl CompactSinglePane {
         let time_idx = self.header & 0x07;
         let theme_bit = (self.header >> 3) & 0x01;
         let agg = (self.header >> 4) & 0x07;
+        // Unpack flags: bits 0-2 = granularity, bits 3-5 = visualization
+        let gran = self.flags & 0x07;
+        let viz = (self.flags >> 3) & 0x07;
 
         let mut ws = Workspace::new("shared");
         ws.view.theme = if theme_bit == 1 {
@@ -349,7 +384,7 @@ impl CompactSinglePane {
                 _ => "raw",
             }
             .to_string(),
-            granularity: match self.gran {
+            granularity: match gran {
                 0 => "1m",
                 1 => "5m",
                 2 => "15m",
@@ -357,6 +392,15 @@ impl CompactSinglePane {
                 4 => "6h",
                 5 => "1d",
                 _ => "5m",
+            }
+            .to_string(),
+            visualization: match viz {
+                0 => "time_series",
+                1 => "stat",
+                2 => "gauge",
+                3 => "bar_chart",
+                4 => "sparkline",
+                _ => "time_series",
             }
             .to_string(),
         });
@@ -626,6 +670,13 @@ pub struct PaneConfig {
         skip_serializing_if = "is_default_granularity"
     )]
     pub granularity: String,
+
+    /// Visualization type: "time_series", "stat", etc.
+    #[serde(
+        default = "default_visualization",
+        skip_serializing_if = "is_default_visualization"
+    )]
+    pub visualization: String,
 }
 
 fn default_aggregation() -> String {
@@ -644,6 +695,14 @@ fn is_default_granularity(s: &String) -> bool {
     s == "5m"
 }
 
+fn default_visualization() -> String {
+    "time_series".to_string()
+}
+
+fn is_default_visualization(s: &String) -> bool {
+    s == "time_series"
+}
+
 impl PaneConfig {
     /// Create a new pane config
     pub fn new(query: impl Into<String>) -> Self {
@@ -653,6 +712,7 @@ impl PaneConfig {
             tag: String::new(),
             aggregation: default_aggregation(),
             granularity: default_granularity(),
+            visualization: default_visualization(),
         }
     }
 
@@ -677,6 +737,12 @@ impl PaneConfig {
     /// Set granularity
     pub fn with_granularity(mut self, gran: Granularity) -> Self {
         self.granularity = gran.label().to_string();
+        self
+    }
+
+    /// Set visualization type
+    pub fn with_visualization(mut self, viz: VisualizationType) -> Self {
+        self.visualization = viz.as_str().to_string();
         self
     }
 
@@ -707,6 +773,11 @@ impl PaneConfig {
         }
     }
 
+    /// Convert visualization string to VisualizationType
+    pub fn visualization_type(&self) -> VisualizationType {
+        VisualizationType::parse(&self.visualization)
+    }
+
     /// Convert to QueryState
     pub fn to_query_state(&self, time_preset: &str) -> QueryState {
         QueryState {
@@ -724,6 +795,25 @@ impl PaneConfig {
             tag: tag.to_string(),
             aggregation: state.aggregation.label().to_string(),
             granularity: state.granularity.label().to_string(),
+            visualization: default_visualization(),
+        }
+    }
+
+    /// Create from query, QueryState, and visualization type
+    pub fn from_query_state_with_viz(
+        query: &str,
+        name: &str,
+        tag: &str,
+        state: &QueryState,
+        viz_type: VisualizationType,
+    ) -> Self {
+        Self {
+            query: query.to_string(),
+            name: name.to_string(),
+            tag: tag.to_string(),
+            aggregation: state.aggregation.label().to_string(),
+            granularity: state.granularity.label().to_string(),
+            visualization: viz_type.as_str().to_string(),
         }
     }
 }
@@ -1088,6 +1178,7 @@ granularity = "5m"
             tag: "Critical".to_string(),
             aggregation: "p95".to_string(),
             granularity: "15m".to_string(),
+            visualization: "time_series".to_string(),
         };
 
         assert_eq!(pane.aggregation_mode(), AggregationMode::P95);
