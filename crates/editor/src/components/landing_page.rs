@@ -22,6 +22,8 @@ pub enum LandingPageAction {
     ShowInfo,
     /// Show help
     ShowHelp,
+    /// Open the command palette with :connect pre-filled
+    OpenConnect,
 }
 
 /// The dashboard-nvim inspired landing page component
@@ -439,9 +441,9 @@ impl LandingPage {
         // Shortcuts row
         ui.horizontal(|ui| {
             // Center the shortcuts
-            let shortcut_width = 120.0;
-            let num_shortcuts = 4;
-            let gap = 16.0;
+            let shortcut_width = 100.0;
+            let num_shortcuts = 5;
+            let gap = 12.0;
             let total_width =
                 shortcut_width * num_shortcuts as f32 + gap * (num_shortcuts - 1) as f32;
             let offset = ((ui.available_width() - total_width) / 2.0).at_least(0.0);
@@ -485,6 +487,25 @@ impl LandingPage {
 
             ui.add_space(gap);
 
+            // Connect (c)
+            if self
+                .show_shortcut_button(
+                    ui,
+                    semantic_icons::status::PLUG,
+                    "Connect",
+                    "c",
+                    text_col,
+                    accent_color,
+                    self.shortcut_focused == Some(2),
+                    shortcut_width,
+                )
+                .clicked()
+            {
+                action = LandingPageAction::OpenConnect;
+            }
+
+            ui.add_space(gap);
+
             // Info (i)
             if self
                 .show_shortcut_button(
@@ -494,7 +515,7 @@ impl LandingPage {
                     "i",
                     text_col,
                     accent_color,
-                    self.shortcut_focused == Some(2),
+                    self.shortcut_focused == Some(3),
                     shortcut_width,
                 )
                 .clicked()
@@ -513,7 +534,7 @@ impl LandingPage {
                     "?",
                     text_col,
                     accent_color,
-                    self.shortcut_focused == Some(3),
+                    self.shortcut_focused == Some(4),
                     shortcut_width,
                 )
                 .clicked()
@@ -663,6 +684,12 @@ impl LandingPage {
             // q - Open queries (query finder)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Q) {
                 action = LandingPageAction::OpenQueryFinder;
+                return;
+            }
+
+            // c - Connect
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
+                action = LandingPageAction::OpenConnect;
                 return;
             }
 

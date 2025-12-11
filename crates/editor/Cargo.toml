@@ -35,6 +35,8 @@ enya-build-info = { path = "../build-info" }
 strum_macros = { workspace = true }
 strum = { workspace = true }
 nucleo-matcher = { workspace = true }
+ehttp = { workspace = true }
+serde_json = { workspace = true }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

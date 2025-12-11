@@ -3,6 +3,7 @@
 mod app;
 pub mod command;
 pub mod components;
+pub mod connection;
 pub mod dashboard;
 mod theme;
 pub mod ui;

@@ -201,6 +201,7 @@ pub mod status {
     pub const CONNECTED: &str = regular::WIFI;
     pub const DISCONNECTED: &str = regular::WIFI_OFF;
     pub const CONNECTING: &str = regular::WIFI_STRENGTH_2;
+    pub const PLUG: &str = regular::POWER_PLUG;
 
     // Operation status
     pub const LOADING: &str = regular::LOADING;
