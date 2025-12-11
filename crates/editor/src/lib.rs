@@ -8,6 +8,7 @@ pub mod dashboard;
 mod theme;
 pub mod ui;
 pub mod util;
+pub mod wgpu;
 pub mod workspace;
 
 pub use app::EnyaApp;

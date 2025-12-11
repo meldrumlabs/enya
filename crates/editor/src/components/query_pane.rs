@@ -4,7 +4,7 @@ use egui::{Color32, RichText};
 
 use crate::components::buffer::{Buffer, BufferAction, BufferMode};
 use crate::components::query_state::QueryState;
-use crate::components::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
+use crate::components::visualization::{Visualization, VisualizationType, populate_demo_data};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
@@ -12,19 +12,20 @@ use crate::ui::semantic_icons;
 /// Global counter for unique pane IDs
 static NEXT_PANE_ID: AtomicUsize = AtomicUsize::new(1000);
 
-/// A QueryPane combines a Buffer (for editing queries) with a TimeSeriesChart (for visualization).
+/// A QueryPane combines a Buffer (for editing queries) with a visualization.
 /// This is the first-class "buffer" concept where:
 /// - The buffer holds the query (e.g., "env:prod AND service:db")
-/// - When saved (:w), the query is executed and the chart updates
+/// - When saved (:w), the query is executed and the visualization updates
 /// - Press 'e' to edit the query, Escape to return to normal mode
+/// - Press 'cv' to cycle visualization type (time series, stat, etc.)
 /// - Query state (aggregation, granularity) is a view preference set via keybindings
 pub struct QueryPane {
     /// Unique identifier for this pane
     id: usize,
     /// The buffer holding the query
     buffer: Buffer,
-    /// The chart displaying results
-    chart: TimeSeriesChart,
+    /// The visualization displaying results (time series, stat, etc.)
+    visualization: Visualization,
     /// Current theme
     theme: AppTheme,
     /// API key
@@ -46,19 +47,24 @@ impl Default for QueryPane {
 impl QueryPane {
     /// Create a new query pane with the given initial query
     pub fn new(query: impl Into<String>) -> Self {
+        Self::with_visualization_type(query, VisualizationType::default())
+    }
+
+    /// Create a new query pane with a specific visualization type
+    pub fn with_visualization_type(query: impl Into<String>, viz_type: VisualizationType) -> Self {
         let query = query.into();
         let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
 
         let buffer = Buffer::with_name(query.clone(), format!("Query {id}"));
-        let mut chart = TimeSeriesChart::new(&query);
+        let mut visualization = Visualization::new(viz_type, &query);
 
         // Generate demo data for now
-        Self::populate_demo_data(&mut chart, &query);
+        populate_demo_data(&mut visualization, &query);
 
         Self {
             id,
             buffer,
-            chart,
+            visualization,
             theme: AppTheme::default(),
             api_key: String::new(),
             buffer_expanded: false,
@@ -92,8 +98,31 @@ impl QueryPane {
         let query = name.clone(); // For demo, query is just the metric name
         let mut pane = Self::new(&query);
         pane.buffer.set_name(&name);
-        pane.chart.set_metric_name(&name);
+        pane.visualization.set_metric_name(&name);
         pane
+    }
+
+    /// Get the current visualization type
+    pub fn visualization_type(&self) -> VisualizationType {
+        self.visualization.viz_type()
+    }
+
+    /// Cycle to the next visualization type
+    pub fn cycle_visualization(&mut self) {
+        self.visualization.cycle();
+        // Re-populate demo data for the new visualization type
+        let query = self.buffer.saved_content().to_string();
+        populate_demo_data(&mut self.visualization, &query);
+    }
+
+    /// Set the visualization type explicitly
+    pub fn set_visualization_type(&mut self, viz_type: VisualizationType) {
+        if self.visualization.viz_type() != viz_type {
+            let query = self.buffer.saved_content().to_string();
+            self.visualization = Visualization::new(viz_type, &query);
+            self.visualization.set_theme(self.theme);
+            populate_demo_data(&mut self.visualization, &query);
+        }
     }
 
     /// Get the pane ID
@@ -131,9 +160,9 @@ impl QueryPane {
         self.tag = tag.to_string();
     }
 
-    /// Toggle commit markers visibility on the chart
+    /// Toggle commit markers visibility on the visualization (only for time series)
     pub fn toggle_commits(&mut self) {
-        self.chart.toggle_commits();
+        self.visualization.toggle_commits();
     }
 
     /// Get the buffer mode
@@ -210,7 +239,7 @@ impl QueryPane {
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
         self.buffer.set_theme(theme);
-        self.chart.set_theme(theme);
+        self.visualization.set_theme(theme);
     }
 
     /// Set API key
@@ -218,94 +247,12 @@ impl QueryPane {
         self.api_key = key.to_string();
     }
 
-    /// Refresh the chart based on current saved query
+    /// Refresh the visualization based on current saved query
     fn refresh_chart(&mut self) {
         let query = self.buffer.saved_content().to_string();
-        self.chart.clear();
-        self.chart.set_metric_name(&query);
-        Self::populate_demo_data(&mut self.chart, &query);
-    }
-
-    /// Populate demo data for a chart (temporary until real data fetching)
-    fn populate_demo_data(chart: &mut TimeSeriesChart, query: &str) {
-        // Generate some demo data based on query hash for variety
-        let hash = query
-            .bytes()
-            .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
-        let now = 1_700_000_000.0;
-        let duration = 86400.0; // 24 hours of data (easier to test gg/G navigation)
-        let num_points = 240; // One point every 6 minutes
-
-        // Series 1
-        let base1 = 50.0 + (hash % 50) as f64;
-        let freq1 = 200.0 + (hash % 100) as f64;
-        let points1: Vec<DataPoint> = (0..num_points)
-            .map(|i| {
-                let t = now + (i as f64 / num_points as f64) * duration;
-                let base = base1 + 20.0 * (t / freq1).sin();
-                let noise = (t * 17.0).sin() * 5.0;
-                DataPoint {
-                    timestamp: t,
-                    value: base + noise,
-                }
-            })
-            .collect();
-
-        chart.add_series(
-            Series::new(query)
-                .with_tag("host", "server1")
-                .with_points(points1)
-                .with_color(Color32::from_rgb(59, 130, 246)),
-        );
-
-        // Series 2
-        let base2 = 70.0 + (hash % 30) as f64;
-        let freq2 = 150.0 + (hash % 80) as f64;
-        let points2: Vec<DataPoint> = (0..num_points)
-            .map(|i| {
-                let t = now + (i as f64 / num_points as f64) * duration;
-                let base = base2 + 15.0 * (t / freq2).cos();
-                let noise = (t * 23.0).sin() * 3.0;
-                DataPoint {
-                    timestamp: t,
-                    value: base + noise,
-                }
-            })
-            .collect();
-
-        chart.add_series(
-            Series::new(query)
-                .with_tag("host", "server2")
-                .with_points(points2)
-                .with_color(Color32::from_rgb(16, 185, 129)),
-        );
-
-        // Add demo commit markers spread across the time range
-        chart.add_commit(CommitMarker::new(
-            "a1b2c3d",
-            now + duration * 0.1,
-            "Fix connection pooling",
-        ));
-        chart.add_commit(CommitMarker::new(
-            "e4f5g6h",
-            now + duration * 0.35,
-            "Add retry logic",
-        ));
-        chart.add_commit(CommitMarker::new(
-            "i7j8k9l",
-            now + duration * 0.5,
-            "Update dependencies",
-        ));
-        chart.add_commit(CommitMarker::new(
-            "m0n1o2p",
-            now + duration * 0.7,
-            "Refactor auth module",
-        ));
-        chart.add_commit(CommitMarker::new(
-            "q3r4s5t",
-            now + duration * 0.9,
-            "Performance improvements",
-        ));
+        self.visualization.clear();
+        self.visualization.set_metric_name(&query);
+        populate_demo_data(&mut self.visualization, &query);
     }
 
     /// Render the query pane
@@ -406,8 +353,8 @@ impl QueryPane {
                 ui.add_space(4.0);
             }
 
-            // Chart area (takes remaining space)
-            self.chart.show(ui);
+            // Visualization area (takes remaining space)
+            self.visualization.show(ui);
         });
 
         action
@@ -451,7 +398,7 @@ impl super::Component for QueryPane {
 
     fn label(&self) -> egui::RichText {
         let icon = match self.buffer.mode() {
-            BufferMode::Normal => semantic_icons::action::CHART,
+            BufferMode::Normal => self.visualization.viz_type().icon(),
             BufferMode::Insert => semantic_icons::action::EDIT,
         };
 

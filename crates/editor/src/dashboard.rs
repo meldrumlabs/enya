@@ -148,6 +148,8 @@ pub struct Dashboard {
     show_landing: bool,
     /// Last time 'y' was pressed (for yy detection)
     last_y_press: Option<crate::util::Instant>,
+    /// Last time 'c' was pressed (for cv detection - cycle visualization)
+    last_c_press: Option<crate::util::Instant>,
     /// Tag filter for filtering queries/buffers
     tag_filter: TagFilter,
     /// Info overlay (shows build/version info)
@@ -209,6 +211,7 @@ impl Default for Dashboard {
             landing_page: LandingPage::new(),
             show_landing: true,
             last_y_press: None,
+            last_c_press: None,
             tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
@@ -334,6 +337,7 @@ impl Dashboard {
             landing_page: LandingPage::new(),
             show_landing: true, // Start with landing page
             last_y_press: None,
+            last_c_press: None,
             tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
@@ -1247,6 +1251,24 @@ impl Dashboard {
         }
     }
 
+    /// Cycle the visualization type for the focused pane (time series -> stat -> ...)
+    fn cycle_focused_visualization(&mut self) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                // Only QueryPane supports multiple visualization types
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    query_pane.cycle_visualization();
+                    log::debug!(
+                        "Cycled visualization to {:?}",
+                        query_pane.visualization_type()
+                    );
+                }
+            }
+        }
+    }
+
     /// Apply the result from the buffer editor modal
     fn apply_buffer_editor_result(&mut self, query: String, query_state: QueryState) {
         if let Some(tile_id) = self.editing_tile_id.take() {
@@ -2114,6 +2136,7 @@ impl Dashboard {
         let mut should_share_pane = false;
         let mut should_open_which_key = false;
         let mut should_enter_visual_multi = false;
+        let mut should_cycle_visualization = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -2133,6 +2156,28 @@ impl Dashboard {
                 self.last_y_press = Some(now);
                 consumed = true;
                 return;
+            }
+
+            // cv - cycle visualization type on focused pane (time series -> stat -> ...)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::C) && current_focus.is_some() {
+                let now = crate::util::Instant::now();
+                // Record c press time for cv detection
+                self.last_c_press = Some(now);
+                consumed = true;
+                return;
+            }
+
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::V) && current_focus.is_some() {
+                // Check if this is part of a cv sequence
+                if let Some(last_press) = self.last_c_press {
+                    let now = crate::util::Instant::now();
+                    if now.duration_since(last_press).as_millis() < 500 {
+                        should_cycle_visualization = true;
+                        self.last_c_press = None;
+                        consumed = true;
+                        return;
+                    }
+                }
             }
 
             // e - enter edit mode on focused pane (vim-style)
@@ -2266,6 +2311,8 @@ impl Dashboard {
             }
         } else if should_edit_buffer {
             self.edit_focused_buffer();
+        } else if should_cycle_visualization {
+            self.cycle_focused_visualization();
         } else if should_toggle_zen {
             self.toggle_zen_mode();
         } else if should_toggle_fullscreen {

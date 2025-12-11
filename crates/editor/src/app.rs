@@ -184,6 +184,11 @@ impl EnyaApp {
             Theme::Dark => app.state.theme = AppTheme::Dark,
         }
 
+        // Initialize GPU resources for heatmaps (flamegraphs use CPU rendering)
+        if let Some(render_state) = cc.wgpu_render_state.as_ref() {
+            crate::wgpu::init_heatmap_resources(render_state);
+        }
+
         app
     }
 

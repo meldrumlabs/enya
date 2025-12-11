@@ -9,6 +9,8 @@ pub mod custom_queries;
 pub mod diagnostics_pane;
 pub mod diff_view;
 pub mod finder_utils;
+pub mod flamegraph;
+pub mod heatmap;
 pub mod info_overlay;
 pub mod landing_page;
 pub mod metrics_finder;
@@ -24,6 +26,7 @@ pub mod status_line;
 pub mod tags;
 pub mod time_range;
 pub mod time_series_chart;
+pub mod visualization;
 pub mod which_key;
 
 pub use buffer::{Buffer, BufferAction, BufferMode};
@@ -35,6 +38,8 @@ pub use diagnostics_pane::{
     DiagnosticsPaneAction,
 };
 pub use diff_view::{DiffOffset, DiffView, DiffViewAction};
+pub use flamegraph::{FlameFrame, FlamegraphViz, ProfileType};
+pub use heatmap::{HeatmapCell, HeatmapLabels, HeatmapViz};
 pub use info_overlay::InfoOverlay;
 pub use landing_page::{LandingPage, LandingPageAction};
 pub use metrics_finder::{MetricItem, MetricsFinder};
@@ -50,6 +55,10 @@ pub use status_line::{Sparkline, StatusLine, StatusMode};
 pub use tags::{TagFilter, TagPath, TagTree};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
+pub use visualization::{
+    Bar, BarChartViz, GaugeChart, SparklineViz, StatChart, Threshold, Visualization,
+    VisualizationType,
+};
 pub use which_key::WhichKey;
 
 /// Trait that defines an Enya Component
