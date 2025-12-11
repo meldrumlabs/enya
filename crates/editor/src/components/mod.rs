@@ -9,6 +9,7 @@ pub mod custom_queries;
 pub mod diagnostics_pane;
 pub mod diff_view;
 pub mod finder_utils;
+pub mod flamegraph;
 pub mod heatmap;
 pub mod info_overlay;
 pub mod landing_page;
@@ -37,6 +38,7 @@ pub use diagnostics_pane::{
     DiagnosticsPaneAction,
 };
 pub use diff_view::{DiffOffset, DiffView, DiffViewAction};
+pub use flamegraph::{FlameFrame, FlamegraphViz, ProfileType};
 pub use heatmap::{HeatmapCell, HeatmapLabels, HeatmapViz};
 pub use info_overlay::InfoOverlay;
 pub use landing_page::{LandingPage, LandingPageAction};

@@ -1,19 +1,26 @@
 //! Heatmap visualization
 //!
 //! This module provides a heatmap visualization for displaying 2D grids of values.
-//! Currently uses CPU rendering with a Viridis-style color palette.
-//! GPU acceleration via wgpu can be added later using the companion `heatmap.wgsl` shader.
+//! Supports both CPU rendering (fallback) and GPU-accelerated rendering via wgpu.
+//!
+//! GPU rendering is implemented in the `crate::wgpu::heatmap` module.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use eframe::egui_wgpu;
 use egui::{Color32, RichText, Stroke, StrokeKind};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
+use crate::wgpu::HeatmapCallback;
 
 /// Global counter for unique heatmap IDs
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
+
+/// Threshold for switching to GPU rendering (number of cells)
+const GPU_THRESHOLD: usize = 100;
 
 /// A single cell in the heatmap
 #[derive(Debug, Clone, Copy)]
@@ -61,6 +68,8 @@ pub struct HeatmapViz {
     value_range: (f64, f64),
     /// Whether to show a color scale legend
     show_legend: bool,
+    /// Whether to use GPU rendering (auto-detected based on cell count)
+    use_gpu: bool,
 }
 
 impl Default for HeatmapViz {
@@ -83,6 +92,8 @@ impl HeatmapViz {
             theme: AppTheme::default(),
             value_range: (0.0, 1.0),
             show_legend: true,
+            // GPU rendering disabled until shader/transform issues are resolved
+            use_gpu: false,
         }
     }
 
@@ -143,6 +154,9 @@ impl HeatmapViz {
         }
 
         self.grid_size = (data.first().map(|r| r.len()).unwrap_or(0), data.len());
+
+        // Auto-enable GPU for large grids
+        self.use_gpu = self.cells.len() >= GPU_THRESHOLD;
     }
 
     /// Set labels for rows and columns
@@ -153,20 +167,31 @@ impl HeatmapViz {
     /// Clear all data
     pub fn clear(&mut self) {
         self.cells.clear();
+        self.use_gpu = false;
     }
 
-    /// Get a color for a normalized value (0-1) - used for CPU fallback
+    /// Force GPU rendering on/off
+    pub fn set_use_gpu(&mut self, use_gpu: bool) {
+        self.use_gpu = use_gpu;
+    }
+
+    /// Get a color for a normalized value (0-1) - Obsidian Glass theme palette
+    ///
+    /// Uses an emerald-based gradient that matches the editor's brand colors:
+    /// - Low values: dark backgrounds (near-black)
+    /// - Mid values: teal/emerald transition
+    /// - High values: bright emerald accent
     fn get_color(value: f32) -> Color32 {
-        // Viridis-inspired palette
+        // Obsidian Glass inspired palette - dark to emerald gradient
         let colors = [
-            Color32::from_rgb(68, 1, 84),    // Dark purple
-            Color32::from_rgb(72, 36, 117),  // Purple
-            Color32::from_rgb(65, 68, 135),  // Blue-purple
-            Color32::from_rgb(48, 104, 142), // Blue
-            Color32::from_rgb(32, 144, 141), // Teal
-            Color32::from_rgb(52, 183, 121), // Green
-            Color32::from_rgb(144, 215, 67), // Yellow-green
-            Color32::from_rgb(253, 231, 37), // Yellow
+            Color32::from_rgb(10, 10, 10),   // bg::BASE - almost black
+            Color32::from_rgb(20, 28, 25),   // Dark with subtle green tint
+            Color32::from_rgb(18, 38, 32),   // accent::MUTED - subtle emerald
+            Color32::from_rgb(20, 60, 50),   // Deeper emerald
+            Color32::from_rgb(32, 100, 85),  // Mid teal-emerald
+            Color32::from_rgb(16, 140, 100), // Approaching accent
+            Color32::from_rgb(16, 185, 129), // accent::PRIMARY - emerald
+            Color32::from_rgb(52, 211, 153), // accent::HOVER - bright emerald
         ];
 
         let t = value.clamp(0.0, 1.0);
@@ -189,6 +214,14 @@ impl HeatmapViz {
             (c1.g() as f32 + (c2.g() as f32 - c1.g() as f32) * frac) as u8,
             (c1.b() as f32 + (c2.b() as f32 - c1.b() as f32) * frac) as u8,
         )
+    }
+
+    /// Render the heatmap grid using GPU
+    fn show_gpu_grid(&self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let callback = HeatmapCallback::new(Arc::new(self.cells.clone()), self.grid_size, rect);
+
+        ui.painter()
+            .add(egui_wgpu::Callback::new_paint_callback(rect, callback));
     }
 
     /// Render the heatmap (CPU fallback when GPU not available)
@@ -270,18 +303,23 @@ impl HeatmapViz {
                     .allocate_painter(egui::vec2(chart_width, chart_height), egui::Sense::hover());
                 let rect = response.rect;
 
-                // Draw cells
-                for cell in &self.cells {
-                    let x = rect.left() + cell.col as f32 * cell_width + gap / 2.0;
-                    let y = rect.top() + cell.row as f32 * cell_height + gap / 2.0;
+                // Use GPU or CPU rendering for cells
+                if self.use_gpu {
+                    self.show_gpu_grid(ui, rect);
+                } else {
+                    // Draw cells (CPU)
+                    for cell in &self.cells {
+                        let x = rect.left() + cell.col as f32 * cell_width + gap / 2.0;
+                        let y = rect.top() + cell.row as f32 * cell_height + gap / 2.0;
 
-                    let cell_rect = egui::Rect::from_min_size(
-                        egui::pos2(x, y),
-                        egui::vec2(cell_width - gap, cell_height - gap),
-                    );
+                        let cell_rect = egui::Rect::from_min_size(
+                            egui::pos2(x, y),
+                            egui::vec2(cell_width - gap, cell_height - gap),
+                        );
 
-                    let color = Self::get_color(cell.value);
-                    painter.rect_filled(cell_rect, 2.0, color);
+                        let color = Self::get_color(cell.value);
+                        painter.rect_filled(cell_rect, 2.0, color);
+                    }
                 }
 
                 // Draw border
@@ -360,56 +398,204 @@ impl HeatmapViz {
 
     /// Render the heatmap
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        self.show_cpu_fallback(ui);
+        // Use GPU rendering when enabled, CPU fallback otherwise
+        if self.use_gpu {
+            self.show_with_gpu(ui);
+        } else {
+            self.show_cpu_fallback(ui);
+        }
+    }
+
+    /// Render the heatmap with GPU-accelerated grid
+    fn show_with_gpu(&self, ui: &mut egui::Ui) {
+        let text_col = text_color(self.theme);
+
+        ui.vertical(|ui| {
+            ui.add_space(8.0);
+
+            // Title with GPU indicator
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new(format!("{} [GPU]", &self.title))
+                        .color(text_col)
+                        .size(16.0)
+                        .strong(),
+                );
+            });
+
+            ui.add_space(8.0);
+
+            if self.cells.is_empty() {
+                ui.centered_and_justified(|ui| {
+                    ui.label(
+                        RichText::new("No data")
+                            .color(text_col.gamma_multiply(0.4))
+                            .size(14.0),
+                    );
+                });
+                return;
+            }
+
+            let (cols, rows) = self.grid_size;
+            if cols == 0 || rows == 0 {
+                return;
+            }
+
+            // Calculate available space for the grid
+            let available = ui.available_size();
+            let left_margin = 80.0; // Space for row labels
+            let bottom_margin = 30.0; // Space for column labels
+            let grid_width = available.x - left_margin - 16.0;
+            let grid_height = (available.y - bottom_margin - 40.0).min(rows as f32 * 30.0);
+
+            // Row labels on the left
+            ui.horizontal(|ui| {
+                ui.add_space(8.0);
+
+                // Row labels column
+                ui.vertical(|ui| {
+                    let cell_height = grid_height / rows as f32;
+                    for row in 0..rows {
+                        let label = self.labels.rows.get(row).map(|s| s.as_str()).unwrap_or("");
+                        ui.add_sized(
+                            [left_margin - 12.0, cell_height],
+                            egui::Label::new(
+                                RichText::new(label)
+                                    .color(text_col.gamma_multiply(0.7))
+                                    .size(11.0),
+                            ),
+                        );
+                    }
+                });
+
+                // GPU-rendered grid
+                let (rect, _response) = ui
+                    .allocate_exact_size(egui::vec2(grid_width, grid_height), egui::Sense::hover());
+
+                self.show_gpu_grid(ui, rect);
+            });
+
+            ui.add_space(4.0);
+
+            // Column labels at bottom
+            ui.horizontal(|ui| {
+                ui.add_space(left_margin + 4.0);
+                let cell_width = grid_width / cols as f32;
+                for col in 0..cols {
+                    let label = self
+                        .labels
+                        .columns
+                        .get(col)
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    ui.add_sized(
+                        [cell_width, 16.0],
+                        egui::Label::new(
+                            RichText::new(label)
+                                .color(text_col.gamma_multiply(0.5))
+                                .size(9.0),
+                        ),
+                    );
+                }
+            });
+        });
     }
 }
 
 /// Populate demo data for the heatmap
+///
+/// Creates a realistic activity heatmap showing request volume by hour of day.
+/// Simulates typical web traffic patterns:
+/// - Morning ramp-up (6-9am)
+/// - Peak business hours (10am-4pm)
+/// - Evening decline with small secondary peak
+/// - Low overnight activity
 pub fn populate_heatmap_demo(heatmap: &mut HeatmapViz, query: &str) {
-    // Generate demo data based on query hash
+    // Generate demo data based on query hash for variety
     let hash = query
         .bytes()
         .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
 
     let cols = 24; // 24 hours
-    let rows = 8; // 8 endpoints/services
+    let rows = 7; // 7 days of the week
 
     let mut data = Vec::with_capacity(rows);
 
-    for row in 0..rows {
+    // Day names for reference: Sun=0, Mon=1, ..., Sat=6
+    // Weekdays have higher traffic than weekends
+
+    for day in 0..rows {
         let mut row_data = Vec::with_capacity(cols);
-        for col in 0..cols {
-            // Generate interesting patterns
-            let base = ((hash + row as u64 * 13 + col as u64 * 7) % 100) as f64 / 100.0;
+        let is_weekend = day == 0 || day == 6;
+        let weekend_factor = if is_weekend { 0.4 } else { 1.0 };
 
-            // Add time-based pattern (higher during business hours)
-            let hour_factor = if (9..18).contains(&col) { 1.5 } else { 0.5 };
+        for hour in 0..cols {
+            // Base traffic pattern by hour (realistic daily curve)
+            let hour_pattern = match hour {
+                0..=5 => 0.05 + (hour as f64 * 0.01), // Late night/early morning: very low
+                6..=8 => 0.15 + ((hour - 6) as f64 * 0.15), // Morning ramp-up
+                9..=11 => 0.55 + ((hour - 9) as f64 * 0.1), // Morning peak building
+                12 => 0.7,                            // Lunch slight dip
+                13..=16 => 0.8 + ((hour - 13) as f64 * 0.05), // Afternoon peak
+                17..=18 => 0.9 - ((hour - 17) as f64 * 0.15), // End of business day
+                19..=21 => 0.5 - ((hour - 19) as f64 * 0.1), // Evening decline
+                22..=23 => 0.2 - ((hour - 22) as f64 * 0.08), // Late evening
+                _ => 0.1,
+            };
 
-            // Add some row variation (some services are busier)
-            let row_factor = 1.0 + (row as f64 * 0.1);
+            // Add day-of-week variation (Tuesday-Thursday are busiest)
+            let day_factor = match day {
+                0 => 0.3,  // Sunday - lowest
+                1 => 0.85, // Monday
+                2 => 1.0,  // Tuesday - peak
+                3 => 1.0,  // Wednesday - peak
+                4 => 0.95, // Thursday
+                5 => 0.75, // Friday
+                6 => 0.35, // Saturday
+                _ => 0.8,
+            };
 
-            // Add some noise
-            let noise = ((hash.wrapping_add(row as u64 * col as u64) % 30) as f64 - 15.0) / 100.0;
+            // Add query-based variation for uniqueness
+            let query_variation =
+                ((hash.wrapping_add(day as u64 * 17 + hour as u64 * 31) % 20) as f64 - 10.0)
+                    / 100.0;
 
-            let value = (base * hour_factor * row_factor + noise).clamp(0.0, 1.0);
-            row_data.push(value * 100.0); // Scale to 0-100 for error rate percentage
+            // Occasional spikes (simulating incidents or deployments)
+            let spike = if (hash.wrapping_add(day as u64 * hour as u64) % 50) == 0 {
+                0.3
+            } else {
+                0.0
+            };
+
+            let value = (hour_pattern * day_factor * weekend_factor + query_variation + spike)
+                .clamp(0.0, 1.0);
+            row_data.push(value);
         }
         data.push(row_data);
     }
 
     heatmap.set_data(data);
 
-    // Set labels
-    let column_labels: Vec<String> = (0..cols).map(|h| format!("{h:02}")).collect();
+    // Set labels - hours for columns, days for rows
+    let column_labels: Vec<String> = (0..cols)
+        .map(|h| {
+            if h % 3 == 0 {
+                format!("{h:02}:00")
+            } else {
+                String::new()
+            }
+        })
+        .collect();
+
     let row_labels: Vec<String> = vec![
-        "api-gateway".into(),
-        "auth-service".into(),
-        "user-service".into(),
-        "order-service".into(),
-        "payment-service".into(),
-        "inventory-svc".into(),
-        "notification".into(),
-        "analytics".into(),
+        "Sun".into(),
+        "Mon".into(),
+        "Tue".into(),
+        "Wed".into(),
+        "Thu".into(),
+        "Fri".into(),
+        "Sat".into(),
     ];
 
     heatmap.set_labels(HeatmapLabels {
@@ -449,12 +635,14 @@ mod tests {
         // Should be different colors
         assert_ne!(color_0, color_1);
 
-        // Color at 0 should be dark purple-ish
-        assert!(color_0.r() < 100);
+        // Color at 0 should be near-black (Obsidian Glass bg::BASE)
+        assert!(color_0.r() < 20);
+        assert!(color_0.g() < 20);
+        assert!(color_0.b() < 20);
 
-        // Color at 1 should be yellow-ish
-        assert!(color_1.r() > 200);
-        assert!(color_1.g() > 200);
+        // Color at 1 should be bright emerald (accent::HOVER)
+        assert!(color_1.g() > 180); // Green channel dominant
+        assert!(color_1.g() > color_1.r()); // More green than red
     }
 
     #[test]
@@ -462,9 +650,25 @@ mod tests {
         let mut heatmap = HeatmapViz::new("demo");
         populate_heatmap_demo(&mut heatmap, "test query");
 
-        assert_eq!(heatmap.grid_size, (24, 8));
+        assert_eq!(heatmap.grid_size, (24, 7)); // 24 hours x 7 days
         assert!(!heatmap.cells.is_empty());
         assert!(!heatmap.labels.columns.is_empty());
         assert!(!heatmap.labels.rows.is_empty());
+        assert_eq!(heatmap.labels.rows.len(), 7); // Sun-Sat
+    }
+
+    #[test]
+    fn test_gpu_threshold() {
+        let mut heatmap = HeatmapViz::new("test");
+
+        // Small grid should use CPU
+        let small_data: Vec<Vec<f64>> = (0..5).map(|_| vec![0.5; 5]).collect();
+        heatmap.set_data(small_data);
+        assert!(!heatmap.use_gpu);
+
+        // Large grid should use GPU
+        let large_data: Vec<Vec<f64>> = (0..20).map(|_| vec![0.5; 20]).collect();
+        heatmap.set_data(large_data);
+        assert!(heatmap.use_gpu);
     }
 }

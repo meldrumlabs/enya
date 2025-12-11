@@ -22,20 +22,21 @@ var<uniform> uniforms: Uniforms;
 @group(0) @binding(1)
 var<storage, read> cell_data: array<vec4<f32>>;
 
-// Color palette for heatmap (8 colors from cold to hot)
+// Color palette for heatmap - Obsidian Glass emerald theme
+// Dark-to-emerald gradient matching the editor's brand colors
 fn get_heatmap_color(value: f32) -> vec4<f32> {
     // Clamp value to 0-1 range
     let t = clamp(value, 0.0, 1.0);
 
-    // Viridis-inspired palette (perceptually uniform)
-    let c0 = vec3<f32>(0.267, 0.004, 0.329); // Dark purple
-    let c1 = vec3<f32>(0.282, 0.140, 0.458); // Purple
-    let c2 = vec3<f32>(0.254, 0.265, 0.530); // Blue-purple
-    let c3 = vec3<f32>(0.190, 0.407, 0.556); // Blue
-    let c4 = vec3<f32>(0.127, 0.566, 0.551); // Teal
-    let c5 = vec3<f32>(0.204, 0.718, 0.473); // Green
-    let c6 = vec3<f32>(0.565, 0.843, 0.262); // Yellow-green
-    let c7 = vec3<f32>(0.993, 0.906, 0.144); // Yellow
+    // Obsidian Glass emerald palette (dark to bright emerald)
+    let c0 = vec3<f32>(0.039, 0.039, 0.039); // bg::BASE - almost black (#0A0A0A)
+    let c1 = vec3<f32>(0.078, 0.110, 0.098); // Dark with subtle green tint
+    let c2 = vec3<f32>(0.071, 0.149, 0.125); // accent::MUTED - subtle emerald
+    let c3 = vec3<f32>(0.078, 0.235, 0.196); // Deeper emerald
+    let c4 = vec3<f32>(0.125, 0.392, 0.333); // Mid teal-emerald
+    let c5 = vec3<f32>(0.063, 0.549, 0.392); // Approaching accent
+    let c6 = vec3<f32>(0.063, 0.725, 0.506); // accent::PRIMARY - emerald (#10B981)
+    let c7 = vec3<f32>(0.204, 0.827, 0.600); // accent::HOVER - bright emerald (#34D399)
 
     // Interpolate between colors
     let segment = t * 7.0;
