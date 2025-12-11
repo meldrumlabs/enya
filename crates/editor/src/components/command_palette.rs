@@ -102,6 +102,20 @@ pub enum CommandResult {
     SwapDiff,
     /// Connect to agent endpoint
     Connect(String),
+    /// Toggle diagnostics pane
+    ToggleDiagnostics,
+    /// Show diagnostics pane
+    ShowDiagnostics,
+    /// Hide diagnostics pane
+    HideDiagnostics,
+    /// Clear all diagnostics
+    ClearDiagnostics,
+    /// Jump to next diagnostic
+    NextDiagnostic,
+    /// Jump to previous diagnostic
+    PrevDiagnostic,
+    /// Add test diagnostics (for development/demo)
+    TestDiagnostics,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -283,6 +297,24 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &["conn"],
         description: "Connect to agent (:connect <url>)",
         kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "diagnostics",
+        aliases: &["diag", "d"],
+        description: "Toggle/show/hide/clear diagnostics pane",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "lnext",
+        aliases: &["ln"],
+        description: "Jump to next diagnostic",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "lprev",
+        aliases: &["lp", "lprevious"],
+        description: "Jump to previous diagnostic",
+        kind: CommandKind::NoArgs,
     },
 ];
 
@@ -581,6 +613,28 @@ impl CommandPalette {
                     CommandResult::Connect(args.join(" "))
                 }
             }
+            "diagnostics" => {
+                if args.is_empty() {
+                    // :diag with no args - toggle
+                    CommandResult::ToggleDiagnostics
+                } else {
+                    match args[0].to_lowercase().as_str() {
+                        "show" | "open" => CommandResult::ShowDiagnostics,
+                        "hide" | "close" => CommandResult::HideDiagnostics,
+                        "clear" | "reset" => CommandResult::ClearDiagnostics,
+                        "toggle" | "t" => CommandResult::ToggleDiagnostics,
+                        "next" | "n" => CommandResult::NextDiagnostic,
+                        "prev" | "previous" | "p" => CommandResult::PrevDiagnostic,
+                        "test" => CommandResult::TestDiagnostics,
+                        _ => CommandResult::Error(format!(
+                            "Unknown diagnostics subcommand: {}. Use show/hide/clear/toggle/next/prev/test",
+                            args[0]
+                        )),
+                    }
+                }
+            }
+            "lnext" => CommandResult::NextDiagnostic,
+            "lprev" => CommandResult::PrevDiagnostic,
             _ => CommandResult::None,
         }
     }

@@ -1,10 +1,235 @@
-use egui::{Color32, FontId, Key, RichText};
+use egui::text::LayoutJob;
+use egui::{Color32, FontId, Key, RichText, TextFormat};
 
+use crate::components::diagnostics_pane::{Diagnostic, DiagnosticLevel};
 use crate::components::query_completion::{CompletionResult, QueryCompletion};
 use crate::components::query_state::QueryState;
+use crate::components::query_validation::{QueryValidator, ValidationResult};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
+
+/// Truncate a message to a maximum length, adding ellipsis if needed
+fn truncate_message(msg: &str, max_len: usize) -> String {
+    if msg.chars().count() <= max_len {
+        msg.to_string()
+    } else {
+        let truncated: String = msg.chars().take(max_len.saturating_sub(1)).collect();
+        format!("{truncated}…")
+    }
+}
+
+/// Syntax highlighting colors for query language
+struct QuerySyntaxColors {
+    keyword: Color32,   // AND, OR, NOT
+    tag_key: Color32,   // env, service, etc.
+    colon: Color32,     // :
+    tag_value: Color32, // prod, db, etc.
+    wildcard: Color32,  // *
+    paren: Color32,     // ( )
+    negation: Color32,  // !
+    default: Color32,   // fallback
+}
+
+impl QuerySyntaxColors {
+    fn for_theme(theme: AppTheme) -> Self {
+        match theme {
+            AppTheme::Light => Self {
+                keyword: Color32::from_rgb(166, 38, 164), // purple - keywords
+                tag_key: Color32::from_rgb(0, 92, 197),   // blue - keys
+                colon: Color32::from_rgb(100, 100, 100),  // gray
+                tag_value: Color32::from_rgb(22, 128, 54), // green - values
+                wildcard: Color32::from_rgb(200, 120, 0), // orange
+                paren: Color32::from_rgb(100, 100, 100),  // gray
+                negation: Color32::from_rgb(220, 60, 60), // red
+                default: Color32::from_rgb(30, 30, 30),
+            },
+            AppTheme::Dark => Self {
+                keyword: Color32::from_rgb(198, 120, 221), // purple - keywords
+                tag_key: Color32::from_rgb(97, 175, 239),  // blue - keys
+                colon: Color32::from_rgb(150, 150, 150),   // gray
+                tag_value: Color32::from_rgb(152, 195, 121), // green - values
+                wildcard: Color32::from_rgb(229, 192, 123), // orange/yellow
+                paren: Color32::from_rgb(150, 150, 150),   // gray
+                negation: Color32::from_rgb(224, 108, 117), // red
+                default: Color32::from_rgb(220, 220, 220),
+            },
+        }
+    }
+}
+
+/// Create a syntax-highlighted layout for query text
+fn highlight_query_detailed(text: &str, theme: AppTheme, font_id: FontId) -> LayoutJob {
+    let colors = QuerySyntaxColors::for_theme(theme);
+    let mut job = LayoutJob::default();
+
+    let mut i = 0;
+
+    while i < text.len() {
+        let c = text[i..].chars().next().unwrap();
+        let c_len = c.len_utf8();
+
+        match c {
+            '(' | ')' => {
+                job.append(
+                    &text[i..i + c_len],
+                    0.0,
+                    TextFormat {
+                        font_id: font_id.clone(),
+                        color: colors.paren,
+                        ..Default::default()
+                    },
+                );
+                i += c_len;
+            }
+            '!' => {
+                job.append(
+                    "!",
+                    0.0,
+                    TextFormat {
+                        font_id: font_id.clone(),
+                        color: colors.negation,
+                        ..Default::default()
+                    },
+                );
+                i += c_len;
+            }
+            ' ' | '\t' | '\n' => {
+                job.append(
+                    &text[i..i + c_len],
+                    0.0,
+                    TextFormat {
+                        font_id: font_id.clone(),
+                        color: colors.default,
+                        ..Default::default()
+                    },
+                );
+                i += c_len;
+            }
+            _ => {
+                // Read a word (until whitespace or special char)
+                let word_start = i;
+                while i < text.len() {
+                    let next_c = text[i..].chars().next().unwrap();
+                    if matches!(next_c, ' ' | '\t' | '\n' | '(' | ')' | '!') {
+                        break;
+                    }
+                    i += next_c.len_utf8();
+                }
+                let word = &text[word_start..i];
+
+                // Classify and color the word
+                let upper = word.to_uppercase();
+                if matches!(upper.as_str(), "AND" | "OR" | "NOT") {
+                    // Keyword
+                    job.append(
+                        word,
+                        0.0,
+                        TextFormat {
+                            font_id: font_id.clone(),
+                            color: colors.keyword,
+                            ..Default::default()
+                        },
+                    );
+                } else if word == "*" {
+                    // Standalone wildcard
+                    job.append(
+                        word,
+                        0.0,
+                        TextFormat {
+                            font_id: font_id.clone(),
+                            color: colors.wildcard,
+                            ..Default::default()
+                        },
+                    );
+                } else if let Some(colon_pos) = word.find(':') {
+                    // Tag expression: key:value or key:value*
+                    let key = &word[..colon_pos];
+                    let colon = &word[colon_pos..colon_pos + 1];
+                    let value = &word[colon_pos + 1..];
+
+                    // Key
+                    job.append(
+                        key,
+                        0.0,
+                        TextFormat {
+                            font_id: font_id.clone(),
+                            color: colors.tag_key,
+                            ..Default::default()
+                        },
+                    );
+                    // Colon
+                    job.append(
+                        colon,
+                        0.0,
+                        TextFormat {
+                            font_id: font_id.clone(),
+                            color: colors.colon,
+                            ..Default::default()
+                        },
+                    );
+                    // Value (check for wildcard suffix)
+                    if let Some(value_part) = value.strip_suffix('*') {
+                        job.append(
+                            value_part,
+                            0.0,
+                            TextFormat {
+                                font_id: font_id.clone(),
+                                color: colors.tag_value,
+                                ..Default::default()
+                            },
+                        );
+                        job.append(
+                            "*",
+                            0.0,
+                            TextFormat {
+                                font_id: font_id.clone(),
+                                color: colors.wildcard,
+                                ..Default::default()
+                            },
+                        );
+                    } else {
+                        job.append(
+                            value,
+                            0.0,
+                            TextFormat {
+                                font_id: font_id.clone(),
+                                color: colors.tag_value,
+                                ..Default::default()
+                            },
+                        );
+                    }
+                } else {
+                    // Unknown/default
+                    job.append(
+                        word,
+                        0.0,
+                        TextFormat {
+                            font_id: font_id.clone(),
+                            color: colors.default,
+                            ..Default::default()
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    // Ensure job has content for empty strings
+    if job.is_empty() {
+        job.append(
+            "",
+            0.0,
+            TextFormat {
+                font_id,
+                color: colors.default,
+                ..Default::default()
+            },
+        );
+    }
+
+    job
+}
 
 /// Result of the buffer editor modal
 #[derive(Debug, Clone)]
@@ -45,6 +270,12 @@ pub struct BufferEditor {
     text_edit_rect: Option<egui::Rect>,
     /// Pending cursor position to set after completion (if Some, will be applied next frame)
     pending_cursor: Option<usize>,
+    /// Query validator for inline validation
+    validator: QueryValidator,
+    /// Cached validation result
+    validation_result: Option<ValidationResult>,
+    /// Whether inline diagnostics are shown
+    show_inline_diagnostics: bool,
 }
 
 impl Default for BufferEditor {
@@ -68,6 +299,9 @@ impl BufferEditor {
             cursor_position: 0,
             text_edit_rect: None,
             pending_cursor: None,
+            validator: QueryValidator::new(),
+            validation_result: None,
+            show_inline_diagnostics: true,
         };
 
         // TODO: Load tag keys and values from metrics store instead of these defaults.
@@ -204,6 +438,38 @@ impl BufferEditor {
         self.cursor_position = 0;
         self.text_edit_rect = None;
         self.pending_cursor = None;
+        self.validation_result = None;
+    }
+
+    /// Validate the current query and cache the result
+    fn validate_query(&mut self) {
+        self.validation_result = Some(self.validator.validate(&self.query));
+    }
+
+    /// Get the current validation result
+    pub fn validation_result(&self) -> Option<&ValidationResult> {
+        self.validation_result.as_ref()
+    }
+
+    /// Get the diagnostics from the last validation
+    pub fn diagnostics(&self) -> Vec<Diagnostic> {
+        self.validation_result
+            .as_ref()
+            .map(|r| r.diagnostics.clone())
+            .unwrap_or_default()
+    }
+
+    /// Check if the query is valid (no errors)
+    pub fn is_valid(&self) -> bool {
+        self.validation_result
+            .as_ref()
+            .map(|r| r.is_valid)
+            .unwrap_or(true)
+    }
+
+    /// Toggle inline diagnostics display
+    pub fn toggle_inline_diagnostics(&mut self) {
+        self.show_inline_diagnostics = !self.show_inline_diagnostics;
     }
 
     /// Get the current query content
@@ -366,6 +632,57 @@ impl BufferEditor {
                                 );
                             }
 
+                            // Validation indicator
+                            if let Some(ref validation) = self.validation_result {
+                                ui.add_space(8.0);
+                                if validation.is_valid {
+                                    if validation.diagnostics.is_empty() {
+                                        ui.label(
+                                            RichText::new(semantic_icons::status::SUCCESS)
+                                                .color(Color32::from_rgb(80, 180, 100))
+                                                .size(12.0),
+                                        )
+                                        .on_hover_text("Query is valid");
+                                    } else {
+                                        // Valid but has warnings/hints
+                                        let warn_count = validation
+                                            .diagnostics
+                                            .iter()
+                                            .filter(|d| d.level == DiagnosticLevel::Warning)
+                                            .count();
+                                        if warn_count > 0 {
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} {}",
+                                                    semantic_icons::diagnostic::WARNING,
+                                                    warn_count
+                                                ))
+                                                .color(Color32::from_rgb(220, 160, 50))
+                                                .size(11.0),
+                                            )
+                                            .on_hover_text(format!("{warn_count} warning(s)"));
+                                        }
+                                    }
+                                } else {
+                                    // Has errors
+                                    let error_count = validation
+                                        .diagnostics
+                                        .iter()
+                                        .filter(|d| d.level == DiagnosticLevel::Error)
+                                        .count();
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{} {}",
+                                            semantic_icons::diagnostic::ERROR,
+                                            error_count
+                                        ))
+                                        .color(Color32::from_rgb(220, 60, 60))
+                                        .size(11.0),
+                                    )
+                                    .on_hover_text(format!("{error_count} error(s)"));
+                                }
+                            }
+
                             // Spacer and close hint
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -444,17 +761,52 @@ impl BufferEditor {
                             ui.add_space(16.0);
 
                             let editor_width = popup_width - 32.0;
-                            let output = egui::TextEdit::multiline(&mut self.query)
-                                .id(text_edit_id)
-                                .font(FontId::monospace(14.0))
-                                .hint_text(
-                                    RichText::new("Enter query (e.g., env:prod AND service:db)")
-                                        .color(text_color(self.theme).gamma_multiply(0.4)),
-                                )
-                                .desired_width(editor_width)
-                                .desired_rows(4)
-                                .lock_focus(true)
-                                .show(ui);
+
+                            // Editor background color based on theme
+                            let editor_bg = match self.theme {
+                                AppTheme::Light => Color32::from_rgb(250, 250, 252),
+                                AppTheme::Dark => Color32::from_rgb(30, 32, 38),
+                            };
+
+                            // Create layouter closure for syntax highlighting
+                            let theme = self.theme;
+                            let mut layouter =
+                                move |ui: &egui::Ui,
+                                      text: &dyn egui::TextBuffer,
+                                      wrap_width: f32| {
+                                    let text_str = text.as_str();
+                                    let mut job = highlight_query_detailed(
+                                        text_str,
+                                        theme,
+                                        FontId::monospace(14.0),
+                                    );
+                                    job.wrap.max_width = wrap_width;
+                                    ui.fonts_mut(|f| f.layout_job(job))
+                                };
+
+                            // Use a Frame for the editor background
+                            let output = egui::Frame::new()
+                                .fill(editor_bg)
+                                .corner_radius(4.0)
+                                .inner_margin(egui::vec2(8.0, 6.0))
+                                .show(ui, |ui| {
+                                    egui::TextEdit::multiline(&mut self.query)
+                                        .id(text_edit_id)
+                                        .font(FontId::monospace(14.0))
+                                        .hint_text(
+                                            RichText::new(
+                                                "Enter query (e.g., env:prod AND service:db)",
+                                            )
+                                            .color(text_color(self.theme).gamma_multiply(0.4)),
+                                        )
+                                        .desired_width(editor_width - 16.0)
+                                        .desired_rows(4)
+                                        .frame(false) // Remove default frame
+                                        .layouter(&mut layouter)
+                                        .lock_focus(true)
+                                        .show(ui)
+                                })
+                                .inner;
 
                             // Request focus on first show
                             if self.needs_focus {
@@ -499,6 +851,125 @@ impl BufferEditor {
                         // Update completion when text changes or cursor moves
                         if output.response.changed() || output.response.has_focus() {
                             self.completion.update(&self.query, self.cursor_position);
+                        }
+
+                        // Validate query when text changes
+                        if output.response.changed() {
+                            self.validate_query();
+                        }
+
+                        // Show tiny-inline-diagnostic style virtual text
+                        if self.show_inline_diagnostics {
+                            if let Some(ref validation) = self.validation_result {
+                                if !validation.diagnostics.is_empty() {
+                                    // Get the text edit rect and calculate line metrics
+                                    let text_rect = output.response.rect;
+                                    // Use approximate metrics for monospace 14pt font
+                                    let line_height = 18.0; // ~14pt + line spacing
+                                    let char_width = 8.4; // ~0.6 * font size for monospace
+
+                                    // Calculate the end of the query text on each line
+                                    let lines: Vec<&str> = self.query.lines().collect();
+                                    let num_lines = lines.len().max(1);
+
+                                    // Padding inside the text edit
+                                    let inner_margin = 4.0;
+
+                                    // Get the first diagnostic to show inline
+                                    // (tiny-inline-diagnostic typically shows one per line)
+                                    if let Some(diag) = validation.diagnostics.first() {
+                                        let (icon, color, bg_color) = match diag.level {
+                                            DiagnosticLevel::Error => (
+                                                semantic_icons::diagnostic::ERROR,
+                                                Color32::from_rgb(220, 60, 60),
+                                                Color32::from_rgba_unmultiplied(220, 60, 60, 25),
+                                            ),
+                                            DiagnosticLevel::Warning => (
+                                                semantic_icons::diagnostic::WARNING,
+                                                Color32::from_rgb(220, 160, 50),
+                                                Color32::from_rgba_unmultiplied(220, 160, 50, 25),
+                                            ),
+                                            DiagnosticLevel::Info => (
+                                                semantic_icons::diagnostic::INFO,
+                                                Color32::from_rgb(80, 140, 200),
+                                                Color32::from_rgba_unmultiplied(80, 140, 200, 25),
+                                            ),
+                                            DiagnosticLevel::Hint => (
+                                                semantic_icons::diagnostic::HINT,
+                                                Color32::from_rgb(80, 180, 100),
+                                                Color32::from_rgba_unmultiplied(80, 180, 100, 25),
+                                            ),
+                                        };
+
+                                        // Determine which line to show the diagnostic on
+                                        let diag_line = diag.line.unwrap_or(1).saturating_sub(1);
+                                        let target_line =
+                                            diag_line.min(num_lines.saturating_sub(1));
+
+                                        // Calculate the x position after the line text
+                                        let line_text = lines.get(target_line).unwrap_or(&"");
+                                        let text_end_x = text_rect.left()
+                                            + inner_margin
+                                            + (line_text.chars().count() as f32 * char_width);
+
+                                        // Calculate y position for this line
+                                        let line_y = text_rect.top()
+                                            + inner_margin
+                                            + (target_line as f32 * line_height);
+
+                                        // Build the diagnostic text with count indicator
+                                        let diag_count = validation.diagnostics.len();
+                                        let diag_text = if diag_count > 1 {
+                                            format!(
+                                                " {} {} (+{} more)",
+                                                icon,
+                                                truncate_message(&diag.message, 40),
+                                                diag_count - 1
+                                            )
+                                        } else {
+                                            format!(
+                                                " {} {}",
+                                                icon,
+                                                truncate_message(&diag.message, 50)
+                                            )
+                                        };
+
+                                        // Position the virtual text with some spacing
+                                        let virtual_text_x = text_end_x + 16.0;
+                                        let virtual_text_pos =
+                                            egui::pos2(virtual_text_x, line_y + 1.0);
+
+                                        // Only paint if within bounds
+                                        if virtual_text_x < text_rect.right() - 20.0 {
+                                            let painter = ui.painter();
+                                            let small_font = FontId::proportional(11.0);
+
+                                            // Measure text for background
+                                            let galley = painter.layout_no_wrap(
+                                                diag_text.clone(),
+                                                small_font.clone(),
+                                                color,
+                                            );
+
+                                            // Draw subtle background pill
+                                            let bg_rect = egui::Rect::from_min_size(
+                                                virtual_text_pos - egui::vec2(4.0, 2.0),
+                                                galley.size() + egui::vec2(8.0, 4.0),
+                                            );
+                                            painter.rect_filled(bg_rect, 4.0, bg_color);
+
+                                            // Draw the text
+                                            painter.text(
+                                                virtual_text_pos,
+                                                egui::Align2::LEFT_TOP,
+                                                diag_text,
+                                                small_font,
+                                                color,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         ui.add_space(12.0);
