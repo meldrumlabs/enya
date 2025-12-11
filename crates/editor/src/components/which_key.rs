@@ -7,6 +7,7 @@ use egui::{Color32, FontId, Key, RichText};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// A keybinding with its key and description
@@ -248,25 +249,25 @@ impl WhichKey {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let bg_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(250, 250, 250),
-                    AppTheme::Dark => Color32::from_rgb(30, 30, 35),
+                    AppTheme::Light => palette::light_bg::SURFACE,
+                    AppTheme::Dark => palette::bg::SURFACE,
                 };
                 let border_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(200, 200, 200),
-                    AppTheme::Dark => Color32::from_rgb(60, 60, 70),
+                    AppTheme::Light => palette::light_border::DEFAULT,
+                    AppTheme::Dark => palette::border::SUBTLE,
                 };
                 let separator_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(220, 220, 220),
-                    AppTheme::Dark => Color32::from_rgb(50, 50, 55),
+                    AppTheme::Light => palette::light_border::SUBTLE,
+                    AppTheme::Dark => palette::border::SUBTLE,
                 };
                 let muted_text = text_color(self.theme).gamma_multiply(0.6);
                 let key_bg = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(230, 230, 235),
-                    AppTheme::Dark => Color32::from_rgb(50, 50, 60),
+                    AppTheme::Light => palette::light_bg::ELEVATED,
+                    AppTheme::Dark => palette::bg::ELEVATED,
                 };
                 let accent_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(80, 120, 200),
-                    AppTheme::Dark => Color32::from_rgb(130, 170, 255),
+                    AppTheme::Light => palette::accent::LIGHT,
+                    AppTheme::Dark => palette::accent::PRIMARY,
                 };
 
                 egui::Frame::new()

@@ -2,6 +2,7 @@ use egui::{Color32, FontId, Key, RichText};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 
 /// An excerpt from a query pane shown in the multi-edit overlay
 #[derive(Debug, Clone)]
@@ -217,12 +218,12 @@ impl MultiEditOverlay {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let bg_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(250, 250, 250),
-                    AppTheme::Dark => Color32::from_rgb(30, 30, 35),
+                    AppTheme::Light => palette::light_bg::SURFACE,
+                    AppTheme::Dark => palette::bg::SURFACE,
                 };
                 let border_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(200, 200, 200),
-                    AppTheme::Dark => Color32::from_rgb(60, 60, 70),
+                    AppTheme::Light => palette::light_border::DEFAULT,
+                    AppTheme::Dark => palette::border::SUBTLE,
                 };
 
                 egui::Frame::new()
@@ -275,10 +276,10 @@ impl MultiEditOverlay {
     /// Render the header section
     fn show_header(&self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            // Title with purple accent to match V-MULTI mode
+            // Title with emerald accent to match brand
             let title_color = match self.theme {
-                AppTheme::Light => Color32::from_rgb(180, 100, 180),
-                AppTheme::Dark => Color32::from_rgb(220, 140, 220),
+                AppTheme::Light => palette::accent::LIGHT,
+                AppTheme::Dark => palette::accent::HOVER,
             };
             ui.label(
                 RichText::new("MULTI-EDIT")
@@ -301,9 +302,10 @@ impl MultiEditOverlay {
             let modified = self.modified_count();
             if modified > 0 {
                 ui.add_space(8.0);
+                // Use emerald accent for modified indicator
                 let mod_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(200, 120, 50),
-                    AppTheme::Dark => Color32::from_rgb(255, 180, 100),
+                    AppTheme::Light => palette::accent::LIGHT,
+                    AppTheme::Dark => palette::accent::PRIMARY,
                 };
                 ui.label(
                     RichText::new(format!("({modified} modified)"))
@@ -329,8 +331,8 @@ impl MultiEditOverlay {
             AppTheme::Dark => Color32::from_rgb(160, 160, 170),
         };
         let highlight_color = match self.theme {
-            AppTheme::Light => Color32::from_rgba_unmultiplied(180, 100, 180, 30),
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(220, 140, 220, 20),
+            AppTheme::Light => Color32::from_rgba_unmultiplied(5, 150, 105, 30),
+            AppTheme::Dark => Color32::from_rgba_unmultiplied(16, 185, 129, 25),
         };
 
         for (idx, excerpt) in self.excerpts.iter_mut().enumerate() {
@@ -342,8 +344,8 @@ impl MultiEditOverlay {
                 egui::Stroke::new(
                     2.0,
                     match self.theme {
-                        AppTheme::Light => Color32::from_rgb(180, 100, 180),
-                        AppTheme::Dark => Color32::from_rgb(220, 140, 220),
+                        AppTheme::Light => palette::accent::LIGHT,
+                        AppTheme::Dark => palette::accent::HOVER,
                     },
                 )
             } else {
@@ -361,8 +363,8 @@ impl MultiEditOverlay {
                         // Modified indicator
                         if is_modified {
                             let mod_color = match self.theme {
-                                AppTheme::Light => Color32::from_rgb(200, 120, 50),
-                                AppTheme::Dark => Color32::from_rgb(255, 180, 100),
+                                AppTheme::Light => palette::accent::LIGHT,
+                                AppTheme::Dark => palette::accent::PRIMARY,
                             };
                             ui.label(RichText::new("●").color(mod_color).size(10.0));
                         }

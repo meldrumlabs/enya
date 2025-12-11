@@ -575,106 +575,95 @@ pub fn gruvbox_theme() -> Visuals {
 // }
 
 pub fn black_theme() -> Visuals {
-    // --- Departure Mono Color Palette ---
-    // The font is dark/technical, so we use sharp blacks and a bright, technical accent.
-    let extreme_black = Color32::from_rgb(8, 8, 8); // #080808 (Used for main window/outer frame)
-    let inner_black = Color32::from_rgb(16, 16, 16); // #101010 (Used for widget backgrounds)
-    let border_gray = Color32::from_rgb(48, 48, 48); // #303030 (Used for non-interactive borders)
-    let text_white = Color32::from_rgb(255, 255, 255); // Primary text
+    // --- Obsidian Glass Design System ---
+    // A cohesive dark theme inspired by Linear, Vercel, and Raycast.
+    // Premium feel with subtle depth and emerald accents.
+    use super::palette::{accent, bg, border, highlight, semantic, text};
 
-    // We'll use a strong, contrasting yellow as the accent color, typical of terminal UIs.
-    let accent_yellow = Color32::from_rgb(255, 215, 0); // Primary accent
-    let accent_bright = Color32::from_rgb(255, 235, 59); // Brightest accent (e.g., hover text)
+    // Subtle corner radius for modern feel (not too rounded, not harsh)
+    let corner_radius = CornerRadius::same(4);
 
-    // KEY CHANGE: Zero rounding for the square, blocky pixel look.
-    let block_rounding = CornerRadius::same(0);
-
-    // KEY CHANGE: Define a zero-blur, zero-offset shadow for a flat, non-skeuomorphic UI.
-    let flat_shadow = egui::epaint::Shadow {
-        offset: [0, 0],
-        blur: 0,
+    // Soft shadow for elevated elements
+    let soft_shadow = egui::epaint::Shadow {
+        offset: [0, 4],
+        blur: 16,
         spread: 0,
-        color: Color32::TRANSPARENT,
+        color: Color32::from_black_alpha(80),
     };
 
     Visuals {
         dark_mode: true,
         override_text_color: None,
 
-        // --- Widget Visuals (Blocky & Sharp) ---
+        // --- Widget Visuals ---
         widgets: Widgets {
             noninteractive: WidgetVisuals {
-                // Simple box defined by a muted border (like a console box-drawing character)
-                bg_fill: inner_black,
-                weak_bg_fill: inner_black,
-                bg_stroke: Stroke::new(1.0, border_gray),
-                corner_radius: block_rounding,
-                fg_stroke: Stroke::new(1.0, text_white),
+                bg_fill: bg::SURFACE,
+                weak_bg_fill: bg::SURFACE,
+                bg_stroke: Stroke::new(1.0, border::SUBTLE),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, text::PRIMARY),
                 expansion: 0.0,
             },
             inactive: WidgetVisuals {
-                // Flat, no stroke, sharp corners
-                bg_fill: inner_black,
+                bg_fill: bg::ELEVATED,
                 weak_bg_fill: Color32::TRANSPARENT,
-                bg_stroke: Stroke::NONE,
-                corner_radius: block_rounding,
-                fg_stroke: Stroke::new(1.0, text_white),
+                bg_stroke: Stroke::new(1.0, border::SUBTLE),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, text::PRIMARY),
                 expansion: 0.0,
             },
             hovered: WidgetVisuals {
-                // Sharp accent border on hover
-                bg_fill: inner_black,
-                weak_bg_fill: inner_black,
-                bg_stroke: Stroke::new(1.0, accent_bright),
-                corner_radius: block_rounding,
-                fg_stroke: Stroke::new(1.0, accent_bright),
+                bg_fill: bg::HOVER,
+                weak_bg_fill: bg::HOVER,
+                bg_stroke: Stroke::new(1.0, border::DEFAULT),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, text::PRIMARY),
                 expansion: 1.0,
             },
             active: WidgetVisuals {
-                // Accent fill for pressed/active state
-                bg_fill: accent_yellow,
-                weak_bg_fill: accent_yellow,
-                bg_stroke: Stroke::new(1.0, accent_yellow),
-                corner_radius: block_rounding,
-                fg_stroke: Stroke::new(1.0, extreme_black), // Black text on accent background
+                bg_fill: accent::PRIMARY,
+                weak_bg_fill: accent::PRIMARY,
+                bg_stroke: Stroke::new(1.0, accent::PRIMARY),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, bg::BASE), // Dark text on accent
                 expansion: 0.0,
             },
             open: WidgetVisuals {
-                // Accent border for open menus/dropdowns
-                bg_fill: inner_black,
-                weak_bg_fill: inner_black,
-                bg_stroke: Stroke::new(1.0, accent_yellow),
-                corner_radius: block_rounding,
-                fg_stroke: Stroke::new(1.0, accent_yellow),
+                bg_fill: bg::ELEVATED,
+                weak_bg_fill: bg::ELEVATED,
+                bg_stroke: Stroke::new(1.0, accent::PRIMARY),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, accent::PRIMARY),
                 expansion: 1.0,
             },
         },
 
-        // --- Selection, Window, and Backgrounds ---
+        // --- Selection ---
         selection: Selection {
-            // Simple selection block with accent outline
-            bg_fill: Color32::from_rgba_unmultiplied(255, 215, 0, 60),
-            stroke: Stroke::new(1.0, accent_yellow),
+            bg_fill: highlight::SELECTION,
+            stroke: Stroke::new(1.0, accent::PRIMARY),
         },
 
-        // KEY CHANGE: Window is square and has a sharp accent border.
-        window_fill: extreme_black,
-        window_stroke: Stroke::new(1.0, accent_yellow),
+        // --- Window & Panel ---
+        window_fill: bg::SURFACE,
+        window_stroke: Stroke::new(1.0, border::SUBTLE),
+        panel_fill: bg::BASE,
+        faint_bg_color: bg::SURFACE,
+        extreme_bg_color: bg::BASE,
 
-        // KEY CHANGE: Shadows removed for a flat aesthetic.
-        popup_shadow: flat_shadow,
-        window_shadow: flat_shadow,
+        // --- Shadows ---
+        popup_shadow: soft_shadow,
+        window_shadow: soft_shadow,
 
-        // Ensure all backgrounds are the deep black color.
-        panel_fill: inner_black,
-        faint_bg_color: inner_black,
-        extreme_bg_color: extreme_black,
+        // --- Semantic colors ---
+        error_fg_color: semantic::ERROR,
+        warn_fg_color: semantic::WARNING,
+        hyperlink_color: accent::PRIMARY,
 
-        warn_fg_color: text_white,
-
-        // Blinking cursor for terminal aesthetic
+        // --- Text cursor ---
         text_cursor: TextCursorStyle {
-            stroke: Stroke::new(2.0, accent_yellow),
+            stroke: Stroke::new(2.0, accent::PRIMARY),
             blink: true,
             on_duration: 0.5,
             off_duration: 0.5,

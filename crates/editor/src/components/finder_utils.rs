@@ -6,6 +6,7 @@
 use egui::{Color32, FontId, Key, TextFormat, text::LayoutJob};
 
 use crate::theme::AppTheme;
+use crate::ui::palette;
 
 use super::time_series_chart::DataPoint;
 
@@ -34,24 +35,24 @@ impl FinderColors {
     pub fn new(theme: AppTheme) -> Self {
         match theme {
             AppTheme::Light => Self {
-                bg: Color32::from_rgb(250, 250, 250),
-                border: Color32::from_rgb(200, 200, 200),
-                separator: Color32::from_rgb(220, 220, 220),
-                highlight: Color32::from_rgb(200, 150, 0),
-                selected_bg: Color32::from_rgb(230, 240, 255),
-                hover_bg: Color32::from_rgb(240, 245, 250),
-                preview_bg: Color32::from_rgb(245, 247, 250),
-                panel_bg: Color32::from_rgb(252, 252, 254),
+                bg: palette::light_bg::SURFACE,
+                border: palette::light_border::DEFAULT,
+                separator: palette::light_border::SUBTLE,
+                highlight: palette::highlight::MATCH,
+                selected_bg: palette::light_bg::SELECTED,
+                hover_bg: palette::light_bg::HOVER,
+                preview_bg: palette::light_bg::ELEVATED,
+                panel_bg: palette::light_bg::BASE,
             },
             AppTheme::Dark => Self {
-                bg: Color32::from_rgb(30, 30, 35),
-                border: Color32::from_rgb(60, 60, 70),
-                separator: Color32::from_rgb(50, 50, 55),
-                highlight: Color32::from_rgb(255, 200, 50),
-                selected_bg: Color32::from_rgb(45, 50, 70),
-                hover_bg: Color32::from_rgb(40, 42, 50),
-                preview_bg: Color32::from_rgb(25, 27, 32),
-                panel_bg: Color32::from_rgb(18, 20, 24),
+                bg: palette::bg::SURFACE,
+                border: palette::border::SUBTLE,
+                separator: palette::border::SUBTLE,
+                highlight: palette::highlight::MATCH,
+                selected_bg: palette::bg::SELECTED,
+                hover_bg: palette::bg::HOVER,
+                preview_bg: palette::bg::ELEVATED,
+                panel_bg: palette::bg::BASE,
             },
         }
     }
@@ -144,11 +145,8 @@ pub fn generate_demo_preview_data(item_name: &str) -> Vec<DataPoint> {
 
 /// Get the chart line color for the given theme
 /// Uses the modern, muted PlanetScale-style palette
-pub fn chart_color(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Light => Color32::from_rgb(99, 179, 237), // Soft sky blue
-        AppTheme::Dark => Color32::from_rgb(99, 179, 237),  // Soft sky blue
-    }
+pub fn chart_color(_theme: AppTheme) -> Color32 {
+    palette::chart::PRIMARY
 }
 
 /// Render keyboard hints footer for finder modals
