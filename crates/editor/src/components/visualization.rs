@@ -13,6 +13,7 @@ use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 
+use super::heatmap::{HeatmapViz, populate_heatmap_demo};
 use super::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
 
 /// Global counter for unique component IDs
@@ -32,9 +33,10 @@ pub enum VisualizationType {
     BarChart,
     /// Compact inline line chart showing trends
     Sparkline,
+    /// GPU-accelerated heatmap for 2D data grids
+    Heatmap,
     // Future visualization types:
     // Table,     // Tabular data view
-    // Heatmap,   // Time-based heatmap
 }
 
 impl VisualizationType {
@@ -46,6 +48,7 @@ impl VisualizationType {
             Self::Gauge => "Gauge",
             Self::BarChart => "Bar Chart",
             Self::Sparkline => "Sparkline",
+            Self::Heatmap => "Heatmap",
         }
     }
 
@@ -57,6 +60,7 @@ impl VisualizationType {
             Self::Gauge => egui_nerdfonts::regular::GAUGE,
             Self::BarChart => egui_nerdfonts::regular::CHART_BAR,
             Self::Sparkline => egui_nerdfonts::regular::CHART_LINE,
+            Self::Heatmap => egui_nerdfonts::regular::CHART_HISTOGRAM,
         }
     }
 
@@ -67,7 +71,8 @@ impl VisualizationType {
             Self::Stat => Self::Gauge,
             Self::Gauge => Self::BarChart,
             Self::BarChart => Self::Sparkline,
-            Self::Sparkline => Self::TimeSeries,
+            Self::Sparkline => Self::Heatmap,
+            Self::Heatmap => Self::TimeSeries,
         }
     }
 
@@ -79,6 +84,7 @@ impl VisualizationType {
             Self::Gauge => "gauge",
             Self::BarChart => "bar_chart",
             Self::Sparkline => "sparkline",
+            Self::Heatmap => "heatmap",
         }
     }
 
@@ -89,6 +95,7 @@ impl VisualizationType {
             "gauge" => Self::Gauge,
             "bar_chart" => Self::BarChart,
             "sparkline" => Self::Sparkline,
+            "heatmap" => Self::Heatmap,
             _ => Self::TimeSeries, // Default to time series
         }
     }
@@ -1120,6 +1127,7 @@ pub enum Visualization {
     Gauge(GaugeChart),
     BarChart(BarChartViz),
     Sparkline(SparklineViz),
+    Heatmap(HeatmapViz),
 }
 
 impl Visualization {
@@ -1132,6 +1140,7 @@ impl Visualization {
             VisualizationType::Gauge => Self::Gauge(GaugeChart::new(&name)),
             VisualizationType::BarChart => Self::BarChart(BarChartViz::new(&name)),
             VisualizationType::Sparkline => Self::Sparkline(SparklineViz::new(&name)),
+            VisualizationType::Heatmap => Self::Heatmap(HeatmapViz::new(&name)),
         }
     }
 
@@ -1143,6 +1152,7 @@ impl Visualization {
             Self::Gauge(_) => VisualizationType::Gauge,
             Self::BarChart(_) => VisualizationType::BarChart,
             Self::Sparkline(_) => VisualizationType::Sparkline,
+            Self::Heatmap(_) => VisualizationType::Heatmap,
         }
     }
 
@@ -1164,6 +1174,7 @@ impl Visualization {
             Self::Gauge(gauge) => &gauge.metric_name,
             Self::BarChart(bar) => &bar.metric_name,
             Self::Sparkline(spark) => &spark.metric_name,
+            Self::Heatmap(heatmap) => &heatmap.metric_name,
         }
     }
 
@@ -1175,6 +1186,7 @@ impl Visualization {
             Self::Gauge(gauge) => gauge.theme,
             Self::BarChart(bar) => bar.theme,
             Self::Sparkline(spark) => spark.theme,
+            Self::Heatmap(heatmap) => heatmap.theme,
         }
     }
 
@@ -1186,6 +1198,7 @@ impl Visualization {
             Self::Gauge(gauge) => gauge.set_metric_name(name),
             Self::BarChart(bar) => bar.set_metric_name(name),
             Self::Sparkline(spark) => spark.set_metric_name(name),
+            Self::Heatmap(heatmap) => heatmap.set_metric_name(name),
         }
     }
 
@@ -1197,6 +1210,7 @@ impl Visualization {
             Self::Gauge(gauge) => gauge.set_theme(theme),
             Self::BarChart(bar) => bar.set_theme(theme),
             Self::Sparkline(spark) => spark.set_theme(theme),
+            Self::Heatmap(heatmap) => heatmap.set_theme(theme),
         }
     }
 
@@ -1208,6 +1222,7 @@ impl Visualization {
             Self::Gauge(gauge) => gauge.clear(),
             Self::BarChart(bar) => bar.clear(),
             Self::Sparkline(spark) => spark.clear(),
+            Self::Heatmap(heatmap) => heatmap.clear(),
         }
     }
 
@@ -1219,6 +1234,7 @@ impl Visualization {
             Self::Gauge(gauge) => gauge.show(ui),
             Self::BarChart(bar) => bar.show(ui),
             Self::Sparkline(spark) => spark.show(ui),
+            Self::Heatmap(heatmap) => heatmap.show(ui),
         }
     }
 
@@ -1359,6 +1375,22 @@ impl Visualization {
             _ => None,
         }
     }
+
+    /// Get access to the underlying HeatmapViz (if applicable)
+    pub fn as_heatmap(&self) -> Option<&HeatmapViz> {
+        match self {
+            Self::Heatmap(heatmap) => Some(heatmap),
+            _ => None,
+        }
+    }
+
+    /// Get mutable access to the underlying HeatmapViz (if applicable)
+    pub fn as_heatmap_mut(&mut self) -> Option<&mut HeatmapViz> {
+        match self {
+            Self::Heatmap(heatmap) => Some(heatmap),
+            _ => None,
+        }
+    }
 }
 
 /// Populate demo data for a visualization based on its type
@@ -1378,6 +1410,9 @@ pub fn populate_demo_data(viz: &mut Visualization, query: &str) {
         }
         Visualization::Sparkline(spark) => {
             populate_sparkline_demo(spark, query);
+        }
+        Visualization::Heatmap(heatmap) => {
+            populate_heatmap_demo(heatmap, query);
         }
     }
 }
@@ -1652,6 +1687,10 @@ mod tests {
         assert_eq!(vt.next().next().next().next(), VisualizationType::Sparkline);
         assert_eq!(
             vt.next().next().next().next().next(),
+            VisualizationType::Heatmap
+        );
+        assert_eq!(
+            vt.next().next().next().next().next().next(),
             VisualizationType::TimeSeries
         );
     }
@@ -1663,6 +1702,7 @@ mod tests {
         assert_eq!(VisualizationType::Gauge.as_str(), "gauge");
         assert_eq!(VisualizationType::BarChart.as_str(), "bar_chart");
         assert_eq!(VisualizationType::Sparkline.as_str(), "sparkline");
+        assert_eq!(VisualizationType::Heatmap.as_str(), "heatmap");
 
         assert_eq!(
             VisualizationType::parse("time_series"),
@@ -1677,6 +1717,10 @@ mod tests {
         assert_eq!(
             VisualizationType::parse("sparkline"),
             VisualizationType::Sparkline
+        );
+        assert_eq!(
+            VisualizationType::parse("heatmap"),
+            VisualizationType::Heatmap
         );
         assert_eq!(
             VisualizationType::parse("unknown"),
@@ -1723,6 +1767,10 @@ mod tests {
 
         viz.cycle();
         assert_eq!(viz.viz_type(), VisualizationType::Sparkline);
+        assert_eq!(viz.metric_name(), "test_metric");
+
+        viz.cycle();
+        assert_eq!(viz.viz_type(), VisualizationType::Heatmap);
         assert_eq!(viz.metric_name(), "test_metric");
 
         viz.cycle();

@@ -185,6 +185,7 @@ impl CompactWorkspace {
                         "gauge" => 2,
                         "bar_chart" => 3,
                         "sparkline" => 4,
+                        "heatmap" => 5,
                         _ => 0,
                     };
                     // Pack: bits 0-2 = granularity, bits 3-5 = aggregation
@@ -273,6 +274,7 @@ impl CompactWorkspace {
                         2 => "gauge",
                         3 => "bar_chart",
                         4 => "sparkline",
+                        5 => "heatmap",
                         _ => "time_series",
                     }
                     .to_string(),
@@ -322,6 +324,7 @@ impl CompactSinglePane {
             "gauge" => 2,
             "bar_chart" => 3,
             "sparkline" => 4,
+            "heatmap" => 5,
             _ => 0,
         };
         // Pack header: bits 0-2 = time, bit 3 = theme, bits 4-6 = aggregation
@@ -400,6 +403,7 @@ impl CompactSinglePane {
                 2 => "gauge",
                 3 => "bar_chart",
                 4 => "sparkline",
+                5 => "heatmap",
                 _ => "time_series",
             }
             .to_string(),
