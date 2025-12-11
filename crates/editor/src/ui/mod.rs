@@ -4,6 +4,7 @@ use icons::Icon;
 pub mod colors;
 pub mod design;
 pub mod icons;
+pub mod palette;
 pub mod semantic_icons;
 pub mod settings_screen;
 pub mod welcome_screen;

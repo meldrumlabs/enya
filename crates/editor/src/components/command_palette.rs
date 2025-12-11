@@ -7,6 +7,7 @@ use nucleo_matcher::{
 use super::tags::TagPath;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// A command that can be executed from the command palette
@@ -735,12 +736,12 @@ impl CommandPalette {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let bg_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(250, 250, 250),
-                    AppTheme::Dark => Color32::from_rgb(30, 30, 35),
+                    AppTheme::Light => palette::light_bg::SURFACE,
+                    AppTheme::Dark => palette::bg::SURFACE,
                 };
                 let border_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(200, 200, 200),
-                    AppTheme::Dark => Color32::from_rgb(60, 60, 70),
+                    AppTheme::Light => palette::light_border::DEFAULT,
+                    AppTheme::Dark => palette::border::SUBTLE,
                 };
 
                 egui::Frame::new()
@@ -809,8 +810,8 @@ impl CommandPalette {
 
                         // Separator
                         let separator_color = match self.theme {
-                            AppTheme::Light => Color32::from_rgb(220, 220, 220),
-                            AppTheme::Dark => Color32::from_rgb(50, 50, 55),
+                            AppTheme::Light => palette::light_border::SUBTLE,
+                            AppTheme::Dark => palette::border::SUBTLE,
                         };
                         ui.painter().hline(
                             ui.available_rect_before_wrap().x_range(),
@@ -902,17 +903,18 @@ impl CommandPalette {
         is_selected: bool,
     ) {
         let text_col = text_color(self.theme);
+        // Use emerald accent for highlights to match brand
         let highlight_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(200, 150, 0),
-            AppTheme::Dark => Color32::from_rgb(255, 200, 50),
+            AppTheme::Light => palette::accent::LIGHT,
+            AppTheme::Dark => palette::accent::HOVER, // Bright emerald
         };
         let selected_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgb(230, 240, 255),
-            AppTheme::Dark => Color32::from_rgb(45, 50, 70),
+            AppTheme::Light => palette::light_bg::ELEVATED,
+            AppTheme::Dark => palette::accent::MUTED, // Emerald-tinted selection
         };
         let hover_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgb(240, 245, 250),
-            AppTheme::Dark => Color32::from_rgb(40, 42, 50),
+            AppTheme::Light => palette::light_bg::HOVER,
+            AppTheme::Dark => palette::bg::HOVER,
         };
 
         let row_height = 32.0;

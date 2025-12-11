@@ -14,6 +14,7 @@ use crate::components::{
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// Toggle button for the metrics panel visibility
@@ -2956,10 +2957,10 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
         // In visual-multi mode, draw selection indicator for selected panes
         if is_selected {
-            // Magenta/purple selection color to match V-MULTI status line color
+            // Emerald selection color to match brand
             let selection_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(180, 100, 180, 60),
-                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(220, 140, 220, 50),
+                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(5, 150, 105, 50),
+                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(16, 185, 129, 40),
             };
 
             // Fill the entire tile with a subtle selection tint
@@ -2967,8 +2968,8 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
             // Draw selection border
             let border_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgb(180, 100, 180),
-                AppTheme::Dark => egui::Color32::from_rgb(220, 140, 220),
+                AppTheme::Light => palette::accent::LIGHT,
+                AppTheme::Dark => palette::accent::PRIMARY,
             };
             let border_width = 2.0;
             let inset_rect = rect.shrink(border_width / 2.0);

@@ -2,6 +2,7 @@ use egui::{Color32, NumExt, RichText, Vec2};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::settings_screen::{RecentPlotEntry, WorkspaceEntry};
 
@@ -138,9 +139,9 @@ impl LandingPage {
 
         ui.add_space(16.0);
 
-        // App name in Enya's signature golden yellow
-        let enya_yellow = self.accent_color();
-        ui.heading(RichText::new("ENYA").strong().size(36.0).color(enya_yellow));
+        // App name in Enya's brand color (emerald)
+        let accent = self.accent_color();
+        ui.heading(RichText::new("ENYA").strong().size(36.0).color(accent));
 
         ui.add_space(8.0);
 
@@ -796,19 +797,11 @@ impl LandingPage {
         action
     }
 
-    /// Get the accent color based on theme (Enya's signature golden/yellow)
+    /// Get the accent color based on theme (Enya's emerald brand color)
     fn accent_color(&self) -> Color32 {
         match self.theme {
-            AppTheme::Light => Color32::from_rgb(180, 140, 20), // Golden yellow for light theme
-            AppTheme::Dark => Color32::from_rgb(255, 200, 50),  // Bright gold for dark theme
-        }
-    }
-
-    /// Get the highlight color for match highlighting (golden yellow)
-    fn _highlight_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(200, 150, 0),
-            AppTheme::Dark => Color32::from_rgb(255, 200, 50),
+            AppTheme::Light => palette::accent::LIGHT,
+            AppTheme::Dark => palette::accent::PRIMARY,
         }
     }
 }
