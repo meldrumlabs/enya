@@ -16,6 +16,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use enya_lang::{AggregationFunc, Grouping, Query as LangQuery, parse_query};
 use enya_metrics_store::{Duration as MetricsDuration, MetricName, Timestamp};
 #[cfg(feature = "pprof")]
 use pprof::protos::Message;
@@ -47,8 +48,7 @@ pub(crate) async fn setup_and_serve(core: Core, addr: SocketAddr) -> Result<(), 
 pub fn build_router(core: Core) -> Router {
     let router = Router::new()
         .route("/api/health", get(health_handler))
-        .route("/api/metrics", get(metrics_handler))
-        .route("/api/metrics/preview", get(metrics_preview_handler));
+        .route("/api/metrics/query", get(query_handler));
 
     #[cfg(feature = "pprof")]
     let router = router.route("/api/pprof/profile", get(cpu_profile_handler));
@@ -90,162 +90,8 @@ pub async fn health_handler(State(core): State<Core>) -> impl IntoResponse {
     Json(Health::from_core(&core))
 }
 
-#[derive(Debug, Deserialize)]
-pub struct MetricsPreviewQuery {
-    metric: String,
-    group_by: String,
-    filter: Option<String>,
-}
-
-#[derive(serde::Serialize)]
-struct MetricsPreviewBucket {
-    start: Timestamp,
-    end: Timestamp,
-    value: f64,
-    len: usize,
-}
-
-#[derive(serde::Serialize)]
-struct MetricsPreviewGroup {
-    group: String,
-    buckets: Vec<MetricsPreviewBucket>,
-}
-
-#[derive(serde::Serialize)]
-struct MetricsPreviewResponse {
-    metric: String,
-    group_by: String,
-    filter: String,
-    groups: Vec<MetricsPreviewGroup>,
-}
-
-pub async fn metrics_preview_handler(
-    State(core): State<Core>,
-    Query(query): Query<MetricsPreviewQuery>,
-) -> impl IntoResponse {
-    let metric = match MetricName::try_from(query.metric.as_str()) {
-        Ok(metric) => metric,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                format!("invalid metric name {}", query.metric),
-            )
-                .into_response();
-        }
-    };
-
-    let filter = query.filter.clone().unwrap_or_else(|| "*".to_string());
-
-    let agg = match core
-        .metrics()
-        .database()
-        .sum(metric, &query.group_by)
-        .filter(&filter)
-        .build()
-        .await
-    {
-        Ok(agg) => agg,
-        Err(err) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("failed to build query: {err}"),
-            )
-                .into_response();
-        }
-    };
-
-    match agg.collect().await {
-        Ok(groups) => {
-            let preview_groups = groups
-                .into_iter()
-                .map(|(group, buckets)| MetricsPreviewGroup {
-                    group,
-                    buckets: buckets
-                        .into_iter()
-                        .map(|bucket| MetricsPreviewBucket {
-                            start: bucket.start,
-                            end: bucket.end,
-                            value: value_as_f64(bucket.value),
-                            len: bucket.len,
-                        })
-                        .collect(),
-                })
-                .collect();
-
-            Json(MetricsPreviewResponse {
-                metric: query.metric,
-                group_by: query.group_by,
-                filter,
-                groups: preview_groups,
-            })
-            .into_response()
-        }
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to query metrics: {err}"),
-        )
-            .into_response(),
-    }
-}
-
-// ============================================================================
-// /api/metrics endpoint
-// ============================================================================
-
-/// Aggregation type for metrics queries
-#[derive(Debug, Clone, Copy, Default, Deserialize, serde::Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AggregationType {
-    #[default]
-    Sum,
-    Avg,
-    Min,
-    Max,
-    Count,
-}
-
-impl std::fmt::Display for AggregationType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AggregationType::Sum => write!(f, "sum"),
-            AggregationType::Avg => write!(f, "avg"),
-            AggregationType::Min => write!(f, "min"),
-            AggregationType::Max => write!(f, "max"),
-            AggregationType::Count => write!(f, "count"),
-        }
-    }
-}
-
 fn default_granularity() -> String {
     "1m".to_string()
-}
-
-/// Query parameters for the /api/metrics endpoint
-#[derive(Debug, Deserialize)]
-pub struct MetricsQuery {
-    /// The metric name (e.g. "cpu.total")
-    metric: String,
-
-    /// Tag to group results by (e.g. "host", "service")
-    group_by: String,
-
-    /// Aggregation function: "sum", "avg", "min", "max", "count"
-    #[serde(default)]
-    agg: AggregationType,
-
-    /// Filter expression (e.g. "env:prod AND service:db")
-    /// Supports AND, OR, NOT (!), wildcards (*), and nesting with parentheses
-    filter: Option<String>,
-
-    /// Start time - either nanosecond timestamp or relative duration (e.g. "1h", "30m", "7d")
-    start: Option<String>,
-
-    /// End time - either nanosecond timestamp or relative duration
-    end: Option<String>,
-
-    /// Bucket granularity - either nanoseconds or human-readable (e.g. "1m", "1h", "1d")
-    #[serde(default = "default_granularity")]
-    granularity: String,
 }
 
 #[derive(serde::Serialize)]
@@ -260,18 +106,6 @@ struct MetricsBucket {
 struct MetricsGroup {
     group: String,
     buckets: Vec<MetricsBucket>,
-}
-
-#[derive(serde::Serialize)]
-struct MetricsResponse {
-    metric: String,
-    group_by: String,
-    agg: String,
-    filter: String,
-    start: Option<Timestamp>,
-    end: Option<Timestamp>,
-    granularity_ns: u128,
-    groups: Vec<MetricsGroup>,
 }
 
 /// Parse a duration string into nanoseconds.
@@ -331,46 +165,203 @@ fn parse_time_spec(s: &str, now: Timestamp) -> Option<Timestamp> {
     Some(now.saturating_sub(duration))
 }
 
-/// Handler for /api/metrics endpoint
-pub async fn metrics_handler(
+// ============================================================================
+// /api/metrics/query endpoint - enya-lang query string support
+// ============================================================================
+
+/// Query parameters for the /api/metrics/query endpoint
+#[derive(Debug, Deserialize)]
+pub struct LangQueryParams {
+    /// The metric name (e.g. "cpu.total")
+    metric: String,
+
+    /// The enya-lang query string (e.g. "sum(env:prod) by (host)")
+    query: String,
+
+    /// Start time - either nanosecond timestamp or relative duration (e.g. "1h", "30m", "7d")
+    start: Option<String>,
+
+    /// End time - either nanosecond timestamp or relative duration
+    end: Option<String>,
+
+    /// Bucket granularity - either nanoseconds or human-readable (e.g. "1m", "1h", "1d")
+    #[serde(default = "default_granularity")]
+    granularity: String,
+}
+
+/// Response for query endpoint
+#[derive(serde::Serialize)]
+struct QueryResponse {
+    metric: String,
+    query: String,
+    parsed_agg: Option<String>,
+    parsed_filter: String,
+    parsed_grouping: Option<String>,
+    parsed_time_range: Option<String>,
+    start: Option<Timestamp>,
+    end: Option<Timestamp>,
+    granularity_ns: u128,
+    groups: Vec<MetricsGroup>,
+}
+
+/// Handler for /api/metrics/query endpoint
+/// Accepts enya-lang query strings like "sum(env:prod) by (host)"
+pub async fn query_handler(
     State(core): State<Core>,
-    Query(query): Query<MetricsQuery>,
+    Query(params): Query<LangQueryParams>,
 ) -> impl IntoResponse {
-    let metric = match MetricName::try_from(query.metric.as_str()) {
+    // Validate metric name
+    let metric = match MetricName::try_from(params.metric.as_str()) {
         Ok(m) => m,
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
-                format!("invalid metric name: {}", query.metric),
+                format!("invalid metric name: {}", params.metric),
             )
                 .into_response();
         }
     };
 
-    let filter = query.filter.clone().unwrap_or_else(|| "*".to_string());
+    // Parse the enya-lang query
+    let parsed = match parse_query(&params.query) {
+        Ok(q) => q,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("invalid query syntax: {e}"),
+            )
+                .into_response();
+        }
+    };
 
-    let granularity = match parse_duration(&query.granularity) {
+    // Parse granularity
+    let granularity = match parse_duration(&params.granularity) {
         Some(g) if g > 0 => g,
         _ => {
             return (
                 StatusCode::BAD_REQUEST,
-                format!("invalid granularity: {}", query.granularity),
+                format!("invalid granularity: {}", params.granularity),
             )
                 .into_response();
         }
     };
 
     let now = enya_metrics_store::timestamp();
-
-    let start_ts = query.start.as_ref().and_then(|s| parse_time_spec(s, now));
-    let end_ts = query.end.as_ref().and_then(|s| parse_time_spec(s, now));
+    let start_ts = params.start.as_ref().and_then(|s| parse_time_spec(s, now));
+    let end_ts = params.end.as_ref().and_then(|s| parse_time_spec(s, now));
 
     let db = core.metrics().database();
 
+    // Execute based on query type
+    let result = execute_lang_query(&parsed, db, metric, granularity, start_ts, end_ts).await;
+
+    match result {
+        Ok((groups, filter_str, agg_str, grouping_str, time_range_str)) => {
+            let response = QueryResponse {
+                metric: params.metric,
+                query: params.query,
+                parsed_agg: agg_str,
+                parsed_filter: filter_str,
+                parsed_grouping: grouping_str,
+                parsed_time_range: time_range_str,
+                start: start_ts,
+                end: end_ts,
+                granularity_ns: granularity,
+                groups,
+            };
+            Json(response).into_response()
+        }
+        Err(err) => err.into_response(),
+    }
+}
+
+/// Execute a parsed enya-lang query against the database.
+/// Returns (groups, filter_string, agg_string, grouping_string, time_range_string)
+async fn execute_lang_query<'a>(
+    query: &LangQuery<'a>,
+    db: &enya_metrics_store::Database,
+    metric: MetricName<'a>,
+    granularity: u128,
+    start_ts: Option<Timestamp>,
+    end_ts: Option<Timestamp>,
+) -> Result<
+    (
+        Vec<MetricsGroup>,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ),
+    (StatusCode, String),
+> {
+    match query {
+        LangQuery::Filter(filter) => {
+            // Simple filter query - use sum as default aggregation
+            let filter_str = filter.to_string();
+            let groups = execute_aggregation(
+                db,
+                metric,
+                AggregationFunc::Sum,
+                &filter_str,
+                "",
+                granularity,
+                start_ts,
+                end_ts,
+            )
+            .await?;
+            Ok((groups, filter_str, None, None, None))
+        }
+        LangQuery::Aggregation(agg) => {
+            let filter_str = agg.filter.to_string();
+            let agg_str = Some(agg.func.to_string());
+            let grouping_str = agg.grouping.as_ref().map(ToString::to_string);
+            let time_range_str = agg.time_range.as_ref().map(ToString::to_string);
+
+            // Extract group_by labels from grouping clause
+            let group_by = match &agg.grouping {
+                Some(Grouping::By(labels)) => labels.join(","),
+                Some(Grouping::Without(_)) => {
+                    // "without" grouping not yet supported in execution layer
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "without grouping not yet supported".to_string(),
+                    ));
+                }
+                None => String::new(),
+            };
+
+            let groups = execute_aggregation(
+                db,
+                metric,
+                agg.func,
+                &filter_str,
+                &group_by,
+                granularity,
+                start_ts,
+                end_ts,
+            )
+            .await?;
+            Ok((groups, filter_str, agg_str, grouping_str, time_range_str))
+        }
+    }
+}
+
+/// Execute a specific aggregation function against the database.
+#[allow(clippy::too_many_arguments)]
+async fn execute_aggregation<'a>(
+    db: &enya_metrics_store::Database,
+    metric: MetricName<'a>,
+    func: AggregationFunc,
+    filter: &str,
+    group_by: &str,
+    granularity: u128,
+    start_ts: Option<Timestamp>,
+    end_ts: Option<Timestamp>,
+) -> Result<Vec<MetricsGroup>, (StatusCode, String)> {
     // Helper macro to build an aggregation builder with common settings
     macro_rules! build_agg {
         ($builder:expr) => {{
-            let mut builder = $builder.filter(&filter).granularity(granularity);
+            let mut builder = $builder.filter(filter).granularity(granularity);
             if let Some(ts) = start_ts {
                 builder = builder.start(ts);
             }
@@ -406,41 +397,38 @@ pub async fn metrics_handler(
     macro_rules! run_agg {
         ($builder:expr) => {{
             async {
-                let agg = build_agg!($builder).await?;
-                let collected = agg.collect().await?;
-                Ok::<_, enya_metrics_store::Error>(map_groups!(collected))
+                let agg = build_agg!($builder).await.map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("failed to build aggregation: {e}"),
+                    )
+                })?;
+                let collected = agg.collect().await.map_err(|e| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        format!("failed to collect results: {e}"),
+                    )
+                })?;
+                Ok::<_, (StatusCode, String)>(map_groups!(collected))
             }
         }};
     }
 
-    // Build and execute the query based on aggregation type
-    let result: Result<Vec<MetricsGroup>, enya_metrics_store::Error> = match query.agg {
-        AggregationType::Sum => run_agg!(db.sum(metric, &query.group_by)).await,
-        AggregationType::Avg => run_agg!(db.avg(metric, &query.group_by)).await,
-        AggregationType::Min => run_agg!(db.min(metric, &query.group_by)).await,
-        AggregationType::Max => run_agg!(db.max(metric, &query.group_by)).await,
-        AggregationType::Count => run_agg!(db.count(metric, &query.group_by)).await,
-    };
-
-    match result {
-        Ok(groups) => {
-            let response = MetricsResponse {
-                metric: query.metric,
-                group_by: query.group_by,
-                agg: query.agg.to_string(),
-                filter,
-                start: start_ts,
-                end: end_ts,
-                granularity_ns: granularity,
-                groups,
-            };
-            Json(response).into_response()
-        }
-        Err(err) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("failed to query metrics: {err}"),
-        )
-            .into_response(),
+    match func {
+        AggregationFunc::Sum => run_agg!(db.sum(metric, group_by)).await,
+        AggregationFunc::Avg => run_agg!(db.avg(metric, group_by)).await,
+        AggregationFunc::Min => run_agg!(db.min(metric, group_by)).await,
+        AggregationFunc::Max => run_agg!(db.max(metric, group_by)).await,
+        AggregationFunc::Count => run_agg!(db.count(metric, group_by)).await,
+        AggregationFunc::AvgOverTime => run_agg!(db.avg_over_time(metric, group_by)).await,
+        AggregationFunc::SumOverTime => run_agg!(db.sum_over_time(metric, group_by)).await,
+        AggregationFunc::MinOverTime => run_agg!(db.min_over_time(metric, group_by)).await,
+        AggregationFunc::MaxOverTime => run_agg!(db.max_over_time(metric, group_by)).await,
+        AggregationFunc::CountOverTime => run_agg!(db.count_over_time(metric, group_by)).await,
+        AggregationFunc::Rate | AggregationFunc::Irate | AggregationFunc::Increase => Err((
+            StatusCode::BAD_REQUEST,
+            format!("{func} is not yet supported"),
+        )),
     }
 }
 
@@ -572,235 +560,6 @@ mod tests {
         MetricName::try_from(name).expect("valid metric name")
     }
 
-    #[tokio::test]
-    async fn test_metrics_endpoint_basic_query() {
-        let core = create_test_core().await;
-
-        // Write some test data
-        let m = metric("cpu.usage");
-        let db = core.metrics().database();
-        let tags1 = [("host", "server1"), ("env", "prod")];
-        let tags2 = [("host", "server2"), ("env", "prod")];
-        db.write_at(m, 1000, 10.0, &tags1).await.unwrap();
-        db.write_at(m, 2000, 20.0, &tags1).await.unwrap();
-        db.write_at(m, 3000, 30.0, &tags2).await.unwrap();
-
-        let app = build_router(core);
-        let server = TestServer::new(app).expect("test server");
-
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "cpu.usage")
-            .add_query_param("group_by", "host")
-            .await;
-
-        response.assert_status_ok();
-
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["metric"], "cpu.usage");
-        assert_eq!(body["group_by"], "host");
-        assert_eq!(body["agg"], "sum");
-        assert_eq!(body["filter"], "*");
-
-        let groups = body["groups"].as_array().expect("groups array");
-        assert_eq!(groups.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn test_metrics_endpoint_with_filter() {
-        let core = create_test_core().await;
-
-        let m = metric("requests.count");
-        let db = core.metrics().database();
-        let tags_api_prod = [("service", "api"), ("env", "prod")];
-        let tags_api_staging = [("service", "api"), ("env", "staging")];
-        let tags_web_prod = [("service", "web"), ("env", "prod")];
-        db.write_at(m, 1000, 5.0, &tags_api_prod).await.unwrap();
-        db.write_at(m, 2000, 10.0, &tags_api_staging).await.unwrap();
-        db.write_at(m, 3000, 15.0, &tags_web_prod).await.unwrap();
-
-        let app = build_router(core);
-        let server = TestServer::new(app).expect("test server");
-
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "requests.count")
-            .add_query_param("group_by", "service")
-            .add_query_param("filter", "env:prod")
-            .await;
-
-        response.assert_status_ok();
-
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["filter"], "env:prod");
-
-        let groups = body["groups"].as_array().expect("groups array");
-        // Should only have api and web with env:prod, not the staging one
-        assert_eq!(groups.len(), 2);
-
-        // Verify the values are correct (only prod entries)
-        for group in groups {
-            let group_name = group["group"].as_str().unwrap();
-            let buckets = group["buckets"].as_array().unwrap();
-            assert!(!buckets.is_empty());
-
-            match group_name {
-                "api" => {
-                    // Only one entry with value 5.0
-                    assert_eq!(buckets[0]["value"].as_f64().unwrap(), 5.0);
-                }
-                "web" => {
-                    // Only one entry with value 15.0
-                    assert_eq!(buckets[0]["value"].as_f64().unwrap(), 15.0);
-                }
-                _ => panic!("unexpected group: {group_name}"),
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_metrics_endpoint_aggregation_types() {
-        let core = create_test_core().await;
-
-        let m = metric("latency.ms");
-        let db = core.metrics().database();
-        let tags = [("endpoint", "/api/users")];
-        // Write multiple values for the same group to test aggregations
-        db.write_at(m, 1000, 10.0, &tags).await.unwrap();
-        db.write_at(m, 2000, 20.0, &tags).await.unwrap();
-        db.write_at(m, 3000, 30.0, &tags).await.unwrap();
-        db.write_at(m, 4000, 40.0, &tags).await.unwrap();
-
-        let app = build_router(core);
-        let server = TestServer::new(app).expect("test server");
-
-        // Test SUM aggregation (default)
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "latency.ms")
-            .add_query_param("group_by", "endpoint")
-            .add_query_param("agg", "sum")
-            .await;
-
-        response.assert_status_ok();
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "sum");
-        let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
-        assert_eq!(value, 100.0); // 10 + 20 + 30 + 40
-
-        // Test AVG aggregation
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "latency.ms")
-            .add_query_param("group_by", "endpoint")
-            .add_query_param("agg", "avg")
-            .await;
-
-        response.assert_status_ok();
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "avg");
-        let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
-        assert_eq!(value, 25.0); // (10 + 20 + 30 + 40) / 4
-
-        // Test MIN aggregation
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "latency.ms")
-            .add_query_param("group_by", "endpoint")
-            .add_query_param("agg", "min")
-            .await;
-
-        response.assert_status_ok();
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "min");
-        let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
-        assert_eq!(value, 10.0);
-
-        // Test MAX aggregation
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "latency.ms")
-            .add_query_param("group_by", "endpoint")
-            .add_query_param("agg", "max")
-            .await;
-
-        response.assert_status_ok();
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "max");
-        let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
-        assert_eq!(value, 40.0);
-
-        // Test COUNT aggregation
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "latency.ms")
-            .add_query_param("group_by", "endpoint")
-            .add_query_param("agg", "count")
-            .await;
-
-        response.assert_status_ok();
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "count");
-        let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
-        assert_eq!(value, 4.0); // 4 data points
-    }
-
-    #[tokio::test]
-    async fn test_metrics_endpoint_invalid_metric_name() {
-        let core = create_test_core().await;
-
-        let app = build_router(core);
-        let server = TestServer::new(app).expect("test server");
-
-        // MetricName only allows lowercase a-z, underscore, and period
-        // Uppercase letters and special characters are invalid
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "CPU-Usage!") // invalid characters
-            .add_query_param("group_by", "host")
-            .await;
-
-        response.assert_status_bad_request();
-    }
-
-    #[tokio::test]
-    async fn test_metrics_endpoint_invalid_granularity() {
-        let core = create_test_core().await;
-
-        let app = build_router(core);
-        let server = TestServer::new(app).expect("test server");
-
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "cpu.usage")
-            .add_query_param("group_by", "host")
-            .add_query_param("granularity", "invalid")
-            .await;
-
-        response.assert_status_bad_request();
-    }
-
-    #[tokio::test]
-    async fn test_metrics_endpoint_empty_result() {
-        let core = create_test_core().await;
-
-        let app = build_router(core);
-        let server = TestServer::new(app).expect("test server");
-
-        // Query for a metric that doesn't exist
-        let response = server
-            .get("/api/metrics")
-            .add_query_param("metric", "nonexistent.metric")
-            .add_query_param("group_by", "host")
-            .await;
-
-        response.assert_status_ok();
-
-        let body: serde_json::Value = response.json();
-        let groups = body["groups"].as_array().expect("groups array");
-        assert!(groups.is_empty());
-    }
-
     #[test]
     fn test_parse_duration() {
         assert_eq!(parse_duration("30s"), Some(MetricsDuration::seconds(30.0)));
@@ -837,5 +596,174 @@ mod tests {
 
         // Empty
         assert_eq!(parse_time_spec("", now), None);
+    }
+
+    // =========================================================================
+    // /api/metrics/query endpoint tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_query_endpoint_simple_filter() {
+        let core = create_test_core().await;
+
+        let m = metric("cpu.usage");
+        let db = core.metrics().database();
+        let tags = [("host", "server1"), ("env", "prod")];
+        db.write_at(m, 1000, 10.0, &tags).await.unwrap();
+        db.write_at(m, 2000, 20.0, &tags).await.unwrap();
+
+        let app = build_router(core);
+        let server = TestServer::new(app).expect("test server");
+
+        // Simple filter query (no aggregation function)
+        let response = server
+            .get("/api/metrics/query")
+            .add_query_param("metric", "cpu.usage")
+            .add_query_param("query", "env:prod")
+            .await;
+
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["metric"], "cpu.usage");
+        assert_eq!(body["query"], "env:prod");
+        assert_eq!(body["parsed_filter"], "env:prod");
+        assert!(body["parsed_agg"].is_null()); // No aggregation for simple filter
+    }
+
+    #[tokio::test]
+    async fn test_query_endpoint_sum_aggregation() {
+        let core = create_test_core().await;
+
+        let m = metric("requests.count");
+        let db = core.metrics().database();
+        let tags1 = [("service", "api"), ("env", "prod")];
+        let tags2 = [("service", "web"), ("env", "prod")];
+        db.write_at(m, 1000, 10.0, &tags1).await.unwrap();
+        db.write_at(m, 2000, 20.0, &tags1).await.unwrap();
+        db.write_at(m, 3000, 30.0, &tags2).await.unwrap();
+
+        let app = build_router(core);
+        let server = TestServer::new(app).expect("test server");
+
+        let response = server
+            .get("/api/metrics/query")
+            .add_query_param("metric", "requests.count")
+            .add_query_param("query", "sum(env:prod)")
+            .await;
+
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["parsed_agg"], "sum");
+        assert_eq!(body["parsed_filter"], "env:prod");
+    }
+
+    #[tokio::test]
+    async fn test_query_endpoint_aggregation_with_grouping() {
+        let core = create_test_core().await;
+
+        let m = metric("latency.ms");
+        let db = core.metrics().database();
+        let tags1 = [("host", "server1"), ("region", "us-east")];
+        let tags2 = [("host", "server2"), ("region", "us-west")];
+        db.write_at(m, 1000, 10.0, &tags1).await.unwrap();
+        db.write_at(m, 2000, 20.0, &tags2).await.unwrap();
+
+        let app = build_router(core);
+        let server = TestServer::new(app).expect("test server");
+
+        let response = server
+            .get("/api/metrics/query")
+            .add_query_param("metric", "latency.ms")
+            .add_query_param("query", "avg(*) by (region)")
+            .await;
+
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["parsed_agg"], "avg");
+        assert_eq!(body["parsed_filter"], "*");
+        assert_eq!(body["parsed_grouping"], "by (region)");
+    }
+
+    #[tokio::test]
+    async fn test_query_endpoint_over_time_function() {
+        let core = create_test_core().await;
+
+        let m = metric("cpu.usage");
+        let db = core.metrics().database();
+        let tags = [("host", "server1")];
+        db.write_at(m, 1000, 10.0, &tags).await.unwrap();
+        db.write_at(m, 2000, 20.0, &tags).await.unwrap();
+        db.write_at(m, 3000, 30.0, &tags).await.unwrap();
+
+        let app = build_router(core);
+        let server = TestServer::new(app).expect("test server");
+
+        let response = server
+            .get("/api/metrics/query")
+            .add_query_param("metric", "cpu.usage")
+            .add_query_param("query", "avg_over_time(*)[5m]")
+            .await;
+
+        response.assert_status_ok();
+
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["parsed_agg"], "avg_over_time");
+        assert_eq!(body["parsed_time_range"], "5m");
+    }
+
+    #[tokio::test]
+    async fn test_query_endpoint_invalid_query() {
+        let core = create_test_core().await;
+
+        let app = build_router(core);
+        let server = TestServer::new(app).expect("test server");
+
+        // Invalid query syntax
+        let response = server
+            .get("/api/metrics/query")
+            .add_query_param("metric", "cpu.usage")
+            .add_query_param("query", "invalid()")
+            .await;
+
+        response.assert_status_bad_request();
+    }
+
+    #[tokio::test]
+    async fn test_query_endpoint_invalid_metric() {
+        let core = create_test_core().await;
+
+        let app = build_router(core);
+        let server = TestServer::new(app).expect("test server");
+
+        // Invalid metric name (contains invalid characters)
+        let response = server
+            .get("/api/metrics/query")
+            .add_query_param("metric", "invalid metric!")
+            .add_query_param("query", "sum(*)")
+            .await;
+
+        response.assert_status_bad_request();
+    }
+
+    #[tokio::test]
+    async fn test_query_endpoint_unsupported_rate() {
+        let core = create_test_core().await;
+
+        let app = build_router(core);
+        let server = TestServer::new(app).expect("test server");
+
+        // Rate is not yet supported
+        let response = server
+            .get("/api/metrics/query")
+            .add_query_param("metric", "cpu.usage")
+            .add_query_param("query", "rate(*)[5m]")
+            .await;
+
+        response.assert_status_bad_request();
+        let text = response.text();
+        assert!(text.contains("not yet supported"));
     }
 }

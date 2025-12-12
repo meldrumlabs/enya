@@ -6,7 +6,7 @@ use egui::{Color32, FontId, Key};
 use enya_lang::completion::{Context, analyze, syntax_suggestions};
 
 use crate::theme::AppTheme;
-use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// A suggestion item for the completion popup
@@ -25,14 +25,18 @@ pub struct CompletionItem {
 /// The kind of completion item
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionKind {
-    /// Keyword like AND, OR
+    /// Keyword like AND, OR, by, without
     Keyword,
-    /// Operator like !, (, )
+    /// Operator like !, (, ), {, }, [, ]
     Operator,
     /// Tag key like "env", "service"
     TagKey,
     /// Tag value like "prod", "staging"
     TagValue,
+    /// Function like sum, avg, min, max, count, rate, etc.
+    Function,
+    /// Duration like 1m, 5m, 1h, 1d
+    Duration,
 }
 
 impl CompletionKind {
@@ -42,6 +46,8 @@ impl CompletionKind {
             Self::Operator => "operator",
             Self::TagKey => "key",
             Self::TagValue => "value",
+            Self::Function => "function",
+            Self::Duration => "duration",
         }
     }
 
@@ -51,6 +57,8 @@ impl CompletionKind {
             Self::Operator => semantic_icons::completion::OPERATOR,
             Self::TagKey => semantic_icons::completion::TAG_KEY,
             Self::TagValue => semantic_icons::completion::TAG_VALUE,
+            Self::Function => semantic_icons::completion::FUNCTION,
+            Self::Duration => semantic_icons::completion::DURATION,
         }
     }
 }
@@ -139,6 +147,32 @@ impl QueryCompletion {
         self.selected_index = 0;
 
         match &ctx {
+            Context::ExpectQueryStart => {
+                // At start, suggest aggregation functions and tag keys
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    let kind = if enya_lang::completion::ALL_FUNCTIONS.contains(&s) {
+                        CompletionKind::Function
+                    } else {
+                        CompletionKind::Operator
+                    };
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: kind.icon(),
+                        kind,
+                    });
+                }
+                // Also suggest known tag keys
+                for key in &self.known_tag_keys {
+                    self.items.push(CompletionItem {
+                        text: format!("{key}:"),
+                        label: key.clone(),
+                        icon: CompletionKind::TagKey.icon(),
+                        kind: CompletionKind::TagKey,
+                    });
+                }
+            }
             Context::ExpectExpr | Context::ExpectOperator => {
                 // Add syntax suggestions
                 let suggestions = syntax_suggestions(&ctx);
@@ -161,6 +195,108 @@ impl QueryCompletion {
                     for key in &self.known_tag_keys {
                         self.items.push(CompletionItem {
                             text: format!("{key}:"),
+                            label: key.clone(),
+                            icon: CompletionKind::TagKey.icon(),
+                            kind: CompletionKind::TagKey,
+                        });
+                    }
+                }
+            }
+            Context::ExpectAggregationOpen(_) => {
+                // After aggregation function, suggest opening delimiter
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Operator.icon(),
+                        kind: CompletionKind::Operator,
+                    });
+                }
+            }
+            Context::ExpectTimeRangeOrGrouping(_) => {
+                // After aggregation close, suggest time range or by/without
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    let kind = if s == "[" {
+                        CompletionKind::Operator
+                    } else {
+                        CompletionKind::Keyword
+                    };
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: kind.icon(),
+                        kind,
+                    });
+                }
+            }
+            Context::ExpectGroupingOrEnd => {
+                // After aggregation close or time range, suggest by/without
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Keyword.icon(),
+                        kind: CompletionKind::Keyword,
+                    });
+                }
+            }
+            Context::ExpectGroupingOpen | Context::ExpectLabelListContinue => {
+                // Suggest opening paren or comma/close
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Operator.icon(),
+                        kind: CompletionKind::Operator,
+                    });
+                }
+            }
+            Context::InLabelList => {
+                // Inside label list, suggest known tag keys as labels
+                for key in &self.known_tag_keys {
+                    self.items.push(CompletionItem {
+                        text: key.clone(),
+                        label: key.clone(),
+                        icon: CompletionKind::TagKey.icon(),
+                        kind: CompletionKind::TagKey,
+                    });
+                }
+            }
+            Context::InAggregationFunc(partial) => {
+                // Filter aggregation functions by partial match
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Function.icon(),
+                        kind: CompletionKind::Function,
+                    });
+                }
+                // Also check if partial matches tag keys
+                let partial_lower = partial.to_lowercase();
+                for key in &self.known_tag_keys {
+                    if key.to_lowercase().starts_with(&partial_lower) {
+                        self.items.push(CompletionItem {
+                            text: format!("{key}:"),
+                            label: key.clone(),
+                            icon: CompletionKind::TagKey.icon(),
+                            kind: CompletionKind::TagKey,
+                        });
+                    }
+                }
+            }
+            Context::InLabelName(partial) => {
+                // Filter tag keys by partial match for label names
+                let partial_lower = partial.to_lowercase();
+                for key in &self.known_tag_keys {
+                    if key.to_lowercase().starts_with(&partial_lower) {
+                        self.items.push(CompletionItem {
+                            text: key.clone(),
                             label: key.clone(),
                             icon: CompletionKind::TagKey.icon(),
                             kind: CompletionKind::TagKey,
@@ -200,6 +336,18 @@ impl QueryCompletion {
                     }
                 }
             }
+            Context::ExpectDuration | Context::InDuration(_) => {
+                // Suggest common durations
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Duration.icon(),
+                        kind: CompletionKind::Duration,
+                    });
+                }
+            }
         }
 
         // Show popup if we have items
@@ -232,23 +380,32 @@ impl QueryCompletion {
         let ctx = self.current_context.as_ref()?;
 
         let (new_input, new_cursor) = match ctx {
-            Context::ExpectExpr | Context::ExpectOperator => {
+            Context::ExpectQueryStart
+            | Context::ExpectExpr
+            | Context::ExpectOperator
+            | Context::ExpectAggregationOpen(_)
+            | Context::ExpectTimeRangeOrGrouping(_)
+            | Context::ExpectGroupingOrEnd
+            | Context::ExpectGroupingOpen
+            | Context::ExpectLabelListContinue
+            | Context::ExpectDuration => {
                 // Insert at cursor, possibly with space before
                 let before = &input[..cursor];
                 let after = &input[cursor..];
 
                 let needs_space = !before.is_empty()
                     && !before.ends_with(char::is_whitespace)
-                    && !before.ends_with('(');
+                    && !before.ends_with('(')
+                    && !before.ends_with('{');
                 let prefix = if needs_space { " " } else { "" };
 
-                // Add trailing space after keywords (AND, OR) and operators (!, ()
-                // but not after tag keys (which end with :)
+                // Add trailing space after keywords and functions, but not after delimiters
                 let needs_suffix = matches!(
                     item.kind,
-                    CompletionKind::Keyword | CompletionKind::Operator
+                    CompletionKind::Keyword | CompletionKind::Function
                 ) && !item.text.ends_with(':')
                     && !item.text.ends_with(')')
+                    && !item.text.ends_with('}')
                     && !after.starts_with(char::is_whitespace);
                 let suffix = if needs_suffix { " " } else { "" };
 
@@ -256,11 +413,21 @@ impl QueryCompletion {
                 let new_cursor = cursor + prefix.len() + item.text.len() + suffix.len();
                 (new_input, new_cursor)
             }
-            Context::InTagKey(partial) => {
-                // Replace the partial key with the full key
+            Context::InLabelList => {
+                // Insert label at cursor
+                let before = &input[..cursor];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = cursor + item.text.len();
+                (new_input, new_cursor)
+            }
+            Context::InAggregationFunc(partial) | Context::InTagKey(partial) => {
+                // Replace the partial with the full text
                 let trimmed_before = input[..cursor].trim_start();
                 let word_start = trimmed_before
-                    .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                    .rfind(|c: char| {
+                        c.is_whitespace() || c == '(' || c == ')' || c == '{' || c == '}'
+                    })
                     .map_or(0, |i| {
                         // Find the actual byte position in the original input
                         let prefix_len = input.len() - input.trim_start().len();
@@ -268,9 +435,35 @@ impl QueryCompletion {
                     });
 
                 // Handle case where we're at the start
-                let actual_start = if word_start == 0 && !input.starts_with(partial) {
+                let actual_start = if word_start == 0 && !input.starts_with(partial.as_str()) {
                     input[..cursor]
-                        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                        .rfind(|c: char| {
+                            c.is_whitespace() || c == '(' || c == ')' || c == '{' || c == '}'
+                        })
+                        .map_or(0, |i| i + 1)
+                } else {
+                    word_start
+                };
+
+                let before = &input[..actual_start];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = actual_start + item.text.len();
+                (new_input, new_cursor)
+            }
+            Context::InLabelName(partial) => {
+                // Replace the partial label name with the full label
+                let trimmed_before = input[..cursor].trim_start();
+                let word_start = trimmed_before
+                    .rfind(|c: char| c.is_whitespace() || c == '(' || c == ',')
+                    .map_or(0, |i| {
+                        let prefix_len = input.len() - input.trim_start().len();
+                        prefix_len + i + 1
+                    });
+
+                let actual_start = if word_start == 0 && !input.starts_with(partial.as_str()) {
+                    input[..cursor]
+                        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ',')
                         .map_or(0, |i| i + 1)
                 } else {
                     word_start
@@ -304,6 +497,25 @@ impl QueryCompletion {
                     (new_input, new_cursor)
                 }
             }
+            Context::InDuration(_partial) => {
+                // Replace the partial duration with the full duration
+                // Find the opening bracket
+                let before_cursor = &input[..cursor];
+                if let Some(bracket_pos) = before_cursor.rfind('[') {
+                    let before_bracket = &input[..=bracket_pos];
+                    let after = &input[cursor..];
+                    let new_input = format!("{before_bracket}{}{after}", item.text);
+                    let new_cursor = bracket_pos + 1 + item.text.len();
+                    (new_input, new_cursor)
+                } else {
+                    // Fallback: insert at cursor
+                    let before = &input[..cursor];
+                    let after = &input[cursor..];
+                    let new_input = format!("{before}{}{after}", item.text);
+                    let new_cursor = cursor + item.text.len();
+                    (new_input, new_cursor)
+                }
+            }
         };
 
         Some((new_input, new_cursor))
@@ -321,37 +533,52 @@ impl QueryCompletion {
         // Position popup below the text input
         let popup_pos = egui::pos2(text_edit_rect.left(), text_edit_rect.bottom() + 4.0);
         let popup_width = text_edit_rect.width().min(400.0);
-        let item_height = 28.0;
+        let item_height = 32.0;
         let max_visible_items = 8;
         let visible_items = self.items.len().min(max_visible_items);
         let popup_height = visible_items as f32 * item_height + 8.0;
 
+        // Obsidian glass theme colors
         let bg_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(252, 252, 252),
-            AppTheme::Dark => Color32::from_rgb(35, 35, 40),
+            AppTheme::Light => palette::light_bg::SURFACE,
+            AppTheme::Dark => palette::bg::SURFACE,
         };
         let border_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(200, 200, 200),
-            AppTheme::Dark => Color32::from_rgb(60, 60, 70),
+            AppTheme::Light => palette::light_border::DEFAULT,
+            AppTheme::Dark => palette::border::SUBTLE,
         };
         let selected_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgb(230, 240, 255),
-            AppTheme::Dark => Color32::from_rgb(50, 55, 75),
+            AppTheme::Light => palette::light_bg::SELECTED,
+            AppTheme::Dark => palette::accent::MUTED, // Emerald-tinted selection
         };
-        let text_col = text_color(self.theme);
+        let hover_bg = match self.theme {
+            AppTheme::Light => palette::light_bg::HOVER,
+            AppTheme::Dark => palette::bg::HOVER,
+        };
+        let text_col = palette::text_primary(self.theme);
+        let text_secondary = palette::text_secondary(self.theme);
+        let text_tertiary = palette::text_tertiary(self.theme);
+        let accent_color = match self.theme {
+            AppTheme::Light => palette::accent::LIGHT,
+            AppTheme::Dark => palette::accent::HOVER, // Bright emerald
+        };
 
         let popup_rect =
             egui::Rect::from_min_size(popup_pos, egui::vec2(popup_width, popup_height));
 
-        // Draw shadow first
-        let shadow_rect = popup_rect.translate(egui::vec2(2.0, 2.0));
+        // Draw layered shadows for obsidian glass depth effect
+        let shadow_offset = egui::vec2(0.0, 4.0);
+        let shadow_rect = popup_rect.translate(shadow_offset).expand(4.0);
         ui.painter()
-            .rect_filled(shadow_rect, 4.0, Color32::from_black_alpha(30));
+            .rect_filled(shadow_rect, 12.0, Color32::from_black_alpha(40));
+        let shadow_rect2 = popup_rect.translate(egui::vec2(0.0, 2.0)).expand(2.0);
+        ui.painter()
+            .rect_filled(shadow_rect2, 10.0, Color32::from_black_alpha(30));
 
-        // Draw popup background on top of shadow
+        // Draw popup background with rounded corners
         ui.painter().rect(
             popup_rect,
-            4.0,
+            8.0,
             bg_color,
             egui::Stroke::new(1.0, border_color),
             egui::StrokeKind::Inside,
@@ -368,23 +595,42 @@ impl QueryCompletion {
             );
             let is_selected = i == self.selected_index;
 
+            // Handle hover
+            let response = ui.allocate_rect(item_rect, egui::Sense::click());
+            let is_hovered = response.hovered();
+
             // Item background
+            let item_bg = if is_selected {
+                selected_bg
+            } else if is_hovered {
+                hover_bg
+            } else {
+                Color32::TRANSPARENT
+            };
+
+            if item_bg != Color32::TRANSPARENT {
+                ui.painter().rect_filled(item_rect, 4.0, item_bg);
+            }
+
+            // Selection indicator (emerald accent bar on left)
             if is_selected {
-                ui.painter().rect_filled(item_rect, 2.0, selected_bg);
+                let indicator_rect =
+                    egui::Rect::from_min_size(item_rect.min, egui::vec2(3.0, item_height));
+                ui.painter().rect_filled(indicator_rect, 2.0, accent_color);
             }
 
             // Icon
-            let icon_pos = egui::pos2(item_rect.left() + 8.0, item_rect.center().y - 7.0);
+            let icon_pos = egui::pos2(item_rect.left() + 12.0, item_rect.center().y);
             ui.painter().text(
                 icon_pos,
                 egui::Align2::LEFT_CENTER,
                 item.icon,
                 FontId::proportional(14.0),
-                text_col.gamma_multiply(0.6),
+                text_secondary,
             );
 
             // Label
-            let label_pos = egui::pos2(item_rect.left() + 30.0, item_rect.center().y);
+            let label_pos = egui::pos2(item_rect.left() + 34.0, item_rect.center().y);
             ui.painter().text(
                 label_pos,
                 egui::Align2::LEFT_CENTER,
@@ -395,17 +641,16 @@ impl QueryCompletion {
 
             // Kind badge
             let kind_label = item.kind.label();
-            let kind_pos = egui::pos2(item_rect.right() - 8.0, item_rect.center().y);
+            let kind_pos = egui::pos2(item_rect.right() - 12.0, item_rect.center().y);
             ui.painter().text(
                 kind_pos,
                 egui::Align2::RIGHT_CENTER,
                 kind_label,
                 FontId::proportional(10.0),
-                text_col.gamma_multiply(0.4),
+                text_tertiary,
             );
 
             // Handle click
-            let response = ui.allocate_rect(item_rect, egui::Sense::click());
             if response.clicked() {
                 result = CompletionResult::Selected(item.clone());
             }
@@ -422,7 +667,7 @@ impl QueryCompletion {
                 egui::Align2::CENTER_BOTTOM,
                 format!("... +{more_count} more"),
                 FontId::proportional(10.0),
-                text_col.gamma_multiply(0.4),
+                text_tertiary,
             );
         }
 

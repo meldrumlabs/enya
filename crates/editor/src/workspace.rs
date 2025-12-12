@@ -93,9 +93,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::components::{
-    AggregationMode, Granularity, QueryState, TimeRangePreset, VisualizationType,
-};
+use crate::components::{Granularity, QueryState, TimeRangePreset, VisualizationType};
 use crate::theme::AppTheme;
 
 /// Compact workspace representation for URL sharing (postcard binary format)
@@ -117,9 +115,9 @@ struct CompactSinglePane {
     query: String,
     /// Optional display name
     name: Option<String>,
-    /// Packed header: bits 0-2 = time preset, bit 3 = theme, bits 4-6 = aggregation
+    /// Packed header: bits 0-2 = time preset, bit 3 = theme
     header: u8,
-    /// Packed flags: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-7)
+    /// Packed flags: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-5)
     flags: u8,
 }
 
@@ -130,10 +128,8 @@ struct CompactPane {
     name: Option<String>,
     /// Optional tag (None = empty string)
     tag: Option<String>,
-    /// Packed: bits 0-2 = granularity (0-5), bits 3-5 = aggregation (0-7)
+    /// Packed: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-5)
     flags: u8,
-    /// Visualization type (0-7)
-    viz: u8,
 }
 
 impl CompactWorkspace {
@@ -159,17 +155,6 @@ impl CompactWorkspace {
                 .panes
                 .iter()
                 .map(|p| {
-                    let agg: u8 = match p.aggregation.as_str() {
-                        "raw" => 0,
-                        "sum" => 1,
-                        "avg" => 2,
-                        "min" => 3,
-                        "max" => 4,
-                        "p50" => 5,
-                        "p95" => 6,
-                        "p99" => 7,
-                        _ => 0,
-                    };
                     let gran: u8 = match p.granularity.as_str() {
                         "1m" => 0,
                         "5m" => 1,
@@ -188,8 +173,8 @@ impl CompactWorkspace {
                         "heatmap" => 5,
                         _ => 0,
                     };
-                    // Pack: bits 0-2 = granularity, bits 3-5 = aggregation
-                    let flags = gran | (agg << 3);
+                    // Pack: bits 0-2 = granularity, bits 3-5 = visualization
+                    let flags = gran | (viz << 3);
 
                     CompactPane {
                         query: p.query.clone(),
@@ -204,7 +189,6 @@ impl CompactWorkspace {
                             Some(p.tag.clone())
                         },
                         flags,
-                        viz,
                     }
                 })
                 .collect(),
@@ -238,26 +222,14 @@ impl CompactWorkspace {
             .panes
             .into_iter()
             .map(|p| {
-                // Unpack flags: bits 0-2 = granularity, bits 3-5 = aggregation
+                // Unpack flags: bits 0-2 = granularity, bits 3-5 = visualization
                 let gran = p.flags & 0x07;
-                let agg = (p.flags >> 3) & 0x07;
+                let viz = (p.flags >> 3) & 0x07;
 
                 PaneConfig {
                     query: p.query,
                     name: p.name.unwrap_or_default(),
                     tag: p.tag.unwrap_or_default(),
-                    aggregation: match agg {
-                        0 => "raw",
-                        1 => "sum",
-                        2 => "avg",
-                        3 => "min",
-                        4 => "max",
-                        5 => "p50",
-                        6 => "p95",
-                        7 => "p99",
-                        _ => "raw",
-                    }
-                    .to_string(),
                     granularity: match gran {
                         0 => "1m",
                         1 => "5m",
@@ -268,7 +240,7 @@ impl CompactWorkspace {
                         _ => "5m",
                     }
                     .to_string(),
-                    visualization: match p.viz {
+                    visualization: match viz {
                         0 => "time_series",
                         1 => "stat",
                         2 => "gauge",
@@ -298,17 +270,6 @@ impl CompactSinglePane {
             _ => 1,
         };
         let theme_bit: u8 = if theme == "light" { 1 } else { 0 };
-        let agg: u8 = match pane.aggregation.as_str() {
-            "raw" => 0,
-            "sum" => 1,
-            "avg" => 2,
-            "min" => 3,
-            "max" => 4,
-            "p50" => 5,
-            "p95" => 6,
-            "p99" => 7,
-            _ => 0,
-        };
         let gran: u8 = match pane.granularity.as_str() {
             "1m" => 0,
             "5m" => 1,
@@ -327,8 +288,8 @@ impl CompactSinglePane {
             "heatmap" => 5,
             _ => 0,
         };
-        // Pack header: bits 0-2 = time, bit 3 = theme, bits 4-6 = aggregation
-        let header = time_idx | (theme_bit << 3) | (agg << 4);
+        // Pack header: bits 0-2 = time, bit 3 = theme
+        let header = time_idx | (theme_bit << 3);
         // Pack flags: bits 0-2 = granularity, bits 3-5 = visualization
         let flags = gran | (viz << 3);
 
@@ -345,10 +306,9 @@ impl CompactSinglePane {
     }
 
     fn into_workspace(self) -> Workspace {
-        // Unpack header: bits 0-2 = time, bit 3 = theme, bits 4-6 = aggregation
+        // Unpack header: bits 0-2 = time, bit 3 = theme
         let time_idx = self.header & 0x07;
         let theme_bit = (self.header >> 3) & 0x01;
-        let agg = (self.header >> 4) & 0x07;
         // Unpack flags: bits 0-2 = granularity, bits 3-5 = visualization
         let gran = self.flags & 0x07;
         let viz = (self.flags >> 3) & 0x07;
@@ -375,18 +335,6 @@ impl CompactSinglePane {
             query: self.query,
             name: self.name.unwrap_or_default(),
             tag: String::new(),
-            aggregation: match agg {
-                0 => "raw",
-                1 => "sum",
-                2 => "avg",
-                3 => "min",
-                4 => "max",
-                5 => "p50",
-                6 => "p95",
-                7 => "p99",
-                _ => "raw",
-            }
-            .to_string(),
             granularity: match gran {
                 0 => "1m",
                 1 => "5m",
@@ -650,7 +598,7 @@ impl TimeConfig {
 /// A single pane (query + display settings)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaneConfig {
-    /// The query expression (e.g., "env:prod AND service:api")
+    /// The query expression (e.g., "sum(*) by (host)" or "env:prod AND service:api")
     pub query: String,
 
     /// Display name (optional)
@@ -660,13 +608,6 @@ pub struct PaneConfig {
     /// User-defined tag for organizing panes (e.g., "Critical", "Warning", "Info")
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tag: String,
-
-    /// Aggregation mode: "raw", "sum", "avg", "min", "max", "p50", "p95", "p99"
-    #[serde(
-        default = "default_aggregation",
-        skip_serializing_if = "is_default_aggregation"
-    )]
-    pub aggregation: String,
 
     /// Granularity: "1m", "5m", "15m", "1h", "6h", "1d"
     #[serde(
@@ -681,14 +622,6 @@ pub struct PaneConfig {
         skip_serializing_if = "is_default_visualization"
     )]
     pub visualization: String,
-}
-
-fn default_aggregation() -> String {
-    "raw".to_string()
-}
-
-fn is_default_aggregation(s: &String) -> bool {
-    s == "raw"
 }
 
 fn default_granularity() -> String {
@@ -714,7 +647,6 @@ impl PaneConfig {
             query: query.into(),
             name: String::new(),
             tag: String::new(),
-            aggregation: default_aggregation(),
             granularity: default_granularity(),
             visualization: default_visualization(),
         }
@@ -732,12 +664,6 @@ impl PaneConfig {
         self
     }
 
-    /// Set aggregation
-    pub fn with_aggregation(mut self, agg: AggregationMode) -> Self {
-        self.aggregation = agg.label().to_string();
-        self
-    }
-
     /// Set granularity
     pub fn with_granularity(mut self, gran: Granularity) -> Self {
         self.granularity = gran.label().to_string();
@@ -748,20 +674,6 @@ impl PaneConfig {
     pub fn with_visualization(mut self, viz: VisualizationType) -> Self {
         self.visualization = viz.as_str().to_string();
         self
-    }
-
-    /// Convert aggregation string to AggregationMode
-    pub fn aggregation_mode(&self) -> AggregationMode {
-        match self.aggregation.to_lowercase().as_str() {
-            "sum" => AggregationMode::Sum,
-            "avg" | "average" => AggregationMode::Avg,
-            "min" => AggregationMode::Min,
-            "max" => AggregationMode::Max,
-            "p50" => AggregationMode::P50,
-            "p95" => AggregationMode::P95,
-            "p99" => AggregationMode::P99,
-            _ => AggregationMode::None,
-        }
     }
 
     /// Convert granularity string to Granularity
@@ -785,7 +697,6 @@ impl PaneConfig {
     /// Convert to QueryState
     pub fn to_query_state(&self, time_preset: &str) -> QueryState {
         QueryState {
-            aggregation: self.aggregation_mode(),
             granularity: self.granularity_value(),
             time_range_label: time_preset.to_string(),
         }
@@ -797,7 +708,6 @@ impl PaneConfig {
             query: query.to_string(),
             name: name.to_string(),
             tag: tag.to_string(),
-            aggregation: state.aggregation.label().to_string(),
             granularity: state.granularity.label().to_string(),
             visualization: default_visualization(),
         }
@@ -815,7 +725,6 @@ impl PaneConfig {
             query: query.to_string(),
             name: name.to_string(),
             tag: tag.to_string(),
-            aggregation: state.aggregation.label().to_string(),
             granularity: state.granularity.label().to_string(),
             visualization: viz_type.as_str().to_string(),
         }
@@ -1051,14 +960,12 @@ zen_mode = false
 preset = "1h"
 
 [[panes]]
-query = "env:prod AND service:api"
+query = "avg(env:prod AND service:api) by (service)"
 name = "API Requests"
-aggregation = "avg"
 granularity = "1m"
 
 [[panes]]
-query = "env:prod AND name:error_rate"
-aggregation = "sum"
+query = "sum(env:prod AND name:error_rate) by (name)"
 granularity = "5m"
 "#;
         let ws = Workspace::from_toml(toml).unwrap();
@@ -1067,10 +974,13 @@ granularity = "5m"
         assert_eq!(ws.view.app_theme(), AppTheme::Light);
         assert_eq!(ws.time.preset, "1h");
         assert_eq!(ws.panes.len(), 2);
-        assert_eq!(ws.panes[0].query, "env:prod AND service:api");
+        assert_eq!(
+            ws.panes[0].query,
+            "avg(env:prod AND service:api) by (service)"
+        );
         assert_eq!(ws.panes[0].name, "API Requests");
-        assert_eq!(ws.panes[0].aggregation_mode(), AggregationMode::Avg);
-        assert_eq!(ws.panes[1].aggregation_mode(), AggregationMode::Sum);
+        assert_eq!(ws.panes[0].granularity, "1m");
+        assert_eq!(ws.panes[1].granularity, "5m");
     }
 
     #[test]
@@ -1081,9 +991,8 @@ granularity = "5m"
         ws.view.inspector = true;
         ws.time.preset = "1h".to_string();
         ws.add_pane(
-            PaneConfig::new("env:prod")
+            PaneConfig::new("avg(env:prod) by (service)")
                 .with_name("Production")
-                .with_aggregation(AggregationMode::Avg)
                 .with_granularity(Granularity::OneMinute),
         );
 
@@ -1113,10 +1022,9 @@ granularity = "5m"
         ws.view.theme = "light".to_string();
         ws.time.preset = "1h".to_string();
         ws.add_pane(
-            PaneConfig::new("env:prod AND service:api")
+            PaneConfig::new("sum(env:prod AND service:api) by (service)")
                 .with_name("API Latency")
                 .with_tag("Critical")
-                .with_aggregation(AggregationMode::P95)
                 .with_granularity(Granularity::OneMinute),
         );
         ws.add_pane(PaneConfig::new("env:prod AND name:error_rate"));
@@ -1130,10 +1038,12 @@ granularity = "5m"
         assert_eq!(decoded.view.theme, "light");
         assert_eq!(decoded.time.preset, "1h");
         assert_eq!(decoded.panes.len(), 2);
-        assert_eq!(decoded.panes[0].query, "env:prod AND service:api");
+        assert_eq!(
+            decoded.panes[0].query,
+            "sum(env:prod AND service:api) by (service)"
+        );
         assert_eq!(decoded.panes[0].name, "API Latency");
         assert_eq!(decoded.panes[0].tag, "Critical");
-        assert_eq!(decoded.panes[0].aggregation, "p95");
         assert_eq!(decoded.panes[0].granularity, "1m");
         assert_eq!(decoded.panes[1].query, "env:prod AND name:error_rate");
     }
@@ -1144,9 +1054,8 @@ granularity = "5m"
         ws.view.theme = "light".to_string();
         ws.time.preset = "1h".to_string();
         ws.add_pane(
-            PaneConfig::new("env:prod AND service:api")
+            PaneConfig::new("sum(env:prod AND service:api) by (service)")
                 .with_name("API Latency")
-                .with_aggregation(AggregationMode::P95)
                 .with_granularity(Granularity::OneMinute),
         );
 
@@ -1168,29 +1077,28 @@ granularity = "5m"
         assert_eq!(decoded.view.theme, "light");
         assert_eq!(decoded.time.preset, "1h");
         assert_eq!(decoded.panes.len(), 1);
-        assert_eq!(decoded.panes[0].query, "env:prod AND service:api");
+        assert_eq!(
+            decoded.panes[0].query,
+            "sum(env:prod AND service:api) by (service)"
+        );
         assert_eq!(decoded.panes[0].name, "API Latency");
-        assert_eq!(decoded.panes[0].aggregation, "p95");
         assert_eq!(decoded.panes[0].granularity, "1m");
     }
 
     #[test]
     fn test_pane_config_conversions() {
         let pane = PaneConfig {
-            query: "test".to_string(),
+            query: "sum(*) by (service)".to_string(),
             name: "Test".to_string(),
             tag: "Critical".to_string(),
-            aggregation: "p95".to_string(),
             granularity: "15m".to_string(),
             visualization: "time_series".to_string(),
         };
 
-        assert_eq!(pane.aggregation_mode(), AggregationMode::P95);
         assert_eq!(pane.granularity_value(), Granularity::FifteenMinutes);
         assert_eq!(pane.tag, "Critical");
 
         let state = pane.to_query_state("1h");
-        assert_eq!(state.aggregation, AggregationMode::P95);
         assert_eq!(state.granularity, Granularity::FifteenMinutes);
         assert_eq!(state.time_range_label, "1h");
     }
@@ -1202,10 +1110,9 @@ granularity = "5m"
 name = "tagged"
 
 [[panes]]
-query = "env:prod"
+query = "avg(env:prod) by (service)"
 name = "Production"
 tag = "Critical"
-aggregation = "avg"
 granularity = "1m"
 
 [[panes]]
@@ -1262,7 +1169,6 @@ query = "test"
         assert_eq!(ws.time.preset, "15m");
 
         // Pane defaults
-        assert_eq!(ws.panes[0].aggregation, "raw");
         assert_eq!(ws.panes[0].granularity, "5m");
         assert!(ws.panes[0].name.is_empty());
 

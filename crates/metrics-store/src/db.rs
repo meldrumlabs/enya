@@ -330,6 +330,111 @@ impl Database {
         }
     }
 
+    /// Returns an aggregation builder for computing average over a time range.
+    ///
+    /// Use `.granularity()` to set the time range window (in nanoseconds).
+    #[must_use]
+    pub fn avg_over_time<'a>(
+        &'a self,
+        metric: MetricName<'a>,
+        group_by: &'a str,
+    ) -> crate::agg::Builder<'a, crate::agg::AvgOverTime> {
+        crate::agg::Builder {
+            phantom: PhantomData,
+            database: self,
+            metric_name: metric.as_str(),
+            filter_expr: "*",
+            bucket_width: MINUTE_IN_NS,
+            group_by,
+            max_ts: None,
+            min_ts: None,
+        }
+    }
+
+    /// Returns an aggregation builder for computing sum over a time range.
+    ///
+    /// Use `.granularity()` to set the time range window (in nanoseconds).
+    #[must_use]
+    pub fn sum_over_time<'a>(
+        &'a self,
+        metric: MetricName<'a>,
+        group_by: &'a str,
+    ) -> crate::agg::Builder<'a, crate::agg::SumOverTime> {
+        crate::agg::Builder {
+            phantom: PhantomData,
+            database: self,
+            metric_name: metric.as_str(),
+            filter_expr: "*",
+            bucket_width: MINUTE_IN_NS,
+            group_by,
+            max_ts: None,
+            min_ts: None,
+        }
+    }
+
+    /// Returns an aggregation builder for finding minimum over a time range.
+    ///
+    /// Use `.granularity()` to set the time range window (in nanoseconds).
+    #[must_use]
+    pub fn min_over_time<'a>(
+        &'a self,
+        metric: MetricName<'a>,
+        group_by: &'a str,
+    ) -> crate::agg::Builder<'a, crate::agg::MinOverTime> {
+        crate::agg::Builder {
+            phantom: PhantomData,
+            database: self,
+            metric_name: metric.as_str(),
+            filter_expr: "*",
+            bucket_width: MINUTE_IN_NS,
+            group_by,
+            max_ts: None,
+            min_ts: None,
+        }
+    }
+
+    /// Returns an aggregation builder for finding maximum over a time range.
+    ///
+    /// Use `.granularity()` to set the time range window (in nanoseconds).
+    #[must_use]
+    pub fn max_over_time<'a>(
+        &'a self,
+        metric: MetricName<'a>,
+        group_by: &'a str,
+    ) -> crate::agg::Builder<'a, crate::agg::MaxOverTime> {
+        crate::agg::Builder {
+            phantom: PhantomData,
+            database: self,
+            metric_name: metric.as_str(),
+            filter_expr: "*",
+            bucket_width: MINUTE_IN_NS,
+            group_by,
+            max_ts: None,
+            min_ts: None,
+        }
+    }
+
+    /// Returns an aggregation builder for counting data points over a time range.
+    ///
+    /// Use `.granularity()` to set the time range window (in nanoseconds).
+    #[must_use]
+    pub fn count_over_time<'a>(
+        &'a self,
+        metric: MetricName<'a>,
+        group_by: &'a str,
+    ) -> crate::agg::Builder<'a, crate::agg::CountOverTime> {
+        crate::agg::Builder {
+            phantom: PhantomData,
+            database: self,
+            metric_name: metric.as_str(),
+            filter_expr: "*",
+            bucket_width: MINUTE_IN_NS,
+            group_by,
+            max_ts: None,
+            min_ts: None,
+        }
+    }
+
     /// Write a data point to the database.
     ///
     /// # Errors

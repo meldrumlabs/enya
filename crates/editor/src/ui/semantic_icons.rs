@@ -437,6 +437,8 @@ pub mod completion {
     pub const OPERATOR: &str = regular::CODE_BRACES;
     pub const TAG_KEY: &str = regular::TAG;
     pub const TAG_VALUE: &str = regular::HASH;
+    pub const FUNCTION: &str = regular::FUNCTION;
+    pub const DURATION: &str = regular::TIMER;
 }
 
 // ============================================================================

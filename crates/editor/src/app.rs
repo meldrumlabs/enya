@@ -1152,7 +1152,11 @@ impl eframe::App for EnyaApp {
                         } else {
                             close_color.gamma_multiply(0.7)
                         };
-                        ui.painter().circle_filled(close_rect.center(), button_size / 2.0, close_color);
+                        ui.painter().circle_filled(
+                            close_rect.center(),
+                            button_size / 2.0,
+                            close_color,
+                        );
                         if close_response.clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                         }
@@ -1170,7 +1174,11 @@ impl eframe::App for EnyaApp {
                         } else {
                             minimize_color.gamma_multiply(0.7)
                         };
-                        ui.painter().circle_filled(min_rect.center(), button_size / 2.0, minimize_color);
+                        ui.painter().circle_filled(
+                            min_rect.center(),
+                            button_size / 2.0,
+                            minimize_color,
+                        );
                         if min_response.clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
                         }
@@ -1188,14 +1196,19 @@ impl eframe::App for EnyaApp {
                         } else {
                             fullscreen_color.gamma_multiply(0.7)
                         };
-                        ui.painter().circle_filled(fs_rect.center(), button_size / 2.0, fullscreen_color);
+                        ui.painter().circle_filled(
+                            fs_rect.center(),
+                            button_size / 2.0,
+                            fullscreen_color,
+                        );
                         if fs_response.clicked() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
                         }
 
                         // Rest of titlebar is drag area
                         let remaining = ui.available_rect_before_wrap();
-                        let drag_response = ui.allocate_rect(remaining, egui::Sense::click_and_drag());
+                        let drag_response =
+                            ui.allocate_rect(remaining, egui::Sense::click_and_drag());
                         if drag_response.dragged() {
                             ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
                         }

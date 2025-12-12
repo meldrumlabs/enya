@@ -96,7 +96,8 @@ impl QueryValidator {
         }
 
         // Syntax validation using enya-lang parser
-        if let Err(_e) = enya_lang::parse_filter_query(query) {
+        // Use parse_query to support both filter expressions and aggregation queries
+        if let Err(_e) = enya_lang::parse_query(query) {
             // Try to provide more specific error messages
             let syntax_diagnostics = self.diagnose_syntax_error(query);
             if syntax_diagnostics.is_empty() {
@@ -147,47 +148,50 @@ impl QueryValidator {
         }
 
         // Check for missing colon in tag (e.g., "env prod" instead of "env:prod")
-        let words: Vec<&str> = query.split_whitespace().collect();
-        for (i, word) in words.iter().enumerate() {
-            // Skip operators
-            if matches!(word.to_uppercase().as_str(), "AND" | "OR" | "NOT") {
-                continue;
-            }
-            // Skip words that start with ! (negation)
-            let check_word = word.trim_start_matches('!');
-            // Skip parentheses
-            let check_word = check_word.trim_start_matches('(').trim_end_matches(')');
+        // Skip this check for aggregation queries - they have different syntax
+        if !is_aggregation_query(query) {
+            let words: Vec<&str> = query.split_whitespace().collect();
+            for (i, word) in words.iter().enumerate() {
+                // Skip operators
+                if matches!(word.to_uppercase().as_str(), "AND" | "OR" | "NOT") {
+                    continue;
+                }
+                // Skip words that start with ! (negation)
+                let check_word = word.trim_start_matches('!');
+                // Skip parentheses
+                let check_word = check_word.trim_start_matches('(').trim_end_matches(')');
 
-            if check_word.is_empty() || check_word == "*" {
-                continue;
-            }
+                if check_word.is_empty() || check_word == "*" {
+                    continue;
+                }
 
-            // If it doesn't contain a colon, it might be a malformed tag
-            if !check_word.contains(':') {
-                // Check if next word could be a value (not an operator)
-                let next_is_value = words.get(i + 1).is_some_and(|next| {
-                    !matches!(next.to_uppercase().as_str(), "AND" | "OR" | "NOT")
-                        && !next.contains(':')
-                });
+                // If it doesn't contain a colon, it might be a malformed tag
+                if !check_word.contains(':') {
+                    // Check if next word could be a value (not an operator)
+                    let next_is_value = words.get(i + 1).is_some_and(|next| {
+                        !matches!(next.to_uppercase().as_str(), "AND" | "OR" | "NOT")
+                            && !next.contains(':')
+                    });
 
-                if next_is_value {
-                    diagnostics.push(
-                        Diagnostic::error(format!(
-                            "Missing ':' - did you mean '{}:{}'?",
-                            check_word,
-                            words.get(i + 1).unwrap_or(&"value")
-                        ))
-                        .with_source(DiagnosticSource::QuerySyntax)
-                        .with_code("E002"),
-                    );
-                } else {
-                    diagnostics.push(
-                        Diagnostic::error(format!(
-                            "Invalid term '{check_word}' - expected format 'key:value'"
-                        ))
-                        .with_source(DiagnosticSource::QuerySyntax)
-                        .with_code("E002"),
-                    );
+                    if next_is_value {
+                        diagnostics.push(
+                            Diagnostic::error(format!(
+                                "Missing ':' - did you mean '{}:{}'?",
+                                check_word,
+                                words.get(i + 1).unwrap_or(&"value")
+                            ))
+                            .with_source(DiagnosticSource::QuerySyntax)
+                            .with_code("E002"),
+                        );
+                    } else {
+                        diagnostics.push(
+                            Diagnostic::error(format!(
+                                "Invalid term '{check_word}' - expected format 'key:value'"
+                            ))
+                            .with_source(DiagnosticSource::QuerySyntax)
+                            .with_code("E002"),
+                        );
+                    }
                 }
             }
         }
@@ -358,6 +362,31 @@ fn levenshtein_distance(a: &str, b: &str) -> usize {
     matrix[a_len][b_len]
 }
 
+/// Check if a query starts with an aggregation function.
+/// Used to skip filter-specific diagnostics for aggregation queries.
+fn is_aggregation_query(query: &str) -> bool {
+    const AGGREGATION_FUNCTIONS: &[&str] = &[
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "count",
+        "rate",
+        "irate",
+        "increase",
+        "avg_over_time",
+        "sum_over_time",
+        "min_over_time",
+        "max_over_time",
+        "count_over_time",
+    ];
+
+    let trimmed = query.trim();
+    AGGREGATION_FUNCTIONS
+        .iter()
+        .any(|func| trimmed.starts_with(func))
+}
+
 /// Convenience function to validate a query with default settings
 pub fn validate_query(query: &str) -> ValidationResult {
     QueryValidator::new().validate(query)
@@ -449,5 +478,38 @@ mod tests {
         assert_eq!(levenshtein_distance("env", "evn"), 2);
         assert_eq!(levenshtein_distance("prod", "prod"), 0);
         assert_eq!(levenshtein_distance("prod", "pord"), 2);
+    }
+
+    #[test]
+    fn test_aggregation_query_valid() {
+        // Basic aggregation
+        let result = validate_query("sum(*)");
+        assert!(result.is_valid);
+
+        // Aggregation with filter
+        let result = validate_query("sum(env:prod)");
+        assert!(result.is_valid);
+
+        // Aggregation with by clause
+        let result = validate_query("sum(*) by (host)");
+        assert!(result.is_valid);
+
+        // Aggregation with without clause
+        let result = validate_query("avg(env:prod) without (instance)");
+        assert!(result.is_valid);
+
+        // Multiple labels in by clause
+        let result = validate_query("sum(*) by (host, region)");
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_is_aggregation_query() {
+        assert!(is_aggregation_query("sum(*)"));
+        assert!(is_aggregation_query("avg(env:prod)"));
+        assert!(is_aggregation_query("sum(*) by (host)"));
+        assert!(is_aggregation_query("rate(requests)[5m]"));
+        assert!(!is_aggregation_query("env:prod"));
+        assert!(!is_aggregation_query("*"));
     }
 }
