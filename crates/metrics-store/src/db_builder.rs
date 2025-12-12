@@ -4,9 +4,10 @@ use crate::cache::{CacheConfig, LocalCache};
 use crate::db::Database;
 use crate::merge_operator::MetricsMergeOperator;
 use slatedb::Db;
-use slatedb::config::Settings;
+use slatedb::config::{ObjectStoreCacheOptions, Settings};
 use slatedb::object_store::ObjectStore;
 use slatedb::object_store::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,6 +25,10 @@ const DEFAULT_L0_SST_SIZE_BYTES: usize = 16 * 1024 * 1024;
 /// Default max unflushed bytes (256 MiB) - smaller than `SlateDB`'s 1 GiB default
 /// to limit memory usage in embedded scenarios.
 const DEFAULT_MAX_UNFLUSHED_BYTES: usize = 256 * 1024 * 1024;
+
+/// Default disk cache size (1 GiB) - caches SST blocks from object storage
+/// to reduce network roundtrips for frequently accessed data.
+const DEFAULT_DISK_CACHE_SIZE_BYTES: usize = 1024 * 1024 * 1024;
 
 /// Builder for creating a [`Database`] instance.
 ///
@@ -57,6 +62,10 @@ pub struct Builder {
     default_ttl: Option<u64>,
     /// Agent identifier for logging and diagnostics
     agent_id: Option<String>,
+    /// Local disk cache directory for SST blocks from object storage
+    disk_cache_dir: Option<PathBuf>,
+    /// Maximum size of the disk cache in bytes
+    disk_cache_size_bytes: usize,
 }
 
 impl Default for Builder {
@@ -83,6 +92,8 @@ impl Builder {
             compression: None,
             default_ttl: None,
             agent_id: None,
+            disk_cache_dir: None,
+            disk_cache_size_bytes: DEFAULT_DISK_CACHE_SIZE_BYTES,
         }
     }
 
@@ -200,6 +211,52 @@ impl Builder {
         self
     }
 
+    /// Enables local disk caching for SST blocks from object storage.
+    ///
+    /// When using object storage (S3, GCS, etc.), reads incur network latency.
+    /// Disk caching stores frequently accessed SST blocks locally, dramatically
+    /// improving read performance for repeated queries over the same data.
+    ///
+    /// This is particularly beneficial for:
+    /// - **Dashboard refresh**: Same metrics queried repeatedly
+    /// - **Ad-hoc exploration**: Drilling into the same time ranges
+    /// - **Recent data**: Hot data that's frequently accessed
+    ///
+    /// Default: disabled (no local disk cache)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let db = Builder::new()
+    ///     .with_disk_cache("/var/cache/enya")
+    ///     .with_disk_cache_size(2 * 1024 * 1024 * 1024) // 2 GiB
+    ///     .open(object_store, "metrics")
+    ///     .await?;
+    /// ```
+    #[must_use]
+    pub fn with_disk_cache(mut self, path: impl Into<PathBuf>) -> Self {
+        self.disk_cache_dir = Some(path.into());
+        self
+    }
+
+    /// Sets the maximum size of the local disk cache.
+    ///
+    /// When the cache exceeds this size, older entries are evicted.
+    /// Larger caches improve hit rates but use more disk space.
+    ///
+    /// Default: 1 GiB
+    ///
+    /// # Guidelines
+    ///
+    /// - **256 MiB**: Minimal footprint, caches hot data only
+    /// - **1 GiB**: Good balance for most workloads (default)
+    /// - **4+ GiB**: High-performance, caches weeks of recent data
+    #[must_use]
+    pub fn with_disk_cache_size(mut self, size_bytes: usize) -> Self {
+        self.disk_cache_size_bytes = size_bytes;
+        self
+    }
+
     /// Opens or creates a database at the specified path in the object store.
     ///
     /// # Arguments
@@ -233,6 +290,14 @@ impl Builder {
             settings.default_ttl.map(Duration::from_secs),
         );
 
+        if let Some(ref cache_dir) = self.disk_cache_dir {
+            log::info!(
+                "{prefix}Disk cache enabled: path={}, max_size={}MiB",
+                cache_dir.display(),
+                self.disk_cache_size_bytes / (1024 * 1024)
+            );
+        }
+
         let builder = Db::builder(path, object_store)
             .with_merge_operator(Arc::new(MetricsMergeOperator))
             .with_settings(settings);
@@ -258,6 +323,7 @@ impl Builder {
             l0_sst_size_bytes: self.l0_sst_size_bytes,
             max_unflushed_bytes: self.max_unflushed_bytes,
             default_ttl: self.default_ttl,
+            object_store_cache_options: self.build_cache_options(),
             ..Settings::default()
         };
 
@@ -268,5 +334,21 @@ impl Builder {
         }
 
         settings
+    }
+
+    /// Builds the object store cache options if disk caching is enabled.
+    fn build_cache_options(&self) -> ObjectStoreCacheOptions {
+        let cache_size = self.disk_cache_size_bytes;
+        self.disk_cache_dir
+            .as_ref()
+            .map_or_else(ObjectStoreCacheOptions::default, |cache_dir| {
+                ObjectStoreCacheOptions {
+                    root_folder: Some(cache_dir.clone()),
+                    max_cache_size_bytes: Some(cache_size),
+                    // Cache PUT operations for faster subsequent reads
+                    cache_puts: true,
+                    ..ObjectStoreCacheOptions::default()
+                }
+            })
     }
 }

@@ -174,6 +174,7 @@ pub use duration::Duration;
 pub use error::{Error, Result};
 pub use metric_name::MetricName;
 pub use metrics_store::{GIT_TIMESTAMP_TAG_KEY, GIT_VERSION_TAG_KEY, MetricConfig, MetricsStore};
+pub use tag_index::{MetricSchema, Schema, TagSchema};
 pub use time::timestamp;
 
 /// Re-export `object_store` for convenience

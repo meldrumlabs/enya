@@ -16,7 +16,36 @@ use crate::storage::{Storage, prefix};
 use crate::{MetricName, SeriesId, TagSet};
 use bytes::Bytes;
 use roaring::RoaringBitmap;
+use std::collections::BTreeMap;
 use std::io::{self, Cursor};
+
+/// Schema information for a single tag key
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bitcode::Encode, bitcode::Decode)]
+pub struct TagSchema {
+    /// The tag key name
+    pub key: String,
+    /// Known values for this tag (may be truncated)
+    pub values: Vec<String>,
+    /// True if there are more values than returned
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub truncated: bool,
+}
+
+/// Schema information for a single metric
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bitcode::Encode, bitcode::Decode)]
+pub struct MetricSchema {
+    /// The metric name
+    pub name: String,
+    /// All tags and their known values
+    pub tags: Vec<TagSchema>,
+}
+
+/// Complete schema of all metrics and tags in the database
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, bitcode::Encode, bitcode::Decode)]
+pub struct Schema {
+    /// All metrics and their tag schemas
+    pub metrics: Vec<MetricSchema>,
+}
 
 /// Inverted index mapping tag terms to series IDs
 pub struct TagIndex {
@@ -123,5 +152,88 @@ impl TagIndex {
                 format!("failed to deserialize RoaringBitmap: {e}"),
             ))
         })
+    }
+
+    /// Build a complete schema of all metrics and their tags.
+    ///
+    /// This performs a single scan of the tag index and returns all metrics
+    /// with their tag keys and values. Tag values are capped at `max_values_per_tag`
+    /// to prevent explosion from high-cardinality tags.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_values_per_tag` - Maximum number of values to return per tag key
+    pub async fn build_schema(&self, max_values_per_tag: usize) -> crate::Result<Schema> {
+        // Structure: metric -> tag_key -> [values]
+        let mut metrics_map: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+
+        // Scan all tag index entries
+        let start_key = Bytes::from_static(prefix::TAG_INDEX);
+        let end_key = {
+            let mut e = prefix::TAG_INDEX.to_vec();
+            e.push(0xFF);
+            Bytes::from(e)
+        };
+
+        let mut iter = self.storage.db().scan(start_key..end_key).await?;
+
+        while let Some(kv) = iter.next().await? {
+            // Key format: t:{metric} or t:{metric}#{key}:{value}
+            // Skip the "t:" prefix (2 bytes)
+            let Some(key_bytes) = kv.key.get(prefix::TAG_INDEX.len()..) else {
+                continue;
+            };
+
+            let Ok(key_str) = std::str::from_utf8(key_bytes) else {
+                continue;
+            };
+
+            // Parse the key
+            if let Some(hash_pos) = key_str.find('#') {
+                // This is a tag entry: {metric}#{key}:{value}
+                let metric = &key_str[..hash_pos];
+                let tag_part = &key_str[hash_pos + 1..];
+
+                if let Some(colon_pos) = tag_part.find(':') {
+                    let tag_key = &tag_part[..colon_pos];
+                    let tag_value = &tag_part[colon_pos + 1..];
+
+                    let tag_map = metrics_map.entry(metric.to_string()).or_default();
+                    let values = tag_map.entry(tag_key.to_string()).or_default();
+
+                    // Only add if under the limit (we'll mark truncated later)
+                    if values.len() < max_values_per_tag {
+                        values.push(tag_value.to_string());
+                    }
+                }
+            } else {
+                // This is a metric-level entry: {metric}
+                // Just ensure the metric exists in our map
+                metrics_map.entry(key_str.to_string()).or_default();
+            }
+        }
+
+        // Convert to Schema struct
+        let metrics = metrics_map
+            .into_iter()
+            .map(|(name, tags_map)| {
+                let tags = tags_map
+                    .into_iter()
+                    .map(|(key, mut values)| {
+                        values.sort();
+                        let truncated = values.len() >= max_values_per_tag;
+                        TagSchema {
+                            key,
+                            values,
+                            truncated,
+                        }
+                    })
+                    .collect();
+
+                MetricSchema { name, tags }
+            })
+            .collect();
+
+        Ok(Schema { metrics })
     }
 }

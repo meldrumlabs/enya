@@ -7,8 +7,7 @@
 
 use super::core::Core;
 use crate::util::value_as_f64;
-#[cfg(feature = "pprof")]
-use axum::http::header;
+use axum::http::header::{self, HeaderMap};
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -16,6 +15,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
+use enya_common::{BITCODE_MIME, MetricsBucket, MetricsGroup, QueryResponse};
 use enya_lang::{AggregationFunc, Grouping, Query as LangQuery, parse_query};
 use enya_metrics_store::{Duration as MetricsDuration, MetricName, Timestamp};
 #[cfg(feature = "pprof")]
@@ -92,20 +92,6 @@ pub async fn health_handler(State(core): State<Core>) -> impl IntoResponse {
 
 fn default_granularity() -> String {
     "1m".to_string()
-}
-
-#[derive(serde::Serialize)]
-struct MetricsBucket {
-    start: Timestamp,
-    end: Timestamp,
-    value: f64,
-    count: usize,
-}
-
-#[derive(serde::Serialize)]
-struct MetricsGroup {
-    group: String,
-    buckets: Vec<MetricsBucket>,
 }
 
 /// Parse a duration string into nanoseconds.
@@ -189,25 +175,15 @@ pub struct LangQueryParams {
     granularity: String,
 }
 
-/// Response for query endpoint
-#[derive(serde::Serialize)]
-struct QueryResponse {
-    metric: String,
-    query: String,
-    parsed_agg: Option<String>,
-    parsed_filter: String,
-    parsed_grouping: Option<String>,
-    parsed_time_range: Option<String>,
-    start: Option<Timestamp>,
-    end: Option<Timestamp>,
-    granularity_ns: u128,
-    groups: Vec<MetricsGroup>,
-}
-
 /// Handler for /api/metrics/query endpoint
 /// Accepts enya-lang query strings like "sum(env:prod) by (host)"
+///
+/// Supports content negotiation via Accept header:
+/// - `application/x-bitcode` - Returns compact binary bitcode format (fastest)
+/// - `application/json` or default - Returns JSON format
 pub async fn query_handler(
     State(core): State<Core>,
+    headers: HeaderMap,
     Query(params): Query<LangQueryParams>,
 ) -> impl IntoResponse {
     // Validate metric name
@@ -269,7 +245,19 @@ pub async fn query_handler(
                 granularity_ns: granularity,
                 groups,
             };
-            Json(response).into_response()
+
+            // Check Accept header for content negotiation
+            let accept = headers
+                .get(header::ACCEPT)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("");
+
+            if accept.contains(BITCODE_MIME) {
+                let bytes = bitcode::encode(&response);
+                ([(header::CONTENT_TYPE, BITCODE_MIME)], bytes).into_response()
+            } else {
+                Json(response).into_response()
+            }
         }
         Err(err) => err.into_response(),
     }

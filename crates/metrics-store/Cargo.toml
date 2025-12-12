@@ -38,6 +38,10 @@ foyer.workspace = true
 # Compressed bitmap for postings lists
 roaring = "0.10"
 
+# Serialization for schema types
+serde = { workspace = true, features = ["derive"] }
+bitcode = "0.6"
+
 parking_lot.workspace = true
 
 [dev-dependencies]
