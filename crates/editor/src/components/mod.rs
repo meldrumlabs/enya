@@ -49,7 +49,7 @@ pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, QueryCompletion};
 pub use query_finder::{QueryFinder, QueryItem};
 pub use query_pane::{QueryPane, QueryPaneAction};
-pub use query_state::{AggregationMode, Granularity, QueryState};
+pub use query_state::{Granularity, QueryState};
 pub use query_validation::{QueryValidator, ValidationResult, is_valid_query, validate_query};
 pub use status_line::{Sparkline, StatusLine, StatusMode};
 pub use tags::{TagFilter, TagPath, TagTree};

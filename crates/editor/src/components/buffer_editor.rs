@@ -39,10 +39,10 @@ impl QuerySyntaxColors {
                 keyword: Color32::from_rgb(166, 38, 164), // purple - keywords
                 tag_key: Color32::from_rgb(0, 92, 197),   // blue - keys
                 colon: palette::light_text::TERTIARY,
-                tag_value: Color32::from_rgb(22, 128, 54), // green - values
-                wildcard: Color32::from_rgb(200, 120, 0),  // orange
+                tag_value: palette::accent::LIGHT, // emerald - values
+                wildcard: Color32::from_rgb(200, 120, 0), // orange
                 paren: palette::light_text::TERTIARY,
-                negation: Color32::from_rgb(220, 60, 60), // red
+                negation: palette::semantic::ERROR,
                 default: palette::light_text::PRIMARY,
             },
             AppTheme::Dark => Self {
@@ -245,7 +245,7 @@ pub enum BufferEditorResult {
 
 /// A modal overlay for editing buffer queries, styled like the fuzzy finder.
 /// Opens as a transparent overlay so the chart remains visible underneath.
-/// Includes keybindings for aggregation mode and granularity.
+/// Includes keybindings for granularity.
 pub struct BufferEditor {
     /// Whether the editor is currently open
     is_open: bool,
@@ -259,7 +259,7 @@ pub struct BufferEditor {
     theme: AppTheme,
     /// Whether the text input should request focus
     needs_focus: bool,
-    /// Query state (aggregation, granularity, time range)
+    /// Query state (granularity, time range)
     query_state: QueryState,
     /// Original query state (for revert on cancel)
     original_query_state: QueryState,
@@ -512,45 +512,6 @@ impl BufferEditor {
             });
         }
 
-        // Handle aggregation keybindings (Ctrl+key)
-        ctx.input(|input| {
-            if input.modifiers.ctrl {
-                // Ctrl+S - toggle sum
-                if input.key_pressed(Key::S) {
-                    self.query_state.set_sum();
-                }
-                // Ctrl+A - toggle avg
-                if input.key_pressed(Key::A) {
-                    self.query_state.set_avg();
-                }
-                // Ctrl+P - cycle percentiles (p50 -> p95 -> p99 -> off)
-                if input.key_pressed(Key::P) {
-                    self.query_state.cycle_percentiles();
-                }
-                // Ctrl+M - toggle min
-                if input.key_pressed(Key::M) {
-                    self.query_state.set_min();
-                }
-                // Ctrl+X - toggle max
-                if input.key_pressed(Key::X) {
-                    self.query_state.set_max();
-                }
-                // Ctrl+G - cycle granularity
-                if input.key_pressed(Key::G) {
-                    self.query_state.cycle_granularity();
-                }
-            }
-            // < and > to adjust granularity (no modifier needed)
-            if input.key_pressed(Key::Period) && input.modifiers.shift {
-                // > key (shift+period) - increase granularity
-                self.query_state.cycle_granularity();
-            }
-            if input.key_pressed(Key::Comma) && input.modifiers.shift {
-                // < key (shift+comma) - decrease granularity
-                self.query_state.cycle_granularity_back();
-            }
-        });
-
         // Semi-transparent backdrop
         #[allow(deprecated)]
         let screen_rect = ctx.screen_rect();
@@ -576,21 +537,27 @@ impl BufferEditor {
                     AppTheme::Light => palette::light_bg::SURFACE,
                     AppTheme::Dark => palette::bg::SURFACE,
                 };
+                // Subtle border matching command palette style
+                let border_color = match self.theme {
+                    AppTheme::Light => palette::light_border::DEFAULT,
+                    AppTheme::Dark => palette::border::SUBTLE,
+                };
+                // Muted accent for badges/buttons (darker, less saturated for dark mode)
                 let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::PRIMARY,
-                    AppTheme::Dark => palette::accent::PRIMARY,
+                    AppTheme::Light => palette::accent::LIGHT,
+                    AppTheme::Dark => Color32::from_rgb(13, 148, 103), // Darker emerald (~0.8x PRIMARY)
                 };
 
                 egui::Frame::new()
                     .fill(bg_color)
-                    .stroke(egui::Stroke::new(2.0, accent_color))
+                    .stroke(egui::Stroke::new(1.0, border_color))
                     .corner_radius(8.0)
                     .inner_margin(0.0)
                     .shadow(egui::epaint::Shadow {
-                        offset: [0, 8],
-                        blur: 24,
+                        offset: [0, 4],
+                        blur: 16,
                         spread: 0,
-                        color: Color32::from_black_alpha(100),
+                        color: Color32::from_black_alpha(80),
                     })
                     .show(ui, |ui| {
                         ui.set_width(popup_width);
@@ -600,9 +567,9 @@ impl BufferEditor {
                         ui.horizontal(|ui| {
                             ui.add_space(16.0);
 
-                            // INSERT mode badge
+                            // INSERT mode badge (muted emerald)
                             egui::Frame::new()
-                                .fill(Color32::from_rgb(100, 160, 80))
+                                .fill(accent_color)
                                 .corner_radius(3.0)
                                 .inner_margin(egui::vec2(8.0, 3.0))
                                 .show(ui, |ui| {
@@ -628,7 +595,7 @@ impl BufferEditor {
                                 ui.add_space(8.0);
                                 ui.label(
                                     RichText::new("[+]")
-                                        .color(Color32::from_rgb(220, 160, 50))
+                                        .color(palette::semantic::WARNING)
                                         .size(12.0),
                                 );
                             }
@@ -640,7 +607,7 @@ impl BufferEditor {
                                     if validation.diagnostics.is_empty() {
                                         ui.label(
                                             RichText::new(semantic_icons::status::SUCCESS)
-                                                .color(Color32::from_rgb(80, 180, 100))
+                                                .color(palette::semantic::SUCCESS)
                                                 .size(12.0),
                                         )
                                         .on_hover_text("Query is valid");
@@ -658,7 +625,7 @@ impl BufferEditor {
                                                     semantic_icons::diagnostic::WARNING,
                                                     warn_count
                                                 ))
-                                                .color(Color32::from_rgb(220, 160, 50))
+                                                .color(palette::semantic::WARNING)
                                                 .size(11.0),
                                             )
                                             .on_hover_text(format!("{warn_count} warning(s)"));
@@ -882,23 +849,23 @@ impl BufferEditor {
                                         let (icon, color, bg_color) = match diag.level {
                                             DiagnosticLevel::Error => (
                                                 semantic_icons::diagnostic::ERROR,
-                                                Color32::from_rgb(220, 60, 60),
-                                                Color32::from_rgba_unmultiplied(220, 60, 60, 25),
+                                                palette::semantic::ERROR,
+                                                palette::semantic::ERROR.gamma_multiply(0.15),
                                             ),
                                             DiagnosticLevel::Warning => (
                                                 semantic_icons::diagnostic::WARNING,
-                                                Color32::from_rgb(220, 160, 50),
-                                                Color32::from_rgba_unmultiplied(220, 160, 50, 25),
+                                                palette::semantic::WARNING,
+                                                palette::semantic::WARNING.gamma_multiply(0.15),
                                             ),
                                             DiagnosticLevel::Info => (
                                                 semantic_icons::diagnostic::INFO,
-                                                Color32::from_rgb(80, 140, 200),
-                                                Color32::from_rgba_unmultiplied(80, 140, 200, 25),
+                                                palette::semantic::INFO,
+                                                palette::semantic::INFO.gamma_multiply(0.15),
                                             ),
                                             DiagnosticLevel::Hint => (
                                                 semantic_icons::diagnostic::HINT,
-                                                Color32::from_rgb(80, 180, 100),
-                                                Color32::from_rgba_unmultiplied(80, 180, 100, 25),
+                                                palette::semantic::SUCCESS,
+                                                palette::semantic::SUCCESS.gamma_multiply(0.15),
                                             ),
                                         };
 
@@ -974,86 +941,6 @@ impl BufferEditor {
                         }
 
                         ui.add_space(12.0);
-
-                        // Separator
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
-
-                        ui.add_space(8.0);
-
-                        // Status line showing aggregation state
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-
-                            let status_bg = match self.theme {
-                                AppTheme::Light => palette::light_bg::ELEVATED,
-                                AppTheme::Dark => palette::bg::ELEVATED,
-                            };
-
-                            egui::Frame::new()
-                                .fill(status_bg)
-                                .corner_radius(4.0)
-                                .inner_margin(egui::vec2(8.0, 4.0))
-                                .show(ui, |ui| {
-                                    let agg_color = if self.query_state.aggregation
-                                        == crate::components::query_state::AggregationMode::None
-                                    {
-                                        text_color(self.theme).gamma_multiply(0.5)
-                                    } else {
-                                        Color32::from_rgb(100, 180, 100)
-                                    };
-
-                                    // Aggregation badge
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "[{}]",
-                                            self.query_state.aggregation.label()
-                                        ))
-                                        .color(agg_color)
-                                        .size(12.0)
-                                        .strong(),
-                                    );
-
-                                    ui.add_space(8.0);
-
-                                    // Time range
-                                    ui.label(
-                                        RichText::new(&self.query_state.time_range_label)
-                                            .color(text_color(self.theme).gamma_multiply(0.7))
-                                            .size(12.0),
-                                    );
-
-                                    ui.add_space(8.0);
-
-                                    // Granularity
-                                    ui.label(
-                                        RichText::new(self.query_state.granularity.label())
-                                            .color(text_color(self.theme).gamma_multiply(0.7))
-                                            .size(12.0),
-                                    );
-                                });
-
-                            ui.add_space(16.0);
-
-                            // Aggregation keyboard hints
-                            let hint_color = text_color(self.theme).gamma_multiply(0.35);
-                            ui.label(RichText::new("^s").color(hint_color).size(10.0));
-                            ui.label(RichText::new("sum").color(hint_color).size(10.0));
-                            ui.add_space(4.0);
-                            ui.label(RichText::new("^a").color(hint_color).size(10.0));
-                            ui.label(RichText::new("avg").color(hint_color).size(10.0));
-                            ui.add_space(4.0);
-                            ui.label(RichText::new("^p").color(hint_color).size(10.0));
-                            ui.label(RichText::new("p95").color(hint_color).size(10.0));
-                            ui.add_space(4.0);
-                            ui.label(RichText::new("</>").color(hint_color).size(10.0));
-                            ui.label(RichText::new("granularity").color(hint_color).size(10.0));
-                        });
-
-                        ui.add_space(8.0);
 
                         // Separator
                         ui.painter().hline(

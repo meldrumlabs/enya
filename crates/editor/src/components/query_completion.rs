@@ -6,7 +6,7 @@ use egui::{Color32, FontId, Key};
 use enya_lang::completion::{Context, analyze, syntax_suggestions};
 
 use crate::theme::AppTheme;
-use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// A suggestion item for the completion popup
@@ -533,37 +533,52 @@ impl QueryCompletion {
         // Position popup below the text input
         let popup_pos = egui::pos2(text_edit_rect.left(), text_edit_rect.bottom() + 4.0);
         let popup_width = text_edit_rect.width().min(400.0);
-        let item_height = 28.0;
+        let item_height = 32.0;
         let max_visible_items = 8;
         let visible_items = self.items.len().min(max_visible_items);
         let popup_height = visible_items as f32 * item_height + 8.0;
 
+        // Obsidian glass theme colors
         let bg_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(252, 252, 252),
-            AppTheme::Dark => Color32::from_rgb(35, 35, 40),
+            AppTheme::Light => palette::light_bg::SURFACE,
+            AppTheme::Dark => palette::bg::SURFACE,
         };
         let border_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(200, 200, 200),
-            AppTheme::Dark => Color32::from_rgb(60, 60, 70),
+            AppTheme::Light => palette::light_border::DEFAULT,
+            AppTheme::Dark => palette::border::SUBTLE,
         };
         let selected_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgb(230, 240, 255),
-            AppTheme::Dark => Color32::from_rgb(50, 55, 75),
+            AppTheme::Light => palette::light_bg::SELECTED,
+            AppTheme::Dark => palette::accent::MUTED, // Emerald-tinted selection
         };
-        let text_col = text_color(self.theme);
+        let hover_bg = match self.theme {
+            AppTheme::Light => palette::light_bg::HOVER,
+            AppTheme::Dark => palette::bg::HOVER,
+        };
+        let text_col = palette::text_primary(self.theme);
+        let text_secondary = palette::text_secondary(self.theme);
+        let text_tertiary = palette::text_tertiary(self.theme);
+        let accent_color = match self.theme {
+            AppTheme::Light => palette::accent::LIGHT,
+            AppTheme::Dark => palette::accent::HOVER, // Bright emerald
+        };
 
         let popup_rect =
             egui::Rect::from_min_size(popup_pos, egui::vec2(popup_width, popup_height));
 
-        // Draw shadow first
-        let shadow_rect = popup_rect.translate(egui::vec2(2.0, 2.0));
+        // Draw layered shadows for obsidian glass depth effect
+        let shadow_offset = egui::vec2(0.0, 4.0);
+        let shadow_rect = popup_rect.translate(shadow_offset).expand(4.0);
         ui.painter()
-            .rect_filled(shadow_rect, 4.0, Color32::from_black_alpha(30));
+            .rect_filled(shadow_rect, 12.0, Color32::from_black_alpha(40));
+        let shadow_rect2 = popup_rect.translate(egui::vec2(0.0, 2.0)).expand(2.0);
+        ui.painter()
+            .rect_filled(shadow_rect2, 10.0, Color32::from_black_alpha(30));
 
-        // Draw popup background on top of shadow
+        // Draw popup background with rounded corners
         ui.painter().rect(
             popup_rect,
-            4.0,
+            8.0,
             bg_color,
             egui::Stroke::new(1.0, border_color),
             egui::StrokeKind::Inside,
@@ -580,23 +595,42 @@ impl QueryCompletion {
             );
             let is_selected = i == self.selected_index;
 
+            // Handle hover
+            let response = ui.allocate_rect(item_rect, egui::Sense::click());
+            let is_hovered = response.hovered();
+
             // Item background
+            let item_bg = if is_selected {
+                selected_bg
+            } else if is_hovered {
+                hover_bg
+            } else {
+                Color32::TRANSPARENT
+            };
+
+            if item_bg != Color32::TRANSPARENT {
+                ui.painter().rect_filled(item_rect, 4.0, item_bg);
+            }
+
+            // Selection indicator (emerald accent bar on left)
             if is_selected {
-                ui.painter().rect_filled(item_rect, 2.0, selected_bg);
+                let indicator_rect =
+                    egui::Rect::from_min_size(item_rect.min, egui::vec2(3.0, item_height));
+                ui.painter().rect_filled(indicator_rect, 2.0, accent_color);
             }
 
             // Icon
-            let icon_pos = egui::pos2(item_rect.left() + 8.0, item_rect.center().y - 7.0);
+            let icon_pos = egui::pos2(item_rect.left() + 12.0, item_rect.center().y);
             ui.painter().text(
                 icon_pos,
                 egui::Align2::LEFT_CENTER,
                 item.icon,
                 FontId::proportional(14.0),
-                text_col.gamma_multiply(0.6),
+                text_secondary,
             );
 
             // Label
-            let label_pos = egui::pos2(item_rect.left() + 30.0, item_rect.center().y);
+            let label_pos = egui::pos2(item_rect.left() + 34.0, item_rect.center().y);
             ui.painter().text(
                 label_pos,
                 egui::Align2::LEFT_CENTER,
@@ -607,17 +641,16 @@ impl QueryCompletion {
 
             // Kind badge
             let kind_label = item.kind.label();
-            let kind_pos = egui::pos2(item_rect.right() - 8.0, item_rect.center().y);
+            let kind_pos = egui::pos2(item_rect.right() - 12.0, item_rect.center().y);
             ui.painter().text(
                 kind_pos,
                 egui::Align2::RIGHT_CENTER,
                 kind_label,
                 FontId::proportional(10.0),
-                text_col.gamma_multiply(0.4),
+                text_tertiary,
             );
 
             // Handle click
-            let response = ui.allocate_rect(item_rect, egui::Sense::click());
             if response.clicked() {
                 result = CompletionResult::Selected(item.clone());
             }
@@ -634,7 +667,7 @@ impl QueryCompletion {
                 egui::Align2::CENTER_BOTTOM,
                 format!("... +{more_count} more"),
                 FontId::proportional(10.0),
-                text_col.gamma_multiply(0.4),
+                text_tertiary,
             );
         }
 
