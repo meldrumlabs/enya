@@ -7,10 +7,9 @@ use egui::RichText;
 
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    CustomQueriesPanel, Diagnostic, DiagnosticsPane, DiffOffset, DiffView, DiffViewAction,
-    EditExcerpt, InfoOverlay, LandingPage, LandingPageAction, MetricItem, MetricsFinder,
-    MetricsTree, MultiEditOverlay, MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState,
-    TagFilter, TagPath, TimeRangeToolbar, WhichKey,
+    CustomQueriesPanel, Diagnostic, DiagnosticsPane, EditExcerpt, InfoOverlay, LandingPage,
+    LandingPageAction, MetricItem, MetricsFinder, MetricsTree, MultiEditOverlay, MultiEditResult,
+    QueryFinder, QueryItem, QueryPane, QueryState, TagFilter, TagPath, TimeRangeToolbar, WhichKey,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -41,27 +40,6 @@ fn metrics_panel_toggle_button(
 use crate::workspace::{
     ConnectionConfig, PaneConfig, TimeConfig, ViewConfig, Workspace, WorkspaceMeta,
 };
-
-/// A floating window containing a chart/component
-pub struct FloatingWindow {
-    /// Unique identifier for the floating window
-    pub id: u64,
-    /// The component being displayed
-    pub component: Box<dyn Component>,
-    /// Whether the window is open
-    pub open: bool,
-}
-
-impl FloatingWindow {
-    /// Create a new floating window from a component
-    pub fn new(id: u64, component: Box<dyn Component>) -> Self {
-        Self {
-            id,
-            component,
-            open: true,
-        }
-    }
-}
 
 /// Actions that the Dashboard needs the App to handle
 #[derive(Debug, Clone, PartialEq)]
@@ -138,10 +116,6 @@ pub struct Dashboard {
     zen_mode: bool,
     /// Fullscreen mode - show only one pane maximized
     fullscreen_tile: Option<TileId>,
-    /// Floating windows (popped out charts)
-    floating_windows: Vec<FloatingWindow>,
-    /// Next floating window ID
-    next_floating_id: u64,
     /// Landing page component (shown when no charts are open)
     landing_page: LandingPage,
     /// Whether to show the landing page
@@ -156,10 +130,6 @@ pub struct Dashboard {
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
     which_key: WhichKey,
-    /// Diff view for comparing time periods (shown when in diff mode)
-    diff_view: Option<DiffView>,
-    /// Whether diff mode is active
-    diff_mode: bool,
     /// Current scroll offset for smooth scrolling (0.0 to 1.0, percentage)
     viewport_scroll_offset: f32,
     /// Target scroll offset for smooth animation
@@ -206,8 +176,6 @@ impl Default for Dashboard {
             editing_tile_id: None,
             zen_mode: false,
             fullscreen_tile: None,
-            floating_windows: Vec::new(),
-            next_floating_id: 1,
             landing_page: LandingPage::new(),
             show_landing: true,
             last_y_press: None,
@@ -215,8 +183,6 @@ impl Default for Dashboard {
             tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
-            diff_view: None,
-            diff_mode: false,
             viewport_scroll_offset: 0.0,
             viewport_scroll_target: 0.0,
             viewport_content_height: 0.0,
@@ -332,8 +298,6 @@ impl Dashboard {
             editing_tile_id: None,
             zen_mode: false,
             fullscreen_tile: None,
-            floating_windows: Vec::new(),
-            next_floating_id: 1,
             landing_page: LandingPage::new(),
             show_landing: true, // Start with landing page
             last_y_press: None,
@@ -341,8 +305,6 @@ impl Dashboard {
             tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
-            diff_view: None,
-            diff_mode: false,
             viewport_scroll_offset: 0.0,
             viewport_scroll_target: 0.0,
             viewport_content_height: 0.0,
@@ -388,7 +350,7 @@ impl Dashboard {
         }
 
         // Check if we should show landing page (no open charts)
-        let has_charts = !self.open_charts.is_empty() || !self.floating_windows.is_empty();
+        let has_charts = !self.open_charts.is_empty();
         if !has_charts && !self.show_landing {
             self.show_landing = true;
         }
@@ -536,24 +498,7 @@ impl Dashboard {
 
             // Main viewport area (tabbed charts/views)
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                // Check if we're in diff mode
-                if self.diff_mode {
-                    if let Some(ref mut diff_view) = self.diff_view {
-                        diff_view.set_theme(app_state.theme);
-                        let action = diff_view.show(ui);
-                        match action {
-                            DiffViewAction::Close => {
-                                self.diff_mode = false;
-                                self.diff_view = None;
-                            }
-                            DiffViewAction::OffsetChanged(offset) => {
-                                // Update the diff view with new offset
-                                diff_view.set_offset(offset);
-                            }
-                            _ => {}
-                        }
-                    }
-                } else if let Some(fullscreen_id) = self.fullscreen_tile {
+                if let Some(fullscreen_id) = self.fullscreen_tile {
                     // Render only the fullscreen pane
                     if let Some(Tile::Pane(component)) =
                         self.viewport_tree.tiles.get_mut(fullscreen_id)
@@ -693,9 +638,6 @@ impl Dashboard {
             }
             MultiEditResult::Cancelled | MultiEditResult::None => {}
         }
-
-        // Show floating windows
-        self.show_floating_windows(ctx, app_state.theme);
 
         // Show info overlay modal
         self.info_overlay.set_theme(app_state.theme);
@@ -874,69 +816,6 @@ impl Dashboard {
         }
     }
 
-    /// Show all floating windows
-    fn show_floating_windows(&mut self, ctx: &egui::Context, theme: AppTheme) {
-        let text_col = text_color(theme);
-        let mut windows_to_dock: Vec<u64> = Vec::new();
-        let mut windows_to_close: Vec<u64> = Vec::new();
-
-        for floating in &mut self.floating_windows {
-            if !floating.open {
-                windows_to_close.push(floating.id);
-                continue;
-            }
-
-            floating.component.set_theme(theme);
-
-            let title = floating.component.name();
-            let mut open = floating.open;
-
-            egui::Window::new(
-                egui::RichText::new(format!("{} {}", semantic_icons::action::CHART, title))
-                    .color(text_col),
-            )
-            .id(egui::Id::new(format!("floating_window_{}", floating.id)))
-            .open(&mut open)
-            .resizable(true)
-            .collapsible(true)
-            .default_size([600.0, 350.0])
-            .min_width(400.0)
-            .min_height(250.0)
-            .show(ctx, |ui| {
-                // Dock button at top right
-                ui.horizontal(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .small_button(egui::RichText::new(semantic_icons::nav::GRID))
-                            .on_hover_text("Dock back to tiled layout (D)")
-                            .clicked()
-                        {
-                            windows_to_dock.push(floating.id);
-                        }
-                    });
-                });
-
-                // Give the chart most of the remaining space
-                let available = ui.available_size();
-                ui.allocate_ui(available, |ui| {
-                    floating.component.show(ui);
-                });
-            });
-
-            floating.open = open;
-        }
-
-        // Remove closed windows
-        for id in windows_to_close {
-            self.floating_windows.retain(|w| w.id != id);
-        }
-
-        // Dock windows back (handled after the loop to avoid borrow issues)
-        for id in windows_to_dock {
-            self.dock_floating_window(id);
-        }
-    }
-
     /// Handle a command result from the command palette
     fn handle_command_result(&mut self, result: CommandResult) -> DashboardAction {
         match result {
@@ -989,14 +868,6 @@ impl Dashboard {
             }
             CommandResult::ToggleFullscreen => {
                 self.toggle_fullscreen();
-                DashboardAction::None
-            }
-            CommandResult::FloatPane => {
-                self.float_focused_pane();
-                DashboardAction::None
-            }
-            CommandResult::DockAll => {
-                self.dock_all_floating();
                 DashboardAction::None
             }
             CommandResult::TestNotify(level) => DashboardAction::Notify {
@@ -1065,14 +936,6 @@ impl Dashboard {
             }
             CommandResult::ToggleCommits => {
                 self.toggle_commits_on_focused();
-                DashboardAction::None
-            }
-            CommandResult::EnterDiffMode(offset) => {
-                self.enter_diff_mode(offset);
-                DashboardAction::None
-            }
-            CommandResult::SwapDiff => {
-                self.swap_diff();
                 DashboardAction::None
             }
             CommandResult::Connect(endpoint) => DashboardAction::Connect(endpoint),
@@ -1179,52 +1042,6 @@ impl Dashboard {
                     log::debug!("Toggled commit markers");
                 }
             }
-        }
-    }
-
-    /// Enter diff mode - shows side-by-side comparison view
-    fn enter_diff_mode(&mut self, offset_str: Option<String>) {
-        // Parse the offset or default to 7 days
-        let offset = offset_str
-            .as_ref()
-            .and_then(|s| DiffOffset::parse(s))
-            .unwrap_or(DiffOffset::OneWeek);
-
-        // Get the focused metric name if available
-        let metric_name = if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                    query_pane.name().to_string()
-                } else {
-                    "Untitled Metric".to_string()
-                }
-            } else {
-                "Untitled Metric".to_string()
-            }
-        } else {
-            "Demo Metric".to_string()
-        };
-
-        // Create a diff view with demo data
-        let diff_view = DiffView::with_demo_data(&metric_name, offset);
-        self.diff_view = Some(diff_view);
-        self.diff_mode = true;
-
-        log::debug!("Entered diff mode with offset: {}", offset.label());
-    }
-
-    /// Exit diff mode
-    fn exit_diff_mode(&mut self) {
-        self.diff_mode = false;
-        self.diff_view = None;
-        log::debug!("Exited diff mode");
-    }
-
-    /// Swap diff base and compare
-    fn swap_diff(&mut self) {
-        if let Some(ref mut diff_view) = self.diff_view {
-            diff_view.swap();
-            log::debug!("Swapped diff base and compare");
         }
     }
 
@@ -1381,82 +1198,6 @@ impl Dashboard {
         self.fullscreen_tile.is_some()
     }
 
-    /// Float the currently focused pane into a draggable window
-    pub fn float_focused_pane(&mut self) {
-        let focused_id = if let Some(id) = self.behavior.focused_tile() {
-            id
-        } else {
-            // No pane focused - try to float the first available pane
-            let pane_ids = self.get_pane_tile_ids();
-            if let Some(&first_pane) = pane_ids.first() {
-                self.behavior.set_focused_tile(Some(first_pane));
-                first_pane
-            } else {
-                log::debug!("No panes to float");
-                return;
-            }
-        };
-
-        // Make sure it's actually a pane
-        if let Some(Tile::Pane(_)) = self.viewport_tree.tiles.get(focused_id) {
-            // Remove the pane from the tile tree and move it to floating
-            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.remove(focused_id) {
-                let id = self.next_floating_id;
-                self.next_floating_id += 1;
-
-                let floating = FloatingWindow::new(id, component);
-                self.floating_windows.push(floating);
-
-                // Clear focus since the pane is now floating
-                self.behavior.set_focused_tile(None);
-
-                log::debug!("Floated pane {focused_id:?} as floating window {id}");
-            }
-        } else {
-            log::debug!("Focused tile {focused_id:?} is not a pane");
-        }
-    }
-
-    /// Dock a floating window back into the tiled layout
-    fn dock_floating_window(&mut self, floating_id: u64) {
-        // Find and remove the floating window
-        let floating_idx = self
-            .floating_windows
-            .iter()
-            .position(|w| w.id == floating_id);
-
-        if let Some(idx) = floating_idx {
-            let floating = self.floating_windows.remove(idx);
-
-            // Insert the component back into the tile tree
-            let new_tile_id = self.viewport_tree.tiles.insert_pane(floating.component);
-
-            // Add to viewport
-            if self.add_tile_to_viewport(new_tile_id) {
-                self.behavior.set_focused_tile(Some(new_tile_id));
-                log::debug!("Docked floating window {floating_id} back as tile {new_tile_id:?}");
-            }
-        }
-    }
-
-    /// Dock all floating windows back into the tiled layout
-    pub fn dock_all_floating(&mut self) {
-        let floating_ids: Vec<u64> = self.floating_windows.iter().map(|w| w.id).collect();
-        for id in floating_ids {
-            self.dock_floating_window(id);
-        }
-    }
-
-    /// Check if there are any floating windows
-    pub fn has_floating_windows(&self) -> bool {
-        !self.floating_windows.is_empty()
-    }
-
-    /// Get the count of floating windows
-    pub fn floating_window_count(&self) -> usize {
-        self.floating_windows.len()
-    }
-
     /// Add a chart for a custom query to the viewport
     fn add_chart_for_query(&mut self, query_name: &str, query_str: &str) {
         // Use query name as the unique key for duplicate detection
@@ -1554,9 +1295,6 @@ impl Dashboard {
 
     /// Close all charts and reset the viewport to show landing page
     fn close_all_charts(&mut self) {
-        // Close all floating windows
-        self.floating_windows.clear();
-
         // Get all pane tile IDs and close them
         let pane_ids = self.get_pane_tile_ids();
         for tile_id in pane_ids {
@@ -2092,26 +1830,6 @@ impl Dashboard {
             return None;
         }
 
-        // Handle diff mode keyboard shortcuts first
-        if self.diff_mode {
-            let mut should_exit = false;
-            ctx.input_mut(|input| {
-                // X or Escape exits diff mode
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::X)
-                    || input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
-                {
-                    should_exit = true;
-                }
-            });
-            if should_exit {
-                self.exit_diff_mode();
-                ctx.request_repaint();
-                return None;
-            }
-            // Don't process other keyboard shortcuts while in diff mode
-            return None;
-        }
-
         // Handle visual-multi mode keyboard shortcuts
         if self.visual_multi_state.is_some() {
             return self.handle_visual_multi_keyboard(ctx);
@@ -2131,8 +1849,6 @@ impl Dashboard {
         let mut should_edit_buffer = false;
         let mut should_toggle_zen = false;
         let mut should_toggle_fullscreen = false;
-        let mut should_float_pane = false;
-        let mut should_dock_all = false;
         let mut should_share_pane = false;
         let mut should_open_which_key = false;
         let mut should_enter_visual_multi = false;
@@ -2196,18 +1912,6 @@ impl Dashboard {
             // F - toggle fullscreen for focused pane
             if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
                 should_toggle_fullscreen = true;
-                consumed = true;
-                return;
-            }
-            // W - float focused pane into a window
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
-                should_float_pane = true;
-                consumed = true;
-                return;
-            }
-            // D - dock all floating windows
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
-                should_dock_all = true;
                 consumed = true;
                 return;
             }
@@ -2317,10 +2021,6 @@ impl Dashboard {
             self.toggle_zen_mode();
         } else if should_toggle_fullscreen {
             self.toggle_fullscreen();
-        } else if should_float_pane {
-            self.float_focused_pane();
-        } else if should_dock_all {
-            self.dock_all_floating();
         } else if should_close_focused {
             if let Some(tile_id) = current_focus {
                 self.close_tile(tile_id);

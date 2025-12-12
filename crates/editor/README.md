@@ -18,8 +18,6 @@ Press `:` to open the command palette (similar to neovim's command mode).
 | `:close` | `q`, `quit`, `bd` | Close current tab |
 | `:zen` | `z`, `focus`, `distraction-free` | Toggle zen mode |
 | `:fullscreen` | `full`, `maximize`, `max` | Toggle fullscreen for focused chart |
-| `:float` | `fl`, `popup`, `detach` | Float focused chart into a draggable window |
-| `:dock` | `d`, `attach`, `tile` | Dock all floating windows back to tiled layout |
 | `:notify` | `n`, `toast` | Show a test notification (`info`/`success`/`warn`/`error`) |
 | `:settings` | `set`, `options`, `config` | Open settings |
 | `:help` | `h`, `?` | Open help/documentation |
@@ -27,33 +25,6 @@ Press `:` to open the command palette (similar to neovim's command mode).
 | `:screenshot` | `ss` | Capture window screenshot |
 | `:tag` | `#` | Manage tags (see below) |
 | `:tags` | `taglist`, `tl` | Show all tags |
-| `:diff` | `compare`, `cmp` | Enter diff mode (compare time periods) |
-| `:diffswap` | `dx`, `swap` | Swap baseline and comparison in diff mode |
-
-### Diff Mode
-
-Compare metrics across different time periods with side-by-side charts:
-
-```
-:diff          # Enter diff mode with default 1-day offset
-:diff -7d      # Compare with 7 days ago
-:diff -1h      # Compare with 1 hour ago
-```
-
-#### Features
-
-- **Side-by-side comparison**: Baseline (left) vs current (right) time periods
-- **Offset presets**: Quick buttons for 1h, 1d, 7d, 30d offsets
-- **Statistics summary**: Shows delta for avg, p99 with improvement/regression indicators
-- **Swap periods**: Use `:diffswap` or `dx` to flip baseline and comparison
-- **Exit**: Press `X`, `Escape`, or click the close button
-
-#### Keyboard Shortcuts in Diff Mode
-
-| Key | Action |
-|-----|--------|
-| `X` | Exit diff mode |
-| `Escape` | Exit diff mode |
 
 ### Fuzzy Finder (Telescope-style)
 
@@ -109,8 +80,6 @@ Organize queries with hierarchical tags (e.g., `production/api/latency`).
 |-----|--------|
 | `Z` | Toggle zen mode (hide all panels) |
 | `F` | Toggle fullscreen for focused pane |
-| `W` | Float focused pane into a window |
-| `D` | Dock all floating windows |
 
 #### Chart Zoom Controls
 
@@ -136,7 +105,7 @@ Organize queries with hierarchical tags (e.g., `production/api/latency`).
 
 A segmented status bar at the bottom of the screen showing:
 
-- **Mode indicator**: Current mode (NORMAL, COMMAND, SEARCH, ZEN, FULLSCREEN, DIFF, V-MULTI)
+- **Mode indicator**: Current mode (NORMAL, COMMAND, SEARCH, ZEN, FULLSCREEN, V-MULTI)
 - **Connection status**: Server connection state
 - **Selected metric**: Currently selected metric name
 - **Viewport info**: Current layout information
@@ -150,15 +119,6 @@ Toast-style notifications in the top-right corner with:
 - Auto-dismiss with progress bar
 - Fade-out animation
 - Manual dismiss with close button
-
-### Floating Windows
-
-Pop out any chart into a draggable, resizable overlay window:
-
-- Float with `W` key or `:float` command
-- Dock back with `D` key or `:dock` command
-- Each floating window has a dock button to return to tiled layout
-- Windows can be closed with the `X` button
 
 ### Zen Mode
 
@@ -256,7 +216,6 @@ crates/ui/src/
 │   ├── inspector.rs         # Metric details panel
 │   ├── tags.rs              # Hierarchical tagging system
 │   ├── custom_queries.rs    # Saved queries with tags
-│   ├── diff_view.rs         # Side-by-side time period comparison
 │   ├── multi_edit.rs        # Multi-pane editing overlay
 │   ├── time_range.rs        # Time range selection toolbar
 │   └── time_series_chart.rs # Chart rendering component

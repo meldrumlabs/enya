@@ -7,7 +7,6 @@ pub mod buffer_editor;
 pub mod command_palette;
 pub mod custom_queries;
 pub mod diagnostics_pane;
-pub mod diff_view;
 pub mod finder_utils;
 pub mod flamegraph;
 pub mod heatmap;
@@ -37,7 +36,6 @@ pub use diagnostics_pane::{
     Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter, DiagnosticsPane,
     DiagnosticsPaneAction,
 };
-pub use diff_view::{DiffOffset, DiffView, DiffViewAction};
 pub use flamegraph::{FlameFrame, FlamegraphViz, ProfileType};
 pub use heatmap::{HeatmapCell, HeatmapLabels, HeatmapViz};
 pub use info_overlay::InfoOverlay;
