@@ -1122,29 +1122,90 @@ impl eframe::App for EnyaApp {
         // Poll connection manager for completed health checks
         self.poll_connection();
 
-        // Custom title bar drag area (since native title bar is hidden)
-        // The entire top 32px area acts as a drag region for moving the window
+        // Custom titlebar with window controls and drag area
+        // Replaces native macOS titlebar for seamless Obsidian Glass theme
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let title_bar_height = 32.0;
-            let screen_width = ctx.content_rect().width();
-            let title_bar_rect = egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(screen_width, title_bar_height),
-            );
-            // Check if pointer is in the title bar area and being dragged
-            let pointer_in_title_bar = ctx.input(|i| {
-                i.pointer
-                    .interact_pos()
-                    .is_some_and(|pos| title_bar_rect.contains(pos))
-            });
-            let is_dragging = ctx.input(|i| i.pointer.button_down(egui::PointerButton::Primary));
-            if pointer_in_title_bar && is_dragging {
-                ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
-        }
+            use crate::ui::palette::{accent, bg};
 
-        // No header panel - neovim-style UI uses only status bar at bottom
+            let titlebar_height = 32.0;
+
+            egui::TopBottomPanel::top("custom_titlebar")
+                .exact_height(titlebar_height)
+                .frame(egui::Frame::NONE.fill(bg::BASE))
+                .show(ctx, |ui| {
+                    ui.horizontal_centered(|ui| {
+                        ui.add_space(8.0);
+
+                        // Traffic light buttons with theme-appropriate colors
+                        let button_size = 12.0;
+                        let button_spacing = 8.0;
+
+                        // Close button (red)
+                        let close_color = egui::Color32::from_rgb(255, 95, 87);
+                        let (close_rect, close_response) = ui.allocate_exact_size(
+                            egui::vec2(button_size, button_size),
+                            egui::Sense::click(),
+                        );
+                        let close_color = if close_response.hovered() {
+                            close_color
+                        } else {
+                            close_color.gamma_multiply(0.7)
+                        };
+                        ui.painter().circle_filled(close_rect.center(), button_size / 2.0, close_color);
+                        if close_response.clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+
+                        ui.add_space(button_spacing);
+
+                        // Minimize button (yellow)
+                        let minimize_color = egui::Color32::from_rgb(255, 189, 46);
+                        let (min_rect, min_response) = ui.allocate_exact_size(
+                            egui::vec2(button_size, button_size),
+                            egui::Sense::click(),
+                        );
+                        let minimize_color = if min_response.hovered() {
+                            minimize_color
+                        } else {
+                            minimize_color.gamma_multiply(0.7)
+                        };
+                        ui.painter().circle_filled(min_rect.center(), button_size / 2.0, minimize_color);
+                        if min_response.clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                        }
+
+                        ui.add_space(button_spacing);
+
+                        // Fullscreen button (green/emerald to match theme)
+                        let fullscreen_color = accent::PRIMARY; // Emerald from theme
+                        let (fs_rect, fs_response) = ui.allocate_exact_size(
+                            egui::vec2(button_size, button_size),
+                            egui::Sense::click(),
+                        );
+                        let fullscreen_color = if fs_response.hovered() {
+                            accent::HOVER
+                        } else {
+                            fullscreen_color.gamma_multiply(0.7)
+                        };
+                        ui.painter().circle_filled(fs_rect.center(), button_size / 2.0, fullscreen_color);
+                        if fs_response.clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                        }
+
+                        // Rest of titlebar is drag area
+                        let remaining = ui.available_rect_before_wrap();
+                        let drag_response = ui.allocate_rect(remaining, egui::Sense::click_and_drag());
+                        if drag_response.dragged() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                        }
+                        // Double-click to maximize
+                        if drag_response.double_clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+                        }
+                    });
+                });
+        }
 
         // Draw main content
         self.show_main_content(ctx);
