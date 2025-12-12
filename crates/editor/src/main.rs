@@ -24,10 +24,11 @@ fn main() -> eframe::Result {
             .with_icon(
                 enya_editor::util::png_to_icon_data(&include_bytes!("../assets/logo.png")[..]), //.expect("Failed to load icon"),
             )
-            // Terminal-style: remove native title bar, use full content area
-            .with_fullsize_content_view(true)
+            // Borderless window with custom dark titlebar area
+            // macOS native titlebar is hidden for seamless Obsidian Glass theme
+            .with_titlebar_shown(false)
             .with_titlebar_buttons_shown(false)
-            .with_titlebar_shown(false),
+            .with_fullsize_content_view(true),
         ..Default::default()
     };
 

@@ -45,6 +45,8 @@ ewebsock = { workspace = true, features = ["tls"] }
 env_logger = { workspace = true }
 mimalloc = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
+# Enable metal backend for wgpu on macOS
+wgpu = { workspace = true, features = ["metal", "vulkan"] }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

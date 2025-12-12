@@ -34,6 +34,13 @@ eframe = { version = "0.33.2", default-features = false, features = [
   "x11",           # Linux X11 support
   "wayland",       # Linux Wayland support
 ] }
+# wgpu with explicit backend support
+wgpu = { version = "27.0", default-features = false, features = [
+  "metal",   # macOS Metal backend
+  "vulkan",  # Linux/Windows Vulkan backend
+  "webgl",   # Web WebGL backend
+  "wgsl",    # WGSL shader support
+] }
 egui_plot = "0.34.0"
 egui_extras = { version = "0.33.2", features = ["image", "svg"] }
 egui_nerdfonts = { path = "crates/egui_nerdfonts" }
