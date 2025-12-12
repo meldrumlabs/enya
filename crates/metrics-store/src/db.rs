@@ -12,7 +12,7 @@ use crate::query::parse_filter_query;
 use crate::series_key::SeriesKey;
 use crate::smap::SeriesMapping;
 use crate::storage::{Storage, WriteBatch};
-use crate::tag_index::TagIndex;
+use crate::tag_index::{Schema, TagIndex};
 use crate::tag_sets::{OwnedTagSets, TagSets};
 use crate::time::timestamp;
 use byteorder::{BigEndian, ReadBytesExt};
@@ -599,6 +599,23 @@ impl Database {
         // Flush series ID counter before closing
         self.0.smap.flush_counter().await?;
         self.0.storage.close().await
+    }
+
+    /// Build a schema of all metrics and their tags.
+    ///
+    /// This returns all metrics with their tag keys and known values.
+    /// Tag values are capped at `max_values_per_tag` to prevent explosion
+    /// from high-cardinality tags.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_values_per_tag` - Maximum number of values to return per tag key
+    ///
+    /// # Errors
+    ///
+    /// Returns error if an I/O error occurred.
+    pub async fn schema(&self, max_values_per_tag: usize) -> crate::Result<Schema> {
+        self.0.tag_index.build_schema(max_values_per_tag).await
     }
 }
 
