@@ -9,11 +9,11 @@ async fn main() {
     println!(
         "Starting Enya hello_world on http://{ADDR}\n\
          - Metrics are emitted every second for two fake endpoints.\n\
-         - Preview the aggregated data via /api/metrics/preview (the example also logs it)."
+         - Query aggregated data via /api/metrics/query (the example also logs it)."
     );
 
     spawn_example_metrics();
-    spawn_preview_logger();
+    spawn_metrics_logger();
 
     enya::serve(ADDR).await;
 }
@@ -36,11 +36,11 @@ fn spawn_example_metrics() {
     });
 }
 
-fn spawn_preview_logger() {
+fn spawn_metrics_logger() {
     tokio::spawn(async move {
         let client = reqwest::Client::new();
         let url = format!(
-            "http://{ADDR}/api/metrics/preview?metric=hello_world.requests&group_by=endpoint"
+            "http://{ADDR}/api/metrics/query?metric=hello_world.requests&query=sum(*) by (endpoint)"
         );
         let mut tick = interval(Duration::from_secs(5));
 
@@ -48,10 +48,10 @@ fn spawn_preview_logger() {
             tick.tick().await;
             match client.get(&url).send().await {
                 Ok(resp) => match resp.json::<serde_json::Value>().await {
-                    Ok(json) => println!("[metrics preview] {json}"),
-                    Err(err) => eprintln!("Failed to decode metrics preview: {err}"),
+                    Ok(json) => println!("[metrics] {json}"),
+                    Err(err) => eprintln!("Failed to decode metrics response: {err}"),
                 },
-                Err(err) => eprintln!("Failed to fetch metrics preview: {err}"),
+                Err(err) => eprintln!("Failed to fetch metrics: {err}"),
             }
         }
     });

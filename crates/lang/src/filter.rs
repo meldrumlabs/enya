@@ -210,6 +210,31 @@ pub fn parse_filter_query(s: &str) -> Result<Node, Error> {
             lexer::Token::ParenClose => {
                 handle_paren_close(&mut output_queue, &mut op_stack)?;
             }
+            // Tokens that are not valid in filter expressions
+            lexer::Token::BraceOpen
+            | lexer::Token::BraceClose
+            | lexer::Token::BracketOpen
+            | lexer::Token::BracketClose
+            | lexer::Token::Duration(_)
+            | lexer::Token::Comma
+            | lexer::Token::Sum
+            | lexer::Token::Avg
+            | lexer::Token::Min
+            | lexer::Token::Max
+            | lexer::Token::Count
+            | lexer::Token::Rate
+            | lexer::Token::Irate
+            | lexer::Token::Increase
+            | lexer::Token::AvgOverTime
+            | lexer::Token::SumOverTime
+            | lexer::Token::MinOverTime
+            | lexer::Token::MaxOverTime
+            | lexer::Token::CountOverTime
+            | lexer::Token::By
+            | lexer::Token::Without
+            | lexer::Token::Label(_) => {
+                return Err(Error::InvalidQuery);
+            }
         }
     }
 

@@ -6,6 +6,7 @@ mod count;
 mod group;
 mod max;
 mod min;
+mod over_time;
 mod stream;
 mod sum;
 
@@ -17,6 +18,7 @@ pub use count::Count;
 pub use group::GroupedAggregation;
 pub use max::Max;
 pub use min::Min;
+pub use over_time::{AvgOverTime, CountOverTime, MaxOverTime, MinOverTime, SumOverTime};
 pub use sum::Sum;
 
 /// A data point which spans some time

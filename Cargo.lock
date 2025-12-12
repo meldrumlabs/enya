@@ -2601,6 +2601,7 @@ dependencies = [
  "datafusion-enya",
  "enya-build-info",
  "enya-build-tools",
+ "enya-lang",
  "enya-macros",
  "enya-metrics-store",
  "metrics",

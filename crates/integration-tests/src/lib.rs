@@ -61,9 +61,9 @@ mod tests {
 
         // Query via REST API
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "request.count")
-            .add_query_param("group_by", "service")
+            .add_query_param("query", "sum(*) by (service)")
             .await;
 
         response.assert_status_ok();
@@ -93,9 +93,9 @@ mod tests {
             .expect("ingest");
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "cpu.usage")
-            .add_query_param("group_by", "host")
+            .add_query_param("query", "sum(*) by (host)")
             .await;
 
         response.assert_status_ok();
@@ -128,10 +128,9 @@ mod tests {
 
         // Filter for prod only
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "http.requests")
-            .add_query_param("group_by", "service")
-            .add_query_param("filter", "env:prod")
+            .add_query_param("query", "sum(env:prod) by (service)")
             .await;
 
         response.assert_status_ok();
@@ -171,10 +170,9 @@ mod tests {
 
         // Filter for prod AND us
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "db.queries")
-            .add_query_param("group_by", "region")
-            .add_query_param("filter", "env:prod AND region:us")
+            .add_query_param("query", "sum(env:prod AND region:us) by (region)")
             .await;
 
         response.assert_status_ok();
@@ -206,10 +204,9 @@ mod tests {
 
         // Filter for us OR eu
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "cache.hits")
-            .add_query_param("group_by", "region")
-            .add_query_param("filter", "region:us OR region:eu")
+            .add_query_param("query", "sum(region:us OR region:eu) by (region)")
             .await;
 
         response.assert_status_ok();
@@ -239,10 +236,9 @@ mod tests {
 
         // Filter for NOT error
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "error.count")
-            .add_query_param("group_by", "level")
-            .add_query_param("filter", "!level:error")
+            .add_query_param("query", "sum(!level:error) by (level)")
             .await;
 
         response.assert_status_ok();
@@ -277,10 +273,9 @@ mod tests {
 
         // Filter for services starting with db_
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "app.events")
-            .add_query_param("group_by", "service")
-            .add_query_param("filter", "service:db_*")
+            .add_query_param("query", "sum(service:db_*) by (service)")
             .await;
 
         response.assert_status_ok();
@@ -318,10 +313,12 @@ mod tests {
 
         // Complex: (env:prod OR env:staging) AND region:us
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "api.latency")
-            .add_query_param("group_by", "env")
-            .add_query_param("filter", "(env:prod OR env:staging) AND region:us")
+            .add_query_param(
+                "query",
+                "sum((env:prod OR env:staging) AND region:us) by (env)",
+            )
             .await;
 
         response.assert_status_ok();
@@ -351,10 +348,9 @@ mod tests {
 
         // Explicit * filter
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "all.metrics")
-            .add_query_param("group_by", "tag")
-            .add_query_param("filter", "*")
+            .add_query_param("query", "sum(*) by (tag)")
             .await;
 
         response.assert_status_ok();
@@ -379,15 +375,14 @@ mod tests {
         db.write_at(m, 3000, 30.0, &[("svc", "a")]).await.unwrap();
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "counter.total")
-            .add_query_param("group_by", "svc")
-            .add_query_param("agg", "sum")
+            .add_query_param("query", "sum(*) by (svc)")
             .await;
 
         response.assert_status_ok();
         let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "sum");
+        assert_eq!(body["parsed_agg"], "sum");
         let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
         assert_eq!(value, 60.0); // 10 + 20 + 30
     }
@@ -404,15 +399,14 @@ mod tests {
         db.write_at(m, 4000, 40.0, &[("svc", "a")]).await.unwrap();
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "latency.avg")
-            .add_query_param("group_by", "svc")
-            .add_query_param("agg", "avg")
+            .add_query_param("query", "avg(*) by (svc)")
             .await;
 
         response.assert_status_ok();
         let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "avg");
+        assert_eq!(body["parsed_agg"], "avg");
         let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
         assert_eq!(value, 25.0); // (10 + 20 + 30 + 40) / 4
     }
@@ -434,15 +428,14 @@ mod tests {
             .unwrap();
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "temp.min")
-            .add_query_param("group_by", "sensor")
-            .add_query_param("agg", "min")
+            .add_query_param("query", "min(*) by (sensor)")
             .await;
 
         response.assert_status_ok();
         let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "min");
+        assert_eq!(body["parsed_agg"], "min");
         let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
         assert_eq!(value, 5.0);
     }
@@ -464,15 +457,14 @@ mod tests {
             .unwrap();
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "temp.max")
-            .add_query_param("group_by", "sensor")
-            .add_query_param("agg", "max")
+            .add_query_param("query", "max(*) by (sensor)")
             .await;
 
         response.assert_status_ok();
         let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "max");
+        assert_eq!(body["parsed_agg"], "max");
         let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
         assert_eq!(value, 35.0);
     }
@@ -500,15 +492,14 @@ mod tests {
             .unwrap();
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "events.count")
-            .add_query_param("group_by", "type")
-            .add_query_param("agg", "count")
+            .add_query_param("query", "count(*) by (type)")
             .await;
 
         response.assert_status_ok();
         let body: serde_json::Value = response.json();
-        assert_eq!(body["agg"], "count");
+        assert_eq!(body["parsed_agg"], "count");
         let value = body["groups"][0]["buckets"][0]["value"].as_f64().unwrap();
         assert_eq!(value, 5.0);
     }
@@ -538,9 +529,9 @@ mod tests {
             .unwrap(); // same second
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "requests.per.second")
-            .add_query_param("group_by", "svc")
+            .add_query_param("query", "sum(*) by (svc)")
             .add_query_param("granularity", "1s")
             .await;
 
@@ -552,32 +543,6 @@ mod tests {
     }
 
     // =========================================================================
-    // Preview endpoint tests
-    // =========================================================================
-
-    #[tokio::test]
-    async fn preview_endpoint_works() {
-        let (server, store) = test_server().await;
-
-        let m = metric("preview.metric");
-        store
-            .ingest(m, 42.0, &[("tag", "value")])
-            .await
-            .expect("ingest");
-
-        let response = server
-            .get("/api/metrics/preview")
-            .add_query_param("metric", "preview.metric")
-            .add_query_param("group_by", "tag")
-            .await;
-
-        response.assert_status_ok();
-        let body: serde_json::Value = response.json();
-        assert_eq!(body["metric"], "preview.metric");
-        assert_eq!(body["group_by"], "tag");
-    }
-
-    // =========================================================================
     // Error handling tests
     // =========================================================================
 
@@ -586,9 +551,9 @@ mod tests {
         let (server, _store) = test_server().await;
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "INVALID-NAME!")
-            .add_query_param("group_by", "host")
+            .add_query_param("query", "sum(*)")
             .await;
 
         response.assert_status_bad_request();
@@ -599,9 +564,9 @@ mod tests {
         let (server, _store) = test_server().await;
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "valid.metric")
-            .add_query_param("group_by", "host")
+            .add_query_param("query", "sum(*)")
             .add_query_param("granularity", "invalid")
             .await;
 
@@ -613,9 +578,9 @@ mod tests {
         let (server, _store) = test_server().await;
 
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "does.not.exist")
-            .add_query_param("group_by", "host")
+            .add_query_param("query", "sum(*)")
             .await;
 
         response.assert_status_ok();
@@ -636,10 +601,9 @@ mod tests {
 
         // Filter that matches nothing
         let response = server
-            .get("/api/metrics")
+            .get("/api/metrics/query")
             .add_query_param("metric", "some.metric")
-            .add_query_param("group_by", "env")
-            .add_query_param("filter", "env:nonexistent")
+            .add_query_param("query", "sum(env:nonexistent) by (env)")
             .await;
 
         response.assert_status_ok();

@@ -12,6 +12,7 @@ build = "build.rs"
 
 [dependencies]
 enya-build-info = { path = "../build-info" }
+enya-lang = { path = "../lang" }
 enya-metrics-store.workspace = true
 datafusion-enya = { path = "../datafusion-enya", optional = true }
 

@@ -25,14 +25,18 @@ pub struct CompletionItem {
 /// The kind of completion item
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionKind {
-    /// Keyword like AND, OR
+    /// Keyword like AND, OR, by, without
     Keyword,
-    /// Operator like !, (, )
+    /// Operator like !, (, ), {, }, [, ]
     Operator,
     /// Tag key like "env", "service"
     TagKey,
     /// Tag value like "prod", "staging"
     TagValue,
+    /// Function like sum, avg, min, max, count, rate, etc.
+    Function,
+    /// Duration like 1m, 5m, 1h, 1d
+    Duration,
 }
 
 impl CompletionKind {
@@ -42,6 +46,8 @@ impl CompletionKind {
             Self::Operator => "operator",
             Self::TagKey => "key",
             Self::TagValue => "value",
+            Self::Function => "function",
+            Self::Duration => "duration",
         }
     }
 
@@ -51,6 +57,8 @@ impl CompletionKind {
             Self::Operator => semantic_icons::completion::OPERATOR,
             Self::TagKey => semantic_icons::completion::TAG_KEY,
             Self::TagValue => semantic_icons::completion::TAG_VALUE,
+            Self::Function => semantic_icons::completion::FUNCTION,
+            Self::Duration => semantic_icons::completion::DURATION,
         }
     }
 }
@@ -139,6 +147,32 @@ impl QueryCompletion {
         self.selected_index = 0;
 
         match &ctx {
+            Context::ExpectQueryStart => {
+                // At start, suggest aggregation functions and tag keys
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    let kind = if enya_lang::completion::ALL_FUNCTIONS.contains(&s) {
+                        CompletionKind::Function
+                    } else {
+                        CompletionKind::Operator
+                    };
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: kind.icon(),
+                        kind,
+                    });
+                }
+                // Also suggest known tag keys
+                for key in &self.known_tag_keys {
+                    self.items.push(CompletionItem {
+                        text: format!("{key}:"),
+                        label: key.clone(),
+                        icon: CompletionKind::TagKey.icon(),
+                        kind: CompletionKind::TagKey,
+                    });
+                }
+            }
             Context::ExpectExpr | Context::ExpectOperator => {
                 // Add syntax suggestions
                 let suggestions = syntax_suggestions(&ctx);
@@ -161,6 +195,108 @@ impl QueryCompletion {
                     for key in &self.known_tag_keys {
                         self.items.push(CompletionItem {
                             text: format!("{key}:"),
+                            label: key.clone(),
+                            icon: CompletionKind::TagKey.icon(),
+                            kind: CompletionKind::TagKey,
+                        });
+                    }
+                }
+            }
+            Context::ExpectAggregationOpen(_) => {
+                // After aggregation function, suggest opening delimiter
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Operator.icon(),
+                        kind: CompletionKind::Operator,
+                    });
+                }
+            }
+            Context::ExpectTimeRangeOrGrouping(_) => {
+                // After aggregation close, suggest time range or by/without
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    let kind = if s == "[" {
+                        CompletionKind::Operator
+                    } else {
+                        CompletionKind::Keyword
+                    };
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: kind.icon(),
+                        kind,
+                    });
+                }
+            }
+            Context::ExpectGroupingOrEnd => {
+                // After aggregation close or time range, suggest by/without
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Keyword.icon(),
+                        kind: CompletionKind::Keyword,
+                    });
+                }
+            }
+            Context::ExpectGroupingOpen | Context::ExpectLabelListContinue => {
+                // Suggest opening paren or comma/close
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Operator.icon(),
+                        kind: CompletionKind::Operator,
+                    });
+                }
+            }
+            Context::InLabelList => {
+                // Inside label list, suggest known tag keys as labels
+                for key in &self.known_tag_keys {
+                    self.items.push(CompletionItem {
+                        text: key.clone(),
+                        label: key.clone(),
+                        icon: CompletionKind::TagKey.icon(),
+                        kind: CompletionKind::TagKey,
+                    });
+                }
+            }
+            Context::InAggregationFunc(partial) => {
+                // Filter aggregation functions by partial match
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Function.icon(),
+                        kind: CompletionKind::Function,
+                    });
+                }
+                // Also check if partial matches tag keys
+                let partial_lower = partial.to_lowercase();
+                for key in &self.known_tag_keys {
+                    if key.to_lowercase().starts_with(&partial_lower) {
+                        self.items.push(CompletionItem {
+                            text: format!("{key}:"),
+                            label: key.clone(),
+                            icon: CompletionKind::TagKey.icon(),
+                            kind: CompletionKind::TagKey,
+                        });
+                    }
+                }
+            }
+            Context::InLabelName(partial) => {
+                // Filter tag keys by partial match for label names
+                let partial_lower = partial.to_lowercase();
+                for key in &self.known_tag_keys {
+                    if key.to_lowercase().starts_with(&partial_lower) {
+                        self.items.push(CompletionItem {
+                            text: key.clone(),
                             label: key.clone(),
                             icon: CompletionKind::TagKey.icon(),
                             kind: CompletionKind::TagKey,
@@ -200,6 +336,18 @@ impl QueryCompletion {
                     }
                 }
             }
+            Context::ExpectDuration | Context::InDuration(_) => {
+                // Suggest common durations
+                let suggestions = syntax_suggestions(&ctx);
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Duration.icon(),
+                        kind: CompletionKind::Duration,
+                    });
+                }
+            }
         }
 
         // Show popup if we have items
@@ -232,23 +380,32 @@ impl QueryCompletion {
         let ctx = self.current_context.as_ref()?;
 
         let (new_input, new_cursor) = match ctx {
-            Context::ExpectExpr | Context::ExpectOperator => {
+            Context::ExpectQueryStart
+            | Context::ExpectExpr
+            | Context::ExpectOperator
+            | Context::ExpectAggregationOpen(_)
+            | Context::ExpectTimeRangeOrGrouping(_)
+            | Context::ExpectGroupingOrEnd
+            | Context::ExpectGroupingOpen
+            | Context::ExpectLabelListContinue
+            | Context::ExpectDuration => {
                 // Insert at cursor, possibly with space before
                 let before = &input[..cursor];
                 let after = &input[cursor..];
 
                 let needs_space = !before.is_empty()
                     && !before.ends_with(char::is_whitespace)
-                    && !before.ends_with('(');
+                    && !before.ends_with('(')
+                    && !before.ends_with('{');
                 let prefix = if needs_space { " " } else { "" };
 
-                // Add trailing space after keywords (AND, OR) and operators (!, ()
-                // but not after tag keys (which end with :)
+                // Add trailing space after keywords and functions, but not after delimiters
                 let needs_suffix = matches!(
                     item.kind,
-                    CompletionKind::Keyword | CompletionKind::Operator
+                    CompletionKind::Keyword | CompletionKind::Function
                 ) && !item.text.ends_with(':')
                     && !item.text.ends_with(')')
+                    && !item.text.ends_with('}')
                     && !after.starts_with(char::is_whitespace);
                 let suffix = if needs_suffix { " " } else { "" };
 
@@ -256,11 +413,21 @@ impl QueryCompletion {
                 let new_cursor = cursor + prefix.len() + item.text.len() + suffix.len();
                 (new_input, new_cursor)
             }
-            Context::InTagKey(partial) => {
-                // Replace the partial key with the full key
+            Context::InLabelList => {
+                // Insert label at cursor
+                let before = &input[..cursor];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = cursor + item.text.len();
+                (new_input, new_cursor)
+            }
+            Context::InAggregationFunc(partial) | Context::InTagKey(partial) => {
+                // Replace the partial with the full text
                 let trimmed_before = input[..cursor].trim_start();
                 let word_start = trimmed_before
-                    .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                    .rfind(|c: char| {
+                        c.is_whitespace() || c == '(' || c == ')' || c == '{' || c == '}'
+                    })
                     .map_or(0, |i| {
                         // Find the actual byte position in the original input
                         let prefix_len = input.len() - input.trim_start().len();
@@ -268,9 +435,35 @@ impl QueryCompletion {
                     });
 
                 // Handle case where we're at the start
-                let actual_start = if word_start == 0 && !input.starts_with(partial) {
+                let actual_start = if word_start == 0 && !input.starts_with(partial.as_str()) {
                     input[..cursor]
-                        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                        .rfind(|c: char| {
+                            c.is_whitespace() || c == '(' || c == ')' || c == '{' || c == '}'
+                        })
+                        .map_or(0, |i| i + 1)
+                } else {
+                    word_start
+                };
+
+                let before = &input[..actual_start];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = actual_start + item.text.len();
+                (new_input, new_cursor)
+            }
+            Context::InLabelName(partial) => {
+                // Replace the partial label name with the full label
+                let trimmed_before = input[..cursor].trim_start();
+                let word_start = trimmed_before
+                    .rfind(|c: char| c.is_whitespace() || c == '(' || c == ',')
+                    .map_or(0, |i| {
+                        let prefix_len = input.len() - input.trim_start().len();
+                        prefix_len + i + 1
+                    });
+
+                let actual_start = if word_start == 0 && !input.starts_with(partial.as_str()) {
+                    input[..cursor]
+                        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ',')
                         .map_or(0, |i| i + 1)
                 } else {
                     word_start
@@ -301,6 +494,25 @@ impl QueryCompletion {
                         &input[cursor..]
                     );
                     let new_cursor = cursor + key.len() + 1 + item.text.len();
+                    (new_input, new_cursor)
+                }
+            }
+            Context::InDuration(_partial) => {
+                // Replace the partial duration with the full duration
+                // Find the opening bracket
+                let before_cursor = &input[..cursor];
+                if let Some(bracket_pos) = before_cursor.rfind('[') {
+                    let before_bracket = &input[..=bracket_pos];
+                    let after = &input[cursor..];
+                    let new_input = format!("{before_bracket}{}{after}", item.text);
+                    let new_cursor = bracket_pos + 1 + item.text.len();
+                    (new_input, new_cursor)
+                } else {
+                    // Fallback: insert at cursor
+                    let before = &input[..cursor];
+                    let after = &input[cursor..];
+                    let new_input = format!("{before}{}{after}", item.text);
+                    let new_cursor = cursor + item.text.len();
                     (new_input, new_cursor)
                 }
             }

@@ -8,6 +8,11 @@
 //! - `!env:prod` - NOT
 //! - `(env:prod OR env:staging) AND service:db` - grouping
 //! - `*` - match all
+//!
+//! And aggregation queries like:
+//! - `sum(env:prod)` - sum aggregation
+//! - `avg(env:prod) by (region)` - average with grouping
+//! - `max(service:db.*) without (instance)` - max excluding labels
 
 #![forbid(unsafe_code)]
 #![deny(clippy::all, missing_docs, clippy::cargo)]
@@ -20,7 +25,9 @@ pub mod completion;
 mod error;
 mod filter;
 mod lexer;
+pub mod query;
 
 pub use error::{Error, Result};
 pub use filter::{Node, Tag, parse_filter_query};
 pub use lexer::{Token, tokenize_filter_query};
+pub use query::{Aggregation, AggregationFunc, Duration, Grouping, Query, parse_query};
