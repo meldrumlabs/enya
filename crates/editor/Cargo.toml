@@ -21,7 +21,6 @@ egui_extras = { workspace = true, features = ["image", "svg"] }
 egui_nerdfonts = { workspace = true }
 egui_tiles = { workspace = true, features = ["serde"] }
 egui_plot = { workspace = true }
-smallvec = { workspace = true }
 enya-lang = { workspace = true }
 enya-common = { workspace = true }
 image = { workspace = true, features = ["png"] }
@@ -32,8 +31,6 @@ base64 = { workspace = true }
 lz4_flex = "0.11"
 postcard = { version = "1.1", features = ["alloc"] }
 enya-build-info = { path = "../build-info" }
-strum_macros = { workspace = true }
-strum = { workspace = true }
 nucleo-matcher = { workspace = true }
 ehttp = { workspace = true }
 serde_json = { workspace = true }

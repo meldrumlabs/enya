@@ -69,10 +69,6 @@ pub enum CommandResult {
     ToggleZenMode,
     /// Toggle fullscreen for focused pane
     ToggleFullscreen,
-    /// Float the focused pane into a draggable window
-    FloatPane,
-    /// Dock all floating windows back to tiled layout
-    DockAll,
     /// Show a test notification
     TestNotify(String),
     /// Show the landing page (home screen)
@@ -97,10 +93,6 @@ pub enum CommandResult {
     ShowTags,
     /// Toggle commit markers visibility on charts
     ToggleCommits,
-    /// Enter diff mode with optional offset (e.g., "-7d")
-    EnterDiffMode(Option<String>),
-    /// Swap diff base and compare
-    SwapDiff,
     /// Connect to agent endpoint
     Connect(String),
     /// Toggle diagnostics pane
@@ -216,18 +208,6 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "float",
-        aliases: &["fl", "popup", "detach"],
-        description: "Float focused chart into a draggable window",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "dock",
-        aliases: &["d", "attach", "tile"],
-        description: "Dock all floating windows back to tiled layout",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "home",
         aliases: &["landing", "start", "welcome"],
         description: "Show the landing page / home screen",
@@ -279,18 +259,6 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "commits",
         aliases: &["git", "markers"],
         description: "Toggle git commit markers on charts",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "diff",
-        aliases: &["compare", "cmp"],
-        description: "Enter diff mode (:diff [-7d] to compare with past)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "diffswap",
-        aliases: &["dx", "swap"],
-        description: "Swap diff base and compare",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -559,8 +527,6 @@ impl CommandPalette {
             "new" => CommandResult::NewBuffer,
             "zen" => CommandResult::ToggleZenMode,
             "fullscreen" => CommandResult::ToggleFullscreen,
-            "float" => CommandResult::FloatPane,
-            "dock" => CommandResult::DockAll,
             "notify" => {
                 let level = args.first().copied().unwrap_or("info");
                 CommandResult::TestNotify(level.to_string())
@@ -597,16 +563,6 @@ impl CommandPalette {
             "tag" => self.execute_tag_command(args),
             "tags" => CommandResult::ShowTags,
             "commits" => CommandResult::ToggleCommits,
-            "diff" => {
-                // :diff or :diff -7d
-                let offset = if args.is_empty() {
-                    None
-                } else {
-                    Some(args.join(" "))
-                };
-                CommandResult::EnterDiffMode(offset)
-            }
-            "diffswap" => CommandResult::SwapDiff,
             "connect" => {
                 if args.is_empty() {
                     CommandResult::Error("Usage: :connect <url>".to_string())

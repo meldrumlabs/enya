@@ -95,14 +95,6 @@ impl WhichKey {
                         key: "f",
                         description: "Toggle fullscreen",
                     },
-                    Keybinding {
-                        key: "w",
-                        description: "Float pane to window",
-                    },
-                    Keybinding {
-                        key: "d",
-                        description: "Dock all windows",
-                    },
                 ],
             },
             KeybindingGroup {

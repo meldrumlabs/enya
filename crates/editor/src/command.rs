@@ -1,7 +1,6 @@
 // Ref: https://github.com/rerun-io/rerun/blob/5949a229032660911b0c49f67c002dde23a714f4/crates/viewer/re_ui/src/command.rs#L490
 
 use egui::{Key, KeyboardShortcut, Modifiers, os::OperatingSystem};
-use smallvec::{SmallVec, smallvec};
 
 use crate::{
     theme::AppTheme,
@@ -13,7 +12,7 @@ pub trait UICommandSender {
     fn send_ui(&self, command: UICommand);
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum_macros::EnumIter)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum UICommand {
     Home,
     Dashboard,
@@ -27,6 +26,23 @@ pub enum UICommand {
 }
 
 impl UICommand {
+    /// Returns all command variants (for iteration).
+    /// Note: OpenExampleDashboard uses index 0 as placeholder.
+    fn all() -> impl Iterator<Item = Self> {
+        [
+            Self::Home,
+            Self::Dashboard,
+            Self::OpenExampleDashboard(0),
+            Self::Help,
+            Self::ConnectionStatus(false),
+            Self::Theme(AppTheme::Dark),
+            Self::ToggleTheme,
+            Self::OpenFuzzyFinder,
+            Self::OpenCommandPalette,
+        ]
+        .into_iter()
+    }
+
     pub fn text(self) -> &'static str {
         self.text_and_tooltip().0
     }
@@ -86,14 +102,12 @@ impl UICommand {
 
     #[must_use = "Returns the Command that was triggered by some keyboard shortcut"]
     pub fn listen_for_kb_shortcut(egui_ctx: &egui::Context) -> Option<Self> {
-        use strum::IntoEnumIterator as _;
-
         let anything_has_focus = egui_ctx.memory(|mem| mem.focused().is_some());
         if anything_has_focus {
             return None; // e.g. we're typing in a TextField
         }
 
-        let mut commands: Vec<(KeyboardShortcut, Self)> = Self::iter()
+        let mut commands: Vec<(KeyboardShortcut, Self)> = Self::all()
             .flat_map(|cmd| {
                 cmd.kb_shortcuts(egui_ctx.os())
                     .into_iter()
@@ -139,7 +153,7 @@ impl UICommand {
     }
 
     /// All keyboard shortcuts, with the primary first.
-    pub fn kb_shortcuts(self, os: OperatingSystem) -> SmallVec<[KeyboardShortcut; 2]> {
+    pub fn kb_shortcuts(self, os: OperatingSystem) -> Vec<KeyboardShortcut> {
         fn key(key: Key) -> KeyboardShortcut {
             KeyboardShortcut::new(Modifiers::NONE, key)
         }
@@ -154,16 +168,16 @@ impl UICommand {
         }
 
         match self {
-            Self::Home => smallvec![],
-            Self::Help => smallvec![], // Help accessed via ? on landing page or :help command
-            Self::Dashboard => smallvec![key(Key::D)],
-            Self::ToggleTheme => smallvec![key(Key::T)],
-            Self::Theme(_) => smallvec![],
-            Self::OpenExampleDashboard(_) => smallvec![],
-            Self::ConnectionStatus(_) => smallvec![],
-            Self::OpenFuzzyFinder => smallvec![cmd_key(Key::K, os), cmd_key(Key::P, os)],
+            Self::Home => vec![],
+            Self::Help => vec![], // Help accessed via ? on landing page or :help command
+            Self::Dashboard => vec![key(Key::D)],
+            Self::ToggleTheme => vec![key(Key::T)],
+            Self::Theme(_) => vec![],
+            Self::OpenExampleDashboard(_) => vec![],
+            Self::ConnectionStatus(_) => vec![],
+            Self::OpenFuzzyFinder => vec![cmd_key(Key::K, os), cmd_key(Key::P, os)],
             // ':' key (colon) - no modifiers needed since it's already the shifted key
-            Self::OpenCommandPalette => smallvec![key(Key::Colon)],
+            Self::OpenCommandPalette => vec![key(Key::Colon)],
         }
     }
 
