@@ -5,6 +5,7 @@ use enya_build_info::BuildInfo;
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// A modal overlay that displays build and version information
@@ -71,21 +72,25 @@ impl InfoOverlay {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let bg_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(250, 250, 250),
-                    AppTheme::Dark => Color32::from_rgb(30, 30, 35),
+                    AppTheme::Light => palette::light_bg::SURFACE,
+                    AppTheme::Dark => palette::bg::SURFACE,
                 };
                 let border_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(200, 200, 200),
-                    AppTheme::Dark => Color32::from_rgb(60, 60, 70),
+                    AppTheme::Light => palette::light_border::DEFAULT,
+                    AppTheme::Dark => palette::border::SUBTLE,
                 };
                 let separator_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(220, 220, 220),
-                    AppTheme::Dark => Color32::from_rgb(50, 50, 55),
+                    AppTheme::Light => palette::light_border::SUBTLE,
+                    AppTheme::Dark => palette::border::SUBTLE,
                 };
                 let muted_text = text_color(self.theme).gamma_multiply(0.6);
+                let accent_color = match self.theme {
+                    AppTheme::Light => palette::accent::LIGHT,
+                    AppTheme::Dark => palette::accent::HOVER,
+                };
                 let key_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(120, 120, 130),
-                    AppTheme::Dark => Color32::from_rgb(140, 140, 150),
+                    AppTheme::Light => palette::light_text::TERTIARY,
+                    AppTheme::Dark => palette::text::TERTIARY,
                 };
                 let value_color = text_color(self.theme);
 
@@ -105,17 +110,18 @@ impl InfoOverlay {
                         ui.set_max_height(popup_max_height);
 
                         // Header section
+                        ui.add_space(12.0);
                         ui.horizontal(|ui| {
                             ui.add_space(16.0);
                             ui.label(
                                 RichText::new(semantic_icons::status::INFO)
-                                    .color(muted_text)
+                                    .color(accent_color)
                                     .size(20.0),
                             );
                             ui.add_space(8.0);
                             ui.label(
                                 RichText::new("Build Info")
-                                    .color(text_color(self.theme))
+                                    .color(accent_color)
                                     .size(18.0)
                                     .strong(),
                             );

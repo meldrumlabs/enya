@@ -7,6 +7,7 @@ use crate::components::query_state::QueryState;
 use crate::components::query_validation::{QueryValidator, ValidationResult};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// Truncate a message to a maximum length, adding ellipsis if needed
@@ -37,22 +38,22 @@ impl QuerySyntaxColors {
             AppTheme::Light => Self {
                 keyword: Color32::from_rgb(166, 38, 164), // purple - keywords
                 tag_key: Color32::from_rgb(0, 92, 197),   // blue - keys
-                colon: Color32::from_rgb(100, 100, 100),  // gray
+                colon: palette::light_text::TERTIARY,
                 tag_value: Color32::from_rgb(22, 128, 54), // green - values
-                wildcard: Color32::from_rgb(200, 120, 0), // orange
-                paren: Color32::from_rgb(100, 100, 100),  // gray
+                wildcard: Color32::from_rgb(200, 120, 0),  // orange
+                paren: palette::light_text::TERTIARY,
                 negation: Color32::from_rgb(220, 60, 60), // red
-                default: Color32::from_rgb(30, 30, 30),
+                default: palette::light_text::PRIMARY,
             },
             AppTheme::Dark => Self {
-                keyword: Color32::from_rgb(198, 120, 221), // purple - keywords
-                tag_key: Color32::from_rgb(97, 175, 239),  // blue - keys
-                colon: Color32::from_rgb(150, 150, 150),   // gray
-                tag_value: Color32::from_rgb(152, 195, 121), // green - values
-                wildcard: Color32::from_rgb(229, 192, 123), // orange/yellow
-                paren: Color32::from_rgb(150, 150, 150),   // gray
-                negation: Color32::from_rgb(224, 108, 117), // red
-                default: Color32::from_rgb(220, 220, 220),
+                keyword: palette::syntax::KEYWORD,
+                tag_key: palette::syntax::KEY,
+                colon: palette::syntax::PUNCTUATION,
+                tag_value: palette::syntax::VALUE,
+                wildcard: palette::syntax::SPECIAL,
+                paren: palette::syntax::PUNCTUATION,
+                negation: palette::syntax::NEGATION,
+                default: palette::text::PRIMARY,
             },
         }
     }
@@ -559,7 +560,7 @@ impl BufferEditor {
             .show(ctx, |ui| {
                 let backdrop_color = match self.theme {
                     AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
-                    AppTheme::Dark => Color32::from_rgba_unmultiplied(0, 0, 0, 150),
+                    AppTheme::Dark => Color32::from_rgba_unmultiplied(0, 0, 0, 180),
                 };
                 ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
             });
@@ -572,12 +573,12 @@ impl BufferEditor {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let bg_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(250, 250, 250),
-                    AppTheme::Dark => Color32::from_rgb(30, 30, 35),
+                    AppTheme::Light => palette::light_bg::SURFACE,
+                    AppTheme::Dark => palette::bg::SURFACE,
                 };
                 let accent_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgb(80, 120, 200),
-                    AppTheme::Dark => Color32::from_rgb(130, 180, 255),
+                    AppTheme::Light => palette::accent::PRIMARY,
+                    AppTheme::Dark => palette::accent::PRIMARY,
                 };
 
                 egui::Frame::new()
@@ -701,8 +702,8 @@ impl BufferEditor {
 
                         // Separator
                         let separator_color = match self.theme {
-                            AppTheme::Light => Color32::from_rgb(220, 220, 220),
-                            AppTheme::Dark => Color32::from_rgb(50, 50, 55),
+                            AppTheme::Light => palette::light_border::SUBTLE,
+                            AppTheme::Dark => palette::border::SUBTLE,
                         };
                         ui.painter().hline(
                             ui.available_rect_before_wrap().x_range(),
@@ -764,8 +765,8 @@ impl BufferEditor {
 
                             // Editor background color based on theme
                             let editor_bg = match self.theme {
-                                AppTheme::Light => Color32::from_rgb(250, 250, 252),
-                                AppTheme::Dark => Color32::from_rgb(30, 32, 38),
+                                AppTheme::Light => palette::light_bg::ELEVATED,
+                                AppTheme::Dark => palette::bg::ELEVATED,
                             };
 
                             // Create layouter closure for syntax highlighting
@@ -988,8 +989,8 @@ impl BufferEditor {
                             ui.add_space(16.0);
 
                             let status_bg = match self.theme {
-                                AppTheme::Light => Color32::from_rgb(235, 240, 250),
-                                AppTheme::Dark => Color32::from_rgb(40, 45, 55),
+                                AppTheme::Light => palette::light_bg::ELEVATED,
+                                AppTheme::Dark => palette::bg::ELEVATED,
                             };
 
                             egui::Frame::new()

@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 use egui::{Color32, Layout, Ui};
 
 use crate::theme::AppTheme;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// Unicode block characters for sparkline rendering (1/8 to 8/8 height)
@@ -164,20 +165,20 @@ impl StatusMode {
     }
 
     /// Get the background color for this mode's segment
-    /// Uses Enya's color scheme: golden yellow primary, white/gray secondary
+    /// Uses Enya's color scheme: emerald primary, other colors for secondary modes
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
             Self::Normal => match theme {
-                AppTheme::Light => Color32::from_rgb(180, 140, 20), // Golden yellow
-                AppTheme::Dark => Color32::from_rgb(255, 200, 50),  // Bright gold
+                AppTheme::Light => palette::accent::LIGHT,
+                AppTheme::Dark => palette::accent::PRIMARY,
             },
             Self::Home => match theme {
-                AppTheme::Light => Color32::from_rgb(180, 140, 20), // Golden yellow
-                AppTheme::Dark => Color32::from_rgb(255, 200, 50),  // Bright gold
+                AppTheme::Light => palette::accent::LIGHT,
+                AppTheme::Dark => palette::accent::PRIMARY,
             },
             Self::Command => match theme {
-                AppTheme::Light => Color32::from_rgb(200, 160, 40), // Warm gold
-                AppTheme::Dark => Color32::from_rgb(255, 210, 80),  // Light gold
+                AppTheme::Light => palette::accent::LIGHT,
+                AppTheme::Dark => palette::accent::HOVER, // Brighter emerald for command
             },
             Self::Search => match theme {
                 AppTheme::Light => Color32::from_rgb(140, 140, 150), // Muted gray
@@ -196,8 +197,8 @@ impl StatusMode {
                 AppTheme::Dark => Color32::from_rgb(96, 165, 250),  // Bright blue
             },
             Self::VisualMulti => match theme {
-                AppTheme::Light => Color32::from_rgb(180, 100, 180), // Purple/magenta
-                AppTheme::Dark => Color32::from_rgb(220, 140, 220),  // Bright magenta
+                AppTheme::Light => palette::accent::LIGHT, // Emerald - matches brand
+                AppTheme::Dark => palette::accent::HOVER,  // Bright emerald
             },
         }
     }
@@ -206,15 +207,17 @@ impl StatusMode {
     /// Uses dark text on bright backgrounds, light text on dark backgrounds
     pub fn text_color(&self, theme: AppTheme) -> Color32 {
         match self {
-            // Golden/yellow backgrounds - use dark text
-            Self::Normal | Self::Home | Self::Command => Color32::from_rgb(40, 44, 52),
+            // Emerald backgrounds - use dark text
+            Self::Normal | Self::Home | Self::Command | Self::VisualMulti => {
+                Color32::from_rgb(10, 10, 10)
+            }
             // Gray backgrounds in light theme need light text, dark theme need dark text
             Self::Search => match theme {
                 AppTheme::Light => Color32::from_rgb(248, 248, 242),
                 AppTheme::Dark => Color32::from_rgb(40, 44, 52),
             },
-            // Purple/cyan backgrounds - use dark text for contrast
-            Self::Zen | Self::Fullscreen | Self::VisualMulti => Color32::from_rgb(40, 44, 52),
+            // Cyan backgrounds - use dark text for contrast
+            Self::Zen | Self::Fullscreen => Color32::from_rgb(40, 44, 52),
             // Blue backgrounds - use white text
             Self::Diff => Color32::from_rgb(255, 255, 255),
         }
@@ -363,24 +366,24 @@ impl StatusLine {
     /// Get the background color for segments based on theme
     fn segment_bg(&self) -> Color32 {
         match self.theme {
-            AppTheme::Light => Color32::from_rgb(68, 71, 90),
-            AppTheme::Dark => Color32::from_rgb(40, 44, 52),
+            AppTheme::Light => palette::light_bg::ELEVATED,
+            AppTheme::Dark => palette::bg::SURFACE,
         }
     }
 
     /// Get the secondary background color for segments
     fn segment_bg_secondary(&self) -> Color32 {
         match self.theme {
-            AppTheme::Light => Color32::from_rgb(88, 91, 110),
-            AppTheme::Dark => Color32::from_rgb(50, 54, 62),
+            AppTheme::Light => palette::light_bg::SURFACE,
+            AppTheme::Dark => palette::bg::ELEVATED,
         }
     }
 
     /// Get the text color for segments
     fn segment_fg(&self) -> Color32 {
         match self.theme {
-            AppTheme::Light => Color32::from_rgb(248, 248, 242),
-            AppTheme::Dark => Color32::from_rgb(171, 178, 191),
+            AppTheme::Light => palette::light_text::PRIMARY,
+            AppTheme::Dark => palette::text::SECONDARY,
         }
     }
 
@@ -551,17 +554,18 @@ impl StatusLine {
             }
 
             // Connection status
+            // Connected: bright emerald (positive), Offline: muted gray (neutral, not alarming)
             let (conn_icon, conn_text, conn_color) = if self.is_connected {
                 (
                     semantic_icons::status::CONNECTED,
                     "CONNECTED",
-                    Color32::from_rgb(152, 195, 121), // Green
+                    palette::accent::HOVER, // Bright emerald - positive state
                 )
             } else {
                 (
                     semantic_icons::status::DISCONNECTED,
                     "OFFLINE",
-                    Color32::from_rgb(224, 108, 117), // Red
+                    palette::text::TERTIARY, // Muted gray - neutral, not alarming
                 )
             };
             self.render_segment_rtl(
@@ -693,10 +697,10 @@ impl StatusLine {
         let bg_color = self.segment_bg();
         let fg_color = self.segment_fg();
 
-        // Sparkline color - use a cyan/teal for the chart to stand out
+        // Sparkline color - use emerald accent for brand consistency
         let sparkline_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(20, 140, 140), // Teal
-            AppTheme::Dark => Color32::from_rgb(80, 200, 200),  // Bright cyan
+            AppTheme::Light => palette::accent::LIGHT,
+            AppTheme::Dark => palette::accent::HOVER, // Bright emerald for visibility
         };
 
         // Build the content: "▁▂▃▅▇ 16.7ms label"

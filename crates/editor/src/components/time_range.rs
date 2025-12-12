@@ -4,6 +4,7 @@ use egui::RichText;
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// Predefined time range presets
@@ -219,6 +220,16 @@ impl TimeRangeToolbar {
         self.changed = false;
         let text_color = text_color(self.theme);
 
+        // Get accent colors based on theme for better visibility
+        let accent_color = match self.theme {
+            AppTheme::Light => palette::accent::LIGHT,
+            AppTheme::Dark => palette::accent::PRIMARY,
+        };
+        let selected_bg = match self.theme {
+            AppTheme::Light => palette::light_bg::ELEVATED,
+            AppTheme::Dark => palette::accent::MUTED,
+        };
+
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
 
@@ -228,8 +239,8 @@ impl TimeRangeToolbar {
                 let label = preset.label();
 
                 let button = if is_selected {
-                    egui::Button::new(RichText::new(label).strong())
-                        .fill(ui.visuals().selection.bg_fill)
+                    egui::Button::new(RichText::new(label).color(accent_color).strong())
+                        .fill(selected_bg)
                 } else {
                     egui::Button::new(RichText::new(label).color(text_color))
                 };
@@ -245,9 +256,11 @@ impl TimeRangeToolbar {
             // Custom range button (future: opens a date picker)
             let custom_button = if self.time_range.preset == TimeRangePreset::Custom {
                 egui::Button::new(
-                    RichText::new(format!("{} Custom", semantic_icons::time::CALENDAR)).strong(),
+                    RichText::new(format!("{} Custom", semantic_icons::time::CALENDAR))
+                        .color(accent_color)
+                        .strong(),
                 )
-                .fill(ui.visuals().selection.bg_fill)
+                .fill(selected_bg)
             } else {
                 egui::Button::new(
                     RichText::new(format!("{} Custom", semantic_icons::time::CALENDAR))
@@ -270,8 +283,8 @@ impl TimeRangeToolbar {
             let refresh_icon = semantic_icons::action::REFRESH;
 
             let auto_button = if self.auto_refresh {
-                egui::Button::new(RichText::new(refresh_icon).strong())
-                    .fill(egui::Color32::from_rgb(34, 197, 94).gamma_multiply(0.3))
+                egui::Button::new(RichText::new(refresh_icon).color(accent_color).strong())
+                    .fill(selected_bg)
             } else {
                 egui::Button::new(RichText::new(refresh_icon).color(text_color.gamma_multiply(0.7)))
             };

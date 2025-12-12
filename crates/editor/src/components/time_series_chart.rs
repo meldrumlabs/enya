@@ -6,6 +6,7 @@ use egui_plot::{Line, LineStyle, Plot, PlotBounds, PlotPoints, VLine};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 // Re-export CommitMarker from common crate
@@ -97,7 +98,7 @@ pub struct TimeSeriesChart {
     /// Unique identifier for this chart
     id: usize,
     /// The metric name being displayed
-    metric_name: String,
+    pub(crate) metric_name: String,
     /// All series to display
     series: Vec<Series>,
     /// Git commit markers to display as vertical annotations
@@ -105,7 +106,7 @@ pub struct TimeSeriesChart {
     /// Whether to show commit markers
     show_commits: bool,
     /// Current theme
-    theme: AppTheme,
+    pub(crate) theme: AppTheme,
     /// API key (not used currently, but required by Component trait)
     api_key: String,
     /// Whether to show the legend
@@ -486,11 +487,8 @@ impl TimeSeriesChart {
             Vec::new()
         };
 
-        // Commit marker color - subtle but visible
-        let commit_color = match self.theme {
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 193, 7, 180), // Amber
-            AppTheme::Light => Color32::from_rgba_unmultiplied(245, 158, 11, 200), // Darker amber
-        };
+        // Commit marker color - uses brand emerald
+        let commit_color = palette::chart::COMMIT_MARKER;
 
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         let plot = Plot::new(format!("plot_{}", self.id))
