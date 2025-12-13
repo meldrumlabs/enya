@@ -2129,7 +2129,7 @@ impl Dashboard {
             self.multi_buffer_state.status_text()
         } else if let Some(state) = &self.visual_multi_state {
             format!(
-                "VISUAL-MULTI ({} selected) [s]earch [e]dit [Space]toggle [Esc]exit",
+                "VISUAL-MULTI ({} selected) [e]dit [Space]toggle [Esc]exit",
                 state.selection_count()
             )
         } else {
@@ -2204,8 +2204,8 @@ impl Dashboard {
                 return;
             }
 
-            // s - open multi-edit overlay for find/replace (same as 'e')
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::S) {
+            // e - open multi-edit overlay for find/replace
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
                 should_open_multi_edit = true;
                 consumed = true;
                 return;
