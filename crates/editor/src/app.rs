@@ -193,6 +193,12 @@ impl EnyaApp {
     }
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
+        // Skip global shortcuts when multi-buffer editing is capturing input
+        if let Some(ref dashboard) = self.dashboard {
+            if dashboard.is_multi_buffer_input_mode() {
+                return;
+            }
+        }
         if let Some(cmd) = UICommand::listen_for_kb_shortcut(egui_ctx) {
             self.command_sender.send_ui(cmd);
         }
@@ -238,6 +244,14 @@ impl EnyaApp {
                 .set_selected_metric(dashboard.selected_metric());
             self.status_line
                 .set_viewport_info(dashboard.viewport_info());
+            // Set multi-buffer status if in visual-multi mode
+            let multi_buffer_status = dashboard.multi_buffer_status_text();
+            self.status_line
+                .set_extra_status(if multi_buffer_status.is_empty() {
+                    None
+                } else {
+                    Some(multi_buffer_status)
+                });
         }
 
         // Update sparkline with editor frame time metrics
