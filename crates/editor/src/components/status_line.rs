@@ -271,6 +271,8 @@ pub struct StatusLine {
     branch_info: Option<String>,
     /// Viewport info (e.g., "2 panes")
     viewport_info: Option<String>,
+    /// Extra status message (e.g., multi-buffer edit status)
+    extra_status: Option<String>,
     /// Optional sparkline to display in the status bar
     sparkline: Option<Sparkline>,
     /// Timestamp of last data refresh (for relative time display)
@@ -287,6 +289,7 @@ impl Default for StatusLine {
             selected_metric: None,
             branch_info: None,
             viewport_info: None,
+            extra_status: None,
             sparkline: None,
             last_refresh: None,
         }
@@ -332,6 +335,11 @@ impl StatusLine {
     /// Set viewport info
     pub fn set_viewport_info(&mut self, info: Option<String>) {
         self.viewport_info = info;
+    }
+
+    /// Set extra status message (e.g., multi-buffer edit status)
+    pub fn set_extra_status(&mut self, status: Option<String>) {
+        self.extra_status = status;
     }
 
     /// Set a sparkline to display in the status bar
@@ -494,8 +502,17 @@ impl StatusLine {
 
     /// Render the center section (expands to fill space)
     fn render_center_section(&self, ui: &mut Ui, _height: f32, _padding: f32) {
-        // Fill remaining horizontal space
+        // Fill remaining horizontal space, showing extra status if available
         ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
+            if let Some(ref extra) = self.extra_status {
+                ui.add_space(16.0);
+                ui.label(
+                    egui::RichText::new(extra)
+                        .color(self.segment_fg())
+                        .size(12.0)
+                        .family(egui::FontFamily::Monospace),
+                );
+            }
             ui.add_space(ui.available_width());
         });
     }

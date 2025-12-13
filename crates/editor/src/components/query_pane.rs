@@ -205,6 +205,11 @@ impl QueryPane {
         self.buffer.revert();
     }
 
+    /// Set buffer content without saving (for real-time preview during multi-buffer editing)
+    pub fn set_buffer_content(&mut self, content: &str) {
+        self.buffer.set_content(content);
+    }
+
     /// Set the query content and save it (used by the modal editor)
     pub fn set_query_and_save(&mut self, query: &str) {
         self.buffer.set_content(query);
