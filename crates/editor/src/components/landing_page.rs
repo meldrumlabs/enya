@@ -19,8 +19,8 @@ pub enum LandingPageAction {
     OpenFuzzyFinder,
     /// Open the query finder for saved queries
     OpenQueryFinder,
-    /// Show info overlay
-    ShowInfo,
+    /// Open the workspace finder
+    OpenWorkspaceFinder,
     /// Show help
     ShowHelp,
     /// Open the command palette with :connect pre-filled
@@ -507,13 +507,13 @@ impl LandingPage {
 
             ui.add_space(gap);
 
-            // Info (i)
+            // Workspaces (w)
             if self
                 .show_shortcut_button(
                     ui,
-                    semantic_icons::status::INFO,
-                    "Info",
-                    "i",
+                    semantic_icons::file::FOLDER_OPEN,
+                    "Workspaces",
+                    "w",
                     text_col,
                     accent_color,
                     self.shortcut_focused == Some(3),
@@ -521,7 +521,7 @@ impl LandingPage {
                 )
                 .clicked()
             {
-                action = LandingPageAction::ShowInfo;
+                action = LandingPageAction::OpenWorkspaceFinder;
             }
 
             ui.add_space(gap);
@@ -694,9 +694,9 @@ impl LandingPage {
                 return;
             }
 
-            // i - Info
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::I) {
-                action = LandingPageAction::ShowInfo;
+            // w - Workspaces
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                action = LandingPageAction::OpenWorkspaceFinder;
                 return;
             }
 

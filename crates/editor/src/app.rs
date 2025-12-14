@@ -17,6 +17,7 @@ use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::ui::welcome_screen::welcome_section_ui;
 use crate::util::Instant;
+use crate::workspace_tabs::{TabBarAction, WorkspaceTabBar};
 
 /// Tracks internal editor metrics for the status line sparkline
 struct EditorMetrics {
@@ -75,7 +76,8 @@ impl EditorMetrics {
 pub struct EnyaApp {
     state: AppState,
 
-    dashboard: Option<Dashboard>,
+    /// Workspace tab bar for managing multiple workspaces
+    workspace_tabs: WorkspaceTabBar,
 
     // Agent connection manager
     connection: ConnectionManager,
@@ -140,7 +142,7 @@ impl Default for EnyaApp {
     fn default() -> Self {
         let (command_sender, command_receiver) = command_channel();
         Self {
-            dashboard: None,
+            workspace_tabs: WorkspaceTabBar::default(),
             command_sender,
             command_receiver,
             state: AppState::default(),
@@ -184,6 +186,10 @@ impl EnyaApp {
             Theme::Dark => app.state.theme = AppTheme::Dark,
         }
 
+        // Initialize workspace tabs with API key
+        app.workspace_tabs = WorkspaceTabBar::new(app.state.settings.api_key.clone());
+        app.workspace_tabs.set_theme(app.state.theme);
+
         // Initialize GPU resources for heatmaps (flamegraphs use CPU rendering)
         if let Some(render_state) = cc.wgpu_render_state.as_ref() {
             crate::wgpu::init_heatmap_resources(render_state);
@@ -194,14 +200,37 @@ impl EnyaApp {
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
         // Skip global shortcuts when multi-buffer editing is capturing input
-        if let Some(ref dashboard) = self.dashboard {
-            if dashboard.is_multi_buffer_input_mode() {
+        if let Some(tab) = self.workspace_tabs.active_tab() {
+            if tab.dashboard.is_multi_buffer_input_mode() {
                 return;
             }
         }
         if let Some(cmd) = UICommand::listen_for_kb_shortcut(egui_ctx) {
             self.command_sender.send_ui(cmd);
         }
+    }
+
+    /// Handle workspace tab navigation keyboard shortcuts at the app level
+    fn check_tab_navigation(&mut self, ctx: &egui::Context) {
+        // Don't handle if something has focus (text input, etc.)
+        if ctx.memory(|mem| mem.focused().is_some()) {
+            return;
+        }
+
+        ctx.input_mut(|input| {
+            // Shift+N - next workspace tab
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::N) {
+                self.workspace_tabs.next_tab();
+            }
+            // Shift+P - previous workspace tab
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::P) {
+                self.workspace_tabs.prev_tab();
+            }
+            // Shift+T - create new workspace tab (like :tabnew)
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::T) {
+                self.workspace_tabs.new_tab();
+            }
+        });
     }
 
     // Paints the bottom panel aka footer (lualine-style status bar)
@@ -215,7 +244,8 @@ impl EnyaApp {
         let mode = match self.state.ui_state {
             UIState::Dashboard => {
                 // Check if command palette or fuzzy finder is open, or zen/fullscreen mode is active
-                if let Some(ref dashboard) = self.dashboard {
+                if let Some(tab) = self.workspace_tabs.active_tab() {
+                    let dashboard = &tab.dashboard;
                     if dashboard.is_command_palette_open() {
                         StatusMode::Command
                     } else if dashboard.is_metrics_finder_open() {
@@ -238,7 +268,8 @@ impl EnyaApp {
         self.status_line.set_mode(mode);
 
         // Set open tabs count from dashboard
-        if let Some(ref dashboard) = self.dashboard {
+        if let Some(tab) = self.workspace_tabs.active_tab() {
+            let dashboard = &tab.dashboard;
             self.status_line.set_open_tabs(dashboard.open_tabs_count());
             self.status_line
                 .set_selected_metric(dashboard.selected_metric());
@@ -345,10 +376,6 @@ impl EnyaApp {
     }
 
     fn draw_dashboard(&mut self, ctx: &egui::Context) {
-        if self.dashboard.is_none() {
-            self.dashboard = Some(Dashboard::example(self.state.settings.api_key.clone()));
-        }
-
         // On WASM, check for workspace or pane parameter in URL on first frame
         #[cfg(target_arch = "wasm32")]
         if !self.checked_url_workspace {
@@ -362,17 +389,46 @@ impl EnyaApp {
             }
         }
 
+        // Update workspace tabs theme
+        self.workspace_tabs.set_theme(self.state.theme);
+
+        // Render workspace tab bar (hide only when single tab on landing page)
+        let should_hide_tabs = self.workspace_tabs.tab_count() == 1
+            && self
+                .workspace_tabs
+                .active_tab()
+                .is_some_and(|tab| tab.dashboard.is_landing_page());
+        if !should_hide_tabs {
+            let tab_action = self.workspace_tabs.show(ctx);
+            self.handle_tab_bar_action(tab_action);
+        }
+
         let mut dashboard_action = DashboardAction::None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Safe since we initialized the example_dashboard
-            if let Some(dashboard) = self.dashboard.as_mut() {
-                dashboard_action = dashboard.show(ui, ctx, &self.state);
+            if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                dashboard_action = tab.dashboard.show(ui, ctx, &self.state);
             }
         });
 
         // Handle actions from the dashboard (e.g., from command palette)
         self.handle_dashboard_action(ctx, dashboard_action);
+    }
+
+    /// Handle actions from the workspace tab bar
+    fn handle_tab_bar_action(&mut self, action: TabBarAction) {
+        match action {
+            TabBarAction::None => {}
+            TabBarAction::SwitchToTab(idx) => {
+                self.workspace_tabs.switch_to_tab(idx);
+            }
+            TabBarAction::CloseTab(idx) => {
+                self.workspace_tabs.close_tab(idx);
+            }
+            TabBarAction::NewTab => {
+                self.workspace_tabs.new_tab();
+            }
+        }
     }
 
     fn handle_dashboard_action(&mut self, ctx: &egui::Context, action: DashboardAction) {
@@ -443,18 +499,35 @@ impl EnyaApp {
             DashboardAction::Connect(endpoint) => {
                 self.connection.connect(&endpoint, ctx);
             }
+            DashboardAction::NewWorkspaceTab(name) => {
+                if let Some(name) = name {
+                    self.workspace_tabs.new_tab_with_name(name);
+                } else {
+                    self.workspace_tabs.new_tab();
+                }
+            }
+            DashboardAction::CloseWorkspaceTab => {
+                self.workspace_tabs
+                    .close_tab(self.workspace_tabs.active_index());
+            }
+            DashboardAction::NextWorkspaceTab => {
+                self.workspace_tabs.next_tab();
+            }
+            DashboardAction::PrevWorkspaceTab => {
+                self.workspace_tabs.prev_tab();
+            }
         }
     }
 
     fn open_metrics_finder(&mut self) {
-        if let Some(dashboard) = self.dashboard.as_mut() {
-            dashboard.open_metrics_finder();
+        if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+            tab.dashboard.open_metrics_finder();
         }
     }
 
     fn open_command_palette(&mut self) {
-        if let Some(dashboard) = self.dashboard.as_mut() {
-            dashboard.open_command_palette();
+        if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+            tab.dashboard.open_command_palette();
         }
     }
 
@@ -684,16 +757,18 @@ impl EnyaApp {
 
         let workspace_name = name.unwrap_or("default");
 
-        // Get workspace from dashboard
+        // Get workspace from active tab's dashboard
         // TODO: Pass actual endpoint when endpoint tracking is implemented
-        let Some(dashboard) = self.dashboard.as_ref() else {
+        let Some(tab) = self.workspace_tabs.active_tab() else {
             self.notifications.notify(Notification::new(
-                "Dashboard not initialized".to_string(),
+                "No active workspace".to_string(),
                 NotificationLevel::Error,
             ));
             return;
         };
-        let workspace = dashboard.to_workspace(workspace_name, self.state.theme, None);
+        let workspace = tab
+            .dashboard
+            .to_workspace(workspace_name, self.state.theme, None);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -762,9 +837,13 @@ impl EnyaApp {
                         return;
                     }
 
-                    if let Some(dashboard) = self.dashboard.as_mut() {
-                        let connection =
-                            dashboard.load_workspace(&workspace, &mut self.state.theme);
+                    if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                        let connection = tab
+                            .dashboard
+                            .load_workspace(&workspace, &mut self.state.theme);
+
+                        // Update tab name to match loaded workspace
+                        tab.name = workspace.workspace.name.clone();
 
                         // TODO: Apply connection settings when endpoint tracking is implemented
                         if let Some(conn) = connection {
@@ -786,7 +865,7 @@ impl EnyaApp {
                         ));
                     } else {
                         self.notifications.notify(Notification::new(
-                            "Dashboard not initialized".to_string(),
+                            "No active workspace tab".to_string(),
                             NotificationLevel::Error,
                         ));
                     }
@@ -822,9 +901,13 @@ impl EnyaApp {
                         return;
                     }
 
-                    if let Some(dashboard) = self.dashboard.as_mut() {
-                        let connection =
-                            dashboard.load_workspace(&workspace, &mut self.state.theme);
+                    if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                        let connection = tab
+                            .dashboard
+                            .load_workspace(&workspace, &mut self.state.theme);
+
+                        // Update tab name to match loaded workspace
+                        tab.name = workspace.workspace.name.clone();
 
                         // TODO: Apply connection settings when endpoint tracking is implemented
                         if let Some(conn) = connection {
@@ -845,7 +928,7 @@ impl EnyaApp {
                         ));
                     } else {
                         self.notifications.notify(Notification::new(
-                            "Dashboard not initialized".to_string(),
+                            "No active workspace tab".to_string(),
                             NotificationLevel::Error,
                         ));
                     }
@@ -864,16 +947,16 @@ impl EnyaApp {
     fn share_workspace(&mut self) {
         use crate::components::{Notification, NotificationLevel};
 
-        // Get workspace from dashboard
-        let Some(dashboard) = self.dashboard.as_ref() else {
+        // Get workspace from active tab's dashboard
+        let Some(tab) = self.workspace_tabs.active_tab() else {
             self.notifications.notify(Notification::new(
-                "Dashboard not initialized".to_string(),
+                "No active workspace".to_string(),
                 NotificationLevel::Error,
             ));
             return;
         };
 
-        let workspace = dashboard.to_workspace("shared", self.state.theme, None);
+        let workspace = tab.dashboard.to_workspace("shared", self.state.theme, None);
 
         match workspace.to_base64() {
             Ok(encoded) => {
@@ -931,16 +1014,16 @@ impl EnyaApp {
     fn share_pane(&mut self, pane_index: usize) {
         use crate::components::{Notification, NotificationLevel};
 
-        // Get workspace from dashboard
-        let Some(dashboard) = self.dashboard.as_ref() else {
+        // Get workspace from active tab's dashboard
+        let Some(tab) = self.workspace_tabs.active_tab() else {
             self.notifications.notify(Notification::new(
-                "Dashboard not initialized".to_string(),
+                "No active workspace".to_string(),
                 NotificationLevel::Error,
             ));
             return;
         };
 
-        let workspace = dashboard.to_workspace("shared", self.state.theme, None);
+        let workspace = tab.dashboard.to_workspace("shared", self.state.theme, None);
 
         match workspace.pane_to_base64(pane_index) {
             Ok(encoded) => {
@@ -1135,6 +1218,9 @@ impl eframe::App for EnyaApp {
 
         // Poll connection manager for completed health checks
         self.poll_connection();
+
+        // Handle workspace tab navigation shortcuts at app level
+        self.check_tab_navigation(ctx);
 
         // Custom titlebar with window controls and drag area
         // Replaces native macOS titlebar for seamless Obsidian Glass theme

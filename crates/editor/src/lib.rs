@@ -10,5 +10,8 @@ pub mod ui;
 pub mod util;
 pub mod wgpu;
 pub mod workspace;
+mod workspace_tabs;
+
+pub use workspace_tabs::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
 
 pub use app::EnyaApp;

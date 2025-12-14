@@ -171,7 +171,7 @@ impl UICommand {
             Self::Home => vec![],
             Self::Help => vec![], // Help accessed via ? on landing page or :help command
             Self::Dashboard => vec![key(Key::D)],
-            Self::ToggleTheme => vec![key(Key::T)],
+            Self::ToggleTheme => vec![], // Removed: T key now used for gt/gT tab navigation
             Self::Theme(_) => vec![],
             Self::OpenExampleDashboard(_) => vec![],
             Self::ConnectionStatus(_) => vec![],
