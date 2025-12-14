@@ -244,18 +244,6 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "lnext",
-        aliases: &["ln"],
-        description: "Jump to next diagnostic",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "lprev",
-        aliases: &["lp", "lprevious"],
-        description: "Jump to previous diagnostic",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "tabnew",
         aliases: &["tnew", "tabcreate"],
         description: "Create a new workspace tab",
@@ -576,8 +564,6 @@ impl CommandPalette {
                     }
                 }
             }
-            "lnext" => CommandResult::NextDiagnostic,
-            "lprev" => CommandResult::PrevDiagnostic,
             "tabnew" => {
                 // :tabnew or :tabnew name - create new workspace tab with optional name
                 let name = if args.is_empty() {
