@@ -5,6 +5,7 @@ use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::settings_screen::{RecentPlotEntry, WorkspaceEntry};
+use crate::ui::typography;
 
 /// Action returned by the landing page
 #[derive(Debug, Clone, PartialEq)]
@@ -148,7 +149,7 @@ impl LandingPage {
         // Tagline
         ui.label(
             RichText::new("Your trusted companion for building and running data systems")
-                .size(14.0)
+                .size(typography::XL)
                 .color(muted_color),
         );
     }
@@ -245,7 +246,7 @@ impl LandingPage {
                 );
                 ui.label(
                     RichText::new("No recent plots")
-                        .size(13.0)
+                        .size(typography::LG)
                         .color(muted_color)
                         .italics(),
                 );
@@ -322,7 +323,7 @@ impl LandingPage {
                 );
                 ui.label(
                     RichText::new("No recent workspaces")
-                        .size(13.0)
+                        .size(typography::LG)
                         .color(muted_color)
                         .italics(),
                 );
@@ -396,7 +397,7 @@ impl LandingPage {
             icon_rect.center(),
             egui::Align2::CENTER_CENTER,
             icon,
-            egui::FontId::proportional(14.0),
+            typography::proportional(typography::XL),
             if is_selected {
                 accent_color
             } else {
@@ -410,7 +411,7 @@ impl LandingPage {
             egui::pos2(rect.min.x + 32.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             label,
-            egui::FontId::proportional(13.0),
+            typography::proportional(typography::LG),
             label_color,
         );
 
@@ -420,7 +421,7 @@ impl LandingPage {
                 egui::pos2(rect.max.x - 12.0, rect.center().y),
                 egui::Align2::RIGHT_CENTER,
                 hint,
-                egui::FontId::proportional(11.0),
+                typography::proportional(typography::SM),
                 text_col.gamma_multiply(0.4),
             );
         }
@@ -608,7 +609,7 @@ impl LandingPage {
             rect.center_top() + egui::vec2(0.0, 42.0),
             egui::Align2::CENTER_CENTER,
             label,
-            egui::FontId::proportional(12.0),
+            typography::proportional(typography::MD),
             text_col,
         );
 
@@ -617,7 +618,7 @@ impl LandingPage {
             rect.center_top() + egui::vec2(0.0, 58.0),
             egui::Align2::CENTER_CENTER,
             shortcut,
-            egui::FontId::proportional(13.0),
+            typography::proportional(typography::LG),
             text_col.gamma_multiply(0.6),
         );
 
@@ -631,7 +632,7 @@ impl LandingPage {
                 "v{}  •  Developed by Meldrum Labs",
                 env!("CARGO_PKG_VERSION")
             ))
-            .size(11.0)
+            .size(typography::SM)
             .color(muted_color),
         );
     }

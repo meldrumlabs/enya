@@ -2,12 +2,13 @@
 //!
 //! Provides context-aware suggestions while typing filter queries.
 
-use egui::{Color32, FontId, Key};
+use egui::{Color32, Key};
 use enya_lang::completion::{Context, analyze, syntax_suggestions};
 
 use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 /// A suggestion item for the completion popup
 #[derive(Debug, Clone)]
@@ -625,7 +626,7 @@ impl QueryCompletion {
                 icon_pos,
                 egui::Align2::LEFT_CENTER,
                 item.icon,
-                FontId::proportional(14.0),
+                typography::proportional(typography::XL),
                 text_secondary,
             );
 
@@ -635,7 +636,7 @@ impl QueryCompletion {
                 label_pos,
                 egui::Align2::LEFT_CENTER,
                 &item.label,
-                FontId::monospace(13.0),
+                typography::monospace(typography::LG),
                 text_col,
             );
 
@@ -646,7 +647,7 @@ impl QueryCompletion {
                 kind_pos,
                 egui::Align2::RIGHT_CENTER,
                 kind_label,
-                FontId::proportional(10.0),
+                typography::proportional(typography::XS),
                 text_tertiary,
             );
 
@@ -666,7 +667,7 @@ impl QueryCompletion {
                 indicator_pos,
                 egui::Align2::CENTER_BOTTOM,
                 format!("... +{more_count} more"),
-                FontId::proportional(10.0),
+                typography::proportional(typography::XS),
                 text_tertiary,
             );
         }

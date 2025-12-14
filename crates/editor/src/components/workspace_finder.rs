@@ -1,6 +1,6 @@
 //! WorkspaceFinder - A telescope/fzf-style finder for saved workspaces
 
-use egui::{Color32, FontId, RichText};
+use egui::{Color32, RichText};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
@@ -9,6 +9,7 @@ use nucleo_matcher::{
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 use super::finder_utils::{FinderColors, FinderKeyboardInput, create_highlighted_text};
 
@@ -220,12 +221,12 @@ impl WorkspaceFinder {
                             ui.label(
                                 RichText::new(semantic_icons::file::FOLDER_OPEN)
                                     .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(18.0),
+                                    .size(typography::HEADING),
                             );
                             ui.add_space(8.0);
 
                             let text_edit = egui::TextEdit::singleline(&mut self.search_query)
-                                .font(FontId::proportional(16.0))
+                                .font(typography::heading())
                                 .hint_text(
                                     RichText::new("Search workspaces...")
                                         .color(text_color(self.theme).gamma_multiply(0.4)),
@@ -272,7 +273,7 @@ impl WorkspaceFinder {
                                                 "No results found"
                                             })
                                             .color(text_color(self.theme).gamma_multiply(0.5))
-                                            .size(14.0),
+                                            .size(typography::XL),
                                         );
                                     });
                                     ui.add_space(20.0);
@@ -357,7 +358,7 @@ impl WorkspaceFinder {
         // Icon
         let icon_galley = ui.painter().layout_no_wrap(
             semantic_icons::file::FOLDER.to_string(),
-            FontId::proportional(14.0),
+            typography::proportional(typography::XL),
             text_col.gamma_multiply(0.6),
         );
         ui.painter().galley(
@@ -392,7 +393,7 @@ impl WorkspaceFinder {
         if let Some(desc) = &result.item.description {
             let desc_galley = ui.painter().layout_no_wrap(
                 desc.clone(),
-                FontId::proportional(11.0),
+                typography::proportional(typography::SM),
                 text_col.gamma_multiply(0.5),
             );
             ui.painter().galley(
@@ -418,11 +419,11 @@ impl WorkspaceFinder {
         ui.horizontal(|ui| {
             ui.add_space(12.0);
 
-            let hint_style = |text: &str| RichText::new(text).color(color).size(11.0);
+            let hint_style = |text: &str| RichText::new(text).color(color).size(typography::SM);
             let key_style = |text: &str| {
                 RichText::new(text)
                     .color(color.gamma_multiply(1.2))
-                    .size(11.0)
+                    .size(typography::SM)
                     .strong()
             };
 

@@ -1,12 +1,13 @@
 //! Info overlay component for displaying build information in a terminal-style overlay.
 
-use egui::{Color32, FontId, Key, RichText};
+use egui::{Color32, Key, RichText};
 use enya_build_info::BuildInfo;
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 /// A modal overlay that displays build and version information
 pub struct InfoOverlay {
@@ -264,17 +265,17 @@ impl InfoOverlay {
                             ui.label(
                                 RichText::new("Press ")
                                     .color(muted_text)
-                                    .font(FontId::proportional(12.0)),
+                                    .font(typography::proportional(typography::MD)),
                             );
                             ui.label(
                                 RichText::new("Esc")
                                     .color(key_color)
-                                    .font(FontId::monospace(12.0)),
+                                    .font(typography::monospace(typography::MD)),
                             );
                             ui.label(
                                 RichText::new(" to close")
                                     .color(muted_text)
-                                    .font(FontId::proportional(12.0)),
+                                    .font(typography::proportional(typography::MD)),
                             );
                         });
                         ui.add_space(12.0);
@@ -299,12 +300,12 @@ impl InfoOverlay {
         ui.label(
             RichText::new(key)
                 .color(key_color)
-                .font(FontId::monospace(14.0)),
+                .font(typography::monospace(typography::XL)),
         );
         ui.label(
             RichText::new(value)
                 .color(value_color)
-                .font(FontId::monospace(14.0)),
+                .font(typography::monospace(typography::XL)),
         );
     }
 }

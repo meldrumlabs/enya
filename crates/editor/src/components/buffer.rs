@@ -1,10 +1,11 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use egui::{Color32, FontId, Key, RichText, Stroke, TextEdit, Vec2};
+use egui::{Color32, Key, RichText, Stroke, TextEdit, Vec2};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 /// Global counter for unique buffer IDs
 static NEXT_BUFFER_ID: AtomicUsize = AtomicUsize::new(1);
@@ -254,7 +255,7 @@ impl Buffer {
                                 ui.label(
                                     RichText::new(self.mode_indicator())
                                         .color(mode_text_color)
-                                        .size(10.0)
+                                        .size(typography::XS)
                                         .strong(),
                                 );
                             });
@@ -265,7 +266,7 @@ impl Buffer {
                         ui.label(
                             RichText::new(self.display_title())
                                 .color(text_col)
-                                .size(12.0),
+                                .size(typography::MD),
                         );
 
                         // Spacer
@@ -278,7 +279,7 @@ impl Buffer {
                             ui.label(
                                 RichText::new(hint)
                                     .color(text_col.gamma_multiply(0.4))
-                                    .size(10.0),
+                                    .size(typography::XS),
                             );
                         });
                     });
@@ -320,7 +321,7 @@ impl Buffer {
                             let response = ui.add_sized(
                                 Vec2::new(ui.available_width(), content_height),
                                 TextEdit::multiline(&mut content)
-                                    .font(FontId::monospace(14.0))
+                                    .font(typography::code())
                                     .hint_text("Enter your query (e.g., env:prod AND service:db)")
                                     .desired_rows(3),
                             );
@@ -344,7 +345,7 @@ impl Buffer {
                         ui.label(
                             RichText::new(format!("{char_count} chars"))
                                 .color(text_col.gamma_multiply(0.5))
-                                .size(10.0),
+                                .size(typography::XS),
                         );
 
                         ui.separator();
@@ -354,13 +355,13 @@ impl Buffer {
                             ui.label(
                                 RichText::new("[Modified]")
                                     .color(Color32::from_rgb(220, 160, 50))
-                                    .size(10.0),
+                                    .size(typography::XS),
                             );
                         } else {
                             ui.label(
                                 RichText::new("[Saved]")
                                     .color(text_col.gamma_multiply(0.4))
-                                    .size(10.0),
+                                    .size(typography::XS),
                             );
                         }
                     });
@@ -389,7 +390,7 @@ impl Buffer {
 
         // Simple token-based highlighting
         let mut job = egui::text::LayoutJob::default();
-        let font_id = FontId::monospace(14.0);
+        let font_id = typography::code();
 
         let keywords = ["AND", "OR", "NOT"];
 

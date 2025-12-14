@@ -3,10 +3,11 @@
 //! This module provides shared functionality for telescope/fzf-style finder modals,
 //! including theme colors, text highlighting, preview data generation, and keyboard handling.
 
-use egui::{Color32, FontId, Key, TextFormat, text::LayoutJob};
+use egui::{Color32, Key, TextFormat, text::LayoutJob};
 
 use crate::theme::AppTheme;
 use crate::ui::palette;
+use crate::ui::typography;
 
 use super::time_series_chart::DataPoint;
 
@@ -96,7 +97,7 @@ pub fn create_highlighted_text(
     highlight_color: Color32,
 ) -> std::sync::Arc<egui::Galley> {
     let mut job = LayoutJob::default();
-    let font_id = FontId::proportional(14.0);
+    let font_id = typography::proportional(typography::XL);
 
     for (i, ch) in text.chars().enumerate() {
         let color = if positions.contains(&i) {
@@ -153,16 +154,48 @@ pub fn chart_color(_theme: AppTheme) -> Color32 {
 pub fn render_keyboard_hints(ui: &mut egui::Ui, hint_color: Color32) {
     ui.horizontal(|ui| {
         ui.add_space(12.0);
-        ui.label(egui::RichText::new("↑↓").color(hint_color).size(11.0));
-        ui.label(egui::RichText::new("navigate").color(hint_color).size(11.0));
+        ui.label(
+            egui::RichText::new("↑↓")
+                .color(hint_color)
+                .size(typography::SM),
+        );
+        ui.label(
+            egui::RichText::new("navigate")
+                .color(hint_color)
+                .size(typography::SM),
+        );
         ui.add_space(12.0);
-        ui.label(egui::RichText::new("↵").color(hint_color).size(11.0));
-        ui.label(egui::RichText::new("select").color(hint_color).size(11.0));
+        ui.label(
+            egui::RichText::new("↵")
+                .color(hint_color)
+                .size(typography::SM),
+        );
+        ui.label(
+            egui::RichText::new("select")
+                .color(hint_color)
+                .size(typography::SM),
+        );
         ui.add_space(12.0);
-        ui.label(egui::RichText::new("ctrl+p").color(hint_color).size(11.0));
-        ui.label(egui::RichText::new("preview").color(hint_color).size(11.0));
+        ui.label(
+            egui::RichText::new("ctrl+p")
+                .color(hint_color)
+                .size(typography::SM),
+        );
+        ui.label(
+            egui::RichText::new("preview")
+                .color(hint_color)
+                .size(typography::SM),
+        );
         ui.add_space(12.0);
-        ui.label(egui::RichText::new("esc").color(hint_color).size(11.0));
-        ui.label(egui::RichText::new("close").color(hint_color).size(11.0));
+        ui.label(
+            egui::RichText::new("esc")
+                .color(hint_color)
+                .size(typography::SM),
+        );
+        ui.label(
+            egui::RichText::new("close")
+                .color(hint_color)
+                .size(typography::SM),
+        );
     });
 }

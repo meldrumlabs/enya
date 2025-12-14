@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use egui::{Color32, FontId, RichText};
+use egui::{Color32, RichText};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
@@ -11,6 +11,7 @@ use nucleo_matcher::{
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 use super::finder_utils::{
     FinderColors, FinderKeyboardInput, create_highlighted_text, render_keyboard_hints,
@@ -271,12 +272,12 @@ impl MetricsFinder {
                             ui.label(
                                 RichText::new(semantic_icons::action::SEARCH)
                                     .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(18.0),
+                                    .size(typography::HEADING),
                             );
                             ui.add_space(8.0);
 
                             let text_edit = egui::TextEdit::singleline(&mut self.query)
-                                .font(FontId::proportional(16.0))
+                                .font(typography::heading())
                                 .hint_text(
                                     RichText::new("Search metrics...")
                                         .color(text_color(self.theme).gamma_multiply(0.4)),
@@ -328,7 +329,7 @@ impl MetricsFinder {
                                                             text_color(self.theme)
                                                                 .gamma_multiply(0.5),
                                                         )
-                                                        .size(14.0),
+                                                        .size(typography::XL),
                                                 );
                                             });
                                             ui.add_space(20.0);
@@ -441,7 +442,7 @@ impl MetricsFinder {
         // Icon
         let icon_galley = ui.painter().layout_no_wrap(
             result.item.icon().to_string(),
-            FontId::proportional(14.0),
+            typography::proportional(typography::XL),
             text_col.gamma_multiply(0.6),
         );
         ui.painter().galley(
@@ -475,9 +476,11 @@ impl MetricsFinder {
 
         // Category label
         let category_text = format!("[{}]", result.item.category_label());
-        let category_galley =
-            ui.painter()
-                .layout_no_wrap(category_text, FontId::proportional(11.0), category_color);
+        let category_galley = ui.painter().layout_no_wrap(
+            category_text,
+            typography::proportional(typography::SM),
+            category_color,
+        );
         ui.painter().galley(
             egui::pos2(
                 cursor_x,
@@ -524,13 +527,17 @@ impl MetricsFinder {
                 if let Some(result) = selected_item {
                     // Header with metric info
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(result.item.icon()).color(text_col).size(16.0));
+                        ui.label(
+                            RichText::new(result.item.icon())
+                                .color(text_col)
+                                .size(typography::HEADING),
+                        );
                         ui.add_space(4.0);
                         ui.label(
                             RichText::new(result.item.search_text())
                                 .color(text_col)
                                 .strong()
-                                .size(14.0),
+                                .size(typography::XL),
                         );
                     });
 
@@ -540,14 +547,14 @@ impl MetricsFinder {
                         ui.label(
                             RichText::new(format!("Category: {}", result.item.category_label()))
                                 .color(text_col.gamma_multiply(0.5))
-                                .size(11.0),
+                                .size(typography::SM),
                         );
                         if let Some(unit) = &result.item.unit {
                             ui.add_space(12.0);
                             ui.label(
                                 RichText::new(format!("Unit: {unit}"))
                                     .color(text_col.gamma_multiply(0.5))
-                                    .size(11.0),
+                                    .size(typography::SM),
                             );
                         }
                     });
@@ -558,7 +565,7 @@ impl MetricsFinder {
                         ui.label(
                             RichText::new(format!("{} active series", result.item.series_count))
                                 .color(text_col.gamma_multiply(0.5))
-                                .size(11.0),
+                                .size(typography::SM),
                         );
                     }
 
@@ -577,13 +584,13 @@ impl MetricsFinder {
                         ui.label(
                             RichText::new("Description")
                                 .color(text_col.gamma_multiply(0.6))
-                                .size(10.0),
+                                .size(typography::XS),
                         );
                         ui.add_space(4.0);
                         ui.label(
                             RichText::new(desc)
                                 .color(text_col.gamma_multiply(0.8))
-                                .size(12.0),
+                                .size(typography::MD),
                         );
                         ui.add_space(12.0);
                     }
@@ -592,7 +599,7 @@ impl MetricsFinder {
                     ui.label(
                         RichText::new("Available Tags")
                             .color(text_col.gamma_multiply(0.6))
-                            .size(10.0),
+                            .size(typography::XS),
                     );
                     ui.add_space(6.0);
 
@@ -605,7 +612,7 @@ impl MetricsFinder {
                                 RichText::new("No tags available")
                                     .color(text_col.gamma_multiply(0.4))
                                     .italics()
-                                    .size(12.0),
+                                    .size(typography::MD),
                             );
                         });
                     } else {
@@ -624,7 +631,7 @@ impl MetricsFinder {
                                             ui.label(
                                                 RichText::new(format!("{key}:"))
                                                     .color(tag_key_color)
-                                                    .size(12.0)
+                                                    .size(typography::MD)
                                                     .strong(),
                                             );
                                         });
@@ -641,7 +648,7 @@ impl MetricsFinder {
                                                 ui.label(
                                                     RichText::new(format!("• {value}"))
                                                         .color(tag_value_color)
-                                                        .size(11.0),
+                                                        .size(typography::SM),
                                                 );
                                             }
                                             if has_more {
@@ -652,7 +659,7 @@ impl MetricsFinder {
                                                     ))
                                                     .color(text_col.gamma_multiply(0.4))
                                                     .italics()
-                                                    .size(10.0),
+                                                    .size(typography::XS),
                                                 );
                                             }
                                         });

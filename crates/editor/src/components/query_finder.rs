@@ -1,6 +1,6 @@
 //! QueryFinder - A telescope/fzf-style finder for saved queries with vertical preview
 
-use egui::{Color32, FontId, RichText, Stroke, TextFormat, text::LayoutJob};
+use egui::{Color32, RichText, Stroke, TextFormat, text::LayoutJob};
 use egui_plot::{Line, Plot, PlotPoints};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -10,6 +10,7 @@ use nucleo_matcher::{
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 use super::finder_utils::{
     FinderColors, FinderKeyboardInput, chart_color, create_highlighted_text,
@@ -312,12 +313,12 @@ impl QueryFinder {
                             ui.label(
                                 RichText::new(semantic_icons::file::CODE)
                                     .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(18.0),
+                                    .size(typography::HEADING),
                             );
                             ui.add_space(8.0);
 
                             let text_edit = egui::TextEdit::singleline(&mut self.search_query)
-                                .font(FontId::proportional(16.0))
+                                .font(typography::heading())
                                 .hint_text(
                                     RichText::new("Search queries... (use #tag to filter)")
                                         .color(text_color(self.theme).gamma_multiply(0.4)),
@@ -372,7 +373,7 @@ impl QueryFinder {
                                                     .color(
                                                         text_color(self.theme).gamma_multiply(0.5),
                                                     )
-                                                    .size(14.0),
+                                                    .size(typography::XL),
                                                 );
                                             });
                                             ui.add_space(20.0);
@@ -485,7 +486,7 @@ impl QueryFinder {
         // Icon
         let icon_galley = ui.painter().layout_no_wrap(
             semantic_icons::file::CODE.to_string(),
-            FontId::proportional(14.0),
+            typography::proportional(typography::XL),
             text_col.gamma_multiply(0.6),
         );
         ui.painter().galley(
@@ -526,9 +527,11 @@ impl QueryFinder {
                 .map(|t| format!("#{t}"))
                 .collect::<Vec<_>>()
                 .join(" ");
-            let tags_galley =
-                ui.painter()
-                    .layout_no_wrap(tags_text, FontId::proportional(10.0), tag_color);
+            let tags_galley = ui.painter().layout_no_wrap(
+                tags_text,
+                typography::proportional(typography::XS),
+                tag_color,
+            );
             ui.painter().galley(
                 egui::pos2(
                     cursor_x,
@@ -554,7 +557,7 @@ impl QueryFinder {
         query: &str,
     ) -> std::sync::Arc<egui::Galley> {
         let mut job = LayoutJob::default();
-        let font_id = FontId::monospace(12.0);
+        let font_id = typography::monospace(typography::MD);
 
         let text_col = text_color(self.theme);
         let keyword_color = match self.theme {
@@ -735,14 +738,14 @@ impl QueryFinder {
                         ui.label(
                             RichText::new(semantic_icons::file::CODE)
                                 .color(text_col)
-                                .size(16.0),
+                                .size(typography::HEADING),
                         );
                         ui.add_space(4.0);
                         ui.label(
                             RichText::new(&result.item.name)
                                 .color(text_col)
                                 .strong()
-                                .size(14.0),
+                                .size(typography::XL),
                         );
                     });
 
@@ -759,7 +762,7 @@ impl QueryFinder {
                         ui.label(
                             RichText::new(tags_text)
                                 .color(text_col.gamma_multiply(0.5))
-                                .size(11.0),
+                                .size(typography::SM),
                         );
                     }
 
@@ -793,7 +796,7 @@ impl QueryFinder {
                             ui.label(
                                 RichText::new("Query")
                                     .color(text_col.gamma_multiply(0.6))
-                                    .size(10.0),
+                                    .size(typography::XS),
                             );
                             ui.add_space(4.0);
 
@@ -834,7 +837,7 @@ impl QueryFinder {
                             ui.label(
                                 RichText::new("Preview")
                                     .color(text_col.gamma_multiply(0.6))
-                                    .size(10.0),
+                                    .size(typography::XS),
                             );
                             ui.add_space(4.0);
 
@@ -878,7 +881,7 @@ impl QueryFinder {
                         ui.label(
                             RichText::new("Preview (demo data)")
                                 .color(text_col.gamma_multiply(0.4))
-                                .size(10.0)
+                                .size(typography::XS)
                                 .italics(),
                         );
                     });

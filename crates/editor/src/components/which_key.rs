@@ -3,12 +3,13 @@
 //! Inspired by the neovim which-key.nvim plugin, this component displays
 //! available keyboard shortcuts in a floating popup when the user presses `?`.
 
-use egui::{Color32, FontId, Key, RichText};
+use egui::{Color32, Key, RichText};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 /// A keybinding with its key and description
 #[derive(Clone)]
@@ -360,19 +361,19 @@ impl WhichKey {
                             ui.label(
                                 RichText::new("Press ")
                                     .color(muted_text)
-                                    .font(FontId::proportional(12.0)),
+                                    .font(typography::proportional(typography::MD)),
                             );
                             Self::render_key_badge(ui, "Esc", key_bg, accent_color);
                             ui.label(
                                 RichText::new(" or ")
                                     .color(muted_text)
-                                    .font(FontId::proportional(12.0)),
+                                    .font(typography::proportional(typography::MD)),
                             );
                             Self::render_key_badge(ui, "?", key_bg, accent_color);
                             ui.label(
                                 RichText::new(" to close")
                                     .color(muted_text)
-                                    .font(FontId::proportional(12.0)),
+                                    .font(typography::proportional(typography::MD)),
                             );
                         });
                         ui.add_space(12.0);
@@ -397,12 +398,16 @@ impl WhichKey {
     ) {
         // Group header with icon
         ui.horizontal(|ui| {
-            ui.label(RichText::new(group.icon).color(accent_color).size(14.0));
+            ui.label(
+                RichText::new(group.icon)
+                    .color(accent_color)
+                    .size(typography::XL),
+            );
             ui.add_space(4.0);
             ui.label(
                 RichText::new(group.name)
                     .color(accent_color)
-                    .size(13.0)
+                    .size(typography::LG)
                     .strong(),
             );
         });
@@ -422,7 +427,7 @@ impl WhichKey {
                 ui.label(
                     RichText::new(binding.description)
                         .color(muted_text)
-                        .font(FontId::proportional(13.0)),
+                        .font(typography::proportional(typography::LG)),
                 );
             });
             ui.add_space(2.0);
@@ -431,7 +436,7 @@ impl WhichKey {
 
     /// Render a keyboard key badge (like a physical key cap)
     fn render_key_badge(ui: &mut egui::Ui, key: &str, bg_color: Color32, text_color: Color32) {
-        let font = FontId::monospace(12.0);
+        let font = typography::monospace(typography::MD);
         let text = RichText::new(key).color(text_color).font(font);
 
         egui::Frame::new()
