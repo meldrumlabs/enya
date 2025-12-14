@@ -4,7 +4,6 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
-use super::tags::TagPath;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
@@ -44,8 +43,6 @@ pub enum CommandResult {
     ToggleTheme,
     /// Set specific theme
     SetTheme(AppTheme),
-    /// Toggle the metrics panel
-    ToggleMetricsPanel,
     /// Open the fuzzy finder
     OpenSearch,
     /// Show info overlay with build info
@@ -70,8 +67,6 @@ pub enum CommandResult {
     ToggleZenMode,
     /// Toggle fullscreen for focused pane
     ToggleFullscreen,
-    /// Show a test notification
-    TestNotify(String),
     /// Show the landing page (home screen)
     ShowLandingPage,
     /// Take a screenshot of the window (optionally with a custom path)
@@ -84,14 +79,6 @@ pub enum CommandResult {
     ListWorkspaces,
     /// Share workspace as URL (:share)
     ShareWorkspace,
-    /// Set tag filter (None = clear filter)
-    SetTagFilter(Option<TagPath>),
-    /// Add tag to focused buffer
-    AddTag(TagPath),
-    /// Remove tag from focused buffer
-    RemoveTag(TagPath),
-    /// Show all tags
-    ShowTags,
     /// Toggle commit markers visibility on charts
     ToggleCommits,
     /// Connect to agent endpoint
@@ -108,8 +95,6 @@ pub enum CommandResult {
     NextDiagnostic,
     /// Jump to previous diagnostic
     PrevDiagnostic,
-    /// Add test diagnostics (for development/demo)
-    TestDiagnostics,
     /// Create a new workspace tab
     NewWorkspaceTab(Option<String>),
     /// Close current workspace tab
@@ -148,12 +133,6 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "help",
         aliases: &["h", "?"],
         description: "Show help and available commands",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "metrics",
-        aliases: &["m"],
-        description: "Toggle metrics panel visibility",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -211,12 +190,6 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "notify",
-        aliases: &["n", "toast"],
-        description: "Show a test notification (info/success/warn/error)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
         name: "home",
         aliases: &["landing", "start", "welcome"],
         description: "Show the landing page / home screen",
@@ -250,18 +223,6 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "share",
         aliases: &["export", "url"],
         description: "Share current workspace as URL (copies to clipboard)",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "tag",
-        aliases: &["#"],
-        description: "Filter by tag or add/remove tags (+tag, -tag)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "tags",
-        aliases: &["taglist", "tl"],
-        description: "Show all tags with buffer counts",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -528,7 +489,6 @@ impl CommandPalette {
             "search" => CommandResult::OpenSearch,
             "info" => CommandResult::ShowInfo,
             "help" => CommandResult::ShowHelp,
-            "metrics" => CommandResult::ToggleMetricsPanel,
             "split" => {
                 if args.is_empty() {
                     CommandResult::SplitHorizontal
@@ -560,10 +520,6 @@ impl CommandPalette {
             "new" => CommandResult::NewBuffer,
             "zen" => CommandResult::ToggleZenMode,
             "fullscreen" => CommandResult::ToggleFullscreen,
-            "notify" => {
-                let level = args.first().copied().unwrap_or("info");
-                CommandResult::TestNotify(level.to_string())
-            }
             "home" => CommandResult::ShowLandingPage,
             "screenshot" => {
                 // Join all args as the path (handles paths with spaces)
@@ -593,8 +549,6 @@ impl CommandPalette {
             }
             "workspaces" => CommandResult::ListWorkspaces,
             "share" => CommandResult::ShareWorkspace,
-            "tag" => self.execute_tag_command(args),
-            "tags" => CommandResult::ShowTags,
             "commits" => CommandResult::ToggleCommits,
             "connect" => {
                 if args.is_empty() {
@@ -615,9 +569,8 @@ impl CommandPalette {
                         "toggle" | "t" => CommandResult::ToggleDiagnostics,
                         "next" | "n" => CommandResult::NextDiagnostic,
                         "prev" | "previous" | "p" => CommandResult::PrevDiagnostic,
-                        "test" => CommandResult::TestDiagnostics,
                         _ => CommandResult::Error(format!(
-                            "Unknown diagnostics subcommand: {}. Use show/hide/clear/toggle/next/prev/test",
+                            "Unknown diagnostics subcommand: {}. Use show/hide/clear/toggle/next/prev",
                             args[0]
                         )),
                     }
@@ -639,42 +592,6 @@ impl CommandPalette {
             "tabp" => CommandResult::PrevWorkspaceTab,
             _ => CommandResult::None,
         }
-    }
-
-    /// Execute the :tag command with various subcommands
-    fn execute_tag_command(&self, args: &[&str]) -> CommandResult {
-        if args.is_empty() {
-            // :tag with no args - clear the filter
-            return CommandResult::SetTagFilter(None);
-        }
-
-        let arg = args[0];
-
-        // Check for add/remove prefixes
-        if let Some(tag_name) = arg.strip_prefix('+') {
-            // :tag +production - add tag to focused buffer
-            let path = TagPath::parse(tag_name);
-            if path.is_empty() {
-                return CommandResult::Error("Empty tag path".to_string());
-            }
-            return CommandResult::AddTag(path);
-        }
-
-        if let Some(tag_name) = arg.strip_prefix('-') {
-            // :tag -production - remove tag from focused buffer
-            let path = TagPath::parse(tag_name);
-            if path.is_empty() {
-                return CommandResult::Error("Empty tag path".to_string());
-            }
-            return CommandResult::RemoveTag(path);
-        }
-
-        // :tag production - set filter
-        let path = TagPath::parse(arg);
-        if path.is_empty() {
-            return CommandResult::SetTagFilter(None);
-        }
-        CommandResult::SetTagFilter(Some(path))
     }
 
     /// Show the command palette. Returns a CommandResult if a command was executed.
