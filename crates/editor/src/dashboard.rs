@@ -10,7 +10,7 @@ use crate::components::{
     CustomQueriesPanel, Diagnostic, DiagnosticsPane, EditExcerpt, InfoOverlay, LandingPage,
     LandingPageAction, MetricItem, MetricsFinder, MetricsTree, MultiBufferMode, MultiBufferState,
     MultiEditOverlay, MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState, TagFilter,
-    TagPath, TimeRangeToolbar, WhichKey,
+    TagPath, TimeRangeToolbar, WhichKey, WorkspaceFinder, WorkspaceItem,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -77,6 +77,14 @@ pub enum DashboardAction {
     QuitApp,
     /// Connect to an agent endpoint
     Connect(String),
+    /// Create a new workspace tab
+    NewWorkspaceTab(Option<String>),
+    /// Close current workspace tab
+    CloseWorkspaceTab,
+    /// Go to next workspace tab
+    NextWorkspaceTab,
+    /// Go to previous workspace tab
+    PrevWorkspaceTab,
 }
 
 /// The main dashboard layout with a fixed left panel for the MetricsTree
@@ -101,12 +109,16 @@ pub struct Dashboard {
     open_charts: HashSet<String>,
     /// Pending chart to add (metric name)
     pending_chart: Option<String>,
+    /// Counter for generating unique buffer names within this workspace
+    next_buffer_number: usize,
     /// Time range toolbar
     time_range_toolbar: TimeRangeToolbar,
     /// Fuzzy finder modal for metrics (telescope-style search)
     metrics_finder: MetricsFinder,
     /// Query finder modal for saved queries (with side-by-side preview)
     query_finder: QueryFinder,
+    /// Workspace finder modal (for loading saved workspaces)
+    workspace_finder: WorkspaceFinder,
     /// Command palette (neovim-style `:` commands)
     command_palette: CommandPalette,
     /// Buffer editor modal (for editing queries)
@@ -151,6 +163,8 @@ pub struct Dashboard {
     diagnostics_visible: bool,
     /// Tile ID of the diagnostics pane (if added to viewport)
     diagnostics_tile_id: Option<TileId>,
+    /// Flag to open workspace finder (set by keyboard, handled in show with app_state)
+    pending_open_workspace_finder: bool,
 }
 
 impl Default for Dashboard {
@@ -171,9 +185,11 @@ impl Default for Dashboard {
             left_panel_visible: true,
             open_charts: HashSet::new(),
             pending_chart: None,
+            next_buffer_number: 1,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
             query_finder: QueryFinder::new(),
+            workspace_finder: WorkspaceFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
             editing_tile_id: None,
@@ -196,6 +212,7 @@ impl Default for Dashboard {
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
             diagnostics_tile_id: None,
+            pending_open_workspace_finder: false,
         }
     }
 }
@@ -275,6 +292,14 @@ impl Dashboard {
     /// Maximum left panel width
     const MAX_PANEL_WIDTH: f32 = 500.0;
 
+    /// Create a new empty dashboard (no landing page, with an empty buffer ready)
+    pub fn new_empty() -> Self {
+        let mut dashboard = Self::example(String::new());
+        dashboard.show_landing = false;
+        dashboard.create_new_buffer();
+        dashboard
+    }
+
     pub fn example(_api_key: String) -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
 
@@ -294,9 +319,11 @@ impl Dashboard {
             left_panel_visible: true,
             open_charts: HashSet::new(),
             pending_chart: None,
+            next_buffer_number: 1,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
             query_finder: QueryFinder::new(),
+            workspace_finder: WorkspaceFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
             editing_tile_id: None,
@@ -319,6 +346,7 @@ impl Dashboard {
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
             diagnostics_tile_id: None,
+            pending_open_workspace_finder: false,
         }
     }
 
@@ -367,14 +395,15 @@ impl Dashboard {
             }
         }
 
-        // Check if we should show landing page (no open charts)
-        let has_charts = !self.open_charts.is_empty();
-        if !has_charts && !self.show_landing {
-            self.show_landing = true;
+        // Handle pending workspace finder open (needs app_state for workspace list)
+        if self.pending_open_workspace_finder {
+            self.pending_open_workspace_finder = false;
+            self.open_workspace_finder(app_state);
         }
 
-        // Show landing page if enabled and no charts open
-        if self.show_landing && !has_charts {
+        // Show landing page only if explicitly enabled and no charts open
+        // (new workspaces start with show_landing=false for a clean empty state)
+        if self.show_landing && self.open_charts.is_empty() {
             return self.show_landing_page(ui, ctx, app_state);
         }
 
@@ -632,6 +661,12 @@ impl Dashboard {
             return self.handle_query_selection_with_tracking(selected_query);
         }
 
+        // Show workspace finder modal (rendered on top of everything)
+        self.workspace_finder.set_theme(app_state.theme);
+        if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
+            return DashboardAction::LoadWorkspace(selected_workspace);
+        }
+
         // Show command palette modal
         self.command_palette.set_theme(app_state.theme);
         let cmd_result = self.command_palette.show(ctx);
@@ -749,8 +784,8 @@ impl Dashboard {
             LandingPageAction::OpenQueryFinder => {
                 self.open_query_finder();
             }
-            LandingPageAction::ShowInfo => {
-                self.info_overlay.open();
+            LandingPageAction::OpenWorkspaceFinder => {
+                self.open_workspace_finder(app_state);
             }
             LandingPageAction::ShowHelp => {
                 self.which_key.open();
@@ -771,6 +806,12 @@ impl Dashboard {
         self.query_finder.set_theme(app_state.theme);
         if let Some(selected_query) = self.query_finder.show(ctx) {
             return self.handle_query_selection_with_tracking(selected_query);
+        }
+
+        // Show workspace finder modal (rendered on top of everything)
+        self.workspace_finder.set_theme(app_state.theme);
+        if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
+            return DashboardAction::LoadWorkspace(selected_workspace);
         }
 
         // Show command palette modal
@@ -1005,6 +1046,10 @@ impl Dashboard {
                     message: "Added test diagnostics".to_string(),
                 }
             }
+            CommandResult::NewWorkspaceTab(name) => DashboardAction::NewWorkspaceTab(name),
+            CommandResult::CloseWorkspaceTab => DashboardAction::CloseWorkspaceTab,
+            CommandResult::NextWorkspaceTab => DashboardAction::NextWorkspaceTab,
+            CommandResult::PrevWorkspaceTab => DashboardAction::PrevWorkspaceTab,
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -1163,6 +1208,27 @@ impl Dashboard {
         self.query_finder.open();
     }
 
+    /// Open the workspace finder modal (for loading saved workspaces)
+    pub fn open_workspace_finder(&mut self, app_state: &AppState) {
+        // Populate the workspace finder with recent workspaces
+        let workspaces: Vec<WorkspaceItem> = app_state
+            .settings
+            .recent_workspaces
+            .iter()
+            .map(|entry| WorkspaceItem {
+                name: entry.name.clone(),
+                description: if entry.description.is_empty() {
+                    None
+                } else {
+                    Some(entry.description.clone())
+                },
+            })
+            .collect();
+
+        self.workspace_finder.set_workspaces(workspaces);
+        self.workspace_finder.open();
+    }
+
     /// Open the command palette modal
     pub fn open_command_palette(&mut self) {
         self.command_palette.open();
@@ -1216,6 +1282,11 @@ impl Dashboard {
         self.fullscreen_tile.is_some()
     }
 
+    /// Check if the landing page is currently being displayed
+    pub fn is_landing_page(&self) -> bool {
+        self.show_landing && self.open_charts.is_empty()
+    }
+
     /// Add a chart for a custom query to the viewport
     fn add_chart_for_query(&mut self, query_name: &str, query_str: &str) {
         // Use query name as the unique key for duplicate detection
@@ -1236,14 +1307,19 @@ impl Dashboard {
         }
     }
 
-    /// Create a new empty buffer in the viewport
+    /// Create a new empty query pane in the viewport
     fn create_new_buffer(&mut self) {
-        let buffer: Box<dyn Component> = Box::new(Buffer::new(""));
-        let buffer_tile = self.viewport_tree.tiles.insert_pane(buffer);
+        let buffer_name = format!("Buffer {}", self.next_buffer_number);
+        self.next_buffer_number += 1;
 
-        if self.add_tile_to_viewport(buffer_tile) {
-            self.behavior.set_focused_tile(Some(buffer_tile));
-            log::debug!("Created new buffer");
+        // Use QueryPane instead of raw Buffer to get LSP/autocompletion support
+        let pane = QueryPane::with_name("", buffer_name);
+        let pane: Box<dyn Component> = Box::new(pane);
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            log::debug!("Created new query pane");
         }
     }
 
@@ -1846,8 +1922,10 @@ impl Dashboard {
             return None;
         }
 
-        // Don't handle if fuzzy finder, command palette, buffer editor, multi-edit, or which-key is open
+        // Don't handle if any modal is open
         if self.metrics_finder.is_open()
+            || self.query_finder.is_open()
+            || self.workspace_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
             || self.multi_edit_overlay.is_open()
@@ -1879,6 +1957,9 @@ impl Dashboard {
         let mut should_open_which_key = false;
         let mut should_enter_visual_multi = false;
         let mut should_cycle_visualization = false;
+        let mut should_next_workspace_tab = false;
+        let mut should_prev_workspace_tab = false;
+        let mut should_open_workspace_finder = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -1920,6 +2001,27 @@ impl Dashboard {
                         return;
                     }
                 }
+            }
+
+            // N - go to next workspace tab
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::N) {
+                should_next_workspace_tab = true;
+                consumed = true;
+                return;
+            }
+
+            // P - go to previous workspace tab
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::P) {
+                should_prev_workspace_tab = true;
+                consumed = true;
+                return;
+            }
+
+            // w - open workspace finder
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                should_open_workspace_finder = true;
+                consumed = true;
+                return;
             }
 
             // e - enter edit mode on focused pane (vim-style)
@@ -2035,6 +2137,22 @@ impl Dashboard {
                     return Some(DashboardAction::SharePane(pane_index));
                 }
             }
+        }
+
+        // Handle workspace tab navigation (gt/gT)
+        if should_next_workspace_tab {
+            ctx.request_repaint();
+            return Some(DashboardAction::NextWorkspaceTab);
+        }
+        if should_prev_workspace_tab {
+            ctx.request_repaint();
+            return Some(DashboardAction::PrevWorkspaceTab);
+        }
+
+        // Handle workspace finder (w key)
+        if should_open_workspace_finder {
+            self.pending_open_workspace_finder = true;
+            ctx.request_repaint();
         }
 
         if should_open_which_key {

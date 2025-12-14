@@ -93,6 +93,16 @@ Organize queries with hierarchical tags (e.g., `production/api/latency`).
 | `gg` | Go to start of data |
 | `G` | Go to end of data |
 
+#### Workspace Tabs (barbar.nvim-style)
+
+| Key | Action |
+|-----|--------|
+| `Shift+T` | Create new workspace tab |
+| `Shift+N` | Go to next workspace tab |
+| `Shift+P` | Go to previous workspace tab |
+
+Commands: `:tabnew`, `:tabnext`/`:tabn`, `:tabprev`/`:tabp`, `:tabclose`/`:tabc`
+
 #### Global Shortcuts
 
 | Key | Action |

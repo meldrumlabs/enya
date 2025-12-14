@@ -109,6 +109,14 @@ pub enum CommandResult {
     PrevDiagnostic,
     /// Add test diagnostics (for development/demo)
     TestDiagnostics,
+    /// Create a new workspace tab
+    NewWorkspaceTab(Option<String>),
+    /// Close current workspace tab
+    CloseWorkspaceTab,
+    /// Go to next workspace tab
+    NextWorkspaceTab,
+    /// Go to previous workspace tab
+    PrevWorkspaceTab,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -283,6 +291,30 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "lprev",
         aliases: &["lp", "lprevious"],
         description: "Jump to previous diagnostic",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "tabnew",
+        aliases: &["tnew", "tabcreate"],
+        description: "Create a new workspace tab",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "tabclose",
+        aliases: &["tclose", "tc"],
+        description: "Close current workspace tab",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "tabn",
+        aliases: &["tabnext", "tn"],
+        description: "Go to next workspace tab",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "tabp",
+        aliases: &["tabprev", "tabprevious", "tp"],
+        description: "Go to previous workspace tab",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -592,6 +624,18 @@ impl CommandPalette {
             }
             "lnext" => CommandResult::NextDiagnostic,
             "lprev" => CommandResult::PrevDiagnostic,
+            "tabnew" => {
+                // :tabnew or :tabnew name - create new workspace tab with optional name
+                let name = if args.is_empty() {
+                    None
+                } else {
+                    Some(args.join(" "))
+                };
+                CommandResult::NewWorkspaceTab(name)
+            }
+            "tabclose" => CommandResult::CloseWorkspaceTab,
+            "tabn" => CommandResult::NextWorkspaceTab,
+            "tabp" => CommandResult::PrevWorkspaceTab,
             _ => CommandResult::None,
         }
     }

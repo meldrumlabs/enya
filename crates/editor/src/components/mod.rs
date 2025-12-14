@@ -28,6 +28,7 @@ pub mod time_range;
 pub mod time_series_chart;
 pub mod visualization;
 pub mod which_key;
+pub mod workspace_finder;
 
 pub use buffer::{Buffer, BufferAction, BufferMode};
 pub use buffer_editor::{BufferEditor, BufferEditorResult};
@@ -60,6 +61,7 @@ pub use visualization::{
     VisualizationType,
 };
 pub use which_key::WhichKey;
+pub use workspace_finder::{WorkspaceFinder, WorkspaceItem};
 
 /// Trait that defines an Enya Component
 pub trait Component: Any {
