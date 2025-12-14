@@ -73,8 +73,6 @@ pub struct Dashboard {
     open_charts: HashSet<String>,
     /// Pending chart to add (metric name)
     pending_chart: Option<String>,
-    /// Counter for generating unique buffer names within this workspace
-    next_buffer_number: usize,
     /// Time range toolbar
     time_range_toolbar: TimeRangeToolbar,
     /// Fuzzy finder modal for metrics (telescope-style search)
@@ -141,7 +139,6 @@ impl Default for Dashboard {
             behavior: TreeBehavior::default(),
             open_charts: HashSet::new(),
             pending_chart: None,
-            next_buffer_number: 1,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
             query_finder: QueryFinder::new(),
@@ -240,11 +237,10 @@ impl VisualMultiState {
 }
 
 impl Dashboard {
-    /// Create a new empty dashboard (no landing page, with an empty buffer ready)
+    /// Create a new empty dashboard (no landing page)
     pub fn new_empty() -> Self {
         let mut dashboard = Self::example(String::new());
         dashboard.show_landing = false;
-        dashboard.create_new_buffer();
         dashboard
     }
 
@@ -261,7 +257,6 @@ impl Dashboard {
             behavior: TreeBehavior::default(),
             open_charts: HashSet::new(),
             pending_chart: None,
-            next_buffer_number: 1,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
             query_finder: QueryFinder::new(),
@@ -711,18 +706,6 @@ impl Dashboard {
                 self.split_panes_vertical();
                 DashboardAction::None
             }
-            CommandResult::SaveBuffer(name) => {
-                self.save_focused_buffer(name);
-                DashboardAction::None
-            }
-            CommandResult::EditBuffer => {
-                self.edit_focused_buffer();
-                DashboardAction::None
-            }
-            CommandResult::NewBuffer => {
-                self.create_new_buffer();
-                DashboardAction::None
-            }
             CommandResult::ToggleZenMode => {
                 self.toggle_zen_mode();
                 DashboardAction::None
@@ -809,32 +792,6 @@ impl Dashboard {
         None
     }
 
-    /// Save the focused buffer (execute its query), optionally setting a name
-    fn save_focused_buffer(&mut self, name: Option<String>) {
-        if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) =
-                self.viewport_tree.tiles.get_mut(tile_id)
-            {
-                // Try to downcast to QueryPane and save
-                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                    if let Some(ref new_name) = name {
-                        query_pane.set_name(new_name);
-                    }
-                    if query_pane.save() {
-                        log::debug!("Buffer saved");
-                    }
-                } else if let Some(buffer) = component.as_any_mut().downcast_mut::<Buffer>() {
-                    if let Some(ref new_name) = name {
-                        buffer.set_name(new_name);
-                    }
-                    if buffer.save() {
-                        log::debug!("Buffer saved");
-                    }
-                }
-            }
-        }
-    }
-
     /// Toggle commit markers on the focused chart
     fn toggle_commits_on_focused(&mut self) {
         if let Some(tile_id) = self.behavior.focused_tile() {
@@ -844,29 +801,6 @@ impl Dashboard {
                 if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
                     query_pane.toggle_commits();
                     log::debug!("Toggled commit markers");
-                }
-            }
-        }
-    }
-
-    /// Enter edit mode on the focused buffer - opens the modal editor
-    fn edit_focused_buffer(&mut self) {
-        if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                // Try to downcast to QueryPane and get query info
-                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                    let query = query_pane.saved_query().to_string();
-                    let name = query_pane.name().to_string();
-                    let state = query_pane.query_state().clone();
-                    self.buffer_editor.open_with_state(&query, &name, state);
-                    self.editing_tile_id = Some(tile_id);
-                    log::debug!("Opening buffer editor for QueryPane");
-                } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
-                    let query = buffer.saved_content().to_string();
-                    let name = buffer.name().to_string();
-                    self.buffer_editor.open(&query, &name);
-                    self.editing_tile_id = Some(tile_id);
-                    log::debug!("Opening buffer editor for Buffer");
                 }
             }
         }
@@ -1157,22 +1091,6 @@ impl Dashboard {
             self.open_charts.insert(chart_key);
             self.behavior.set_focused_tile(Some(pane_tile));
             log::debug!("Added query pane for '{query_name}'");
-        }
-    }
-
-    /// Create a new empty query pane in the viewport
-    fn create_new_buffer(&mut self) {
-        let buffer_name = format!("Buffer {}", self.next_buffer_number);
-        self.next_buffer_number += 1;
-
-        // Use QueryPane instead of raw Buffer to get LSP/autocompletion support
-        let pane = QueryPane::with_name("", buffer_name);
-        let pane: Box<dyn Component> = Box::new(pane);
-        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(pane_tile) {
-            self.behavior.set_focused_tile(Some(pane_tile));
-            log::debug!("Created new query pane");
         }
     }
 
@@ -1604,7 +1522,6 @@ impl Dashboard {
         let mut consumed = false;
         let mut should_clear_focus = false;
         let mut should_close_focused = false;
-        let mut should_edit_buffer = false;
         let mut should_toggle_zen = false;
         let mut should_toggle_fullscreen = false;
         let mut should_share_pane = false;
@@ -1674,13 +1591,6 @@ impl Dashboard {
             // w - open workspace finder
             if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
                 should_open_workspace_finder = true;
-                consumed = true;
-                return;
-            }
-
-            // e - enter edit mode on focused pane (vim-style)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
-                should_edit_buffer = true;
                 consumed = true;
                 return;
             }
@@ -1817,8 +1727,6 @@ impl Dashboard {
             if let Some(tile_id) = starting_tile {
                 self.enter_visual_multi_mode(tile_id);
             }
-        } else if should_edit_buffer {
-            self.edit_focused_buffer();
         } else if should_cycle_visualization {
             self.cycle_focused_visualization();
         } else if should_toggle_zen {

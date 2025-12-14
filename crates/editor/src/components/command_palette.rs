@@ -57,12 +57,6 @@ pub enum CommandResult {
     CloseTab,
     /// Quit the application
     QuitApp,
-    /// Save the current buffer (:w [name])
-    SaveBuffer(Option<String>),
-    /// Edit the current buffer (:e) - enter insert mode
-    EditBuffer,
-    /// Create a new buffer (:new or :enew)
-    NewBuffer,
     /// Toggle zen mode (distraction-free view)
     ToggleZenMode,
     /// Toggle fullscreen for focused pane
@@ -119,19 +113,19 @@ const COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         name: "search",
-        aliases: &["s", "find", "f"],
+        aliases: &["s"],
         description: "Open fuzzy finder search",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "info",
-        aliases: &["version", "ver", "about"],
+        aliases: &["version"],
         description: "Show version and build info",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "help",
-        aliases: &["h", "?"],
+        aliases: &["h"],
         description: "Show help and available commands",
         kind: CommandKind::NoArgs,
     },
@@ -149,7 +143,7 @@ const COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         name: "close",
-        aliases: &["q", "quit"],
+        aliases: &["q"],
         description: "Close current tab",
         kind: CommandKind::NoArgs,
     },
@@ -160,111 +154,81 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "write",
-        aliases: &["w", "save"],
-        description: "Save buffer (:w [name])",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "edit",
-        aliases: &["e"],
-        description: "Edit buffer (enter insert mode)",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "new",
-        aliases: &["enew", "buffer"],
-        description: "Create a new buffer",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "zen",
-        aliases: &["z", "focus", "distraction-free"],
-        description: "Toggle zen mode (distraction-free view)",
+        aliases: &["z"],
+        description: "Toggle zen mode",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "fullscreen",
-        aliases: &["full", "maximize", "max"],
+        aliases: &["full"],
         description: "Toggle fullscreen for focused chart",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "home",
-        aliases: &["landing", "start", "welcome"],
-        description: "Show the landing page / home screen",
+        aliases: &[],
+        description: "Show the landing page",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "screenshot",
-        aliases: &["ss", "snap", "capture"],
-        description: "Take a screenshot (optional: path to save)",
+        aliases: &["ss"],
+        description: "Take a screenshot",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "mksession",
-        aliases: &["mks", "savews", "saveworkspace"],
-        description: "Save workspace (:mksession [name])",
+        aliases: &["mks"],
+        description: "Save workspace",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "source",
-        aliases: &["so", "loadws", "loadworkspace"],
-        description: "Load workspace (:source <name>)",
+        aliases: &["so"],
+        description: "Load workspace",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "workspaces",
-        aliases: &["ws", "sessions"],
+        aliases: &["ws"],
         description: "List available workspaces",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "share",
-        aliases: &["export", "url"],
-        description: "Share current workspace as URL (copies to clipboard)",
+        aliases: &[],
+        description: "Share workspace as URL",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "commits",
-        aliases: &["git", "markers"],
-        description: "Toggle git commit markers on charts",
+        aliases: &["git"],
+        description: "Toggle git commit markers",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "connect",
-        aliases: &["conn"],
-        description: "Connect to agent (:connect <url>)",
+        aliases: &[],
+        description: "Connect to agent",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "diagnostics",
-        aliases: &["diag", "d"],
-        description: "Toggle/show/hide/clear diagnostics pane",
+        aliases: &["diag"],
+        description: "Toggle/show/hide/clear diagnostics",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "tabnew",
-        aliases: &["tnew", "tabcreate"],
-        description: "Create a new workspace tab",
+        aliases: &[],
+        description: "Create new workspace tab",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "tabclose",
-        aliases: &["tclose", "tc"],
+        aliases: &[],
         description: "Close current workspace tab",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "tabn",
-        aliases: &["tabnext", "tn"],
-        description: "Go to next workspace tab",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "tabp",
-        aliases: &["tabprev", "tabprevious", "tp"],
-        description: "Go to previous workspace tab",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -494,18 +458,6 @@ impl CommandPalette {
             "vsplit" => CommandResult::SplitVertical,
             "close" => CommandResult::CloseTab,
             "exit" => CommandResult::QuitApp,
-            "write" => {
-                // :w or :w name - save buffer with optional name
-                let name = if args.is_empty() {
-                    None
-                } else {
-                    // Join all args as the name (allows spaces in names)
-                    Some(args.join(" "))
-                };
-                CommandResult::SaveBuffer(name)
-            }
-            "edit" => CommandResult::EditBuffer,
-            "new" => CommandResult::NewBuffer,
             "zen" => CommandResult::ToggleZenMode,
             "fullscreen" => CommandResult::ToggleFullscreen,
             "home" => CommandResult::ShowLandingPage,
@@ -574,8 +526,6 @@ impl CommandPalette {
                 CommandResult::NewWorkspaceTab(name)
             }
             "tabclose" => CommandResult::CloseWorkspaceTab,
-            "tabn" => CommandResult::NextWorkspaceTab,
-            "tabp" => CommandResult::PrevWorkspaceTab,
             _ => CommandResult::None,
         }
     }
