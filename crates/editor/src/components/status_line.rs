@@ -10,6 +10,7 @@ use egui::{Color32, Layout, Ui};
 use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 /// Unicode block characters for sparkline rendering (1/8 to 8/8 height)
 const SPARKLINE_BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -509,7 +510,7 @@ impl StatusLine {
                 ui.label(
                     egui::RichText::new(extra)
                         .color(self.segment_fg())
-                        .size(12.0)
+                        .size(typography::MD)
                         .family(egui::FontFamily::Monospace),
                 );
             }
@@ -638,7 +639,7 @@ impl StatusLine {
         // Calculate width needed for the text
         let galley = ui.painter().layout_no_wrap(
             content.clone(),
-            egui::FontId::proportional(12.0),
+            typography::proportional(typography::MD),
             fg_color,
         );
         let text_width = galley.size().x + padding * 2.0;
@@ -653,7 +654,7 @@ impl StatusLine {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 &content,
-                egui::FontId::proportional(12.0),
+                typography::proportional(typography::MD),
                 fg_color,
             );
         }
@@ -681,7 +682,7 @@ impl StatusLine {
         // Calculate width needed for the text
         let galley = ui.painter().layout_no_wrap(
             content.clone(),
-            egui::FontId::proportional(12.0),
+            typography::proportional(typography::MD),
             fg_color,
         );
         let text_width = galley.size().x + padding * 2.0;
@@ -696,7 +697,7 @@ impl StatusLine {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 &content,
-                egui::FontId::proportional(12.0),
+                typography::proportional(typography::MD),
                 fg_color,
             );
         }
@@ -728,17 +729,17 @@ impl StatusLine {
         // Calculate widths for each part
         let chart_galley = ui.painter().layout_no_wrap(
             chart.clone(),
-            egui::FontId::proportional(12.0),
+            typography::proportional(typography::MD),
             sparkline_color,
         );
         let value_galley = ui.painter().layout_no_wrap(
             format!(" {value}"),
-            egui::FontId::proportional(12.0),
+            typography::proportional(typography::MD),
             fg_color,
         );
         let label_galley = ui.painter().layout_no_wrap(
             format!(" {label}"),
-            egui::FontId::proportional(12.0),
+            typography::proportional(typography::MD),
             fg_color,
         );
 
@@ -759,7 +760,7 @@ impl StatusLine {
                 egui::pos2(chart_x, rect.center().y),
                 egui::Align2::LEFT_CENTER,
                 &chart,
-                egui::FontId::proportional(12.0),
+                typography::proportional(typography::MD),
                 sparkline_color,
             );
 
@@ -769,7 +770,7 @@ impl StatusLine {
                 egui::pos2(value_x, rect.center().y),
                 egui::Align2::LEFT_CENTER,
                 format!(" {value}"),
-                egui::FontId::proportional(12.0),
+                typography::proportional(typography::MD),
                 fg_color,
             );
 
@@ -779,7 +780,7 @@ impl StatusLine {
                 egui::pos2(label_x, rect.center().y),
                 egui::Align2::LEFT_CENTER,
                 format!(" {label}"),
-                egui::FontId::proportional(12.0),
+                typography::proportional(typography::MD),
                 fg_color.gamma_multiply(0.7),
             );
         }

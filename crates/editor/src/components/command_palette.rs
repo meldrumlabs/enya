@@ -1,4 +1,4 @@
-use egui::{Color32, FontId, Key, RichText, TextFormat, text::LayoutJob};
+use egui::{Color32, Key, RichText, TextFormat, text::LayoutJob};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
@@ -9,6 +9,7 @@ use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 /// A command that can be executed from the command palette
 #[derive(Debug, Clone)]
@@ -764,12 +765,12 @@ impl CommandPalette {
                             ui.label(
                                 RichText::new(":")
                                     .color(text_color(self.theme))
-                                    .size(18.0)
+                                    .size(typography::HEADING)
                                     .strong(),
                             );
 
                             let text_edit = egui::TextEdit::singleline(&mut self.input)
-                                .font(FontId::proportional(16.0))
+                                .font(typography::heading())
                                 .hint_text(
                                     RichText::new("Type a command...")
                                         .color(text_color(self.theme).gamma_multiply(0.4)),
@@ -831,7 +832,7 @@ impl CommandPalette {
                                         error
                                     ))
                                     .color(Color32::from_rgb(220, 80, 80))
-                                    .size(13.0),
+                                    .size(typography::LG),
                                 );
                             });
                             ui.add_space(4.0);
@@ -848,7 +849,7 @@ impl CommandPalette {
                                         ui.label(
                                             RichText::new("No matching commands")
                                                 .color(text_color(self.theme).gamma_multiply(0.5))
-                                                .size(14.0),
+                                                .size(typography::XL),
                                         );
                                     });
                                     ui.add_space(12.0);
@@ -872,17 +873,33 @@ impl CommandPalette {
                         ui.horizontal(|ui| {
                             ui.add_space(12.0);
                             let hint_color = text_color(self.theme).gamma_multiply(0.4);
-                            ui.label(RichText::new("↑↓").color(hint_color).size(11.0));
-                            ui.label(RichText::new("navigate").color(hint_color).size(11.0));
+                            ui.label(RichText::new("↑↓").color(hint_color).size(typography::SM));
+                            ui.label(
+                                RichText::new("navigate")
+                                    .color(hint_color)
+                                    .size(typography::SM),
+                            );
                             ui.add_space(12.0);
-                            ui.label(RichText::new("Tab").color(hint_color).size(11.0));
-                            ui.label(RichText::new("complete").color(hint_color).size(11.0));
+                            ui.label(RichText::new("Tab").color(hint_color).size(typography::SM));
+                            ui.label(
+                                RichText::new("complete")
+                                    .color(hint_color)
+                                    .size(typography::SM),
+                            );
                             ui.add_space(12.0);
-                            ui.label(RichText::new("↵").color(hint_color).size(11.0));
-                            ui.label(RichText::new("execute").color(hint_color).size(11.0));
+                            ui.label(RichText::new("↵").color(hint_color).size(typography::SM));
+                            ui.label(
+                                RichText::new("execute")
+                                    .color(hint_color)
+                                    .size(typography::SM),
+                            );
                             ui.add_space(12.0);
-                            ui.label(RichText::new("esc").color(hint_color).size(11.0));
-                            ui.label(RichText::new("close").color(hint_color).size(11.0));
+                            ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
+                            ui.label(
+                                RichText::new("close")
+                                    .color(hint_color)
+                                    .size(typography::SM),
+                            );
                         });
                         ui.add_space(8.0);
                     });
@@ -970,7 +987,7 @@ impl CommandPalette {
             let aliases_text = format!("({})", suggestion.command.aliases.join(", "));
             let aliases_galley = ui.painter().layout_no_wrap(
                 aliases_text,
-                FontId::proportional(12.0),
+                typography::proportional(typography::MD),
                 text_col.gamma_multiply(0.4),
             );
             ui.painter().galley(
@@ -987,7 +1004,7 @@ impl CommandPalette {
         // Description (on the right, dimmed)
         let desc_galley = ui.painter().layout_no_wrap(
             suggestion.command.description.to_string(),
-            FontId::proportional(12.0),
+            typography::proportional(typography::MD),
             text_col.gamma_multiply(0.5),
         );
         let desc_x = content_rect.right() - desc_galley.size().x - 8.0;
@@ -1015,7 +1032,7 @@ impl CommandPalette {
         highlight_color: Color32,
     ) -> std::sync::Arc<egui::Galley> {
         let mut job = LayoutJob::default();
-        let font_id = FontId::proportional(14.0);
+        let font_id = typography::proportional(typography::XL);
 
         for (i, ch) in text.chars().enumerate() {
             let color = if positions.contains(&i) {

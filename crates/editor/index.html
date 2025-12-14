@@ -23,11 +23,21 @@
     <link data-trunk rel="copy-file" href="assets/external_link.png"/>
     <link data-trunk rel="copy-file" href="assets/sw.js"/>
     <link data-trunk rel="copy-file" href="assets/manifest.json"/>
+    <link data-trunk rel="copy-file" href="assets/fonts/DepartureMono-Regular.otf"/>
 
 
     <link rel="manifest" href="manifest.json">
 
     <style>
+        /* Load Departure Mono font for consistent typography */
+        @font-face {
+            font-family: 'Departure Mono';
+            src: url('DepartureMono-Regular.otf') format('opentype');
+            font-weight: normal;
+            font-style: normal;
+            font-display: swap;
+        }
+
         html {
             /* Remove touch delay: */
             touch-action: manipulation;
@@ -35,6 +45,8 @@
 
         body {
             background: #000000;
+            font-family: 'Departure Mono', monospace;
+            font-size: 11px;
         }
 
       /* Allow canvas to fill entire web page: */
@@ -79,8 +91,8 @@
             left: 50%;
             transform: translate(-50%, -50%);
             color: #000000;
-            font-size: 24px;
-            font-family: Ubuntu-Light, Helvetica, sans-serif;
+            font-size: 16px;
+            font-family: 'Departure Mono', monospace;
             text-align: center;
         }
 

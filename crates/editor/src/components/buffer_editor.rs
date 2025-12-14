@@ -9,6 +9,7 @@ use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::typography;
 
 /// Truncate a message to a maximum length, adding ellipsis if needed
 fn truncate_message(msg: &str, max_len: usize) -> String {
@@ -576,7 +577,7 @@ impl BufferEditor {
                                     ui.label(
                                         RichText::new("INSERT")
                                             .color(Color32::WHITE)
-                                            .size(11.0)
+                                            .size(typography::SM)
                                             .strong(),
                                     );
                                 });
@@ -587,7 +588,7 @@ impl BufferEditor {
                             ui.label(
                                 RichText::new(&self.buffer_name)
                                     .color(text_color(self.theme))
-                                    .size(14.0),
+                                    .size(typography::XL),
                             );
 
                             // Modified indicator
@@ -596,7 +597,7 @@ impl BufferEditor {
                                 ui.label(
                                     RichText::new("[+]")
                                         .color(palette::semantic::WARNING)
-                                        .size(12.0),
+                                        .size(typography::MD),
                                 );
                             }
 
@@ -608,7 +609,7 @@ impl BufferEditor {
                                         ui.label(
                                             RichText::new(semantic_icons::status::SUCCESS)
                                                 .color(palette::semantic::SUCCESS)
-                                                .size(12.0),
+                                                .size(typography::MD),
                                         )
                                         .on_hover_text("Query is valid");
                                     } else {
@@ -626,7 +627,7 @@ impl BufferEditor {
                                                     warn_count
                                                 ))
                                                 .color(palette::semantic::WARNING)
-                                                .size(11.0),
+                                                .size(typography::SM),
                                             )
                                             .on_hover_text(format!("{warn_count} warning(s)"));
                                         }
@@ -645,7 +646,7 @@ impl BufferEditor {
                                             error_count
                                         ))
                                         .color(Color32::from_rgb(220, 60, 60))
-                                        .size(11.0),
+                                        .size(typography::SM),
                                     )
                                     .on_hover_text(format!("{error_count} error(s)"));
                                 }
@@ -659,7 +660,7 @@ impl BufferEditor {
                                     ui.label(
                                         RichText::new("Esc to cancel")
                                             .color(text_color(self.theme).gamma_multiply(0.4))
-                                            .size(11.0),
+                                            .size(typography::SM),
                                     );
                                 },
                             );
@@ -686,13 +687,13 @@ impl BufferEditor {
                             ui.label(
                                 RichText::new(semantic_icons::file::CODE)
                                     .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(14.0),
+                                    .size(typography::XL),
                             );
                             ui.add_space(8.0);
                             ui.label(
                                 RichText::new("Query")
                                     .color(text_color(self.theme).gamma_multiply(0.7))
-                                    .size(12.0),
+                                    .size(typography::MD),
                             );
                         });
 
@@ -746,7 +747,7 @@ impl BufferEditor {
                                     let mut job = highlight_query_detailed(
                                         text_str,
                                         theme,
-                                        FontId::monospace(14.0),
+                                        typography::code(),
                                     );
                                     job.wrap.max_width = wrap_width;
                                     ui.fonts_mut(|f| f.layout_job(job))
@@ -760,7 +761,7 @@ impl BufferEditor {
                                 .show(ui, |ui| {
                                     egui::TextEdit::multiline(&mut self.query)
                                         .id(text_edit_id)
-                                        .font(FontId::monospace(14.0))
+                                        .font(typography::code())
                                         .hint_text(
                                             RichText::new(
                                                 "Enter query (e.g., env:prod AND service:db)",
@@ -910,7 +911,7 @@ impl BufferEditor {
                                         // Only paint if within bounds
                                         if virtual_text_x < text_rect.right() - 20.0 {
                                             let painter = ui.painter();
-                                            let small_font = FontId::proportional(11.0);
+                                            let small_font = typography::body();
 
                                             // Measure text for background
                                             let galley = painter.layout_no_wrap(
@@ -958,11 +959,15 @@ impl BufferEditor {
                             let hint_color = text_color(self.theme).gamma_multiply(0.4);
 
                             // Keyboard hints
-                            ui.label(RichText::new("⌘↵").color(hint_color).size(11.0));
-                            ui.label(RichText::new("save").color(hint_color).size(11.0));
+                            ui.label(RichText::new("⌘↵").color(hint_color).size(typography::SM));
+                            ui.label(RichText::new("save").color(hint_color).size(typography::SM));
                             ui.add_space(16.0);
-                            ui.label(RichText::new("esc").color(hint_color).size(11.0));
-                            ui.label(RichText::new("cancel").color(hint_color).size(11.0));
+                            ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
+                            ui.label(
+                                RichText::new("cancel")
+                                    .color(hint_color)
+                                    .size(typography::SM),
+                            );
 
                             // Right side - save button
                             ui.with_layout(
@@ -975,7 +980,7 @@ impl BufferEditor {
                                             "{} Save",
                                             semantic_icons::action::SAVE
                                         ))
-                                        .size(12.0),
+                                        .size(typography::MD),
                                     )
                                     .fill(accent_color);
 
@@ -986,7 +991,7 @@ impl BufferEditor {
                                     // Cancel button
                                     let cancel_btn = egui::Button::new(
                                         RichText::new("Cancel")
-                                            .size(12.0)
+                                            .size(typography::MD)
                                             .color(text_color(self.theme)),
                                     );
 
