@@ -39,7 +39,8 @@ fn metrics_panel_toggle_button(
     })
 }
 use crate::workspace::{
-    ConnectionConfig, PaneConfig, TimeConfig, ViewConfig, Workspace, WorkspaceMeta,
+    ConnectionConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
+    TimeConfig, ViewConfig, Workspace, WorkspaceMeta,
 };
 
 /// Actions that the Dashboard needs the App to handle
@@ -398,7 +399,7 @@ impl Dashboard {
         // Handle pending workspace finder open (needs app_state for workspace list)
         if self.pending_open_workspace_finder {
             self.pending_open_workspace_finder = false;
-            self.open_workspace_finder(app_state);
+            self.open_workspace_finder(app_state, crate::app::EnyaApp::list_available_workspaces());
         }
 
         // Show landing page only if explicitly enabled and no charts open
@@ -785,7 +786,10 @@ impl Dashboard {
                 self.open_query_finder();
             }
             LandingPageAction::OpenWorkspaceFinder => {
-                self.open_workspace_finder(app_state);
+                self.open_workspace_finder(
+                    app_state,
+                    crate::app::EnyaApp::list_available_workspaces(),
+                );
             }
             LandingPageAction::ShowHelp => {
                 self.which_key.open();
@@ -1209,9 +1213,13 @@ impl Dashboard {
     }
 
     /// Open the workspace finder modal (for loading saved workspaces)
-    pub fn open_workspace_finder(&mut self, app_state: &AppState) {
-        // Populate the workspace finder with recent workspaces
-        let workspaces: Vec<WorkspaceItem> = app_state
+    pub fn open_workspace_finder(
+        &mut self,
+        app_state: &AppState,
+        available_workspaces: Vec<(String, Option<String>)>,
+    ) {
+        // Start with recent workspaces
+        let mut workspaces: Vec<WorkspaceItem> = app_state
             .settings
             .recent_workspaces
             .iter()
@@ -1224,6 +1232,16 @@ impl Dashboard {
                 },
             })
             .collect();
+
+        // Track names already in the list
+        let existing_names: HashSet<String> = workspaces.iter().map(|w| w.name.clone()).collect();
+
+        // Add available workspaces from filesystem that aren't already in recent
+        for (name, description) in available_workspaces {
+            if !existing_names.contains(&name) {
+                workspaces.push(WorkspaceItem { name, description });
+            }
+        }
 
         self.workspace_finder.set_workspaces(workspaces);
         self.workspace_finder.open();
@@ -2646,6 +2664,7 @@ impl Dashboard {
             },
             time: TimeConfig::from_preset(self.time_range_toolbar.time_range().preset),
             panes,
+            layout: self.extract_layout_from_tree(),
         }
     }
 
@@ -2665,10 +2684,12 @@ impl Dashboard {
         self.time_range_toolbar
             .set_preset(workspace.time.to_preset());
 
-        // Clear existing panes
+        // Clear existing panes and reset the tree
         self.clear_all_panes();
 
-        // Add panes from workspace
+        // Phase 1: Insert all panes and collect their TileIds
+        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(workspace.panes.len());
+
         for pane_config in &workspace.panes {
             let mut query_pane = QueryPane::new(&pane_config.query);
             if !pane_config.name.is_empty() {
@@ -2685,10 +2706,32 @@ impl Dashboard {
             // Track the chart
             self.open_charts.insert(pane_config.query.clone());
 
-            // Add to viewport
+            // Insert pane and record its TileId (don't add to viewport yet)
             let tile_id = self.viewport_tree.tiles.insert_pane(Box::new(query_pane));
-            self.add_tile_to_viewport(tile_id);
+            pane_tile_ids.push(tile_id);
         }
+
+        // Phase 2: Build the layout tree
+        let root_id = if let Some(layout) = &workspace.layout {
+            // Validate layout references before building
+            if let Err(e) = layout.validate(workspace.panes.len()) {
+                log::warn!("Invalid layout config: {e}. Falling back to tabs.");
+                self.viewport_tree
+                    .tiles
+                    .insert_tab_tile(pane_tile_ids.clone())
+            } else {
+                // Use explicit layout configuration
+                self.build_layout_tree(layout, &pane_tile_ids)
+            }
+        } else {
+            // Backward compatibility: no layout = tabs container
+            self.viewport_tree
+                .tiles
+                .insert_tab_tile(pane_tile_ids.clone())
+        };
+
+        // Set the root
+        self.viewport_tree.root = Some(root_id);
 
         // Hide landing page if we have panes
         if !workspace.panes.is_empty() {
@@ -2723,6 +2766,204 @@ impl Dashboard {
         self.open_charts.clear();
         self.behavior.set_focused_tile(None);
         self.show_landing = true;
+    }
+
+    // ==================== Layout Tree Building ====================
+
+    /// Build the tile tree from a layout configuration
+    fn build_layout_tree(&mut self, layout: &LayoutConfig, pane_tile_ids: &[TileId]) -> TileId {
+        let container = LayoutContainer {
+            layout_type: layout.layout_type,
+            children: layout.children.clone(),
+            shares: layout.shares.clone(),
+        };
+        self.build_container(&container, pane_tile_ids)
+    }
+
+    /// Recursively build a container and its children
+    fn build_container(&mut self, container: &LayoutContainer, pane_tile_ids: &[TileId]) -> TileId {
+        // First, resolve all children to TileIds
+        let child_ids: Vec<TileId> = container
+            .children
+            .iter()
+            .filter_map(|node| self.resolve_layout_node(node, pane_tile_ids))
+            .collect();
+
+        if child_ids.is_empty() {
+            // Fallback: create empty tabs container
+            return self.viewport_tree.tiles.insert_tab_tile(vec![]);
+        }
+
+        match container.layout_type {
+            LayoutType::Tabs => self.viewport_tree.tiles.insert_tab_tile(child_ids),
+            LayoutType::Horizontal => {
+                let container_id = self
+                    .viewport_tree
+                    .tiles
+                    .insert_horizontal_tile(child_ids.clone());
+
+                // Apply shares if specified
+                if !container.shares.is_empty() {
+                    self.apply_shares(container_id, &child_ids, &container.shares);
+                }
+
+                container_id
+            }
+            LayoutType::Vertical => {
+                let container_id = self
+                    .viewport_tree
+                    .tiles
+                    .insert_vertical_tile(child_ids.clone());
+
+                // Apply shares if specified
+                if !container.shares.is_empty() {
+                    self.apply_shares(container_id, &child_ids, &container.shares);
+                }
+
+                container_id
+            }
+        }
+    }
+
+    /// Resolve a layout node to a TileId
+    fn resolve_layout_node(
+        &mut self,
+        node: &LayoutNode,
+        pane_tile_ids: &[TileId],
+    ) -> Option<TileId> {
+        match node {
+            LayoutNode::Pane(index) => {
+                // Get the pre-inserted pane's TileId
+                pane_tile_ids.get(*index).copied()
+            }
+            LayoutNode::Container(container) => {
+                // Recursively build nested container
+                Some(self.build_container(container, pane_tile_ids))
+            }
+        }
+    }
+
+    /// Apply shares to a linear container
+    fn apply_shares(&mut self, container_id: TileId, child_ids: &[TileId], shares: &[f32]) {
+        if let Some(Tile::Container(egui_tiles::Container::Linear(linear))) =
+            self.viewport_tree.tiles.get_mut(container_id)
+        {
+            for (i, &child_id) in child_ids.iter().enumerate() {
+                let share = shares.get(i).copied().unwrap_or(1.0);
+                linear.shares.set_share(child_id, share);
+            }
+        }
+    }
+
+    // ==================== Layout Tree Extraction ====================
+
+    /// Extract layout configuration from the current tile tree
+    fn extract_layout_from_tree(&self) -> Option<LayoutConfig> {
+        let root_id = self.viewport_tree.root()?;
+
+        // Build a mapping from TileId to pane index
+        let pane_ids = self.get_pane_tile_ids();
+        let pane_index_map: HashMap<TileId, usize> = pane_ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| (id, i))
+            .collect();
+
+        // Extract the root container
+        match self.viewport_tree.tiles.get(root_id)? {
+            Tile::Container(container) => {
+                let (layout_type, children, shares) =
+                    self.extract_container(container, &pane_index_map);
+                Some(LayoutConfig {
+                    layout_type,
+                    children,
+                    shares,
+                })
+            }
+            Tile::Pane(_) => {
+                // Single pane - wrap in tabs
+                let index = pane_index_map.get(&root_id)?;
+                Some(LayoutConfig {
+                    layout_type: LayoutType::Tabs,
+                    children: vec![LayoutNode::Pane(*index)],
+                    shares: Vec::new(),
+                })
+            }
+        }
+    }
+
+    /// Extract a container's layout configuration
+    fn extract_container(
+        &self,
+        container: &egui_tiles::Container,
+        pane_index_map: &HashMap<TileId, usize>,
+    ) -> (LayoutType, Vec<LayoutNode>, Vec<f32>) {
+        match container {
+            egui_tiles::Container::Tabs(tabs) => {
+                let children: Vec<LayoutNode> = tabs
+                    .children
+                    .iter()
+                    .filter_map(|&id| self.tile_to_layout_node(id, pane_index_map))
+                    .collect();
+                (LayoutType::Tabs, children, Vec::new())
+            }
+            egui_tiles::Container::Linear(linear) => {
+                let layout_type = match linear.dir {
+                    egui_tiles::LinearDir::Horizontal => LayoutType::Horizontal,
+                    egui_tiles::LinearDir::Vertical => LayoutType::Vertical,
+                };
+
+                let children: Vec<LayoutNode> = linear
+                    .children
+                    .iter()
+                    .filter_map(|&id| self.tile_to_layout_node(id, pane_index_map))
+                    .collect();
+
+                // Extract shares
+                let shares: Vec<f32> = linear
+                    .children
+                    .iter()
+                    .map(|&id| linear.shares[id])
+                    .collect();
+
+                // Only include shares if they differ from default (all 1.0)
+                let all_default = shares.iter().all(|&s| (s - 1.0).abs() < 0.01);
+                let shares = if all_default { Vec::new() } else { shares };
+
+                (layout_type, children, shares)
+            }
+            egui_tiles::Container::Grid(_) => {
+                // Grid not supported in this schema - convert to tabs
+                let children: Vec<LayoutNode> = container
+                    .children()
+                    .filter_map(|&id| self.tile_to_layout_node(id, pane_index_map))
+                    .collect();
+                (LayoutType::Tabs, children, Vec::new())
+            }
+        }
+    }
+
+    /// Convert a tile to a layout node
+    fn tile_to_layout_node(
+        &self,
+        tile_id: TileId,
+        pane_index_map: &HashMap<TileId, usize>,
+    ) -> Option<LayoutNode> {
+        match self.viewport_tree.tiles.get(tile_id)? {
+            Tile::Pane(_) => {
+                let index = pane_index_map.get(&tile_id)?;
+                Some(LayoutNode::Pane(*index))
+            }
+            Tile::Container(container) => {
+                let (layout_type, children, shares) =
+                    self.extract_container(container, pane_index_map);
+                Some(LayoutNode::Container(LayoutContainer {
+                    layout_type,
+                    children,
+                    shares,
+                }))
+            }
+        }
     }
 
     /// Draw nvim-style scrollbar indicator in the scrollbar gutter
