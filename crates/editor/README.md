@@ -115,8 +115,121 @@ Select and edit multiple panes simultaneously (`Ctrl+V`).
 
 ### URL Sharing
 
-- **Full workspace**: `:share` command
-- **Single pane**: `yy` on focused pane
+Share your workspace or individual panes via URL:
+
+- **Full workspace**: Use `:share` command to copy a URL containing your entire workspace layout
+- **Single pane**: Use `yy` (vim-style yank) on a focused pane to share just that query
+
+URLs are compact using binary encoding (postcard + LZ4 compression + base64) and can be shared at `enya.build/editor`:
+
+- `?workspace=...` - Full workspace with all panes and layout
+- `?pane=...` - Single pane with just one query
+
+## Workspaces
+
+Workspaces are TOML configuration files that define a collection of panes with queries and an optional i3-style tiling layout. Workspaces are stored in `~/.enya/workspaces/`.
+
+### Workspace Commands
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `:mksession [name]` | `mks` | Save current workspace |
+| `:source [name]` | `so` | Load a workspace |
+| `:workspaces` | `ws` | Open workspace finder (fuzzy search) |
+
+### Basic Workspace Structure
+
+```toml
+[workspace]
+name = "my-dashboard"
+description = "Production monitoring dashboard"
+
+[view]
+theme = "dark"
+
+[time]
+preset = "1h"  # Options: 5m, 15m, 30m, 1h, 3h, 6h, 12h, 24h, 7d
+
+[[panes]]
+query = "env:prod AND service:api"
+name = "API Latency"
+aggregation = "p95"
+granularity = "1m"
+
+[[panes]]
+query = "env:prod AND name:error_rate"
+name = "Error Rate"
+aggregation = "sum"
+granularity = "5m"
+```
+
+### i3-Style Layout Configuration
+
+Workspaces support i3-style tiling layouts with horizontal/vertical splits and custom proportions.
+
+#### Layout Types
+
+- `horizontal` - Split panes side by side
+- `vertical` - Stack panes top to bottom
+- `tabs` - Group panes as tabs
+
+#### Pane References
+
+Panes are referenced by their 0-indexed position in the `[[panes]]` array:
+
+```toml
+[[panes]]          # Index 0
+query = "service:api"
+
+[[panes]]          # Index 1
+query = "service:db"
+
+[[panes]]          # Index 2
+query = "service:cache"
+```
+
+#### Simple Example
+
+```toml
+# Creates: Pane0 | Pane1 with equal widths
+[layout]
+type = "horizontal"
+children = [0, 1]
+```
+
+#### Nested Layout Example
+
+```toml
+# Creates: API (2/3 width) | (DB / Cache stacked, 1/3 width)
+# +---------------------+-----------+
+# |                     | Database  |
+# |        API          +-----------+
+# |                     |   Cache   |
+# +---------------------+-----------+
+[layout]
+type = "horizontal"
+shares = [2.0, 1.0]
+children = [
+    0,
+    { type = "vertical", children = [1, 2] }
+]
+```
+
+#### Layout Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `type` | string | Container type: `horizontal`, `vertical`, or `tabs` |
+| `children` | array | Pane indices (numbers) or nested container objects |
+| `shares` | array | Optional proportional sizing (defaults to equal `1.0` for each child) |
+
+### Connection Configuration
+
+```toml
+[connection]
+endpoint = "http://localhost:9797"
+api_key = "optional-api-key"
+```
 
 ## Building
 
