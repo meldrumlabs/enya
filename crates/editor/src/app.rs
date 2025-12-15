@@ -733,20 +733,71 @@ impl EnyaApp {
         home_enya
     }
 
-    /// Ensure the default example workspace exists
+    /// List available workspace files from the workspace directory
     #[cfg(not(target_arch = "wasm32"))]
-    fn ensure_default_workspace() {
-        use crate::workspace::DEFAULT_WORKSPACE_TOML;
+    pub fn list_available_workspaces() -> Vec<(String, Option<String>)> {
+        use crate::workspace::Workspace;
 
         let dir = Self::workspace_dir();
-        let example_path = dir.join("example.toml");
+        let mut workspaces = Vec::new();
 
-        // Only create if it doesn't exist
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "toml") {
+                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                        // Try to load workspace to get description
+                        let description = std::fs::read_to_string(&path)
+                            .ok()
+                            .and_then(|content| Workspace::from_toml(&content).ok())
+                            .and_then(|ws| {
+                                if ws.workspace.description.is_empty() {
+                                    None
+                                } else {
+                                    Some(ws.workspace.description)
+                                }
+                            });
+                        workspaces.push((name.to_string(), description));
+                    }
+                }
+            }
+        }
+
+        // Sort alphabetically by name
+        workspaces.sort_by(|a, b| a.0.cmp(&b.0));
+        workspaces
+    }
+
+    /// List available workspace files (WASM stub - returns empty)
+    #[cfg(target_arch = "wasm32")]
+    pub fn list_available_workspaces() -> Vec<(String, Option<String>)> {
+        Vec::new()
+    }
+
+    /// Ensure the default example workspaces exist
+    #[cfg(not(target_arch = "wasm32"))]
+    fn ensure_default_workspace() {
+        use crate::workspace::{COMPLEX_DASHBOARD_TOML, DEFAULT_WORKSPACE_TOML};
+
+        let dir = Self::workspace_dir();
+
+        // Create example workspace if it doesn't exist
+        let example_path = dir.join("example.toml");
         if !example_path.exists() {
             if let Err(e) = std::fs::write(&example_path, DEFAULT_WORKSPACE_TOML) {
                 log::warn!("Failed to create default workspace: {e}");
             } else {
                 log::info!("Created default workspace: {}", example_path.display());
+            }
+        }
+
+        // Create complex dashboard workspace if it doesn't exist
+        let dashboard_path = dir.join("dashboard.toml");
+        if !dashboard_path.exists() {
+            if let Err(e) = std::fs::write(&dashboard_path, COMPLEX_DASHBOARD_TOML) {
+                log::warn!("Failed to create dashboard workspace: {e}");
+            } else {
+                log::info!("Created dashboard workspace: {}", dashboard_path.display());
             }
         }
     }
