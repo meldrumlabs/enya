@@ -4,7 +4,6 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
-use super::tags::TagPath;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
@@ -44,8 +43,6 @@ pub enum CommandResult {
     ToggleTheme,
     /// Set specific theme
     SetTheme(AppTheme),
-    /// Toggle the metrics panel
-    ToggleMetricsPanel,
     /// Open the fuzzy finder
     OpenSearch,
     /// Show info overlay with build info
@@ -60,18 +57,10 @@ pub enum CommandResult {
     CloseTab,
     /// Quit the application
     QuitApp,
-    /// Save the current buffer (:w [name])
-    SaveBuffer(Option<String>),
-    /// Edit the current buffer (:e) - enter insert mode
-    EditBuffer,
-    /// Create a new buffer (:new or :enew)
-    NewBuffer,
     /// Toggle zen mode (distraction-free view)
     ToggleZenMode,
     /// Toggle fullscreen for focused pane
     ToggleFullscreen,
-    /// Show a test notification
-    TestNotify(String),
     /// Show the landing page (home screen)
     ShowLandingPage,
     /// Take a screenshot of the window (optionally with a custom path)
@@ -84,14 +73,6 @@ pub enum CommandResult {
     ListWorkspaces,
     /// Share workspace as URL (:share)
     ShareWorkspace,
-    /// Set tag filter (None = clear filter)
-    SetTagFilter(Option<TagPath>),
-    /// Add tag to focused buffer
-    AddTag(TagPath),
-    /// Remove tag from focused buffer
-    RemoveTag(TagPath),
-    /// Show all tags
-    ShowTags,
     /// Toggle commit markers visibility on charts
     ToggleCommits,
     /// Connect to agent endpoint
@@ -108,8 +89,6 @@ pub enum CommandResult {
     NextDiagnostic,
     /// Jump to previous diagnostic
     PrevDiagnostic,
-    /// Add test diagnostics (for development/demo)
-    TestDiagnostics,
     /// Create a new workspace tab
     NewWorkspaceTab(Option<String>),
     /// Close current workspace tab
@@ -134,26 +113,20 @@ const COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         name: "search",
-        aliases: &["s", "find", "f"],
+        aliases: &["s"],
         description: "Open fuzzy finder search",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "info",
-        aliases: &["version", "ver", "about"],
+        aliases: &["version"],
         description: "Show version and build info",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "help",
-        aliases: &["h", "?"],
+        aliases: &["h"],
         description: "Show help and available commands",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "metrics",
-        aliases: &["m"],
-        description: "Toggle metrics panel visibility",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -170,7 +143,7 @@ const COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         name: "close",
-        aliases: &["q", "quit"],
+        aliases: &["q"],
         description: "Close current tab",
         kind: CommandKind::NoArgs,
     },
@@ -181,141 +154,81 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "write",
-        aliases: &["w", "save"],
-        description: "Save buffer (:w [name])",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "edit",
-        aliases: &["e"],
-        description: "Edit buffer (enter insert mode)",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "new",
-        aliases: &["enew", "buffer"],
-        description: "Create a new buffer",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "zen",
-        aliases: &["z", "focus", "distraction-free"],
-        description: "Toggle zen mode (distraction-free view)",
+        aliases: &["z"],
+        description: "Toggle zen mode",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "fullscreen",
-        aliases: &["full", "maximize", "max"],
+        aliases: &["full"],
         description: "Toggle fullscreen for focused chart",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "notify",
-        aliases: &["n", "toast"],
-        description: "Show a test notification (info/success/warn/error)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
         name: "home",
-        aliases: &["landing", "start", "welcome"],
-        description: "Show the landing page / home screen",
+        aliases: &[],
+        description: "Show the landing page",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "screenshot",
-        aliases: &["ss", "snap", "capture"],
-        description: "Take a screenshot (optional: path to save)",
+        aliases: &["ss"],
+        description: "Take a screenshot",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "mksession",
-        aliases: &["mks", "savews", "saveworkspace"],
-        description: "Save workspace (:mksession [name])",
+        aliases: &["mks"],
+        description: "Save workspace",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "source",
-        aliases: &["so", "loadws", "loadworkspace"],
-        description: "Load workspace (:source <name>)",
+        aliases: &["so"],
+        description: "Load workspace",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "workspaces",
-        aliases: &["ws", "sessions"],
+        aliases: &["ws"],
         description: "List available workspaces",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "share",
-        aliases: &["export", "url"],
-        description: "Share current workspace as URL (copies to clipboard)",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "tag",
-        aliases: &["#"],
-        description: "Filter by tag or add/remove tags (+tag, -tag)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "tags",
-        aliases: &["taglist", "tl"],
-        description: "Show all tags with buffer counts",
+        aliases: &[],
+        description: "Share workspace as URL",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "commits",
-        aliases: &["git", "markers"],
-        description: "Toggle git commit markers on charts",
+        aliases: &["git"],
+        description: "Toggle git commit markers",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "connect",
-        aliases: &["conn"],
-        description: "Connect to agent (:connect <url>)",
+        aliases: &[],
+        description: "Connect to agent",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "diagnostics",
-        aliases: &["diag", "d"],
-        description: "Toggle/show/hide/clear diagnostics pane",
+        aliases: &["diag"],
+        description: "Toggle/show/hide/clear diagnostics",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "lnext",
-        aliases: &["ln"],
-        description: "Jump to next diagnostic",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "lprev",
-        aliases: &["lp", "lprevious"],
-        description: "Jump to previous diagnostic",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "tabnew",
-        aliases: &["tnew", "tabcreate"],
-        description: "Create a new workspace tab",
+        aliases: &[],
+        description: "Create new workspace tab",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "tabclose",
-        aliases: &["tclose", "tc"],
+        aliases: &[],
         description: "Close current workspace tab",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "tabn",
-        aliases: &["tabnext", "tn"],
-        description: "Go to next workspace tab",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "tabp",
-        aliases: &["tabprev", "tabprevious", "tp"],
-        description: "Go to previous workspace tab",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -528,7 +441,6 @@ impl CommandPalette {
             "search" => CommandResult::OpenSearch,
             "info" => CommandResult::ShowInfo,
             "help" => CommandResult::ShowHelp,
-            "metrics" => CommandResult::ToggleMetricsPanel,
             "split" => {
                 if args.is_empty() {
                     CommandResult::SplitHorizontal
@@ -546,24 +458,8 @@ impl CommandPalette {
             "vsplit" => CommandResult::SplitVertical,
             "close" => CommandResult::CloseTab,
             "exit" => CommandResult::QuitApp,
-            "write" => {
-                // :w or :w name - save buffer with optional name
-                let name = if args.is_empty() {
-                    None
-                } else {
-                    // Join all args as the name (allows spaces in names)
-                    Some(args.join(" "))
-                };
-                CommandResult::SaveBuffer(name)
-            }
-            "edit" => CommandResult::EditBuffer,
-            "new" => CommandResult::NewBuffer,
             "zen" => CommandResult::ToggleZenMode,
             "fullscreen" => CommandResult::ToggleFullscreen,
-            "notify" => {
-                let level = args.first().copied().unwrap_or("info");
-                CommandResult::TestNotify(level.to_string())
-            }
             "home" => CommandResult::ShowLandingPage,
             "screenshot" => {
                 // Join all args as the path (handles paths with spaces)
@@ -593,8 +489,6 @@ impl CommandPalette {
             }
             "workspaces" => CommandResult::ListWorkspaces,
             "share" => CommandResult::ShareWorkspace,
-            "tag" => self.execute_tag_command(args),
-            "tags" => CommandResult::ShowTags,
             "commits" => CommandResult::ToggleCommits,
             "connect" => {
                 if args.is_empty() {
@@ -615,16 +509,13 @@ impl CommandPalette {
                         "toggle" | "t" => CommandResult::ToggleDiagnostics,
                         "next" | "n" => CommandResult::NextDiagnostic,
                         "prev" | "previous" | "p" => CommandResult::PrevDiagnostic,
-                        "test" => CommandResult::TestDiagnostics,
                         _ => CommandResult::Error(format!(
-                            "Unknown diagnostics subcommand: {}. Use show/hide/clear/toggle/next/prev/test",
+                            "Unknown diagnostics subcommand: {}. Use show/hide/clear/toggle/next/prev",
                             args[0]
                         )),
                     }
                 }
             }
-            "lnext" => CommandResult::NextDiagnostic,
-            "lprev" => CommandResult::PrevDiagnostic,
             "tabnew" => {
                 // :tabnew or :tabnew name - create new workspace tab with optional name
                 let name = if args.is_empty() {
@@ -635,46 +526,8 @@ impl CommandPalette {
                 CommandResult::NewWorkspaceTab(name)
             }
             "tabclose" => CommandResult::CloseWorkspaceTab,
-            "tabn" => CommandResult::NextWorkspaceTab,
-            "tabp" => CommandResult::PrevWorkspaceTab,
             _ => CommandResult::None,
         }
-    }
-
-    /// Execute the :tag command with various subcommands
-    fn execute_tag_command(&self, args: &[&str]) -> CommandResult {
-        if args.is_empty() {
-            // :tag with no args - clear the filter
-            return CommandResult::SetTagFilter(None);
-        }
-
-        let arg = args[0];
-
-        // Check for add/remove prefixes
-        if let Some(tag_name) = arg.strip_prefix('+') {
-            // :tag +production - add tag to focused buffer
-            let path = TagPath::parse(tag_name);
-            if path.is_empty() {
-                return CommandResult::Error("Empty tag path".to_string());
-            }
-            return CommandResult::AddTag(path);
-        }
-
-        if let Some(tag_name) = arg.strip_prefix('-') {
-            // :tag -production - remove tag from focused buffer
-            let path = TagPath::parse(tag_name);
-            if path.is_empty() {
-                return CommandResult::Error("Empty tag path".to_string());
-            }
-            return CommandResult::RemoveTag(path);
-        }
-
-        // :tag production - set filter
-        let path = TagPath::parse(arg);
-        if path.is_empty() {
-            return CommandResult::SetTagFilter(None);
-        }
-        CommandResult::SetTagFilter(Some(path))
     }
 
     /// Show the command palette. Returns a CommandResult if a command was executed.

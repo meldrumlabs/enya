@@ -367,7 +367,7 @@ pub const WORKSPACE_VERSION: u32 = 1;
 /// Default example workspace that ships with the app
 pub const DEFAULT_WORKSPACE_TOML: &str = r#"[workspace]
 name = "example"
-description = "Example workspace demonstrating Enya features"
+description = "Example workspace demonstrating Enya features with i3-style layout"
 
 [view]
 theme = "dark"
@@ -396,6 +396,117 @@ name = "Error Rate"
 tag = "Critical"
 aggregation = "avg"
 granularity = "5m"
+
+# i3-style layout: API Latency on left (2/3), Request Rate and Error Rate stacked on right (1/3)
+# +---------------------+-----------+
+# |                     | Request   |
+# |   API Latency (0)   | Rate (1)  |
+# |                     +-----------+
+# |                     | Error     |
+# |                     | Rate (2)  |
+# +---------------------+-----------+
+[layout]
+type = "horizontal"
+shares = [2.0, 1.0]
+children = [
+    0,
+    { type = "vertical", children = [1, 2] }
+]
+"#;
+
+/// Complex dashboard workspace with deeply nested i3-style layout
+pub const COMPLEX_DASHBOARD_TOML: &str = r#"[workspace]
+name = "dashboard"
+description = "Production dashboard with complex nested i3 layout"
+
+[view]
+theme = "dark"
+metrics_panel = false
+inspector = false
+
+[time]
+preset = "1h"
+
+# Pane 0: Primary metrics overview
+[[panes]]
+query = "env:prod"
+name = "Overview"
+aggregation = "count"
+granularity = "1m"
+
+# Pane 1: API latency (p99)
+[[panes]]
+query = "env:prod AND service:api AND name:latency"
+name = "API p99"
+tag = "Critical"
+aggregation = "p99"
+granularity = "1m"
+
+# Pane 2: API latency (p50)
+[[panes]]
+query = "env:prod AND service:api AND name:latency"
+name = "API p50"
+aggregation = "p50"
+granularity = "1m"
+
+# Pane 3: Database queries
+[[panes]]
+query = "env:prod AND service:database"
+name = "DB Queries"
+aggregation = "sum"
+granularity = "1m"
+
+# Pane 4: Cache hit rate
+[[panes]]
+query = "env:prod AND service:cache AND name:hit_rate"
+name = "Cache Hits"
+aggregation = "avg"
+granularity = "5m"
+
+# Pane 5: Error rate
+[[panes]]
+query = "env:prod AND name:error"
+name = "Errors"
+tag = "Critical"
+aggregation = "sum"
+granularity = "1m"
+
+# Pane 6: Memory usage
+[[panes]]
+query = "env:prod AND name:memory"
+name = "Memory"
+aggregation = "avg"
+granularity = "5m"
+
+# Pane 7: CPU usage
+[[panes]]
+query = "env:prod AND name:cpu"
+name = "CPU"
+aggregation = "avg"
+granularity = "5m"
+
+# Complex nested layout:
+# +-------------------+-------------------+
+# |                   |   API p99 (1)     |
+# |   Overview (0)    +-------------------+
+# |                   |   API p50 (2)     |
+# +-------------------+-------------------+
+# | DB (3) | Cache(4) | Errors | Mem | CPU|
+# |        |          |  (5)   | (6) | (7)|
+# +--------+----------+--------+-----+----+
+#
+# Top row: Overview on left (1/2), API metrics stacked on right (1/2)
+# Bottom row: 5 panels in horizontal split
+[layout]
+type = "vertical"
+shares = [2.0, 1.0]
+children = [
+    { type = "horizontal", shares = [1.0, 1.0], children = [
+        0,
+        { type = "vertical", children = [1, 2] }
+    ]},
+    { type = "horizontal", shares = [1.5, 1.5, 1.0, 1.0, 1.0], children = [3, 4, 5, 6, 7] }
+]
 "#;
 
 /// A complete workspace definition
@@ -419,6 +530,10 @@ pub struct Workspace {
     /// Pane definitions (queries and their settings)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub panes: Vec<PaneConfig>,
+
+    /// Layout configuration (optional - defaults to tabs if omitted)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<LayoutConfig>,
 }
 
 /// Workspace metadata
@@ -651,7 +766,112 @@ impl PaneConfig {
             visualization: default_visualization(),
         }
     }
+}
 
+// ==================== Layout Configuration ====================
+
+/// Layout container types (i3-style)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutType {
+    /// Horizontal split (children side by side)
+    Horizontal,
+    /// Vertical split (children stacked)
+    Vertical,
+    /// Tabbed container
+    Tabs,
+}
+
+/// A node in the layout tree - either a pane reference or a nested container
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LayoutNode {
+    /// Reference to a pane by index in the [[panes]] array
+    Pane(usize),
+    /// Nested container with children
+    Container(LayoutContainer),
+}
+
+/// A container node in the layout tree
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutContainer {
+    /// Container type (horizontal, vertical, or tabs)
+    #[serde(rename = "type")]
+    pub layout_type: LayoutType,
+
+    /// Children (pane indices or nested containers)
+    pub children: Vec<LayoutNode>,
+
+    /// Optional shares for linear containers (horizontal/vertical)
+    /// If omitted, children are sized equally (1.0 share each)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shares: Vec<f32>,
+}
+
+impl LayoutContainer {
+    /// Get share for child at index (defaults to 1.0 if not specified)
+    pub fn share_for(&self, index: usize) -> f32 {
+        self.shares.get(index).copied().unwrap_or(1.0)
+    }
+}
+
+/// Root layout configuration for the workspace
+/// This appears in the [layout] section of the TOML
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LayoutConfig {
+    /// Container type for root
+    #[serde(rename = "type")]
+    pub layout_type: LayoutType,
+
+    /// Children at root level (pane indices or nested containers)
+    pub children: Vec<LayoutNode>,
+
+    /// Shares for root children (optional)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shares: Vec<f32>,
+}
+
+impl LayoutConfig {
+    /// Create a tabs layout containing all panes by index
+    pub fn default_tabs(pane_count: usize) -> Self {
+        Self {
+            layout_type: LayoutType::Tabs,
+            children: (0..pane_count).map(LayoutNode::Pane).collect(),
+            shares: Vec::new(),
+        }
+    }
+
+    /// Get share for child at index (defaults to 1.0 if not specified)
+    pub fn share_for(&self, index: usize) -> f32 {
+        self.shares.get(index).copied().unwrap_or(1.0)
+    }
+
+    /// Validate that all pane references are within bounds
+    pub fn validate(&self, pane_count: usize) -> Result<(), String> {
+        validate_layout_nodes(&self.children, pane_count)
+    }
+}
+
+/// Recursively validate that all pane references in layout nodes are within bounds
+fn validate_layout_nodes(nodes: &[LayoutNode], pane_count: usize) -> Result<(), String> {
+    for node in nodes {
+        match node {
+            LayoutNode::Pane(index) => {
+                if *index >= pane_count {
+                    return Err(format!(
+                        "layout references pane index {index} but only {pane_count} panes exist"
+                    ));
+                }
+            }
+            LayoutNode::Container(container) => {
+                validate_layout_nodes(&container.children, pane_count)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+impl PaneConfig {
     /// Set the name
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
@@ -744,6 +964,7 @@ impl Workspace {
             view: ViewConfig::default(),
             time: TimeConfig::default(),
             panes: Vec::new(),
+            layout: None,
         }
     }
 
