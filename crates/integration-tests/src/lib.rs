@@ -2,6 +2,10 @@
 //!
 //! Tests the complete flow from data ingestion through to REST API queries.
 
+// Prometheus integration tests using testcontainers
+#[cfg(test)]
+mod prometheus_tests;
+
 #[cfg(test)]
 mod tests {
     use axum_test::TestServer;

@@ -9,10 +9,17 @@ build = "build.rs"
 enya = { path = "../enya" }
 enya-build-info = { path = "../build-info" }
 enya-metrics-store = { path = "../metrics-store" }
+enya-client = { path = "../client" }
 
 axum-test = "17"
 serde_json.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "time"] }
+
+# Testcontainers for Prometheus integration tests
+testcontainers = "0.23"
+testcontainers-modules = "0.11"
+reqwest = { version = "0.12", features = ["json"] }
+egui = { workspace = true }
 
 [build-dependencies]
 enya-build-tools.workspace = true
