@@ -810,6 +810,29 @@ impl Dashboard {
         }
     }
 
+    /// Enter edit mode on the focused buffer - opens the modal editor
+    fn edit_focused_buffer(&mut self) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                // Try to downcast to QueryPane and get query info
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    let query = query_pane.saved_query().to_string();
+                    let name = query_pane.name().to_string();
+                    let state = query_pane.query_state().clone();
+                    self.buffer_editor.open_with_state(&query, &name, state);
+                    self.editing_tile_id = Some(tile_id);
+                    log::debug!("Opening buffer editor for QueryPane");
+                } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                    let query = buffer.saved_content().to_string();
+                    let name = buffer.name().to_string();
+                    self.buffer_editor.open(&query, &name);
+                    self.editing_tile_id = Some(tile_id);
+                    log::debug!("Opening buffer editor for Buffer");
+                }
+            }
+        }
+    }
+
     /// Cycle the visualization type for the focused pane (time series -> stat -> ...)
     fn cycle_focused_visualization(&mut self) {
         if let Some(tile_id) = self.behavior.focused_tile() {
@@ -1549,6 +1572,7 @@ impl Dashboard {
         let mut should_next_workspace_tab = false;
         let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
+        let mut should_edit_buffer = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -1609,6 +1633,13 @@ impl Dashboard {
             // w - open workspace finder
             if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
                 should_open_workspace_finder = true;
+                consumed = true;
+                return;
+            }
+
+            // e - enter edit mode on focused pane (vim-style)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
+                should_edit_buffer = true;
                 consumed = true;
                 return;
             }
@@ -1745,6 +1776,8 @@ impl Dashboard {
             if let Some(tile_id) = starting_tile {
                 self.enter_visual_multi_mode(tile_id);
             }
+        } else if should_edit_buffer {
+            self.edit_focused_buffer();
         } else if should_cycle_visualization {
             self.cycle_focused_visualization();
         } else if should_toggle_zen {
@@ -1896,13 +1929,6 @@ impl Dashboard {
             }
 
             // e - open multi-edit overlay for selected panes
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
-                should_open_multi_edit = true;
-                consumed = true;
-                return;
-            }
-
-            // e - open multi-edit overlay for find/replace
             if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
                 should_open_multi_edit = true;
                 consumed = true;

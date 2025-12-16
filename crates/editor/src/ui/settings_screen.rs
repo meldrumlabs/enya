@@ -84,4 +84,22 @@ impl AppSettings {
         // Trim to max size
         self.recent_workspaces.truncate(Self::MAX_RECENT_WORKSPACES);
     }
+
+    /// Ensure the demo workspace is in recent workspaces (for new users)
+    pub fn ensure_demo_workspace(&mut self) {
+        // Check if demo workspace is already in recent workspaces
+        if self.recent_workspaces.iter().any(|w| w.name == "demo") {
+            return;
+        }
+
+        // Add demo workspace at the end (so it doesn't take priority over user's recent)
+        // but will appear for new users
+        self.recent_workspaces.push(WorkspaceEntry {
+            name: "demo".to_string(),
+            description: "Interactive demo with sample data".to_string(),
+            timestamp: 0, // Old timestamp so it sorts last
+        });
+
+        // Don't truncate here - we want demo to stay even if at max
+    }
 }

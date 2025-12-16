@@ -181,6 +181,9 @@ impl EnyaApp {
         #[cfg(not(target_arch = "wasm32"))]
         Self::ensure_default_workspace();
 
+        // Ensure demo workspace is in recent workspaces (for new users)
+        app.state.settings.ensure_demo_workspace();
+
         match cc.egui_ctx.theme() {
             Theme::Light => app.state.theme = AppTheme::Light,
             Theme::Dark => app.state.theme = AppTheme::Dark,
@@ -777,7 +780,9 @@ impl EnyaApp {
     /// Ensure the default example workspaces exist
     #[cfg(not(target_arch = "wasm32"))]
     fn ensure_default_workspace() {
-        use crate::workspace::{COMPLEX_DASHBOARD_TOML, DEFAULT_WORKSPACE_TOML};
+        use crate::workspace::{
+            COMPLEX_DASHBOARD_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
+        };
 
         let dir = Self::workspace_dir();
 
@@ -798,6 +803,16 @@ impl EnyaApp {
                 log::warn!("Failed to create dashboard workspace: {e}");
             } else {
                 log::info!("Created dashboard workspace: {}", dashboard_path.display());
+            }
+        }
+
+        // Create demo workspace if it doesn't exist
+        let demo_path = dir.join("demo.toml");
+        if !demo_path.exists() {
+            if let Err(e) = std::fs::write(&demo_path, DEMO_WORKSPACE_TOML) {
+                log::warn!("Failed to create demo workspace: {e}");
+            } else {
+                log::info!("Created demo workspace: {}", demo_path.display());
             }
         }
     }
@@ -937,6 +952,12 @@ impl EnyaApp {
             let workspace_result = if name == "example" {
                 // Load built-in example workspace
                 Ok(Workspace::default_example())
+            } else if name == "demo" {
+                // Load built-in demo workspace (synthetic data)
+                Ok(Workspace::default_demo())
+            } else if name == "dashboard" {
+                // Load built-in complex dashboard workspace
+                Workspace::from_toml(crate::workspace::COMPLEX_DASHBOARD_TOML)
             } else {
                 // Try to decode from base64 (for shared URLs)
                 Workspace::from_base64(name)

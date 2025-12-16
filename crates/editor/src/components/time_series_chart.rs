@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use std::ops::RangeInclusive;
+
 use egui::{Color32, Key, RichText, Stroke};
-use egui_plot::{Line, LineStyle, Plot, PlotBounds, PlotPoints, VLine};
+use egui_plot::{AxisHints, GridMark, Line, LineStyle, Plot, PlotBounds, PlotPoints, VLine};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -14,6 +16,93 @@ pub use enya_common::CommitMarker;
 
 /// Zoom factor for keyboard-based zoom controls
 const ZOOM_FACTOR: f64 = 1.25;
+
+/// Format a Unix timestamp (in seconds) to a human-readable string.
+/// Adapts format based on the time range being displayed.
+/// Uses UTC time for simplicity and cross-platform compatibility.
+fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
+    // Handle invalid timestamps
+    if !timestamp.is_finite() || timestamp < 0.0 {
+        return String::new();
+    }
+
+    let secs = timestamp as i64;
+
+    // Compute time components from Unix timestamp (UTC)
+    const SECS_PER_MIN: i64 = 60;
+    const SECS_PER_HOUR: i64 = 3600;
+    const SECS_PER_DAY: i64 = 86400;
+
+    let days_since_epoch = secs / SECS_PER_DAY;
+    let time_of_day = secs % SECS_PER_DAY;
+    let hours = (time_of_day / SECS_PER_HOUR) % 24;
+    let minutes = (time_of_day % SECS_PER_HOUR) / SECS_PER_MIN;
+    let seconds = time_of_day % SECS_PER_MIN;
+
+    // Calculate date from days since 1970-01-01
+    let mut days = days_since_epoch;
+    let mut year = 1970i64;
+
+    loop {
+        let days_in_year = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+            366
+        } else {
+            365
+        };
+        if days < days_in_year {
+            break;
+        }
+        days -= days_in_year;
+        year += 1;
+    }
+
+    let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_months: [i64; 12] = if is_leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 1u32;
+    for (i, &dim) in days_in_months.iter().enumerate() {
+        if days < dim {
+            month = (i + 1) as u32;
+            break;
+        }
+        days -= dim;
+    }
+    let day = (days + 1) as u32;
+
+    // Format based on the time range being viewed
+    if range_secs < 300.0 {
+        // Less than 5 minutes: show HH:MM:SS
+        format!("{hours:02}:{minutes:02}:{seconds:02}")
+    } else if range_secs < 86400.0 {
+        // Less than 1 day: show HH:MM
+        format!("{hours:02}:{minutes:02}")
+    } else if range_secs < 604800.0 {
+        // Less than 1 week: show Mon DD HH:MM
+        let month_name = match month {
+            1 => "Jan",
+            2 => "Feb",
+            3 => "Mar",
+            4 => "Apr",
+            5 => "May",
+            6 => "Jun",
+            7 => "Jul",
+            8 => "Aug",
+            9 => "Sep",
+            10 => "Oct",
+            11 => "Nov",
+            12 => "Dec",
+            _ => "???",
+        };
+        format!("{month_name} {day} {hours:02}:{minutes:02}")
+    } else {
+        // More than 1 week: show YYYY-MM-DD
+        format!("{year}-{month:02}-{day:02}")
+    }
+}
 
 /// Global counter for unique component IDs
 static NEXT_ID: AtomicUsize = AtomicUsize::new(100);
@@ -62,6 +151,12 @@ impl Series {
 
     pub fn with_color(mut self, color: Color32) -> Self {
         self.color = Some(color);
+        self
+    }
+
+    /// Set tags from a HashMap
+    pub fn with_tags_map(mut self, tags: HashMap<String, String>) -> Self {
+        self.tags = tags;
         self
     }
 
@@ -490,10 +585,22 @@ impl TimeSeriesChart {
         // Commit marker color - uses brand emerald
         let commit_color = palette::chart::COMMIT_MARKER;
 
+        // Calculate time range for adaptive formatting
+        let time_range_secs = data_time_range
+            .map(|(min, max)| max - min)
+            .unwrap_or(3600.0); // Default to 1 hour if no data
+
+        // Custom x-axis formatter for human-readable timestamps
+        let x_axis = AxisHints::new_x().label("Time").formatter(
+            move |mark: GridMark, _range: &RangeInclusive<f64>| {
+                format_timestamp(mark.value, time_range_secs)
+            },
+        );
+
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         let plot = Plot::new(format!("plot_{}", self.id))
             .legend(egui_plot::Legend::default().position(egui_plot::Corner::RightTop))
-            .x_axis_label("Time")
+            .custom_x_axes(vec![x_axis])
             .y_axis_label(self.y_label.as_deref().unwrap_or("Value"))
             .show_axes(true)
             .show_grid(true)
