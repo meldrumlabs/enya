@@ -2,15 +2,22 @@
 //!
 //! These tests spin up a real Prometheus instance in a Docker container
 //! and test the enya-client's ability to query it.
+//!
+//! All tests share a single Prometheus container to avoid startup overhead.
 
 use std::time::Duration;
 
 use testcontainers::core::{IntoContainerPort, WaitFor};
 use testcontainers::runners::AsyncRunner;
 use testcontainers::{ContainerAsync, GenericImage};
+use tokio::sync::OnceCell;
 
 /// Port that Prometheus listens on inside the container.
 const PROMETHEUS_PORT: u16 = 9090;
+
+/// Global container instance shared across all tests.
+/// This avoids starting a new container for each test.
+static PROMETHEUS_CONTAINER: OnceCell<PrometheusFixture> = OnceCell::const_new();
 
 /// Create a Prometheus container with default config.
 fn prometheus_image() -> GenericImage {
@@ -20,12 +27,19 @@ fn prometheus_image() -> GenericImage {
 }
 
 /// Wait for Prometheus to be ready by polling /api/v1/status/runtimeinfo.
-async fn wait_for_prometheus(url: &str, timeout: Duration) -> Result<(), Box<dyn std::error::Error>> {
+async fn wait_for_prometheus(
+    url: &str,
+    timeout: Duration,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let client = reqwest::Client::new();
     let start = std::time::Instant::now();
 
     while start.elapsed() < timeout {
-        if let Ok(resp) = client.get(format!("{url}/api/v1/status/runtimeinfo")).send().await {
+        if let Ok(resp) = client
+            .get(format!("{url}/api/v1/status/runtimeinfo"))
+            .send()
+            .await
+        {
             if resp.status().is_success() {
                 return Ok(());
             }
@@ -42,15 +56,25 @@ struct PrometheusFixture {
     base_url: String,
 }
 
+// Safety: The fixture is only accessed via the OnceCell which ensures
+// safe concurrent access.
+unsafe impl Send for PrometheusFixture {}
+unsafe impl Sync for PrometheusFixture {}
+
 impl PrometheusFixture {
     /// Start a Prometheus container and return the fixture.
-    async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    async fn new() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        eprintln!("Starting Prometheus container...");
         let container = prometheus_image().start().await?;
         let host_port = container.get_host_port_ipv4(PROMETHEUS_PORT).await?;
         let base_url = format!("http://127.0.0.1:{host_port}");
 
+        eprintln!("Prometheus container started, waiting for readiness at {base_url}...");
+
         // Wait for Prometheus to be ready
-        wait_for_prometheus(&base_url, Duration::from_secs(30)).await?;
+        wait_for_prometheus(&base_url, Duration::from_secs(60)).await?;
+
+        eprintln!("Prometheus is ready!");
 
         Ok(Self {
             _container: container,
@@ -63,6 +87,17 @@ impl PrometheusFixture {
     }
 }
 
+/// Get the shared Prometheus fixture, starting the container if needed.
+async fn get_prometheus() -> &'static PrometheusFixture {
+    PROMETHEUS_CONTAINER
+        .get_or_init(|| async {
+            PrometheusFixture::new()
+                .await
+                .expect("Failed to start Prometheus container")
+        })
+        .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -73,25 +108,18 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn test_prometheus_connectivity() {
-        let fixture = PrometheusFixture::new()
-            .await
-            .expect("Failed to start Prometheus container");
+        let fixture = get_prometheus().await;
 
         let client = PrometheusClient::new(fixture.base_url());
         assert_eq!(client.backend_type(), "prometheus");
-
-        // Just verify we can create the client - actual queries would need data
     }
 
     /// Test fetching label names from Prometheus.
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn test_fetch_label_names() {
-        let fixture = PrometheusFixture::new()
-            .await
-            .expect("Failed to start Prometheus container");
+        let fixture = get_prometheus().await;
 
-        // Use reqwest to directly query the API since we don't have egui::Context
         let client = reqwest::Client::new();
         let url = format!("{}/api/v1/labels", fixture.base_url());
 
@@ -100,7 +128,6 @@ mod tests {
 
         let body: serde_json::Value = resp.json().await.expect("json parse failed");
         assert_eq!(body["status"], "success");
-        // Labels should be an array (even if empty for fresh Prometheus)
         assert!(body["data"].is_array());
     }
 
@@ -108,9 +135,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn test_fetch_metric_names() {
-        let fixture = PrometheusFixture::new()
-            .await
-            .expect("Failed to start Prometheus container");
+        let fixture = get_prometheus().await;
 
         let client = reqwest::Client::new();
         let url = format!("{}/api/v1/label/__name__/values", fixture.base_url());
@@ -121,20 +146,14 @@ mod tests {
         let body: serde_json::Value = resp.json().await.expect("json parse failed");
         assert_eq!(body["status"], "success");
 
-        // Prometheus should have some built-in metrics
         let metrics = body["data"].as_array().expect("data should be array");
         assert!(
             !metrics.is_empty(),
             "Prometheus should have built-in metrics"
         );
 
-        // Check for some common built-in metrics
-        let metric_names: Vec<&str> = metrics
-            .iter()
-            .filter_map(|m| m.as_str())
-            .collect();
+        let metric_names: Vec<&str> = metrics.iter().filter_map(|m| m.as_str()).collect();
 
-        // Prometheus exposes internal metrics
         assert!(
             metric_names.iter().any(|m| m.starts_with("prometheus_")),
             "Expected prometheus_* metrics, got: {metric_names:?}"
@@ -145,13 +164,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn test_query_builtin_metric() {
-        let fixture = PrometheusFixture::new()
-            .await
-            .expect("Failed to start Prometheus container");
+        let fixture = get_prometheus().await;
 
         let client = reqwest::Client::new();
-
-        // Query a built-in Prometheus metric
         let url = format!(
             "{}/api/v1/query?query=prometheus_build_info",
             fixture.base_url()
@@ -163,7 +178,6 @@ mod tests {
         let body: serde_json::Value = resp.json().await.expect("json parse failed");
         assert_eq!(body["status"], "success");
 
-        // Should have result data
         let result = &body["data"]["result"];
         assert!(result.is_array());
         let results = result.as_array().unwrap();
@@ -177,22 +191,18 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn test_range_query() {
-        let fixture = PrometheusFixture::new()
-            .await
-            .expect("Failed to start Prometheus container");
+        let fixture = get_prometheus().await;
 
         let client = reqwest::Client::new();
 
-        // Get current time
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
 
-        let start = now - 300; // 5 minutes ago
+        let start = now - 300;
         let end = now;
 
-        // Query prometheus internal metric as a range query
         let url = format!(
             "{}/api/v1/query_range?query=up&start={}&end={}&step=15",
             fixture.base_url(),
@@ -212,18 +222,13 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn test_invalid_query() {
-        let fixture = PrometheusFixture::new()
-            .await
-            .expect("Failed to start Prometheus container");
+        let fixture = get_prometheus().await;
 
         let client = reqwest::Client::new();
-
-        // Invalid PromQL syntax
         let url = format!("{}/api/v1/query?query=invalid{{{{", fixture.base_url());
 
         let resp = client.get(&url).send().await.expect("request failed");
 
-        // Prometheus returns 400 for bad queries
         assert_eq!(resp.status().as_u16(), 400);
 
         let body: serde_json::Value = resp.json().await.expect("json parse failed");
@@ -235,17 +240,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires Docker"]
     async fn test_enya_query_translation() {
-        let fixture = PrometheusFixture::new()
-            .await
-            .expect("Failed to start Prometheus container");
+        let fixture = get_prometheus().await;
 
         let client = reqwest::Client::new();
-
-        // The enya-lang `sum(*) by (job)` for metric `up` should translate to
-        // `sum by (job) (up{})` in PromQL
-        // We'll test by querying the translated PromQL directly
-
-        // Simple filter: up with job label
         let url = format!(
             "{}/api/v1/query?query=sum%20by%20(job)%20(up)",
             fixture.base_url()
@@ -258,6 +255,3 @@ mod tests {
         assert_eq!(body["status"], "success");
     }
 }
-
-// Future: Add Pushgateway tests for custom metric injection
-// This would require mounting custom Prometheus config to scrape Pushgateway
