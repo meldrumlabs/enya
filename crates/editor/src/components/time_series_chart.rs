@@ -231,7 +231,7 @@ impl TimeSeriesChart {
             metric_name: name,
             series: Vec::new(),
             commits: Vec::new(),
-            show_commits: true,
+            show_commits: false,
             theme: AppTheme::default(),
             api_key: String::new(),
             show_legend: true,

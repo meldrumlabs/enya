@@ -63,6 +63,8 @@ pub enum DashboardAction {
     NextWorkspaceTab,
     /// Go to previous workspace tab
     PrevWorkspaceTab,
+    /// Create a new empty pane
+    NewPane,
 }
 
 /// The main dashboard layout with a flexible viewport for tabbed views/charts.
@@ -634,6 +636,21 @@ impl Dashboard {
         self.handle_command_result(cmd_result)
     }
 
+    /// Create a new empty pane and focus it
+    pub fn create_new_pane(&mut self) {
+        // Create an empty QueryPane with a placeholder query
+        let pane: Box<dyn Component> = Box::new(QueryPane::new(""));
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::debug!("Created new empty pane");
+            // Open buffer editor for the new pane so user can start typing
+            self.edit_focused_buffer();
+        }
+    }
+
     /// Add a chart for a metric and return a tracking action
     fn add_chart_for_metric_with_tracking(&mut self, metric_name: &str) -> DashboardAction {
         // Don't add duplicate charts
@@ -778,6 +795,7 @@ impl Dashboard {
             CommandResult::CloseWorkspaceTab => DashboardAction::CloseWorkspaceTab,
             CommandResult::NextWorkspaceTab => DashboardAction::NextWorkspaceTab,
             CommandResult::PrevWorkspaceTab => DashboardAction::PrevWorkspaceTab,
+            CommandResult::NewPane => DashboardAction::NewPane,
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -1573,6 +1591,7 @@ impl Dashboard {
         let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
         let mut should_edit_buffer = false;
+        let mut should_create_new_pane = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -1734,6 +1753,13 @@ impl Dashboard {
                 return;
             }
 
+            // Ctrl+n - create new pane
+            if input.consume_key(egui::Modifiers::CTRL, egui::Key::N) {
+                should_create_new_pane = true;
+                consumed = true;
+                return;
+            }
+
             // Escape - clear focus
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
                 should_clear_focus = true;
@@ -1760,6 +1786,12 @@ impl Dashboard {
         if should_prev_workspace_tab {
             ctx.request_repaint();
             return Some(DashboardAction::PrevWorkspaceTab);
+        }
+
+        // Handle new pane creation (o key)
+        if should_create_new_pane {
+            ctx.request_repaint();
+            return Some(DashboardAction::NewPane);
         }
 
         // Handle workspace finder (w key)
@@ -2390,10 +2422,13 @@ impl Dashboard {
                     .tiles
                     .insert_horizontal_tile(child_ids.clone());
 
-                // Apply shares if specified
-                if !container.shares.is_empty() {
-                    self.apply_shares(container_id, &child_ids, &container.shares);
-                }
+                // Apply shares - use specified shares or default to equal (1.0) for all
+                let shares = if container.shares.is_empty() {
+                    vec![1.0; child_ids.len()]
+                } else {
+                    container.shares.clone()
+                };
+                self.apply_shares(container_id, &child_ids, &shares);
 
                 container_id
             }
@@ -2403,10 +2438,13 @@ impl Dashboard {
                     .tiles
                     .insert_vertical_tile(child_ids.clone());
 
-                // Apply shares if specified
-                if !container.shares.is_empty() {
-                    self.apply_shares(container_id, &child_ids, &container.shares);
-                }
+                // Apply shares - use specified shares or default to equal (1.0) for all
+                let shares = if container.shares.is_empty() {
+                    vec![1.0; child_ids.len()]
+                } else {
+                    container.shares.clone()
+                };
+                self.apply_shares(container_id, &child_ids, &shares);
 
                 container_id
             }

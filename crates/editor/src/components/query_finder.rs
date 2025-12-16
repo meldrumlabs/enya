@@ -267,17 +267,16 @@ impl QueryFinder {
             should_close = true;
         }
 
-        // Calculate popup dimensions
+        // Calculate popup dimensions (standardized across all finders)
         let screen_rect = ctx.available_rect();
-        let list_width = (screen_rect.width() * 0.30).clamp(300.0, 450.0);
+        let list_width = (screen_rect.width() * 0.35).clamp(300.0, 425.0);
         let preview_width = if self.show_preview {
-            // Preview width for vertical query + chart layout
-            (screen_rect.width() * 0.35).clamp(350.0, 500.0)
+            (screen_rect.width() * 0.35).clamp(300.0, 425.0)
         } else {
             0.0
         };
         let total_width = list_width + preview_width;
-        let popup_max_height = (screen_rect.height() * 0.70).min(600.0);
+        let popup_max_height = (screen_rect.height() * 0.65).min(550.0);
 
         // Get the currently selected result for preview
         let selected_result_for_preview = if !self.results.is_empty() {
@@ -289,7 +288,7 @@ impl QueryFinder {
         let colors = FinderColors::new(self.theme);
 
         egui::Area::new(egui::Id::new("query_finder_popup"))
-            .anchor(egui::Align2::CENTER_TOP, [0.0, 60.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::new()

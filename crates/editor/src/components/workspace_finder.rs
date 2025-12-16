@@ -189,15 +189,15 @@ impl WorkspaceFinder {
             should_close = true;
         }
 
-        // Calculate popup dimensions
+        // Calculate popup dimensions (match metrics/query finder widths)
         let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.35).clamp(350.0, 500.0);
-        let popup_max_height = (screen_rect.height() * 0.50).min(400.0);
+        let popup_width = (screen_rect.width() * 0.70).clamp(600.0, 850.0);
+        let popup_max_height = (screen_rect.height() * 0.65).min(550.0);
 
         let colors = FinderColors::new(self.theme);
 
         egui::Area::new(egui::Id::new("workspace_finder_popup"))
-            .anchor(egui::Align2::CENTER_TOP, [0.0, 60.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::new()

@@ -89,6 +89,10 @@ impl WhichKey {
                 icon: semantic_icons::nav::PANES,
                 bindings: vec![
                     Keybinding {
+                        key: "Ctrl+n",
+                        description: "Create new pane",
+                    },
+                    Keybinding {
                         key: "x",
                         description: "Close focused pane",
                     },
