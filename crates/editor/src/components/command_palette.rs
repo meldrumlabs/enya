@@ -97,8 +97,6 @@ pub enum CommandResult {
     NextWorkspaceTab,
     /// Go to previous workspace tab
     PrevWorkspaceTab,
-    /// Create a new empty pane (buffer/plot)
-    NewPane,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -231,12 +229,6 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "tabclose",
         aliases: &[],
         description: "Close current workspace tab",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "new",
-        aliases: &["enew"],
-        description: "Create new empty pane",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -534,7 +526,6 @@ impl CommandPalette {
                 CommandResult::NewWorkspaceTab(name)
             }
             "tabclose" => CommandResult::CloseWorkspaceTab,
-            "new" | "enew" => CommandResult::NewPane,
             _ => CommandResult::None,
         }
     }

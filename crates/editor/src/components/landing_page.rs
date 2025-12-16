@@ -252,7 +252,7 @@ impl LandingPage {
                 );
             });
         } else {
-            for (idx, plot) in recent_plots.iter().enumerate().take(8) {
+            for (idx, plot) in recent_plots.iter().enumerate().take(5) {
                 let is_selected = self.plots_focused && self.selected_plot_index == Some(idx);
 
                 let response = self.show_list_item(
@@ -266,7 +266,7 @@ impl LandingPage {
                     text_col,
                     accent_color,
                     is_selected,
-                    Some(format!("{}", idx + 1)), // Shortcut hint: 1-8
+                    Some(format!("{}", idx + 1)), // Shortcut hint: 1-5
                 );
 
                 if response.clicked() {
@@ -329,7 +329,7 @@ impl LandingPage {
                 );
             });
         } else {
-            for (idx, workspace) in recent_workspaces.iter().enumerate().take(8) {
+            for (idx, workspace) in recent_workspaces.iter().enumerate().take(5) {
                 let is_selected = !self.plots_focused && self.selected_workspace_index == Some(idx);
 
                 let response = self.show_list_item(
@@ -721,14 +721,14 @@ impl LandingPage {
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
             {
                 if self.plots_focused {
-                    let max_idx = recent_plots.len().saturating_sub(1).min(7);
+                    let max_idx = recent_plots.len().saturating_sub(1).min(4);
                     self.selected_plot_index = Some(
                         self.selected_plot_index
                             .map(|i| (i + 1).min(max_idx))
                             .unwrap_or(0),
                     );
                 } else {
-                    let max_idx = recent_workspaces.len().saturating_sub(1).min(7);
+                    let max_idx = recent_workspaces.len().saturating_sub(1).min(4);
                     self.selected_workspace_index = Some(
                         self.selected_workspace_index
                             .map(|i| (i + 1).min(max_idx))

@@ -63,8 +63,6 @@ pub enum DashboardAction {
     NextWorkspaceTab,
     /// Go to previous workspace tab
     PrevWorkspaceTab,
-    /// Create a new empty pane
-    NewPane,
 }
 
 /// The main dashboard layout with a flexible viewport for tabbed views/charts.
@@ -102,6 +100,8 @@ pub struct Dashboard {
     last_y_press: Option<crate::util::Instant>,
     /// Last time 'c' was pressed (for cv detection - cycle visualization)
     last_c_press: Option<crate::util::Instant>,
+    /// Last time Space was pressed (for leader key sequences like Space+m, Space+q)
+    last_space_press: Option<crate::util::Instant>,
     /// Info overlay (shows build/version info)
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
@@ -155,6 +155,7 @@ impl Default for Dashboard {
             show_landing: true,
             last_y_press: None,
             last_c_press: None,
+            last_space_press: None,
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             viewport_scroll_offset: 0.0,
@@ -273,6 +274,7 @@ impl Dashboard {
             show_landing: true, // Start with landing page
             last_y_press: None,
             last_c_press: None,
+            last_space_press: None,
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             viewport_scroll_offset: 0.0,
@@ -636,21 +638,6 @@ impl Dashboard {
         self.handle_command_result(cmd_result)
     }
 
-    /// Create a new empty pane and focus it
-    pub fn create_new_pane(&mut self) {
-        // Create an empty QueryPane with a placeholder query
-        let pane: Box<dyn Component> = Box::new(QueryPane::new(""));
-        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(pane_tile) {
-            self.behavior.set_focused_tile(Some(pane_tile));
-            self.show_landing = false;
-            log::debug!("Created new empty pane");
-            // Open buffer editor for the new pane so user can start typing
-            self.edit_focused_buffer();
-        }
-    }
-
     /// Add a chart for a metric and return a tracking action
     fn add_chart_for_metric_with_tracking(&mut self, metric_name: &str) -> DashboardAction {
         // Don't add duplicate charts
@@ -795,7 +782,6 @@ impl Dashboard {
             CommandResult::CloseWorkspaceTab => DashboardAction::CloseWorkspaceTab,
             CommandResult::NextWorkspaceTab => DashboardAction::NextWorkspaceTab,
             CommandResult::PrevWorkspaceTab => DashboardAction::PrevWorkspaceTab,
-            CommandResult::NewPane => DashboardAction::NewPane,
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -1157,7 +1143,10 @@ impl Dashboard {
     /// Returns true if the tile was successfully added
     fn add_tile_to_viewport(&mut self, tile_id: TileId) -> bool {
         let Some(root_id) = self.viewport_tree.root() else {
-            return false;
+            // No root exists (all panes were closed), create a new tabs container
+            let new_root = self.viewport_tree.tiles.insert_tab_tile(vec![tile_id]);
+            self.viewport_tree.root = Some(new_root);
+            return true;
         };
 
         match self.viewport_tree.tiles.get_mut(root_id) {
@@ -1590,8 +1579,9 @@ impl Dashboard {
         let mut should_next_workspace_tab = false;
         let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
+        let mut should_open_metrics_finder = false;
+        let mut should_open_query_finder = false;
         let mut should_edit_buffer = false;
-        let mut should_create_new_pane = false;
         let mut new_tile_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -1649,11 +1639,43 @@ impl Dashboard {
                 return;
             }
 
-            // w - open workspace finder
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
-                should_open_workspace_finder = true;
+            // Space - leader key for sequences (Space+m, Space+q, Space+w)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                let now = crate::util::Instant::now();
+                self.last_space_press = Some(now);
                 consumed = true;
                 return;
+            }
+
+            // Leader key sequences (must follow Space within 500ms)
+            let space_active = self.last_space_press.is_some_and(|last| {
+                crate::util::Instant::now().duration_since(last).as_millis() < 500
+            });
+
+            if space_active {
+                // Space+m - open metrics finder
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
+                    should_open_metrics_finder = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+q - open query finder
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Q) {
+                    should_open_query_finder = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+w - open workspace finder
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                    should_open_workspace_finder = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
             }
 
             // e - enter edit mode on focused pane (vim-style)
@@ -1753,13 +1775,6 @@ impl Dashboard {
                 return;
             }
 
-            // Ctrl+n - create new pane
-            if input.consume_key(egui::Modifiers::CTRL, egui::Key::N) {
-                should_create_new_pane = true;
-                consumed = true;
-                return;
-            }
-
             // Escape - clear focus
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
                 should_clear_focus = true;
@@ -1788,15 +1803,21 @@ impl Dashboard {
             return Some(DashboardAction::PrevWorkspaceTab);
         }
 
-        // Handle new pane creation (o key)
-        if should_create_new_pane {
-            ctx.request_repaint();
-            return Some(DashboardAction::NewPane);
-        }
-
         // Handle workspace finder (w key)
         if should_open_workspace_finder {
             self.pending_open_workspace_finder = true;
+            ctx.request_repaint();
+        }
+
+        // Handle metrics finder (m key)
+        if should_open_metrics_finder {
+            self.open_metrics_finder();
+            ctx.request_repaint();
+        }
+
+        // Handle query finder (q key)
+        if should_open_query_finder {
+            self.open_query_finder();
             ctx.request_repaint();
         }
 
@@ -2913,6 +2934,8 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
         SimplificationOptions {
             all_panes_must_have_tabs: true,
+            prune_empty_tabs: true,
+            prune_empty_containers: true,
             ..SimplificationOptions::OFF
         }
     }

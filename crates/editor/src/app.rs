@@ -519,11 +519,6 @@ impl EnyaApp {
             DashboardAction::PrevWorkspaceTab => {
                 self.workspace_tabs.prev_tab();
             }
-            DashboardAction::NewPane => {
-                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                    tab.dashboard.create_new_pane();
-                }
-            }
         }
     }
 

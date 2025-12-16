@@ -34,7 +34,7 @@ Press `:` to open the command palette (similar to neovim's command mode).
 
 ### Fuzzy Finder (Telescope-style)
 
-Press `Ctrl+K` to open the fuzzy finder for quick metric search.
+Press `Space+m` to open the metrics finder for quick metric search.
 
 - **Live preview**: See a chart preview of the selected metric
 - **Fuzzy matching**: Type partial names to filter results
@@ -89,7 +89,9 @@ Press `Ctrl+K` to open the fuzzy finder for quick metric search.
 | Key | Action |
 |-----|--------|
 | `:` | Open command palette |
-| `Ctrl+K` | Open fuzzy finder |
+| `Space+m` | Open metrics finder |
+| `Space+q` | Open query finder |
+| `Space+w` | Open workspace finder |
 | `?` | Show which-key help overlay |
 
 ### Status Line (lualine-style)

@@ -89,10 +89,6 @@ impl WhichKey {
                 icon: semantic_icons::nav::PANES,
                 bindings: vec![
                     Keybinding {
-                        key: "Ctrl+n",
-                        description: "Create new pane",
-                    },
-                    Keybinding {
                         key: "x",
                         description: "Close focused pane",
                     },
@@ -128,10 +124,6 @@ impl WhichKey {
                         key: "t",
                         description: "Toggle theme",
                     },
-                    Keybinding {
-                        key: ":diff",
-                        description: "Compare time periods",
-                    },
                 ],
             },
             KeybindingGroup {
@@ -143,16 +135,16 @@ impl WhichKey {
                         description: "Open command palette",
                     },
                     Keybinding {
-                        key: "m",
+                        key: "Space+m",
                         description: "Open metrics finder",
                     },
                     Keybinding {
-                        key: "q",
+                        key: "Space+q",
                         description: "Open query finder",
                     },
                     Keybinding {
-                        key: "Ctrl+k / Ctrl+p",
-                        description: "Open metrics finder",
+                        key: "Space+w",
+                        description: "Open workspace finder",
                     },
                     Keybinding {
                         key: "?",

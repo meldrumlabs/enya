@@ -153,18 +153,9 @@ impl UICommand {
     }
 
     /// All keyboard shortcuts, with the primary first.
-    pub fn kb_shortcuts(self, os: OperatingSystem) -> Vec<KeyboardShortcut> {
+    pub fn kb_shortcuts(self, _os: OperatingSystem) -> Vec<KeyboardShortcut> {
         fn key(key: Key) -> KeyboardShortcut {
             KeyboardShortcut::new(Modifiers::NONE, key)
-        }
-
-        fn cmd_key(key: Key, os: OperatingSystem) -> KeyboardShortcut {
-            let modifiers = if os == OperatingSystem::Mac {
-                Modifiers::MAC_CMD
-            } else {
-                Modifiers::CTRL
-            };
-            KeyboardShortcut::new(modifiers, key)
         }
 
         match self {
@@ -175,7 +166,7 @@ impl UICommand {
             Self::Theme(_) => vec![],
             Self::OpenExampleDashboard(_) => vec![],
             Self::ConnectionStatus(_) => vec![],
-            Self::OpenFuzzyFinder => vec![cmd_key(Key::K, os), cmd_key(Key::P, os)],
+            Self::OpenFuzzyFinder => vec![], // Space+m leader key sequence
             // ':' key (colon) - no modifiers needed since it's already the shifted key
             Self::OpenCommandPalette => vec![key(Key::Colon)],
         }
