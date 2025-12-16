@@ -17,7 +17,6 @@
 
 
     <link data-trunk rel="copy-file" href="assets/logo.png"/>
-    <link data-trunk rel="copy-file" href="assets/logo_dark.png"/>
     <link data-trunk rel="copy-file" href="assets/favicon.ico"/>
     <link data-trunk rel="copy-file" href="assets/close.png"/>
     <link data-trunk rel="copy-file" href="assets/external_link.png"/>
@@ -101,7 +100,7 @@
             position: relative;
             width: 80px;
             height: 80px;
-            top: -100px;
+            top: -50px;
         }
 
         .lds-ellipsis div {
@@ -110,7 +109,7 @@
             width: 13px;
             height: 13px;
             border-radius: 50%;
-            background: #ffffff;
+            background: #10B981;
             animation-timing-function: cubic-bezier(0, 1, 1, 0);
         }
 
@@ -168,19 +167,20 @@
         /* Loading animation from https://loading.io/css/ */
         .lds-dual-ring {
             display: inline-block;
-            width: 24px;
-            height: 24px;
+            width: 32px;
+            height: 32px;
+            margin-top: -40px;
         }
 
         .lds-dual-ring:after {
             content: " ";
             display: block;
-            width: 24px;
-            height: 24px;
+            width: 32px;
+            height: 32px;
             margin: 0px;
             border-radius: 50%;
-            border: 3px solid #fff;
-            border-color: #fff transparent #fff transparent;
+            border: 3px solid #10B981;
+            border-color: #10B981 transparent #10B981 transparent;
             animation: lds-dual-ring 1.2s linear infinite;
         }
 
@@ -191,6 +191,38 @@
 
             100% {
                 transform: rotate(360deg);
+            }
+        }
+
+        /* Wave bars loader */
+        .lds-wave {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 48px;
+            margin-top: -40px;
+        }
+
+        .lds-wave div {
+            width: 6px;
+            height: 100%;
+            background: #10B981;
+            animation: lds-wave 1s ease-in-out infinite;
+        }
+
+        .lds-wave div:nth-child(1) { animation-delay: -0.4s; }
+        .lds-wave div:nth-child(2) { animation-delay: -0.3s; }
+        .lds-wave div:nth-child(3) { animation-delay: -0.2s; }
+        .lds-wave div:nth-child(4) { animation-delay: -0.1s; }
+        .lds-wave div:nth-child(5) { animation-delay: 0s; }
+
+        @keyframes lds-wave {
+            0%, 40%, 100% {
+                transform: scaleY(0.4);
+            }
+            20% {
+                transform: scaleY(1);
             }
         }
     </style>
@@ -207,7 +239,7 @@
           <img src="logo.png" alt="Enya" width="50%">
         </picture>
       </p>
-      <div class="lds-ellipsis"><div></div><div></div><div></div><div></div></div>
+      <div class="lds-wave"><div></div><div></div><div></div><div></div><div></div></div>
     </div>
     </body>
 

@@ -3,43 +3,21 @@ use std::collections::{HashMap, HashSet};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
-use egui::RichText;
 
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    CustomQueriesPanel, Diagnostic, DiagnosticsPane, EditExcerpt, InfoOverlay, LandingPage,
-    LandingPageAction, MetricItem, MetricsFinder, MetricsTree, MultiBufferMode, MultiBufferState,
-    MultiEditOverlay, MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState, TagFilter,
-    TagPath, TimeRangeToolbar, WhichKey, WorkspaceFinder, WorkspaceItem,
+    Diagnostic, DiagnosticsPane, EditExcerpt, InfoOverlay, LandingPage, LandingPageAction,
+    MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState, MultiEditOverlay,
+    MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState, TimeRangeToolbar, WhichKey,
+    WorkspaceFinder, WorkspaceItem,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
-use crate::ui::semantic_icons;
 
-/// Toggle button for the metrics panel visibility
-fn metrics_panel_toggle_button(
-    ui: &mut egui::Ui,
-    is_visible: bool,
-    theme: AppTheme,
-) -> egui::Response {
-    let text_col = text_color(theme);
-    let icon = semantic_icons::nav::SIDEBAR;
-
-    let button = if is_visible {
-        egui::Button::new(RichText::new(icon).strong()).fill(ui.visuals().selection.bg_fill)
-    } else {
-        egui::Button::new(RichText::new(icon).color(text_col.gamma_multiply(0.7)))
-    };
-
-    ui.add(button).on_hover_text(if is_visible {
-        "Hide metrics panel"
-    } else {
-        "Show metrics panel"
-    })
-}
 use crate::workspace::{
-    ConnectionConfig, PaneConfig, TimeConfig, ViewConfig, Workspace, WorkspaceMeta,
+    ConnectionConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
+    TimeConfig, ViewConfig, Workspace, WorkspaceMeta,
 };
 
 /// Actions that the Dashboard needs the App to handle
@@ -87,30 +65,15 @@ pub enum DashboardAction {
     PrevWorkspaceTab,
 }
 
-/// The main dashboard layout with a fixed left panel for the MetricsTree
-/// and a flexible right area for tabbed views/charts.
+/// The main dashboard layout with a flexible viewport for tabbed views/charts.
 pub struct Dashboard {
-    /// The metrics tree browser (always visible in left panel)
-    metrics_tree: MetricsTree,
-    /// Custom queries panel (below metrics tree in left panel)
-    custom_queries: CustomQueriesPanel,
-    /// Whether the "Provided" section is expanded
-    provided_expanded: bool,
-    /// Whether the "Custom" section is expanded
-    custom_expanded: bool,
-    /// The tile tree for the viewport area (right side)
+    /// The tile tree for the viewport area
     viewport_tree: egui_tiles::Tree<Box<dyn Component>>,
     behavior: TreeBehavior,
-    /// Width of the left panel in pixels
-    left_panel_width: f32,
-    /// Whether the left panel (metrics tree) is visible
-    left_panel_visible: bool,
     /// Track which metrics already have charts open (by metric name)
     open_charts: HashSet<String>,
     /// Pending chart to add (metric name)
     pending_chart: Option<String>,
-    /// Counter for generating unique buffer names within this workspace
-    next_buffer_number: usize,
     /// Time range toolbar
     time_range_toolbar: TimeRangeToolbar,
     /// Fuzzy finder modal for metrics (telescope-style search)
@@ -137,8 +100,6 @@ pub struct Dashboard {
     last_y_press: Option<crate::util::Instant>,
     /// Last time 'c' was pressed (for cv detection - cycle visualization)
     last_c_press: Option<crate::util::Instant>,
-    /// Tag filter for filtering queries/buffers
-    tag_filter: TagFilter,
     /// Info overlay (shows build/version info)
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
@@ -175,17 +136,10 @@ impl Default for Dashboard {
 
         let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
         Self {
-            metrics_tree: MetricsTree::default(),
-            custom_queries: CustomQueriesPanel::new(),
-            provided_expanded: true,
-            custom_expanded: false,
             viewport_tree,
             behavior: TreeBehavior::default(),
-            left_panel_width: 280.0,
-            left_panel_visible: true,
             open_charts: HashSet::new(),
             pending_chart: None,
-            next_buffer_number: 1,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
             query_finder: QueryFinder::new(),
@@ -199,7 +153,6 @@ impl Default for Dashboard {
             show_landing: true,
             last_y_press: None,
             last_c_press: None,
-            tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             viewport_scroll_offset: 0.0,
@@ -285,18 +238,10 @@ impl VisualMultiState {
 }
 
 impl Dashboard {
-    /// Default left panel width
-    const DEFAULT_PANEL_WIDTH: f32 = 280.0;
-    /// Minimum left panel width
-    const MIN_PANEL_WIDTH: f32 = 200.0;
-    /// Maximum left panel width
-    const MAX_PANEL_WIDTH: f32 = 500.0;
-
-    /// Create a new empty dashboard (no landing page, with an empty buffer ready)
+    /// Create a new empty dashboard (no landing page)
     pub fn new_empty() -> Self {
         let mut dashboard = Self::example(String::new());
         dashboard.show_landing = false;
-        dashboard.create_new_buffer();
         dashboard
     }
 
@@ -309,17 +254,10 @@ impl Dashboard {
         let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
 
         Self {
-            metrics_tree: MetricsTree::with_demo_metrics(),
-            custom_queries: CustomQueriesPanel::with_demo_queries(),
-            provided_expanded: true,
-            custom_expanded: false,
             viewport_tree,
             behavior: TreeBehavior::default(),
-            left_panel_width: Self::DEFAULT_PANEL_WIDTH,
-            left_panel_visible: true,
             open_charts: HashSet::new(),
             pending_chart: None,
-            next_buffer_number: 1,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
             query_finder: QueryFinder::new(),
@@ -333,7 +271,6 @@ impl Dashboard {
             show_landing: true, // Start with landing page
             last_y_press: None,
             last_c_press: None,
-            tag_filter: TagFilter::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             viewport_scroll_offset: 0.0,
@@ -382,8 +319,6 @@ impl Dashboard {
             .set_visual_multi_state(is_visual_multi, selected_ids, tile_queries);
 
         // Update component themes
-        self.metrics_tree.set_theme(app_state.theme);
-        self.custom_queries.set_theme(app_state.theme);
         self.time_range_toolbar.set_theme(app_state.theme);
         self.landing_page.set_theme(app_state.theme);
 
@@ -398,7 +333,7 @@ impl Dashboard {
         // Handle pending workspace finder open (needs app_state for workspace list)
         if self.pending_open_workspace_finder {
             self.pending_open_workspace_finder = false;
-            self.open_workspace_finder(app_state);
+            self.open_workspace_finder(app_state, crate::app::EnyaApp::list_available_workspaces());
         }
 
         // Show landing page only if explicitly enabled and no charts open
@@ -407,114 +342,7 @@ impl Dashboard {
             return self.show_landing_page(ui, ctx, app_state);
         }
 
-        // Track if we need to open fuzzy finder (set inside closure, used after)
-        let mut open_fuzzy = false;
-
-        // Left panel with Provided (metrics) and Custom (queries) sections
-        let text_color = text_color(app_state.theme);
-
-        // In zen mode, hide the left panel
-        if self.left_panel_visible && !self.zen_mode {
-            egui::SidePanel::left("metrics_panel")
-                .resizable(true)
-                .default_width(self.left_panel_width)
-                .width_range(Self::MIN_PANEL_WIDTH..=Self::MAX_PANEL_WIDTH)
-                .show_inside(ui, |ui| {
-                    // Search button at the top (opens fuzzy finder)
-                    let search_btn = egui::Button::new(
-                        egui::RichText::new(format!(
-                            "{}  Search...",
-                            semantic_icons::action::SEARCH
-                        ))
-                        .color(text_color.gamma_multiply(0.6)),
-                    )
-                    .fill(egui::Color32::TRANSPARENT)
-                    .stroke(egui::Stroke::new(1.0, text_color.gamma_multiply(0.2)))
-                    .corner_radius(4.0);
-
-                    if ui
-                        .add_sized([ui.available_width(), 28.0], search_btn)
-                        .on_hover_text("Search metrics and queries (Cmd+K)")
-                        .clicked()
-                    {
-                        open_fuzzy = true;
-                    }
-
-                    ui.add_space(8.0);
-
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        // "Provided" section - contains the metrics tree
-                        let provided_header = format!("{} Provided", semantic_icons::file::FOLDER);
-                        let provided_header_builder = egui::CollapsingHeader::new(
-                            egui::RichText::new(provided_header)
-                                .color(text_color)
-                                .strong(),
-                        )
-                        .id_salt("provided_section")
-                        .default_open(self.provided_expanded);
-
-                        let provided_response = provided_header_builder.show(ui, |ui| {
-                            self.metrics_tree.show(ui);
-
-                            // Check if a metric was double-clicked (add chart action)
-                            if let Some(metric_name) = self.metrics_tree.take_pending_chart() {
-                                self.pending_chart = Some(metric_name);
-                            }
-                        });
-
-                        // Update provided expanded state
-                        if provided_response.fully_open() {
-                            self.provided_expanded = true;
-                        } else if provided_response.openness < 0.5 {
-                            self.provided_expanded = false;
-                        }
-
-                        ui.add_space(4.0);
-
-                        // "Custom" section - contains the custom queries
-                        let custom_header = format!(
-                            "{} Custom ({})",
-                            semantic_icons::file::CODE,
-                            self.custom_queries.queries().len()
-                        );
-                        let custom_header_builder = egui::CollapsingHeader::new(
-                            egui::RichText::new(custom_header)
-                                .color(text_color)
-                                .strong(),
-                        )
-                        .id_salt("custom_section")
-                        .default_open(self.custom_expanded);
-
-                        let custom_response = custom_header_builder.show(ui, |ui| {
-                            self.custom_queries.show(ui);
-
-                            // Check if a custom query was double-clicked (add chart action)
-                            if let Some(query_id) = self.custom_queries.take_pending_chart() {
-                                if let Some(query) = self.custom_queries.get_query(query_id) {
-                                    // Clone the values to avoid borrow issues
-                                    let name = query.name.clone();
-                                    let query_str = query.query.clone();
-                                    self.add_chart_for_query(&name, &query_str);
-                                }
-                            }
-                        });
-
-                        // Update custom expanded state
-                        if custom_response.fully_open() {
-                            self.custom_expanded = true;
-                        } else if custom_response.openness < 0.5 {
-                            self.custom_expanded = false;
-                        }
-                    });
-                });
-        }
-
-        // Open fuzzy finder if search button was clicked
-        if open_fuzzy {
-            self.open_metrics_finder();
-        }
-
-        // Right area with toolbar and viewport
+        // Main area with toolbar and viewport
         egui::CentralPanel::default().show_inside(ui, |ui| {
             // Top toolbar with time range controls (hidden in zen mode)
             if !self.zen_mode {
@@ -523,19 +351,6 @@ impl Dashboard {
                     .show_inside(ui, |ui| {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            // Metrics panel toggle on the left
-                            if metrics_panel_toggle_button(
-                                ui,
-                                self.left_panel_visible,
-                                app_state.theme,
-                            )
-                            .clicked()
-                            {
-                                self.left_panel_visible = !self.left_panel_visible;
-                            }
-
-                            ui.add_space(8.0);
-
                             // Time range controls
                             self.time_range_toolbar.show(ui);
                         });
@@ -756,24 +571,11 @@ impl Dashboard {
         match landing_action {
             LandingPageAction::OpenPlot {
                 metric_name,
-                is_query,
+                is_query: _,
             } => {
                 self.show_landing = false;
-                if is_query {
-                    // For queries, we need to find the query by name
-                    if let Some(query) = self
-                        .custom_queries
-                        .queries()
-                        .iter()
-                        .find(|q| q.name == metric_name)
-                    {
-                        let name = query.name.clone();
-                        let query_str = query.query.clone();
-                        self.add_chart_for_query(&name, &query_str);
-                    }
-                } else {
-                    self.pending_chart = Some(metric_name);
-                }
+                // Open the metric directly (queries are now handled via fuzzy finder)
+                self.pending_chart = Some(metric_name);
             }
             LandingPageAction::OpenWorkspace { name } => {
                 return DashboardAction::LoadWorkspace(name);
@@ -785,7 +587,10 @@ impl Dashboard {
                 self.open_query_finder();
             }
             LandingPageAction::OpenWorkspaceFinder => {
-                self.open_workspace_finder(app_state);
+                self.open_workspace_finder(
+                    app_state,
+                    crate::app::EnyaApp::list_available_workspaces(),
+                );
             }
             LandingPageAction::ShowHelp => {
                 self.which_key.open();
@@ -880,10 +685,6 @@ impl Dashboard {
         match result {
             CommandResult::ToggleTheme => DashboardAction::ToggleTheme,
             CommandResult::SetTheme(theme) => DashboardAction::SetTheme(theme),
-            CommandResult::ToggleMetricsPanel => {
-                self.left_panel_visible = !self.left_panel_visible;
-                DashboardAction::None
-            }
             CommandResult::OpenSearch => {
                 self.open_metrics_finder();
                 DashboardAction::None
@@ -909,18 +710,6 @@ impl Dashboard {
                 self.split_panes_vertical();
                 DashboardAction::None
             }
-            CommandResult::SaveBuffer(name) => {
-                self.save_focused_buffer(name);
-                DashboardAction::None
-            }
-            CommandResult::EditBuffer => {
-                self.edit_focused_buffer();
-                DashboardAction::None
-            }
-            CommandResult::NewBuffer => {
-                self.create_new_buffer();
-                DashboardAction::None
-            }
             CommandResult::ToggleZenMode => {
                 self.toggle_zen_mode();
                 DashboardAction::None
@@ -929,10 +718,6 @@ impl Dashboard {
                 self.toggle_fullscreen();
                 DashboardAction::None
             }
-            CommandResult::TestNotify(level) => DashboardAction::Notify {
-                level: level.clone(),
-                message: format!("Test notification ({level})"),
-            },
             CommandResult::ShowLandingPage => {
                 self.show_landing = true;
                 // Close all charts to trigger landing page display
@@ -944,55 +729,6 @@ impl Dashboard {
             CommandResult::LoadWorkspace(name) => DashboardAction::LoadWorkspace(name),
             CommandResult::ListWorkspaces => DashboardAction::ListWorkspaces,
             CommandResult::ShareWorkspace => DashboardAction::ShareWorkspace,
-            CommandResult::SetTagFilter(path) => {
-                self.set_tag_filter(path);
-                DashboardAction::None
-            }
-            CommandResult::AddTag(path) => {
-                if let Some(query_name) = self.add_tag_to_focused(&path) {
-                    DashboardAction::Notify {
-                        level: "info".to_string(),
-                        message: format!("Added #{path} to \"{query_name}\""),
-                    }
-                } else {
-                    DashboardAction::Notify {
-                        level: "warn".to_string(),
-                        message:
-                            "No query focused. Focus a query chart or select one in the panel."
-                                .to_string(),
-                    }
-                }
-            }
-            CommandResult::RemoveTag(path) => {
-                if let Some(query_name) = self.remove_tag_from_focused(&path) {
-                    DashboardAction::Notify {
-                        level: "info".to_string(),
-                        message: format!("Removed #{path} from \"{query_name}\""),
-                    }
-                } else {
-                    DashboardAction::Notify {
-                        level: "warn".to_string(),
-                        message:
-                            "No query focused. Focus a query chart or select one in the panel."
-                                .to_string(),
-                    }
-                }
-            }
-            CommandResult::ShowTags => {
-                // Show all tags as a notification for now
-                let tags = self.custom_queries.all_tags();
-                if tags.is_empty() {
-                    DashboardAction::Notify {
-                        level: "info".to_string(),
-                        message: "No tags defined".to_string(),
-                    }
-                } else {
-                    DashboardAction::Notify {
-                        level: "info".to_string(),
-                        message: format!("Tags: {}", tags.join(", ")),
-                    }
-                }
-            }
             CommandResult::ToggleCommits => {
                 self.toggle_commits_on_focused();
                 DashboardAction::None
@@ -1038,14 +774,6 @@ impl Dashboard {
                 }
                 DashboardAction::None
             }
-            CommandResult::TestDiagnostics => {
-                self.add_test_diagnostics();
-                self.show_diagnostics();
-                DashboardAction::Notify {
-                    level: "info".to_string(),
-                    message: "Added test diagnostics".to_string(),
-                }
-            }
             CommandResult::NewWorkspaceTab(name) => DashboardAction::NewWorkspaceTab(name),
             CommandResult::CloseWorkspaceTab => DashboardAction::CloseWorkspaceTab,
             CommandResult::NextWorkspaceTab => DashboardAction::NextWorkspaceTab,
@@ -1068,32 +796,6 @@ impl Dashboard {
         None
     }
 
-    /// Save the focused buffer (execute its query), optionally setting a name
-    fn save_focused_buffer(&mut self, name: Option<String>) {
-        if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) =
-                self.viewport_tree.tiles.get_mut(tile_id)
-            {
-                // Try to downcast to QueryPane and save
-                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                    if let Some(ref new_name) = name {
-                        query_pane.set_name(new_name);
-                    }
-                    if query_pane.save() {
-                        log::debug!("Buffer saved");
-                    }
-                } else if let Some(buffer) = component.as_any_mut().downcast_mut::<Buffer>() {
-                    if let Some(ref new_name) = name {
-                        buffer.set_name(new_name);
-                    }
-                    if buffer.save() {
-                        log::debug!("Buffer saved");
-                    }
-                }
-            }
-        }
-    }
-
     /// Toggle commit markers on the focused chart
     fn toggle_commits_on_focused(&mut self) {
         if let Some(tile_id) = self.behavior.focused_tile() {
@@ -1103,29 +805,6 @@ impl Dashboard {
                 if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
                     query_pane.toggle_commits();
                     log::debug!("Toggled commit markers");
-                }
-            }
-        }
-    }
-
-    /// Enter edit mode on the focused buffer - opens the modal editor
-    fn edit_focused_buffer(&mut self) {
-        if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                // Try to downcast to QueryPane and get query info
-                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                    let query = query_pane.saved_query().to_string();
-                    let name = query_pane.name().to_string();
-                    let state = query_pane.query_state().clone();
-                    self.buffer_editor.open_with_state(&query, &name, state);
-                    self.editing_tile_id = Some(tile_id);
-                    log::debug!("Opening buffer editor for QueryPane");
-                } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
-                    let query = buffer.saved_content().to_string();
-                    let name = buffer.name().to_string();
-                    self.buffer_editor.open(&query, &name);
-                    self.editing_tile_id = Some(tile_id);
-                    log::debug!("Opening buffer editor for Buffer");
                 }
             }
         }
@@ -1170,48 +849,164 @@ impl Dashboard {
 
     /// Open the metrics finder modal (for metrics only)
     pub fn open_metrics_finder(&mut self) {
-        // Populate the metrics finder with all metric info including tags
-        let items: Vec<MetricItem> = self
-            .metrics_tree
-            .metrics()
-            .iter()
-            .map(|metric| MetricItem {
-                name: metric.name.clone(),
-                category: metric.category.label().to_string(),
-                description: metric.description.clone(),
-                unit: metric.unit.clone(),
-                tags: metric.tags.clone(),
-                series_count: metric.series_count,
-            })
-            .collect();
-
+        // Use demo metrics for the fuzzy finder
+        let items = Self::demo_metric_items();
         self.metrics_finder.set_items(items);
         self.metrics_finder.open();
     }
 
+    /// Generate demo metric items for the fuzzy finder
+    fn demo_metric_items() -> Vec<MetricItem> {
+        use std::collections::{HashMap, HashSet};
+
+        let mut items = Vec::new();
+
+        // Tokio metrics
+        for name in [
+            "tokio.runtime.total_park_count",
+            "tokio.runtime.blocking_queue_depth",
+            "tokio.runtime.num_remote_schedules",
+            "tokio.runtime.budget_forced_yield_count",
+            "tokio.runtime.io_driver_ready_count",
+            "tokio.runtime.mean_poll_duration_ns",
+        ] {
+            items.push(MetricItem {
+                name: name.to_string(),
+                category: "Tokio Runtime".to_string(),
+                description: None,
+                unit: None,
+                tags: HashMap::new(),
+                series_count: 0,
+            });
+        }
+
+        // Task metrics with tags
+        let task_tags: HashMap<String, HashSet<String>> = [(
+            "task".to_string(),
+            ["ingestor", "query_handler", "compactor"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        )]
+        .into_iter()
+        .collect();
+
+        for name in [
+            "task.poll.count",
+            "task.poll.duration_ns",
+            "task.poll.slow_count",
+            "task.idle.duration_ns",
+            "task.scheduled.duration_ns",
+        ] {
+            items.push(MetricItem {
+                name: name.to_string(),
+                category: "Tasks".to_string(),
+                description: None,
+                unit: None,
+                tags: task_tags.clone(),
+                series_count: 3,
+            });
+        }
+
+        // DataFusion metrics
+        for name in [
+            "datafusion.query.execution_time_ns",
+            "datafusion.query.rows_produced",
+            "datafusion.memory.pool_size",
+        ] {
+            items.push(MetricItem {
+                name: name.to_string(),
+                category: "DataFusion".to_string(),
+                description: None,
+                unit: None,
+                tags: HashMap::new(),
+                series_count: 0,
+            });
+        }
+
+        // System metrics
+        let host_tags: HashMap<String, HashSet<String>> = [(
+            "host".to_string(),
+            ["server1", "server2", "server3"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        )]
+        .into_iter()
+        .collect();
+
+        items.push(MetricItem {
+            name: "cpu.usage".to_string(),
+            category: "System".to_string(),
+            description: None,
+            unit: None,
+            tags: host_tags,
+            series_count: 3,
+        });
+
+        for name in ["memory.used", "memory.available"] {
+            items.push(MetricItem {
+                name: name.to_string(),
+                category: "System".to_string(),
+                description: None,
+                unit: None,
+                tags: HashMap::new(),
+                series_count: 0,
+            });
+        }
+
+        // Application metrics
+        let app_tags: HashMap<String, HashSet<String>> = [
+            (
+                "env".to_string(),
+                ["prod", "staging"].iter().map(|s| s.to_string()).collect(),
+            ),
+            (
+                "service".to_string(),
+                ["api", "web"].iter().map(|s| s.to_string()).collect(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        items.push(MetricItem {
+            name: "http.requests".to_string(),
+            category: "Application".to_string(),
+            description: None,
+            unit: None,
+            tags: app_tags,
+            series_count: 4,
+        });
+
+        for name in ["request.count", "request.latency"] {
+            items.push(MetricItem {
+                name: name.to_string(),
+                category: "Application".to_string(),
+                description: None,
+                unit: None,
+                tags: HashMap::new(),
+                series_count: 0,
+            });
+        }
+
+        items
+    }
+
     /// Open the query finder modal (for saved queries)
     pub fn open_query_finder(&mut self) {
-        // Populate the query finder with saved queries
-        let queries: Vec<QueryItem> = self
-            .custom_queries
-            .queries()
-            .iter()
-            .map(|q| QueryItem {
-                id: q.id,
-                name: q.name.clone(),
-                query: q.query.clone(),
-                tags: q.tags.clone(),
-            })
-            .collect();
-
-        self.query_finder.set_queries(queries);
+        // Query finder now starts empty (no custom queries panel)
+        self.query_finder.set_queries(vec![]);
         self.query_finder.open();
     }
 
     /// Open the workspace finder modal (for loading saved workspaces)
-    pub fn open_workspace_finder(&mut self, app_state: &AppState) {
-        // Populate the workspace finder with recent workspaces
-        let workspaces: Vec<WorkspaceItem> = app_state
+    pub fn open_workspace_finder(
+        &mut self,
+        app_state: &AppState,
+        available_workspaces: Vec<(String, Option<String>)>,
+    ) {
+        // Start with recent workspaces
+        let mut workspaces: Vec<WorkspaceItem> = app_state
             .settings
             .recent_workspaces
             .iter()
@@ -1224,6 +1019,16 @@ impl Dashboard {
                 },
             })
             .collect();
+
+        // Track names already in the list
+        let existing_names: HashSet<String> = workspaces.iter().map(|w| w.name.clone()).collect();
+
+        // Add available workspaces from filesystem that aren't already in recent
+        for (name, description) in available_workspaces {
+            if !existing_names.contains(&name) {
+                workspaces.push(WorkspaceItem { name, description });
+            }
+        }
 
         self.workspace_finder.set_workspaces(workspaces);
         self.workspace_finder.open();
@@ -1304,22 +1109,6 @@ impl Dashboard {
             self.open_charts.insert(chart_key);
             self.behavior.set_focused_tile(Some(pane_tile));
             log::debug!("Added query pane for '{query_name}'");
-        }
-    }
-
-    /// Create a new empty query pane in the viewport
-    fn create_new_buffer(&mut self) {
-        let buffer_name = format!("Buffer {}", self.next_buffer_number);
-        self.next_buffer_number += 1;
-
-        // Use QueryPane instead of raw Buffer to get LSP/autocompletion support
-        let pane = QueryPane::with_name("", buffer_name);
-        let pane: Box<dyn Component> = Box::new(pane);
-        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(pane_tile) {
-            self.behavior.set_focused_tile(Some(pane_tile));
-            log::debug!("Created new query pane");
         }
     }
 
@@ -1477,70 +1266,7 @@ impl Dashboard {
         self.diagnostics_visible
     }
 
-    /// Add test diagnostics for demonstration purposes
-    fn add_test_diagnostics(&mut self) {
-        use crate::components::{DiagnosticLevel, DiagnosticSource};
-
-        // Clear existing diagnostics first
-        self.diagnostics_pane.clear();
-
-        // Add sample error
-        self.diagnostics_pane.add(
-            Diagnostic::error("Invalid query syntax: unbalanced parentheses")
-                .with_source(DiagnosticSource::QuerySyntax)
-                .with_code("E001")
-                .with_line(1)
-                .with_column(15)
-                .with_pane(1, "cpu.usage"),
-        );
-
-        // Add sample warning
-        self.diagnostics_pane.add(
-            Diagnostic::warning("Unknown tag key 'evn' - did you mean 'env'?")
-                .with_source(DiagnosticSource::QueryValidation)
-                .with_code("W001")
-                .with_line(1)
-                .with_column(1)
-                .with_pane(2, "memory.used"),
-        );
-
-        // Add sample info
-        self.diagnostics_pane.add(
-            Diagnostic::new(DiagnosticLevel::Info, "Query returned 0 results")
-                .with_source(DiagnosticSource::DataConnection)
-                .with_pane(1, "cpu.usage"),
-        );
-
-        // Add sample hint
-        self.diagnostics_pane.add(
-            Diagnostic::hint("Consider using 'env:prod*' for prefix matching")
-                .with_source(DiagnosticSource::QueryValidation)
-                .with_code("H001")
-                .with_line(1)
-                .with_column(5)
-                .with_pane(3, "disk.free"),
-        );
-
-        // Add another error without location
-        self.diagnostics_pane.add(
-            Diagnostic::error("Connection timeout to metrics server")
-                .with_source(DiagnosticSource::DataConnection),
-        );
-
-        log::debug!("Added {} test diagnostics", self.diagnostics_pane.count());
-    }
-
     // ==================== End Diagnostics Methods ====================
-
-    /// Get a reference to the metrics tree for reading selection state
-    pub fn metrics_tree(&self) -> &MetricsTree {
-        &self.metrics_tree
-    }
-
-    /// Get a mutable reference to the metrics tree
-    pub fn metrics_tree_mut(&mut self) -> &mut MetricsTree {
-        &mut self.metrics_tree
-    }
 
     /// Check if the command palette is currently open
     pub fn is_command_palette_open(&self) -> bool {
@@ -1567,7 +1293,8 @@ impl Dashboard {
 
     /// Get the currently selected metric name
     pub fn selected_metric(&self) -> Option<String> {
-        self.metrics_tree.selection().metric.clone()
+        // No longer tracking selection (metrics tree removed)
+        None
     }
 
     /// Get viewport info (e.g., pane layout description)
@@ -1578,143 +1305,6 @@ impl Dashboard {
         } else {
             None
         }
-    }
-
-    /// Get the current tag filter display string
-    pub fn tag_filter_display(&self) -> String {
-        self.tag_filter.display()
-    }
-
-    /// Set the tag filter
-    pub fn set_tag_filter(&mut self, path: Option<TagPath>) {
-        self.tag_filter.set(path.clone());
-
-        // Update the custom queries panel filter
-        let tag_str = path.as_ref().map(|p| p.as_str());
-        self.custom_queries.set_tag_filter(tag_str.as_deref());
-
-        log::debug!("Tag filter set to: {}", self.tag_filter.display());
-    }
-
-    /// Get the name of the currently focused chart in the viewport
-    fn focused_chart_name(&self) -> Option<String> {
-        let tile_id = self.behavior.focused_tile()?;
-        if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-            Some(component.name())
-        } else {
-            None
-        }
-    }
-
-    /// Find a query by name and return its ID
-    fn find_query_id_by_name(&self, name: &str) -> Option<u64> {
-        self.custom_queries
-            .queries()
-            .iter()
-            .find(|q| q.name == name)
-            .map(|q| q.id)
-    }
-
-    /// Add a tag to the focused chart's query
-    /// Returns Some(query_name) if successful, None if no matching query
-    /// If the focused chart is a raw metric (not a saved query), auto-creates a query entry for it
-    pub fn add_tag_to_focused(&mut self, tag: &TagPath) -> Option<String> {
-        // First try the focused chart in the viewport
-        if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                let chart_name = component.name();
-
-                // Check if this is already a saved query
-                if let Some(query_id) = self.find_query_id_by_name(&chart_name) {
-                    self.custom_queries
-                        .add_tag_to_query(query_id, &tag.as_str());
-                    log::debug!("Added tag '{tag}' to query '{chart_name}' (id: {query_id})");
-                    return Some(chart_name);
-                }
-
-                // Not a saved query - try to auto-save it as a query
-                // Get the query string from the pane
-                let query_str = component
-                    .as_any()
-                    .downcast_ref::<QueryPane>()
-                    .map(|qp| qp.saved_query().to_string())
-                    .or_else(|| {
-                        component
-                            .as_any()
-                            .downcast_ref::<Buffer>()
-                            .map(|b| b.saved_content().to_string())
-                    });
-
-                if let Some(query_str) = query_str {
-                    // Auto-create a custom query entry with the tag
-                    self.custom_queries.add_query_with_tags(
-                        &chart_name,
-                        &query_str,
-                        vec![tag.as_str()],
-                    );
-                    log::debug!(
-                        "Auto-created query '{chart_name}' with tag '{tag}' (query: {query_str})"
-                    );
-                    return Some(chart_name);
-                }
-
-                log::debug!("Focused chart '{chart_name}' could not be converted to a query");
-                return None;
-            }
-        }
-
-        // Fall back to selected query in left panel
-        if let Some(query_id) = self.custom_queries.selected() {
-            self.custom_queries
-                .add_tag_to_query(query_id, &tag.as_str());
-            let query_name = self
-                .custom_queries
-                .queries()
-                .iter()
-                .find(|q| q.id == query_id)
-                .map(|q| q.name.clone());
-            log::debug!("Added tag '{tag}' to selected query {query_id}");
-            return query_name;
-        }
-
-        log::debug!("No focused chart or selected query to add tag to");
-        None
-    }
-
-    /// Remove a tag from the focused chart's query
-    /// Returns Some(query_name) if successful, None if no matching query
-    pub fn remove_tag_from_focused(&mut self, tag: &TagPath) -> Option<String> {
-        // First try the focused chart in the viewport
-        if let Some(chart_name) = self.focused_chart_name() {
-            if let Some(query_id) = self.find_query_id_by_name(&chart_name) {
-                self.custom_queries
-                    .remove_tag_from_query(query_id, &tag.as_str());
-                log::debug!("Removed tag '{tag}' from query '{chart_name}' (id: {query_id})");
-                return Some(chart_name);
-            }
-            // Chart exists but is not a custom query (might be a metric)
-            log::debug!(
-                "Focused chart '{chart_name}' is not a custom query - tags only work on queries"
-            );
-            return None;
-        }
-
-        // Fall back to selected query in left panel
-        if let Some(query_id) = self.custom_queries.selected() {
-            self.custom_queries
-                .remove_tag_from_query(query_id, &tag.as_str());
-            let query_name = self
-                .custom_queries
-                .queries()
-                .iter()
-                .find(|q| q.id == query_id)
-                .map(|q| q.name.clone());
-            log::debug!("Removed tag '{tag}' from selected query {query_id}");
-            return query_name;
-        }
-
-        log::debug!("No focused chart or selected query to remove tag from");
-        None
     }
 
     /// Split panes horizontally (`:split` - panes stacked vertically, one above another)
@@ -1950,7 +1540,6 @@ impl Dashboard {
         let mut consumed = false;
         let mut should_clear_focus = false;
         let mut should_close_focused = false;
-        let mut should_edit_buffer = false;
         let mut should_toggle_zen = false;
         let mut should_toggle_fullscreen = false;
         let mut should_share_pane = false;
@@ -2020,13 +1609,6 @@ impl Dashboard {
             // w - open workspace finder
             if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
                 should_open_workspace_finder = true;
-                consumed = true;
-                return;
-            }
-
-            // e - enter edit mode on focused pane (vim-style)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
-                should_edit_buffer = true;
                 consumed = true;
                 return;
             }
@@ -2163,8 +1745,6 @@ impl Dashboard {
             if let Some(tile_id) = starting_tile {
                 self.enter_visual_multi_mode(tile_id);
             }
-        } else if should_edit_buffer {
-            self.edit_focused_buffer();
         } else if should_cycle_visualization {
             self.cycle_focused_visualization();
         } else if should_toggle_zen {
@@ -2640,12 +2220,13 @@ impl Dashboard {
                     AppTheme::Light => "light".to_string(),
                     AppTheme::Dark => "dark".to_string(),
                 },
-                metrics_panel: self.left_panel_visible,
-                inspector: false, // Inspector panel removed
+                metrics_panel: false, // Left panel removed
+                inspector: false,     // Inspector panel removed
                 zen_mode: self.zen_mode,
             },
             time: TimeConfig::from_preset(self.time_range_toolbar.time_range().preset),
             panes,
+            layout: self.extract_layout_from_tree(),
         }
     }
 
@@ -2658,17 +2239,19 @@ impl Dashboard {
     ) -> Option<ConnectionConfig> {
         // Apply view settings
         *theme = workspace.view.app_theme();
-        self.left_panel_visible = workspace.view.metrics_panel;
+        // Note: metrics_panel setting ignored (left panel removed)
         self.zen_mode = workspace.view.zen_mode;
 
         // Apply time range
         self.time_range_toolbar
             .set_preset(workspace.time.to_preset());
 
-        // Clear existing panes
+        // Clear existing panes and reset the tree
         self.clear_all_panes();
 
-        // Add panes from workspace
+        // Phase 1: Insert all panes and collect their TileIds
+        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(workspace.panes.len());
+
         for pane_config in &workspace.panes {
             let mut query_pane = QueryPane::new(&pane_config.query);
             if !pane_config.name.is_empty() {
@@ -2685,10 +2268,32 @@ impl Dashboard {
             // Track the chart
             self.open_charts.insert(pane_config.query.clone());
 
-            // Add to viewport
+            // Insert pane and record its TileId (don't add to viewport yet)
             let tile_id = self.viewport_tree.tiles.insert_pane(Box::new(query_pane));
-            self.add_tile_to_viewport(tile_id);
+            pane_tile_ids.push(tile_id);
         }
+
+        // Phase 2: Build the layout tree
+        let root_id = if let Some(layout) = &workspace.layout {
+            // Validate layout references before building
+            if let Err(e) = layout.validate(workspace.panes.len()) {
+                log::warn!("Invalid layout config: {e}. Falling back to tabs.");
+                self.viewport_tree
+                    .tiles
+                    .insert_tab_tile(pane_tile_ids.clone())
+            } else {
+                // Use explicit layout configuration
+                self.build_layout_tree(layout, &pane_tile_ids)
+            }
+        } else {
+            // Backward compatibility: no layout = tabs container
+            self.viewport_tree
+                .tiles
+                .insert_tab_tile(pane_tile_ids.clone())
+        };
+
+        // Set the root
+        self.viewport_tree.root = Some(root_id);
 
         // Hide landing page if we have panes
         if !workspace.panes.is_empty() {
@@ -2723,6 +2328,204 @@ impl Dashboard {
         self.open_charts.clear();
         self.behavior.set_focused_tile(None);
         self.show_landing = true;
+    }
+
+    // ==================== Layout Tree Building ====================
+
+    /// Build the tile tree from a layout configuration
+    fn build_layout_tree(&mut self, layout: &LayoutConfig, pane_tile_ids: &[TileId]) -> TileId {
+        let container = LayoutContainer {
+            layout_type: layout.layout_type,
+            children: layout.children.clone(),
+            shares: layout.shares.clone(),
+        };
+        self.build_container(&container, pane_tile_ids)
+    }
+
+    /// Recursively build a container and its children
+    fn build_container(&mut self, container: &LayoutContainer, pane_tile_ids: &[TileId]) -> TileId {
+        // First, resolve all children to TileIds
+        let child_ids: Vec<TileId> = container
+            .children
+            .iter()
+            .filter_map(|node| self.resolve_layout_node(node, pane_tile_ids))
+            .collect();
+
+        if child_ids.is_empty() {
+            // Fallback: create empty tabs container
+            return self.viewport_tree.tiles.insert_tab_tile(vec![]);
+        }
+
+        match container.layout_type {
+            LayoutType::Tabs => self.viewport_tree.tiles.insert_tab_tile(child_ids),
+            LayoutType::Horizontal => {
+                let container_id = self
+                    .viewport_tree
+                    .tiles
+                    .insert_horizontal_tile(child_ids.clone());
+
+                // Apply shares if specified
+                if !container.shares.is_empty() {
+                    self.apply_shares(container_id, &child_ids, &container.shares);
+                }
+
+                container_id
+            }
+            LayoutType::Vertical => {
+                let container_id = self
+                    .viewport_tree
+                    .tiles
+                    .insert_vertical_tile(child_ids.clone());
+
+                // Apply shares if specified
+                if !container.shares.is_empty() {
+                    self.apply_shares(container_id, &child_ids, &container.shares);
+                }
+
+                container_id
+            }
+        }
+    }
+
+    /// Resolve a layout node to a TileId
+    fn resolve_layout_node(
+        &mut self,
+        node: &LayoutNode,
+        pane_tile_ids: &[TileId],
+    ) -> Option<TileId> {
+        match node {
+            LayoutNode::Pane(index) => {
+                // Get the pre-inserted pane's TileId
+                pane_tile_ids.get(*index).copied()
+            }
+            LayoutNode::Container(container) => {
+                // Recursively build nested container
+                Some(self.build_container(container, pane_tile_ids))
+            }
+        }
+    }
+
+    /// Apply shares to a linear container
+    fn apply_shares(&mut self, container_id: TileId, child_ids: &[TileId], shares: &[f32]) {
+        if let Some(Tile::Container(egui_tiles::Container::Linear(linear))) =
+            self.viewport_tree.tiles.get_mut(container_id)
+        {
+            for (i, &child_id) in child_ids.iter().enumerate() {
+                let share = shares.get(i).copied().unwrap_or(1.0);
+                linear.shares.set_share(child_id, share);
+            }
+        }
+    }
+
+    // ==================== Layout Tree Extraction ====================
+
+    /// Extract layout configuration from the current tile tree
+    fn extract_layout_from_tree(&self) -> Option<LayoutConfig> {
+        let root_id = self.viewport_tree.root()?;
+
+        // Build a mapping from TileId to pane index
+        let pane_ids = self.get_pane_tile_ids();
+        let pane_index_map: HashMap<TileId, usize> = pane_ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| (id, i))
+            .collect();
+
+        // Extract the root container
+        match self.viewport_tree.tiles.get(root_id)? {
+            Tile::Container(container) => {
+                let (layout_type, children, shares) =
+                    self.extract_container(container, &pane_index_map);
+                Some(LayoutConfig {
+                    layout_type,
+                    children,
+                    shares,
+                })
+            }
+            Tile::Pane(_) => {
+                // Single pane - wrap in tabs
+                let index = pane_index_map.get(&root_id)?;
+                Some(LayoutConfig {
+                    layout_type: LayoutType::Tabs,
+                    children: vec![LayoutNode::Pane(*index)],
+                    shares: Vec::new(),
+                })
+            }
+        }
+    }
+
+    /// Extract a container's layout configuration
+    fn extract_container(
+        &self,
+        container: &egui_tiles::Container,
+        pane_index_map: &HashMap<TileId, usize>,
+    ) -> (LayoutType, Vec<LayoutNode>, Vec<f32>) {
+        match container {
+            egui_tiles::Container::Tabs(tabs) => {
+                let children: Vec<LayoutNode> = tabs
+                    .children
+                    .iter()
+                    .filter_map(|&id| self.tile_to_layout_node(id, pane_index_map))
+                    .collect();
+                (LayoutType::Tabs, children, Vec::new())
+            }
+            egui_tiles::Container::Linear(linear) => {
+                let layout_type = match linear.dir {
+                    egui_tiles::LinearDir::Horizontal => LayoutType::Horizontal,
+                    egui_tiles::LinearDir::Vertical => LayoutType::Vertical,
+                };
+
+                let children: Vec<LayoutNode> = linear
+                    .children
+                    .iter()
+                    .filter_map(|&id| self.tile_to_layout_node(id, pane_index_map))
+                    .collect();
+
+                // Extract shares
+                let shares: Vec<f32> = linear
+                    .children
+                    .iter()
+                    .map(|&id| linear.shares[id])
+                    .collect();
+
+                // Only include shares if they differ from default (all 1.0)
+                let all_default = shares.iter().all(|&s| (s - 1.0).abs() < 0.01);
+                let shares = if all_default { Vec::new() } else { shares };
+
+                (layout_type, children, shares)
+            }
+            egui_tiles::Container::Grid(_) => {
+                // Grid not supported in this schema - convert to tabs
+                let children: Vec<LayoutNode> = container
+                    .children()
+                    .filter_map(|&id| self.tile_to_layout_node(id, pane_index_map))
+                    .collect();
+                (LayoutType::Tabs, children, Vec::new())
+            }
+        }
+    }
+
+    /// Convert a tile to a layout node
+    fn tile_to_layout_node(
+        &self,
+        tile_id: TileId,
+        pane_index_map: &HashMap<TileId, usize>,
+    ) -> Option<LayoutNode> {
+        match self.viewport_tree.tiles.get(tile_id)? {
+            Tile::Pane(_) => {
+                let index = pane_index_map.get(&tile_id)?;
+                Some(LayoutNode::Pane(*index))
+            }
+            Tile::Container(container) => {
+                let (layout_type, children, shares) =
+                    self.extract_container(container, pane_index_map);
+                Some(LayoutNode::Container(LayoutContainer {
+                    layout_type,
+                    children,
+                    shares,
+                }))
+            }
+        }
     }
 
     /// Draw nvim-style scrollbar indicator in the scrollbar gutter
