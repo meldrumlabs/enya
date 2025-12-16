@@ -65,6 +65,12 @@ impl Series {
         self
     }
 
+    /// Set tags from a HashMap
+    pub fn with_tags_map(mut self, tags: HashMap<String, String>) -> Self {
+        self.tags = tags;
+        self
+    }
+
     /// Build a label from the series name and tags
     pub fn label(&self) -> String {
         if self.tags.is_empty() {

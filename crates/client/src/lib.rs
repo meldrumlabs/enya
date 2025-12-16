@@ -1,0 +1,326 @@
+//! Metrics client abstraction supporting multiple backends.
+//!
+//! This crate provides a unified interface for querying metrics from different
+//! backends (Prometheus, Enya, etc.) using enya-lang as the query language.
+//!
+//! # Architecture
+//!
+//! The [`MetricsClient`] trait defines a promise-based async interface that all
+//! backends implement. Methods return [`Promise`] objects that can be polled
+//! each frame in immediate mode GUIs like egui.
+//!
+//! # Example
+//!
+//! ```ignore
+//! use enya_client::{MetricsClient, QueryRequest};
+//! use enya_client::prometheus::PrometheusClient;
+//!
+//! // Create a client for your backend
+//! let client = PrometheusClient::new("http://localhost:9090");
+//!
+//! // Fire off a query - returns a promise
+//! let request = QueryRequest::new("cpu_usage", "sum(env:prod) by (host)");
+//! let promise = client.query(request, &ctx);
+//!
+//! // In your update loop, poll for results
+//! if let Some(result) = promise.ready() {
+//!     match result {
+//!         Ok(response) => { /* update visualization */ }
+//!         Err(e) => { /* show error */ }
+//!     }
+//! }
+//! ```
+
+pub mod error;
+pub mod prometheus;
+pub mod promise;
+pub mod request;
+
+use poll_promise::Promise;
+
+pub use error::ClientError;
+pub use promise::{Sender, promise_channel};
+pub use request::QueryRequest;
+
+// Re-export response types from enya-common
+pub use enya_common::{MetricsBucket, MetricsGroup, QueryResponse};
+
+/// Nanosecond timestamp type.
+pub type Timestamp = enya_common::api::Timestamp;
+
+/// Result type for query operations.
+pub type QueryResult = Result<QueryResponse, ClientError>;
+
+/// Result type for label list operations.
+pub type LabelsResult = Result<Vec<String>, ClientError>;
+
+/// Metrics client trait - promise-based async interface.
+///
+/// Implementations translate enya-lang queries to their native format
+/// and handle the HTTP communication with the backend. All async methods
+/// return [`Promise`] objects that can be polled each frame.
+pub trait MetricsClient {
+    /// Execute a query request (non-blocking).
+    ///
+    /// Returns a promise that resolves to the query result.
+    /// The `egui::Context` is used to request a repaint when the response is ready.
+    fn query(&self, request: QueryRequest, ctx: &egui::Context) -> Promise<QueryResult>;
+
+    /// Fetch all available label names (tag keys) from the backend.
+    ///
+    /// For Prometheus, this calls `/api/v1/labels`.
+    fn fetch_label_names(&self, ctx: &egui::Context) -> Promise<LabelsResult>;
+
+    /// Fetch all values for a specific label (tag key) from the backend.
+    ///
+    /// For Prometheus, this calls `/api/v1/label/{label}/values`.
+    fn fetch_label_values(&self, label: &str, ctx: &egui::Context) -> Promise<LabelsResult>;
+
+    /// Fetch all metric names from the backend.
+    ///
+    /// For Prometheus, this calls `/api/v1/label/__name__/values`.
+    fn fetch_metric_names(&self, ctx: &egui::Context) -> Promise<LabelsResult>;
+
+    /// Get the backend type identifier (e.g., "prometheus", "enya").
+    fn backend_type(&self) -> &'static str;
+}
+
+/// Manages in-flight queries using poll-promise.
+///
+/// This provides state management for query operations, tracking whether
+/// a query is in flight and providing a polling interface for results.
+///
+/// # Example
+///
+/// ```ignore
+/// let mut manager = QueryManager::new();
+///
+/// // Start a query
+/// manager.execute(&client, request, &ctx);
+///
+/// // In update loop
+/// if let Some(result) = manager.poll() {
+///     // Handle result
+/// }
+/// ```
+pub struct QueryManager {
+    /// The pending promise, if any.
+    promise: Option<Promise<QueryResult>>,
+}
+
+impl Default for QueryManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl QueryManager {
+    /// Create a new query manager.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { promise: None }
+    }
+
+    /// Check if a query is currently in flight.
+    #[must_use]
+    pub fn is_querying(&self) -> bool {
+        self.promise.is_some()
+    }
+
+    /// Execute a query using the given client.
+    ///
+    /// If a query is already in flight, this does nothing.
+    /// Call `poll()` each frame to check for the result.
+    pub fn execute<C: MetricsClient + ?Sized>(
+        &mut self,
+        client: &C,
+        request: QueryRequest,
+        ctx: &egui::Context,
+    ) {
+        if self.promise.is_some() {
+            log::warn!("Query already in flight, ignoring new request");
+            return;
+        }
+
+        self.promise = Some(client.query(request, ctx));
+    }
+
+    /// Poll for the query result.
+    ///
+    /// Returns `Some(result)` if a query just completed, `None` otherwise.
+    /// After returning a result, `is_querying()` will return `false`.
+    pub fn poll(&mut self) -> Option<QueryResult> {
+        let promise = self.promise.as_ref()?;
+        if let Some(result) = promise.ready() {
+            let result = result.clone();
+            self.promise = None;
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    /// Cancel any pending query.
+    ///
+    /// Note: This doesn't actually cancel the HTTP request (ehttp doesn't support that),
+    /// but it will ignore the result when it arrives.
+    pub fn cancel(&mut self) {
+        self.promise = None;
+    }
+}
+
+/// Manages in-flight label/metadata fetches using poll-promise.
+///
+/// Similar to [`QueryManager`], but for metadata operations like
+/// fetching label names, label values, and metric names.
+///
+/// # Example
+///
+/// ```ignore
+/// let mut manager = LabelsManager::new();
+///
+/// // Fetch all label names
+/// manager.fetch_label_names(&client, &ctx);
+///
+/// // In update loop
+/// if let Some(result) = manager.poll() {
+///     match result {
+///         Ok(labels) => { /* update autocomplete */ }
+///         Err(e) => { /* show error */ }
+///     }
+/// }
+/// ```
+pub struct LabelsManager {
+    /// The pending promise, if any.
+    promise: Option<Promise<LabelsResult>>,
+}
+
+impl Default for LabelsManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LabelsManager {
+    /// Create a new labels manager.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { promise: None }
+    }
+
+    /// Check if a fetch is currently in flight.
+    #[must_use]
+    pub fn is_fetching(&self) -> bool {
+        self.promise.is_some()
+    }
+
+    /// Fetch all label names from the backend.
+    ///
+    /// If a fetch is already in flight, this does nothing.
+    pub fn fetch_label_names<C: MetricsClient + ?Sized>(
+        &mut self,
+        client: &C,
+        ctx: &egui::Context,
+    ) {
+        if self.promise.is_some() {
+            return;
+        }
+
+        self.promise = Some(client.fetch_label_names(ctx));
+    }
+
+    /// Fetch all values for a specific label.
+    ///
+    /// If a fetch is already in flight, this does nothing.
+    pub fn fetch_label_values<C: MetricsClient + ?Sized>(
+        &mut self,
+        client: &C,
+        label: &str,
+        ctx: &egui::Context,
+    ) {
+        if self.promise.is_some() {
+            return;
+        }
+
+        self.promise = Some(client.fetch_label_values(label, ctx));
+    }
+
+    /// Fetch all metric names from the backend.
+    ///
+    /// If a fetch is already in flight, this does nothing.
+    pub fn fetch_metric_names<C: MetricsClient + ?Sized>(
+        &mut self,
+        client: &C,
+        ctx: &egui::Context,
+    ) {
+        if self.promise.is_some() {
+            return;
+        }
+
+        self.promise = Some(client.fetch_metric_names(ctx));
+    }
+
+    /// Poll for the fetch result.
+    ///
+    /// Returns `Some(result)` if a fetch just completed, `None` otherwise.
+    pub fn poll(&mut self) -> Option<LabelsResult> {
+        let promise = self.promise.as_ref()?;
+        if let Some(result) = promise.ready() {
+            let result = result.clone();
+            self.promise = None;
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    /// Cancel any pending fetch.
+    pub fn cancel(&mut self) {
+        self.promise = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_query_request_builder() {
+        let request = QueryRequest::new("cpu_usage", "sum(env:prod)")
+            .with_step(30)
+            .with_range(1000, 2000);
+
+        assert_eq!(request.metric, "cpu_usage");
+        assert_eq!(request.query, "sum(env:prod)");
+        assert_eq!(request.step_secs, 30);
+        assert_eq!(request.start, Some(1000));
+        assert_eq!(request.end, Some(2000));
+    }
+
+    #[test]
+    fn test_query_manager_initial_state() {
+        let manager = QueryManager::new();
+        assert!(!manager.is_querying());
+    }
+
+    #[test]
+    fn test_labels_manager_initial_state() {
+        let manager = LabelsManager::new();
+        assert!(!manager.is_fetching());
+    }
+
+    #[test]
+    fn test_client_error_display() {
+        let err = ClientError::TranslationError("OR not supported".to_string());
+        assert_eq!(
+            err.to_string(),
+            "query translation failed: OR not supported"
+        );
+
+        let err = ClientError::BackendError {
+            status: 400,
+            message: "bad query".to_string(),
+        };
+        assert_eq!(err.to_string(), "backend error (HTTP 400): bad query");
+    }
+}

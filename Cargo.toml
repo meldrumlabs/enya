@@ -24,6 +24,7 @@ enya-macros = { path = "crates/macros", version = "0.1.0" }
 enya-lang = { path = "crates/lang", version = "0.1.0" }
 enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
+enya-client = { path = "crates/client", version = "0.1.0" }
 tokio-metrics = "0.4"
 
 egui = "0.33.2"
@@ -48,7 +49,7 @@ ehttp = { version = "0.5.0" }
 egui_tiles = { version = "0.14.0", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["wasmbind"] }
 itertools = "0.14.0"
-poll-promise = "0.2.1"
+poll-promise = "0.3"
 smallvec = "1.13.2"
 nucleo-matcher = "0.3.1"
 

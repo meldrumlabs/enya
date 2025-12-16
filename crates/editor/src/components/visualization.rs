@@ -1260,6 +1260,14 @@ impl Visualization {
         }
     }
 
+    /// Set multiple series at once (clears existing data first)
+    pub fn set_series(&mut self, series_list: Vec<Series>) {
+        self.clear();
+        for series in series_list {
+            self.add_series(series);
+        }
+    }
+
     /// Add a commit marker (only for time series)
     pub fn add_commit(&mut self, commit: CommitMarker) {
         if let Self::TimeSeries(chart) = self {
