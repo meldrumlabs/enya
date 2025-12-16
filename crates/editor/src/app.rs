@@ -866,15 +866,33 @@ impl EnyaApp {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // On web, encode to base64 and show the URL
+            // On web, encode to base64 and copy URL to clipboard
             match workspace.to_base64() {
                 Ok(encoded) => {
-                    let url = format!("?workspace={encoded}");
-                    log::info!("Workspace encoded for URL: {url}");
+                    // Build the full URL
+                    let full_url = {
+                        let base_url = web_sys::window()
+                            .and_then(|w| w.location().href().ok())
+                            .unwrap_or_else(|| "https://enya.build/editor".to_string());
+
+                        // Remove any existing query string
+                        let base_url = base_url.split('?').next().unwrap_or(&base_url);
+                        format!("{base_url}?workspace={encoded}")
+                    };
+
+                    // Copy to clipboard
+                    if let Err(e) = Self::copy_to_clipboard_wasm(&full_url) {
+                        log::error!("Failed to copy to clipboard: {e}");
+                        self.notifications.notify(Notification::new(
+                            format!("Failed to copy URL: {e}"),
+                            NotificationLevel::Error,
+                        ));
+                        return;
+                    }
+
+                    log::info!("Workspace URL: {full_url}");
                     self.notifications.notify(Notification::new(
-                        format!(
-                            "Workspace '{workspace_name}' ready to share (see console for URL)"
-                        ),
+                        format!("Workspace '{workspace_name}' URL copied to clipboard!"),
                         NotificationLevel::Success,
                     ));
                 }

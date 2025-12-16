@@ -105,6 +105,18 @@ struct CompactWorkspace {
     header: u8,
     /// Panes
     panes: Vec<CompactPane>,
+    /// Compact layout representation (None means tabs - the default)
+    /// Note: Always serialized (not skipped) because postcard requires all fields
+    layout: Option<CompactLayout>,
+}
+
+/// Compact layout representation
+/// Uses a flat encoding: each node is (type, child_count) followed by its children
+/// Type: 0=horizontal, 1=vertical, 2=tabs, 128+=pane index (128+pane_idx)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactLayout {
+    /// Flat encoded layout tree
+    nodes: Vec<u8>,
 }
 
 /// Compact single-pane representation for sharing individual queries
@@ -130,6 +142,102 @@ struct CompactPane {
     tag: Option<String>,
     /// Packed: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-5)
     flags: u8,
+}
+
+impl CompactLayout {
+    /// Encode a LayoutConfig into compact form
+    fn from_layout(layout: &LayoutConfig) -> Self {
+        let mut nodes = Vec::new();
+        Self::encode_container(layout.layout_type, &layout.children, &mut nodes);
+        Self { nodes }
+    }
+
+    /// Encode a container node
+    fn encode_container(layout_type: LayoutType, children: &[LayoutNode], out: &mut Vec<u8>) {
+        let type_byte = match layout_type {
+            LayoutType::Horizontal => 0,
+            LayoutType::Vertical => 1,
+            LayoutType::Tabs => 2,
+        };
+        out.push(type_byte);
+        out.push(children.len() as u8);
+
+        for child in children {
+            match child {
+                LayoutNode::Pane(idx) => {
+                    // Pane indices encoded as 128 + index
+                    out.push(128 + (*idx as u8));
+                }
+                LayoutNode::Container(container) => {
+                    Self::encode_container(container.layout_type, &container.children, out);
+                }
+            }
+        }
+    }
+
+    /// Decode into a LayoutConfig
+    fn into_layout(self) -> Option<LayoutConfig> {
+        let mut pos = 0;
+        let (layout_type, children) = Self::decode_container(&self.nodes, &mut pos)?;
+        Some(LayoutConfig {
+            layout_type,
+            children,
+            shares: Vec::new(), // Shares not preserved in compact format
+        })
+    }
+
+    /// Decode a container node
+    fn decode_container(nodes: &[u8], pos: &mut usize) -> Option<(LayoutType, Vec<LayoutNode>)> {
+        if *pos >= nodes.len() {
+            return None;
+        }
+
+        let type_byte = nodes[*pos];
+        *pos += 1;
+
+        // Check if this is a pane (128+)
+        if type_byte >= 128 {
+            // This shouldn't happen at container level
+            return None;
+        }
+
+        let layout_type = match type_byte {
+            0 => LayoutType::Horizontal,
+            1 => LayoutType::Vertical,
+            2 => LayoutType::Tabs,
+            _ => return None,
+        };
+
+        if *pos >= nodes.len() {
+            return None;
+        }
+        let child_count = nodes[*pos] as usize;
+        *pos += 1;
+
+        let mut children = Vec::with_capacity(child_count);
+        for _ in 0..child_count {
+            if *pos >= nodes.len() {
+                return None;
+            }
+
+            let next_byte = nodes[*pos];
+            if next_byte >= 128 {
+                // Pane index
+                children.push(LayoutNode::Pane((next_byte - 128) as usize));
+                *pos += 1;
+            } else {
+                // Nested container
+                let (nested_type, nested_children) = Self::decode_container(nodes, pos)?;
+                children.push(LayoutNode::Container(LayoutContainer {
+                    layout_type: nested_type,
+                    children: nested_children,
+                    shares: Vec::new(),
+                }));
+            }
+        }
+
+        Some((layout_type, children))
+    }
 }
 
 impl CompactWorkspace {
@@ -192,6 +300,21 @@ impl CompactWorkspace {
                     }
                 })
                 .collect(),
+            // Only encode layout if it's not the default tabs layout
+            layout: ws.layout.as_ref().and_then(|l| {
+                // Skip encoding if it's just a simple tabs container with all panes
+                if l.layout_type == LayoutType::Tabs
+                    && l.children.len() == ws.panes.len()
+                    && l.children
+                        .iter()
+                        .enumerate()
+                        .all(|(i, c)| matches!(c, LayoutNode::Pane(idx) if *idx == i))
+                {
+                    None
+                } else {
+                    Some(CompactLayout::from_layout(l))
+                }
+            }),
         }
     }
 
@@ -253,6 +376,10 @@ impl CompactWorkspace {
                 }
             })
             .collect();
+
+        // Restore layout if present
+        ws.layout = self.layout.and_then(|l| l.into_layout());
+
         ws
     }
 }
@@ -528,28 +655,28 @@ preset = "1h"
 
 # Time Series: CPU usage by host
 [[panes]]
-query = "cpu_usage | sum(*) by (host)"
+query = "sum(env:prod AND cpu_usage) by (host)"
 name = "CPU by Host"
 visualization = "time_series"
 granularity = "1m"
 
 # Stat: Current request rate
 [[panes]]
-query = "http_requests_total | rate[5m](*)"
+query = "rate[5m](env:prod AND http_requests_total)"
 name = "Request Rate"
 visualization = "stat"
 granularity = "1m"
 
 # Gauge: Memory utilization
 [[panes]]
-query = "memory_usage | avg(*)"
+query = "avg(env:prod AND memory_usage)"
 name = "Memory Usage"
 visualization = "gauge"
 granularity = "5m"
 
 # Bar Chart: Errors by service
 [[panes]]
-query = "error_count | sum(*) by (service)"
+query = "sum(env:prod AND error_count) by (service)"
 name = "Errors by Service"
 visualization = "bar_chart"
 granularity = "5m"
