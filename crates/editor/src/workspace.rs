@@ -509,6 +509,65 @@ children = [
 ]
 "#;
 
+/// Demo workspace with sample queries that work without a backend connection
+pub const DEMO_WORKSPACE_TOML: &str = r#"[workspace]
+name = "demo"
+description = "Interactive demo with sample data - no backend required"
+
+# Empty endpoint means demo mode (synthetic data)
+[connection]
+endpoint = ""
+
+[view]
+theme = "dark"
+metrics_panel = false
+inspector = false
+
+[time]
+preset = "1h"
+
+# Time Series: CPU usage by host
+[[panes]]
+query = "cpu_usage | sum(*) by (host)"
+name = "CPU by Host"
+visualization = "time_series"
+granularity = "1m"
+
+# Stat: Current request rate
+[[panes]]
+query = "http_requests_total | rate[5m](*)"
+name = "Request Rate"
+visualization = "stat"
+granularity = "1m"
+
+# Gauge: Memory utilization
+[[panes]]
+query = "memory_usage | avg(*)"
+name = "Memory Usage"
+visualization = "gauge"
+granularity = "5m"
+
+# Bar Chart: Errors by service
+[[panes]]
+query = "error_count | sum(*) by (service)"
+name = "Errors by Service"
+visualization = "bar_chart"
+granularity = "5m"
+
+# Layout: 2x2 grid
+# +------------------+------------------+
+# | CPU by Host (0)  | Request Rate (1) |
+# +------------------+------------------+
+# | Memory Usage (2) | Errors (3)       |
+# +------------------+------------------+
+[layout]
+type = "vertical"
+children = [
+    { type = "horizontal", children = [0, 1] },
+    { type = "horizontal", children = [2, 3] }
+]
+"#;
+
 /// A complete workspace definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workspace {
@@ -988,6 +1047,11 @@ impl Workspace {
     /// Get the default example workspace
     pub fn default_example() -> Self {
         Self::from_toml(DEFAULT_WORKSPACE_TOML).expect("DEFAULT_WORKSPACE_TOML should be valid")
+    }
+
+    /// Get the demo workspace (uses synthetic data, no backend required)
+    pub fn default_demo() -> Self {
+        Self::from_toml(DEMO_WORKSPACE_TOML).expect("DEMO_WORKSPACE_TOML should be valid")
     }
 
     /// Serialize workspace to TOML string
