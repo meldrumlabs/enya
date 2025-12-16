@@ -23,7 +23,9 @@ static PROMETHEUS_CONTAINER: OnceCell<PrometheusFixture> = OnceCell::const_new()
 fn prometheus_image() -> GenericImage {
     GenericImage::new("prom/prometheus", "latest")
         .with_exposed_port(PROMETHEUS_PORT.tcp())
-        .with_wait_for(WaitFor::message_on_stderr("Server is ready to receive web requests"))
+        .with_wait_for(WaitFor::message_on_stderr(
+            "Server is ready to receive web requests",
+        ))
 }
 
 /// Wait for Prometheus to be ready by polling /api/v1/status/runtimeinfo.
@@ -101,8 +103,8 @@ async fn get_prometheus() -> &'static PrometheusFixture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use enya_client::prometheus::PrometheusClient;
     use enya_client::MetricsClient;
+    use enya_client::prometheus::PrometheusClient;
 
     /// Test that we can connect to a Prometheus instance.
     #[tokio::test]
