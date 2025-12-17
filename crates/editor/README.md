@@ -81,6 +81,7 @@ Press `Space+m` to open the metrics finder for quick metric search.
 | Key | Action |
 |-----|--------|
 | `Shift+T` | Create new workspace tab |
+| `Shift+X` | Close current workspace tab |
 | `Shift+N` | Go to next workspace tab |
 | `Shift+P` | Go to previous workspace tab |
 
@@ -113,6 +114,9 @@ Select and edit multiple panes simultaneously (`Ctrl+V`).
 | `Space` | Toggle selection |
 | `a` | Select all panes |
 | `n` | Deselect all |
+| `x` | Close selected panes |
+| `e` | Edit selected panes |
+| `r` | Refresh selected panes |
 | `Escape` | Exit visual-block mode |
 
 ### URL Sharing

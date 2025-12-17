@@ -260,6 +260,11 @@ impl QueryPane {
         populate_demo_data(&mut self.visualization, &query);
     }
 
+    /// Public method to refresh/reload the pane data
+    pub fn refresh(&mut self) {
+        self.refresh_chart();
+    }
+
     /// Render the query pane
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
         let mut action = QueryPaneAction::None;

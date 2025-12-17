@@ -233,6 +233,11 @@ impl EnyaApp {
             if input.consume_key(egui::Modifiers::SHIFT, egui::Key::T) {
                 self.workspace_tabs.new_tab();
             }
+            // Shift+X - close current workspace tab (like :tabclose)
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::X) {
+                self.workspace_tabs
+                    .close_tab(self.workspace_tabs.active_index());
+            }
         });
     }
 

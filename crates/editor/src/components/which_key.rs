@@ -127,6 +127,28 @@ impl WhichKey {
                 ],
             },
             KeybindingGroup {
+                name: "Workspaces",
+                icon: semantic_icons::nav::TABS,
+                bindings: vec![
+                    Keybinding {
+                        key: "Shift+T",
+                        description: "New workspace tab",
+                    },
+                    Keybinding {
+                        key: "Shift+X",
+                        description: "Close workspace tab",
+                    },
+                    Keybinding {
+                        key: "Shift+N",
+                        description: "Next workspace tab",
+                    },
+                    Keybinding {
+                        key: "Shift+P",
+                        description: "Previous workspace tab",
+                    },
+                ],
+            },
+            KeybindingGroup {
                 name: "Search & Commands",
                 icon: semantic_icons::action::SEARCH,
                 bindings: vec![

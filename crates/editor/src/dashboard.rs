@@ -1855,7 +1855,7 @@ impl Dashboard {
             self.multi_buffer_state.status_text()
         } else if let Some(state) = &self.visual_multi_state {
             format!(
-                "VISUAL-MULTI ({} selected) [e]dit [Space]toggle [Esc]exit",
+                "VISUAL-MULTI ({} selected) [e]dit [r]efresh [x]close [Space]toggle [Esc]exit",
                 state.selection_count()
             )
         } else {
@@ -1897,6 +1897,64 @@ impl Dashboard {
         self.visual_multi_state = None;
     }
 
+    /// Close all selected panes in visual-multi mode
+    fn close_selected_panes(&mut self) {
+        let selected_ids: Vec<TileId> = self
+            .visual_multi_state
+            .as_ref()
+            .map(|s| s.selected_tile_ids.iter().copied().collect())
+            .unwrap_or_default();
+
+        if selected_ids.is_empty() {
+            log::debug!("No panes selected to close");
+            return;
+        }
+
+        log::debug!(
+            "Closing {} selected panes: {:?}",
+            selected_ids.len(),
+            selected_ids
+        );
+
+        // Close each selected tile
+        for tile_id in selected_ids {
+            self.close_tile(tile_id);
+        }
+
+        // Exit visual-multi mode after closing
+        self.exit_visual_multi_mode();
+        self.multi_buffer_state.reset();
+    }
+
+    /// Refresh all selected panes in visual-multi mode
+    fn refresh_selected_panes(&mut self) {
+        let selected_ids: Vec<TileId> = self
+            .visual_multi_state
+            .as_ref()
+            .map(|s| s.selected_tile_ids.iter().copied().collect())
+            .unwrap_or_default();
+
+        if selected_ids.is_empty() {
+            log::debug!("No panes selected to refresh");
+            return;
+        }
+
+        log::debug!(
+            "Refreshing {} selected panes: {:?}",
+            selected_ids.len(),
+            selected_ids
+        );
+
+        // Refresh each selected pane
+        for tile_id in selected_ids {
+            if let Some(egui_tiles::Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
+                    query_pane.refresh();
+                }
+            }
+        }
+    }
+
     /// Handle keyboard input while in visual-multi mode
     fn handle_visual_multi_keyboard(&mut self, ctx: &egui::Context) -> Option<DashboardAction> {
         let pane_ids = self.get_pane_tile_ids();
@@ -1913,6 +1971,8 @@ impl Dashboard {
         let mut should_select_all = false;
         let mut should_clear_selection = false;
         let mut should_open_multi_edit = false;
+        let mut should_close_selected = false;
+        let mut should_refresh_selected = false;
         let mut new_cursor_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -1926,6 +1986,20 @@ impl Dashboard {
             // e - open multi-edit overlay for selected panes
             if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
                 should_open_multi_edit = true;
+                consumed = true;
+                return;
+            }
+
+            // x - close all selected panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::X) {
+                should_close_selected = true;
+                consumed = true;
+                return;
+            }
+
+            // r - refresh all selected panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::R) {
+                should_refresh_selected = true;
                 consumed = true;
                 return;
             }
@@ -2007,6 +2081,10 @@ impl Dashboard {
         if should_exit {
             self.exit_visual_multi_mode();
             self.multi_buffer_state.reset();
+        } else if should_close_selected {
+            self.close_selected_panes();
+        } else if should_refresh_selected {
+            self.refresh_selected_panes();
         } else if should_open_multi_edit {
             self.open_multi_edit_for_selected();
         } else if should_toggle_selection {
