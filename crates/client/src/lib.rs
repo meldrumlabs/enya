@@ -51,6 +51,27 @@ pub use prometheus::response::MetricLabels;
 /// Nanosecond timestamp type.
 pub type Timestamp = enya_common::api::Timestamp;
 
+/// Get the current Unix timestamp in seconds.
+/// Works on both native and WASM platforms.
+#[inline]
+pub fn now_unix_secs() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use web_time::SystemTime;
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+}
+
 /// Result type for query operations.
 pub type QueryResult = Result<QueryResponse, ClientError>;
 

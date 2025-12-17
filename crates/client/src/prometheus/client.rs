@@ -3,6 +3,7 @@
 use poll_promise::Promise;
 
 use crate::error::ClientError;
+use crate::now_unix_secs;
 use crate::promise::promise_channel;
 use crate::request::QueryRequest;
 use crate::{LabelsResult, MetricLabelsResult, MetricsClient, QueryResult};
@@ -57,10 +58,7 @@ impl PrometheusClient {
 
     /// Build the query_range URL for a request.
     fn build_url(&self, promql: &str, request: &QueryRequest) -> String {
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
+        let now_secs = now_unix_secs();
 
         // Default time range: 1 hour ago to now
         let end_secs = request

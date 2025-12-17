@@ -25,3 +25,5 @@ All notable changes to the Enya editor will be documented in this file.
 - **Command palette centering**: The command palette now always opens centered on screen.
 
 - **Notifications positioning**: Added top padding to prevent notifications from overlapping with the title bar.
+
+- **WASM time handling**: Fixed `TimeRange::now()` and Prometheus client to use `web_time::SystemTime` on WASM instead of `std::time::SystemTime`, which panics in browsers.
