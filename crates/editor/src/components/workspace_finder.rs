@@ -11,7 +11,9 @@ use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-use super::finder_utils::{FinderColors, FinderKeyboardInput, create_highlighted_text};
+use super::finder_utils::{
+    FinderColors, FinderKeyboardInput, OverlayStyle, create_highlighted_text,
+};
 
 /// A workspace item for the workspace finder
 #[derive(Debug, Clone)]
@@ -195,23 +197,13 @@ impl WorkspaceFinder {
         let popup_max_height = (screen_rect.height() * 0.65).min(550.0);
 
         let colors = FinderColors::new(self.theme);
+        let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
         egui::Area::new(egui::Id::new("workspace_finder_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(colors.bg)
-                    .stroke(egui::Stroke::new(1.0, colors.border))
-                    .corner_radius(8.0)
-                    .inner_margin(0.0)
-                    .shadow(egui::epaint::Shadow {
-                        offset: [0, 4],
-                        blur: 16,
-                        spread: 0,
-                        color: Color32::from_black_alpha(80),
-                    })
-                    .show(ui, |ui| {
+                overlay_style.frame().show(ui, |ui| {
                         ui.set_width(popup_width);
                         ui.set_max_height(popup_max_height);
 

@@ -14,6 +14,7 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::util::Instant;
 
+use super::finder_utils::OverlayStyle;
 use super::Component;
 
 /// Unique ID counter for diagnostics
@@ -564,45 +565,28 @@ impl DiagnosticsPane {
         // Calculate popup dimensions (match metrics/workspace finder sizes)
         let screen_rect = ctx.available_rect();
         let popup_width = (screen_rect.width() * 0.70).clamp(600.0, 850.0);
-        let popup_max_height = (screen_rect.height() * 0.65).min(550.0);
+        let popup_max_height = (screen_rect.height() * 0.75).min(650.0);
 
         let text_col = text_color(self.theme);
         let (errors, warnings, infos, hints) = self.count_by_level();
 
-        let bg_color = match self.theme {
-            AppTheme::Light => palette::light_bg::SURFACE,
-            AppTheme::Dark => palette::bg::SURFACE,
-        };
-        let border_color = match self.theme {
-            AppTheme::Light => palette::light_border::DEFAULT,
-            AppTheme::Dark => palette::border::SUBTLE,
-        };
+        // Use shared overlay style
+        let overlay_style = OverlayStyle::frosted_glass(self.theme);
         let separator_color = match self.theme {
             AppTheme::Light => palette::light_border::SUBTLE,
             AppTheme::Dark => palette::border::SUBTLE,
         };
         let muted_text = text_col.gamma_multiply(0.6);
         let key_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::ELEVATED,
-            AppTheme::Dark => palette::bg::ELEVATED,
+            AppTheme::Light => Color32::from_rgba_unmultiplied(240, 240, 240, 200),
+            AppTheme::Dark => Color32::from_rgba_unmultiplied(40, 40, 40, 200),
         };
 
         egui::Area::new(egui::Id::new("diagnostics_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(bg_color)
-                    .stroke(egui::Stroke::new(1.0, border_color))
-                    .corner_radius(8.0)
-                    .inner_margin(0.0)
-                    .shadow(egui::epaint::Shadow {
-                        offset: [0, 4],
-                        blur: 16,
-                        spread: 0,
-                        color: Color32::from_black_alpha(80),
-                    })
-                    .show(ui, |ui| {
+                overlay_style.frame().show(ui, |ui| {
                         ui.set_width(popup_width);
                         ui.set_max_height(popup_max_height);
 

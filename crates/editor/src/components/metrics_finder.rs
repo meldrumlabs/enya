@@ -14,7 +14,8 @@ use crate::ui::semantic_icons;
 use crate::ui::typography;
 
 use super::finder_utils::{
-    FinderColors, FinderKeyboardInput, create_highlighted_text, render_keyboard_hints,
+    FinderColors, FinderKeyboardInput, OverlayStyle, create_highlighted_text,
+    render_keyboard_hints,
 };
 
 /// A metric item that can be searched in the metrics finder
@@ -246,23 +247,13 @@ impl MetricsFinder {
         };
 
         let colors = FinderColors::new(self.theme);
+        let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
         egui::Area::new(egui::Id::new("metrics_finder_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(colors.bg)
-                    .stroke(egui::Stroke::new(1.0, colors.border))
-                    .corner_radius(8.0)
-                    .inner_margin(0.0)
-                    .shadow(egui::epaint::Shadow {
-                        offset: [0, 4],
-                        blur: 16,
-                        spread: 0,
-                        color: Color32::from_black_alpha(80),
-                    })
-                    .show(ui, |ui| {
+                overlay_style.frame().show(ui, |ui| {
                         ui.set_width(total_width);
                         ui.set_max_height(popup_max_height);
 
