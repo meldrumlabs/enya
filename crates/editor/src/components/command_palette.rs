@@ -79,6 +79,10 @@ pub enum CommandResult {
     ToggleCommits,
     /// Connect to agent endpoint
     Connect(String),
+    /// Connect to Prometheus endpoint for query execution
+    ConnectPrometheus(String),
+    /// Disconnect from Prometheus (return to demo mode)
+    DisconnectPrometheus,
     /// Toggle diagnostics pane
     ToggleDiagnostics,
     /// Show diagnostics pane
@@ -233,6 +237,12 @@ const COMMANDS: &[PaletteCommand] = &[
         description: "Close current workspace tab",
         kind: CommandKind::NoArgs,
     },
+    PaletteCommand {
+        name: "prometheus",
+        aliases: &["prom"],
+        description: "Connect to Prometheus endpoint (or 'disconnect')",
+        kind: CommandKind::SingleArg,
+    },
 ];
 
 /// A match result for command completion
@@ -305,7 +315,7 @@ impl CommandPalette {
         self.input.clear();
         self.error_message = None;
         self.selected_index = 0;
-        self.centered = false;
+        self.centered = true; // Always center the palette
         self.needs_focus = true;
         self.refresh_suggestions();
     }
@@ -528,6 +538,19 @@ impl CommandPalette {
                 CommandResult::NewWorkspaceTab(name)
             }
             "tabclose" => CommandResult::CloseWorkspaceTab,
+            "prometheus" => {
+                // :prometheus <url> - connect to Prometheus
+                // :prometheus disconnect - return to demo mode
+                if args.is_empty() {
+                    CommandResult::Error(
+                        "Usage: :prometheus <url> or :prometheus disconnect".to_string(),
+                    )
+                } else if args[0].to_lowercase() == "disconnect" {
+                    CommandResult::DisconnectPrometheus
+                } else {
+                    CommandResult::ConnectPrometheus(args.join(" "))
+                }
+            }
             _ => CommandResult::None,
         }
     }
@@ -594,152 +617,151 @@ impl CommandPalette {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
                 overlay_style.frame().show(ui, |ui| {
-                        ui.set_width(popup_width);
+                    ui.set_width(popup_width);
 
-                        // Input section with `:` prefix
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            ui.label(
-                                RichText::new(":")
-                                    .color(text_color(self.theme))
-                                    .size(typography::HEADING)
-                                    .strong(),
-                            );
-
-                            let text_edit = egui::TextEdit::singleline(&mut self.input)
-                                .font(typography::heading())
-                                .hint_text(
-                                    RichText::new("Type a command...")
-                                        .color(text_color(self.theme).gamma_multiply(0.4)),
-                                )
-                                .frame(false)
-                                .desired_width(popup_width - 50.0);
-
-                            let response = ui.add(text_edit);
-
-                            // Only request focus once when opening (not every frame)
-                            if self.needs_focus {
-                                response.request_focus();
-                                self.needs_focus = false;
-                            }
-
-                            // Move cursor to end if we pre-filled text
-                            if self.cursor_to_end {
-                                if let Some(mut state) =
-                                    egui::TextEdit::load_state(ui.ctx(), response.id)
-                                {
-                                    let ccursor =
-                                        egui::text::CCursor::new(self.input.chars().count());
-                                    state.cursor.set_char_range(Some(
-                                        egui::text::CCursorRange::one(ccursor),
-                                    ));
-                                    state.store(ui.ctx(), response.id);
-                                }
-                                self.cursor_to_end = false;
-                            }
-
-                            if response.changed() {
-                                self.error_message = None;
-                                self.refresh_suggestions();
-                            }
-                        });
-
-                        ui.add_space(8.0);
-
-                        // Separator
-                        let separator_color = match self.theme {
-                            AppTheme::Light => palette::light_border::SUBTLE,
-                            AppTheme::Dark => palette::border::SUBTLE,
-                        };
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
+                    // Input section with `:` prefix
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        ui.label(
+                            RichText::new(":")
+                                .color(text_color(self.theme))
+                                .size(typography::HEADING)
+                                .strong(),
                         );
-                        ui.add_space(4.0);
 
-                        // Error message if any
-                        if let Some(ref error) = self.error_message {
-                            ui.horizontal(|ui| {
-                                ui.add_space(12.0);
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} {}",
-                                        semantic_icons::status::WARNING,
-                                        error
-                                    ))
-                                    .color(Color32::from_rgb(220, 80, 80))
-                                    .size(typography::LG),
-                                );
-                            });
-                            ui.add_space(4.0);
+                        let text_edit = egui::TextEdit::singleline(&mut self.input)
+                            .font(typography::heading())
+                            .hint_text(
+                                RichText::new("Type a command...")
+                                    .color(text_color(self.theme).gamma_multiply(0.4)),
+                            )
+                            .frame(false)
+                            .desired_width(popup_width - 50.0);
+
+                        let response = ui.add(text_edit);
+
+                        // Only request focus once when opening (not every frame)
+                        if self.needs_focus {
+                            response.request_focus();
+                            self.needs_focus = false;
                         }
 
-                        // Suggestions
-                        egui::ScrollArea::vertical()
-                            .max_height(300.0)
-                            .auto_shrink([false, true])
-                            .show(ui, |ui| {
-                                if self.suggestions.is_empty() {
-                                    ui.add_space(12.0);
-                                    ui.vertical_centered(|ui| {
-                                        ui.label(
-                                            RichText::new("No matching commands")
-                                                .color(text_color(self.theme).gamma_multiply(0.5))
-                                                .size(typography::XL),
-                                        );
-                                    });
-                                    ui.add_space(12.0);
-                                } else {
-                                    for (i, suggestion) in self.suggestions.iter().enumerate() {
-                                        let is_selected = i == self.selected_index;
-                                        self.render_suggestion_row(ui, suggestion, is_selected);
-                                    }
-                                }
-                            });
+                        // Move cursor to end if we pre-filled text
+                        if self.cursor_to_end {
+                            if let Some(mut state) =
+                                egui::TextEdit::load_state(ui.ctx(), response.id)
+                            {
+                                let ccursor = egui::text::CCursor::new(self.input.chars().count());
+                                state
+                                    .cursor
+                                    .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
+                                state.store(ui.ctx(), response.id);
+                            }
+                            self.cursor_to_end = false;
+                        }
 
-                        ui.add_space(4.0);
+                        if response.changed() {
+                            self.error_message = None;
+                            self.refresh_suggestions();
+                        }
+                    });
 
-                        // Footer with hints
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
-                        ui.add_space(6.0);
+                    ui.add_space(8.0);
+
+                    // Separator
+                    let separator_color = match self.theme {
+                        AppTheme::Light => palette::light_border::SUBTLE,
+                        AppTheme::Dark => palette::border::SUBTLE,
+                    };
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+                    ui.add_space(4.0);
+
+                    // Error message if any
+                    if let Some(ref error) = self.error_message {
                         ui.horizontal(|ui| {
                             ui.add_space(12.0);
-                            let hint_color = text_color(self.theme).gamma_multiply(0.4);
-                            ui.label(RichText::new("↑↓").color(hint_color).size(typography::SM));
                             ui.label(
-                                RichText::new("navigate")
-                                    .color(hint_color)
-                                    .size(typography::SM),
-                            );
-                            ui.add_space(12.0);
-                            ui.label(RichText::new("Tab").color(hint_color).size(typography::SM));
-                            ui.label(
-                                RichText::new("complete")
-                                    .color(hint_color)
-                                    .size(typography::SM),
-                            );
-                            ui.add_space(12.0);
-                            ui.label(RichText::new("↵").color(hint_color).size(typography::SM));
-                            ui.label(
-                                RichText::new("execute")
-                                    .color(hint_color)
-                                    .size(typography::SM),
-                            );
-                            ui.add_space(12.0);
-                            ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
-                            ui.label(
-                                RichText::new("close")
-                                    .color(hint_color)
-                                    .size(typography::SM),
+                                RichText::new(format!(
+                                    "{} {}",
+                                    semantic_icons::status::WARNING,
+                                    error
+                                ))
+                                .color(Color32::from_rgb(220, 80, 80))
+                                .size(typography::LG),
                             );
                         });
-                        ui.add_space(8.0);
+                        ui.add_space(4.0);
+                    }
+
+                    // Suggestions
+                    egui::ScrollArea::vertical()
+                        .max_height(300.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            if self.suggestions.is_empty() {
+                                ui.add_space(12.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        RichText::new("No matching commands")
+                                            .color(text_color(self.theme).gamma_multiply(0.5))
+                                            .size(typography::XL),
+                                    );
+                                });
+                                ui.add_space(12.0);
+                            } else {
+                                for (i, suggestion) in self.suggestions.iter().enumerate() {
+                                    let is_selected = i == self.selected_index;
+                                    self.render_suggestion_row(ui, suggestion, is_selected);
+                                }
+                            }
+                        });
+
+                    ui.add_space(4.0);
+
+                    // Footer with hints
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        let hint_color = text_color(self.theme).gamma_multiply(0.4);
+                        ui.label(RichText::new("↑↓").color(hint_color).size(typography::SM));
+                        ui.label(
+                            RichText::new("navigate")
+                                .color(hint_color)
+                                .size(typography::SM),
+                        );
+                        ui.add_space(12.0);
+                        ui.label(RichText::new("Tab").color(hint_color).size(typography::SM));
+                        ui.label(
+                            RichText::new("complete")
+                                .color(hint_color)
+                                .size(typography::SM),
+                        );
+                        ui.add_space(12.0);
+                        ui.label(RichText::new("↵").color(hint_color).size(typography::SM));
+                        ui.label(
+                            RichText::new("execute")
+                                .color(hint_color)
+                                .size(typography::SM),
+                        );
+                        ui.add_space(12.0);
+                        ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
+                        ui.label(
+                            RichText::new("close")
+                                .color(hint_color)
+                                .size(typography::SM),
+                        );
                     });
+                    ui.add_space(8.0);
+                });
             });
 
         if should_close {

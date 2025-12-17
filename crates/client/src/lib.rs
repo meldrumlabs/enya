@@ -45,6 +45,9 @@ pub use request::QueryRequest;
 // Re-export response types from enya-common
 pub use enya_common::{MetricsBucket, MetricsGroup, QueryResponse};
 
+// Re-export MetricLabels for per-metric label data
+pub use prometheus::response::MetricLabels;
+
 /// Nanosecond timestamp type.
 pub type Timestamp = enya_common::api::Timestamp;
 
@@ -53,6 +56,9 @@ pub type QueryResult = Result<QueryResponse, ClientError>;
 
 /// Result type for label list operations.
 pub type LabelsResult = Result<Vec<String>, ClientError>;
+
+/// Result type for metric series label operations.
+pub type MetricLabelsResult = Result<MetricLabels, ClientError>;
 
 /// Metrics client trait - promise-based async interface.
 ///
@@ -80,6 +86,13 @@ pub trait MetricsClient {
     ///
     /// For Prometheus, this calls `/api/v1/label/__name__/values`.
     fn fetch_metric_names(&self, ctx: &egui::Context) -> Promise<LabelsResult>;
+
+    /// Fetch labels for a specific metric.
+    ///
+    /// Returns all label names and their possible values for the given metric.
+    /// For Prometheus, this calls `/api/v1/series?match[]={__name__="metric"}`.
+    fn fetch_metric_labels(&self, metric: &str, ctx: &egui::Context)
+    -> Promise<MetricLabelsResult>;
 
     /// Get the backend type identifier (e.g., "prometheus", "enya").
     fn backend_type(&self) -> &'static str;
@@ -277,6 +290,88 @@ impl LabelsManager {
     /// Cancel any pending fetch.
     pub fn cancel(&mut self) {
         self.promise = None;
+    }
+}
+
+/// Manages in-flight per-metric label fetches using poll-promise.
+///
+/// Similar to [`LabelsManager`], but specifically for fetching
+/// label names and values for a single metric.
+pub struct MetricLabelsManager {
+    /// The pending promise, if any.
+    promise: Option<Promise<MetricLabelsResult>>,
+    /// The metric name being fetched (for cache key purposes).
+    metric: Option<String>,
+}
+
+impl Default for MetricLabelsManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl MetricLabelsManager {
+    /// Create a new metric labels manager.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            promise: None,
+            metric: None,
+        }
+    }
+
+    /// Check if a fetch is currently in flight.
+    #[must_use]
+    pub fn is_fetching(&self) -> bool {
+        self.promise.is_some()
+    }
+
+    /// Get the metric name currently being fetched.
+    #[must_use]
+    pub fn fetching_metric(&self) -> Option<&str> {
+        self.metric.as_deref()
+    }
+
+    /// Fetch labels for a specific metric.
+    ///
+    /// If a fetch is already in flight for a different metric, it is cancelled.
+    pub fn fetch<C: MetricsClient + ?Sized>(
+        &mut self,
+        client: &C,
+        metric: &str,
+        ctx: &egui::Context,
+    ) {
+        // If already fetching this metric, do nothing
+        if self.metric.as_deref() == Some(metric) && self.promise.is_some() {
+            return;
+        }
+
+        // Cancel any existing fetch
+        self.cancel();
+
+        self.metric = Some(metric.to_string());
+        self.promise = Some(client.fetch_metric_labels(metric, ctx));
+    }
+
+    /// Poll for the fetch result.
+    ///
+    /// Returns `Some((metric_name, result))` if a fetch just completed, `None` otherwise.
+    pub fn poll(&mut self) -> Option<(String, MetricLabelsResult)> {
+        let promise = self.promise.as_ref()?;
+        if let Some(result) = promise.ready() {
+            let result = result.clone();
+            let metric = self.metric.take().unwrap_or_default();
+            self.promise = None;
+            Some((metric, result))
+        } else {
+            None
+        }
+    }
+
+    /// Cancel any pending fetch.
+    pub fn cancel(&mut self) {
+        self.promise = None;
+        self.metric = None;
     }
 }
 

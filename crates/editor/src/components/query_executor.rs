@@ -5,7 +5,10 @@
 
 use std::collections::HashMap;
 
-use enya_client::{QueryManager, QueryRequest, QueryResponse, prometheus::PrometheusClient};
+use enya_client::{
+    LabelsManager, MetricLabels, MetricLabelsManager, QueryManager, QueryRequest, QueryResponse,
+    prometheus::PrometheusClient,
+};
 
 use super::time_series_chart::{DataPoint, Series};
 use super::visualization::{Visualization, populate_demo_data};
@@ -47,6 +50,18 @@ pub struct QueryExecutor {
     prometheus_client: Option<PrometheusClient>,
     /// Query manager for tracking in-flight queries
     query_manager: QueryManager,
+    /// Labels manager for fetching metric names
+    labels_manager: LabelsManager,
+    /// Labels manager for fetching label names (tag keys)
+    label_names_manager: LabelsManager,
+    /// Labels manager for fetching per-metric labels
+    metric_labels_manager: MetricLabelsManager,
+    /// Cached list of available metric names
+    metric_names: Vec<String>,
+    /// Cached list of available label names (tag keys)
+    label_names: Vec<String>,
+    /// Cached per-metric labels (metric name -> labels)
+    metric_labels_cache: HashMap<String, MetricLabels>,
 }
 
 impl Default for QueryExecutor {
@@ -62,6 +77,12 @@ impl QueryExecutor {
             backend: Backend::Demo,
             prometheus_client: None,
             query_manager: QueryManager::new(),
+            labels_manager: LabelsManager::new(),
+            label_names_manager: LabelsManager::new(),
+            metric_labels_manager: MetricLabelsManager::new(),
+            metric_names: Vec::new(),
+            label_names: Vec::new(),
+            metric_labels_cache: HashMap::new(),
         }
     }
 
@@ -77,6 +98,12 @@ impl QueryExecutor {
         self.prometheus_client = None;
         self.backend = Backend::Demo;
         self.query_manager.cancel();
+        self.labels_manager.cancel();
+        self.label_names_manager.cancel();
+        self.metric_labels_manager.cancel();
+        self.metric_names.clear();
+        self.label_names.clear();
+        self.metric_labels_cache.clear();
     }
 
     /// Check if connected to a backend.
@@ -94,6 +121,152 @@ impl QueryExecutor {
         self.query_manager.is_querying()
     }
 
+    /// Fetch metric names from the backend.
+    ///
+    /// For Prometheus, this fetches the `__name__` label values.
+    /// Does nothing in demo mode or if a fetch is already in flight.
+    pub fn fetch_metric_names(&mut self, ctx: &egui::Context) {
+        if let Some(client) = &self.prometheus_client {
+            self.labels_manager.fetch_metric_names(client, ctx);
+        }
+    }
+
+    /// Check if metric names are currently being fetched.
+    pub fn is_fetching_metrics(&self) -> bool {
+        self.labels_manager.is_fetching()
+    }
+
+    /// Poll for metric names fetch completion.
+    ///
+    /// Returns `true` if new metric names were received.
+    pub fn poll_metric_names(&mut self) -> bool {
+        if let Some(result) = self.labels_manager.poll() {
+            match result {
+                Ok(names) => {
+                    log::debug!("Fetched {} metric names from Prometheus", names.len());
+                    self.metric_names = names;
+                    true
+                }
+                Err(e) => {
+                    log::error!("Failed to fetch metric names: {e}");
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Get the cached metric names.
+    pub fn metric_names(&self) -> &[String] {
+        &self.metric_names
+    }
+
+    /// Fetch label names (tag keys) from the backend.
+    ///
+    /// For Prometheus, this fetches from `/api/v1/labels`.
+    /// Does nothing in demo mode or if a fetch is already in flight.
+    pub fn fetch_label_names(&mut self, ctx: &egui::Context) {
+        if let Some(client) = &self.prometheus_client {
+            self.label_names_manager.fetch_label_names(client, ctx);
+        }
+    }
+
+    /// Check if label names are currently being fetched.
+    pub fn is_fetching_labels(&self) -> bool {
+        self.label_names_manager.is_fetching()
+    }
+
+    /// Poll for label names fetch completion.
+    ///
+    /// Returns `true` if new label names were received.
+    pub fn poll_label_names(&mut self) -> bool {
+        if let Some(result) = self.label_names_manager.poll() {
+            match result {
+                Ok(names) => {
+                    log::debug!("Fetched {} label names from Prometheus", names.len());
+                    // Filter out internal Prometheus labels (starting with __)
+                    self.label_names = names
+                        .into_iter()
+                        .filter(|name| !name.starts_with("__"))
+                        .collect();
+                    true
+                }
+                Err(e) => {
+                    log::error!("Failed to fetch label names: {e}");
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Get the cached label names (tag keys).
+    pub fn label_names(&self) -> &[String] {
+        &self.label_names
+    }
+
+    /// Fetch labels for a specific metric.
+    ///
+    /// If the labels are already cached, this does nothing.
+    /// If a fetch is already in flight, this does nothing.
+    pub fn fetch_metric_labels(&mut self, metric: &str, ctx: &egui::Context) {
+        // Check cache first
+        if self.metric_labels_cache.contains_key(metric) {
+            return;
+        }
+
+        if let Some(client) = &self.prometheus_client {
+            self.metric_labels_manager.fetch(client, metric, ctx);
+        }
+    }
+
+    /// Check if metric labels are currently being fetched.
+    pub fn is_fetching_metric_labels(&self) -> bool {
+        self.metric_labels_manager.is_fetching()
+    }
+
+    /// Get the metric name currently being fetched (if any).
+    pub fn fetching_metric(&self) -> Option<&str> {
+        self.metric_labels_manager.fetching_metric()
+    }
+
+    /// Poll for metric labels fetch completion.
+    ///
+    /// Returns `Some(metric_name)` if labels were just received, `None` otherwise.
+    pub fn poll_metric_labels(&mut self) -> Option<String> {
+        if let Some((metric, result)) = self.metric_labels_manager.poll() {
+            match result {
+                Ok(labels) => {
+                    log::debug!(
+                        "Fetched labels for metric '{}': {} label names",
+                        metric,
+                        labels.labels.len()
+                    );
+                    self.metric_labels_cache.insert(metric.clone(), labels);
+                    Some(metric)
+                }
+                Err(e) => {
+                    log::error!("Failed to fetch labels for metric '{metric}': {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Get cached labels for a specific metric.
+    pub fn get_metric_labels(&self, metric: &str) -> Option<&MetricLabels> {
+        self.metric_labels_cache.get(metric)
+    }
+
+    /// Check if labels for a specific metric are cached.
+    pub fn has_metric_labels(&self, metric: &str) -> bool {
+        self.metric_labels_cache.contains_key(metric)
+    }
+
     /// Execute a query.
     ///
     /// For demo mode, this immediately populates the visualization with demo data.
@@ -107,12 +280,24 @@ impl QueryExecutor {
         match &self.backend {
             Backend::Demo => {
                 // Demo mode - populate with generated data
+                log::debug!(
+                    "Executing DEMO query for metric '{}': {}",
+                    params.metric,
+                    params.query
+                );
                 visualization.clear();
                 visualization.set_metric_name(params.query);
                 populate_demo_data(visualization, params.query);
             }
-            Backend::Prometheus(_) => {
+            Backend::Prometheus(endpoint) => {
                 if let Some(client) = &self.prometheus_client {
+                    log::info!(
+                        "Executing Prometheus query for metric '{}': {} (endpoint: {})",
+                        params.metric,
+                        params.query,
+                        endpoint
+                    );
+
                     // Build request
                     let mut request =
                         QueryRequest::new(params.metric, params.query).with_step(params.step_secs);
@@ -134,6 +319,15 @@ impl QueryExecutor {
         if let Some(result) = self.query_manager.poll() {
             match result {
                 Ok(response) => {
+                    log::info!(
+                        "Prometheus query completed: {} groups, {} total points",
+                        response.groups.len(),
+                        response
+                            .groups
+                            .iter()
+                            .map(|g| g.buckets.len())
+                            .sum::<usize>()
+                    );
                     visualization.clear();
                     visualization.set_metric_name(&response.metric);
                     populate_from_response(visualization, &response);

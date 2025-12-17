@@ -6,10 +6,10 @@ use crate::app::AppState;
 
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    Diagnostic, DiagnosticsPane, EditExcerpt, InfoOverlay, LandingPage, LandingPageAction,
-    MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState, MultiEditOverlay,
-    MultiEditResult, QueryPane, QueryState, TimeRangeToolbar, WhichKey, WorkspaceFinder,
-    WorkspaceItem,
+    Diagnostic, DiagnosticsPane, EditExcerpt, ExecuteParams, InfoOverlay, LandingPage,
+    LandingPageAction, MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState,
+    MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState, TimeRangeToolbar,
+    WhichKey, WorkspaceFinder, WorkspaceItem,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -124,6 +124,10 @@ pub struct Dashboard {
     diagnostics_visible: bool,
     /// Flag to open workspace finder (set by keyboard, handled in show with app_state)
     pending_open_workspace_finder: bool,
+    /// Query executor for running queries against backends (Prometheus, Enya)
+    query_executor: QueryExecutor,
+    /// Track which pane is waiting for a query result
+    pending_query_tile: Option<TileId>,
 }
 
 impl Default for Dashboard {
@@ -163,6 +167,8 @@ impl Default for Dashboard {
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
+            query_executor: QueryExecutor::new(),
+            pending_query_tile: None,
         }
     }
 }
@@ -280,6 +286,8 @@ impl Dashboard {
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
+            query_executor: QueryExecutor::new(),
+            pending_query_tile: None,
         }
     }
 
@@ -292,6 +300,9 @@ impl Dashboard {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
+
+        // Process query execution: poll for results and execute pending queries
+        self.process_query_execution(ctx);
 
         // Sync visual-multi state to behavior for rendering
         let (is_visual_multi, selected_ids, tile_queries) = match &self.visual_multi_state {
@@ -540,7 +551,7 @@ impl Dashboard {
             }
         }
 
-        self.handle_command_result(cmd_result)
+        self.handle_command_result(cmd_result, ctx)
     }
 
     /// Show the landing page and handle its actions
@@ -650,7 +661,7 @@ impl Dashboard {
             });
         }
 
-        self.handle_command_result(cmd_result)
+        self.handle_command_result(cmd_result, ctx)
     }
 
     /// Add a chart for a metric and return a tracking action
@@ -662,7 +673,12 @@ impl Dashboard {
         }
 
         // Create a QueryPane (buffer + chart) for the metric
-        let pane: Box<dyn Component> = Box::new(QueryPane::with_demo_metric(metric_name));
+        // Use real query pane when connected to a backend, demo pane otherwise
+        let pane: Box<dyn Component> = if self.query_executor.is_connected() {
+            Box::new(QueryPane::for_metric(metric_name))
+        } else {
+            Box::new(QueryPane::with_demo_metric(metric_name))
+        };
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
         if self.add_tile_to_viewport(pane_tile) {
@@ -689,7 +705,11 @@ impl Dashboard {
     }
 
     /// Handle a command result from the command palette
-    fn handle_command_result(&mut self, result: CommandResult) -> DashboardAction {
+    fn handle_command_result(
+        &mut self,
+        result: CommandResult,
+        ctx: &egui::Context,
+    ) -> DashboardAction {
         match result {
             CommandResult::ToggleTheme => DashboardAction::ToggleTheme,
             CommandResult::SetTheme(theme) => DashboardAction::SetTheme(theme),
@@ -742,6 +762,23 @@ impl Dashboard {
                 DashboardAction::None
             }
             CommandResult::Connect(endpoint) => DashboardAction::Connect(endpoint),
+            CommandResult::ConnectPrometheus(endpoint) => {
+                self.query_executor.connect_prometheus(&endpoint);
+                // Immediately start fetching metric names and label names
+                self.query_executor.fetch_metric_names(ctx);
+                self.query_executor.fetch_label_names(ctx);
+                DashboardAction::Notify {
+                    level: "success".to_string(),
+                    message: format!("Connected to Prometheus at {endpoint}"),
+                }
+            }
+            CommandResult::DisconnectPrometheus => {
+                self.query_executor.disconnect();
+                DashboardAction::Notify {
+                    level: "info".to_string(),
+                    message: "Disconnected from Prometheus, using demo data".to_string(),
+                }
+            }
             CommandResult::ToggleDiagnostics => {
                 self.toggle_diagnostics();
                 DashboardAction::None
@@ -804,6 +841,135 @@ impl Dashboard {
         None
     }
 
+    /// Process query execution: poll for pending results and execute queries for panes that need refresh
+    fn process_query_execution(&mut self, ctx: &egui::Context) {
+        // 0. Poll for metric names and label names fetch completion
+        self.query_executor.poll_metric_names();
+        self.query_executor.poll_label_names();
+
+        // 0b. Poll for per-metric labels and update the finder/buffer editor if labels were received
+        if let Some(metric_name) = self.query_executor.poll_metric_labels() {
+            // Convert MetricLabels to HashMap<String, HashSet<String>> for the finder
+            if let Some(labels) = self.query_executor.get_metric_labels(&metric_name) {
+                let tags: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                    labels
+                        .labels
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+                        .collect();
+                self.metrics_finder.update_metric_tags(&metric_name, tags);
+
+                // Also update buffer editor completions if editing this metric
+                if self.buffer_editor.editing_buffer_name() == Some(&metric_name) {
+                    self.buffer_editor
+                        .set_completions_from_labels(&labels.labels);
+                    log::debug!(
+                        "Updated buffer editor completions from {} labels for '{}'",
+                        labels.labels.len(),
+                        metric_name
+                    );
+                }
+            }
+        }
+
+        // 0c. If metrics finder is open and connected, fetch labels for selected metric
+        if self.metrics_finder.is_open() && self.query_executor.is_connected() {
+            if let Some(metric_name) = self.metrics_finder.selected_metric_name() {
+                // Only fetch if not already cached and not currently fetching this metric
+                if !self.query_executor.has_metric_labels(metric_name)
+                    && self.query_executor.fetching_metric() != Some(metric_name)
+                {
+                    self.query_executor.fetch_metric_labels(metric_name, ctx);
+                }
+            }
+        }
+
+        // 0d. If buffer editor is open and connected, fetch labels for the metric being edited
+        if self.buffer_editor.is_open() && self.query_executor.is_connected() {
+            if let Some(metric_name) = self.buffer_editor.editing_buffer_name() {
+                // Only fetch if not already cached and not currently fetching this metric
+                if !self.query_executor.has_metric_labels(metric_name)
+                    && self.query_executor.fetching_metric() != Some(metric_name)
+                {
+                    self.query_executor.fetch_metric_labels(metric_name, ctx);
+                }
+            }
+        }
+
+        // 1. Poll for query results if there's a pending query
+        if let Some(tile_id) = self.pending_query_tile {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    if self.query_executor.poll(query_pane.visualization_mut()) {
+                        // Query completed, clear pending state
+                        self.pending_query_tile = None;
+                        log::debug!("Query completed for tile {tile_id:?}");
+                    }
+                }
+            }
+        }
+
+        // 2. If no query in flight, check for panes that need refresh and execute
+        if self.pending_query_tile.is_none() {
+            let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
+
+            // Find the first pane that needs refresh
+            let pane_ids: Vec<TileId> = self
+                .viewport_tree
+                .tiles
+                .iter()
+                .filter_map(|(id, tile)| {
+                    if let egui_tiles::Tile::Pane(component) = tile {
+                        if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                            if query_pane.needs_refresh() {
+                                log::debug!(
+                                    "Found pane {:?} that needs refresh: {}",
+                                    id,
+                                    query_pane.name()
+                                );
+                                return Some(*id);
+                            }
+                        }
+                    }
+                    None
+                })
+                .collect();
+
+            // Execute query for the first pane that needs refresh
+            if let Some(tile_id) = pane_ids.first().copied() {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get_mut(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                        // Get query parameters from the pane
+                        let metric = query_pane.name().to_string();
+                        let query = query_pane.saved_query().to_string();
+                        let step_secs = query_pane.query_state().granularity.seconds();
+
+                        // Clear the refresh flag
+                        query_pane.clear_refresh();
+
+                        // Execute the query
+                        let params = ExecuteParams {
+                            metric: &metric,
+                            query: &query,
+                            step_secs,
+                            start_ns: Some(start_ns),
+                            end_ns: Some(end_ns),
+                        };
+                        self.query_executor
+                            .execute(&params, query_pane.visualization_mut(), ctx);
+                        self.pending_query_tile = Some(tile_id);
+
+                        log::debug!("Executing query for tile {tile_id:?}: {query}");
+                    }
+                }
+            }
+        }
+    }
+
     /// Toggle commit markers on the focused chart
     fn toggle_commits_on_focused(&mut self) {
         if let Some(tile_id) = self.behavior.focused_tile() {
@@ -829,6 +995,21 @@ impl Dashboard {
                     let state = query_pane.query_state().clone();
                     self.buffer_editor.open_with_state(&query, &name, state);
                     self.editing_tile_id = Some(tile_id);
+
+                    // Populate completions from cached metric labels
+                    if let Some(labels) = self.query_executor.get_metric_labels(&name) {
+                        self.buffer_editor
+                            .set_completions_from_labels(&labels.labels);
+                        log::debug!(
+                            "Set buffer editor completions from {} labels for '{}'",
+                            labels.labels.len(),
+                            name
+                        );
+                    } else if self.query_executor.is_connected() {
+                        // Clear default completions if connected but no labels cached
+                        self.buffer_editor.clear_completions();
+                    }
+
                     log::debug!("Opening buffer editor for QueryPane");
                 } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
                     let query = buffer.saved_content().to_string();
@@ -880,10 +1061,86 @@ impl Dashboard {
 
     /// Open the metrics finder modal (for metrics only)
     pub fn open_metrics_finder(&mut self) {
-        // Use demo metrics for the fuzzy finder
-        let items = Self::demo_metric_items();
+        let items = if self.query_executor.is_connected() {
+            // Use real metrics from Prometheus
+            self.prometheus_metric_items()
+        } else {
+            // Fall back to demo metrics
+            Self::demo_metric_items()
+        };
         self.metrics_finder.set_items(items);
         self.metrics_finder.open();
+    }
+
+    /// Generate metric items from Prometheus metric names
+    fn prometheus_metric_items(&self) -> Vec<MetricItem> {
+        use std::collections::{HashMap, HashSet};
+
+        self.query_executor
+            .metric_names()
+            .iter()
+            .map(|name| {
+                // Infer category from metric name prefix (common Prometheus conventions)
+                let category = Self::infer_prometheus_category(name);
+
+                // Check if we have cached labels for this metric
+                let tags: HashMap<String, HashSet<String>> =
+                    if let Some(labels) = self.query_executor.get_metric_labels(name) {
+                        // Use actual per-metric labels
+                        labels
+                            .labels
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+                            .collect()
+                    } else {
+                        // No labels cached yet - show empty (will be fetched on selection)
+                        HashMap::new()
+                    };
+
+                MetricItem {
+                    name: name.clone(),
+                    category,
+                    description: None,
+                    unit: None,
+                    tags,
+                    series_count: 0,
+                }
+            })
+            .collect()
+    }
+
+    /// Infer category from Prometheus metric name conventions
+    fn infer_prometheus_category(name: &str) -> String {
+        // Common Prometheus metric prefixes
+        if name.starts_with("node_") {
+            "Node Exporter".to_string()
+        } else if name.starts_with("go_") {
+            "Go Runtime".to_string()
+        } else if name.starts_with("process_") {
+            "Process".to_string()
+        } else if name.starts_with("promhttp_") || name.starts_with("prometheus_") {
+            "Prometheus".to_string()
+        } else if name.starts_with("http_") {
+            "HTTP".to_string()
+        } else if name.starts_with("grpc_") {
+            "gRPC".to_string()
+        } else if name.starts_with("scrape_") {
+            "Scrape".to_string()
+        } else if name.starts_with("up") || name == "up" {
+            "Target".to_string()
+        } else {
+            // Default: extract first part before underscore
+            name.split('_')
+                .next()
+                .map(|s| {
+                    let mut chars = s.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().chain(chars).collect(),
+                    }
+                })
+                .unwrap_or_else(|| "Metrics".to_string())
+        }
     }
 
     /// Generate demo metric items for the fuzzy finder

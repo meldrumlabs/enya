@@ -5,9 +5,9 @@ use poll_promise::Promise;
 use crate::error::ClientError;
 use crate::promise::promise_channel;
 use crate::request::QueryRequest;
-use crate::{LabelsResult, MetricsClient, QueryResult};
+use crate::{LabelsResult, MetricLabelsResult, MetricsClient, QueryResult};
 
-use super::response::{parse_labels_response, parse_response};
+use super::response::{parse_labels_response, parse_response, parse_series_response};
 use super::translate::translate;
 
 /// Client for querying Prometheus via its HTTP API.
@@ -37,9 +37,17 @@ impl PrometheusClient {
     /// # Arguments
     ///
     /// * `base_url` - The base URL of the Prometheus server (e.g., "http://localhost:9090")
+    ///
+    /// If no protocol is specified, `http://` is assumed (Prometheus default).
     #[must_use]
     pub fn new(base_url: impl Into<String>) -> Self {
         let mut url = base_url.into();
+
+        // Add http:// if no protocol specified (Prometheus runs on HTTP by default)
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            url = format!("http://{url}");
+        }
+
         // Remove trailing slash if present
         if url.ends_with('/') {
             url.pop();
@@ -185,6 +193,48 @@ impl MetricsClient for PrometheusClient {
         self.fetch_label_values("__name__", ctx)
     }
 
+    fn fetch_metric_labels(
+        &self,
+        metric: &str,
+        ctx: &egui::Context,
+    ) -> Promise<MetricLabelsResult> {
+        // Build the series query URL
+        // match[]={__name__="metric_name"}
+        let selector = format!(r#"{{__name__="{metric}"}}"#);
+        let encoded_selector = url_encode(&selector);
+        let url = format!(
+            "{}/api/v1/series?match[]={}",
+            self.base_url, encoded_selector
+        );
+
+        let ctx = ctx.clone();
+
+        log::debug!("Prometheus fetch metric labels for '{metric}': {url}");
+
+        let (sender, promise) = promise_channel();
+
+        ehttp::fetch(ehttp::Request::get(&url), move |response| {
+            let result = match response {
+                Ok(response) => {
+                    if response.ok {
+                        parse_series_response(&response.bytes)
+                    } else {
+                        Err(ClientError::BackendError {
+                            status: response.status,
+                            message: response.status_text,
+                        })
+                    }
+                }
+                Err(e) => Err(ClientError::NetworkError(e)),
+            };
+
+            sender.send(result);
+            ctx.request_repaint();
+        });
+
+        promise
+    }
+
     fn backend_type(&self) -> &'static str {
         "prometheus"
     }
@@ -222,6 +272,18 @@ mod tests {
     fn test_new_removes_trailing_slash() {
         let client = PrometheusClient::new("http://localhost:9090/");
         assert_eq!(client.base_url, "http://localhost:9090");
+    }
+
+    #[test]
+    fn test_new_adds_http_protocol() {
+        let client = PrometheusClient::new("localhost:9090");
+        assert_eq!(client.base_url, "http://localhost:9090");
+    }
+
+    #[test]
+    fn test_new_preserves_https() {
+        let client = PrometheusClient::new("https://prometheus.example.com");
+        assert_eq!(client.base_url, "https://prometheus.example.com");
     }
 
     #[test]

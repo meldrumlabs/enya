@@ -35,3 +35,12 @@ Or for a specific package:
 ```bash
 cargo test --package enya-metrics-store
 ```
+
+## Editor Changelog
+
+When making changes to the `enya-editor` crate, **update the changelog** at `crates/editor/CHANGELOG.md` with a summary of changes under the `[Unreleased]` section. Follow the [Keep a Changelog](https://keepachangelog.com/) format:
+
+- **Added** - New features
+- **Changed** - Changes to existing functionality
+- **Fixed** - Bug fixes
+- **Removed** - Removed features
