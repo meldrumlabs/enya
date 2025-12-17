@@ -233,6 +233,11 @@ impl EnyaApp {
             if input.consume_key(egui::Modifiers::SHIFT, egui::Key::T) {
                 self.workspace_tabs.new_tab();
             }
+            // Shift+X - close current workspace tab (like :tabclose)
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::X) {
+                self.workspace_tabs
+                    .close_tab(self.workspace_tabs.active_index());
+            }
         });
     }
 
@@ -286,6 +291,9 @@ impl EnyaApp {
                 } else {
                     Some(multi_buffer_status)
                 });
+            // Set diagnostics count
+            let (errors, warnings) = dashboard.diagnostics_count_by_level();
+            self.status_line.set_diagnostics_count(errors, warnings);
         }
 
         // Update sparkline with editor frame time metrics
@@ -861,15 +869,33 @@ impl EnyaApp {
 
         #[cfg(target_arch = "wasm32")]
         {
-            // On web, encode to base64 and show the URL
+            // On web, encode to base64 and copy URL to clipboard
             match workspace.to_base64() {
                 Ok(encoded) => {
-                    let url = format!("?workspace={encoded}");
-                    log::info!("Workspace encoded for URL: {url}");
+                    // Build the full URL
+                    let full_url = {
+                        let base_url = web_sys::window()
+                            .and_then(|w| w.location().href().ok())
+                            .unwrap_or_else(|| "https://enya.build/editor".to_string());
+
+                        // Remove any existing query string
+                        let base_url = base_url.split('?').next().unwrap_or(&base_url);
+                        format!("{base_url}?workspace={encoded}")
+                    };
+
+                    // Copy to clipboard
+                    if let Err(e) = Self::copy_to_clipboard_wasm(&full_url) {
+                        log::error!("Failed to copy to clipboard: {e}");
+                        self.notifications.notify(Notification::new(
+                            format!("Failed to copy URL: {e}"),
+                            NotificationLevel::Error,
+                        ));
+                        return;
+                    }
+
+                    log::info!("Workspace URL: {full_url}");
                     self.notifications.notify(Notification::new(
-                        format!(
-                            "Workspace '{workspace_name}' ready to share (see console for URL)"
-                        ),
+                        format!("Workspace '{workspace_name}' URL copied to clipboard!"),
                         NotificationLevel::Success,
                     ));
                 }

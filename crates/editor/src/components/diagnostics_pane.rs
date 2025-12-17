@@ -6,13 +6,15 @@
 use std::any::Any;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use egui::{Color32, RichText, ScrollArea, Ui};
+use egui::{Color32, Key, RichText, ScrollArea, Ui};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::util::Instant;
 
+use super::finder_utils::OverlayStyle;
 use super::Component;
 
 /// Unique ID counter for diagnostics
@@ -305,6 +307,10 @@ pub struct DiagnosticsPane {
     /// Whether to auto-scroll to new diagnostics (planned for future use)
     #[allow(dead_code)]
     auto_scroll: bool,
+    /// Whether the overlay is open
+    is_open: bool,
+    /// Whether we just opened (to prevent immediate close)
+    just_opened: bool,
 }
 
 impl Default for DiagnosticsPane {
@@ -323,6 +329,8 @@ impl DiagnosticsPane {
             selected_id: None,
             filter: DiagnosticsFilter::default(),
             auto_scroll: true,
+            is_open: false,
+            just_opened: false,
         }
     }
 
@@ -335,6 +343,8 @@ impl DiagnosticsPane {
             selected_id: None,
             filter: DiagnosticsFilter::default(),
             auto_scroll: true,
+            is_open: false,
+            just_opened: false,
         }
     }
 
@@ -474,6 +484,412 @@ impl DiagnosticsPane {
                 .find(|d| d.id == id)
                 .and_then(|d| d.related_pane_id)
         })
+    }
+
+    /// Open the diagnostics overlay
+    pub fn open(&mut self) {
+        self.is_open = true;
+        self.just_opened = true;
+    }
+
+    /// Close the diagnostics overlay
+    pub fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    /// Toggle the diagnostics overlay
+    pub fn toggle(&mut self) {
+        if self.is_open {
+            self.close();
+        } else {
+            self.open();
+        }
+    }
+
+    /// Check if the overlay is open
+    pub fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    /// Show the diagnostics as a floating overlay
+    /// Returns the action if any (JumpToPane, Clear)
+    pub fn show_overlay(&mut self, ctx: &egui::Context) -> DiagnosticsPaneAction {
+        if !self.is_open {
+            return DiagnosticsPaneAction::None;
+        }
+
+        let mut action = DiagnosticsPaneAction::None;
+        let mut should_close = false;
+
+        // Skip input handling on the first frame after opening
+        if self.just_opened {
+            self.just_opened = false;
+        } else {
+            // Handle keyboard input
+            ctx.input_mut(|input| {
+                // Escape or Space+d to close
+                if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                    should_close = true;
+                }
+                // j/k for navigation
+                if input.consume_key(egui::Modifiers::NONE, Key::J) {
+                    self.select_next();
+                }
+                if input.consume_key(egui::Modifiers::NONE, Key::K) {
+                    self.select_prev();
+                }
+                // f to cycle filter
+                if input.consume_key(egui::Modifiers::NONE, Key::F) {
+                    self.cycle_filter();
+                }
+                // c to clear
+                if input.consume_key(egui::Modifiers::NONE, Key::C) {
+                    self.clear();
+                    action = DiagnosticsPaneAction::Clear;
+                }
+                // Enter to jump to selected diagnostic's pane
+                if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
+                    if let Some(pane_id) = self.selected_pane_id() {
+                        action = DiagnosticsPaneAction::JumpToPane(pane_id);
+                        should_close = true;
+                    }
+                }
+            });
+        }
+
+        if should_close {
+            self.close();
+            return action;
+        }
+
+        // Calculate popup dimensions (match metrics/workspace finder sizes)
+        let screen_rect = ctx.available_rect();
+        let popup_width = (screen_rect.width() * 0.70).clamp(600.0, 850.0);
+        let popup_max_height = (screen_rect.height() * 0.75).min(650.0);
+
+        let text_col = text_color(self.theme);
+        let (errors, warnings, infos, hints) = self.count_by_level();
+
+        // Use shared overlay style
+        let overlay_style = OverlayStyle::frosted_glass(self.theme);
+        let separator_color = match self.theme {
+            AppTheme::Light => palette::light_border::SUBTLE,
+            AppTheme::Dark => palette::border::SUBTLE,
+        };
+        let muted_text = text_col.gamma_multiply(0.6);
+        let key_bg = match self.theme {
+            AppTheme::Light => Color32::from_rgba_unmultiplied(240, 240, 240, 200),
+            AppTheme::Dark => Color32::from_rgba_unmultiplied(40, 40, 40, 200),
+        };
+
+        egui::Area::new(egui::Id::new("diagnostics_overlay"))
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                overlay_style.frame().show(ui, |ui| {
+                        ui.set_width(popup_width);
+                        ui.set_max_height(popup_max_height);
+
+                        // Header section
+                        ui.add_space(12.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.label(
+                                RichText::new(semantic_icons::diagnostic::INFO)
+                                    .color(muted_text)
+                                    .size(20.0),
+                            );
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new("Diagnostics")
+                                    .color(text_col)
+                                    .size(18.0)
+                                    .strong(),
+                            );
+
+                            ui.add_space(16.0);
+
+                            // Count badges
+                            if errors > 0 {
+                                let color = DiagnosticLevel::Error.color(self.theme);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        semantic_icons::diagnostic::ERROR,
+                                        errors
+                                    ))
+                                    .color(color)
+                                    .size(13.0),
+                                );
+                            }
+                            if warnings > 0 {
+                                let color = DiagnosticLevel::Warning.color(self.theme);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        semantic_icons::diagnostic::WARNING,
+                                        warnings
+                                    ))
+                                    .color(color)
+                                    .size(13.0),
+                                );
+                            }
+                            if infos > 0 {
+                                let color = DiagnosticLevel::Info.color(self.theme);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        semantic_icons::diagnostic::INFO,
+                                        infos
+                                    ))
+                                    .color(color)
+                                    .size(13.0),
+                                );
+                            }
+                            if hints > 0 {
+                                let color = DiagnosticLevel::Hint.color(self.theme);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        semantic_icons::diagnostic::HINT,
+                                        hints
+                                    ))
+                                    .color(color)
+                                    .size(13.0),
+                                );
+                            }
+
+                            // Filter indicator on the right
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.add_space(16.0);
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{} {}",
+                                            semantic_icons::action::FILTER,
+                                            self.filter.label()
+                                        ))
+                                        .color(muted_text)
+                                        .size(11.0),
+                                    );
+                                },
+                            );
+                        });
+                        ui.add_space(8.0);
+
+                        // Keyboard hints
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            Self::render_key_hint(ui, "j/k", "navigate", key_bg, muted_text);
+                            ui.add_space(8.0);
+                            Self::render_key_hint(ui, "Enter", "jump", key_bg, muted_text);
+                            ui.add_space(8.0);
+                            Self::render_key_hint(ui, "f", "filter", key_bg, muted_text);
+                            ui.add_space(8.0);
+                            Self::render_key_hint(ui, "c", "clear", key_bg, muted_text);
+                            ui.add_space(8.0);
+                            Self::render_key_hint(ui, "Esc", "close", key_bg, muted_text);
+                        });
+                        ui.add_space(12.0);
+
+                        // Separator below header
+                        ui.painter().hline(
+                            ui.available_rect_before_wrap().x_range(),
+                            ui.cursor().top(),
+                            egui::Stroke::new(1.0, separator_color),
+                        );
+                        ui.add_space(8.0);
+
+                        // Content area with diagnostics list
+                        let filtered: Vec<Diagnostic> = self
+                            .diagnostics
+                            .iter()
+                            .filter(|d| self.filter.matches(d.level))
+                            .cloned()
+                            .collect();
+
+                        if filtered.is_empty() {
+                            // Empty state
+                            ui.vertical_centered(|ui| {
+                                ui.add_space(40.0);
+                                ui.label(
+                                    RichText::new(semantic_icons::status::SUCCESS)
+                                        .color(DiagnosticLevel::Hint.color(self.theme))
+                                        .size(40.0),
+                                );
+                                ui.add_space(12.0);
+                                ui.label(
+                                    RichText::new("No diagnostics")
+                                        .color(muted_text)
+                                        .size(14.0),
+                                );
+                                ui.add_space(40.0);
+                            });
+                        } else {
+                            let selected_id = self.selected_id;
+                            let theme = self.theme;
+                            let mut clicked_diagnostic: Option<(u64, Option<usize>)> = None;
+
+                            ScrollArea::vertical()
+                                .auto_shrink([false, false])
+                                .max_height(popup_max_height - 120.0)
+                                .show(ui, |ui| {
+                                    ui.add_space(4.0);
+                                    for diagnostic in &filtered {
+                                        let is_selected = selected_id == Some(diagnostic.id);
+                                        let bg = if is_selected {
+                                            diagnostic.level.bg_color(theme)
+                                        } else {
+                                            Color32::TRANSPARENT
+                                        };
+
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(12.0);
+                                            egui::Frame::new()
+                                                .fill(bg)
+                                                .corner_radius(4.0)
+                                                .inner_margin(egui::vec2(8.0, 6.0))
+                                                .show(ui, |ui| {
+                                                    ui.set_width(popup_width - 40.0);
+                                                    let response = ui
+                                                        .horizontal(|ui| {
+                                                            // Level icon
+                                                            ui.label(
+                                                                RichText::new(diagnostic.level.icon())
+                                                                    .color(
+                                                                        diagnostic.level.color(theme),
+                                                                    )
+                                                                    .size(14.0),
+                                                            );
+
+                                                            ui.add_space(8.0);
+
+                                                            // Message and details
+                                                            ui.vertical(|ui| {
+                                                                ui.horizontal(|ui| {
+                                                                    ui.label(
+                                                                        RichText::new(
+                                                                            &diagnostic.message,
+                                                                        )
+                                                                        .color(text_col)
+                                                                        .size(12.0),
+                                                                    );
+
+                                                                    // Source badge
+                                                                    ui.label(
+                                                                        RichText::new(format!(
+                                                                            "[{}]",
+                                                                            diagnostic.source.label()
+                                                                        ))
+                                                                        .color(
+                                                                            text_col
+                                                                                .gamma_multiply(0.4),
+                                                                        )
+                                                                        .size(10.0),
+                                                                    );
+                                                                });
+
+                                                                // Pane name and location
+                                                                if diagnostic
+                                                                    .related_pane_name
+                                                                    .is_some()
+                                                                    || diagnostic.line.is_some()
+                                                                {
+                                                                    ui.horizontal(|ui| {
+                                                                        if let Some(pane_name) =
+                                                                            &diagnostic
+                                                                                .related_pane_name
+                                                                        {
+                                                                            ui.label(
+                                                                                RichText::new(
+                                                                                    pane_name,
+                                                                                )
+                                                                                .color(
+                                                                                    text_col
+                                                                                        .gamma_multiply(
+                                                                                            0.5,
+                                                                                        ),
+                                                                                )
+                                                                                .size(10.0),
+                                                                            );
+                                                                        }
+                                                                        if let Some(line) =
+                                                                            diagnostic.line
+                                                                        {
+                                                                            let loc = if let Some(
+                                                                                col,
+                                                                            ) =
+                                                                                diagnostic.column
+                                                                            {
+                                                                                format!(
+                                                                                    ":{line}:{col}"
+                                                                                )
+                                                                            } else {
+                                                                                format!(":{line}")
+                                                                            };
+                                                                            ui.label(
+                                                                                RichText::new(loc)
+                                                                                    .color(
+                                                                                        text_col
+                                                                                            .gamma_multiply(
+                                                                                                0.5,
+                                                                                            ),
+                                                                                    )
+                                                                                    .size(10.0),
+                                                                            );
+                                                                        }
+                                                                    });
+                                                                }
+                                                            });
+                                                        })
+                                                        .response;
+
+                                                    // Handle click to select and jump
+                                                    if response
+                                                        .interact(egui::Sense::click())
+                                                        .clicked()
+                                                    {
+                                                        clicked_diagnostic = Some((
+                                                            diagnostic.id,
+                                                            diagnostic.related_pane_id,
+                                                        ));
+                                                    }
+                                                });
+                                        });
+                                        ui.add_space(2.0);
+                                    }
+                                    ui.add_space(8.0);
+                                });
+
+                            // Apply click state changes after rendering
+                            if let Some((diag_id, pane_id)) = clicked_diagnostic {
+                                self.selected_id = Some(diag_id);
+                                if let Some(pane) = pane_id {
+                                    action = DiagnosticsPaneAction::JumpToPane(pane);
+                                    self.close();
+                                }
+                            }
+                        }
+                    });
+            });
+
+        action
+    }
+
+    /// Render a keyboard hint badge
+    fn render_key_hint(ui: &mut Ui, key: &str, desc: &str, key_bg: Color32, muted_text: Color32) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            egui::Frame::new()
+                .fill(key_bg)
+                .corner_radius(3.0)
+                .inner_margin(egui::vec2(4.0, 2.0))
+                .show(ui, |ui| {
+                    ui.label(RichText::new(key).color(muted_text).size(10.0).strong());
+                });
+            ui.label(RichText::new(desc).color(muted_text).size(10.0));
+        });
     }
 
     /// Render the diagnostics pane

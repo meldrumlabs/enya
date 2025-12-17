@@ -34,7 +34,7 @@ Press `:` to open the command palette (similar to neovim's command mode).
 
 ### Fuzzy Finder (Telescope-style)
 
-Press `Ctrl+K` to open the fuzzy finder for quick metric search.
+Press `Space+m` to open the metrics finder for quick metric search.
 
 - **Live preview**: See a chart preview of the selected metric
 - **Fuzzy matching**: Type partial names to filter results
@@ -81,6 +81,7 @@ Press `Ctrl+K` to open the fuzzy finder for quick metric search.
 | Key | Action |
 |-----|--------|
 | `Shift+T` | Create new workspace tab |
+| `Shift+X` | Close current workspace tab |
 | `Shift+N` | Go to next workspace tab |
 | `Shift+P` | Go to previous workspace tab |
 
@@ -89,7 +90,9 @@ Press `Ctrl+K` to open the fuzzy finder for quick metric search.
 | Key | Action |
 |-----|--------|
 | `:` | Open command palette |
-| `Ctrl+K` | Open fuzzy finder |
+| `Space+m` | Open metrics finder |
+| `Space+w` | Open workspace finder |
+| `Space+h` | Go to home |
 | `?` | Show which-key help overlay |
 
 ### Status Line (lualine-style)
@@ -111,6 +114,9 @@ Select and edit multiple panes simultaneously (`Ctrl+V`).
 | `Space` | Toggle selection |
 | `a` | Select all panes |
 | `n` | Deselect all |
+| `x` | Close selected panes |
+| `e` | Edit selected panes |
+| `r` | Refresh selected panes |
 | `Escape` | Exit visual-block mode |
 
 ### URL Sharing

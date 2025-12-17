@@ -18,8 +18,6 @@ pub enum LandingPageAction {
     OpenWorkspace { name: String },
     /// Open the fuzzy finder for metrics
     OpenFuzzyFinder,
-    /// Open the query finder for saved queries
-    OpenQueryFinder,
     /// Open the workspace finder
     OpenWorkspaceFinder,
     /// Show help
@@ -252,7 +250,7 @@ impl LandingPage {
                 );
             });
         } else {
-            for (idx, plot) in recent_plots.iter().enumerate().take(8) {
+            for (idx, plot) in recent_plots.iter().enumerate().take(5) {
                 let is_selected = self.plots_focused && self.selected_plot_index == Some(idx);
 
                 let response = self.show_list_item(
@@ -266,7 +264,7 @@ impl LandingPage {
                     text_col,
                     accent_color,
                     is_selected,
-                    Some(format!("{}", idx + 1)), // Shortcut hint: 1-8
+                    Some(format!("{}", idx + 1)), // Shortcut hint: 1-5
                 );
 
                 if response.clicked() {
@@ -329,7 +327,7 @@ impl LandingPage {
                 );
             });
         } else {
-            for (idx, workspace) in recent_workspaces.iter().enumerate().take(8) {
+            for (idx, workspace) in recent_workspaces.iter().enumerate().take(5) {
                 let is_selected = !self.plots_focused && self.selected_workspace_index == Some(idx);
 
                 let response = self.show_list_item(
@@ -444,7 +442,7 @@ impl LandingPage {
         ui.horizontal(|ui| {
             // Center the shortcuts
             let shortcut_width = 100.0;
-            let num_shortcuts = 5;
+            let num_shortcuts = 4;
             let gap = 12.0;
             let total_width =
                 shortcut_width * num_shortcuts as f32 + gap * (num_shortcuts - 1) as f32;
@@ -470,25 +468,6 @@ impl LandingPage {
 
             ui.add_space(gap);
 
-            // Queries (q)
-            if self
-                .show_shortcut_button(
-                    ui,
-                    semantic_icons::file::CODE,
-                    "Queries",
-                    "q",
-                    text_col,
-                    accent_color,
-                    self.shortcut_focused == Some(1),
-                    shortcut_width,
-                )
-                .clicked()
-            {
-                action = LandingPageAction::OpenQueryFinder;
-            }
-
-            ui.add_space(gap);
-
             // Connect (c)
             if self
                 .show_shortcut_button(
@@ -498,7 +477,7 @@ impl LandingPage {
                     "c",
                     text_col,
                     accent_color,
-                    self.shortcut_focused == Some(2),
+                    self.shortcut_focused == Some(1),
                     shortcut_width,
                 )
                 .clicked()
@@ -517,7 +496,7 @@ impl LandingPage {
                     "w",
                     text_col,
                     accent_color,
-                    self.shortcut_focused == Some(3),
+                    self.shortcut_focused == Some(2),
                     shortcut_width,
                 )
                 .clicked()
@@ -536,7 +515,7 @@ impl LandingPage {
                     "?",
                     text_col,
                     accent_color,
-                    self.shortcut_focused == Some(4),
+                    self.shortcut_focused == Some(3),
                     shortcut_width,
                 )
                 .clicked()
@@ -683,12 +662,6 @@ impl LandingPage {
                 return;
             }
 
-            // q - Open queries (query finder)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::Q) {
-                action = LandingPageAction::OpenQueryFinder;
-                return;
-            }
-
             // c - Connect
             if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
                 action = LandingPageAction::OpenConnect;
@@ -721,14 +694,14 @@ impl LandingPage {
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
             {
                 if self.plots_focused {
-                    let max_idx = recent_plots.len().saturating_sub(1).min(7);
+                    let max_idx = recent_plots.len().saturating_sub(1).min(4);
                     self.selected_plot_index = Some(
                         self.selected_plot_index
                             .map(|i| (i + 1).min(max_idx))
                             .unwrap_or(0),
                     );
                 } else {
-                    let max_idx = recent_workspaces.len().saturating_sub(1).min(7);
+                    let max_idx = recent_workspaces.len().saturating_sub(1).min(4);
                     self.selected_workspace_index = Some(
                         self.selected_workspace_index
                             .map(|i| (i + 1).min(max_idx))

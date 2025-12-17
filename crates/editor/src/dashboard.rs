@@ -8,8 +8,8 @@ use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
     Diagnostic, DiagnosticsPane, EditExcerpt, InfoOverlay, LandingPage, LandingPageAction,
     MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState, MultiEditOverlay,
-    MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState, TimeRangeToolbar, WhichKey,
-    WorkspaceFinder, WorkspaceItem,
+    MultiEditResult, QueryPane, QueryState, TimeRangeToolbar, WhichKey, WorkspaceFinder,
+    WorkspaceItem,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -78,8 +78,6 @@ pub struct Dashboard {
     time_range_toolbar: TimeRangeToolbar,
     /// Fuzzy finder modal for metrics (telescope-style search)
     metrics_finder: MetricsFinder,
-    /// Query finder modal for saved queries (with side-by-side preview)
-    query_finder: QueryFinder,
     /// Workspace finder modal (for loading saved workspaces)
     workspace_finder: WorkspaceFinder,
     /// Command palette (neovim-style `:` commands)
@@ -100,6 +98,8 @@ pub struct Dashboard {
     last_y_press: Option<crate::util::Instant>,
     /// Last time 'c' was pressed (for cv detection - cycle visualization)
     last_c_press: Option<crate::util::Instant>,
+    /// Last time Space was pressed (for leader key sequences like Space+m, Space+q)
+    last_space_press: Option<crate::util::Instant>,
     /// Info overlay (shows build/version info)
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
@@ -118,12 +118,10 @@ pub struct Dashboard {
     multi_buffer_state: MultiBufferState,
     /// Multi-edit overlay for editing multiple panes simultaneously
     multi_edit_overlay: MultiEditOverlay,
-    /// Diagnostics pane for showing query validation errors
+    /// Diagnostics pane for showing query validation errors (as overlay)
     diagnostics_pane: DiagnosticsPane,
-    /// Whether the diagnostics pane is visible in the viewport
+    /// Whether the diagnostics overlay is visible
     diagnostics_visible: bool,
-    /// Tile ID of the diagnostics pane (if added to viewport)
-    diagnostics_tile_id: Option<TileId>,
     /// Flag to open workspace finder (set by keyboard, handled in show with app_state)
     pending_open_workspace_finder: bool,
 }
@@ -142,7 +140,6 @@ impl Default for Dashboard {
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
-            query_finder: QueryFinder::new(),
             workspace_finder: WorkspaceFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
@@ -153,6 +150,7 @@ impl Default for Dashboard {
             show_landing: true,
             last_y_press: None,
             last_c_press: None,
+            last_space_press: None,
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             viewport_scroll_offset: 0.0,
@@ -164,7 +162,6 @@ impl Default for Dashboard {
             multi_edit_overlay: MultiEditOverlay::new(),
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
-            diagnostics_tile_id: None,
             pending_open_workspace_finder: false,
         }
     }
@@ -260,7 +257,6 @@ impl Dashboard {
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
-            query_finder: QueryFinder::new(),
             workspace_finder: WorkspaceFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
@@ -271,6 +267,7 @@ impl Dashboard {
             show_landing: true, // Start with landing page
             last_y_press: None,
             last_c_press: None,
+            last_space_press: None,
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             viewport_scroll_offset: 0.0,
@@ -282,7 +279,6 @@ impl Dashboard {
             multi_edit_overlay: MultiEditOverlay::new(),
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
-            diagnostics_tile_id: None,
             pending_open_workspace_finder: false,
         }
     }
@@ -470,12 +466,6 @@ impl Dashboard {
             return self.handle_metric_selection_with_tracking(selected_item);
         }
 
-        // Show query finder modal (rendered on top of everything)
-        self.query_finder.set_theme(app_state.theme);
-        if let Some(selected_query) = self.query_finder.show(ctx) {
-            return self.handle_query_selection_with_tracking(selected_query);
-        }
-
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
@@ -514,6 +504,10 @@ impl Dashboard {
         // Show which-key overlay modal
         self.which_key.set_theme(app_state.theme);
         self.which_key.show(ctx);
+
+        // Show diagnostics overlay modal
+        self.diagnostics_pane.set_theme(app_state.theme);
+        self.diagnostics_pane.show_overlay(ctx);
 
         // Handle ? key for which-key overlay (bypasses focus check so it works even with chart focus)
         if !self.which_key.is_open()
@@ -583,9 +577,6 @@ impl Dashboard {
             LandingPageAction::OpenFuzzyFinder => {
                 self.open_metrics_finder();
             }
-            LandingPageAction::OpenQueryFinder => {
-                self.open_query_finder();
-            }
             LandingPageAction::OpenWorkspaceFinder => {
                 self.open_workspace_finder(
                     app_state,
@@ -607,12 +598,6 @@ impl Dashboard {
             return self.handle_metric_selection_with_tracking(selected_item);
         }
 
-        // Show query finder modal (rendered on top of everything)
-        self.query_finder.set_theme(app_state.theme);
-        if let Some(selected_query) = self.query_finder.show(ctx) {
-            return self.handle_query_selection_with_tracking(selected_query);
-        }
-
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
@@ -630,6 +615,40 @@ impl Dashboard {
         // Show which-key overlay modal
         self.which_key.set_theme(app_state.theme);
         self.which_key.show(ctx);
+
+        // Show diagnostics overlay modal
+        self.diagnostics_pane.set_theme(app_state.theme);
+        self.diagnostics_pane.show_overlay(ctx);
+
+        // Handle Space+d for diagnostics on landing page
+        // (viewport keyboard handling doesn't run on landing page)
+        if !self.metrics_finder.is_open()
+            && !self.workspace_finder.is_open()
+            && !self.command_palette.is_open()
+            && !self.which_key.is_open()
+            && !self.diagnostics_pane.is_open()
+        {
+            ctx.input_mut(|input| {
+                // Space - leader key for sequences
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                    self.last_space_press = Some(crate::util::Instant::now());
+                }
+
+                // Leader key sequences (must follow Space within 500ms)
+                let space_active = self.last_space_press.is_some_and(|last| {
+                    crate::util::Instant::now().duration_since(last).as_millis() < 500
+                });
+
+                if space_active {
+                    // Space+d - toggle diagnostics overlay
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                        self.diagnostics_pane.toggle();
+                        self.diagnostics_visible = self.diagnostics_pane.is_open();
+                        self.last_space_press = None;
+                    }
+                }
+            });
+        }
 
         self.handle_command_result(cmd_result)
     }
@@ -667,17 +686,6 @@ impl Dashboard {
     fn handle_metric_selection_with_tracking(&mut self, item: MetricItem) -> DashboardAction {
         self.show_landing = false;
         self.add_chart_for_metric_with_tracking(&item.name)
-    }
-
-    /// Handle query selection and return tracking action
-    fn handle_query_selection_with_tracking(&mut self, item: QueryItem) -> DashboardAction {
-        self.show_landing = false;
-        self.add_chart_for_query(&item.name, &item.query);
-        DashboardAction::TrackRecentPlot {
-            name: item.name.clone(),
-            metric_name: item.name,
-            is_query: true,
-        }
     }
 
     /// Handle a command result from the command palette
@@ -1015,13 +1023,6 @@ impl Dashboard {
         items
     }
 
-    /// Open the query finder modal (for saved queries)
-    pub fn open_query_finder(&mut self) {
-        // Query finder now starts empty (no custom queries panel)
-        self.query_finder.set_queries(vec![]);
-        self.query_finder.open();
-    }
-
     /// Open the workspace finder modal (for loading saved workspaces)
     pub fn open_workspace_finder(
         &mut self,
@@ -1115,31 +1116,14 @@ impl Dashboard {
         self.show_landing && self.open_charts.is_empty()
     }
 
-    /// Add a chart for a custom query to the viewport
-    fn add_chart_for_query(&mut self, query_name: &str, query_str: &str) {
-        // Use query name as the unique key for duplicate detection
-        let chart_key = format!("query:{query_name}");
-        if self.open_charts.contains(&chart_key) {
-            log::debug!("Chart for query '{query_name}' already open");
-            return;
-        }
-
-        // Create a QueryPane with the query
-        let pane: Box<dyn Component> = Box::new(QueryPane::with_name(query_str, query_name));
-        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(pane_tile) {
-            self.open_charts.insert(chart_key);
-            self.behavior.set_focused_tile(Some(pane_tile));
-            log::debug!("Added query pane for '{query_name}'");
-        }
-    }
-
     /// Add a tile to the viewport, handling different container types
     /// Returns true if the tile was successfully added
     fn add_tile_to_viewport(&mut self, tile_id: TileId) -> bool {
         let Some(root_id) = self.viewport_tree.root() else {
-            return false;
+            // No root exists (all panes were closed), create a new tabs container
+            let new_root = self.viewport_tree.tiles.insert_tab_tile(vec![tile_id]);
+            self.viewport_tree.root = Some(new_root);
+            return true;
         };
 
         match self.viewport_tree.tiles.get_mut(root_id) {
@@ -1218,45 +1202,22 @@ impl Dashboard {
 
     // ==================== Diagnostics Methods ====================
 
-    /// Toggle the diagnostics pane visibility
+    /// Toggle the diagnostics overlay visibility
     pub fn toggle_diagnostics(&mut self) {
-        if self.diagnostics_visible {
-            self.hide_diagnostics();
-        } else {
-            self.show_diagnostics();
-        }
+        self.diagnostics_pane.toggle();
+        self.diagnostics_visible = self.diagnostics_pane.is_open();
     }
 
-    /// Show the diagnostics pane in the viewport
+    /// Show the diagnostics overlay
     pub fn show_diagnostics(&mut self) {
-        if self.diagnostics_visible {
-            return;
-        }
-
-        // Create a new diagnostics pane with existing diagnostics and add it to the viewport
-        let diagnostics = self.diagnostics_pane.diagnostics();
-        let pane: Box<dyn Component> = Box::new(DiagnosticsPane::with_diagnostics(diagnostics));
-        let tile_id = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(tile_id) {
-            self.diagnostics_tile_id = Some(tile_id);
-            self.diagnostics_visible = true;
-            self.show_landing = false;
-            log::debug!("Showing diagnostics pane");
-        }
+        self.diagnostics_pane.open();
+        self.diagnostics_visible = true;
     }
 
-    /// Hide the diagnostics pane
+    /// Hide the diagnostics overlay
     pub fn hide_diagnostics(&mut self) {
-        if !self.diagnostics_visible {
-            return;
-        }
-
-        if let Some(tile_id) = self.diagnostics_tile_id.take() {
-            self.close_tile(tile_id);
-        }
+        self.diagnostics_pane.close();
         self.diagnostics_visible = false;
-        log::debug!("Hiding diagnostics pane");
     }
 
     /// Add a diagnostic to the diagnostics pane
@@ -1277,6 +1238,12 @@ impl Dashboard {
     /// Get diagnostics count
     pub fn diagnostics_count(&self) -> usize {
         self.diagnostics_pane.count()
+    }
+
+    /// Get diagnostics count by level (errors, warnings)
+    pub fn diagnostics_count_by_level(&self) -> (usize, usize) {
+        let (errors, warnings, _, _) = self.diagnostics_pane.count_by_level();
+        (errors, warnings)
     }
 
     /// Check if there are any errors
@@ -1537,7 +1504,6 @@ impl Dashboard {
 
         // Don't handle if any modal is open
         if self.metrics_finder.is_open()
-            || self.query_finder.is_open()
             || self.workspace_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
@@ -1572,6 +1538,9 @@ impl Dashboard {
         let mut should_next_workspace_tab = false;
         let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
+        let mut should_open_metrics_finder = false;
+        let mut should_show_home = false;
+        let mut should_toggle_diagnostics = false;
         let mut should_edit_buffer = false;
         let mut new_tile_id: Option<TileId> = None;
 
@@ -1630,11 +1599,51 @@ impl Dashboard {
                 return;
             }
 
-            // w - open workspace finder
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
-                should_open_workspace_finder = true;
+            // Space - leader key for sequences (Space+m, Space+q, Space+w)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                let now = crate::util::Instant::now();
+                self.last_space_press = Some(now);
                 consumed = true;
                 return;
+            }
+
+            // Leader key sequences (must follow Space within 500ms)
+            let space_active = self.last_space_press.is_some_and(|last| {
+                crate::util::Instant::now().duration_since(last).as_millis() < 500
+            });
+
+            if space_active {
+                // Space+m - open metrics finder
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
+                    should_open_metrics_finder = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+w - open workspace finder
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                    should_open_workspace_finder = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+h - show home/landing page
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
+                    should_show_home = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+d - toggle diagnostics overlay
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                    should_toggle_diagnostics = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
             }
 
             // e - enter edit mode on focused pane (vim-style)
@@ -1768,6 +1777,23 @@ impl Dashboard {
             ctx.request_repaint();
         }
 
+        // Handle metrics finder (m key)
+        if should_open_metrics_finder {
+            self.open_metrics_finder();
+            ctx.request_repaint();
+        }
+
+        if should_show_home {
+            self.show_landing = true;
+            self.close_all_charts();
+            ctx.request_repaint();
+        }
+
+        if should_toggle_diagnostics {
+            self.toggle_diagnostics();
+            ctx.request_repaint();
+        }
+
         if should_open_which_key {
             self.which_key.open();
         } else if should_enter_visual_multi {
@@ -1860,7 +1886,7 @@ impl Dashboard {
             self.multi_buffer_state.status_text()
         } else if let Some(state) = &self.visual_multi_state {
             format!(
-                "VISUAL-MULTI ({} selected) [e]dit [Space]toggle [Esc]exit",
+                "VISUAL-MULTI ({} selected) [e]dit [r]efresh [x]close [Space]toggle [Esc]exit",
                 state.selection_count()
             )
         } else {
@@ -1902,6 +1928,64 @@ impl Dashboard {
         self.visual_multi_state = None;
     }
 
+    /// Close all selected panes in visual-multi mode
+    fn close_selected_panes(&mut self) {
+        let selected_ids: Vec<TileId> = self
+            .visual_multi_state
+            .as_ref()
+            .map(|s| s.selected_tile_ids.iter().copied().collect())
+            .unwrap_or_default();
+
+        if selected_ids.is_empty() {
+            log::debug!("No panes selected to close");
+            return;
+        }
+
+        log::debug!(
+            "Closing {} selected panes: {:?}",
+            selected_ids.len(),
+            selected_ids
+        );
+
+        // Close each selected tile
+        for tile_id in selected_ids {
+            self.close_tile(tile_id);
+        }
+
+        // Exit visual-multi mode after closing
+        self.exit_visual_multi_mode();
+        self.multi_buffer_state.reset();
+    }
+
+    /// Refresh all selected panes in visual-multi mode
+    fn refresh_selected_panes(&mut self) {
+        let selected_ids: Vec<TileId> = self
+            .visual_multi_state
+            .as_ref()
+            .map(|s| s.selected_tile_ids.iter().copied().collect())
+            .unwrap_or_default();
+
+        if selected_ids.is_empty() {
+            log::debug!("No panes selected to refresh");
+            return;
+        }
+
+        log::debug!(
+            "Refreshing {} selected panes: {:?}",
+            selected_ids.len(),
+            selected_ids
+        );
+
+        // Refresh each selected pane
+        for tile_id in selected_ids {
+            if let Some(egui_tiles::Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
+                    query_pane.refresh();
+                }
+            }
+        }
+    }
+
     /// Handle keyboard input while in visual-multi mode
     fn handle_visual_multi_keyboard(&mut self, ctx: &egui::Context) -> Option<DashboardAction> {
         let pane_ids = self.get_pane_tile_ids();
@@ -1918,6 +2002,8 @@ impl Dashboard {
         let mut should_select_all = false;
         let mut should_clear_selection = false;
         let mut should_open_multi_edit = false;
+        let mut should_close_selected = false;
+        let mut should_refresh_selected = false;
         let mut new_cursor_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -1931,6 +2017,20 @@ impl Dashboard {
             // e - open multi-edit overlay for selected panes
             if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
                 should_open_multi_edit = true;
+                consumed = true;
+                return;
+            }
+
+            // x - close all selected panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::X) {
+                should_close_selected = true;
+                consumed = true;
+                return;
+            }
+
+            // r - refresh all selected panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::R) {
+                should_refresh_selected = true;
                 consumed = true;
                 return;
             }
@@ -2012,6 +2112,10 @@ impl Dashboard {
         if should_exit {
             self.exit_visual_multi_mode();
             self.multi_buffer_state.reset();
+        } else if should_close_selected {
+            self.close_selected_panes();
+        } else if should_refresh_selected {
+            self.refresh_selected_panes();
         } else if should_open_multi_edit {
             self.open_multi_edit_for_selected();
         } else if should_toggle_selection {
@@ -2390,10 +2494,13 @@ impl Dashboard {
                     .tiles
                     .insert_horizontal_tile(child_ids.clone());
 
-                // Apply shares if specified
-                if !container.shares.is_empty() {
-                    self.apply_shares(container_id, &child_ids, &container.shares);
-                }
+                // Apply shares - use specified shares or default to equal (1.0) for all
+                let shares = if container.shares.is_empty() {
+                    vec![1.0; child_ids.len()]
+                } else {
+                    container.shares.clone()
+                };
+                self.apply_shares(container_id, &child_ids, &shares);
 
                 container_id
             }
@@ -2403,10 +2510,13 @@ impl Dashboard {
                     .tiles
                     .insert_vertical_tile(child_ids.clone());
 
-                // Apply shares if specified
-                if !container.shares.is_empty() {
-                    self.apply_shares(container_id, &child_ids, &container.shares);
-                }
+                // Apply shares - use specified shares or default to equal (1.0) for all
+                let shares = if container.shares.is_empty() {
+                    vec![1.0; child_ids.len()]
+                } else {
+                    container.shares.clone()
+                };
+                self.apply_shares(container_id, &child_ids, &shares);
 
                 container_id
             }
@@ -2875,6 +2985,8 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     fn simplification_options(&self) -> egui_tiles::SimplificationOptions {
         SimplificationOptions {
             all_panes_must_have_tabs: true,
+            prune_empty_tabs: true,
+            prune_empty_containers: true,
             ..SimplificationOptions::OFF
         }
     }

@@ -11,6 +11,122 @@ use crate::ui::typography;
 
 use super::time_series_chart::DataPoint;
 
+/// Overlay style variants for modal/popup components
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum OverlayStyleVariant {
+    /// Frosted glass: transparent background with soft edges (default)
+    #[default]
+    FrostedGlass,
+    /// Minimal flat: solid background, no shadows
+    MinimalFlat,
+    /// Subtle neon: solid background with glowing accent border
+    SubtleNeon,
+}
+
+/// Styling configuration for overlay/modal components
+pub struct OverlayStyle {
+    /// Background color
+    pub bg: Color32,
+    /// Border color
+    pub border: Color32,
+    /// Corner radius
+    pub corner_radius: f32,
+    /// Shadow configuration
+    pub shadow: egui::epaint::Shadow,
+    /// Border stroke width
+    pub stroke_width: f32,
+}
+
+impl OverlayStyle {
+    /// Create overlay style for the given theme and variant
+    pub fn new(theme: AppTheme, variant: OverlayStyleVariant) -> Self {
+        match variant {
+            OverlayStyleVariant::FrostedGlass => Self::frosted_glass(theme),
+            OverlayStyleVariant::MinimalFlat => Self::minimal_flat(theme),
+            OverlayStyleVariant::SubtleNeon => Self::subtle_neon(theme),
+        }
+    }
+
+    /// Frosted glass style: semi-transparent background with soft edges
+    pub fn frosted_glass(theme: AppTheme) -> Self {
+        let (bg, border) = match theme {
+            AppTheme::Light => (
+                Color32::from_rgba_unmultiplied(255, 255, 255, 240), // ~94% opacity
+                Color32::from_rgba_unmultiplied(220, 220, 220, 200),
+            ),
+            AppTheme::Dark => (
+                Color32::from_rgba_unmultiplied(20, 20, 20, 240), // ~94% opacity
+                Color32::from_rgba_unmultiplied(60, 60, 60, 180),
+            ),
+        };
+
+        Self {
+            bg,
+            border,
+            corner_radius: 12.0,
+            stroke_width: 1.0,
+            shadow: egui::epaint::Shadow {
+                offset: [0, 4],
+                blur: 24,
+                spread: 0,
+                color: Color32::from_black_alpha(60),
+            },
+        }
+    }
+
+    /// Minimal flat style: solid background, no shadows
+    pub fn minimal_flat(theme: AppTheme) -> Self {
+        let (bg, border) = match theme {
+            AppTheme::Light => (palette::light_bg::SURFACE, palette::light_border::DEFAULT),
+            AppTheme::Dark => (palette::bg::SURFACE, palette::border::SUBTLE),
+        };
+
+        Self {
+            bg,
+            border,
+            corner_radius: 4.0,
+            stroke_width: 1.0,
+            shadow: egui::epaint::Shadow::NONE,
+        }
+    }
+
+    /// Subtle neon style: solid background with glowing accent border
+    pub fn subtle_neon(theme: AppTheme) -> Self {
+        let bg = match theme {
+            AppTheme::Light => palette::light_bg::SURFACE,
+            AppTheme::Dark => palette::bg::BASE,
+        };
+        let glow_color = palette::accent::PRIMARY;
+
+        Self {
+            bg,
+            border: glow_color,
+            corner_radius: 4.0,
+            stroke_width: 1.5,
+            shadow: egui::epaint::Shadow {
+                offset: [0, 0],
+                blur: 16,
+                spread: 2,
+                color: glow_color.gamma_multiply(0.4),
+            },
+        }
+    }
+
+    /// Apply this style to an egui Frame
+    pub fn apply_to_frame(&self, frame: egui::Frame) -> egui::Frame {
+        frame
+            .fill(self.bg)
+            .stroke(egui::Stroke::new(self.stroke_width, self.border))
+            .corner_radius(self.corner_radius)
+            .shadow(self.shadow)
+    }
+
+    /// Create a new styled egui Frame
+    pub fn frame(&self) -> egui::Frame {
+        self.apply_to_frame(egui::Frame::new().inner_margin(0.0))
+    }
+}
+
 /// Theme-aware colors for finder modals
 pub struct FinderColors {
     /// Background color for the modal
