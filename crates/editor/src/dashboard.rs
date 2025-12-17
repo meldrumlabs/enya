@@ -118,12 +118,10 @@ pub struct Dashboard {
     multi_buffer_state: MultiBufferState,
     /// Multi-edit overlay for editing multiple panes simultaneously
     multi_edit_overlay: MultiEditOverlay,
-    /// Diagnostics pane for showing query validation errors
+    /// Diagnostics pane for showing query validation errors (as overlay)
     diagnostics_pane: DiagnosticsPane,
-    /// Whether the diagnostics pane is visible in the viewport
+    /// Whether the diagnostics overlay is visible
     diagnostics_visible: bool,
-    /// Tile ID of the diagnostics pane (if added to viewport)
-    diagnostics_tile_id: Option<TileId>,
     /// Flag to open workspace finder (set by keyboard, handled in show with app_state)
     pending_open_workspace_finder: bool,
 }
@@ -164,7 +162,6 @@ impl Default for Dashboard {
             multi_edit_overlay: MultiEditOverlay::new(),
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
-            diagnostics_tile_id: None,
             pending_open_workspace_finder: false,
         }
     }
@@ -282,7 +279,6 @@ impl Dashboard {
             multi_edit_overlay: MultiEditOverlay::new(),
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
-            diagnostics_tile_id: None,
             pending_open_workspace_finder: false,
         }
     }
@@ -509,6 +505,10 @@ impl Dashboard {
         self.which_key.set_theme(app_state.theme);
         self.which_key.show(ctx);
 
+        // Show diagnostics overlay modal
+        self.diagnostics_pane.set_theme(app_state.theme);
+        self.diagnostics_pane.show_overlay(ctx);
+
         // Handle ? key for which-key overlay (bypasses focus check so it works even with chart focus)
         if !self.which_key.is_open()
             && !self.metrics_finder.is_open()
@@ -615,6 +615,40 @@ impl Dashboard {
         // Show which-key overlay modal
         self.which_key.set_theme(app_state.theme);
         self.which_key.show(ctx);
+
+        // Show diagnostics overlay modal
+        self.diagnostics_pane.set_theme(app_state.theme);
+        self.diagnostics_pane.show_overlay(ctx);
+
+        // Handle Space+d for diagnostics on landing page
+        // (viewport keyboard handling doesn't run on landing page)
+        if !self.metrics_finder.is_open()
+            && !self.workspace_finder.is_open()
+            && !self.command_palette.is_open()
+            && !self.which_key.is_open()
+            && !self.diagnostics_pane.is_open()
+        {
+            ctx.input_mut(|input| {
+                // Space - leader key for sequences
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                    self.last_space_press = Some(crate::util::Instant::now());
+                }
+
+                // Leader key sequences (must follow Space within 500ms)
+                let space_active = self.last_space_press.is_some_and(|last| {
+                    crate::util::Instant::now().duration_since(last).as_millis() < 500
+                });
+
+                if space_active {
+                    // Space+d - toggle diagnostics overlay
+                    if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                        self.diagnostics_pane.toggle();
+                        self.diagnostics_visible = self.diagnostics_pane.is_open();
+                        self.last_space_press = None;
+                    }
+                }
+            });
+        }
 
         self.handle_command_result(cmd_result)
     }
@@ -1168,45 +1202,22 @@ impl Dashboard {
 
     // ==================== Diagnostics Methods ====================
 
-    /// Toggle the diagnostics pane visibility
+    /// Toggle the diagnostics overlay visibility
     pub fn toggle_diagnostics(&mut self) {
-        if self.diagnostics_visible {
-            self.hide_diagnostics();
-        } else {
-            self.show_diagnostics();
-        }
+        self.diagnostics_pane.toggle();
+        self.diagnostics_visible = self.diagnostics_pane.is_open();
     }
 
-    /// Show the diagnostics pane in the viewport
+    /// Show the diagnostics overlay
     pub fn show_diagnostics(&mut self) {
-        if self.diagnostics_visible {
-            return;
-        }
-
-        // Create a new diagnostics pane with existing diagnostics and add it to the viewport
-        let diagnostics = self.diagnostics_pane.diagnostics();
-        let pane: Box<dyn Component> = Box::new(DiagnosticsPane::with_diagnostics(diagnostics));
-        let tile_id = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(tile_id) {
-            self.diagnostics_tile_id = Some(tile_id);
-            self.diagnostics_visible = true;
-            self.show_landing = false;
-            log::debug!("Showing diagnostics pane");
-        }
+        self.diagnostics_pane.open();
+        self.diagnostics_visible = true;
     }
 
-    /// Hide the diagnostics pane
+    /// Hide the diagnostics overlay
     pub fn hide_diagnostics(&mut self) {
-        if !self.diagnostics_visible {
-            return;
-        }
-
-        if let Some(tile_id) = self.diagnostics_tile_id.take() {
-            self.close_tile(tile_id);
-        }
+        self.diagnostics_pane.close();
         self.diagnostics_visible = false;
-        log::debug!("Hiding diagnostics pane");
     }
 
     /// Add a diagnostic to the diagnostics pane
@@ -1227,6 +1238,12 @@ impl Dashboard {
     /// Get diagnostics count
     pub fn diagnostics_count(&self) -> usize {
         self.diagnostics_pane.count()
+    }
+
+    /// Get diagnostics count by level (errors, warnings)
+    pub fn diagnostics_count_by_level(&self) -> (usize, usize) {
+        let (errors, warnings, _, _) = self.diagnostics_pane.count_by_level();
+        (errors, warnings)
     }
 
     /// Check if there are any errors
@@ -1523,6 +1540,7 @@ impl Dashboard {
         let mut should_open_workspace_finder = false;
         let mut should_open_metrics_finder = false;
         let mut should_show_home = false;
+        let mut should_toggle_diagnostics = false;
         let mut should_edit_buffer = false;
         let mut new_tile_id: Option<TileId> = None;
 
@@ -1614,6 +1632,14 @@ impl Dashboard {
                 // Space+h - show home/landing page
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
                     should_show_home = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+d - toggle diagnostics overlay
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                    should_toggle_diagnostics = true;
                     self.last_space_press = None;
                     consumed = true;
                     return;
@@ -1760,6 +1786,11 @@ impl Dashboard {
         if should_show_home {
             self.show_landing = true;
             self.close_all_charts();
+            ctx.request_repaint();
+        }
+
+        if should_toggle_diagnostics {
+            self.toggle_diagnostics();
             ctx.request_repaint();
         }
 

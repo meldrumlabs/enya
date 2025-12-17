@@ -278,6 +278,8 @@ pub struct StatusLine {
     sparkline: Option<Sparkline>,
     /// Timestamp of last data refresh (for relative time display)
     last_refresh: Option<std::time::Instant>,
+    /// Diagnostics counts (errors, warnings)
+    diagnostics_count: (usize, usize),
 }
 
 impl Default for StatusLine {
@@ -293,6 +295,7 @@ impl Default for StatusLine {
             extra_status: None,
             sparkline: None,
             last_refresh: None,
+            diagnostics_count: (0, 0),
         }
     }
 }
@@ -346,6 +349,11 @@ impl StatusLine {
     /// Set a sparkline to display in the status bar
     pub fn set_sparkline(&mut self, sparkline: Option<Sparkline>) {
         self.sparkline = sparkline;
+    }
+
+    /// Set diagnostics counts (errors, warnings)
+    pub fn set_diagnostics_count(&mut self, errors: usize, warnings: usize) {
+        self.diagnostics_count = (errors, warnings);
     }
 
     /// Mark the last refresh time (call when data is updated)
@@ -562,6 +570,44 @@ impl StatusLine {
                     Some(semantic_icons::statusline::CLOCK),
                     self.segment_bg(),
                     self.segment_fg(),
+                    height,
+                    padding,
+                    false,
+                );
+
+                // Separator
+                self.render_separator_rtl(ui, height);
+            }
+
+            // Diagnostics indicator (errors/warnings)
+            let (errors, warnings) = self.diagnostics_count;
+            if errors > 0 || warnings > 0 {
+                let diag_text = if errors > 0 && warnings > 0 {
+                    format!(
+                        "{} {} {} {}",
+                        semantic_icons::diagnostic::ERROR,
+                        errors,
+                        semantic_icons::diagnostic::WARNING,
+                        warnings
+                    )
+                } else if errors > 0 {
+                    format!("{} {}", semantic_icons::diagnostic::ERROR, errors)
+                } else {
+                    format!("{} {}", semantic_icons::diagnostic::WARNING, warnings)
+                };
+
+                let diag_color = if errors > 0 {
+                    palette::semantic::ERROR
+                } else {
+                    palette::semantic::WARNING
+                };
+
+                self.render_segment_rtl(
+                    ui,
+                    &diag_text,
+                    None, // Icons are embedded in text
+                    self.segment_bg(),
+                    diag_color,
                     height,
                     padding,
                     false,

@@ -169,6 +169,10 @@ impl WhichKey {
                         description: "Go to home",
                     },
                     Keybinding {
+                        key: "Space+d",
+                        description: "Toggle diagnostics",
+                    },
+                    Keybinding {
                         key: "?",
                         description: "Show this help",
                     },
