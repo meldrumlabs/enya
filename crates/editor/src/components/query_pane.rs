@@ -36,6 +36,8 @@ pub struct QueryPane {
     query_state: QueryState,
     /// User-defined tag for organizing panes (e.g., "Critical", "Warning")
     tag: String,
+    /// Whether this pane needs a query refresh (set on save, cleared after execution)
+    needs_refresh: bool,
 }
 
 impl Default for QueryPane {
@@ -70,6 +72,7 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            needs_refresh: false,
         }
     }
 
@@ -100,6 +103,29 @@ impl QueryPane {
         pane.buffer.set_name(&name);
         pane.visualization.set_metric_name(&name);
         pane
+    }
+
+    /// Create a query pane for a real backend (no demo data, needs refresh)
+    pub fn for_metric(metric_name: impl Into<String>) -> Self {
+        let name = metric_name.into();
+        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+
+        // Use "*" as the default query (match all series for this metric)
+        let query = "*".to_string();
+        let buffer = Buffer::with_name(query.clone(), &name);
+        let visualization = Visualization::new(VisualizationType::default(), &name);
+
+        Self {
+            id,
+            buffer,
+            visualization,
+            theme: AppTheme::default(),
+            api_key: String::new(),
+            buffer_expanded: false,
+            query_state: QueryState::default(),
+            tag: String::new(),
+            needs_refresh: true, // Trigger query on first frame
+        }
     }
 
     /// Get the current visualization type
@@ -189,11 +215,11 @@ impl QueryPane {
         self.buffer.enter_normal_mode();
     }
 
-    /// Save the buffer and refresh the chart
+    /// Save the buffer and mark for refresh
     pub fn save(&mut self) -> bool {
         if self.buffer.save() {
-            // Query changed, refresh the chart
-            self.refresh_chart();
+            // Query changed, mark for refresh (Dashboard will execute query)
+            self.needs_refresh = true;
             true
         } else {
             false
@@ -214,7 +240,7 @@ impl QueryPane {
     pub fn set_query_and_save(&mut self, query: &str) {
         self.buffer.set_content(query);
         self.buffer.save();
-        self.refresh_chart();
+        self.needs_refresh = true;
     }
 
     /// Set the query content, query state, and save (used by the modal editor)
@@ -222,7 +248,7 @@ impl QueryPane {
         self.buffer.set_content(query);
         self.buffer.save();
         self.query_state = state;
-        self.refresh_chart();
+        self.needs_refresh = true;
     }
 
     /// Get the current query state
@@ -263,6 +289,26 @@ impl QueryPane {
     /// Public method to refresh/reload the pane data
     pub fn refresh(&mut self) {
         self.refresh_chart();
+    }
+
+    /// Get a mutable reference to the visualization (for external query execution)
+    pub fn visualization_mut(&mut self) -> &mut Visualization {
+        &mut self.visualization
+    }
+
+    /// Check if this pane needs a query refresh
+    pub fn needs_refresh(&self) -> bool {
+        self.needs_refresh
+    }
+
+    /// Clear the refresh flag (called after query is executed)
+    pub fn clear_refresh(&mut self) {
+        self.needs_refresh = false;
+    }
+
+    /// Mark pane as needing refresh (called after buffer is saved)
+    pub fn mark_needs_refresh(&mut self) {
+        self.needs_refresh = true;
     }
 
     /// Render the query pane
@@ -355,6 +401,9 @@ impl QueryPane {
                         }
                     }
                     BufferAction::Saved => {
+                        // Query was saved - trigger refresh and collapse buffer
+                        self.needs_refresh = true;
+                        self.buffer_expanded = false;
                         action = QueryPaneAction::QueryChanged;
                     }
                     _ => {}

@@ -233,6 +233,7 @@ impl NotificationManager {
         ctx.request_repaint();
 
         let margin = 16.0;
+        let top_padding = 48.0; // Extra padding from top to avoid being cut off
         let notification_width = 320.0;
         let spacing = 8.0;
         let theme = self.theme;
@@ -246,7 +247,7 @@ impl NotificationManager {
             .cloned()
             .collect();
 
-        let mut y_offset = margin;
+        let mut y_offset = margin + top_padding;
 
         for notification in &visible_notifications {
             let notification_id = notification.id;

@@ -14,8 +14,8 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::util::Instant;
 
-use super::finder_utils::OverlayStyle;
 use super::Component;
+use super::finder_utils::OverlayStyle;
 
 /// Unique ID counter for diagnostics
 static NEXT_DIAGNOSTIC_ID: AtomicU64 = AtomicU64::new(1);
