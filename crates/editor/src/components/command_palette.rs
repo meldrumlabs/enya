@@ -10,6 +10,8 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
+use super::finder_utils::OverlayStyle;
+
 /// A command that can be executed from the command palette
 #[derive(Debug, Clone)]
 pub struct PaletteCommand {
@@ -589,27 +591,9 @@ impl CommandPalette {
             .anchor(anchor, offset)
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                let bg_color = match self.theme {
-                    AppTheme::Light => palette::light_bg::SURFACE,
-                    AppTheme::Dark => palette::bg::SURFACE,
-                };
-                let border_color = match self.theme {
-                    AppTheme::Light => palette::light_border::DEFAULT,
-                    AppTheme::Dark => palette::border::SUBTLE,
-                };
+                let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
-                egui::Frame::new()
-                    .fill(bg_color)
-                    .stroke(egui::Stroke::new(1.0, border_color))
-                    .corner_radius(8.0)
-                    .inner_margin(0.0)
-                    .shadow(egui::epaint::Shadow {
-                        offset: [0, 4],
-                        blur: 16,
-                        spread: 0,
-                        color: Color32::from_black_alpha(80),
-                    })
-                    .show(ui, |ui| {
+                overlay_style.frame().show(ui, |ui| {
                         ui.set_width(popup_width);
 
                         // Input section with `:` prefix

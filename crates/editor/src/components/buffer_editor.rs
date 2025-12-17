@@ -11,6 +11,8 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
+use super::finder_utils::OverlayStyle;
+
 /// Truncate a message to a maximum length, adding ellipsis if needed
 fn truncate_message(msg: &str, max_len: usize) -> String {
     if msg.chars().count() <= max_len {
@@ -534,33 +536,14 @@ impl BufferEditor {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                let bg_color = match self.theme {
-                    AppTheme::Light => palette::light_bg::SURFACE,
-                    AppTheme::Dark => palette::bg::SURFACE,
-                };
-                // Subtle border matching command palette style
-                let border_color = match self.theme {
-                    AppTheme::Light => palette::light_border::DEFAULT,
-                    AppTheme::Dark => palette::border::SUBTLE,
-                };
+                let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 // Muted accent for badges/buttons (darker, less saturated for dark mode)
                 let accent_color = match self.theme {
                     AppTheme::Light => palette::accent::LIGHT,
                     AppTheme::Dark => Color32::from_rgb(13, 148, 103), // Darker emerald (~0.8x PRIMARY)
                 };
 
-                egui::Frame::new()
-                    .fill(bg_color)
-                    .stroke(egui::Stroke::new(1.0, border_color))
-                    .corner_radius(8.0)
-                    .inner_margin(0.0)
-                    .shadow(egui::epaint::Shadow {
-                        offset: [0, 4],
-                        blur: 16,
-                        spread: 0,
-                        color: Color32::from_black_alpha(80),
-                    })
-                    .show(ui, |ui| {
+                overlay_style.frame().show(ui, |ui| {
                         ui.set_width(popup_width);
 
                         // Header with mode indicator and buffer name
