@@ -90,8 +90,8 @@ Press `Space+m` to open the metrics finder for quick metric search.
 |-----|--------|
 | `:` | Open command palette |
 | `Space+m` | Open metrics finder |
-| `Space+q` | Open query finder |
 | `Space+w` | Open workspace finder |
+| `Space+h` | Go to home |
 | `?` | Show which-key help overlay |
 
 ### Status Line (lualine-style)

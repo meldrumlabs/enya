@@ -8,8 +8,8 @@ use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
     Diagnostic, DiagnosticsPane, EditExcerpt, InfoOverlay, LandingPage, LandingPageAction,
     MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState, MultiEditOverlay,
-    MultiEditResult, QueryFinder, QueryItem, QueryPane, QueryState, TimeRangeToolbar, WhichKey,
-    WorkspaceFinder, WorkspaceItem,
+    MultiEditResult, QueryPane, QueryState, TimeRangeToolbar, WhichKey, WorkspaceFinder,
+    WorkspaceItem,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -78,8 +78,6 @@ pub struct Dashboard {
     time_range_toolbar: TimeRangeToolbar,
     /// Fuzzy finder modal for metrics (telescope-style search)
     metrics_finder: MetricsFinder,
-    /// Query finder modal for saved queries (with side-by-side preview)
-    query_finder: QueryFinder,
     /// Workspace finder modal (for loading saved workspaces)
     workspace_finder: WorkspaceFinder,
     /// Command palette (neovim-style `:` commands)
@@ -144,7 +142,6 @@ impl Default for Dashboard {
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
-            query_finder: QueryFinder::new(),
             workspace_finder: WorkspaceFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
@@ -263,7 +260,6 @@ impl Dashboard {
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
-            query_finder: QueryFinder::new(),
             workspace_finder: WorkspaceFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
@@ -474,12 +470,6 @@ impl Dashboard {
             return self.handle_metric_selection_with_tracking(selected_item);
         }
 
-        // Show query finder modal (rendered on top of everything)
-        self.query_finder.set_theme(app_state.theme);
-        if let Some(selected_query) = self.query_finder.show(ctx) {
-            return self.handle_query_selection_with_tracking(selected_query);
-        }
-
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
@@ -587,9 +577,6 @@ impl Dashboard {
             LandingPageAction::OpenFuzzyFinder => {
                 self.open_metrics_finder();
             }
-            LandingPageAction::OpenQueryFinder => {
-                self.open_query_finder();
-            }
             LandingPageAction::OpenWorkspaceFinder => {
                 self.open_workspace_finder(
                     app_state,
@@ -609,12 +596,6 @@ impl Dashboard {
         self.metrics_finder.set_theme(app_state.theme);
         if let Some(selected_item) = self.metrics_finder.show(ctx) {
             return self.handle_metric_selection_with_tracking(selected_item);
-        }
-
-        // Show query finder modal (rendered on top of everything)
-        self.query_finder.set_theme(app_state.theme);
-        if let Some(selected_query) = self.query_finder.show(ctx) {
-            return self.handle_query_selection_with_tracking(selected_query);
         }
 
         // Show workspace finder modal (rendered on top of everything)
@@ -671,17 +652,6 @@ impl Dashboard {
     fn handle_metric_selection_with_tracking(&mut self, item: MetricItem) -> DashboardAction {
         self.show_landing = false;
         self.add_chart_for_metric_with_tracking(&item.name)
-    }
-
-    /// Handle query selection and return tracking action
-    fn handle_query_selection_with_tracking(&mut self, item: QueryItem) -> DashboardAction {
-        self.show_landing = false;
-        self.add_chart_for_query(&item.name, &item.query);
-        DashboardAction::TrackRecentPlot {
-            name: item.name.clone(),
-            metric_name: item.name,
-            is_query: true,
-        }
     }
 
     /// Handle a command result from the command palette
@@ -1019,13 +989,6 @@ impl Dashboard {
         items
     }
 
-    /// Open the query finder modal (for saved queries)
-    pub fn open_query_finder(&mut self) {
-        // Query finder now starts empty (no custom queries panel)
-        self.query_finder.set_queries(vec![]);
-        self.query_finder.open();
-    }
-
     /// Open the workspace finder modal (for loading saved workspaces)
     pub fn open_workspace_finder(
         &mut self,
@@ -1117,26 +1080,6 @@ impl Dashboard {
     /// Check if the landing page is currently being displayed
     pub fn is_landing_page(&self) -> bool {
         self.show_landing && self.open_charts.is_empty()
-    }
-
-    /// Add a chart for a custom query to the viewport
-    fn add_chart_for_query(&mut self, query_name: &str, query_str: &str) {
-        // Use query name as the unique key for duplicate detection
-        let chart_key = format!("query:{query_name}");
-        if self.open_charts.contains(&chart_key) {
-            log::debug!("Chart for query '{query_name}' already open");
-            return;
-        }
-
-        // Create a QueryPane with the query
-        let pane: Box<dyn Component> = Box::new(QueryPane::with_name(query_str, query_name));
-        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(pane_tile) {
-            self.open_charts.insert(chart_key);
-            self.behavior.set_focused_tile(Some(pane_tile));
-            log::debug!("Added query pane for '{query_name}'");
-        }
     }
 
     /// Add a tile to the viewport, handling different container types
@@ -1544,7 +1487,6 @@ impl Dashboard {
 
         // Don't handle if any modal is open
         if self.metrics_finder.is_open()
-            || self.query_finder.is_open()
             || self.workspace_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
@@ -1580,7 +1522,7 @@ impl Dashboard {
         let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
         let mut should_open_metrics_finder = false;
-        let mut should_open_query_finder = false;
+        let mut should_show_home = false;
         let mut should_edit_buffer = false;
         let mut new_tile_id: Option<TileId> = None;
 
@@ -1661,17 +1603,17 @@ impl Dashboard {
                     return;
                 }
 
-                // Space+q - open query finder
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::Q) {
-                    should_open_query_finder = true;
+                // Space+w - open workspace finder
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                    should_open_workspace_finder = true;
                     self.last_space_press = None;
                     consumed = true;
                     return;
                 }
 
-                // Space+w - open workspace finder
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
-                    should_open_workspace_finder = true;
+                // Space+h - show home/landing page
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
+                    should_show_home = true;
                     self.last_space_press = None;
                     consumed = true;
                     return;
@@ -1815,9 +1757,9 @@ impl Dashboard {
             ctx.request_repaint();
         }
 
-        // Handle query finder (q key)
-        if should_open_query_finder {
-            self.open_query_finder();
+        if should_show_home {
+            self.show_landing = true;
+            self.close_all_charts();
             ctx.request_repaint();
         }
 

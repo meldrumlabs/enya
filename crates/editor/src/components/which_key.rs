@@ -139,12 +139,12 @@ impl WhichKey {
                         description: "Open metrics finder",
                     },
                     Keybinding {
-                        key: "Space+q",
-                        description: "Open query finder",
-                    },
-                    Keybinding {
                         key: "Space+w",
                         description: "Open workspace finder",
+                    },
+                    Keybinding {
+                        key: "Space+h",
+                        description: "Go to home",
                     },
                     Keybinding {
                         key: "?",
