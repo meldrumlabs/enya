@@ -52,6 +52,12 @@ pub fn code() -> FontId {
     monospace(SM)
 }
 
+/// Large code/query text for editors (14px monospace)
+#[inline]
+pub fn code_lg() -> FontId {
+    monospace(XL)
+}
+
 /// Small label text (10px proportional)
 #[inline]
 pub fn label() -> FontId {

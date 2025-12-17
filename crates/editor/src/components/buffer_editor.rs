@@ -399,6 +399,30 @@ impl BufferEditor {
         self.completion.set_tag_values(key, values);
     }
 
+    /// Clear all completions (use before setting new completions from backend)
+    pub fn clear_completions(&mut self) {
+        self.completion.clear();
+    }
+
+    /// Set completions from MetricLabels data fetched from a backend.
+    /// This replaces any existing completion data with the labels from the metric.
+    pub fn set_completions_from_labels(
+        &mut self,
+        labels: &std::collections::HashMap<String, Vec<String>>,
+    ) {
+        // Clear existing completions
+        self.completion.clear();
+
+        // Set tag keys (label names)
+        let keys: Vec<String> = labels.keys().cloned().collect();
+        self.completion.set_tag_keys(keys);
+
+        // Set tag values for each key
+        for (key, values) in labels {
+            self.completion.set_tag_values(key, values.clone());
+        }
+    }
+
     /// Get a reference to the completion component
     pub fn completion(&self) -> &QueryCompletion {
         &self.completion
@@ -412,6 +436,15 @@ impl BufferEditor {
     /// Check if the editor is currently open
     pub fn is_open(&self) -> bool {
         self.is_open
+    }
+
+    /// Get the buffer name currently being edited (if open)
+    pub fn editing_buffer_name(&self) -> Option<&str> {
+        if self.is_open {
+            Some(&self.buffer_name)
+        } else {
+            None
+        }
     }
 
     /// Open the editor with the given query, buffer name, and query state
@@ -544,449 +577,432 @@ impl BufferEditor {
                 };
 
                 overlay_style.frame().show(ui, |ui| {
-                        ui.set_width(popup_width);
+                    ui.set_width(popup_width);
 
-                        // Header with mode indicator and buffer name
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
+                    // Header with mode indicator and buffer name
+                    ui.add_space(12.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
 
-                            // INSERT mode badge (muted emerald)
-                            egui::Frame::new()
-                                .fill(accent_color)
-                                .corner_radius(3.0)
-                                .inner_margin(egui::vec2(8.0, 3.0))
-                                .show(ui, |ui| {
-                                    ui.label(
-                                        RichText::new("INSERT")
-                                            .color(Color32::WHITE)
-                                            .size(typography::SM)
-                                            .strong(),
-                                    );
-                                });
-
-                            ui.add_space(12.0);
-
-                            // Buffer name
-                            ui.label(
-                                RichText::new(&self.buffer_name)
-                                    .color(text_color(self.theme))
-                                    .size(typography::XL),
-                            );
-
-                            // Modified indicator
-                            if self.is_modified() {
-                                ui.add_space(8.0);
+                        // INSERT mode badge (muted emerald)
+                        egui::Frame::new()
+                            .fill(accent_color)
+                            .corner_radius(3.0)
+                            .inner_margin(egui::vec2(8.0, 3.0))
+                            .show(ui, |ui| {
                                 ui.label(
-                                    RichText::new("[+]")
-                                        .color(palette::semantic::WARNING)
-                                        .size(typography::MD),
+                                    RichText::new("INSERT")
+                                        .color(Color32::WHITE)
+                                        .size(typography::SM)
+                                        .strong(),
                                 );
-                            }
-
-                            // Validation indicator
-                            if let Some(ref validation) = self.validation_result {
-                                ui.add_space(8.0);
-                                if validation.is_valid {
-                                    if validation.diagnostics.is_empty() {
-                                        ui.label(
-                                            RichText::new(semantic_icons::status::SUCCESS)
-                                                .color(palette::semantic::SUCCESS)
-                                                .size(typography::MD),
-                                        )
-                                        .on_hover_text("Query is valid");
-                                    } else {
-                                        // Valid but has warnings/hints
-                                        let warn_count = validation
-                                            .diagnostics
-                                            .iter()
-                                            .filter(|d| d.level == DiagnosticLevel::Warning)
-                                            .count();
-                                        if warn_count > 0 {
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{} {}",
-                                                    semantic_icons::diagnostic::WARNING,
-                                                    warn_count
-                                                ))
-                                                .color(palette::semantic::WARNING)
-                                                .size(typography::SM),
-                                            )
-                                            .on_hover_text(format!("{warn_count} warning(s)"));
-                                        }
-                                    }
-                                } else {
-                                    // Has errors
-                                    let error_count = validation
-                                        .diagnostics
-                                        .iter()
-                                        .filter(|d| d.level == DiagnosticLevel::Error)
-                                        .count();
-                                    ui.label(
-                                        RichText::new(format!(
-                                            "{} {}",
-                                            semantic_icons::diagnostic::ERROR,
-                                            error_count
-                                        ))
-                                        .color(Color32::from_rgb(220, 60, 60))
-                                        .size(typography::SM),
-                                    )
-                                    .on_hover_text(format!("{error_count} error(s)"));
-                                }
-                            }
-
-                            // Spacer and close hint
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(16.0);
-                                    ui.label(
-                                        RichText::new("Esc to cancel")
-                                            .color(text_color(self.theme).gamma_multiply(0.4))
-                                            .size(typography::SM),
-                                    );
-                                },
-                            );
-                        });
+                            });
 
                         ui.add_space(12.0);
 
-                        // Separator
-                        let separator_color = match self.theme {
-                            AppTheme::Light => palette::light_border::SUBTLE,
-                            AppTheme::Dark => palette::border::SUBTLE,
-                        };
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
+                        // Buffer name
+                        ui.label(
+                            RichText::new(&self.buffer_name)
+                                .color(text_color(self.theme))
+                                .size(typography::XL),
                         );
 
-                        ui.add_space(8.0);
-
-                        // Query input label
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new(semantic_icons::file::CODE)
-                                    .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(typography::XL),
-                            );
+                        // Modified indicator
+                        if self.is_modified() {
                             ui.add_space(8.0);
                             ui.label(
-                                RichText::new("Query")
-                                    .color(text_color(self.theme).gamma_multiply(0.7))
+                                RichText::new("[+]")
+                                    .color(palette::semantic::WARNING)
                                     .size(typography::MD),
                             );
-                        });
-
-                        ui.add_space(8.0);
-
-                        // Query text editor
-                        let text_edit_id = egui::Id::new("buffer_editor_query_input");
-
-                        // Apply pending cursor position if set
-                        if let Some(cursor_pos) = self.pending_cursor.take() {
-                            if let Some(mut state) =
-                                egui::text_edit::TextEditState::load(ui.ctx(), text_edit_id)
-                            {
-                                let ccursor = egui::text::CCursor::new(cursor_pos);
-                                state
-                                    .cursor
-                                    .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
-                                state.store(ui.ctx(), text_edit_id);
-                            }
                         }
 
-                        // Track if completion is open for focus management
-                        let completion_is_open = self.completion.is_open();
-
-                        // Handle completion keyboard before rendering
-                        // Using key_pressed (not consume_key) similar to FuzzyFinder
-                        let completion_result = if completion_is_open {
-                            self.completion.handle_keyboard_ctx(ui.ctx())
-                        } else {
-                            None
-                        };
-
-                        let text_edit_output = ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-
-                            let editor_width = popup_width - 32.0;
-
-                            // Editor background color based on theme
-                            let editor_bg = match self.theme {
-                                AppTheme::Light => palette::light_bg::ELEVATED,
-                                AppTheme::Dark => palette::bg::ELEVATED,
-                            };
-
-                            // Create layouter closure for syntax highlighting
-                            let theme = self.theme;
-                            let mut layouter =
-                                move |ui: &egui::Ui,
-                                      text: &dyn egui::TextBuffer,
-                                      wrap_width: f32| {
-                                    let text_str = text.as_str();
-                                    let mut job = highlight_query_detailed(
-                                        text_str,
-                                        theme,
-                                        typography::code(),
-                                    );
-                                    job.wrap.max_width = wrap_width;
-                                    ui.fonts_mut(|f| f.layout_job(job))
-                                };
-
-                            // Use a Frame for the editor background
-                            let output = egui::Frame::new()
-                                .fill(editor_bg)
-                                .corner_radius(4.0)
-                                .inner_margin(egui::vec2(8.0, 6.0))
-                                .show(ui, |ui| {
-                                    egui::TextEdit::multiline(&mut self.query)
-                                        .id(text_edit_id)
-                                        .font(typography::code())
-                                        .hint_text(
-                                            RichText::new(
-                                                "Enter query (e.g., env:prod AND service:db)",
-                                            )
-                                            .color(text_color(self.theme).gamma_multiply(0.4)),
-                                        )
-                                        .desired_width(editor_width - 16.0)
-                                        .desired_rows(4)
-                                        .frame(false) // Remove default frame
-                                        .layouter(&mut layouter)
-                                        .lock_focus(true)
-                                        .show(ui)
-                                })
-                                .inner;
-
-                            // Request focus on first show
-                            if self.needs_focus {
-                                output.response.request_focus();
-                                self.needs_focus = false;
-                            }
-
-                            ui.add_space(16.0);
-
-                            output
-                        });
-
-                        // Update cursor position from text edit state
-                        let output = text_edit_output.inner;
-                        if let Some(cursor_range) = output.cursor_range {
-                            // Use the primary cursor position (character index)
-                            self.cursor_position = cursor_range.primary.index;
-                        }
-
-                        // Store text edit rect for completion popup positioning
-                        self.text_edit_rect = Some(output.response.rect);
-
-                        // Handle completion result after UI rendering
-                        match completion_result {
-                            Some(CompletionResult::Selected(_)) => {
-                                if let Some((new_query, new_cursor)) = self
-                                    .completion
-                                    .apply_completion(&self.query, self.cursor_position)
-                                {
-                                    self.query = new_query;
-                                    self.cursor_position = new_cursor;
-                                    self.pending_cursor = Some(new_cursor);
-                                }
-                                self.completion.close();
-                            }
-                            Some(CompletionResult::Dismissed) => {
-                                self.completion.close();
-                            }
-                            Some(CompletionResult::None) | None => {}
-                        }
-
-                        // Update completion when text changes or cursor moves
-                        if output.response.changed() || output.response.has_focus() {
-                            self.completion.update(&self.query, self.cursor_position);
-                        }
-
-                        // Validate query when text changes
-                        if output.response.changed() {
-                            self.validate_query();
-                        }
-
-                        // Show tiny-inline-diagnostic style virtual text
-                        if self.show_inline_diagnostics {
-                            if let Some(ref validation) = self.validation_result {
-                                if !validation.diagnostics.is_empty() {
-                                    // Get the text edit rect and calculate line metrics
-                                    let text_rect = output.response.rect;
-                                    // Use approximate metrics for monospace 14pt font
-                                    let line_height = 18.0; // ~14pt + line spacing
-                                    let char_width = 8.4; // ~0.6 * font size for monospace
-
-                                    // Calculate the end of the query text on each line
-                                    let lines: Vec<&str> = self.query.lines().collect();
-                                    let num_lines = lines.len().max(1);
-
-                                    // Padding inside the text edit
-                                    let inner_margin = 4.0;
-
-                                    // Get the first diagnostic to show inline
-                                    // (tiny-inline-diagnostic typically shows one per line)
-                                    if let Some(diag) = validation.diagnostics.first() {
-                                        let (icon, color, bg_color) = match diag.level {
-                                            DiagnosticLevel::Error => (
-                                                semantic_icons::diagnostic::ERROR,
-                                                palette::semantic::ERROR,
-                                                palette::semantic::ERROR.gamma_multiply(0.15),
-                                            ),
-                                            DiagnosticLevel::Warning => (
+                        // Validation indicator
+                        if let Some(ref validation) = self.validation_result {
+                            ui.add_space(8.0);
+                            if validation.is_valid {
+                                if validation.diagnostics.is_empty() {
+                                    ui.label(
+                                        RichText::new(semantic_icons::status::SUCCESS)
+                                            .color(palette::semantic::SUCCESS)
+                                            .size(typography::MD),
+                                    )
+                                    .on_hover_text("Query is valid");
+                                } else {
+                                    // Valid but has warnings/hints
+                                    let warn_count = validation
+                                        .diagnostics
+                                        .iter()
+                                        .filter(|d| d.level == DiagnosticLevel::Warning)
+                                        .count();
+                                    if warn_count > 0 {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{} {}",
                                                 semantic_icons::diagnostic::WARNING,
-                                                palette::semantic::WARNING,
-                                                palette::semantic::WARNING.gamma_multiply(0.15),
-                                            ),
-                                            DiagnosticLevel::Info => (
-                                                semantic_icons::diagnostic::INFO,
-                                                palette::semantic::INFO,
-                                                palette::semantic::INFO.gamma_multiply(0.15),
-                                            ),
-                                            DiagnosticLevel::Hint => (
-                                                semantic_icons::diagnostic::HINT,
-                                                palette::semantic::SUCCESS,
-                                                palette::semantic::SUCCESS.gamma_multiply(0.15),
-                                            ),
-                                        };
-
-                                        // Determine which line to show the diagnostic on
-                                        let diag_line = diag.line.unwrap_or(1).saturating_sub(1);
-                                        let target_line =
-                                            diag_line.min(num_lines.saturating_sub(1));
-
-                                        // Calculate the x position after the line text
-                                        let line_text = lines.get(target_line).unwrap_or(&"");
-                                        let text_end_x = text_rect.left()
-                                            + inner_margin
-                                            + (line_text.chars().count() as f32 * char_width);
-
-                                        // Calculate y position for this line
-                                        let line_y = text_rect.top()
-                                            + inner_margin
-                                            + (target_line as f32 * line_height);
-
-                                        // Build the diagnostic text with count indicator
-                                        let diag_count = validation.diagnostics.len();
-                                        let diag_text = if diag_count > 1 {
-                                            format!(
-                                                " {} {} (+{} more)",
-                                                icon,
-                                                truncate_message(&diag.message, 40),
-                                                diag_count - 1
-                                            )
-                                        } else {
-                                            format!(
-                                                " {} {}",
-                                                icon,
-                                                truncate_message(&diag.message, 50)
-                                            )
-                                        };
-
-                                        // Position the virtual text with some spacing
-                                        let virtual_text_x = text_end_x + 16.0;
-                                        let virtual_text_pos =
-                                            egui::pos2(virtual_text_x, line_y + 1.0);
-
-                                        // Only paint if within bounds
-                                        if virtual_text_x < text_rect.right() - 20.0 {
-                                            let painter = ui.painter();
-                                            let small_font = typography::body();
-
-                                            // Measure text for background
-                                            let galley = painter.layout_no_wrap(
-                                                diag_text.clone(),
-                                                small_font.clone(),
-                                                color,
-                                            );
-
-                                            // Draw subtle background pill
-                                            let bg_rect = egui::Rect::from_min_size(
-                                                virtual_text_pos - egui::vec2(4.0, 2.0),
-                                                galley.size() + egui::vec2(8.0, 4.0),
-                                            );
-                                            painter.rect_filled(bg_rect, 4.0, bg_color);
-
-                                            // Draw the text
-                                            painter.text(
-                                                virtual_text_pos,
-                                                egui::Align2::LEFT_TOP,
-                                                diag_text,
-                                                small_font,
-                                                color,
-                                            );
-                                        }
+                                                warn_count
+                                            ))
+                                            .color(palette::semantic::WARNING)
+                                            .size(typography::SM),
+                                        )
+                                        .on_hover_text(format!("{warn_count} warning(s)"));
                                     }
                                 }
+                            } else {
+                                // Has errors
+                                let error_count = validation
+                                    .diagnostics
+                                    .iter()
+                                    .filter(|d| d.level == DiagnosticLevel::Error)
+                                    .count();
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        semantic_icons::diagnostic::ERROR,
+                                        error_count
+                                    ))
+                                    .color(Color32::from_rgb(220, 60, 60))
+                                    .size(typography::SM),
+                                )
+                                .on_hover_text(format!("{error_count} error(s)"));
                             }
                         }
 
-                        ui.add_space(12.0);
-
-                        // Separator
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
-
-                        ui.add_space(8.0);
-
-                        // Footer with keyboard hints and save button
-                        ui.horizontal(|ui| {
+                        // Spacer and close hint
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(16.0);
-
-                            let hint_color = text_color(self.theme).gamma_multiply(0.4);
-
-                            // Keyboard hints
-                            ui.label(RichText::new("⌘↵").color(hint_color).size(typography::SM));
-                            ui.label(RichText::new("save").color(hint_color).size(typography::SM));
-                            ui.add_space(16.0);
-                            ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
                             ui.label(
-                                RichText::new("cancel")
-                                    .color(hint_color)
+                                RichText::new("Esc to cancel")
+                                    .color(text_color(self.theme).gamma_multiply(0.4))
                                     .size(typography::SM),
                             );
-
-                            // Right side - save button
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(16.0);
-
-                                    let save_btn = egui::Button::new(
-                                        RichText::new(format!(
-                                            "{} Save",
-                                            semantic_icons::action::SAVE
-                                        ))
-                                        .size(typography::MD),
-                                    )
-                                    .fill(accent_color);
-
-                                    if ui.add(save_btn).clicked() {
-                                        should_save = true;
-                                    }
-
-                                    // Cancel button
-                                    let cancel_btn = egui::Button::new(
-                                        RichText::new("Cancel")
-                                            .size(typography::MD)
-                                            .color(text_color(self.theme)),
-                                    );
-
-                                    if ui.add(cancel_btn).clicked() {
-                                        should_close = true;
-                                    }
-                                },
-                            );
                         });
-
-                        ui.add_space(12.0);
                     });
+
+                    ui.add_space(12.0);
+
+                    // Separator
+                    let separator_color = match self.theme {
+                        AppTheme::Light => palette::light_border::SUBTLE,
+                        AppTheme::Dark => palette::border::SUBTLE,
+                    };
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Query input label
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new(semantic_icons::file::CODE)
+                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .size(typography::XL),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new("Query")
+                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .size(typography::MD),
+                        );
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Query text editor
+                    let text_edit_id = egui::Id::new("buffer_editor_query_input");
+
+                    // Apply pending cursor position if set
+                    if let Some(cursor_pos) = self.pending_cursor.take() {
+                        if let Some(mut state) =
+                            egui::text_edit::TextEditState::load(ui.ctx(), text_edit_id)
+                        {
+                            let ccursor = egui::text::CCursor::new(cursor_pos);
+                            state
+                                .cursor
+                                .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
+                            state.store(ui.ctx(), text_edit_id);
+                        }
+                    }
+
+                    // Track if completion is open for focus management
+                    let completion_is_open = self.completion.is_open();
+
+                    // Handle completion keyboard before rendering
+                    // Using key_pressed (not consume_key) similar to FuzzyFinder
+                    let completion_result = if completion_is_open {
+                        self.completion.handle_keyboard_ctx(ui.ctx())
+                    } else {
+                        None
+                    };
+
+                    let text_edit_output = ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+
+                        let editor_width = popup_width - 32.0;
+
+                        // Editor background color based on theme
+                        let editor_bg = match self.theme {
+                            AppTheme::Light => palette::light_bg::ELEVATED,
+                            AppTheme::Dark => palette::bg::ELEVATED,
+                        };
+
+                        // Create layouter closure for syntax highlighting
+                        // Use larger font for better readability
+                        let theme = self.theme;
+                        let editor_font = typography::code_lg();
+                        let mut layouter =
+                            move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                                let text_str = text.as_str();
+                                let mut job =
+                                    highlight_query_detailed(text_str, theme, editor_font.clone());
+                                job.wrap.max_width = wrap_width;
+                                ui.fonts_mut(|f| f.layout_job(job))
+                            };
+
+                        // Use a Frame for the editor background
+                        let output = egui::Frame::new()
+                            .fill(editor_bg)
+                            .corner_radius(4.0)
+                            .inner_margin(egui::vec2(12.0, 10.0))
+                            .show(ui, |ui| {
+                                egui::TextEdit::multiline(&mut self.query)
+                                    .id(text_edit_id)
+                                    .font(typography::code_lg())
+                                    .hint_text(
+                                        RichText::new(
+                                            "Enter query (e.g., env:prod AND service:db)",
+                                        )
+                                        .font(typography::code_lg())
+                                        .color(text_color(self.theme).gamma_multiply(0.4)),
+                                    )
+                                    .desired_width(editor_width - 24.0)
+                                    .desired_rows(6)
+                                    .frame(false) // Remove default frame
+                                    .layouter(&mut layouter)
+                                    .lock_focus(true)
+                                    .show(ui)
+                            })
+                            .inner;
+
+                        // Request focus on first show
+                        if self.needs_focus {
+                            output.response.request_focus();
+                            self.needs_focus = false;
+                        }
+
+                        ui.add_space(16.0);
+
+                        output
+                    });
+
+                    // Update cursor position from text edit state
+                    let output = text_edit_output.inner;
+                    if let Some(cursor_range) = output.cursor_range {
+                        // Use the primary cursor position (character index)
+                        self.cursor_position = cursor_range.primary.index;
+                    }
+
+                    // Store text edit rect for completion popup positioning
+                    self.text_edit_rect = Some(output.response.rect);
+
+                    // Handle completion result after UI rendering
+                    match completion_result {
+                        Some(CompletionResult::Selected(_)) => {
+                            if let Some((new_query, new_cursor)) = self
+                                .completion
+                                .apply_completion(&self.query, self.cursor_position)
+                            {
+                                self.query = new_query;
+                                self.cursor_position = new_cursor;
+                                self.pending_cursor = Some(new_cursor);
+                            }
+                            self.completion.close();
+                        }
+                        Some(CompletionResult::Dismissed) => {
+                            self.completion.close();
+                        }
+                        Some(CompletionResult::None) | None => {}
+                    }
+
+                    // Update completion when text changes or cursor moves
+                    if output.response.changed() || output.response.has_focus() {
+                        self.completion.update(&self.query, self.cursor_position);
+                    }
+
+                    // Validate query when text changes
+                    if output.response.changed() {
+                        self.validate_query();
+                    }
+
+                    // Show tiny-inline-diagnostic style virtual text
+                    if self.show_inline_diagnostics {
+                        if let Some(ref validation) = self.validation_result {
+                            if !validation.diagnostics.is_empty() {
+                                // Get the text edit rect and calculate line metrics
+                                let text_rect = output.response.rect;
+                                // Use approximate metrics for monospace 14pt font
+                                let line_height = 18.0; // ~14pt + line spacing
+                                let char_width = 8.4; // ~0.6 * font size for monospace
+
+                                // Calculate the end of the query text on each line
+                                let lines: Vec<&str> = self.query.lines().collect();
+                                let num_lines = lines.len().max(1);
+
+                                // Padding inside the text edit
+                                let inner_margin = 4.0;
+
+                                // Get the first diagnostic to show inline
+                                // (tiny-inline-diagnostic typically shows one per line)
+                                if let Some(diag) = validation.diagnostics.first() {
+                                    let (icon, color, bg_color) = match diag.level {
+                                        DiagnosticLevel::Error => (
+                                            semantic_icons::diagnostic::ERROR,
+                                            palette::semantic::ERROR,
+                                            palette::semantic::ERROR.gamma_multiply(0.15),
+                                        ),
+                                        DiagnosticLevel::Warning => (
+                                            semantic_icons::diagnostic::WARNING,
+                                            palette::semantic::WARNING,
+                                            palette::semantic::WARNING.gamma_multiply(0.15),
+                                        ),
+                                        DiagnosticLevel::Info => (
+                                            semantic_icons::diagnostic::INFO,
+                                            palette::semantic::INFO,
+                                            palette::semantic::INFO.gamma_multiply(0.15),
+                                        ),
+                                        DiagnosticLevel::Hint => (
+                                            semantic_icons::diagnostic::HINT,
+                                            palette::semantic::SUCCESS,
+                                            palette::semantic::SUCCESS.gamma_multiply(0.15),
+                                        ),
+                                    };
+
+                                    // Determine which line to show the diagnostic on
+                                    let diag_line = diag.line.unwrap_or(1).saturating_sub(1);
+                                    let target_line = diag_line.min(num_lines.saturating_sub(1));
+
+                                    // Calculate the x position after the line text
+                                    let line_text = lines.get(target_line).unwrap_or(&"");
+                                    let text_end_x = text_rect.left()
+                                        + inner_margin
+                                        + (line_text.chars().count() as f32 * char_width);
+
+                                    // Calculate y position for this line
+                                    let line_y = text_rect.top()
+                                        + inner_margin
+                                        + (target_line as f32 * line_height);
+
+                                    // Build the diagnostic text with count indicator
+                                    let diag_count = validation.diagnostics.len();
+                                    let diag_text = if diag_count > 1 {
+                                        format!(
+                                            " {} {} (+{} more)",
+                                            icon,
+                                            truncate_message(&diag.message, 40),
+                                            diag_count - 1
+                                        )
+                                    } else {
+                                        format!(" {} {}", icon, truncate_message(&diag.message, 50))
+                                    };
+
+                                    // Position the virtual text with some spacing
+                                    let virtual_text_x = text_end_x + 16.0;
+                                    let virtual_text_pos = egui::pos2(virtual_text_x, line_y + 1.0);
+
+                                    // Only paint if within bounds
+                                    if virtual_text_x < text_rect.right() - 20.0 {
+                                        let painter = ui.painter();
+                                        let small_font = typography::body();
+
+                                        // Measure text for background
+                                        let galley = painter.layout_no_wrap(
+                                            diag_text.clone(),
+                                            small_font.clone(),
+                                            color,
+                                        );
+
+                                        // Draw subtle background pill
+                                        let bg_rect = egui::Rect::from_min_size(
+                                            virtual_text_pos - egui::vec2(4.0, 2.0),
+                                            galley.size() + egui::vec2(8.0, 4.0),
+                                        );
+                                        painter.rect_filled(bg_rect, 4.0, bg_color);
+
+                                        // Draw the text
+                                        painter.text(
+                                            virtual_text_pos,
+                                            egui::Align2::LEFT_TOP,
+                                            diag_text,
+                                            small_font,
+                                            color,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ui.add_space(12.0);
+
+                    // Separator
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Footer with keyboard hints and save button
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+
+                        let hint_color = text_color(self.theme).gamma_multiply(0.4);
+
+                        // Keyboard hints
+                        ui.label(RichText::new("⌘↵").color(hint_color).size(typography::SM));
+                        ui.label(RichText::new("save").color(hint_color).size(typography::SM));
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
+                        ui.label(
+                            RichText::new("cancel")
+                                .color(hint_color)
+                                .size(typography::SM),
+                        );
+
+                        // Right side - save button
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(16.0);
+
+                            let save_btn = egui::Button::new(
+                                RichText::new(format!("{} Save", semantic_icons::action::SAVE))
+                                    .size(typography::MD),
+                            )
+                            .fill(accent_color);
+
+                            if ui.add(save_btn).clicked() {
+                                should_save = true;
+                            }
+
+                            // Cancel button
+                            let cancel_btn = egui::Button::new(
+                                RichText::new("Cancel")
+                                    .size(typography::MD)
+                                    .color(text_color(self.theme)),
+                            );
+
+                            if ui.add(cancel_btn).clicked() {
+                                should_close = true;
+                            }
+                        });
+                    });
+
+                    ui.add_space(12.0);
+                });
             });
 
         // Show completion popup if open (rendered in a separate area on top)

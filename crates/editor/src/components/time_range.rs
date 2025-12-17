@@ -112,9 +112,22 @@ impl TimeRange {
 
     /// Get the current timestamp in seconds
     pub fn now() -> f64 {
-        // In a real app, this would use actual system time
-        // For demo purposes, we use a fixed timestamp
-        1700000000.0 + 3600.0 // Demo: 1 hour after the base timestamp
+        // Use web_time on WASM, std::time on native
+        #[cfg(target_arch = "wasm32")]
+        {
+            use web_time::SystemTime;
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0)
+        }
     }
 
     /// Get the duration of this time range
@@ -197,6 +210,28 @@ impl TimeRangeToolbar {
     /// Get the current time range
     pub fn time_range(&self) -> &TimeRange {
         &self.time_range
+    }
+
+    /// Get the time range as nanoseconds (for query execution)
+    /// Returns (start_ns, end_ns) for the current time range.
+    ///
+    /// For relative presets (Last 5m, Last 1h, etc.), this always calculates
+    /// relative to the current time, not the time when the preset was set.
+    pub fn get_range_ns(&self) -> (u128, u128) {
+        // For relative presets, recalculate based on current time
+        let (start_secs, end_secs) = if self.time_range.preset != TimeRangePreset::Custom {
+            let now = TimeRange::now();
+            let duration = self.time_range.preset.duration().unwrap_or_default();
+            (now - duration.as_secs_f64(), now)
+        } else {
+            // Custom time range - use stored values
+            (self.time_range.start, self.time_range.end)
+        };
+
+        // Convert seconds to nanoseconds
+        let start_ns = (start_secs * 1_000_000_000.0) as u128;
+        let end_ns = (end_secs * 1_000_000_000.0) as u128;
+        (start_ns, end_ns)
     }
 
     /// Set the time range preset

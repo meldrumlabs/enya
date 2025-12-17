@@ -204,100 +204,96 @@ impl WorkspaceFinder {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 overlay_style.frame().show(ui, |ui| {
-                        ui.set_width(popup_width);
-                        ui.set_max_height(popup_max_height);
+                    ui.set_width(popup_width);
+                    ui.set_max_height(popup_max_height);
 
-                        // Search input section
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            ui.label(
-                                RichText::new(semantic_icons::file::FOLDER_OPEN)
-                                    .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(typography::HEADING),
-                            );
-                            ui.add_space(8.0);
+                    // Search input section
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        ui.label(
+                            RichText::new(semantic_icons::file::FOLDER_OPEN)
+                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .size(typography::HEADING),
+                        );
+                        ui.add_space(8.0);
 
-                            let text_edit = egui::TextEdit::singleline(&mut self.search_query)
-                                .font(typography::heading())
-                                .hint_text(
-                                    RichText::new("Search workspaces...")
-                                        .color(text_color(self.theme).gamma_multiply(0.4)),
-                                )
-                                .frame(false)
-                                .desired_width(popup_width - 60.0);
+                        let text_edit = egui::TextEdit::singleline(&mut self.search_query)
+                            .font(typography::heading())
+                            .hint_text(
+                                RichText::new("Search workspaces...")
+                                    .color(text_color(self.theme).gamma_multiply(0.4)),
+                            )
+                            .frame(false)
+                            .desired_width(popup_width - 60.0);
 
-                            let response = ui.add(text_edit);
+                        let response = ui.add(text_edit);
 
-                            // Request focus on the text input
-                            response.request_focus();
+                        // Request focus on the text input
+                        response.request_focus();
 
-                            // Check if query changed
-                            if response.changed() {
-                                self.needs_refresh = true;
-                                self.selected_index = 0;
+                        // Check if query changed
+                        if response.changed() {
+                            self.needs_refresh = true;
+                            self.selected_index = 0;
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Separator below search
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, colors.separator),
+                    );
+                    ui.add_space(4.0);
+
+                    // Results list
+                    let content_height = popup_max_height - 90.0;
+                    egui::ScrollArea::vertical()
+                        .max_height(content_height)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.set_width(popup_width - 8.0);
+                            if self.results.is_empty() {
+                                ui.add_space(20.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        RichText::new(if self.items.is_empty() {
+                                            "No saved workspaces"
+                                        } else {
+                                            "No results found"
+                                        })
+                                        .color(text_color(self.theme).gamma_multiply(0.5))
+                                        .size(typography::XL),
+                                    );
+                                });
+                                ui.add_space(20.0);
+                            } else {
+                                for (i, result) in self.results.iter().enumerate() {
+                                    let is_selected = i == self.selected_index;
+                                    let clicked =
+                                        self.render_result_row(ui, result, is_selected, &colors);
+                                    if clicked {
+                                        selected_name = Some(result.item.name.clone());
+                                        should_close = true;
+                                    }
+                                }
                             }
                         });
 
-                        ui.add_space(8.0);
+                    ui.add_space(4.0);
 
-                        // Separator below search
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, colors.separator),
-                        );
-                        ui.add_space(4.0);
-
-                        // Results list
-                        let content_height = popup_max_height - 90.0;
-                        egui::ScrollArea::vertical()
-                            .max_height(content_height)
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                ui.set_width(popup_width - 8.0);
-                                if self.results.is_empty() {
-                                    ui.add_space(20.0);
-                                    ui.vertical_centered(|ui| {
-                                        ui.label(
-                                            RichText::new(if self.items.is_empty() {
-                                                "No saved workspaces"
-                                            } else {
-                                                "No results found"
-                                            })
-                                            .color(text_color(self.theme).gamma_multiply(0.5))
-                                            .size(typography::XL),
-                                        );
-                                    });
-                                    ui.add_space(20.0);
-                                } else {
-                                    for (i, result) in self.results.iter().enumerate() {
-                                        let is_selected = i == self.selected_index;
-                                        let clicked = self.render_result_row(
-                                            ui,
-                                            result,
-                                            is_selected,
-                                            &colors,
-                                        );
-                                        if clicked {
-                                            selected_name = Some(result.item.name.clone());
-                                            should_close = true;
-                                        }
-                                    }
-                                }
-                            });
-
-                        ui.add_space(4.0);
-
-                        // Footer with keyboard hints
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, colors.separator),
-                        );
-                        ui.add_space(6.0);
-                        self.render_keyboard_hints(ui, text_color(self.theme).gamma_multiply(0.4));
-                        ui.add_space(8.0);
-                    });
+                    // Footer with keyboard hints
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, colors.separator),
+                    );
+                    ui.add_space(6.0);
+                    self.render_keyboard_hints(ui, text_color(self.theme).gamma_multiply(0.4));
+                    ui.add_space(8.0);
+                });
             });
 
         if should_close {

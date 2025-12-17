@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::ops::RangeInclusive;
 
 use egui::{Color32, Key, RichText, Stroke};
-use egui_plot::{AxisHints, GridMark, Line, LineStyle, Plot, PlotBounds, PlotPoints, VLine};
+use egui_plot::{
+    AxisHints, GridMark, Line, LineStyle, Plot, PlotBounds, PlotPoints, Polygon, VLine,
+};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -186,6 +188,8 @@ enum ChartAction {
     NextCommit,
     /// Navigate to previous commit marker ([)
     PrevCommit,
+    /// Toggle stacked mode
+    ToggleStacked,
 }
 
 /// A time series chart component
@@ -214,6 +218,10 @@ pub struct TimeSeriesChart {
     pending_g: bool,
     /// Whether we're waiting for 'c' after '[' or ']' (for commit navigation)
     pending_bracket: Option<char>,
+    /// Whether the legend is expanded to show all series
+    legend_expanded: bool,
+    /// Whether to render as a stacked area chart
+    stacked: bool,
 }
 
 impl Default for TimeSeriesChart {
@@ -238,7 +246,24 @@ impl TimeSeriesChart {
             y_label: None,
             pending_g: false,
             pending_bracket: None,
+            legend_expanded: false,
+            stacked: false,
         }
+    }
+
+    /// Set whether to render as a stacked area chart
+    pub fn set_stacked(&mut self, stacked: bool) {
+        self.stacked = stacked;
+    }
+
+    /// Toggle stacked mode
+    pub fn toggle_stacked(&mut self) {
+        self.stacked = !self.stacked;
+    }
+
+    /// Check if the chart is in stacked mode
+    pub fn is_stacked(&self) -> bool {
+        self.stacked
     }
 
     /// Create a chart with demo data for testing
@@ -466,6 +491,11 @@ impl TimeSeriesChart {
                 return ChartAction::ResetZoom;
             }
 
+            // Toggle stacked mode: s
+            if input.key_pressed(Key::S) && !input.modifiers.shift {
+                return ChartAction::ToggleStacked;
+            }
+
             // Go to end: G (shift + g)
             if input.key_pressed(Key::G) && input.modifiers.shift {
                 return ChartAction::GoToEnd;
@@ -570,6 +600,11 @@ impl TimeSeriesChart {
         // Handle keyboard zoom/navigation
         let chart_action = self.handle_keyboard(ui.ctx());
         let data_time_range = self.data_time_range();
+
+        // Handle stacked toggle outside the plot closure (since it modifies self)
+        if chart_action == ChartAction::ToggleStacked {
+            self.stacked = !self.stacked;
+        }
 
         // Pre-compute commit navigation targets (need to do this outside the plot closure
         // since we need &self which would conflict with the mutable borrow for find_*_commit)
@@ -688,7 +723,7 @@ impl TimeSeriesChart {
                         plot_ui.set_plot_bounds(new_bounds);
                     }
                 }
-                ChartAction::None => {}
+                ChartAction::None | ChartAction::ToggleStacked => {}
             }
 
             // Draw commit markers as vertical lines
@@ -748,32 +783,137 @@ impl TimeSeriesChart {
                 }
             }
 
-            // Draw all series with sleek styling (gradient fill + thin lines)
-            for (i, series) in self.series.iter().enumerate() {
-                let color = series.color.unwrap_or_else(|| self.series_color(i));
+            // Draw all series
+            if self.stacked && self.series.len() > 1 {
+                // Stacked area chart using polygons for proper fill-between effect
+                // Each area fills from its cumulative baseline to the previous series
 
-                let points: PlotPoints<'_> = series
-                    .points
+                // Build a lookup for each series: timestamp -> value
+                let series_values: Vec<HashMap<i64, f64>> = self
+                    .series
                     .iter()
-                    .map(|p| [p.timestamp, p.value])
+                    .map(|s| {
+                        s.points
+                            .iter()
+                            .map(|p| ((p.timestamp * 1000.0) as i64, p.value))
+                            .collect()
+                    })
                     .collect();
 
-                // PlanetScale-style: thin line with soft gradient fill underneath
-                let line = Line::new(series.label(), points)
-                    .color(color)
-                    .stroke(Stroke::new(1.5, color))
-                    .fill(0.0) // Fill down to y=0
-                    .fill_alpha(0.15); // Subtle gradient fill
+                // Compute cumulative values for each series at each timestamp
+                // cumulative[i] contains (timestamp, cumulative_value) pairs
+                let mut cumulative: Vec<Vec<(f64, f64)>> = Vec::new();
 
-                plot_ui.line(line);
+                for (i, series) in self.series.iter().enumerate() {
+                    let mut points_with_cumulative: Vec<(f64, f64)> = Vec::new();
+
+                    for point in &series.points {
+                        let ts_key = (point.timestamp * 1000.0) as i64;
+                        // Sum all previous series values at this timestamp
+                        let baseline: f64 = (0..i)
+                            .map(|j| series_values[j].get(&ts_key).copied().unwrap_or(0.0))
+                            .sum();
+                        points_with_cumulative.push((point.timestamp, baseline + point.value));
+                    }
+
+                    cumulative.push(points_with_cumulative);
+                }
+
+                // Draw areas as polygons (bottom to top so later series appear on top)
+                for (i, series) in self.series.iter().enumerate() {
+                    let color = series.color.unwrap_or_else(|| self.series_color(i));
+
+                    // Build polygon points: top edge (current cumulative) + bottom edge (previous cumulative, reversed)
+                    let top_points = &cumulative[i];
+
+                    if !top_points.is_empty() {
+                        let mut polygon_points: Vec<[f64; 2]> = Vec::new();
+
+                        // Top edge: current cumulative line (left to right)
+                        for &(t, v) in top_points {
+                            polygon_points.push([t, v]);
+                        }
+
+                        // Bottom edge: previous cumulative line reversed (right to left)
+                        // For first series, bottom is y=0
+                        if i == 0 {
+                            // Close polygon along y=0
+                            if let (Some(&(t_last, _)), Some(&(t_first, _))) =
+                                (top_points.last(), top_points.first())
+                            {
+                                polygon_points.push([t_last, 0.0]);
+                                polygon_points.push([t_first, 0.0]);
+                            }
+                        } else {
+                            // Close along previous series line (reversed)
+                            for &(t, v) in cumulative[i - 1].iter().rev() {
+                                polygon_points.push([t, v]);
+                            }
+                        }
+
+                        // Draw filled polygon
+                        let fill_color = Color32::from_rgba_unmultiplied(
+                            color.r(),
+                            color.g(),
+                            color.b(),
+                            (0.6 * 255.0) as u8, // 60% opacity for stacked areas
+                        );
+                        let polygon =
+                            Polygon::new(series.label(), PlotPoints::from(polygon_points))
+                                .fill_color(fill_color)
+                                .stroke(Stroke::new(1.0, color));
+                        plot_ui.polygon(polygon);
+                    }
+                }
+
+                // Draw lines on top for clarity
+                for (i, series) in self.series.iter().enumerate() {
+                    let color = series.color.unwrap_or_else(|| self.series_color(i));
+                    let points: PlotPoints<'_> =
+                        cumulative[i].iter().map(|&(t, v)| [t, v]).collect();
+                    let line = Line::new(series.label(), points)
+                        .color(color)
+                        .stroke(Stroke::new(1.5, color));
+                    plot_ui.line(line);
+                }
+            } else {
+                // Regular (non-stacked) view: each series fills to y=0
+                for (i, series) in self.series.iter().enumerate() {
+                    let color = series.color.unwrap_or_else(|| self.series_color(i));
+
+                    let points: PlotPoints<'_> = series
+                        .points
+                        .iter()
+                        .map(|p| [p.timestamp, p.value])
+                        .collect();
+
+                    // PlanetScale-style: thin line with soft gradient fill underneath
+                    let line = Line::new(series.label(), points)
+                        .color(color)
+                        .stroke(Stroke::new(1.5, color))
+                        .fill(0.0) // Fill down to y=0
+                        .fill_alpha(0.15); // Subtle gradient fill
+
+                    plot_ui.line(line);
+                }
             }
         });
 
         // Legend below chart (if enabled and multiple series)
         if self.show_legend && self.series.len() > 1 {
             ui.add_space(8.0);
+
+            const MAX_VISIBLE_SERIES: usize = 10;
+            let total_series = self.series.len();
+            let show_all = self.legend_expanded || total_series <= MAX_VISIBLE_SERIES;
+            let visible_count = if show_all {
+                total_series
+            } else {
+                MAX_VISIBLE_SERIES
+            };
+
             ui.horizontal_wrapped(|ui| {
-                for (i, series) in self.series.iter().enumerate() {
+                for (i, series) in self.series.iter().take(visible_count).enumerate() {
                     let color = series.color.unwrap_or_else(|| self.series_color(i));
 
                     // Color indicator
@@ -788,6 +928,25 @@ impl TimeSeriesChart {
                     );
 
                     ui.add_space(16.0);
+                }
+
+                // Show "N more..." button if there are hidden series
+                if total_series > MAX_VISIBLE_SERIES {
+                    let hidden_count = total_series - visible_count;
+                    let button_text = if self.legend_expanded {
+                        "show less".to_string()
+                    } else {
+                        format!("+{hidden_count} more...")
+                    };
+
+                    if ui
+                        .small_button(
+                            RichText::new(button_text).color(text_color.gamma_multiply(0.6)),
+                        )
+                        .clicked()
+                    {
+                        self.legend_expanded = !self.legend_expanded;
+                    }
                 }
             });
         }

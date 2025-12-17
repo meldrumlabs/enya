@@ -31,6 +31,18 @@ pub struct PrometheusLabelsResponse {
     pub data: Vec<String>,
 }
 
+/// Prometheus API response wrapper for series endpoint.
+#[derive(Debug, Deserialize)]
+pub struct PrometheusSeriesResponse {
+    pub status: String,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub error_type: Option<String>,
+    #[serde(default)]
+    pub data: Vec<HashMap<String, String>>,
+}
+
 /// Prometheus query result data.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -126,6 +138,64 @@ pub fn parse_labels_response(json: &[u8]) -> Result<Vec<String>, ClientError> {
     }
 
     Ok(response.data)
+}
+
+/// Metric label information extracted from series data.
+///
+/// Contains label names and their possible values for a specific metric.
+#[derive(Debug, Clone, Default)]
+pub struct MetricLabels {
+    /// Map of label name -> set of possible values
+    pub labels: HashMap<String, Vec<String>>,
+}
+
+/// Parse a Prometheus series response into MetricLabels.
+///
+/// Used for `/api/v1/series?match[]={__name__="metric_name"}`.
+/// Extracts all label names and their unique values from the series data.
+///
+/// # Errors
+///
+/// Returns `ClientError::ParseError` if the JSON is invalid.
+/// Returns `ClientError::BackendError` if Prometheus returned an error status.
+pub fn parse_series_response(json: &[u8]) -> Result<MetricLabels, ClientError> {
+    let response: PrometheusSeriesResponse =
+        serde_json::from_slice(json).map_err(|e| ClientError::ParseError(e.to_string()))?;
+
+    if response.status != "success" {
+        let message = response
+            .error
+            .unwrap_or_else(|| "unknown error".to_string());
+        return Err(ClientError::BackendError {
+            status: 400,
+            message,
+        });
+    }
+
+    // Collect all label names and their values across all series
+    let mut labels: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+
+    for series in response.data {
+        for (key, value) in series {
+            // Skip the __name__ label as it's the metric name itself
+            if key == "__name__" {
+                continue;
+            }
+            labels.entry(key).or_default().insert(value);
+        }
+    }
+
+    // Convert HashSet to sorted Vec for consistent ordering
+    let labels = labels
+        .into_iter()
+        .map(|(k, v)| {
+            let mut values: Vec<_> = v.into_iter().collect();
+            values.sort();
+            (k, values)
+        })
+        .collect();
+
+    Ok(MetricLabels { labels })
 }
 
 /// Convert a Prometheus result entry to a MetricsGroup.
@@ -336,5 +406,66 @@ mod tests {
             metrics,
             vec!["cpu_usage", "memory_usage", "http_requests_total"]
         );
+    }
+
+    // === Series response tests ===
+
+    #[test]
+    fn test_parse_series_response_success() {
+        let json = r#"{
+            "status": "success",
+            "data": [
+                {"__name__": "cpu_usage", "cpu": "0", "mode": "idle"},
+                {"__name__": "cpu_usage", "cpu": "0", "mode": "system"},
+                {"__name__": "cpu_usage", "cpu": "1", "mode": "idle"},
+                {"__name__": "cpu_usage", "cpu": "1", "mode": "user"}
+            ]
+        }"#;
+
+        let result = parse_series_response(json.as_bytes()).expect("should parse");
+
+        // Should have 2 labels: cpu and mode (not __name__)
+        assert_eq!(result.labels.len(), 2);
+
+        // cpu should have values "0" and "1"
+        let cpu_values = result.labels.get("cpu").expect("should have cpu label");
+        assert_eq!(cpu_values, &vec!["0".to_string(), "1".to_string()]);
+
+        // mode should have values "idle", "system", "user"
+        let mode_values = result.labels.get("mode").expect("should have mode label");
+        assert_eq!(
+            mode_values,
+            &vec!["idle".to_string(), "system".to_string(), "user".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_parse_series_response_empty() {
+        let json = r#"{
+            "status": "success",
+            "data": []
+        }"#;
+
+        let result = parse_series_response(json.as_bytes()).expect("should parse");
+        assert!(result.labels.is_empty());
+    }
+
+    #[test]
+    fn test_parse_series_response_error() {
+        let json = r#"{
+            "status": "error",
+            "errorType": "bad_data",
+            "error": "invalid match selector"
+        }"#;
+
+        let result = parse_series_response(json.as_bytes());
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            ClientError::BackendError { message, .. } => {
+                assert!(message.contains("invalid match selector"));
+            }
+            _ => panic!("expected BackendError"),
+        }
     }
 }

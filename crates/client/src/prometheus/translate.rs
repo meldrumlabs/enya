@@ -64,15 +64,23 @@ pub fn translate(metric: &str, query_str: &str) -> Result<PromQLQuery, ClientErr
             };
 
             // Wrap in aggregation function
-            let mut result = format!("{func_name}({inner})");
+            let base_expr = format!("{func_name}({inner})");
 
-            // Add grouping clause if present
+            // Handle grouping clause
+            // For transform functions (rate, irate, increase, *_over_time), we need to
+            // wrap in sum() when a grouping clause is used, since these functions
+            // produce per-series output and can't directly use `by`.
             if let Some(grouping) = agg.grouping {
                 match grouping {
                     Grouping::By(labels) => {
-                        result.push_str(" by (");
-                        result.push_str(&labels.join(","));
-                        result.push(')');
+                        let by_clause = format!(" by ({})", labels.join(","));
+                        if is_transform_func(agg.func) {
+                            // Wrap in sum(): sum(rate(...)) by (labels)
+                            format!("sum({base_expr}){by_clause}")
+                        } else {
+                            // Direct aggregation: sum(...) by (labels)
+                            format!("{base_expr}{by_clause}")
+                        }
                     }
                     Grouping::Without(_) => {
                         return Err(ClientError::TranslationError(
@@ -80,9 +88,9 @@ pub fn translate(metric: &str, query_str: &str) -> Result<PromQLQuery, ClientErr
                         ));
                     }
                 }
+            } else {
+                base_expr
             }
-
-            result
         }
     };
 
@@ -165,6 +173,23 @@ fn translate_agg_func(func: AggregationFunc) -> &'static str {
         AggregationFunc::MaxOverTime => "max_over_time",
         AggregationFunc::CountOverTime => "count_over_time",
     }
+}
+
+/// Check if a function is a "transform" (rate, irate, increase, *_over_time)
+/// that produces per-series output and cannot directly take a `by` clause.
+/// These need to be wrapped in an aggregation (like sum) when grouping is used.
+fn is_transform_func(func: AggregationFunc) -> bool {
+    matches!(
+        func,
+        AggregationFunc::Rate
+            | AggregationFunc::Irate
+            | AggregationFunc::Increase
+            | AggregationFunc::AvgOverTime
+            | AggregationFunc::SumOverTime
+            | AggregationFunc::MinOverTime
+            | AggregationFunc::MaxOverTime
+            | AggregationFunc::CountOverTime
+    )
 }
 
 /// Escape a label value for use in a PromQL selector.
@@ -257,10 +282,11 @@ mod tests {
 
     #[test]
     fn test_rate_with_filter_and_grouping() {
+        // rate() with `by` gets wrapped in sum() since rate() is a transform function
         let result = translate("http_requests_total", "rate(env:prod)[5m] by (method)").unwrap();
         assert_eq!(
             result.query,
-            r#"rate(http_requests_total{env="prod"}[300s]) by (method)"#
+            r#"sum(rate(http_requests_total{env="prod"}[300s])) by (method)"#
         );
     }
 

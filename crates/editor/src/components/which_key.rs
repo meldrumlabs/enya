@@ -281,109 +281,109 @@ impl WhichKey {
                 };
 
                 overlay_style.frame().show(ui, |ui| {
-                        ui.set_width(popup_width);
-                        ui.set_max_height(popup_max_height);
+                    ui.set_width(popup_width);
+                    ui.set_max_height(popup_max_height);
 
-                        // Header section
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new(semantic_icons::keyboard::KEYBOARD)
-                                    .color(muted_text)
-                                    .size(20.0),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new("Keyboard Shortcuts")
-                                    .color(text_color(self.theme))
-                                    .size(18.0)
-                                    .strong(),
-                            );
-                        });
-                        ui.add_space(12.0);
-
-                        // Separator below header
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
+                    // Header section
+                    ui.add_space(12.0);
+                    ui.horizontal(|ui| {
                         ui.add_space(16.0);
+                        ui.label(
+                            RichText::new(semantic_icons::keyboard::KEYBOARD)
+                                .color(muted_text)
+                                .size(20.0),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new("Keyboard Shortcuts")
+                                .color(text_color(self.theme))
+                                .size(18.0)
+                                .strong(),
+                        );
+                    });
+                    ui.add_space(12.0);
 
-                        // Content area with keybinding groups in a 2-column layout
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.vertical(|ui| {
-                                ui.set_width(popup_width - 32.0);
+                    // Separator below header
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+                    ui.add_space(16.0);
 
-                                // Split groups into two columns
-                                let groups = &self.groups;
-                                let mid = groups.len().div_ceil(2);
+                    // Content area with keybinding groups in a 2-column layout
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.vertical(|ui| {
+                            ui.set_width(popup_width - 32.0);
 
-                                ui.columns(2, |columns| {
-                                    // Left column
-                                    for group in groups.iter().take(mid) {
-                                        Self::render_group(
-                                            &mut columns[0],
-                                            group,
-                                            self.theme,
-                                            accent_color,
-                                            muted_text,
-                                            key_bg,
-                                        );
-                                        columns[0].add_space(16.0);
-                                    }
+                            // Split groups into two columns
+                            let groups = &self.groups;
+                            let mid = groups.len().div_ceil(2);
 
-                                    // Right column
-                                    for group in groups.iter().skip(mid) {
-                                        Self::render_group(
-                                            &mut columns[1],
-                                            group,
-                                            self.theme,
-                                            accent_color,
-                                            muted_text,
-                                            key_bg,
-                                        );
-                                        columns[1].add_space(16.0);
-                                    }
-                                });
+                            ui.columns(2, |columns| {
+                                // Left column
+                                for group in groups.iter().take(mid) {
+                                    Self::render_group(
+                                        &mut columns[0],
+                                        group,
+                                        self.theme,
+                                        accent_color,
+                                        muted_text,
+                                        key_bg,
+                                    );
+                                    columns[0].add_space(16.0);
+                                }
+
+                                // Right column
+                                for group in groups.iter().skip(mid) {
+                                    Self::render_group(
+                                        &mut columns[1],
+                                        group,
+                                        self.theme,
+                                        accent_color,
+                                        muted_text,
+                                        key_bg,
+                                    );
+                                    columns[1].add_space(16.0);
+                                }
                             });
                         });
-
-                        ui.add_space(8.0);
-
-                        // Separator above footer
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
-                        ui.add_space(8.0);
-
-                        // Footer with keyboard hints
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new("Press ")
-                                    .color(muted_text)
-                                    .font(typography::proportional(typography::MD)),
-                            );
-                            Self::render_key_badge(ui, "Esc", key_bg, accent_color);
-                            ui.label(
-                                RichText::new(" or ")
-                                    .color(muted_text)
-                                    .font(typography::proportional(typography::MD)),
-                            );
-                            Self::render_key_badge(ui, "?", key_bg, accent_color);
-                            ui.label(
-                                RichText::new(" to close")
-                                    .color(muted_text)
-                                    .font(typography::proportional(typography::MD)),
-                            );
-                        });
-                        ui.add_space(12.0);
                     });
+
+                    ui.add_space(8.0);
+
+                    // Separator above footer
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+                    ui.add_space(8.0);
+
+                    // Footer with keyboard hints
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new("Press ")
+                                .color(muted_text)
+                                .font(typography::proportional(typography::MD)),
+                        );
+                        Self::render_key_badge(ui, "Esc", key_bg, accent_color);
+                        ui.label(
+                            RichText::new(" or ")
+                                .color(muted_text)
+                                .font(typography::proportional(typography::MD)),
+                        );
+                        Self::render_key_badge(ui, "?", key_bg, accent_color);
+                        ui.label(
+                            RichText::new(" to close")
+                                .color(muted_text)
+                                .font(typography::proportional(typography::MD)),
+                        );
+                    });
+                    ui.add_space(12.0);
+                });
             });
 
         if should_close {

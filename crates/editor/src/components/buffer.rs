@@ -456,9 +456,18 @@ impl Buffer {
     fn handle_keyboard(&mut self, ctx: &egui::Context) -> BufferAction {
         // Don't process shortcuts if a text field has focus (let it handle input)
         if self.mode == BufferMode::Insert {
-            // Only handle Escape to exit insert mode
+            // Escape - exit insert mode without saving
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 self.enter_normal_mode();
+                return BufferAction::ModeChanged(BufferMode::Normal);
+            }
+            // Enter - save and exit insert mode (for single-line query editing)
+            if ctx.input(|i| i.key_pressed(Key::Enter)) {
+                let had_changes = self.save();
+                self.enter_normal_mode();
+                if had_changes {
+                    return BufferAction::Saved;
+                }
                 return BufferAction::ModeChanged(BufferMode::Normal);
             }
             return BufferAction::None;

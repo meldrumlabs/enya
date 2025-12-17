@@ -127,6 +127,12 @@ impl QueryCompletion {
         self.known_tag_values.insert(key.to_string(), values);
     }
 
+    /// Clear all known tag keys and values
+    pub fn clear(&mut self) {
+        self.known_tag_keys.clear();
+        self.known_tag_values.clear();
+    }
+
     /// Check if the popup is open
     pub fn is_open(&self) -> bool {
         self.is_open

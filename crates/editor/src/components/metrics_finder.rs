@@ -14,8 +14,7 @@ use crate::ui::semantic_icons;
 use crate::ui::typography;
 
 use super::finder_utils::{
-    FinderColors, FinderKeyboardInput, OverlayStyle, create_highlighted_text,
-    render_keyboard_hints,
+    FinderColors, FinderKeyboardInput, OverlayStyle, create_highlighted_text, render_keyboard_hints,
 };
 
 /// A metric item that can be searched in the metrics finder
@@ -254,128 +253,127 @@ impl MetricsFinder {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 overlay_style.frame().show(ui, |ui| {
-                        ui.set_width(total_width);
-                        ui.set_max_height(popup_max_height);
+                    ui.set_width(total_width);
+                    ui.set_max_height(popup_max_height);
 
-                        // Search input section (spans full width)
-                        ui.horizontal(|ui| {
-                            ui.add_space(12.0);
-                            ui.label(
-                                RichText::new(semantic_icons::action::SEARCH)
-                                    .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(typography::HEADING),
-                            );
-                            ui.add_space(8.0);
-
-                            let text_edit = egui::TextEdit::singleline(&mut self.query)
-                                .font(typography::heading())
-                                .hint_text(
-                                    RichText::new("Search metrics...")
-                                        .color(text_color(self.theme).gamma_multiply(0.4)),
-                                )
-                                .frame(false)
-                                .desired_width(total_width - 60.0);
-
-                            let response = ui.add(text_edit);
-
-                            // Request focus on the text input
-                            response.request_focus();
-
-                            // Check if query changed
-                            if response.changed() {
-                                self.needs_refresh = true;
-                                self.selected_index = 0;
-                            }
-                        });
-
+                    // Search input section (spans full width)
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.0);
+                        ui.label(
+                            RichText::new(semantic_icons::action::SEARCH)
+                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .size(typography::HEADING),
+                        );
                         ui.add_space(8.0);
 
-                        // Separator below search
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, colors.separator),
-                        );
-                        ui.add_space(4.0);
+                        let text_edit = egui::TextEdit::singleline(&mut self.query)
+                            .font(typography::heading())
+                            .hint_text(
+                                RichText::new("Search metrics...")
+                                    .color(text_color(self.theme).gamma_multiply(0.4)),
+                            )
+                            .frame(false)
+                            .desired_width(total_width - 60.0);
 
-                        // Main content area: results list + preview pane
-                        let content_height = popup_max_height - 90.0;
-                        ui.horizontal(|ui| {
-                            // Results list (left side)
-                            ui.vertical(|ui| {
-                                ui.set_width(list_width);
-                                ui.set_height(content_height);
+                        let response = ui.add(text_edit);
 
-                                egui::ScrollArea::vertical()
-                                    .max_height(content_height)
-                                    .auto_shrink([false, false])
-                                    .show(ui, |ui| {
-                                        ui.set_width(list_width - 8.0);
-                                        if self.results.is_empty() {
-                                            ui.add_space(20.0);
-                                            ui.vertical_centered(|ui| {
-                                                ui.label(
-                                                    RichText::new("No results found")
-                                                        .color(
-                                                            text_color(self.theme)
-                                                                .gamma_multiply(0.5),
-                                                        )
-                                                        .size(typography::XL),
-                                                );
-                                            });
-                                            ui.add_space(20.0);
-                                        } else {
-                                            for (i, result) in self.results.iter().enumerate() {
-                                                let is_selected = i == self.selected_index;
-                                                let clicked = self.render_result_row(
-                                                    ui,
-                                                    result,
-                                                    is_selected,
-                                                    &colors,
-                                                );
-                                                if clicked {
-                                                    selected_item = Some(result.item.clone());
-                                                    should_close = true;
-                                                }
+                        // Request focus on the text input
+                        response.request_focus();
+
+                        // Check if query changed
+                        if response.changed() {
+                            self.needs_refresh = true;
+                            self.selected_index = 0;
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Separator below search
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, colors.separator),
+                    );
+                    ui.add_space(4.0);
+
+                    // Main content area: results list + preview pane
+                    let content_height = popup_max_height - 90.0;
+                    ui.horizontal(|ui| {
+                        // Results list (left side)
+                        ui.vertical(|ui| {
+                            ui.set_width(list_width);
+                            ui.set_height(content_height);
+
+                            egui::ScrollArea::vertical()
+                                .max_height(content_height)
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    ui.set_width(list_width - 8.0);
+                                    if self.results.is_empty() {
+                                        ui.add_space(20.0);
+                                        ui.vertical_centered(|ui| {
+                                            ui.label(
+                                                RichText::new("No results found")
+                                                    .color(
+                                                        text_color(self.theme).gamma_multiply(0.5),
+                                                    )
+                                                    .size(typography::XL),
+                                            );
+                                        });
+                                        ui.add_space(20.0);
+                                    } else {
+                                        for (i, result) in self.results.iter().enumerate() {
+                                            let is_selected = i == self.selected_index;
+                                            let clicked = self.render_result_row(
+                                                ui,
+                                                result,
+                                                is_selected,
+                                                &colors,
+                                            );
+                                            if clicked {
+                                                selected_item = Some(result.item.clone());
+                                                should_close = true;
                                             }
                                         }
-                                    });
-                            });
-
-                            // Preview pane (right side)
-                            if self.show_preview {
-                                // Vertical separator between list and preview
-                                let line_rect = ui.available_rect_before_wrap();
-                                ui.painter().vline(
-                                    line_rect.left(),
-                                    line_rect.y_range(),
-                                    egui::Stroke::new(1.0, colors.separator),
-                                );
-
-                                ui.vertical(|ui| {
-                                    ui.set_width(preview_width);
-                                    ui.set_height(content_height);
-                                    self.render_preview_pane(
-                                        ui,
-                                        selected_result_for_preview.as_ref(),
-                                        &colors,
-                                    );
+                                    }
                                 });
-                            }
                         });
 
-                        ui.add_space(4.0);
+                        // Preview pane (right side)
+                        if self.show_preview {
+                            // Vertical separator between list and preview
+                            let line_rect = ui.available_rect_before_wrap();
+                            ui.painter().vline(
+                                line_rect.left(),
+                                line_rect.y_range(),
+                                egui::Stroke::new(1.0, colors.separator),
+                            );
 
-                        // Footer with keyboard hints
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, colors.separator),
-                        );
-                        ui.add_space(6.0);
-                        render_keyboard_hints(ui, text_color(self.theme).gamma_multiply(0.4));
-                        ui.add_space(8.0);
+                            ui.vertical(|ui| {
+                                ui.set_width(preview_width);
+                                ui.set_height(content_height);
+                                self.render_preview_pane(
+                                    ui,
+                                    selected_result_for_preview.as_ref(),
+                                    &colors,
+                                );
+                            });
+                        }
                     });
+
+                    ui.add_space(4.0);
+
+                    // Footer with keyboard hints
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, colors.separator),
+                    );
+                    ui.add_space(6.0);
+                    render_keyboard_hints(ui, text_color(self.theme).gamma_multiply(0.4));
+                    ui.add_space(8.0);
+                });
             });
 
         if toggle_preview {
@@ -615,47 +613,87 @@ impl MetricsFinder {
                                 let mut tag_keys: Vec<_> = result.item.tags.keys().collect();
                                 tag_keys.sort();
 
-                                for (idx, key) in tag_keys.iter().enumerate() {
-                                    if let Some(values) = result.item.tags.get(*key) {
-                                        // Tag key
+                                // Check if this is "placeholder only" mode (all tags have just "..." as value)
+                                // This happens for Prometheus metrics where we only know label names
+                                let is_placeholder_only = result
+                                    .item
+                                    .tags
+                                    .values()
+                                    .all(|values| values.len() == 1 && values.contains("..."));
+
+                                if is_placeholder_only {
+                                    // Compact display: just show label names in a list
+                                    for key in tag_keys.iter().take(10) {
                                         ui.horizontal(|ui| {
                                             ui.label(
-                                                RichText::new(format!("{key}:"))
+                                                RichText::new("•")
                                                     .color(tag_key_color)
-                                                    .size(typography::MD)
-                                                    .strong(),
+                                                    .size(typography::MD),
+                                            );
+                                            ui.label(
+                                                RichText::new(*key)
+                                                    .color(tag_key_color)
+                                                    .size(typography::MD),
                                             );
                                         });
-
-                                        // Tag values (show up to 5, with ellipsis if more)
-                                        let mut sorted_values: Vec<_> = values.iter().collect();
-                                        sorted_values.sort();
-                                        let display_count = sorted_values.len().min(5);
-                                        let has_more = sorted_values.len() > 5;
-
-                                        // Use unique ID for each tag's indent
-                                        ui.indent(egui::Id::new(("tag_values", idx)), |ui| {
-                                            for value in sorted_values.iter().take(display_count) {
+                                    }
+                                    if tag_keys.len() > 10 {
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "  ... and {} more",
+                                                tag_keys.len() - 10
+                                            ))
+                                            .color(text_col.gamma_multiply(0.4))
+                                            .italics()
+                                            .size(typography::XS),
+                                        );
+                                    }
+                                } else {
+                                    // Full display with values
+                                    for (idx, key) in tag_keys.iter().enumerate() {
+                                        if let Some(values) = result.item.tags.get(*key) {
+                                            // Tag key
+                                            ui.horizontal(|ui| {
                                                 ui.label(
-                                                    RichText::new(format!("• {value}"))
-                                                        .color(tag_value_color)
-                                                        .size(typography::SM),
+                                                    RichText::new(format!("{key}:"))
+                                                        .color(tag_key_color)
+                                                        .size(typography::MD)
+                                                        .strong(),
                                                 );
-                                            }
-                                            if has_more {
-                                                ui.label(
-                                                    RichText::new(format!(
-                                                        "  ... and {} more",
-                                                        sorted_values.len() - 5
-                                                    ))
-                                                    .color(text_col.gamma_multiply(0.4))
-                                                    .italics()
-                                                    .size(typography::XS),
-                                                );
-                                            }
-                                        });
+                                            });
 
-                                        ui.add_space(6.0);
+                                            // Tag values (show up to 5, with ellipsis if more)
+                                            let mut sorted_values: Vec<_> = values.iter().collect();
+                                            sorted_values.sort();
+                                            let display_count = sorted_values.len().min(5);
+                                            let has_more = sorted_values.len() > 5;
+
+                                            // Use unique ID for each tag's indent
+                                            ui.indent(egui::Id::new(("tag_values", idx)), |ui| {
+                                                for value in
+                                                    sorted_values.iter().take(display_count)
+                                                {
+                                                    ui.label(
+                                                        RichText::new(format!("• {value}"))
+                                                            .color(tag_value_color)
+                                                            .size(typography::SM),
+                                                    );
+                                                }
+                                                if has_more {
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "  ... and {} more",
+                                                            sorted_values.len() - 5
+                                                        ))
+                                                        .color(text_col.gamma_multiply(0.4))
+                                                        .italics()
+                                                        .size(typography::XS),
+                                                    );
+                                                }
+                                            });
+
+                                            ui.add_space(6.0);
+                                        }
                                     }
                                 }
                             });
@@ -676,5 +714,37 @@ impl MetricsFinder {
     /// Toggle preview pane visibility
     pub fn toggle_preview(&mut self) {
         self.show_preview = !self.show_preview;
+    }
+
+    /// Get the currently selected metric item (if any).
+    pub fn selected_item(&self) -> Option<&MetricItem> {
+        if self.results.is_empty() {
+            None
+        } else {
+            Some(&self.results[self.selected_index].item)
+        }
+    }
+
+    /// Get the currently selected metric name (if any).
+    pub fn selected_metric_name(&self) -> Option<&str> {
+        self.selected_item().map(|item| item.name.as_str())
+    }
+
+    /// Update tags for a specific metric in the items list.
+    ///
+    /// This is used to update the preview with fetched per-metric labels.
+    pub fn update_metric_tags(
+        &mut self,
+        metric_name: &str,
+        tags: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    ) {
+        // Update in the items list
+        if let Some(item) = self.items.iter_mut().find(|i| i.name == metric_name) {
+            item.tags = tags.clone();
+        }
+        // Update in the results list
+        if let Some(result) = self.results.iter_mut().find(|r| r.item.name == metric_name) {
+            result.item.tags = tags;
+        }
     }
 }

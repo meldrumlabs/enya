@@ -227,304 +227,291 @@ impl MultiEditOverlay {
                 };
 
                 overlay_style.frame().show(ui, |ui| {
-                        ui.set_width(popup_width);
+                    ui.set_width(popup_width);
 
-                        // Header with mode indicator
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
+                    // Header with mode indicator
+                    ui.add_space(12.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
 
-                            // MULTI-EDIT mode badge
-                            egui::Frame::new()
-                                .fill(accent_color)
-                                .corner_radius(3.0)
-                                .inner_margin(egui::vec2(8.0, 3.0))
-                                .show(ui, |ui| {
-                                    ui.label(
-                                        RichText::new("MULTI-EDIT")
-                                            .color(Color32::WHITE)
-                                            .size(11.0)
-                                            .strong(),
-                                    );
-                                });
-
-                            ui.add_space(12.0);
-
-                            // Pane count
-                            ui.label(
-                                RichText::new(format!("{} panes", self.excerpts.len()))
-                                    .color(text_color(self.theme))
-                                    .size(14.0),
-                            );
-
-                            // Modified indicator
-                            let modified = self.modified_count();
-                            if modified > 0 {
-                                ui.add_space(8.0);
-                                ui.label(
-                                    RichText::new(format!("[+{modified}]"))
-                                        .color(palette::semantic::WARNING)
-                                        .size(12.0),
-                                );
-                            }
-
-                            // Spacer and close hint
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(16.0);
-                                    ui.label(
-                                        RichText::new("Esc to cancel")
-                                            .color(text_color(self.theme).gamma_multiply(0.4))
-                                            .size(11.0),
-                                    );
-                                },
-                            );
-                        });
-
-                        ui.add_space(12.0);
-
-                        // Separator
-                        let separator_color = match self.theme {
-                            AppTheme::Light => palette::light_border::SUBTLE,
-                            AppTheme::Dark => palette::border::SUBTLE,
-                        };
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
-
-                        ui.add_space(8.0);
-
-                        // Find/Replace section label
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new(semantic_icons::action::SEARCH)
-                                    .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(14.0),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new("Find & Replace")
-                                    .color(text_color(self.theme).gamma_multiply(0.7))
-                                    .size(12.0),
-                            );
-
-                            // Match count indicator
-                            if !self.find_pattern.is_empty() {
-                                let match_count = self.count_matches();
-                                ui.add_space(8.0);
-                                let (icon, color) = if match_count == 0 {
-                                    (semantic_icons::status::WARNING, palette::semantic::WARNING)
-                                } else {
-                                    (semantic_icons::status::SUCCESS, palette::semantic::SUCCESS)
-                                };
-                                ui.label(
-                                    RichText::new(format!("{icon} {match_count} matches"))
-                                        .color(color)
-                                        .size(11.0),
-                                );
-                            }
-                        });
-
-                        ui.add_space(8.0);
-
-                        // Find/Replace inputs with styled background
-                        let editor_bg = match self.theme {
-                            AppTheme::Light => palette::light_bg::ELEVATED,
-                            AppTheme::Dark => palette::bg::ELEVATED,
-                        };
-
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-
-                            // Find field with background frame
-                            egui::Frame::new()
-                                .fill(editor_bg)
-                                .corner_radius(4.0)
-                                .inner_margin(egui::vec2(8.0, 6.0))
-                                .show(ui, |ui| {
-                                    let find_id = egui::Id::new("multi_edit_find");
-                                    let find_response =
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut self.find_pattern)
-                                                .id(find_id)
-                                                .desired_width(180.0)
-                                                .font(FontId::monospace(13.0))
-                                                .frame(false)
-                                                .hint_text(RichText::new("Find pattern...").color(
-                                                    text_color(self.theme).gamma_multiply(0.4),
-                                                )),
-                                        );
-
-                                    // Auto-focus the find field when opening
-                                    if self.needs_focus && self.focused_excerpt == -1 {
-                                        find_response.request_focus();
-                                        self.needs_focus = false;
-                                    }
-                                });
-
-                            ui.add_space(8.0);
-
-                            // Arrow indicator
-                            ui.label(
-                                RichText::new("→")
-                                    .color(text_color(self.theme).gamma_multiply(0.4))
-                                    .size(14.0),
-                            );
-
-                            ui.add_space(8.0);
-
-                            // Replace field with background frame
-                            egui::Frame::new()
-                                .fill(editor_bg)
-                                .corner_radius(4.0)
-                                .inner_margin(egui::vec2(8.0, 6.0))
-                                .show(ui, |ui| {
-                                    ui.add(
-                                        egui::TextEdit::singleline(&mut self.replace_with)
-                                            .desired_width(180.0)
-                                            .font(FontId::monospace(13.0))
-                                            .frame(false)
-                                            .hint_text(
-                                                RichText::new("Replace with...").color(
-                                                    text_color(self.theme).gamma_multiply(0.4),
-                                                ),
-                                            ),
-                                    );
-                                });
-
-                            ui.add_space(12.0);
-
-                            // Replace All button
-                            let match_count = self.count_matches();
-                            let button_enabled = !self.find_pattern.is_empty() && match_count > 0;
-
-                            let replace_btn = egui::Button::new(
-                                RichText::new(format!(
-                                    "{} Replace All",
-                                    semantic_icons::mode::REPLACE
-                                ))
-                                .size(12.0),
-                            )
-                            .fill(if button_enabled {
-                                accent_color
-                            } else {
-                                editor_bg
-                            });
-
-                            if ui.add_enabled(button_enabled, replace_btn).clicked() {
-                                self.apply_replace_all();
-                            }
-
-                            ui.add_space(16.0);
-                        });
-
-                        ui.add_space(12.0);
-
-                        // Separator
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
-
-                        ui.add_space(8.0);
-
-                        // Excerpts section label
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new(semantic_icons::file::CODE)
-                                    .color(text_color(self.theme).gamma_multiply(0.6))
-                                    .size(14.0),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new("Queries")
-                                    .color(text_color(self.theme).gamma_multiply(0.7))
-                                    .size(12.0),
-                            );
-                        });
-
-                        ui.add_space(8.0);
-
-                        // Excerpts area (scrollable) - vertical layout with padding
+                        // MULTI-EDIT mode badge
                         egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(16, 0))
+                            .fill(accent_color)
+                            .corner_radius(3.0)
+                            .inner_margin(egui::vec2(8.0, 3.0))
                             .show(ui, |ui| {
-                                egui::ScrollArea::vertical()
-                                    .max_height(max_excerpts_height)
-                                    .show(ui, |ui| {
-                                        ui.set_width(popup_width - 32.0);
-                                        self.show_excerpts(ui);
-                                    });
+                                ui.label(
+                                    RichText::new("MULTI-EDIT")
+                                        .color(Color32::WHITE)
+                                        .size(11.0)
+                                        .strong(),
+                                );
                             });
 
                         ui.add_space(12.0);
 
-                        // Separator
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
+                        // Pane count
+                        ui.label(
+                            RichText::new(format!("{} panes", self.excerpts.len()))
+                                .color(text_color(self.theme))
+                                .size(14.0),
+                        );
+
+                        // Modified indicator
+                        let modified = self.modified_count();
+                        if modified > 0 {
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(format!("[+{modified}]"))
+                                    .color(palette::semantic::WARNING)
+                                    .size(12.0),
+                            );
+                        }
+
+                        // Spacer and close hint
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(16.0);
+                            ui.label(
+                                RichText::new("Esc to cancel")
+                                    .color(text_color(self.theme).gamma_multiply(0.4))
+                                    .size(11.0),
+                            );
+                        });
+                    });
+
+                    ui.add_space(12.0);
+
+                    // Separator
+                    let separator_color = match self.theme {
+                        AppTheme::Light => palette::light_border::SUBTLE,
+                        AppTheme::Dark => palette::border::SUBTLE,
+                    };
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Find/Replace section label
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new(semantic_icons::action::SEARCH)
+                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .size(14.0),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new("Find & Replace")
+                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .size(12.0),
+                        );
+
+                        // Match count indicator
+                        if !self.find_pattern.is_empty() {
+                            let match_count = self.count_matches();
+                            ui.add_space(8.0);
+                            let (icon, color) = if match_count == 0 {
+                                (semantic_icons::status::WARNING, palette::semantic::WARNING)
+                            } else {
+                                (semantic_icons::status::SUCCESS, palette::semantic::SUCCESS)
+                            };
+                            ui.label(
+                                RichText::new(format!("{icon} {match_count} matches"))
+                                    .color(color)
+                                    .size(11.0),
+                            );
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Find/Replace inputs with styled background
+                    let editor_bg = match self.theme {
+                        AppTheme::Light => palette::light_bg::ELEVATED,
+                        AppTheme::Dark => palette::bg::ELEVATED,
+                    };
+
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+
+                        // Find field with background frame
+                        egui::Frame::new()
+                            .fill(editor_bg)
+                            .corner_radius(4.0)
+                            .inner_margin(egui::vec2(8.0, 6.0))
+                            .show(ui, |ui| {
+                                let find_id = egui::Id::new("multi_edit_find");
+                                let find_response = ui.add(
+                                    egui::TextEdit::singleline(&mut self.find_pattern)
+                                        .id(find_id)
+                                        .desired_width(180.0)
+                                        .font(FontId::monospace(13.0))
+                                        .frame(false)
+                                        .hint_text(
+                                            RichText::new("Find pattern...")
+                                                .color(text_color(self.theme).gamma_multiply(0.4)),
+                                        ),
+                                );
+
+                                // Auto-focus the find field when opening
+                                if self.needs_focus && self.focused_excerpt == -1 {
+                                    find_response.request_focus();
+                                    self.needs_focus = false;
+                                }
+                            });
+
+                        ui.add_space(8.0);
+
+                        // Arrow indicator
+                        ui.label(
+                            RichText::new("→")
+                                .color(text_color(self.theme).gamma_multiply(0.4))
+                                .size(14.0),
                         );
 
                         ui.add_space(8.0);
 
-                        // Footer with keyboard hints and buttons
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-
-                            let hint_color = text_color(self.theme).gamma_multiply(0.4);
-
-                            // Keyboard hints
-                            ui.label(RichText::new("⌘↵").color(hint_color).size(11.0));
-                            ui.label(RichText::new("apply").color(hint_color).size(11.0));
-                            ui.add_space(16.0);
-                            ui.label(RichText::new("⌘⇧R").color(hint_color).size(11.0));
-                            ui.label(RichText::new("replace all").color(hint_color).size(11.0));
-                            ui.add_space(16.0);
-                            ui.label(RichText::new("Tab").color(hint_color).size(11.0));
-                            ui.label(RichText::new("next").color(hint_color).size(11.0));
-
-                            // Right side - Apply and Cancel buttons
-                            ui.with_layout(
-                                egui::Layout::right_to_left(egui::Align::Center),
-                                |ui| {
-                                    ui.add_space(16.0);
-
-                                    let apply_btn = egui::Button::new(
-                                        RichText::new(format!(
-                                            "{} Apply",
-                                            semantic_icons::action::SAVE
-                                        ))
-                                        .size(12.0),
-                                    )
-                                    .fill(accent_color);
-
-                                    if ui.add(apply_btn).clicked() {
-                                        should_apply = true;
-                                    }
-
-                                    // Cancel button
-                                    let cancel_btn = egui::Button::new(
-                                        RichText::new("Cancel")
-                                            .size(12.0)
-                                            .color(text_color(self.theme)),
-                                    );
-
-                                    if ui.add(cancel_btn).clicked() {
-                                        should_close = true;
-                                    }
-                                },
-                            );
-                        });
+                        // Replace field with background frame
+                        egui::Frame::new()
+                            .fill(editor_bg)
+                            .corner_radius(4.0)
+                            .inner_margin(egui::vec2(8.0, 6.0))
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.replace_with)
+                                        .desired_width(180.0)
+                                        .font(FontId::monospace(13.0))
+                                        .frame(false)
+                                        .hint_text(
+                                            RichText::new("Replace with...")
+                                                .color(text_color(self.theme).gamma_multiply(0.4)),
+                                        ),
+                                );
+                            });
 
                         ui.add_space(12.0);
+
+                        // Replace All button
+                        let match_count = self.count_matches();
+                        let button_enabled = !self.find_pattern.is_empty() && match_count > 0;
+
+                        let replace_btn = egui::Button::new(
+                            RichText::new(format!("{} Replace All", semantic_icons::mode::REPLACE))
+                                .size(12.0),
+                        )
+                        .fill(if button_enabled {
+                            accent_color
+                        } else {
+                            editor_bg
+                        });
+
+                        if ui.add_enabled(button_enabled, replace_btn).clicked() {
+                            self.apply_replace_all();
+                        }
+
+                        ui.add_space(16.0);
                     });
+
+                    ui.add_space(12.0);
+
+                    // Separator
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Excerpts section label
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new(semantic_icons::file::CODE)
+                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .size(14.0),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new("Queries")
+                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .size(12.0),
+                        );
+                    });
+
+                    ui.add_space(8.0);
+
+                    // Excerpts area (scrollable) - vertical layout with padding
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::symmetric(16, 0))
+                        .show(ui, |ui| {
+                            egui::ScrollArea::vertical()
+                                .max_height(max_excerpts_height)
+                                .show(ui, |ui| {
+                                    ui.set_width(popup_width - 32.0);
+                                    self.show_excerpts(ui);
+                                });
+                        });
+
+                    ui.add_space(12.0);
+
+                    // Separator
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Footer with keyboard hints and buttons
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+
+                        let hint_color = text_color(self.theme).gamma_multiply(0.4);
+
+                        // Keyboard hints
+                        ui.label(RichText::new("⌘↵").color(hint_color).size(11.0));
+                        ui.label(RichText::new("apply").color(hint_color).size(11.0));
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("⌘⇧R").color(hint_color).size(11.0));
+                        ui.label(RichText::new("replace all").color(hint_color).size(11.0));
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("Tab").color(hint_color).size(11.0));
+                        ui.label(RichText::new("next").color(hint_color).size(11.0));
+
+                        // Right side - Apply and Cancel buttons
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(16.0);
+
+                            let apply_btn = egui::Button::new(
+                                RichText::new(format!("{} Apply", semantic_icons::action::SAVE))
+                                    .size(12.0),
+                            )
+                            .fill(accent_color);
+
+                            if ui.add(apply_btn).clicked() {
+                                should_apply = true;
+                            }
+
+                            // Cancel button
+                            let cancel_btn = egui::Button::new(
+                                RichText::new("Cancel")
+                                    .size(12.0)
+                                    .color(text_color(self.theme)),
+                            );
+
+                            if ui.add(cancel_btn).clicked() {
+                                should_close = true;
+                            }
+                        });
+                    });
+
+                    ui.add_space(12.0);
+                });
             });
 
         // Handle close/apply actions
