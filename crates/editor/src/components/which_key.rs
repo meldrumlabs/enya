@@ -159,6 +159,10 @@ impl WhichKey {
                         description: "Open command palette",
                     },
                     Keybinding {
+                        key: "/",
+                        description: "Filter panes by query",
+                    },
+                    Keybinding {
                         key: "Space+m",
                         description: "Open metrics finder",
                     },

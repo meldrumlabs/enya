@@ -9,7 +9,7 @@ use crate::components::{
     Diagnostic, DiagnosticsPane, EditExcerpt, ExecuteParams, InfoOverlay, LandingPage,
     LandingPageAction, MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState,
     MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState, TimeRangeToolbar,
-    WhichKey, WorkspaceFinder, WorkspaceItem,
+    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder, WorkspaceItem,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -130,6 +130,8 @@ pub struct Dashboard {
     pending_query_tile: Option<TileId>,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
     next_query_number: usize,
+    /// Viewport filter for filtering visible panes by query content
+    viewport_filter: ViewportFilter,
 }
 
 impl Default for Dashboard {
@@ -172,6 +174,7 @@ impl Default for Dashboard {
             query_executor: QueryExecutor::new(),
             pending_query_tile: None,
             next_query_number: 1,
+            viewport_filter: ViewportFilter::new(),
         }
     }
 }
@@ -292,6 +295,7 @@ impl Dashboard {
             query_executor: QueryExecutor::new(),
             pending_query_tile: None,
             next_query_number: 1,
+            viewport_filter: ViewportFilter::new(),
         }
     }
 
@@ -328,6 +332,30 @@ impl Dashboard {
         };
         self.behavior
             .set_visual_multi_state(is_visual_multi, selected_ids, tile_queries);
+
+        // Sync viewport filter state to behavior for rendering
+        let filtered_out_tiles = if self.viewport_filter.is_active() {
+            self.get_pane_tile_ids()
+                .into_iter()
+                .filter(|&tile_id| {
+                    if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                        // Check QueryPane
+                        if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                            return !self.viewport_filter.matches(query_pane.saved_query());
+                        }
+                        // Check Buffer
+                        if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                            return !self.viewport_filter.matches(buffer.saved_content());
+                        }
+                    }
+                    false // Unknown component types are always shown
+                })
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        self.behavior
+            .set_filter_state(self.viewport_filter.is_active(), filtered_out_tiles);
 
         // Update component themes
         self.time_range_toolbar.set_theme(app_state.theme);
@@ -384,6 +412,9 @@ impl Dashboard {
                         self.fullscreen_tile = None;
                         self.viewport_tree.ui(&mut self.behavior, ui);
                     }
+                } else if self.viewport_filter.is_active() {
+                    // Render filtered view - only matching panes in a grid
+                    self.render_filtered_view(ui);
                 } else {
                     // Store available rect before layout for scrollbar positioning
                     let full_rect = ui.available_rect_before_wrap();
@@ -524,11 +555,52 @@ impl Dashboard {
         self.diagnostics_pane.set_theme(app_state.theme);
         self.diagnostics_pane.show_overlay(ctx);
 
+        // Show viewport filter overlay and handle results
+        self.viewport_filter.set_theme(app_state.theme);
+        // Update filter counts before showing
+        let (match_count, total_count) = self.count_filtered_panes();
+        self.viewport_filter.update_counts(match_count, total_count);
+        match self.viewport_filter.show(ctx) {
+            ViewportFilterResult::Applied(pattern) => {
+                log::debug!("Viewport filter applied: {pattern}");
+            }
+            ViewportFilterResult::Cleared => {
+                log::debug!("Viewport filter cleared");
+            }
+            ViewportFilterResult::None => {}
+        }
+
+        // Handle / key for viewport filter (vim-style search)
+        // NOTE: Must run BEFORE the ? handler since both use the Slash key
+        if !self.which_key.is_open()
+            && !self.metrics_finder.is_open()
+            && !self.command_palette.is_open()
+            && !self.buffer_editor.is_open()
+            && !self.viewport_filter.is_open()
+            && !self.is_any_buffer_in_insert_mode()
+        {
+            ctx.input_mut(|input| {
+                // Check for '/' character in text input (works across keyboard layouts)
+                let has_slash = input
+                    .events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::Text(t) if t == "/"));
+                if has_slash || input.consume_key(egui::Modifiers::NONE, egui::Key::Slash) {
+                    // Consume the text event to prevent it from being handled elsewhere
+                    input
+                        .events
+                        .retain(|e| !matches!(e, egui::Event::Text(t) if t == "/"));
+                    self.viewport_filter.open();
+                }
+            });
+        }
+
         // Handle ? key for which-key overlay (bypasses focus check so it works even with chart focus)
         if !self.which_key.is_open()
             && !self.metrics_finder.is_open()
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
+            && !self.viewport_filter.is_open()
         {
             ctx.input_mut(|input| {
                 // Check for '?' character in text input (works across keyboard layouts)
@@ -1401,6 +1473,16 @@ impl Dashboard {
         self.fullscreen_tile.is_some()
     }
 
+    /// Check if the viewport filter input is open
+    pub fn is_viewport_filter_open(&self) -> bool {
+        self.viewport_filter.is_open()
+    }
+
+    /// Check if the viewport filter is active (has an applied pattern)
+    pub fn is_viewport_filter_active(&self) -> bool {
+        self.viewport_filter.is_active()
+    }
+
     /// Check if the landing page is currently being displayed
     pub fn is_landing_page(&self) -> bool {
         self.show_landing && self.open_charts.is_empty()
@@ -1646,6 +1728,36 @@ impl Dashboard {
         pane_ids
     }
 
+    /// Count how many panes match the current filter and total panes
+    fn count_filtered_panes(&self) -> (usize, usize) {
+        let pane_ids = self.get_pane_tile_ids();
+        let total = pane_ids.len();
+
+        if !self.viewport_filter.is_active() {
+            return (total, total);
+        }
+
+        let matching = pane_ids
+            .iter()
+            .filter(|&&tile_id| {
+                if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                    // Check QueryPane - match on query content OR tag
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        return self.viewport_filter.matches(query_pane.saved_query())
+                            || self.viewport_filter.matches(query_pane.tag());
+                    }
+                    // Check Buffer
+                    if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                        return self.viewport_filter.matches(buffer.saved_content());
+                    }
+                }
+                true // Unknown component types are always shown
+            })
+            .count();
+
+        (matching, total)
+    }
+
     /// Recursively collect all pane tile IDs
     fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>) {
         if let Some(tile) = self.viewport_tree.tiles.get(tile_id) {
@@ -1799,6 +1911,7 @@ impl Dashboard {
             || self.buffer_editor.is_open()
             || self.multi_edit_overlay.is_open()
             || self.which_key.is_open()
+            || self.viewport_filter.is_open()
         {
             return None;
         }
@@ -2178,6 +2291,14 @@ impl Dashboard {
             format!(
                 "VISUAL-MULTI ({} selected) [e]dit [r]efresh [x]close [Space]toggle [Esc]exit",
                 state.selection_count()
+            )
+        } else if self.viewport_filter.is_active() {
+            let (match_count, total_count) = self.count_filtered_panes();
+            format!(
+                "FILTER: /{} ({}/{} panes) [/]edit [Esc]clear",
+                self.viewport_filter.applied_pattern(),
+                match_count,
+                total_count
             )
         } else {
             String::new()
@@ -2961,6 +3082,87 @@ impl Dashboard {
         }
     }
 
+    /// Render only matching panes when viewport filter is active
+    fn render_filtered_view(&mut self, ui: &mut egui::Ui) {
+        // Get matching pane IDs - matches on query content AND tag
+        let matching_panes: Vec<TileId> = self
+            .get_pane_tile_ids()
+            .into_iter()
+            .filter(|&tile_id| {
+                if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        // Match on query content OR tag
+                        return self.viewport_filter.matches(query_pane.saved_query())
+                            || self.viewport_filter.matches(query_pane.tag());
+                    }
+                    if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                        return self.viewport_filter.matches(buffer.saved_content());
+                    }
+                }
+                true
+            })
+            .collect();
+
+        if matching_panes.is_empty() {
+            // Show "no matches" message
+            ui.centered_and_justified(|ui| {
+                ui.label(
+                    egui::RichText::new("No panes match the filter")
+                        .color(text_color(self.behavior.theme).gamma_multiply(0.5))
+                        .size(16.0),
+                );
+            });
+            return;
+        }
+
+        // Calculate grid layout
+        let available = ui.available_size();
+        let pane_count = matching_panes.len();
+
+        // Determine columns based on pane count and available width
+        let columns = if pane_count == 1 {
+            1
+        } else if pane_count <= 4 {
+            2.min(pane_count)
+        } else {
+            3.min(pane_count)
+        };
+
+        let rows = pane_count.div_ceil(columns);
+
+        let pane_width = (available.x - (columns as f32 - 1.0) * 8.0) / columns as f32;
+        let pane_height = ((available.y - (rows as f32 - 1.0) * 8.0) / rows as f32).max(200.0);
+
+        egui::ScrollArea::vertical()
+            .id_salt("filtered_view_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("filtered_panes_grid")
+                    .num_columns(columns)
+                    .spacing([8.0, 8.0])
+                    .show(ui, |ui| {
+                        for (idx, &tile_id) in matching_panes.iter().enumerate() {
+                            if let Some(Tile::Pane(component)) =
+                                self.viewport_tree.tiles.get_mut(tile_id)
+                            {
+                                component.set_theme(self.behavior.theme);
+                                component.set_api_key(&self.behavior.api_key);
+
+                                // Render pane with constrained size (no extra frame)
+                                ui.allocate_ui(egui::vec2(pane_width - 8.0, pane_height), |ui| {
+                                    component.show(ui);
+                                });
+                            }
+
+                            // End row after 'columns' panes
+                            if (idx + 1) % columns == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+    }
+
     /// Draw nvim-style scrollbar indicator in the scrollbar gutter
     fn draw_scrollbar(&self, painter: &egui::Painter, gutter_rect: egui::Rect, theme: AppTheme) {
         // Only draw if content is taller than visible area
@@ -3103,6 +3305,10 @@ struct TreeBehavior {
     tile_queries: HashMap<egui_tiles::TileId, String>,
     theme: AppTheme,
     api_key: String,
+    /// Tile IDs that are filtered out (should be dimmed)
+    filtered_out_tiles: HashSet<egui_tiles::TileId>,
+    /// Whether viewport filter is active
+    is_filter_active: bool,
 }
 
 impl TreeBehavior {
@@ -3127,6 +3333,15 @@ impl TreeBehavior {
         self.is_visual_multi_mode = is_active;
         self.selected_tile_ids = selected_ids;
         self.tile_queries = tile_queries;
+    }
+
+    pub fn set_filter_state(
+        &mut self,
+        is_active: bool,
+        filtered_out_tiles: HashSet<egui_tiles::TileId>,
+    ) {
+        self.is_filter_active = is_active;
+        self.filtered_out_tiles = filtered_out_tiles;
     }
 }
 
@@ -3163,6 +3378,30 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     ) {
         let is_focused = self.focused_tile_id == Some(tile_id);
         let is_selected = self.is_visual_multi_mode && self.selected_tile_ids.contains(&tile_id);
+        let is_filtered_out = self.is_filter_active && self.filtered_out_tiles.contains(&tile_id);
+
+        // When viewport filter is active, dim non-matching panes
+        if is_filtered_out {
+            let dim_color = match self.theme {
+                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200),
+                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200),
+            };
+            painter.rect_filled(rect, 4.0, dim_color);
+
+            // Draw "filtered" indicator text
+            let text_color = match self.theme {
+                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(100, 100, 100, 150),
+                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(150, 150, 150, 150),
+            };
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "filtered",
+                egui::FontId::proportional(12.0),
+                text_color,
+            );
+            return; // Don't draw other overlays on filtered panes
+        }
 
         // In visual-multi mode, draw selection indicator for selected panes
         if is_selected {
