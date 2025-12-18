@@ -1,11 +1,14 @@
 //! Query validation module - validates queries and produces diagnostics.
 //!
-//! Provides both syntax validation (via enya-lang parser) and semantic validation
+//! Provides both syntax validation (via enya-lang/enya-promql parsers) and semantic validation
 //! (checking for unknown tag keys, suggesting corrections, etc.).
+//!
+//! Supports dual-language mode: PromQL (default) and EnyaLang.
 
 use std::collections::HashSet;
 
 use super::diagnostics_pane::{Diagnostic, DiagnosticLevel, DiagnosticSource};
+use super::query_completion::QueryLanguage;
 
 /// Result of validating a query
 #[derive(Debug, Clone)]
@@ -39,6 +42,8 @@ impl ValidationResult {
 
 /// Query validator with configurable known tags
 pub struct QueryValidator {
+    /// Query language mode (PromQL or EnyaLang)
+    language: QueryLanguage,
     /// Known tag keys (for semantic validation)
     known_tag_keys: HashSet<String>,
     /// Known tag values by key
@@ -52,9 +57,10 @@ impl Default for QueryValidator {
 }
 
 impl QueryValidator {
-    /// Create a new validator with default known tags
+    /// Create a new validator with default known tags (defaults to PromQL)
     pub fn new() -> Self {
         let mut validator = Self {
+            language: QueryLanguage::default(),
             known_tag_keys: HashSet::new(),
             known_tag_values: std::collections::HashMap::new(),
         };
@@ -65,6 +71,16 @@ impl QueryValidator {
         ]);
 
         validator
+    }
+
+    /// Set the query language mode
+    pub fn set_language(&mut self, language: QueryLanguage) {
+        self.language = language;
+    }
+
+    /// Get the current query language mode
+    pub fn language(&self) -> QueryLanguage {
+        self.language
     }
 
     /// Add known tag keys
@@ -82,8 +98,39 @@ impl QueryValidator {
         }
     }
 
-    /// Validate a query and return diagnostics
+    /// Validate a query and return diagnostics (dispatches based on language mode)
     pub fn validate(&self, query: &str) -> ValidationResult {
+        match self.language {
+            QueryLanguage::PromQL => self.validate_promql(query),
+            QueryLanguage::EnyaLang => self.validate_enya_lang(query),
+        }
+    }
+
+    /// Validate a PromQL query
+    fn validate_promql(&self, query: &str) -> ValidationResult {
+        // Skip validation for empty queries
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            return ValidationResult::ok();
+        }
+
+        // Use enya-promql for validation
+        let result = enya_promql::validate(query);
+        if result.is_valid {
+            return ValidationResult::ok();
+        }
+
+        // Convert error to diagnostic
+        let error_msg = result
+            .error
+            .unwrap_or_else(|| "Invalid PromQL syntax".to_string());
+        let diagnostic = Diagnostic::error(error_msg).with_source(DiagnosticSource::QuerySyntax);
+
+        ValidationResult::with_diagnostics(vec![diagnostic])
+    }
+
+    /// Validate an EnyaLang query
+    fn validate_enya_lang(&self, query: &str) -> ValidationResult {
         let mut diagnostics = Vec::new();
 
         // Skip validation for empty queries or wildcard
@@ -401,29 +448,96 @@ pub fn is_valid_query(query: &str) -> bool {
 mod tests {
     use super::*;
 
+    // Helper to create an EnyaLang validator
+    fn enya_lang_validator() -> QueryValidator {
+        let mut validator = QueryValidator::new();
+        validator.set_language(QueryLanguage::EnyaLang);
+        validator
+    }
+
+    // ============ PromQL Tests (default language) ============
+
     #[test]
-    fn test_valid_query() {
-        let result = validate_query("env:prod");
+    fn test_promql_valid_metric() {
+        let result = validate_query("http_requests_total");
         assert!(result.is_valid);
         assert!(result.diagnostics.is_empty());
     }
 
     #[test]
-    fn test_wildcard_query() {
-        let result = validate_query("*");
+    fn test_promql_valid_selector() {
+        let result = validate_query(r#"http_requests_total{method="GET"}"#);
         assert!(result.is_valid);
     }
 
     #[test]
-    fn test_invalid_syntax_missing_colon() {
-        let result = validate_query("env prod");
+    fn test_promql_valid_rate() {
+        let result = validate_query("rate(http_requests_total[5m])");
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_promql_valid_aggregation() {
+        let result = validate_query("sum(rate(http_requests_total[5m])) by (job)");
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_promql_valid_complex() {
+        let result = validate_query(r#"sum(rate(http_requests_total{job="api"}[5m])) by (method)"#);
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_promql_empty_query() {
+        let result = validate_query("");
+        assert!(result.is_valid); // Empty is OK (user is still typing)
+    }
+
+    #[test]
+    fn test_promql_invalid_unclosed_brace() {
+        let result = validate_query("http_requests_total{");
         assert!(!result.is_valid);
         assert!(!result.diagnostics.is_empty());
     }
 
     #[test]
-    fn test_unbalanced_parens() {
-        let result = validate_query("(env:prod AND service:db");
+    fn test_promql_invalid_missing_duration() {
+        let result = validate_query("rate(http_requests_total[])");
+        assert!(!result.is_valid);
+    }
+
+    #[test]
+    fn test_promql_invalid_unknown_function() {
+        let result = validate_query("unknown_func(x)");
+        assert!(!result.is_valid);
+    }
+
+    // ============ EnyaLang Tests ============
+
+    #[test]
+    fn test_enya_valid_query() {
+        let result = enya_lang_validator().validate("env:prod");
+        assert!(result.is_valid);
+        assert!(result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_enya_wildcard_query() {
+        let result = enya_lang_validator().validate("*");
+        assert!(result.is_valid);
+    }
+
+    #[test]
+    fn test_enya_invalid_syntax_missing_colon() {
+        let result = enya_lang_validator().validate("env prod");
+        assert!(!result.is_valid);
+        assert!(!result.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_enya_unbalanced_parens() {
+        let result = enya_lang_validator().validate("(env:prod AND service:db");
         assert!(!result.is_valid);
         assert!(
             result
@@ -434,8 +548,8 @@ mod tests {
     }
 
     #[test]
-    fn test_trailing_operator() {
-        let result = validate_query("env:prod AND");
+    fn test_enya_trailing_operator() {
+        let result = enya_lang_validator().validate("env:prod AND");
         assert!(!result.is_valid);
         assert!(
             result
@@ -446,8 +560,8 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_tag_key_warning() {
-        let result = validate_query("foo:bar");
+    fn test_enya_unknown_tag_key_warning() {
+        let result = enya_lang_validator().validate("foo:bar");
         // Should be valid but have a warning
         assert!(result.is_valid);
         assert!(
@@ -459,8 +573,8 @@ mod tests {
     }
 
     #[test]
-    fn test_similar_key_suggestion() {
-        let result = validate_query("evn:prod"); // typo for "env"
+    fn test_enya_similar_key_suggestion() {
+        let result = enya_lang_validator().validate("evn:prod"); // typo for "env"
         assert!(result.is_valid);
         assert!(
             result
@@ -481,25 +595,27 @@ mod tests {
     }
 
     #[test]
-    fn test_aggregation_query_valid() {
+    fn test_enya_aggregation_query_valid() {
+        let validator = enya_lang_validator();
+
         // Basic aggregation
-        let result = validate_query("sum(*)");
+        let result = validator.validate("sum(*)");
         assert!(result.is_valid);
 
         // Aggregation with filter
-        let result = validate_query("sum(env:prod)");
+        let result = validator.validate("sum(env:prod)");
         assert!(result.is_valid);
 
         // Aggregation with by clause
-        let result = validate_query("sum(*) by (host)");
+        let result = validator.validate("sum(*) by (host)");
         assert!(result.is_valid);
 
         // Aggregation with without clause
-        let result = validate_query("avg(env:prod) without (instance)");
+        let result = validator.validate("avg(env:prod) without (instance)");
         assert!(result.is_valid);
 
         // Multiple labels in by clause
-        let result = validate_query("sum(*) by (host, region)");
+        let result = validator.validate("sum(*) by (host, region)");
         assert!(result.is_valid);
     }
 
@@ -511,5 +627,30 @@ mod tests {
         assert!(is_aggregation_query("rate(requests)[5m]"));
         assert!(!is_aggregation_query("env:prod"));
         assert!(!is_aggregation_query("*"));
+    }
+
+    // ============ Language Switching Tests ============
+
+    #[test]
+    fn test_language_switching() {
+        let mut validator = QueryValidator::new();
+        assert_eq!(validator.language(), QueryLanguage::PromQL);
+
+        validator.set_language(QueryLanguage::EnyaLang);
+        assert_eq!(validator.language(), QueryLanguage::EnyaLang);
+
+        validator.set_language(QueryLanguage::PromQL);
+        assert_eq!(validator.language(), QueryLanguage::PromQL);
+    }
+
+    #[test]
+    fn test_promql_default() {
+        // validate_query should use PromQL by default
+        let result = validate_query("rate(http_requests_total[5m])");
+        assert!(result.is_valid);
+
+        // EnyaLang "AND" syntax is invalid in PromQL mode
+        let result = validate_query("env:prod AND");
+        assert!(!result.is_valid);
     }
 }

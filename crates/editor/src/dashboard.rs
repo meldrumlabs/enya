@@ -128,6 +128,8 @@ pub struct Dashboard {
     query_executor: QueryExecutor,
     /// Track which pane is waiting for a query result
     pending_query_tile: Option<TileId>,
+    /// Counter for sequential query pane naming (Query 1, Query 2, ...)
+    next_query_number: usize,
 }
 
 impl Default for Dashboard {
@@ -169,6 +171,7 @@ impl Default for Dashboard {
             pending_open_workspace_finder: false,
             query_executor: QueryExecutor::new(),
             pending_query_tile: None,
+            next_query_number: 1,
         }
     }
 }
@@ -288,6 +291,7 @@ impl Dashboard {
             pending_open_workspace_finder: false,
             query_executor: QueryExecutor::new(),
             pending_query_tile: None,
+            next_query_number: 1,
         }
     }
 
@@ -674,10 +678,15 @@ impl Dashboard {
 
         // Create a QueryPane (buffer + chart) for the metric
         // Use real query pane when connected to a backend, demo pane otherwise
+        let query_number = self.next_query_number;
+        self.next_query_number += 1;
         let pane: Box<dyn Component> = if self.query_executor.is_connected() {
-            Box::new(QueryPane::for_metric(metric_name))
+            Box::new(QueryPane::for_metric_with_number(metric_name, query_number))
         } else {
-            Box::new(QueryPane::with_demo_metric(metric_name))
+            Box::new(QueryPane::with_demo_metric_numbered(
+                metric_name,
+                query_number,
+            ))
         };
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
@@ -844,7 +853,17 @@ impl Dashboard {
     /// Process query execution: poll for pending results and execute queries for panes that need refresh
     fn process_query_execution(&mut self, ctx: &egui::Context) {
         // 0. Poll for metric names and label names fetch completion
-        self.query_executor.poll_metric_names();
+        if self.query_executor.poll_metric_names() {
+            // Update buffer editor if it's open
+            if self.buffer_editor.is_open() {
+                let metric_names = self.query_executor.metric_names().to_vec();
+                log::debug!(
+                    "Updating buffer editor with {} newly fetched metric names",
+                    metric_names.len()
+                );
+                self.buffer_editor.set_metric_names(metric_names);
+            }
+        }
         self.query_executor.poll_label_names();
 
         // 0b. Poll for per-metric labels and update the finder/buffer editor if labels were received
@@ -860,7 +879,7 @@ impl Dashboard {
                 self.metrics_finder.update_metric_tags(&metric_name, tags);
 
                 // Also update buffer editor completions if editing this metric
-                if self.buffer_editor.editing_buffer_name() == Some(&metric_name) {
+                if self.buffer_editor.editing_metric_name() == Some(metric_name.as_str()) {
                     self.buffer_editor
                         .set_completions_from_labels(&labels.labels);
                     log::debug!(
@@ -886,7 +905,7 @@ impl Dashboard {
 
         // 0d. If buffer editor is open and connected, fetch labels for the metric being edited
         if self.buffer_editor.is_open() && self.query_executor.is_connected() {
-            if let Some(metric_name) = self.buffer_editor.editing_buffer_name() {
+            if let Some(metric_name) = self.buffer_editor.editing_metric_name() {
                 // Only fetch if not already cached and not currently fetching this metric
                 if !self.query_executor.has_metric_labels(metric_name)
                     && self.query_executor.fetching_metric() != Some(metric_name)
@@ -1010,12 +1029,26 @@ impl Dashboard {
                         self.buffer_editor.clear_completions();
                     }
 
+                    // Set known metric names for completion
+                    let metric_names = self.query_executor.metric_names().to_vec();
+                    log::debug!(
+                        "Setting {} metric names for completion: {:?}",
+                        metric_names.len(),
+                        metric_names.iter().take(5).collect::<Vec<_>>()
+                    );
+                    self.buffer_editor.set_metric_names(metric_names);
+
                     log::debug!("Opening buffer editor for QueryPane");
                 } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
                     let query = buffer.saved_content().to_string();
                     let name = buffer.name().to_string();
                     self.buffer_editor.open(&query, &name);
                     self.editing_tile_id = Some(tile_id);
+
+                    // Set known metric names for completion
+                    let metric_names = self.query_executor.metric_names().to_vec();
+                    self.buffer_editor.set_metric_names(metric_names);
+
                     log::debug!("Opening buffer editor for Buffer");
                 }
             }
@@ -2636,14 +2669,21 @@ impl Dashboard {
         // Clear existing panes and reset the tree
         self.clear_all_panes();
 
+        // Reset query counter for new workspace
+        self.next_query_number = 1;
+
         // Phase 1: Insert all panes and collect their TileIds
         let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(workspace.panes.len());
 
         for pane_config in &workspace.panes {
-            let mut query_pane = QueryPane::new(&pane_config.query);
-            if !pane_config.name.is_empty() {
-                query_pane.set_name(&pane_config.name);
-            }
+            let query_number = self.next_query_number;
+            self.next_query_number += 1;
+
+            let mut query_pane = QueryPane::from_config_numbered(
+                &pane_config.query,
+                &pane_config.name,
+                query_number,
+            );
             if !pane_config.tag.is_empty() {
                 query_pane.set_tag(&pane_config.tag);
             }

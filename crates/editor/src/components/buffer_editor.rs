@@ -62,19 +62,21 @@ impl QuerySyntaxColors {
     }
 }
 
-/// Create a syntax-highlighted layout for query text
-fn highlight_query_detailed(text: &str, theme: AppTheme, font_id: FontId) -> LayoutJob {
+/// Create a syntax-highlighted layout for PromQL text
+fn highlight_promql(text: &str, theme: AppTheme, font_id: FontId) -> LayoutJob {
     let colors = QuerySyntaxColors::for_theme(theme);
     let mut job = LayoutJob::default();
 
     let mut i = 0;
+    let bytes = text.as_bytes();
 
     while i < text.len() {
         let c = text[i..].chars().next().unwrap();
         let c_len = c.len_utf8();
 
         match c {
-            '(' | ')' => {
+            // Delimiters and operators
+            '(' | ')' | '[' | ']' | '{' | '}' => {
                 job.append(
                     &text[i..i + c_len],
                     0.0,
@@ -86,19 +88,76 @@ fn highlight_query_detailed(text: &str, theme: AppTheme, font_id: FontId) -> Lay
                 );
                 i += c_len;
             }
-            '!' => {
+            ',' | ';' => {
                 job.append(
-                    "!",
+                    &text[i..i + c_len],
                     0.0,
                     TextFormat {
                         font_id: font_id.clone(),
-                        color: colors.negation,
+                        color: colors.colon,
                         ..Default::default()
                     },
                 );
                 i += c_len;
             }
-            ' ' | '\t' | '\n' => {
+            // Operators
+            '+' | '-' | '*' | '/' | '%' | '^' | '=' | '!' | '<' | '>' | '~' => {
+                // Check for multi-char operators: ==, !=, <=, >=, =~, !~
+                let op_end = i + c_len;
+                let next_char = if op_end < text.len() {
+                    text[op_end..].chars().next()
+                } else {
+                    None
+                };
+                let op_len = match (c, next_char) {
+                    ('=', Some('=')) | ('=', Some('~')) => 2,
+                    ('!', Some('=')) | ('!', Some('~')) => 2,
+                    ('<', Some('=')) | ('>', Some('=')) => 2,
+                    _ => c_len,
+                };
+                job.append(
+                    &text[i..i + op_len],
+                    0.0,
+                    TextFormat {
+                        font_id: font_id.clone(),
+                        color: colors.negation, // Use negation color for operators
+                        ..Default::default()
+                    },
+                );
+                i += op_len;
+            }
+            // Strings (label values)
+            '"' | '\'' | '`' => {
+                let quote = c;
+                let start = i;
+                i += c_len;
+                // Find end of string
+                while i < text.len() {
+                    let sc = text[i..].chars().next().unwrap();
+                    let sc_len = sc.len_utf8();
+                    if sc == '\\' && i + sc_len < text.len() {
+                        // Skip escaped char
+                        i += sc_len;
+                        i += text[i..].chars().next().map_or(0, |c| c.len_utf8());
+                    } else if sc == quote {
+                        i += sc_len;
+                        break;
+                    } else {
+                        i += sc_len;
+                    }
+                }
+                job.append(
+                    &text[start..i],
+                    0.0,
+                    TextFormat {
+                        font_id: font_id.clone(),
+                        color: colors.tag_value,
+                        ..Default::default()
+                    },
+                );
+            }
+            // Whitespace
+            ' ' | '\t' | '\n' | '\r' => {
                 job.append(
                     &text[i..i + c_len],
                     0.0,
@@ -110,111 +169,107 @@ fn highlight_query_detailed(text: &str, theme: AppTheme, font_id: FontId) -> Lay
                 );
                 i += c_len;
             }
-            _ => {
-                // Read a word (until whitespace or special char)
-                let word_start = i;
+            // Numbers and durations
+            '0'..='9' | '.' => {
+                let start = i;
+                // Consume digits and decimal point
                 while i < text.len() {
-                    let next_c = text[i..].chars().next().unwrap();
-                    if matches!(next_c, ' ' | '\t' | '\n' | '(' | ')' | '!') {
+                    let nc = bytes.get(i).copied().unwrap_or(0);
+                    if nc.is_ascii_digit()
+                        || nc == b'.'
+                        || nc == b'e'
+                        || nc == b'E'
+                        || nc == b'+'
+                        || nc == b'-'
+                    {
+                        i += 1;
+                    } else {
                         break;
                     }
-                    i += next_c.len_utf8();
                 }
-                let word = &text[word_start..i];
-
-                // Classify and color the word
-                let upper = word.to_uppercase();
-                if matches!(upper.as_str(), "AND" | "OR" | "NOT") {
-                    // Keyword
-                    job.append(
-                        word,
-                        0.0,
-                        TextFormat {
-                            font_id: font_id.clone(),
-                            color: colors.keyword,
-                            ..Default::default()
-                        },
-                    );
-                } else if word == "*" {
-                    // Standalone wildcard
-                    job.append(
-                        word,
-                        0.0,
-                        TextFormat {
-                            font_id: font_id.clone(),
-                            color: colors.wildcard,
-                            ..Default::default()
-                        },
-                    );
-                } else if let Some(colon_pos) = word.find(':') {
-                    // Tag expression: key:value or key:value*
-                    let key = &word[..colon_pos];
-                    let colon = &word[colon_pos..colon_pos + 1];
-                    let value = &word[colon_pos + 1..];
-
-                    // Key
-                    job.append(
-                        key,
-                        0.0,
-                        TextFormat {
-                            font_id: font_id.clone(),
-                            color: colors.tag_key,
-                            ..Default::default()
-                        },
-                    );
-                    // Colon
-                    job.append(
-                        colon,
-                        0.0,
-                        TextFormat {
-                            font_id: font_id.clone(),
-                            color: colors.colon,
-                            ..Default::default()
-                        },
-                    );
-                    // Value (check for wildcard suffix)
-                    if let Some(value_part) = value.strip_suffix('*') {
-                        job.append(
-                            value_part,
-                            0.0,
-                            TextFormat {
-                                font_id: font_id.clone(),
-                                color: colors.tag_value,
-                                ..Default::default()
-                            },
-                        );
-                        job.append(
-                            "*",
-                            0.0,
-                            TextFormat {
-                                font_id: font_id.clone(),
-                                color: colors.wildcard,
-                                ..Default::default()
-                            },
-                        );
+                // Check for duration suffix (s, m, h, d, w, y, ms)
+                let has_duration_suffix = if i < text.len() {
+                    let nc = bytes.get(i).copied().unwrap_or(0);
+                    if nc == b'm' && bytes.get(i + 1).copied() == Some(b's') {
+                        i += 2;
+                        true
+                    } else if matches!(nc, b's' | b'm' | b'h' | b'd' | b'w' | b'y') {
+                        i += 1;
+                        true
                     } else {
-                        job.append(
-                            value,
-                            0.0,
-                            TextFormat {
-                                font_id: font_id.clone(),
-                                color: colors.tag_value,
-                                ..Default::default()
-                            },
-                        );
+                        false
                     }
                 } else {
-                    // Unknown/default
-                    job.append(
-                        word,
-                        0.0,
-                        TextFormat {
-                            font_id: font_id.clone(),
-                            color: colors.default,
-                            ..Default::default()
-                        },
-                    );
+                    false
+                };
+                let color = if has_duration_suffix {
+                    colors.wildcard // Use wildcard color for durations
+                } else {
+                    colors.default
+                };
+                job.append(
+                    &text[start..i],
+                    0.0,
+                    TextFormat {
+                        font_id: font_id.clone(),
+                        color,
+                        ..Default::default()
+                    },
+                );
+            }
+            // Identifiers (metric names, label names, functions, keywords)
+            _ if c.is_alphabetic() || c == '_' || c == ':' => {
+                let start = i;
+                while i < text.len() {
+                    let nc = text[i..].chars().next().unwrap();
+                    if nc.is_alphanumeric() || nc == '_' || nc == ':' {
+                        i += nc.len_utf8();
+                    } else {
+                        break;
+                    }
                 }
+                let word = &text[start..i];
+                let lower = word.to_lowercase();
+
+                // Classify the word
+                let color = if enya_promql::is_callable(&lower) || enya_promql::is_keyword(&lower) {
+                    colors.keyword // Functions/aggregations/keywords
+                } else {
+                    // Check if it looks like a label name (inside {})
+                    // by looking back for { without seeing }
+                    let before = &text[..start];
+                    let in_selector = before
+                        .rfind('{')
+                        .is_some_and(|brace_pos| before[brace_pos..].rfind('}').is_none());
+                    if in_selector {
+                        colors.tag_key // Label name
+                    } else {
+                        colors.default // Metric name or other identifier
+                    }
+                };
+
+                job.append(
+                    word,
+                    0.0,
+                    TextFormat {
+                        font_id: font_id.clone(),
+                        color,
+                        ..Default::default()
+                    },
+                );
+            }
+            // Anything else
+            _ => {
+                job.append(
+                    &text[i..i + c_len],
+                    0.0,
+                    TextFormat {
+                        font_id: font_id.clone(),
+                        color: colors.default,
+                        ..Default::default()
+                    },
+                );
+                i += c_len;
             }
         }
     }
@@ -280,6 +335,8 @@ pub struct BufferEditor {
     validation_result: Option<ValidationResult>,
     /// Whether inline diagnostics are shown
     show_inline_diagnostics: bool,
+    /// The original metric name extracted when opening (for label fetching)
+    original_metric_name: Option<String>,
 }
 
 impl Default for BufferEditor {
@@ -306,6 +363,7 @@ impl BufferEditor {
             validator: QueryValidator::new(),
             validation_result: None,
             show_inline_diagnostics: true,
+            original_metric_name: None,
         };
 
         // TODO: Load tag keys and values from metrics store instead of these defaults.
@@ -399,6 +457,25 @@ impl BufferEditor {
         self.completion.set_tag_values(key, values);
     }
 
+    /// Set known metric names for completion
+    pub fn set_metric_names(&mut self, metrics: Vec<String>) {
+        log::debug!(
+            "BufferEditor::set_metric_names called with {} metrics, is_open={}",
+            metrics.len(),
+            self.is_open
+        );
+        self.completion.set_metric_names(metrics);
+        // Refresh completion if editor is open (so newly fetched metrics appear immediately)
+        if self.is_open {
+            log::debug!(
+                "Refreshing completion with query='{}', cursor={}",
+                self.query,
+                self.cursor_position
+            );
+            self.completion.update(&self.query, self.cursor_position);
+        }
+    }
+
     /// Clear all completions (use before setting new completions from backend)
     pub fn clear_completions(&mut self) {
         self.completion.clear();
@@ -447,6 +524,38 @@ impl BufferEditor {
         }
     }
 
+    /// Get the original metric name that was extracted when the editor was opened.
+    /// This is used for label fetching - we want to fetch labels for the original metric,
+    /// not for partial text as the user types (e.g., "r", "ra", "rat", "rate").
+    pub fn editing_metric_name(&self) -> Option<&str> {
+        if self.is_open {
+            self.original_metric_name.as_deref()
+        } else {
+            None
+        }
+    }
+
+    /// Extract a metric name from a query string.
+    /// For PromQL, this is the first identifier before any `{`, `(`, or whitespace.
+    fn extract_metric_name(query: &str) -> Option<String> {
+        if query.is_empty() {
+            return None;
+        }
+
+        // Find the first "word" in the query - this is typically the metric name
+        // Stop at any delimiter like {, (, [, whitespace, or operators
+        let metric: String = query
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
+            .collect();
+
+        if metric.is_empty() {
+            None
+        } else {
+            Some(metric)
+        }
+    }
+
     /// Open the editor with the given query, buffer name, and query state
     pub fn open(&mut self, query: &str, buffer_name: &str) {
         self.open_with_state(query, buffer_name, QueryState::default());
@@ -461,6 +570,10 @@ impl BufferEditor {
         self.needs_focus = true;
         self.query_state = state.clone();
         self.original_query_state = state;
+        // Initialize cursor position to end of query so completion context is correct
+        self.cursor_position = query.len();
+        // Extract and store the original metric name for label fetching
+        self.original_metric_name = Self::extract_metric_name(query);
     }
 
     /// Close the editor without saving
@@ -476,6 +589,7 @@ impl BufferEditor {
         self.text_edit_rect = None;
         self.pending_cursor = None;
         self.validation_result = None;
+        self.original_metric_name = None;
     }
 
     /// Validate the current query and cache the result
@@ -758,7 +872,7 @@ impl BufferEditor {
                             move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
                                 let text_str = text.as_str();
                                 let mut job =
-                                    highlight_query_detailed(text_str, theme, editor_font.clone());
+                                    highlight_promql(text_str, theme, editor_font.clone());
                                 job.wrap.max_width = wrap_width;
                                 ui.fonts_mut(|f| f.layout_job(job))
                             };
@@ -773,11 +887,9 @@ impl BufferEditor {
                                     .id(text_edit_id)
                                     .font(typography::code_lg())
                                     .hint_text(
-                                        RichText::new(
-                                            "Enter query (e.g., env:prod AND service:db)",
-                                        )
-                                        .font(typography::code_lg())
-                                        .color(text_color(self.theme).gamma_multiply(0.4)),
+                                        RichText::new("e.g., rate(http_requests_total[5m])")
+                                            .font(typography::code_lg())
+                                            .color(text_color(self.theme).gamma_multiply(0.4)),
                                     )
                                     .desired_width(editor_width - 24.0)
                                     .desired_rows(6)

@@ -22,6 +22,7 @@ egui_nerdfonts = { workspace = true }
 egui_tiles = { workspace = true, features = ["serde"] }
 egui_plot = { workspace = true }
 enya-lang = { workspace = true }
+enya-promql = { workspace = true }
 enya-common = { workspace = true }
 enya-client = { workspace = true }
 image = { workspace = true, features = ["png"] }

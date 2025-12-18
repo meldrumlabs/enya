@@ -97,23 +97,25 @@ impl QueryPane {
 
     /// Create a query pane with demo data for a metric
     pub fn with_demo_metric(metric_name: impl Into<String>) -> Self {
-        let name = metric_name.into();
-        let query = name.clone(); // For demo, query is just the metric name
+        let metric = metric_name.into();
+        let query = metric.clone(); // For demo, query is just the metric name
         let mut pane = Self::new(&query);
-        pane.buffer.set_name(&name);
-        pane.visualization.set_metric_name(&name);
+        // Use sequential "Query N" naming instead of metric name
+        // so the pane name doesn't become misleading if user changes the query
+        pane.visualization.set_metric_name(&metric);
         pane
     }
 
     /// Create a query pane for a real backend (no demo data, needs refresh)
-    pub fn for_metric(metric_name: impl Into<String>) -> Self {
-        let name = metric_name.into();
+    pub fn for_metric_with_number(metric_name: impl Into<String>, query_number: usize) -> Self {
+        let metric = metric_name.into();
         let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        let pane_name = format!("Query {query_number}");
 
-        // Use "*" as the default query (match all series for this metric)
-        let query = "*".to_string();
-        let buffer = Buffer::with_name(query.clone(), &name);
-        let visualization = Visualization::new(VisualizationType::default(), &name);
+        // Use the metric name as the default query (PromQL mode)
+        let query = metric.clone();
+        let buffer = Buffer::with_name(query.clone(), &pane_name);
+        let visualization = Visualization::new(VisualizationType::default(), &pane_name);
 
         Self {
             id,
@@ -125,6 +127,57 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: true, // Trigger query on first frame
+        }
+    }
+
+    /// Create a query pane with demo data and a specific query number
+    pub fn with_demo_metric_numbered(metric_name: impl Into<String>, query_number: usize) -> Self {
+        let metric = metric_name.into();
+        let query = metric.clone();
+        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        let pane_name = format!("Query {query_number}");
+
+        let buffer = Buffer::with_name(query.clone(), &pane_name);
+        let mut visualization = Visualization::new(VisualizationType::default(), &pane_name);
+        visualization.set_metric_name(&metric);
+        populate_demo_data(&mut visualization, &query);
+
+        Self {
+            id,
+            buffer,
+            visualization,
+            theme: AppTheme::default(),
+            api_key: String::new(),
+            buffer_expanded: false,
+            query_state: QueryState::default(),
+            tag: String::new(),
+            needs_refresh: false,
+        }
+    }
+
+    /// Create a query pane from workspace config with a specific query number
+    pub fn from_config_numbered(query: &str, name: &str, query_number: usize) -> Self {
+        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        // Use provided name if not empty, otherwise use sequential naming
+        let pane_name = if name.is_empty() {
+            format!("Query {query_number}")
+        } else {
+            name.to_string()
+        };
+
+        let buffer = Buffer::with_name(query.to_string(), &pane_name);
+        let visualization = Visualization::new(VisualizationType::default(), &pane_name);
+
+        Self {
+            id,
+            buffer,
+            visualization,
+            theme: AppTheme::default(),
+            api_key: String::new(),
+            buffer_expanded: false,
+            query_state: QueryState::default(),
+            tag: String::new(),
+            needs_refresh: true,
         }
     }
 

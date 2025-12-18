@@ -1,0 +1,24 @@
+[package]
+name = "enya-promql"
+description = "PromQL parser and autocomplete for Enya"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["promql", "prometheus", "parser", "autocomplete"]
+categories = ["parsing", "development-tools"]
+
+[dependencies]
+promql-parser = "0.6"
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "promql_bench"
+harness = false
+
+[lints]
+workspace = true

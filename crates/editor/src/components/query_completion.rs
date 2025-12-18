@@ -1,14 +1,32 @@
-//! Inline completion popup for enya-lang queries.
+//! Inline completion popup for PromQL and enya-lang queries.
 //!
-//! Provides context-aware suggestions while typing filter queries.
+//! Provides context-aware suggestions while typing queries in either language mode.
 
 use egui::{Color32, Key};
-use enya_lang::completion::{Context, analyze, syntax_suggestions};
+use enya_lang::completion as enya_completion;
+use enya_promql::completion as promql_completion;
 
 use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
+
+/// The query language mode for completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QueryLanguage {
+    /// PromQL mode (default) - full Prometheus query language
+    #[default]
+    PromQL,
+    /// EnyaLang mode - simplified filter syntax
+    EnyaLang,
+}
+
+/// Internal context enum that wraps both language contexts.
+#[derive(Debug, Clone)]
+enum CompletionContext {
+    PromQL(promql_completion::Context),
+    EnyaLang(enya_completion::Context),
+}
 
 /// A suggestion item for the completion popup
 #[derive(Debug, Clone)]
@@ -38,6 +56,8 @@ pub enum CompletionKind {
     Function,
     /// Duration like 1m, 5m, 1h, 1d
     Duration,
+    /// Metric name like node_cpu_seconds_total
+    Metric,
 }
 
 impl CompletionKind {
@@ -49,6 +69,7 @@ impl CompletionKind {
             Self::TagValue => "value",
             Self::Function => "function",
             Self::Duration => "duration",
+            Self::Metric => "metric",
         }
     }
 
@@ -60,6 +81,7 @@ impl CompletionKind {
             Self::TagValue => semantic_icons::completion::TAG_VALUE,
             Self::Function => semantic_icons::completion::FUNCTION,
             Self::Duration => semantic_icons::completion::DURATION,
+            Self::Metric => semantic_icons::completion::METRIC,
         }
     }
 }
@@ -85,12 +107,16 @@ pub struct QueryCompletion {
     selected_index: usize,
     /// Current theme
     theme: AppTheme,
-    /// Known tag keys (from metrics store)
+    /// Known tag keys / label names (from metrics store)
     known_tag_keys: Vec<String>,
-    /// Known tag values per key
+    /// Known tag values / label values per key
     known_tag_values: std::collections::HashMap<String, Vec<String>>,
+    /// Known metric names (for suggesting inside functions)
+    known_metrics: Vec<String>,
     /// Current completion context
-    current_context: Option<Context>,
+    current_context: Option<CompletionContext>,
+    /// Current query language mode
+    language: QueryLanguage,
 }
 
 impl Default for QueryCompletion {
@@ -108,8 +134,23 @@ impl QueryCompletion {
             theme: AppTheme::default(),
             known_tag_keys: Vec::new(),
             known_tag_values: std::collections::HashMap::new(),
+            known_metrics: Vec::new(),
             current_context: None,
+            language: QueryLanguage::default(),
         }
+    }
+
+    /// Get the current query language mode.
+    pub fn language(&self) -> QueryLanguage {
+        self.language
+    }
+
+    /// Set the query language mode.
+    pub fn set_language(&mut self, language: QueryLanguage) {
+        self.language = language;
+        // Clear context when switching languages
+        self.current_context = None;
+        self.close();
     }
 
     /// Set the theme
@@ -127,10 +168,16 @@ impl QueryCompletion {
         self.known_tag_values.insert(key.to_string(), values);
     }
 
-    /// Clear all known tag keys and values
+    /// Set known metric names for completion
+    pub fn set_metric_names(&mut self, metrics: Vec<String>) {
+        self.known_metrics = metrics;
+    }
+
+    /// Clear all known tag keys, values, and metrics
     pub fn clear(&mut self) {
         self.known_tag_keys.clear();
         self.known_tag_values.clear();
+        self.known_metrics.clear();
     }
 
     /// Check if the popup is open
@@ -148,17 +195,262 @@ impl QueryCompletion {
 
     /// Update completion suggestions based on current input and cursor position
     pub fn update(&mut self, input: &str, cursor: usize) {
-        let ctx = analyze(input, cursor);
-        self.current_context = Some(ctx.clone());
         self.items.clear();
         self.selected_index = 0;
+
+        match self.language {
+            QueryLanguage::PromQL => self.update_promql(input, cursor),
+            QueryLanguage::EnyaLang => self.update_enya_lang(input, cursor),
+        }
+
+        // Show popup if we have items
+        self.is_open = !self.items.is_empty();
+    }
+
+    /// Update completion for PromQL mode
+    fn update_promql(&mut self, input: &str, cursor: usize) {
+        use promql_completion::Context;
+
+        let ctx = promql_completion::analyze(input, cursor);
+        self.current_context = Some(CompletionContext::PromQL(ctx.clone()));
+
+        // Get syntax suggestions from promql
+        let suggestions = promql_completion::syntax_suggestions(&ctx);
+
+        match &ctx {
+            Context::Empty | Context::ExpectExpr => {
+                // Suggest functions/aggregations
+                for s in suggestions {
+                    let kind = if enya_promql::is_callable(s) {
+                        CompletionKind::Function
+                    } else {
+                        CompletionKind::Keyword
+                    };
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: kind.icon(),
+                        kind,
+                    });
+                }
+                // Also suggest metric names
+                for metric in &self.known_metrics {
+                    self.items.push(CompletionItem {
+                        text: metric.clone(),
+                        label: metric.clone(),
+                        icon: CompletionKind::Metric.icon(),
+                        kind: CompletionKind::Metric,
+                    });
+                }
+            }
+
+            Context::InName(partial) => {
+                // Filter functions/keywords by partial match
+                for s in suggestions {
+                    let kind = if enya_promql::is_callable(s) {
+                        CompletionKind::Function
+                    } else if enya_promql::is_keyword(s) {
+                        CompletionKind::Keyword
+                    } else {
+                        CompletionKind::Operator
+                    };
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: kind.icon(),
+                        kind,
+                    });
+                }
+                // Also suggest metric names filtered by partial
+                let partial_lower = partial.to_lowercase();
+                for metric in &self.known_metrics {
+                    if metric.to_lowercase().starts_with(&partial_lower) {
+                        self.items.push(CompletionItem {
+                            text: metric.clone(),
+                            label: metric.clone(),
+                            icon: CompletionKind::Metric.icon(),
+                            kind: CompletionKind::Metric,
+                        });
+                    }
+                }
+            }
+
+            Context::InSelector => {
+                // Suggest label names (no partial typed yet)
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::TagKey.icon(),
+                        kind: CompletionKind::TagKey,
+                    });
+                }
+                // Add all known label names
+                for key in &self.known_tag_keys {
+                    self.items.push(CompletionItem {
+                        text: key.clone(),
+                        label: key.clone(),
+                        icon: CompletionKind::TagKey.icon(),
+                        kind: CompletionKind::TagKey,
+                    });
+                }
+            }
+
+            Context::InLabelName(partial) => {
+                // Suggest label names filtered by partial match
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::TagKey.icon(),
+                        kind: CompletionKind::TagKey,
+                    });
+                }
+                // Add known label names filtered by partial
+                let partial_lower = partial.to_lowercase();
+                for key in &self.known_tag_keys {
+                    if key.to_lowercase().starts_with(&partial_lower) {
+                        self.items.push(CompletionItem {
+                            text: key.clone(),
+                            label: key.clone(),
+                            icon: CompletionKind::TagKey.icon(),
+                            kind: CompletionKind::TagKey,
+                        });
+                    }
+                }
+            }
+
+            Context::ExpectLabelOp => {
+                // Suggest label operators
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Operator.icon(),
+                        kind: CompletionKind::Operator,
+                    });
+                }
+            }
+
+            Context::InLabelValue { key, partial } => {
+                // Suggest label values
+                if let Some(values) = self.known_tag_values.get(key) {
+                    let partial_lower = partial.to_lowercase();
+                    for value in values {
+                        if partial.is_empty() || value.to_lowercase().starts_with(&partial_lower) {
+                            self.items.push(CompletionItem {
+                                text: value.clone(),
+                                label: value.clone(),
+                                icon: CompletionKind::TagValue.icon(),
+                                kind: CompletionKind::TagValue,
+                            });
+                        }
+                    }
+                }
+            }
+
+            Context::ExpectLabelCommaOrClose => {
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Operator.icon(),
+                        kind: CompletionKind::Operator,
+                    });
+                }
+            }
+
+            Context::InDuration(_) => {
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Duration.icon(),
+                        kind: CompletionKind::Duration,
+                    });
+                }
+            }
+
+            Context::ExpectModifier | Context::ExpectBinaryOp => {
+                for s in suggestions {
+                    let kind = if enya_promql::is_keyword(s) {
+                        CompletionKind::Keyword
+                    } else {
+                        CompletionKind::Operator
+                    };
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: kind.icon(),
+                        kind,
+                    });
+                }
+            }
+
+            Context::ExpectGroupingOpen => {
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Operator.icon(),
+                        kind: CompletionKind::Operator,
+                    });
+                }
+            }
+
+            Context::InGroupingLabels | Context::InGroupingLabelName(_) => {
+                // Suggest closing paren and label names
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Operator.icon(),
+                        kind: CompletionKind::Operator,
+                    });
+                }
+                // Add known label names
+                let partial = match &ctx {
+                    Context::InGroupingLabelName(p) => p.to_lowercase(),
+                    _ => String::new(),
+                };
+                for key in &self.known_tag_keys {
+                    if partial.is_empty() || key.to_lowercase().starts_with(&partial) {
+                        self.items.push(CompletionItem {
+                            text: key.clone(),
+                            label: key.clone(),
+                            icon: CompletionKind::TagKey.icon(),
+                            kind: CompletionKind::TagKey,
+                        });
+                    }
+                }
+            }
+
+            Context::ExpectAtModifier => {
+                for s in suggestions {
+                    self.items.push(CompletionItem {
+                        text: s.to_string(),
+                        label: s.to_string(),
+                        icon: CompletionKind::Function.icon(),
+                        kind: CompletionKind::Function,
+                    });
+                }
+            }
+        }
+    }
+
+    /// Update completion for EnyaLang mode
+    fn update_enya_lang(&mut self, input: &str, cursor: usize) {
+        use enya_completion::Context;
+
+        let ctx = enya_completion::analyze(input, cursor);
+        self.current_context = Some(CompletionContext::EnyaLang(ctx.clone()));
 
         match &ctx {
             Context::ExpectQueryStart => {
                 // At start, suggest aggregation functions and tag keys
-                let suggestions = syntax_suggestions(&ctx);
+                let suggestions = enya_completion::syntax_suggestions(&ctx);
                 for s in suggestions {
-                    let kind = if enya_lang::completion::ALL_FUNCTIONS.contains(&s) {
+                    let kind = if enya_completion::ALL_FUNCTIONS.contains(&s) {
                         CompletionKind::Function
                     } else {
                         CompletionKind::Operator
@@ -182,7 +474,7 @@ impl QueryCompletion {
             }
             Context::ExpectExpr | Context::ExpectOperator => {
                 // Add syntax suggestions
-                let suggestions = syntax_suggestions(&ctx);
+                let suggestions = enya_completion::syntax_suggestions(&ctx);
                 for s in suggestions {
                     let kind = if matches!(s, "AND" | "OR") {
                         CompletionKind::Keyword
@@ -211,7 +503,7 @@ impl QueryCompletion {
             }
             Context::ExpectAggregationOpen(_) => {
                 // After aggregation function, suggest opening delimiter
-                let suggestions = syntax_suggestions(&ctx);
+                let suggestions = enya_completion::syntax_suggestions(&ctx);
                 for s in suggestions {
                     self.items.push(CompletionItem {
                         text: s.to_string(),
@@ -223,7 +515,7 @@ impl QueryCompletion {
             }
             Context::ExpectTimeRangeOrGrouping(_) => {
                 // After aggregation close, suggest time range or by/without
-                let suggestions = syntax_suggestions(&ctx);
+                let suggestions = enya_completion::syntax_suggestions(&ctx);
                 for s in suggestions {
                     let kind = if s == "[" {
                         CompletionKind::Operator
@@ -240,7 +532,7 @@ impl QueryCompletion {
             }
             Context::ExpectGroupingOrEnd => {
                 // After aggregation close or time range, suggest by/without
-                let suggestions = syntax_suggestions(&ctx);
+                let suggestions = enya_completion::syntax_suggestions(&ctx);
                 for s in suggestions {
                     self.items.push(CompletionItem {
                         text: s.to_string(),
@@ -252,7 +544,7 @@ impl QueryCompletion {
             }
             Context::ExpectGroupingOpen | Context::ExpectLabelListContinue => {
                 // Suggest opening paren or comma/close
-                let suggestions = syntax_suggestions(&ctx);
+                let suggestions = enya_completion::syntax_suggestions(&ctx);
                 for s in suggestions {
                     self.items.push(CompletionItem {
                         text: s.to_string(),
@@ -275,7 +567,7 @@ impl QueryCompletion {
             }
             Context::InAggregationFunc(partial) => {
                 // Filter aggregation functions by partial match
-                let suggestions = syntax_suggestions(&ctx);
+                let suggestions = enya_completion::syntax_suggestions(&ctx);
                 for s in suggestions {
                     self.items.push(CompletionItem {
                         text: s.to_string(),
@@ -345,7 +637,7 @@ impl QueryCompletion {
             }
             Context::ExpectDuration | Context::InDuration(_) => {
                 // Suggest common durations
-                let suggestions = syntax_suggestions(&ctx);
+                let suggestions = enya_completion::syntax_suggestions(&ctx);
                 for s in suggestions {
                     self.items.push(CompletionItem {
                         text: s.to_string(),
@@ -356,9 +648,6 @@ impl QueryCompletion {
                 }
             }
         }
-
-        // Show popup if we have items
-        self.is_open = !self.items.is_empty();
     }
 
     /// Navigate selection up
@@ -385,6 +674,130 @@ impl QueryCompletion {
     pub fn apply_completion(&self, input: &str, cursor: usize) -> Option<(String, usize)> {
         let item = self.selected_item()?;
         let ctx = self.current_context.as_ref()?;
+
+        match ctx {
+            CompletionContext::PromQL(ctx) => {
+                self.apply_promql_completion(input, cursor, item, ctx)
+            }
+            CompletionContext::EnyaLang(ctx) => {
+                self.apply_enya_lang_completion(input, cursor, item, ctx)
+            }
+        }
+    }
+
+    /// Apply completion for PromQL context
+    fn apply_promql_completion(
+        &self,
+        input: &str,
+        cursor: usize,
+        item: &CompletionItem,
+        ctx: &promql_completion::Context,
+    ) -> Option<(String, usize)> {
+        use promql_completion::Context;
+
+        let (new_input, new_cursor) = match ctx {
+            Context::Empty
+            | Context::ExpectExpr
+            | Context::ExpectLabelOp
+            | Context::ExpectLabelCommaOrClose
+            | Context::ExpectModifier
+            | Context::ExpectGroupingOpen
+            | Context::ExpectBinaryOp
+            | Context::ExpectAtModifier => {
+                // Insert at cursor, possibly with space before
+                let before = &input[..cursor];
+                let after = &input[cursor..];
+
+                let needs_space = !before.is_empty()
+                    && !before.ends_with(char::is_whitespace)
+                    && !before.ends_with('(')
+                    && !before.ends_with('{')
+                    && !before.ends_with('[');
+                let prefix = if needs_space { " " } else { "" };
+
+                // Add trailing space after keywords and functions
+                let needs_suffix = matches!(
+                    item.kind,
+                    CompletionKind::Keyword | CompletionKind::Function
+                ) && !item.text.ends_with('(')
+                    && !item.text.ends_with(')')
+                    && !after.starts_with(char::is_whitespace)
+                    && !after.starts_with('(');
+                let suffix = if needs_suffix { " " } else { "" };
+
+                let new_input = format!("{before}{prefix}{}{suffix}{after}", item.text);
+                let new_cursor = cursor + prefix.len() + item.text.len() + suffix.len();
+                (new_input, new_cursor)
+            }
+
+            Context::InName(partial)
+            | Context::InLabelName(partial)
+            | Context::InGroupingLabelName(partial) => {
+                // Replace the partial with the full text
+                let word_start = find_word_start(input, cursor, partial);
+                let before = &input[..word_start];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = word_start + item.text.len();
+                (new_input, new_cursor)
+            }
+
+            Context::InSelector | Context::InGroupingLabels => {
+                // Insert at cursor
+                let before = &input[..cursor];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = cursor + item.text.len();
+                (new_input, new_cursor)
+            }
+
+            Context::InLabelValue { partial, .. } => {
+                // Find where the value starts (after the quote or = operator)
+                let before_cursor = &input[..cursor];
+
+                // Look for the quote or the = operator
+                let value_start = before_cursor
+                    .rfind('"')
+                    .or_else(|| before_cursor.rfind('\''))
+                    .or_else(|| before_cursor.rfind('='))
+                    .map(|i| i + 1)
+                    .unwrap_or(cursor.saturating_sub(partial.len()));
+
+                let before = &input[..value_start];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = value_start + item.text.len();
+                (new_input, new_cursor)
+            }
+
+            Context::InDuration(partial) => {
+                // Find where the duration starts (after the opening bracket)
+                let before_cursor = &input[..cursor];
+                let duration_start = before_cursor
+                    .rfind('[')
+                    .map(|i| i + 1)
+                    .unwrap_or(cursor.saturating_sub(partial.len()));
+
+                let before = &input[..duration_start];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = duration_start + item.text.len();
+                (new_input, new_cursor)
+            }
+        };
+
+        Some((new_input, new_cursor))
+    }
+
+    /// Apply completion for EnyaLang context
+    fn apply_enya_lang_completion(
+        &self,
+        input: &str,
+        cursor: usize,
+        item: &CompletionItem,
+        ctx: &enya_completion::Context,
+    ) -> Option<(String, usize)> {
+        use enya_completion::Context;
 
         let (new_input, new_cursor) = match ctx {
             Context::ExpectQueryStart
@@ -430,56 +843,20 @@ impl QueryCompletion {
             }
             Context::InAggregationFunc(partial) | Context::InTagKey(partial) => {
                 // Replace the partial with the full text
-                let trimmed_before = input[..cursor].trim_start();
-                let word_start = trimmed_before
-                    .rfind(|c: char| {
-                        c.is_whitespace() || c == '(' || c == ')' || c == '{' || c == '}'
-                    })
-                    .map_or(0, |i| {
-                        // Find the actual byte position in the original input
-                        let prefix_len = input.len() - input.trim_start().len();
-                        prefix_len + i + 1
-                    });
-
-                // Handle case where we're at the start
-                let actual_start = if word_start == 0 && !input.starts_with(partial.as_str()) {
-                    input[..cursor]
-                        .rfind(|c: char| {
-                            c.is_whitespace() || c == '(' || c == ')' || c == '{' || c == '}'
-                        })
-                        .map_or(0, |i| i + 1)
-                } else {
-                    word_start
-                };
-
-                let before = &input[..actual_start];
+                let word_start = find_word_start_enya(input, cursor, partial);
+                let before = &input[..word_start];
                 let after = &input[cursor..];
                 let new_input = format!("{before}{}{after}", item.text);
-                let new_cursor = actual_start + item.text.len();
+                let new_cursor = word_start + item.text.len();
                 (new_input, new_cursor)
             }
             Context::InLabelName(partial) => {
                 // Replace the partial label name with the full label
-                let trimmed_before = input[..cursor].trim_start();
-                let word_start = trimmed_before
-                    .rfind(|c: char| c.is_whitespace() || c == '(' || c == ',')
-                    .map_or(0, |i| {
-                        let prefix_len = input.len() - input.trim_start().len();
-                        prefix_len + i + 1
-                    });
-
-                let actual_start = if word_start == 0 && !input.starts_with(partial.as_str()) {
-                    input[..cursor]
-                        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ',')
-                        .map_or(0, |i| i + 1)
-                } else {
-                    word_start
-                };
-
-                let before = &input[..actual_start];
+                let word_start = find_label_name_start(input, cursor, partial);
+                let before = &input[..word_start];
                 let after = &input[cursor..];
                 let new_input = format!("{before}{}{after}", item.text);
-                let new_cursor = actual_start + item.text.len();
+                let new_cursor = word_start + item.text.len();
                 (new_input, new_cursor)
             }
             Context::InTagValue { key, .. } => {
@@ -539,7 +916,7 @@ impl QueryCompletion {
 
         // Position popup below the text input
         let popup_pos = egui::pos2(text_edit_rect.left(), text_edit_rect.bottom() + 4.0);
-        let popup_width = text_edit_rect.width().min(400.0);
+        let popup_width = text_edit_rect.width().clamp(500.0, 600.0);
         let item_height = 32.0;
         let max_visible_items = 8;
         let visible_items = self.items.len().min(max_visible_items);
@@ -636,16 +1013,6 @@ impl QueryCompletion {
                 text_secondary,
             );
 
-            // Label
-            let label_pos = egui::pos2(item_rect.left() + 34.0, item_rect.center().y);
-            ui.painter().text(
-                label_pos,
-                egui::Align2::LEFT_CENTER,
-                &item.label,
-                typography::monospace(typography::LG),
-                text_col,
-            );
-
             // Kind badge
             let kind_label = item.kind.label();
             let kind_pos = egui::pos2(item_rect.right() - 12.0, item_rect.center().y);
@@ -655,6 +1022,25 @@ impl QueryCompletion {
                 kind_label,
                 typography::proportional(typography::XS),
                 text_tertiary,
+            );
+
+            // Label (truncate if too long to avoid overlapping kind badge)
+            let label_start = item_rect.left() + 34.0;
+            let label_pos = egui::pos2(label_start, item_rect.center().y);
+
+            // Truncate label if needed
+            let display_label = if item.label.len() > 50 {
+                format!("{}…", &item.label[..49])
+            } else {
+                item.label.clone()
+            };
+
+            ui.painter().text(
+                label_pos,
+                egui::Align2::LEFT_CENTER,
+                &display_label,
+                typography::monospace(typography::LG),
+                text_col,
             );
 
             // Handle click
@@ -733,6 +1119,57 @@ impl QueryCompletion {
     }
 }
 
+/// Find the start of a word for PromQL completion (partial replacement)
+fn find_word_start(input: &str, cursor: usize, partial: &str) -> usize {
+    let before = &input[..cursor];
+    before
+        .rfind(|c: char| {
+            c.is_whitespace()
+                || matches!(
+                    c,
+                    '(' | ')'
+                        | '{'
+                        | '}'
+                        | '['
+                        | ']'
+                        | ','
+                        | '='
+                        | '!'
+                        | '~'
+                        | '<'
+                        | '>'
+                        | '+'
+                        | '-'
+                        | '*'
+                        | '/'
+                        | '%'
+                        | '^'
+                        | '@'
+                        | ':'
+                )
+        })
+        .map(|i| i + 1)
+        .unwrap_or(cursor.saturating_sub(partial.len()))
+}
+
+/// Find the start of a word for EnyaLang completion (partial replacement)
+fn find_word_start_enya(input: &str, cursor: usize, partial: &str) -> usize {
+    let before = &input[..cursor];
+    before
+        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == '{' || c == '}')
+        .map(|i| i + 1)
+        .unwrap_or(cursor.saturating_sub(partial.len()))
+}
+
+/// Find the start of a label name for EnyaLang completion
+fn find_label_name_start(input: &str, cursor: usize, partial: &str) -> usize {
+    let before = &input[..cursor];
+    before
+        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ',')
+        .map(|i| i + 1)
+        .unwrap_or(cursor.saturating_sub(partial.len()))
+}
+
 /// Collect unique tag keys from a list of tag strings (format: "key:value")
 pub fn extract_tag_keys(tags: &[String]) -> Vec<String> {
     let mut keys: Vec<String> = tags
@@ -787,9 +1224,11 @@ mod tests {
         assert_eq!(values, vec!["dev", "prod", "staging"]);
     }
 
+    // Tests for EnyaLang mode
     #[test]
-    fn test_completion_update_expect_expr() {
+    fn test_completion_update_expect_expr_enya() {
         let mut completion = QueryCompletion::new();
+        completion.set_language(QueryLanguage::EnyaLang);
         completion.set_tag_keys(vec!["env".to_string(), "service".to_string()]);
 
         completion.update("", 0);
@@ -805,8 +1244,9 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_update_expect_operator() {
+    fn test_completion_update_expect_operator_enya() {
         let mut completion = QueryCompletion::new();
+        completion.set_language(QueryLanguage::EnyaLang);
         completion.update("env:prod", 8);
         assert!(completion.is_open());
 
@@ -816,8 +1256,9 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_update_in_tag_key() {
+    fn test_completion_update_in_tag_key_enya() {
         let mut completion = QueryCompletion::new();
+        completion.set_language(QueryLanguage::EnyaLang);
         completion.set_tag_keys(vec![
             "env".to_string(),
             "environment".to_string(),
@@ -834,8 +1275,9 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_update_in_tag_value() {
+    fn test_completion_update_in_tag_value_enya() {
         let mut completion = QueryCompletion::new();
+        completion.set_language(QueryLanguage::EnyaLang);
         completion.set_tag_keys(vec!["env".to_string()]);
         completion.set_tag_values(
             "env",
@@ -852,8 +1294,9 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_apply_expect_expr() {
+    fn test_completion_apply_expect_expr_enya() {
         let mut completion = QueryCompletion::new();
+        completion.set_language(QueryLanguage::EnyaLang);
         completion.set_tag_keys(vec!["env".to_string()]);
         completion.update("", 0);
 
@@ -873,8 +1316,9 @@ mod tests {
     }
 
     #[test]
-    fn test_completion_apply_after_and() {
+    fn test_completion_apply_after_and_enya() {
         let mut completion = QueryCompletion::new();
+        completion.set_language(QueryLanguage::EnyaLang);
         completion.set_tag_keys(vec!["service".to_string()]);
         completion.update("env:prod AND ", 13);
 
@@ -891,5 +1335,70 @@ mod tests {
         let (new_input, new_cursor) = result.unwrap();
         assert_eq!(new_input, "env:prod AND service:");
         assert_eq!(new_cursor, 21);
+    }
+
+    // Tests for PromQL mode
+    #[test]
+    fn test_completion_update_promql_empty() {
+        let mut completion = QueryCompletion::new();
+        // PromQL is default
+        completion.update("", 0);
+        assert!(completion.is_open());
+
+        // Should have functions/aggregations
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"sum"));
+        assert!(labels.contains(&"rate"));
+    }
+
+    #[test]
+    fn test_completion_update_promql_typing_function() {
+        let mut completion = QueryCompletion::new();
+        completion.update("rat", 3);
+        assert!(completion.is_open());
+
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"rate"));
+    }
+
+    #[test]
+    fn test_completion_update_promql_selector() {
+        let mut completion = QueryCompletion::new();
+        completion.set_tag_keys(vec!["method".to_string(), "status".to_string()]);
+        completion.update("http_requests{", 14);
+        assert!(completion.is_open());
+
+        // Should have label names
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"method"));
+        assert!(labels.contains(&"status"));
+    }
+
+    #[test]
+    fn test_completion_update_promql_label_value() {
+        let mut completion = QueryCompletion::new();
+        completion.set_tag_keys(vec!["method".to_string()]);
+        completion.set_tag_values("method", vec!["GET".to_string(), "POST".to_string()]);
+        completion.update("http_requests{method=\"", 22);
+        assert!(completion.is_open());
+
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"GET"));
+        assert!(labels.contains(&"POST"));
+    }
+
+    #[test]
+    fn test_completion_update_promql_metric_after_function() {
+        let mut completion = QueryCompletion::new();
+        completion.set_metric_names(vec!["node_cpu_seconds_total".to_string()]);
+        completion.update("rate(", 5);
+        assert!(completion.is_open());
+
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        // Should suggest metrics in ExpectExpr context
+        assert!(
+            labels.contains(&"node_cpu_seconds_total"),
+            "Expected node_cpu_seconds_total in {labels:?}"
+        );
     }
 }
