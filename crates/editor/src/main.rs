@@ -28,7 +28,9 @@ fn main() -> eframe::Result {
             // macOS native titlebar is hidden for seamless Obsidian Glass theme
             .with_titlebar_shown(false)
             .with_titlebar_buttons_shown(false)
-            .with_fullsize_content_view(true),
+            .with_fullsize_content_view(true)
+            // Set app identifier for Wayland and macOS app identification
+            .with_app_id("Enya"),
         ..Default::default()
     };
 

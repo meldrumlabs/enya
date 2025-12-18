@@ -7,7 +7,7 @@ publish = false
 license.workspace = true
 
 [[bin]]
-name = "enya"
+name = "Enya"
 path = "src/main.rs"
 
 [package.metadata.docs.rs]
