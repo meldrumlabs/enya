@@ -22,6 +22,7 @@ enya-common = { path = "crates/common", version = "0.1.0" }
 enya-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
 enya-macros = { path = "crates/macros", version = "0.1.0" }
 enya-lang = { path = "crates/lang", version = "0.1.0" }
+enya-promql = { path = "crates/promql", version = "0.1.0" }
 enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 enya-client = { path = "crates/client", version = "0.1.0" }
@@ -102,6 +103,7 @@ metrics = "0.24"
 
 uwheel = { git = "https://github.com/uwheel/uwheel.git", features = ["bloom"] }
 sketches-ddsketch = "0.3.0"
+criterion = { version = "0.5", default-features = false }
 
 # getrandom needs wasm_js feature for WASM builds
 getrandom = { version = "0.3", features = ["wasm_js"] }

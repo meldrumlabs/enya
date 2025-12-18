@@ -15,7 +15,7 @@ services:
       - "--web.console.libraries=/usr/share/prometheus/console_libraries"
       - "--web.console.templates=/usr/share/prometheus/consoles"
       - "--web.enable-lifecycle"
-      - "--web.cors.origin=*"
+      - "--web.cors.origin=.*"
     restart: unless-stopped
 
   # Node exporter for host metrics (CPU, memory, disk, network)

@@ -439,6 +439,7 @@ pub mod completion {
     pub const TAG_VALUE: &str = regular::HASH;
     pub const FUNCTION: &str = regular::FUNCTION;
     pub const DURATION: &str = regular::TIMER;
+    pub const METRIC: &str = regular::GAUGE;
 }
 
 // ============================================================================

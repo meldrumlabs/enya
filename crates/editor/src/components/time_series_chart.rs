@@ -579,9 +579,11 @@ impl TimeSeriesChart {
         let text_color = text_color(self.theme);
 
         if self.series.is_empty() {
-            // Empty state with icon
-            ui.centered_and_justified(|ui| {
+            // Empty state with icon - centered in available space
+            ui.vertical_centered(|ui| {
+                ui.add_space(ui.available_height() / 2.0 - 20.0);
                 ui.horizontal(|ui| {
+                    ui.add_space((ui.available_width() - 150.0) / 2.0);
                     ui.label(
                         RichText::new(semantic_icons::empty::NO_DATA)
                             .size(semantic_icons::SIZE_ITEM)
