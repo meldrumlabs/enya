@@ -24,6 +24,8 @@ pub enum LandingPageAction {
     ShowHelp,
     /// Open the command palette with :connect pre-filled
     OpenConnect,
+    /// Open the interactive tutorial
+    OpenTutorial,
 }
 
 /// The dashboard-nvim inspired landing page component
@@ -495,13 +497,13 @@ impl LandingPage {
 
             ui.add_space(gap);
 
-            // Workspaces (w)
+            // Tutorial (t)
             if self
                 .show_shortcut_button(
                     ui,
-                    semantic_icons::file::FOLDER_OPEN,
-                    "Workspaces",
-                    "w",
+                    semantic_icons::diagnostic::HINT,
+                    "Tutorial",
+                    "t",
                     text_col,
                     accent_color,
                     self.shortcut_focused == Some(2),
@@ -509,7 +511,7 @@ impl LandingPage {
                 )
                 .clicked()
             {
-                action = LandingPageAction::OpenWorkspaceFinder;
+                action = LandingPageAction::OpenTutorial;
             }
 
             ui.add_space(gap);
@@ -578,13 +580,15 @@ impl LandingPage {
         );
 
         // Icon
+        let icon_pos = rect.center_top() + egui::vec2(0.0, 20.0);
         let icon_color = if is_focused || response.hovered() {
             accent_color
         } else {
             text_col.gamma_multiply(0.7)
         };
+
         ui.painter().text(
-            rect.center_top() + egui::vec2(0.0, 20.0),
+            icon_pos,
             egui::Align2::CENTER_CENTER,
             icon,
             egui::FontId::proportional(semantic_icons::SIZE_LARGE),
@@ -673,6 +677,12 @@ impl LandingPage {
             // c - Connect
             if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
                 action = LandingPageAction::OpenConnect;
+                return;
+            }
+
+            // t - Tutorial
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
+                action = LandingPageAction::OpenTutorial;
                 return;
             }
 

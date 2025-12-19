@@ -9,8 +9,8 @@ use crate::components::{
     Diagnostic, DiagnosticSource, DiagnosticsPane, EditExcerpt, ExecuteParams, InfoOverlay,
     LandingPage, LandingPageAction, MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState,
     MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryPollResult, QueryState,
-    TimeRangeToolbar, ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder,
-    WorkspaceItem,
+    TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
+    WorkspaceFinder, WorkspaceItem,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -103,6 +103,8 @@ pub struct Dashboard {
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
     which_key: WhichKey,
+    /// Tutorial overlay (interactive walkthrough)
+    tutorial_overlay: TutorialOverlay,
     /// Current scroll offset for smooth scrolling (0.0 to 1.0, percentage)
     viewport_scroll_offset: f32,
     /// Target scroll offset for smooth animation
@@ -160,6 +162,7 @@ impl Default for Dashboard {
             last_space_press: None,
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
+            tutorial_overlay: TutorialOverlay::new(),
             viewport_scroll_offset: 0.0,
             viewport_scroll_target: 0.0,
             viewport_content_height: 0.0,
@@ -281,6 +284,7 @@ impl Dashboard {
             last_space_press: None,
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
+            tutorial_overlay: TutorialOverlay::new(),
             viewport_scroll_offset: 0.0,
             viewport_scroll_target: 0.0,
             viewport_content_height: 0.0,
@@ -553,6 +557,10 @@ impl Dashboard {
         self.which_key.set_theme(app_state.theme);
         self.which_key.show(ctx);
 
+        // Show tutorial overlay modal
+        self.tutorial_overlay.set_theme(app_state.theme);
+        self.tutorial_overlay.show(ctx);
+
         // Show diagnostics overlay modal
         self.diagnostics_pane.set_theme(app_state.theme);
         self.diagnostics_pane.show_overlay(ctx);
@@ -678,6 +686,26 @@ impl Dashboard {
             LandingPageAction::OpenConnect => {
                 self.open_command_palette_with_text("connect ");
             }
+            LandingPageAction::OpenTutorial => {
+                // Hide landing page and add demo panes for the tutorial
+                self.show_landing = false;
+                let demo_queries = [
+                    (
+                        "http_requests_total{env=\"prod\", service=\"api\"}",
+                        "HTTP Requests",
+                    ),
+                    ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage"),
+                    (
+                        "memory_used_bytes{env=\"prod\", service=\"api\"}",
+                        "Memory Used",
+                    ),
+                ];
+                for (query, name) in demo_queries {
+                    self.add_demo_query_pane(query, name);
+                }
+                self.tutorial_overlay.open();
+                ctx.request_repaint();
+            }
             LandingPageAction::None => {}
         }
 
@@ -704,6 +732,10 @@ impl Dashboard {
         // Show which-key overlay modal
         self.which_key.set_theme(app_state.theme);
         self.which_key.show(ctx);
+
+        // Show tutorial overlay modal
+        self.tutorial_overlay.set_theme(app_state.theme);
+        self.tutorial_overlay.show(ctx);
 
         // Show diagnostics overlay modal
         self.diagnostics_pane.set_theme(app_state.theme);
@@ -780,6 +812,18 @@ impl Dashboard {
         }
 
         DashboardAction::None
+    }
+
+    /// Add a demo query pane with a full PromQL query and custom name (for tutorial)
+    fn add_demo_query_pane(&mut self, query: &str, name: &str) {
+        let pane: Box<dyn Component> = Box::new(QueryPane::with_demo_query_named(query, name));
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.open_charts.insert(query.to_string());
+            self.behavior.set_focused_tile(Some(pane_tile));
+            log::debug!("Added demo query pane: {name}");
+        }
     }
 
     /// Handle fuzzy selection (metrics only) and return tracking action
@@ -904,6 +948,31 @@ impl Dashboard {
             CommandResult::CloseWorkspaceTab => DashboardAction::CloseWorkspaceTab,
             CommandResult::NextWorkspaceTab => DashboardAction::NextWorkspaceTab,
             CommandResult::PrevWorkspaceTab => DashboardAction::PrevWorkspaceTab,
+            CommandResult::OpenTutorial => {
+                // Hide landing page and add multiple demo panes so users have something to interact with
+                if self.show_landing || self.open_charts.is_empty() {
+                    self.show_landing = false;
+                    // Add multiple demo query panes with PromQL label selectors
+                    // These use env="prod" so users can practice multi-edit to change to "staging"
+                    let demo_queries = [
+                        (
+                            "http_requests_total{env=\"prod\", service=\"api\"}",
+                            "HTTP Requests",
+                        ),
+                        ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage"),
+                        (
+                            "memory_used_bytes{env=\"prod\", service=\"api\"}",
+                            "Memory Used",
+                        ),
+                    ];
+                    for (query, name) in demo_queries {
+                        self.add_demo_query_pane(query, name);
+                    }
+                }
+                self.tutorial_overlay.open();
+                ctx.request_repaint();
+                DashboardAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -2004,6 +2073,7 @@ impl Dashboard {
             || self.multi_edit_overlay.is_open()
             || self.which_key.is_open()
             || self.viewport_filter.is_open()
+            || self.tutorial_overlay.is_open()
         {
             return None;
         }
