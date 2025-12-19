@@ -4,7 +4,6 @@
 //! Can be added to the viewport like any other component.
 
 use std::any::Any;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use egui::{Color32, Key, RichText, ScrollArea, Ui};
 
@@ -14,14 +13,9 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::util::Instant;
 
-use super::Component;
-use super::finder_utils::OverlayStyle;
-
-/// Unique ID counter for diagnostics
-static NEXT_DIAGNOSTIC_ID: AtomicU64 = AtomicU64::new(1);
-
-/// Unique ID counter for panes
-static NEXT_PANE_ID: AtomicUsize = AtomicUsize::new(5000);
+use crate::components::Component;
+use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::id_generator::{next_id, next_id_usize};
 
 /// Diagnostic severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -161,7 +155,7 @@ impl Diagnostic {
     /// Create a new diagnostic
     pub fn new(level: DiagnosticLevel, message: impl Into<String>) -> Self {
         Self {
-            id: NEXT_DIAGNOSTIC_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id(),
             level,
             message: message.into(),
             source: DiagnosticSource::Unknown,
@@ -323,7 +317,7 @@ impl DiagnosticsPane {
     /// Create a new diagnostics pane
     pub fn new() -> Self {
         Self {
-            id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             theme: AppTheme::default(),
             diagnostics: Vec::new(),
             selected_id: None,
@@ -337,7 +331,7 @@ impl DiagnosticsPane {
     /// Create a new diagnostics pane with initial diagnostics
     pub fn with_diagnostics(diagnostics: Vec<Diagnostic>) -> Self {
         Self {
-            id: NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             theme: AppTheme::default(),
             diagnostics,
             selected_id: None,

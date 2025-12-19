@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use egui::{Color32, RichText, Ui};
 
+use crate::components::util::id_generator::next_id;
 use crate::theme::AppTheme;
 use crate::ui::semantic_icons;
 use crate::util::Instant;
@@ -102,9 +103,8 @@ pub struct Notification {
 impl Notification {
     /// Create a new notification
     pub fn new(title: impl Into<String>, level: NotificationLevel) -> Self {
-        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         Self {
-            id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            id: next_id(),
             title: title.into(),
             message: None,
             level,

@@ -2,64 +2,40 @@ use std::any::Any;
 
 use crate::theme::AppTheme;
 
-pub mod buffer;
-pub mod buffer_editor;
-pub mod command_palette;
-pub mod diagnostics_pane;
-pub mod finder_utils;
-pub mod flamegraph;
-pub mod heatmap;
-pub mod info_overlay;
-pub mod landing_page;
-pub mod metrics_finder;
-pub mod multi_buffer;
-pub mod multi_edit;
-pub mod notifications;
-pub mod query_completion;
-pub mod query_executor;
-pub mod query_pane;
-pub mod query_state;
-pub mod query_validation;
-pub mod status_line;
-pub mod time_range;
-pub mod time_series_chart;
-pub mod tutorial_overlay;
-pub mod viewport_filter;
-pub mod visualization;
-pub mod which_key;
-pub mod workspace_finder;
+pub mod overlay;
+pub mod pane;
+pub mod util;
+pub mod widget;
 
-pub use buffer::{Buffer, BufferAction, BufferMode};
-pub use buffer_editor::{BufferEditor, BufferEditorResult};
-pub use command_palette::{CommandPalette, CommandResult};
-pub use diagnostics_pane::{
-    Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter, DiagnosticsPane,
-    DiagnosticsPaneAction,
+// Re-export from pane
+pub use pane::{
+    Bar, BarChartViz, DataPoint, FlameFrame, FlamegraphViz, GaugeChart, HeatmapCell, HeatmapLabels,
+    HeatmapViz, ProfileType, QueryPane, QueryPaneAction, Series, SparklineViz, StatChart,
+    Threshold, TimeSeriesChart, Visualization, VisualizationType,
 };
-pub use flamegraph::{FlameFrame, FlamegraphViz, ProfileType};
-pub use heatmap::{HeatmapCell, HeatmapLabels, HeatmapViz};
-pub use info_overlay::InfoOverlay;
-pub use landing_page::{LandingPage, LandingPageAction};
-pub use metrics_finder::{MetricItem, MetricsFinder};
-pub use multi_buffer::{MultiBufferMode, MultiBufferState, Selection};
-pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
-pub use notifications::{Notification, NotificationLevel, NotificationManager};
-pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, QueryCompletion};
-pub use query_executor::{Backend, ExecuteParams, QueryExecutor, QueryPollResult};
-pub use query_pane::{QueryPane, QueryPaneAction};
-pub use query_state::{Granularity, QueryState};
-pub use query_validation::{QueryValidator, ValidationResult, is_valid_query, validate_query};
-pub use status_line::{Sparkline, StatusLine, StatusMode};
-pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
-pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
-pub use tutorial_overlay::TutorialOverlay;
-pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
-pub use visualization::{
-    Bar, BarChartViz, GaugeChart, SparklineViz, StatChart, Threshold, Visualization,
-    VisualizationType,
+
+// Re-export from overlay
+pub use overlay::{
+    BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Diagnostic, DiagnosticLevel,
+    DiagnosticSource, DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt,
+    InfoOverlay, MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult, TutorialOverlay,
+    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder, WorkspaceItem,
 };
-pub use which_key::WhichKey;
-pub use workspace_finder::{WorkspaceFinder, WorkspaceItem};
+
+// Re-export from widget
+pub use widget::{
+    Buffer, BufferAction, BufferMode, LandingPage, LandingPageAction, Notification,
+    NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode, TimeRange,
+    TimeRangePreset, TimeRangeToolbar,
+};
+
+// Re-export from util
+pub use util::{
+    Backend, CompletionItem, CompletionKind, CompletionResult, ExecuteParams, Granularity,
+    MultiBufferMode, MultiBufferState, QueryCompletion, QueryExecutor, QueryPollResult, QueryState,
+    QueryValidator, Selection, ValidationResult, is_valid_query, next_id, next_id_usize,
+    validate_query,
+};
 
 /// Trait that defines an Enya Component
 pub trait Component: Any {

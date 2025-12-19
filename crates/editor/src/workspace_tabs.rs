@@ -7,10 +7,10 @@ use std::path::PathBuf;
 
 use egui::{Color32, Sense, Ui};
 
-use crate::dashboard::Dashboard;
 use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::workspace::Workspace;
 
 /// Actions that can be triggered from the workspace tab bar
 #[derive(Debug, Clone, PartialEq)]
@@ -35,41 +35,41 @@ pub struct WorkspaceTab {
     pub file_path: Option<PathBuf>,
     /// Whether this workspace has unsaved changes
     pub is_modified: bool,
-    /// The dashboard state for this workspace
-    pub dashboard: Dashboard,
+    /// The workspace state for this workspace (pane layout, modals, etc.)
+    pub workspace: Workspace,
 }
 
 impl WorkspaceTab {
-    /// Create a new workspace tab with a default dashboard (shows landing page)
+    /// Create a new workspace tab with a default workspace (shows landing page)
     pub fn new(id: usize, name: String, api_key: String) -> Self {
         Self {
             id,
             name,
             file_path: None,
             is_modified: false,
-            dashboard: Dashboard::example(api_key),
+            workspace: Workspace::example(api_key),
         }
     }
 
-    /// Create a new workspace tab with an empty viewport (no landing page)
+    /// Create a new workspace tab with an empty workspace (no landing page)
     pub fn new_empty(id: usize, name: String) -> Self {
         Self {
             id,
             name,
             file_path: None,
             is_modified: false,
-            dashboard: Dashboard::new_empty(),
+            workspace: Workspace::new_empty(),
         }
     }
 
-    /// Create a workspace tab from an existing dashboard
-    pub fn from_dashboard(id: usize, name: String, dashboard: Dashboard) -> Self {
+    /// Create a workspace tab from an existing workspace
+    pub fn from_workspace(id: usize, name: String, workspace: Workspace) -> Self {
         Self {
             id,
             name,
             file_path: None,
             is_modified: false,
-            dashboard,
+            workspace,
         }
     }
 }
@@ -84,7 +84,7 @@ pub struct WorkspaceTabBar {
     next_tab_id: usize,
     /// Current theme
     theme: AppTheme,
-    /// API key for new dashboards
+    /// API key for new workspaces
     api_key: String,
 }
 
@@ -120,7 +120,7 @@ impl WorkspaceTabBar {
         self.theme = theme;
     }
 
-    /// Set the API key for new dashboards
+    /// Set the API key for new workspaces
     pub fn set_api_key(&mut self, api_key: String) {
         self.api_key = api_key;
     }
@@ -167,7 +167,7 @@ impl WorkspaceTabBar {
         self.tabs.len()
     }
 
-    /// Create a new workspace tab with a generated unique name (empty viewport, no landing page)
+    /// Create a new workspace tab with a generated unique name (empty workspace, no landing page)
     pub fn new_tab(&mut self) -> usize {
         let id = self.next_tab_id;
         self.next_tab_id += 1;
@@ -180,7 +180,7 @@ impl WorkspaceTabBar {
         new_idx
     }
 
-    /// Create a new workspace tab with a specific name (empty viewport, no landing page)
+    /// Create a new workspace tab with a specific name (empty workspace, no landing page)
     /// The name will be made unique if it already exists.
     pub fn new_tab_with_name(&mut self, name: String) -> usize {
         let id = self.next_tab_id;
@@ -207,14 +207,14 @@ impl WorkspaceTabBar {
         new_idx
     }
 
-    /// Add an existing dashboard as a new tab
+    /// Add an existing workspace as a new tab
     /// The name will be made unique if it already exists.
-    pub fn add_dashboard_as_tab(&mut self, name: String, dashboard: Dashboard) -> usize {
+    pub fn add_workspace_as_tab(&mut self, name: String, workspace: Workspace) -> usize {
         let id = self.next_tab_id;
         self.next_tab_id += 1;
         let unique_name = self.unique_name(&name);
 
-        let tab = WorkspaceTab::from_dashboard(id, unique_name, dashboard);
+        let tab = WorkspaceTab::from_workspace(id, unique_name, workspace);
         self.tabs.push(tab);
         let new_idx = self.tabs.len() - 1;
         self.active_tab_index = new_idx;

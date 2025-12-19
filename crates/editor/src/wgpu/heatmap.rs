@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use eframe::egui_wgpu;
 
-use crate::components::heatmap::HeatmapCell;
+use crate::components::pane::heatmap::HeatmapCell;
 
 /// GPU resources for heatmap rendering
 pub struct HeatmapGpuResources {

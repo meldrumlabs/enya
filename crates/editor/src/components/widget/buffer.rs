@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use egui::{Color32, Key, RichText, Stroke, TextEdit, Vec2};
 
 use crate::theme::AppTheme;
@@ -7,13 +5,7 @@ use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-/// Global counter for unique buffer IDs
-static NEXT_BUFFER_ID: AtomicUsize = AtomicUsize::new(1);
-
-/// Generate a unique buffer ID
-fn next_buffer_id() -> usize {
-    NEXT_BUFFER_ID.fetch_add(1, Ordering::Relaxed)
-}
+use crate::components::util::id_generator::next_id_usize;
 
 /// The mode a buffer can be in (vim-style)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -66,7 +58,7 @@ impl Buffer {
         let content = content.into();
         let saved_content = content.clone();
         Self {
-            id: next_buffer_id(),
+            id: next_id_usize(),
             content,
             saved_content,
             mode: BufferMode::Normal,
@@ -508,7 +500,7 @@ pub enum BufferAction {
 }
 
 /// Implement Component trait so Buffer can be used in the dashboard
-impl super::Component for Buffer {
+impl crate::components::Component for Buffer {
     fn show(&mut self, ui: &mut egui::Ui) {
         Buffer::show(self, ui);
     }

@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::app::AppState;
-
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
     Diagnostic, DiagnosticSource, DiagnosticsPane, EditExcerpt, ExecuteParams, InfoOverlay,
@@ -16,14 +15,19 @@ use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 
-use crate::workspace::{
-    ConnectionConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
-    TimeConfig, ViewConfig, Workspace, WorkspaceMeta,
+// Workspace configuration module (serialization)
+pub mod config;
+
+// Re-export config types for convenience
+pub use config::{
+    COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
+    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig, TimeConfig, ViewConfig,
+    WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
 };
 
-/// Actions that the Dashboard needs the App to handle
+/// Actions that the Workspace needs the App to handle
 #[derive(Debug, Clone, PartialEq)]
-pub enum DashboardAction {
+pub enum WorkspaceAction {
     /// No action needed
     None,
     /// Toggle the theme
@@ -64,8 +68,16 @@ pub enum DashboardAction {
     PrevWorkspaceTab,
 }
 
-/// The main dashboard layout with a flexible viewport for tabbed views/charts.
-pub struct Dashboard {
+/// The main viewport layout with a flexible tile tree for views/charts.
+///
+/// The Workspace manages the tile-based pane layout (using egui_tiles) and handles:
+/// - Pane management (adding, removing, splitting)
+/// - Modal overlays (command palette, metrics finder, buffer editor)
+/// - Keyboard navigation (vim-style h/j/k/l)
+/// - Visual-multi mode for batch pane operations
+/// - Zen mode and fullscreen pane display
+/// - Query execution coordination
+pub struct Workspace {
     /// The tile tree for the viewport area
     viewport_tree: egui_tiles::Tree<Box<dyn Component>>,
     behavior: TreeBehavior,
@@ -131,11 +143,11 @@ pub struct Dashboard {
     pending_query_tile: Option<TileId>,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
     next_query_number: usize,
-    /// Viewport filter for filtering visible panes by query content
+    /// Workspace filter for filtering visible panes by query content
     viewport_filter: ViewportFilter,
 }
 
-impl Default for Dashboard {
+impl Default for Workspace {
     fn default() -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
         let tabs = Vec::new();
@@ -248,7 +260,7 @@ impl VisualMultiState {
     }
 }
 
-impl Dashboard {
+impl Workspace {
     /// Create a new empty dashboard (no landing page)
     pub fn new_empty() -> Self {
         let mut dashboard = Self::example(String::new());
@@ -307,14 +319,14 @@ impl Dashboard {
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         app_state: &AppState,
-    ) -> DashboardAction {
+    ) -> WorkspaceAction {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
 
         // Process query execution: poll for results and execute pending queries
         let query_action = self.process_query_execution(ctx);
-        if query_action != DashboardAction::None {
+        if query_action != WorkspaceAction::None {
             return query_action;
         }
 
@@ -370,7 +382,7 @@ impl Dashboard {
         // Handle adding a pending chart to the viewport
         if let Some(metric_name) = self.pending_chart.take() {
             let action = self.add_chart_for_metric_with_tracking(&metric_name);
-            if action != DashboardAction::None {
+            if action != WorkspaceAction::None {
                 return action;
             }
         }
@@ -521,7 +533,7 @@ impl Dashboard {
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
-            return DashboardAction::LoadWorkspace(selected_workspace);
+            return WorkspaceAction::LoadWorkspace(selected_workspace);
         }
 
         // Show command palette modal
@@ -572,10 +584,10 @@ impl Dashboard {
         self.viewport_filter.update_counts(match_count, total_count);
         match self.viewport_filter.show(ctx) {
             ViewportFilterResult::Applied(pattern) => {
-                log::debug!("Viewport filter applied: {pattern}");
+                log::debug!("Workspace filter applied: {pattern}");
             }
             ViewportFilterResult::Cleared => {
-                log::debug!("Viewport filter cleared");
+                log::debug!("Workspace filter cleared");
             }
             ViewportFilterResult::None => {}
         }
@@ -646,7 +658,7 @@ impl Dashboard {
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         app_state: &AppState,
-    ) -> DashboardAction {
+    ) -> WorkspaceAction {
         // Show the landing page in the central panel
         let mut landing_action = LandingPageAction::None;
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -669,7 +681,7 @@ impl Dashboard {
                 self.pending_chart = Some(metric_name);
             }
             LandingPageAction::OpenWorkspace { name } => {
-                return DashboardAction::LoadWorkspace(name);
+                return WorkspaceAction::LoadWorkspace(name);
             }
             LandingPageAction::OpenFuzzyFinder => {
                 self.open_metrics_finder();
@@ -718,7 +730,7 @@ impl Dashboard {
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
-            return DashboardAction::LoadWorkspace(selected_workspace);
+            return WorkspaceAction::LoadWorkspace(selected_workspace);
         }
 
         // Show command palette modal
@@ -775,11 +787,11 @@ impl Dashboard {
     }
 
     /// Add a chart for a metric and return a tracking action
-    fn add_chart_for_metric_with_tracking(&mut self, metric_name: &str) -> DashboardAction {
+    fn add_chart_for_metric_with_tracking(&mut self, metric_name: &str) -> WorkspaceAction {
         // Don't add duplicate charts
         if self.open_charts.contains(metric_name) {
             log::debug!("Chart for {metric_name} already open");
-            return DashboardAction::None;
+            return WorkspaceAction::None;
         }
 
         // Create a QueryPane (buffer + chart) for the metric
@@ -804,14 +816,14 @@ impl Dashboard {
 
             // Return action to track this in recent queries
             // Use "Query N" as the display name, metric_name for lookup
-            return DashboardAction::TrackRecentPlot {
+            return WorkspaceAction::TrackRecentPlot {
                 name: format!("Query {query_number}"),
                 metric_name: metric_name.to_string(),
                 is_query: false,
             };
         }
 
-        DashboardAction::None
+        WorkspaceAction::None
     }
 
     /// Add a demo query pane with a full PromQL query and custom name (for tutorial)
@@ -827,7 +839,7 @@ impl Dashboard {
     }
 
     /// Handle fuzzy selection (metrics only) and return tracking action
-    fn handle_metric_selection_with_tracking(&mut self, item: MetricItem) -> DashboardAction {
+    fn handle_metric_selection_with_tracking(&mut self, item: MetricItem) -> WorkspaceAction {
         self.show_landing = false;
         self.add_chart_for_metric_with_tracking(&item.name)
     }
@@ -837,57 +849,57 @@ impl Dashboard {
         &mut self,
         result: CommandResult,
         ctx: &egui::Context,
-    ) -> DashboardAction {
+    ) -> WorkspaceAction {
         match result {
-            CommandResult::ToggleTheme => DashboardAction::ToggleTheme,
-            CommandResult::SetTheme(theme) => DashboardAction::SetTheme(theme),
+            CommandResult::ToggleTheme => WorkspaceAction::ToggleTheme,
+            CommandResult::SetTheme(theme) => WorkspaceAction::SetTheme(theme),
             CommandResult::OpenSearch => {
                 self.open_metrics_finder();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::ShowInfo => {
                 self.info_overlay.open();
-                DashboardAction::None
+                WorkspaceAction::None
             }
-            CommandResult::ShowHelp => DashboardAction::ShowHelp,
+            CommandResult::ShowHelp => WorkspaceAction::ShowHelp,
             CommandResult::CloseTab => {
                 // Close the focused tile
                 if let Some(tile_id) = self.behavior.focused_tile() {
                     self.close_tile(tile_id);
                 }
-                DashboardAction::None
+                WorkspaceAction::None
             }
-            CommandResult::QuitApp => DashboardAction::QuitApp,
+            CommandResult::QuitApp => WorkspaceAction::QuitApp,
             CommandResult::SplitHorizontal => {
                 self.split_panes_horizontal();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::SplitVertical => {
                 self.split_panes_vertical();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::ToggleZenMode => {
                 self.toggle_zen_mode();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::ToggleFullscreen => {
                 self.toggle_fullscreen();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::ShowLandingPage => {
                 self.show_landing = true;
                 // Close all charts to trigger landing page display
                 self.close_all_charts();
-                DashboardAction::None
+                WorkspaceAction::None
             }
-            CommandResult::TakeScreenshot(path) => DashboardAction::TakeScreenshot(path),
-            CommandResult::SaveWorkspace(name) => DashboardAction::SaveWorkspace(name),
-            CommandResult::LoadWorkspace(name) => DashboardAction::LoadWorkspace(name),
-            CommandResult::ListWorkspaces => DashboardAction::ListWorkspaces,
-            CommandResult::ShareWorkspace => DashboardAction::ShareWorkspace,
+            CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
+            CommandResult::SaveWorkspace(name) => WorkspaceAction::SaveWorkspace(name),
+            CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
+            CommandResult::ListWorkspaces => WorkspaceAction::ListWorkspaces,
+            CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
             CommandResult::ToggleCommits => {
                 self.toggle_commits_on_focused();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::Connect(endpoint) => {
                 self.query_executor.connect_prometheus(&endpoint, ctx);
@@ -895,30 +907,30 @@ impl Dashboard {
                 self.query_executor.fetch_metric_names(ctx);
                 self.query_executor.fetch_label_names(ctx);
                 // No notification here - health check result will show success/failure
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::Disconnect => {
                 self.query_executor.disconnect();
-                DashboardAction::Notify {
+                WorkspaceAction::Notify {
                     level: "info".to_string(),
                     message: "Disconnected from Prometheus, using demo data".to_string(),
                 }
             }
             CommandResult::ToggleDiagnostics => {
                 self.toggle_diagnostics();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::ShowDiagnostics => {
                 self.show_diagnostics();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::HideDiagnostics => {
                 self.hide_diagnostics();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::ClearDiagnostics => {
                 self.clear_diagnostics();
-                DashboardAction::Notify {
+                WorkspaceAction::Notify {
                     level: "info".to_string(),
                     message: "Cleared all diagnostics".to_string(),
                 }
@@ -932,7 +944,7 @@ impl Dashboard {
                         self.behavior.set_focused_tile(Some(tile_id));
                     }
                 }
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::PrevDiagnostic => {
                 self.diagnostics_pane.select_prev();
@@ -942,12 +954,12 @@ impl Dashboard {
                         self.behavior.set_focused_tile(Some(tile_id));
                     }
                 }
-                DashboardAction::None
+                WorkspaceAction::None
             }
-            CommandResult::NewWorkspaceTab(name) => DashboardAction::NewWorkspaceTab(name),
-            CommandResult::CloseWorkspaceTab => DashboardAction::CloseWorkspaceTab,
-            CommandResult::NextWorkspaceTab => DashboardAction::NextWorkspaceTab,
-            CommandResult::PrevWorkspaceTab => DashboardAction::PrevWorkspaceTab,
+            CommandResult::NewWorkspaceTab(name) => WorkspaceAction::NewWorkspaceTab(name),
+            CommandResult::CloseWorkspaceTab => WorkspaceAction::CloseWorkspaceTab,
+            CommandResult::NextWorkspaceTab => WorkspaceAction::NextWorkspaceTab,
+            CommandResult::PrevWorkspaceTab => WorkspaceAction::PrevWorkspaceTab,
             CommandResult::OpenTutorial => {
                 // Hide landing page and add multiple demo panes so users have something to interact with
                 if self.show_landing || self.open_charts.is_empty() {
@@ -971,10 +983,10 @@ impl Dashboard {
                 }
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
-                DashboardAction::None
+                WorkspaceAction::None
             }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
-                DashboardAction::None
+                WorkspaceAction::None
             }
         }
     }
@@ -993,42 +1005,45 @@ impl Dashboard {
 
     /// Process query execution: poll for pending results and execute queries for panes that need refresh
     /// Returns a notification action if a connection status changed.
-    fn process_query_execution(&mut self, ctx: &egui::Context) -> DashboardAction {
+    fn process_query_execution(&mut self, ctx: &egui::Context) -> WorkspaceAction {
         // 0. Poll for health check completion
-        let mut notification_action = DashboardAction::None;
+        let mut notification_action = WorkspaceAction::None;
         if let Some(success) = self.query_executor.poll_health_check() {
             if success {
-                if let super::components::query_executor::ConnectionHealth::Online { ref version } =
-                    self.query_executor.connection_health().clone()
+                if let crate::components::util::query_executor::ConnectionHealth::Online {
+                    ref version,
+                } = self.query_executor.connection_health().clone()
                 {
                     log::info!("Connected to Prometheus v{version}");
                     // Add success diagnostic
-                    let diagnostic = super::components::diagnostics_pane::Diagnostic::info(
+                    let diagnostic = crate::components::overlay::diagnostics::Diagnostic::info(
                         format!("Connected to Prometheus v{version}"),
                     )
                     .with_source(
-                        super::components::diagnostics_pane::DiagnosticSource::DataConnection,
+                        crate::components::overlay::diagnostics::DiagnosticSource::DataConnection,
                     );
                     self.diagnostics_pane.add(diagnostic);
                     // Show success notification
-                    notification_action = DashboardAction::Notify {
+                    notification_action = WorkspaceAction::Notify {
                         level: "success".to_string(),
                         message: format!("Connected to Prometheus v{version}"),
                     };
                 }
-            } else if let super::components::query_executor::ConnectionHealth::Failed {
+            } else if let crate::components::util::query_executor::ConnectionHealth::Failed {
                 ref error,
             } = self.query_executor.connection_health().clone()
             {
                 log::error!("Connection failed: {error}");
                 // Add error diagnostic
-                let diagnostic = super::components::diagnostics_pane::Diagnostic::error(format!(
-                    "Connection failed: {error}"
-                ))
-                .with_source(super::components::diagnostics_pane::DiagnosticSource::DataConnection);
+                let diagnostic = crate::components::overlay::diagnostics::Diagnostic::error(
+                    format!("Connection failed: {error}"),
+                )
+                .with_source(
+                    crate::components::overlay::diagnostics::DiagnosticSource::DataConnection,
+                );
                 self.diagnostics_pane.add(diagnostic);
                 // Show error notification
-                notification_action = DashboardAction::Notify {
+                notification_action = WorkspaceAction::Notify {
                     level: "error".to_string(),
                     message: format!("Connection failed: {error}"),
                 };
@@ -2058,8 +2073,8 @@ impl Dashboard {
     }
 
     /// Handle vim-style keyboard navigation for the viewport
-    /// Returns an optional DashboardAction if a key triggered an action
-    pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<DashboardAction> {
+    /// Returns an optional WorkspaceAction if a key triggered an action
+    pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<WorkspaceAction> {
         // Don't handle keys if a text field or modal has focus
         if ctx.memory(|mem| mem.focused().is_some()) {
             return None;
@@ -2321,7 +2336,7 @@ impl Dashboard {
                 // Find the pane index for the focused tile
                 if let Some(pane_index) = self.get_pane_index(tile_id) {
                     ctx.request_repaint();
-                    return Some(DashboardAction::SharePane(pane_index));
+                    return Some(WorkspaceAction::SharePane(pane_index));
                 }
             }
         }
@@ -2329,11 +2344,11 @@ impl Dashboard {
         // Handle workspace tab navigation (gt/gT)
         if should_next_workspace_tab {
             ctx.request_repaint();
-            return Some(DashboardAction::NextWorkspaceTab);
+            return Some(WorkspaceAction::NextWorkspaceTab);
         }
         if should_prev_workspace_tab {
             ctx.request_repaint();
-            return Some(DashboardAction::PrevWorkspaceTab);
+            return Some(WorkspaceAction::PrevWorkspaceTab);
         }
 
         // Handle workspace finder (w key)
@@ -2392,7 +2407,7 @@ impl Dashboard {
         if consumed {
             ctx.request_repaint();
             log::debug!(
-                "Viewport navigation: focus is now {:?}",
+                "Workspace navigation: focus is now {:?}",
                 self.behavior.focused_tile()
             );
         }
@@ -2560,7 +2575,7 @@ impl Dashboard {
     }
 
     /// Handle keyboard input while in visual-multi mode
-    fn handle_visual_multi_keyboard(&mut self, ctx: &egui::Context) -> Option<DashboardAction> {
+    fn handle_visual_multi_keyboard(&mut self, ctx: &egui::Context) -> Option<WorkspaceAction> {
         let pane_ids = self.get_pane_tile_ids();
 
         // Get current cursor position from visual-multi state
@@ -2890,8 +2905,13 @@ impl Dashboard {
     // Workspace serialization/deserialization
     // =========================================================================
 
-    /// Serialize the current dashboard state to a Workspace
-    pub fn to_workspace(&self, name: &str, theme: AppTheme, endpoint: Option<&str>) -> Workspace {
+    /// Serialize the current workspace state to a WorkspaceConfig
+    pub fn to_workspace_config(
+        &self,
+        name: &str,
+        theme: AppTheme,
+        endpoint: Option<&str>,
+    ) -> WorkspaceConfig {
         let mut panes = Vec::new();
 
         // Collect all QueryPane data from the viewport tree
@@ -2909,7 +2929,7 @@ impl Dashboard {
             }
         }
 
-        Workspace {
+        WorkspaceConfig {
             workspace: WorkspaceMeta {
                 name: name.to_string(),
                 description: String::new(),
@@ -2933,21 +2953,20 @@ impl Dashboard {
         }
     }
 
-    /// Load a workspace into the dashboard, replacing current state
+    /// Load a workspace config, replacing current state
     /// Returns the connection config if specified in the workspace
-    pub fn load_workspace(
+    pub fn load_workspace_config(
         &mut self,
-        workspace: &Workspace,
+        config: &WorkspaceConfig,
         theme: &mut AppTheme,
     ) -> Option<ConnectionConfig> {
         // Apply view settings
-        *theme = workspace.view.app_theme();
+        *theme = config.view.app_theme();
         // Note: metrics_panel setting ignored (left panel removed)
-        self.zen_mode = workspace.view.zen_mode;
+        self.zen_mode = config.view.zen_mode;
 
         // Apply time range
-        self.time_range_toolbar
-            .set_preset(workspace.time.to_preset());
+        self.time_range_toolbar.set_preset(config.time.to_preset());
 
         // Clear existing panes and reset the tree
         self.clear_all_panes();
@@ -2956,9 +2975,9 @@ impl Dashboard {
         self.next_query_number = 1;
 
         // Phase 1: Insert all panes and collect their TileIds
-        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(workspace.panes.len());
+        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(config.panes.len());
 
-        for pane_config in &workspace.panes {
+        for pane_config in &config.panes {
             let query_number = self.next_query_number;
             self.next_query_number += 1;
 
@@ -2972,7 +2991,7 @@ impl Dashboard {
             }
 
             // Apply query state
-            let state = pane_config.to_query_state(&workspace.time.preset);
+            let state = pane_config.to_query_state(&config.time.preset);
             query_pane.set_query_state(state);
 
             // Apply visualization type from config
@@ -2987,9 +3006,9 @@ impl Dashboard {
         }
 
         // Phase 2: Build the layout tree
-        let root_id = if let Some(layout) = &workspace.layout {
+        let root_id = if let Some(layout) = &config.layout {
             // Validate layout references before building
-            if let Err(e) = layout.validate(workspace.panes.len()) {
+            if let Err(e) = layout.validate(config.panes.len()) {
                 log::warn!("Invalid layout config: {e}. Falling back to tabs.");
                 self.viewport_tree
                     .tiles
@@ -3009,15 +3028,15 @@ impl Dashboard {
         self.viewport_tree.root = Some(root_id);
 
         // Hide landing page if we have panes
-        if !workspace.panes.is_empty() {
+        if !config.panes.is_empty() {
             self.show_landing = false;
         }
 
         // Return connection config if present
-        if workspace.connection.is_empty() {
+        if config.connection.is_empty() {
             None
         } else {
-            Some(workspace.connection.clone())
+            Some(config.connection.clone())
         }
     }
 

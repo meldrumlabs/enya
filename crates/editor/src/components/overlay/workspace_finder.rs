@@ -11,7 +11,7 @@ use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-use super::finder_utils::{
+use crate::components::util::finder_utils::{
     FinderColors, FinderKeyboardInput, OverlayStyle, create_highlighted_text,
 };
 

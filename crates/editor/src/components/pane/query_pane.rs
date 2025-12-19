@@ -1,17 +1,15 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use egui::{Color32, RichText};
 
-use crate::components::buffer::{Buffer, BufferAction, BufferMode};
-use crate::components::query_state::QueryState;
-use crate::components::visualization::{Visualization, VisualizationType, populate_demo_data};
+use crate::components::pane::visualization::{
+    Visualization, VisualizationType, populate_demo_data,
+};
+use crate::components::util::id_generator::next_id_usize;
+use crate::components::util::query_state::QueryState;
+use crate::components::widget::buffer::{Buffer, BufferAction, BufferMode};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
-
-/// Global counter for unique pane IDs
-static NEXT_PANE_ID: AtomicUsize = AtomicUsize::new(1000);
 
 /// Render a skeleton loading state with shimmer effect
 fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
@@ -159,7 +157,7 @@ impl QueryPane {
     /// Create a new query pane with a specific visualization type
     pub fn with_visualization_type(query: impl Into<String>, viz_type: VisualizationType) -> Self {
         let query = query.into();
-        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        let id = next_id_usize();
 
         let buffer = Buffer::with_name(query.clone(), format!("Query {id}"));
         let mut visualization = Visualization::new(viz_type, &query);
@@ -214,7 +212,7 @@ impl QueryPane {
     /// Create a query pane for a real backend (no demo data, needs refresh)
     pub fn for_metric_with_number(metric_name: impl Into<String>, query_number: usize) -> Self {
         let metric = metric_name.into();
-        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        let id = next_id_usize();
         let pane_name = format!("Query {query_number}");
 
         // Use the metric name as the default query (PromQL mode)
@@ -240,7 +238,7 @@ impl QueryPane {
     pub fn with_demo_metric_numbered(metric_name: impl Into<String>, query_number: usize) -> Self {
         let metric = metric_name.into();
         let query = metric.clone();
-        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        let id = next_id_usize();
         let pane_name = format!("Query {query_number}");
 
         let buffer = Buffer::with_name(query.clone(), &pane_name);
@@ -267,7 +265,7 @@ impl QueryPane {
     pub fn with_demo_query_named(query: impl Into<String>, name: impl Into<String>) -> Self {
         let query = query.into();
         let pane_name = name.into();
-        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        let id = next_id_usize();
 
         let buffer = Buffer::with_name(query.clone(), &pane_name);
         let mut visualization = Visualization::new(VisualizationType::default(), &pane_name);
@@ -290,7 +288,7 @@ impl QueryPane {
 
     /// Create a query pane from workspace config with a specific query number
     pub fn from_config_numbered(query: &str, name: &str, query_number: usize) -> Self {
-        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+        let id = next_id_usize();
         // Use provided name if not empty, otherwise use sequential naming
         let pane_name = if name.is_empty() {
             format!("Query {query_number}")
@@ -632,7 +630,7 @@ pub enum QueryPaneAction {
 }
 
 /// Implement Component trait so QueryPane can be used in the dashboard
-impl super::Component for QueryPane {
+impl crate::components::Component for QueryPane {
     fn show(&mut self, ui: &mut egui::Ui) {
         QueryPane::show(self, ui);
     }

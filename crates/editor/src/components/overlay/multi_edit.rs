@@ -5,7 +5,7 @@ use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 
-use super::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::OverlayStyle;
 
 /// An excerpt from a query pane shown in the multi-edit overlay
 #[derive(Debug, Clone)]

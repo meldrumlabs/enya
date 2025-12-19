@@ -11,7 +11,7 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-use super::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::OverlayStyle;
 
 /// A keybinding with its key and description
 #[derive(Clone)]

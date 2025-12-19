@@ -9,7 +9,7 @@ use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::typography;
 
-use super::time_series_chart::DataPoint;
+use crate::components::pane::time_series_chart::DataPoint;
 
 /// Overlay style variants for modal/popup components
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

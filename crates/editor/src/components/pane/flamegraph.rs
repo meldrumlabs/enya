@@ -8,16 +8,12 @@
 //! - Typical flamegraphs have hundreds of frames, not tens of thousands
 //! - The complexity of GPU text rendering isn't worth the minimal benefit
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use egui::{Color32, RichText, Stroke, StrokeKind};
 
+use crate::components::util::id_generator::next_id_usize;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
-
-/// Global counter for unique flamegraph IDs
-static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// A single frame in the flamegraph
 #[derive(Debug, Clone)]
@@ -97,7 +93,7 @@ impl FlamegraphViz {
     /// Create a new flamegraph visualization
     pub fn new(title: impl Into<String>) -> Self {
         Self {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             title: title.into(),
             profile_type: ProfileType::default(),
             frames: Vec::new(),

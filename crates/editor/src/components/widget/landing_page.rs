@@ -135,7 +135,7 @@ impl LandingPage {
     /// Show the header with logo and title
     fn show_header(&self, ui: &mut egui::Ui, _text_col: Color32, muted_color: Color32) {
         // Logo
-        let logo = egui::Image::new(egui::include_image!("../../assets/logo.png"));
+        let logo = egui::Image::new(egui::include_image!("../../../assets/logo.png"));
         ui.add(logo.max_width(180.0).max_height(180.0));
 
         ui.add_space(16.0);

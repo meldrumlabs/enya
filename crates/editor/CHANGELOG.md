@@ -4,6 +4,25 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Consolidated workspace module structure**: Reorganized the workspace-related code into a single `workspace/` module directory:
+  - `Dashboard` → `Viewport` → `Workspace` (the runtime pane layout manager)
+  - `Workspace` → `WorkspaceConfig` (the serialization/config struct)
+  - `DashboardAction` → `ViewportAction` → `WorkspaceAction`
+  - `dashboard.rs` → `viewport.rs` → `workspace/mod.rs`
+  - `workspace.rs` → `workspace/config.rs`
+  - This aligns internal naming with user-facing terminology where "Workspace" is the concept users interact with.
+
+- **Centralized ID generation**: Replaced 8+ scattered `AtomicUsize`/`AtomicU64` static counters throughout the codebase with a single centralized `id_generator` module. This ensures unique IDs across all component types and eliminates duplicate ID generation patterns. The new module provides `next_id()` and `next_id_usize()` functions.
+
+- **Reorganized components into categorized subdirectories**: Split the flat 27-file `components/` directory into four focused subdirectories:
+  - `components/pane/` - Tile content types (query_pane, flamegraph, heatmap, time_series_chart, visualization)
+  - `components/overlay/` - Modal UI (command_palette, metrics_finder, diagnostics, buffer_editor, info, multi_edit, tutorial, viewport_filter, which_key, workspace_finder)
+  - `components/widget/` - Reusable UI elements (buffer, landing_page, notifications, status_line, time_range)
+  - `components/util/` - Non-UI helpers (finder_utils, id_generator, multi_buffer, query_completion, query_executor, query_state, query_validation)
+  - All types are re-exported from `components/mod.rs` for backwards compatibility.
+
 ### Added
 
 - **DemoMetricsClient for offline demo mode**: Added a new `DemoMetricsClient` in the `enya-client` crate that implements the `MetricsClient` trait with realistic mock data. The demo client provides:

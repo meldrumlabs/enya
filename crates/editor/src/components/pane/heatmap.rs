@@ -6,18 +6,15 @@
 //! GPU rendering is implemented in the `crate::wgpu::heatmap` module.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use eframe::egui_wgpu;
 use egui::{Color32, RichText, Stroke, StrokeKind};
 
+use crate::components::util::id_generator::next_id_usize;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::wgpu::HeatmapCallback;
-
-/// Global counter for unique heatmap IDs
-static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 
 /// Threshold for switching to GPU rendering (number of cells)
 const GPU_THRESHOLD: usize = 100;
@@ -83,7 +80,7 @@ impl HeatmapViz {
     pub fn new(metric_name: impl Into<String>) -> Self {
         let name = metric_name.into();
         Self {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             title: name.clone(),
             metric_name: name,
             grid_size: (24, 10), // Default: 24 columns (hours), 10 rows

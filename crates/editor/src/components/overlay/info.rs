@@ -9,7 +9,7 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-use super::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::OverlayStyle;
 
 /// A modal overlay that displays build and version information
 pub struct InfoOverlay {

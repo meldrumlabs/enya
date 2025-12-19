@@ -10,8 +10,8 @@ use enya_client::{
     QueryManager, QueryRequest, QueryResponse, prometheus::PrometheusClient,
 };
 
-use super::time_series_chart::{DataPoint, Series};
-use super::visualization::Visualization;
+use crate::components::pane::time_series_chart::{DataPoint, Series};
+use crate::components::pane::visualization::Visualization;
 
 /// Backend type for query execution.
 #[derive(Debug, Clone, PartialEq)]

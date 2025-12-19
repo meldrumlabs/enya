@@ -99,7 +99,7 @@ use crate::theme::AppTheme;
 /// Compact workspace representation for URL sharing (postcard binary format)
 /// Uses numeric enums and minimal fields for smallest possible encoding
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CompactWorkspace {
+struct CompactWorkspaceConfig {
     name: String,
     /// Packed header: bits 0-2 = time preset (0-6), bit 3 = theme (0=dark, 1=light)
     header: u8,
@@ -240,8 +240,8 @@ impl CompactLayout {
     }
 }
 
-impl CompactWorkspace {
-    fn from_workspace(ws: &Workspace) -> Self {
+impl CompactWorkspaceConfig {
+    fn from_workspace(ws: &WorkspaceConfig) -> Self {
         let time_idx: u8 = match ws.time.preset.as_str() {
             "5m" => 0,
             "15m" => 1,
@@ -318,8 +318,8 @@ impl CompactWorkspace {
         }
     }
 
-    fn into_workspace(self) -> Workspace {
-        let mut ws = Workspace::new(self.name);
+    fn into_workspace(self) -> WorkspaceConfig {
+        let mut ws = WorkspaceConfig::new(self.name);
 
         // Unpack header: bits 0-2 = time, bit 3 = theme
         let time_idx = self.header & 0x07;
@@ -432,7 +432,7 @@ impl CompactSinglePane {
         }
     }
 
-    fn into_workspace(self) -> Workspace {
+    fn into_workspace(self) -> WorkspaceConfig {
         // Unpack header: bits 0-2 = time, bit 3 = theme
         let time_idx = self.header & 0x07;
         let theme_bit = (self.header >> 3) & 0x01;
@@ -440,7 +440,7 @@ impl CompactSinglePane {
         let gran = self.flags & 0x07;
         let viz = (self.flags >> 3) & 0x07;
 
-        let mut ws = Workspace::new("shared");
+        let mut ws = WorkspaceConfig::new("shared");
         ws.view.theme = if theme_bit == 1 {
             "light".to_string()
         } else {
@@ -541,10 +541,10 @@ children = [
 ]
 "#;
 
-/// Complex dashboard workspace with deeply nested i3-style layout
-pub const COMPLEX_DASHBOARD_TOML: &str = r#"[workspace]
-name = "dashboard"
-description = "Production dashboard with complex nested i3 layout"
+/// Complex viewport workspace with deeply nested i3-style layout
+pub const COMPLEX_VIEWPORT_TOML: &str = r#"[workspace]
+name = "viewport"
+description = "Production viewport with complex nested i3 layout"
 
 [view]
 theme = "dark"
@@ -698,7 +698,7 @@ children = [
 
 /// A complete workspace definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Workspace {
+pub struct WorkspaceConfig {
     /// Workspace metadata
     pub workspace: WorkspaceMeta,
 
@@ -1138,7 +1138,7 @@ impl PaneConfig {
     }
 }
 
-impl Workspace {
+impl WorkspaceConfig {
     /// Create a new empty workspace
     pub fn new(name: impl Into<String>) -> Self {
         Self {
@@ -1219,7 +1219,7 @@ impl Workspace {
             let decompressed = lz4_flex::decompress_size_prepended(&compressed)
                 .map_err(|e| WorkspaceError::Decode(format!("LZ4 decompression failed: {e}")))?;
 
-            let compact: CompactWorkspace = postcard::from_bytes(&decompressed)
+            let compact: CompactWorkspaceConfig = postcard::from_bytes(&decompressed)
                 .map_err(|e| WorkspaceError::Decode(format!("postcard decode failed: {e}")))?;
             return Ok(compact.into_workspace());
         }
@@ -1252,7 +1252,7 @@ impl Workspace {
     pub fn to_base64(&self) -> Result<String, WorkspaceError> {
         use base64::Engine;
 
-        let compact = CompactWorkspace::from_workspace(self);
+        let compact = CompactWorkspaceConfig::from_workspace(self);
         let bytes = postcard::to_allocvec(&compact)
             .map_err(|e| WorkspaceError::Encode(format!("postcard encode failed: {e}")))?;
 
@@ -1348,7 +1348,7 @@ mod tests {
 [workspace]
 name = "test"
 "#;
-        let ws = Workspace::from_toml(toml).unwrap();
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
         assert_eq!(ws.workspace.name, "test");
         assert_eq!(ws.workspace.version, WORKSPACE_VERSION);
         assert_eq!(ws.view.theme, "dark");
@@ -1381,7 +1381,7 @@ granularity = "1m"
 query = "sum(env:prod AND name:error_rate) by (name)"
 granularity = "5m"
 "#;
-        let ws = Workspace::from_toml(toml).unwrap();
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
         assert_eq!(ws.workspace.name, "prod-dashboard");
         assert_eq!(ws.view.theme, "light");
         assert_eq!(ws.view.app_theme(), AppTheme::Light);
@@ -1398,7 +1398,7 @@ granularity = "5m"
 
     #[test]
     fn test_roundtrip() {
-        let mut ws = Workspace::new("test");
+        let mut ws = WorkspaceConfig::new("test");
         ws.workspace.description = "Test workspace".to_string();
         ws.view.theme = "light".to_string();
         ws.view.inspector = true;
@@ -1410,7 +1410,7 @@ granularity = "5m"
         );
 
         let toml = ws.to_toml().unwrap();
-        let parsed = Workspace::from_toml(&toml).unwrap();
+        let parsed = WorkspaceConfig::from_toml(&toml).unwrap();
 
         assert_eq!(parsed.workspace.name, "test");
         assert_eq!(parsed.workspace.description, "Test workspace");
@@ -1423,15 +1423,15 @@ granularity = "5m"
 
     #[test]
     fn test_base64_encoding() {
-        let ws = Workspace::new("shared");
+        let ws = WorkspaceConfig::new("shared");
         let encoded = ws.to_base64().unwrap();
-        let decoded = Workspace::from_base64(&encoded).unwrap();
+        let decoded = WorkspaceConfig::from_base64(&encoded).unwrap();
         assert_eq!(decoded.workspace.name, "shared");
     }
 
     #[test]
     fn test_base64_encoding_with_panes() {
-        let mut ws = Workspace::new("dashboard");
+        let mut ws = WorkspaceConfig::new("dashboard");
         ws.view.theme = "light".to_string();
         ws.time.preset = "1h".to_string();
         ws.add_pane(
@@ -1446,7 +1446,7 @@ granularity = "5m"
         // Postcard format should be much shorter than TOML
         assert!(encoded.starts_with('p'));
 
-        let decoded = Workspace::from_base64(&encoded).unwrap();
+        let decoded = WorkspaceConfig::from_base64(&encoded).unwrap();
         assert_eq!(decoded.workspace.name, "dashboard");
         assert_eq!(decoded.view.theme, "light");
         assert_eq!(decoded.time.preset, "1h");
@@ -1463,7 +1463,7 @@ granularity = "5m"
 
     #[test]
     fn test_single_pane_encoding() {
-        let mut ws = Workspace::new("dashboard");
+        let mut ws = WorkspaceConfig::new("dashboard");
         ws.view.theme = "light".to_string();
         ws.time.preset = "1h".to_string();
         ws.add_pane(
@@ -1485,7 +1485,7 @@ granularity = "5m"
         );
 
         // Decode and verify
-        let decoded = Workspace::from_base64(&pane_encoded).unwrap();
+        let decoded = WorkspaceConfig::from_base64(&pane_encoded).unwrap();
         assert_eq!(decoded.workspace.name, "shared"); // default name for single pane
         assert_eq!(decoded.view.theme, "light");
         assert_eq!(decoded.time.preset, "1h");
@@ -1532,7 +1532,7 @@ granularity = "1m"
 query = "env:staging"
 name = "Staging"
 "#;
-        let ws = Workspace::from_toml(toml).unwrap();
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
         assert_eq!(ws.panes[0].tag, "Critical");
         assert!(ws.panes[1].tag.is_empty()); // Tag is optional
 
@@ -1570,7 +1570,7 @@ name = "minimal"
 [[panes]]
 query = "test"
 "#;
-        let ws = Workspace::from_toml(toml).unwrap();
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
 
         // View defaults
         assert_eq!(ws.view.theme, "dark");
@@ -1601,7 +1601,7 @@ endpoint = "https://metrics.example.com"
 [[panes]]
 query = "env:prod"
 "#;
-        let ws = Workspace::from_toml(toml).unwrap();
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
         assert_eq!(ws.connection.endpoint, "https://metrics.example.com");
         assert!(ws.connection.api_key.is_empty());
         assert!(!ws.connection.is_empty());
@@ -1625,7 +1625,7 @@ api_key = "sk-test-123"
 [[panes]]
 query = "env:prod"
 "#;
-        let ws = Workspace::from_toml(toml).unwrap();
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
         assert_eq!(ws.connection.endpoint, "https://metrics.example.com");
         assert_eq!(ws.connection.api_key, "sk-test-123");
     }

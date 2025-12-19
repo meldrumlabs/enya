@@ -10,7 +10,7 @@ use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 
-use super::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::OverlayStyle;
 
 /// Result of viewport filter interaction
 #[derive(Debug, Clone, PartialEq)]

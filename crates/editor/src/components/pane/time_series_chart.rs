@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use std::ops::RangeInclusive;
 
 use egui::{Color32, Key, RichText, Stroke};
@@ -8,6 +6,7 @@ use egui_plot::{
     AxisHints, GridMark, Line, LineStyle, Plot, PlotBounds, PlotPoints, Polygon, VLine,
 };
 
+use crate::components::util::id_generator::next_id_usize;
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
@@ -132,9 +131,6 @@ fn format_value(value: f64) -> String {
         format!("{value:.2}")
     }
 }
-
-/// Global counter for unique component IDs
-static NEXT_ID: AtomicUsize = AtomicUsize::new(100);
 
 /// A single data point in the time series
 #[derive(Debug, Clone)]
@@ -261,7 +257,7 @@ impl TimeSeriesChart {
     pub fn new(metric_name: impl Into<String>) -> Self {
         let name = metric_name.into();
         Self {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             title: name.clone(),
             metric_name: name,
             series: Vec::new(),
@@ -612,7 +608,7 @@ impl TimeSeriesChart {
                 ui.add_space(center_offset);
 
                 // Enya logo (slightly transparent for subtle branding)
-                let logo = egui::Image::new(egui::include_image!("../../assets/logo.png"))
+                let logo = egui::Image::new(egui::include_image!("../../../assets/logo.png"))
                     .max_width(64.0)
                     .max_height(64.0)
                     .tint(text_color.gamma_multiply(0.7));
@@ -1013,7 +1009,7 @@ impl TimeSeriesChart {
 }
 
 /// Implement Component trait so TimeSeriesChart can be used in the dashboard
-impl super::Component for TimeSeriesChart {
+impl crate::components::Component for TimeSeriesChart {
     fn show(&mut self, ui: &mut egui::Ui) {
         TimeSeriesChart::show(self, ui);
     }

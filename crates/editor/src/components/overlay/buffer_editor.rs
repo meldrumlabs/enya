@@ -1,17 +1,17 @@
 use egui::text::LayoutJob;
 use egui::{Color32, FontId, Key, RichText, TextFormat};
 
-use crate::components::diagnostics_pane::{Diagnostic, DiagnosticLevel};
-use crate::components::query_completion::{CompletionResult, QueryCompletion};
-use crate::components::query_state::QueryState;
-use crate::components::query_validation::{QueryValidator, ValidationResult};
+use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticLevel};
+use crate::components::util::query_completion::{CompletionResult, QueryCompletion};
+use crate::components::util::query_state::QueryState;
+use crate::components::util::query_validation::{QueryValidator, ValidationResult};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-use super::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::OverlayStyle;
 
 /// Truncate a message to a maximum length, adding ellipsis if needed
 fn truncate_message(msg: &str, max_len: usize) -> String {

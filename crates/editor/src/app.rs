@@ -10,13 +10,13 @@ use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
 };
 use crate::connection::ConnectionManager;
-use crate::dashboard::{Dashboard, DashboardAction};
 use crate::theme::AppTheme;
 use crate::theme::light;
 use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::ui::welcome_screen::welcome_section_ui;
 use crate::util::Instant;
+use crate::workspace::{Workspace, WorkspaceAction};
 use crate::workspace_tabs::{TabBarAction, WorkspaceTabBar};
 
 /// Tracks internal editor metrics for the status line sparkline
@@ -117,7 +117,7 @@ pub struct AppState {
     pub(crate) theme: AppTheme,
     pub(crate) ui_state: UIState,
     #[serde(skip)]
-    pub(crate) active_dashboard: Dashboard,
+    pub(crate) workspace: Workspace,
 }
 
 impl AppState {
@@ -210,7 +210,7 @@ impl EnyaApp {
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
         // Skip global shortcuts when multi-buffer editing is capturing input
         if let Some(tab) = self.workspace_tabs.active_tab() {
-            if tab.dashboard.is_multi_buffer_input_mode() {
+            if tab.workspace.is_multi_buffer_input_mode() {
                 return;
             }
         }
@@ -257,18 +257,18 @@ impl EnyaApp {
             UIState::Dashboard => {
                 // Check if command palette or fuzzy finder is open, or zen/fullscreen mode is active
                 if let Some(tab) = self.workspace_tabs.active_tab() {
-                    let dashboard = &tab.dashboard;
-                    if dashboard.is_command_palette_open() {
+                    let workspace = &tab.workspace;
+                    if workspace.is_command_palette_open() {
                         StatusMode::Command
-                    } else if dashboard.is_metrics_finder_open() {
+                    } else if workspace.is_metrics_finder_open() {
                         StatusMode::Search
-                    } else if dashboard.is_viewport_filter_open() {
+                    } else if workspace.is_viewport_filter_open() {
                         StatusMode::Filter
-                    } else if dashboard.is_visual_multi_mode() {
+                    } else if workspace.is_visual_multi_mode() {
                         StatusMode::VisualMulti
-                    } else if dashboard.is_fullscreen() {
+                    } else if workspace.is_fullscreen() {
                         StatusMode::Fullscreen
-                    } else if dashboard.is_zen_mode() {
+                    } else if workspace.is_zen_mode() {
                         StatusMode::Zen
                     } else {
                         StatusMode::Normal
@@ -281,16 +281,16 @@ impl EnyaApp {
         };
         self.status_line.set_mode(mode);
 
-        // Set open tabs count from dashboard
+        // Set open tabs count from workspace
         if let Some(tab) = self.workspace_tabs.active_tab() {
-            let dashboard = &tab.dashboard;
-            self.status_line.set_open_tabs(dashboard.open_tabs_count());
+            let workspace = &tab.workspace;
+            self.status_line.set_open_tabs(workspace.open_tabs_count());
             self.status_line
-                .set_selected_metric(dashboard.selected_metric());
+                .set_selected_metric(workspace.selected_metric());
             self.status_line
-                .set_viewport_info(dashboard.viewport_info());
+                .set_viewport_info(workspace.viewport_info());
             // Set multi-buffer status if in visual-multi mode
-            let multi_buffer_status = dashboard.multi_buffer_status_text();
+            let multi_buffer_status = workspace.multi_buffer_status_text();
             self.status_line
                 .set_extra_status(if multi_buffer_status.is_empty() {
                     None
@@ -298,11 +298,11 @@ impl EnyaApp {
                     Some(multi_buffer_status)
                 });
             // Set diagnostics count
-            let (errors, warnings, infos) = dashboard.diagnostics_count_by_level();
+            let (errors, warnings, infos) = workspace.diagnostics_count_by_level();
             self.status_line
                 .set_diagnostics_count(errors, warnings, infos);
             // Set connection status based on Prometheus health check
-            self.status_line.set_connected(dashboard.is_online());
+            self.status_line.set_connected(workspace.is_online());
         } else {
             // No active tab - show offline
             self.status_line.set_connected(false);
@@ -330,7 +330,7 @@ impl EnyaApp {
     #[inline]
     fn show_main_content(&mut self, ctx: &egui::Context) {
         match self.state.ui_state() {
-            UIState::Dashboard => self.draw_dashboard(ctx),
+            UIState::Dashboard => self.draw_workspace(ctx),
             UIState::Home => self.draw_home(ctx),
         }
     }
@@ -398,7 +398,7 @@ impl EnyaApp {
         });
     }
 
-    fn draw_dashboard(&mut self, ctx: &egui::Context) {
+    fn draw_workspace(&mut self, ctx: &egui::Context) {
         // On WASM, check for workspace or pane parameter in URL on first frame
         #[cfg(target_arch = "wasm32")]
         if !self.checked_url_workspace {
@@ -420,22 +420,22 @@ impl EnyaApp {
             && self
                 .workspace_tabs
                 .active_tab()
-                .is_some_and(|tab| tab.dashboard.is_landing_page());
+                .is_some_and(|tab| tab.workspace.is_landing_page());
         if !should_hide_tabs {
             let tab_action = self.workspace_tabs.show(ctx);
             self.handle_tab_bar_action(tab_action);
         }
 
-        let mut dashboard_action = DashboardAction::None;
+        let mut workspace_action = WorkspaceAction::None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                dashboard_action = tab.dashboard.show(ui, ctx, &self.state);
+                workspace_action = tab.workspace.show(ui, ctx, &self.state);
             }
         });
 
-        // Handle actions from the dashboard (e.g., from command palette)
-        self.handle_dashboard_action(ctx, dashboard_action);
+        // Handle actions from the viewport (e.g., from command palette)
+        self.handle_workspace_action(ctx, workspace_action);
     }
 
     /// Handle actions from the workspace tab bar
@@ -454,22 +454,22 @@ impl EnyaApp {
         }
     }
 
-    fn handle_dashboard_action(&mut self, ctx: &egui::Context, action: DashboardAction) {
+    fn handle_workspace_action(&mut self, ctx: &egui::Context, action: WorkspaceAction) {
         match action {
-            DashboardAction::None => {}
-            DashboardAction::ToggleTheme => {
+            WorkspaceAction::None => {}
+            WorkspaceAction::ToggleTheme => {
                 self.command_sender.send_ui(UICommand::ToggleTheme);
             }
-            DashboardAction::SetTheme(theme) => {
+            WorkspaceAction::SetTheme(theme) => {
                 self.command_sender.send_ui(UICommand::Theme(theme));
             }
-            DashboardAction::ShowHelp => {
+            WorkspaceAction::ShowHelp => {
                 ctx.open_url(egui::output::OpenUrl {
                     url: "https://enya.dev/contact".to_owned(),
                     new_tab: true,
                 });
             }
-            DashboardAction::Notify { level, message } => {
+            WorkspaceAction::Notify { level, message } => {
                 use crate::components::{Notification, NotificationLevel};
                 let notification_level = match level.to_lowercase().as_str() {
                     "success" | "ok" => NotificationLevel::Success,
@@ -480,7 +480,7 @@ impl EnyaApp {
                 self.notifications
                     .notify(Notification::new(message, notification_level));
             }
-            DashboardAction::TrackRecentPlot {
+            WorkspaceAction::TrackRecentPlot {
                 name,
                 metric_name,
                 is_query,
@@ -489,7 +489,7 @@ impl EnyaApp {
                     .settings
                     .add_recent_plot(name, metric_name, is_query);
             }
-            DashboardAction::TakeScreenshot(path) => {
+            WorkspaceAction::TakeScreenshot(path) => {
                 // Store the custom path for when the screenshot event arrives
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -501,39 +501,39 @@ impl EnyaApp {
                 // Request a screenshot from egui
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
             }
-            DashboardAction::SaveWorkspace(name) => {
+            WorkspaceAction::SaveWorkspace(name) => {
                 self.save_workspace(name.as_deref());
             }
-            DashboardAction::LoadWorkspace(name) => {
+            WorkspaceAction::LoadWorkspace(name) => {
                 self.load_workspace(&name);
             }
-            DashboardAction::ListWorkspaces => {
+            WorkspaceAction::ListWorkspaces => {
                 self.list_workspaces();
             }
-            DashboardAction::ShareWorkspace => {
+            WorkspaceAction::ShareWorkspace => {
                 self.share_workspace();
             }
-            DashboardAction::SharePane(pane_index) => {
+            WorkspaceAction::SharePane(pane_index) => {
                 self.share_pane(pane_index);
             }
-            DashboardAction::QuitApp => {
+            WorkspaceAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            DashboardAction::NewWorkspaceTab(name) => {
+            WorkspaceAction::NewWorkspaceTab(name) => {
                 if let Some(name) = name {
                     self.workspace_tabs.new_tab_with_name(name);
                 } else {
                     self.workspace_tabs.new_tab();
                 }
             }
-            DashboardAction::CloseWorkspaceTab => {
+            WorkspaceAction::CloseWorkspaceTab => {
                 self.workspace_tabs
                     .close_tab(self.workspace_tabs.active_index());
             }
-            DashboardAction::NextWorkspaceTab => {
+            WorkspaceAction::NextWorkspaceTab => {
                 self.workspace_tabs.next_tab();
             }
-            DashboardAction::PrevWorkspaceTab => {
+            WorkspaceAction::PrevWorkspaceTab => {
                 self.workspace_tabs.prev_tab();
             }
         }
@@ -541,13 +541,13 @@ impl EnyaApp {
 
     fn open_metrics_finder(&mut self) {
         if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-            tab.dashboard.open_metrics_finder();
+            tab.workspace.open_metrics_finder();
         }
     }
 
     fn open_command_palette(&mut self) {
         if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-            tab.dashboard.open_command_palette();
+            tab.workspace.open_command_palette();
         }
     }
 
@@ -756,7 +756,7 @@ impl EnyaApp {
     /// List available workspace files from the workspace directory
     #[cfg(not(target_arch = "wasm32"))]
     pub fn list_available_workspaces() -> Vec<(String, Option<String>)> {
-        use crate::workspace::Workspace;
+        use crate::workspace::WorkspaceConfig;
 
         let dir = Self::workspace_dir();
         let mut workspaces = Vec::new();
@@ -769,7 +769,7 @@ impl EnyaApp {
                         // Try to load workspace to get description
                         let description = std::fs::read_to_string(&path)
                             .ok()
-                            .and_then(|content| Workspace::from_toml(&content).ok())
+                            .and_then(|content| WorkspaceConfig::from_toml(&content).ok())
                             .and_then(|ws| {
                                 if ws.workspace.description.is_empty() {
                                     None
@@ -798,7 +798,7 @@ impl EnyaApp {
     #[cfg(not(target_arch = "wasm32"))]
     fn ensure_default_workspace() {
         use crate::workspace::{
-            COMPLEX_DASHBOARD_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
+            COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
         };
 
         let dir = Self::workspace_dir();
@@ -813,13 +813,13 @@ impl EnyaApp {
             }
         }
 
-        // Create complex dashboard workspace if it doesn't exist
-        let dashboard_path = dir.join("dashboard.toml");
-        if !dashboard_path.exists() {
-            if let Err(e) = std::fs::write(&dashboard_path, COMPLEX_DASHBOARD_TOML) {
-                log::warn!("Failed to create dashboard workspace: {e}");
+        // Create complex viewport workspace if it doesn't exist
+        let viewport_path = dir.join("viewport.toml");
+        if !viewport_path.exists() {
+            if let Err(e) = std::fs::write(&viewport_path, COMPLEX_VIEWPORT_TOML) {
+                log::warn!("Failed to create viewport workspace: {e}");
             } else {
-                log::info!("Created dashboard workspace: {}", dashboard_path.display());
+                log::info!("Created viewport workspace: {}", viewport_path.display());
             }
         }
 
@@ -840,7 +840,7 @@ impl EnyaApp {
 
         let workspace_name = name.unwrap_or("default");
 
-        // Get workspace from active tab's dashboard
+        // Get workspace from active tab's viewport
         // TODO: Pass actual endpoint when endpoint tracking is implemented
         let Some(tab) = self.workspace_tabs.active_tab() else {
             self.notifications.notify(Notification::new(
@@ -849,16 +849,16 @@ impl EnyaApp {
             ));
             return;
         };
-        let workspace = tab
-            .dashboard
-            .to_workspace(workspace_name, self.state.theme, None);
+        let workspace_config =
+            tab.workspace
+                .to_workspace_config(workspace_name, self.state.theme, None);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             let dir = Self::workspace_dir();
             let path = dir.join(format!("{workspace_name}.toml"));
 
-            match workspace.save(&path) {
+            match workspace_config.save(&path) {
                 Ok(()) => {
                     log::info!("Workspace saved to: {}", path.display());
                     self.notifications.notify(Notification::new(
@@ -879,7 +879,7 @@ impl EnyaApp {
         #[cfg(target_arch = "wasm32")]
         {
             // On web, encode to base64 and copy URL to clipboard
-            match workspace.to_base64() {
+            match workspace_config.to_base64() {
                 Ok(encoded) => {
                     // Build the full URL
                     let full_url = {
@@ -921,16 +921,16 @@ impl EnyaApp {
     /// Load a workspace from a file
     fn load_workspace(&mut self, name: &str) {
         use crate::components::{Notification, NotificationLevel};
-        use crate::workspace::Workspace;
+        use crate::workspace::WorkspaceConfig;
 
         #[cfg(not(target_arch = "wasm32"))]
         {
             let dir = Self::workspace_dir();
             let path = dir.join(format!("{name}.toml"));
 
-            match Workspace::load(&path) {
-                Ok(workspace) => {
-                    if let Err(e) = workspace.validate() {
+            match WorkspaceConfig::load(&path) {
+                Ok(workspace_config) => {
+                    if let Err(e) = workspace_config.validate() {
                         self.notifications.notify(Notification::new(
                             format!("Invalid workspace: {e}"),
                             NotificationLevel::Error,
@@ -940,11 +940,11 @@ impl EnyaApp {
 
                     if let Some(tab) = self.workspace_tabs.active_tab_mut() {
                         let connection = tab
-                            .dashboard
-                            .load_workspace(&workspace, &mut self.state.theme);
+                            .workspace
+                            .load_workspace_config(&workspace_config, &mut self.state.theme);
 
                         // Update tab name to match loaded workspace
-                        tab.name = workspace.workspace.name.clone();
+                        tab.name = workspace_config.workspace.name.clone();
 
                         // TODO: Apply connection settings when endpoint tracking is implemented
                         if let Some(conn) = connection {
@@ -956,7 +956,7 @@ impl EnyaApp {
                         // Add to recent workspaces
                         self.state.settings.add_recent_workspace(
                             name.to_string(),
-                            workspace.workspace.description.clone(),
+                            workspace_config.workspace.description.clone(),
                         );
 
                         log::info!("Workspace loaded: {name}");
@@ -986,21 +986,21 @@ impl EnyaApp {
             // On web, first check for built-in workspaces, then try base64
             let workspace_result = if name == "example" {
                 // Load built-in example workspace
-                Ok(Workspace::default_example())
+                Ok(WorkspaceConfig::default_example())
             } else if name == "demo" {
                 // Load built-in demo workspace (synthetic data)
-                Ok(Workspace::default_demo())
+                Ok(WorkspaceConfig::default_demo())
             } else if name == "dashboard" {
                 // Load built-in complex dashboard workspace
-                Workspace::from_toml(crate::workspace::COMPLEX_DASHBOARD_TOML)
+                WorkspaceConfig::from_toml(crate::workspace::COMPLEX_VIEWPORT_TOML)
             } else {
                 // Try to decode from base64 (for shared URLs)
-                Workspace::from_base64(name)
+                WorkspaceConfig::from_base64(name)
             };
 
             match workspace_result {
-                Ok(workspace) => {
-                    if let Err(e) = workspace.validate() {
+                Ok(workspace_config) => {
+                    if let Err(e) = workspace_config.validate() {
                         self.notifications.notify(Notification::new(
                             format!("Invalid workspace: {e}"),
                             NotificationLevel::Error,
@@ -1010,11 +1010,11 @@ impl EnyaApp {
 
                     if let Some(tab) = self.workspace_tabs.active_tab_mut() {
                         let connection = tab
-                            .dashboard
-                            .load_workspace(&workspace, &mut self.state.theme);
+                            .workspace
+                            .load_workspace_config(&workspace_config, &mut self.state.theme);
 
                         // Update tab name to match loaded workspace
-                        tab.name = workspace.workspace.name.clone();
+                        tab.name = workspace_config.workspace.name.clone();
 
                         // TODO: Apply connection settings when endpoint tracking is implemented
                         if let Some(conn) = connection {
@@ -1025,12 +1025,12 @@ impl EnyaApp {
 
                         // Add to recent workspaces
                         self.state.settings.add_recent_workspace(
-                            workspace.workspace.name.clone(),
-                            workspace.workspace.description.clone(),
+                            workspace_config.workspace.name.clone(),
+                            workspace_config.workspace.description.clone(),
                         );
 
                         self.notifications.notify(Notification::new(
-                            format!("Workspace loaded: {}", workspace.workspace.name),
+                            format!("Workspace loaded: {}", workspace_config.workspace.name),
                             NotificationLevel::Success,
                         ));
                     } else {
@@ -1054,7 +1054,7 @@ impl EnyaApp {
     fn share_workspace(&mut self) {
         use crate::components::{Notification, NotificationLevel};
 
-        // Get workspace from active tab's dashboard
+        // Get workspace from active tab
         let Some(tab) = self.workspace_tabs.active_tab() else {
             self.notifications.notify(Notification::new(
                 "No active workspace".to_string(),
@@ -1063,9 +1063,11 @@ impl EnyaApp {
             return;
         };
 
-        let workspace = tab.dashboard.to_workspace("shared", self.state.theme, None);
+        let workspace_config = tab
+            .workspace
+            .to_workspace_config("shared", self.state.theme, None);
 
-        match workspace.to_base64() {
+        match workspace_config.to_base64() {
             Ok(encoded) => {
                 // Build the full URL
                 #[cfg(target_arch = "wasm32")]
@@ -1121,7 +1123,7 @@ impl EnyaApp {
     fn share_pane(&mut self, pane_index: usize) {
         use crate::components::{Notification, NotificationLevel};
 
-        // Get workspace from active tab's dashboard
+        // Get workspace from active tab
         let Some(tab) = self.workspace_tabs.active_tab() else {
             self.notifications.notify(Notification::new(
                 "No active workspace".to_string(),
@@ -1130,9 +1132,11 @@ impl EnyaApp {
             return;
         };
 
-        let workspace = tab.dashboard.to_workspace("shared", self.state.theme, None);
+        let workspace_config = tab
+            .workspace
+            .to_workspace_config("shared", self.state.theme, None);
 
-        match workspace.pane_to_base64(pane_index) {
+        match workspace_config.pane_to_base64(pane_index) {
             Ok(encoded) => {
                 // Build the full URL
                 #[cfg(target_arch = "wasm32")]

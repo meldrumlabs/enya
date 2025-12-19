@@ -7,8 +7,8 @@
 
 use std::collections::HashSet;
 
-use super::diagnostics_pane::{Diagnostic, DiagnosticLevel, DiagnosticSource};
-use super::query_completion::QueryLanguage;
+use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticLevel, DiagnosticSource};
+use crate::components::util::query_completion::QueryLanguage;
 
 /// Result of validating a query
 #[derive(Debug, Clone)]

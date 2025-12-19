@@ -4,8 +4,6 @@
 //! allowing a single QueryPane to switch between time series charts, stat displays,
 //! gauges, and other visualization styles (similar to Grafana).
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use egui::{Color32, RichText, Stroke};
 
 use crate::theme::AppTheme;
@@ -15,10 +13,10 @@ use crate::ui::semantic_icons;
 
 use super::flamegraph::{FlamegraphViz, populate_flamegraph_demo};
 use super::heatmap::{HeatmapViz, populate_heatmap_demo};
-use super::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
-
-/// Global counter for unique component IDs
-static NEXT_ID: AtomicUsize = AtomicUsize::new(5000);
+use crate::components::pane::time_series_chart::{
+    CommitMarker, DataPoint, Series, TimeSeriesChart,
+};
+use crate::components::util::id_generator::next_id_usize;
 
 /// Standard padding for visualization types (for consistent spacing)
 const VIZ_PADDING_TOP: f32 = 16.0;
@@ -174,7 +172,7 @@ impl StatChart {
     pub fn new(metric_name: impl Into<String>) -> Self {
         let name = metric_name.into();
         Self {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             title: name.clone(),
             metric_name: name,
             current_value: 0.0,
@@ -454,7 +452,7 @@ impl GaugeChart {
     pub fn new(metric_name: impl Into<String>) -> Self {
         let name = metric_name.into();
         Self {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             title: name.clone(),
             metric_name: name,
             current_value: 0.0,
@@ -736,7 +734,7 @@ impl BarChartViz {
     pub fn new(metric_name: impl Into<String>) -> Self {
         let name = metric_name.into();
         Self {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             title: name.clone(),
             metric_name: name,
             bars: Vec::new(),
@@ -955,7 +953,7 @@ impl SparklineViz {
     pub fn new(metric_name: impl Into<String>) -> Self {
         let name = metric_name.into();
         Self {
-            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            id: next_id_usize(),
             title: name.clone(),
             metric_name: name,
             data: Vec::new(),
