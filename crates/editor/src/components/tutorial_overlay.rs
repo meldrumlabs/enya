@@ -249,12 +249,16 @@ impl TutorialOverlay {
                         self.go_to_step(step);
                     }
                 }
+                // 't' to try/practice (close overlay to practice, resume with :tutorial)
+                if i.consume_key(egui::Modifiers::NONE, Key::T) {
+                    should_close = true;
+                }
             });
         }
 
-        // Calculate popup dimensions - make it reasonably large for readability
+        // Calculate popup dimensions - narrower but taller for readability
         let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.6).clamp(550.0, 750.0);
+        let popup_width = (screen_rect.width() * 0.5).clamp(500.0, 650.0);
 
         egui::Area::new(egui::Id::new("tutorial_overlay_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -286,11 +290,11 @@ impl TutorialOverlay {
                     let step = &self.steps[self.current_step];
 
                     // Header section with step indicator
-                    ui.add_space(16.0);
+                    ui.add_space(24.0);
                     ui.horizontal(|ui| {
-                        ui.add_space(20.0);
-                        ui.label(RichText::new(step.icon).color(accent_color).size(24.0));
-                        ui.add_space(12.0);
+                        ui.add_space(24.0);
+                        ui.label(RichText::new(step.icon).color(accent_color).size(28.0));
+                        ui.add_space(16.0);
                         ui.vertical(|ui| {
                             ui.label(
                                 RichText::new(format!(
@@ -301,6 +305,7 @@ impl TutorialOverlay {
                                 .color(muted_text)
                                 .size(typography::SM),
                             );
+                            ui.add_space(4.0);
                             ui.label(
                                 RichText::new(step.title)
                                     .color(text_color(self.theme))
@@ -309,7 +314,7 @@ impl TutorialOverlay {
                             );
                         });
                     });
-                    ui.add_space(12.0);
+                    ui.add_space(16.0);
 
                     // Separator
                     ui.painter().hline(
@@ -317,13 +322,13 @@ impl TutorialOverlay {
                         ui.cursor().top(),
                         egui::Stroke::new(1.0, separator_color),
                     );
-                    ui.add_space(16.0);
+                    ui.add_space(24.0);
 
                     // Instruction text
                     ui.horizontal(|ui| {
-                        ui.add_space(20.0);
+                        ui.add_space(24.0);
                         ui.vertical(|ui| {
-                            ui.set_width(popup_width - 40.0);
+                            ui.set_width(popup_width - 48.0);
                             ui.label(
                                 RichText::new(step.instruction)
                                     .color(text_color(self.theme))
@@ -331,7 +336,7 @@ impl TutorialOverlay {
                             );
                         });
                     });
-                    ui.add_space(20.0);
+                    ui.add_space(28.0);
 
                     // Key hint badge (centered)
                     ui.horizontal(|ui| {
@@ -341,18 +346,18 @@ impl TutorialOverlay {
                         ui.add_space((available_width - badge_width) / 2.0);
                         Self::render_key_badge(ui, step.key_hint, key_bg, accent_color);
                     });
-                    ui.add_space(16.0);
+                    ui.add_space(24.0);
 
                     // Tip section
                     if let Some(tip) = step.tip {
                         ui.horizontal(|ui| {
-                            ui.add_space(20.0);
+                            ui.add_space(24.0);
                             ui.label(
                                 RichText::new(semantic_icons::diagnostic::HINT)
                                     .color(tip_color)
                                     .size(typography::MD),
                             );
-                            ui.add_space(4.0);
+                            ui.add_space(6.0);
                             ui.label(
                                 RichText::new(tip)
                                     .color(tip_color)
@@ -360,11 +365,11 @@ impl TutorialOverlay {
                                     .italics(),
                             );
                         });
-                        ui.add_space(12.0);
+                        ui.add_space(20.0);
                     }
 
                     // Progress dots
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         let dot_spacing = 8.0;
                         let dot_size = 6.0;
@@ -393,7 +398,7 @@ impl TutorialOverlay {
                             }
                         }
                     });
-                    ui.add_space(12.0);
+                    ui.add_space(16.0);
 
                     // Separator above footer
                     ui.painter().hline(
@@ -401,15 +406,15 @@ impl TutorialOverlay {
                         ui.cursor().top(),
                         egui::Stroke::new(1.0, separator_color),
                     );
-                    ui.add_space(8.0);
+                    ui.add_space(12.0);
 
-                    // Footer with navigation hints and "Try it!" button
+                    // Footer with navigation hints
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(20.0);
 
                         // Previous
                         if self.current_step > 0 {
-                            Self::render_key_badge(ui, "←", key_bg, text_color(self.theme));
+                            Self::render_key_badge(ui, "← h", key_bg, text_color(self.theme));
                             ui.label(
                                 RichText::new(" prev")
                                     .color(muted_text)
@@ -424,16 +429,16 @@ impl TutorialOverlay {
                         } else {
                             "next"
                         };
-                        Self::render_key_badge(ui, "→", key_bg, text_color(self.theme));
+                        Self::render_key_badge(ui, "→ l", key_bg, text_color(self.theme));
                         ui.label(
                             RichText::new(format!(" {next_label}"))
                                 .color(muted_text)
                                 .size(typography::SM),
                         );
 
-                        // Push buttons to the right
+                        // Push hints to the right
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(16.0);
+                            ui.add_space(20.0);
 
                             // Close hint
                             ui.label(
@@ -445,38 +450,26 @@ impl TutorialOverlay {
 
                             ui.add_space(24.0);
 
-                            // "Try it!" button - closes overlay so user can practice
-                            let try_button = egui::Button::new(
-                                RichText::new("Try it!")
-                                    .color(text_color(self.theme))
+                            // Try it hint
+                            ui.label(
+                                RichText::new("practice ")
+                                    .color(muted_text)
                                     .size(typography::SM),
-                            )
-                            .fill(accent_color.gamma_multiply(0.3))
-                            .stroke(egui::Stroke::new(1.0, accent_color))
-                            .corner_radius(4.0);
-
-                            if ui
-                                .add(try_button)
-                                .on_hover_text("Close and practice. Run :tutorial to resume.")
-                                .clicked()
-                            {
-                                should_close = true;
-                            }
+                            );
+                            Self::render_key_badge(ui, "t", key_bg, text_color(self.theme));
                         });
                     });
 
                     // Resume hint at the bottom
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         let hint_width = ui.available_width();
-                        ui.add_space((hint_width - 280.0) / 2.0); // Center the hint
+                        ui.add_space((hint_width - 240.0) / 2.0); // Center the hint
                         ui.label(
-                            RichText::new(
-                                "Press Esc or \"Try it!\" to practice, then :tutorial to resume",
-                            )
-                            .color(muted_text.gamma_multiply(0.7))
-                            .size(typography::XS)
-                            .italics(),
+                            RichText::new("Press t to practice, then :tutorial to resume")
+                                .color(muted_text.gamma_multiply(0.7))
+                                .size(typography::XS)
+                                .italics(),
                         );
                     });
                     ui.add_space(12.0);

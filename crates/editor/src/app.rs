@@ -99,6 +99,10 @@ pub struct EnyaApp {
     #[cfg(not(target_arch = "wasm32"))]
     pending_screenshot_path: Option<String>,
 
+    // Track window fullscreen state for toggle behavior
+    #[cfg(not(target_arch = "wasm32"))]
+    is_fullscreen: bool,
+
     // Whether we've checked URL for workspace parameter (WASM only)
     #[cfg(target_arch = "wasm32")]
     checked_url_workspace: bool,
@@ -152,6 +156,8 @@ impl Default for EnyaApp {
             editor_metrics: EditorMetrics::default(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_screenshot_path: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            is_fullscreen: false,
             #[cfg(target_arch = "wasm32")]
             checked_url_workspace: false,
         }
@@ -1403,7 +1409,10 @@ impl eframe::App for EnyaApp {
                             fullscreen_color,
                         );
                         if fs_response.clicked() {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(true));
+                            self.is_fullscreen = !self.is_fullscreen;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(
+                                self.is_fullscreen,
+                            ));
                         }
 
                         // Rest of titlebar is drag area
