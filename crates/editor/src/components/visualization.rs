@@ -352,8 +352,14 @@ impl StatChart {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
 
+        // Calculate content height to center vertically
+        // Approximate: title(13) + spacing(12) + value(56) + unit(14) + change(20) + padding
+        let content_height = 130.0;
+        let available_height = ui.available_height();
+        let vertical_offset = ((available_height - content_height) / 2.0).max(VIZ_PADDING_TOP);
+
         ui.vertical_centered(|ui| {
-            ui.add_space(VIZ_PADDING_TOP);
+            ui.add_space(vertical_offset);
 
             // Title / metric name
             ui.label(
@@ -618,8 +624,14 @@ impl GaugeChart {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
 
+        // Calculate content height to center vertically
+        // Approximate: title(13) + spacing(8) + arc(~120) + value(36) + minmax(20) + padding
+        let content_height = 220.0;
+        let available_height = ui.available_height();
+        let vertical_offset = ((available_height - content_height) / 2.0).max(VIZ_PADDING_TOP);
+
         ui.vertical_centered(|ui| {
-            ui.add_space(VIZ_PADDING_TOP);
+            ui.add_space(vertical_offset);
 
             // Title / metric name
             ui.label(
