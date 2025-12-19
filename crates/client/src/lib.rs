@@ -31,6 +31,7 @@
 //! }
 //! ```
 
+pub mod demo;
 pub mod error;
 pub mod prometheus;
 pub mod promise;
@@ -38,6 +39,7 @@ pub mod request;
 
 use poll_promise::Promise;
 
+pub use demo::DemoMetricsClient;
 pub use error::ClientError;
 pub use promise::{Sender, promise_channel};
 pub use request::QueryRequest;

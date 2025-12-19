@@ -6,6 +6,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **DemoMetricsClient for offline demo mode**: Added a new `DemoMetricsClient` in the `enya-client` crate that implements the `MetricsClient` trait with realistic mock data. The demo client provides:
+  - A catalog of ~25 realistic Prometheus metrics (system, HTTP, Tokio runtime, application, database)
+  - Proper label dimensions for each metric (host, env, method, status_code, pool, etc.)
+  - Time-series data generation with appropriate patterns for counters, gauges, and histograms
+  - Full metadata API support (metric names, label names, per-metric labels)
+
 - **Viewport filter (`/` search)**: Added vim-style `/` search to filter visible panes by query content. Press `/` to open the filter input, type a search pattern, and press Enter to apply. Non-matching panes are dimmed with a "filtered" overlay. The filter status is shown in the status line. Press `/` again to edit the filter, or press Escape twice to clear it.
 
 - **PromQL as default query language**: The editor now defaults to PromQL for query input, with full context-aware autocompletion for PromQL syntax including functions, aggregations, label selectors, duration literals, and modifiers.
@@ -30,6 +36,14 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Demo workspace uses realistic PromQL queries**: Updated `DEMO_WORKSPACE_TOML` to use proper PromQL expressions that produce beautiful visualizations:
+  - `sum(rate(http_requests_total[5m])) by (method)` - HTTP request rate grouped by method
+  - `sum(db_connections_active) by (pool)` - Database connections aggregated by pool
+  - `histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))` - Request latency p99
+  - `sum(app_queue_depth) by (queue)` - Queue depth aggregated by queue name
+
+- **Demo mode uses async client pattern**: Demo mode now uses the same async query flow as Prometheus connections via `DemoMetricsClient`, enabling metadata fetching (metric names, labels) in offline mode.
+
 - **Query pane naming**: Query panes now use sequential "Query N" naming (Query 1, Query 2, etc.) per workspace instead of using the initial metric name. This prevents confusion when users change the query to use different metrics. The counter resets to 1 when loading a new workspace.
 
 - **Metrics finder preview**: Now shows actual label names and values for Prometheus metrics instead of placeholder dots. Labels are fetched on-demand when a metric is selected.
@@ -37,6 +51,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Buffer editor completions**: Completions are populated from cached metric labels when opening the editor. If connected but no labels are cached, hardcoded defaults are cleared and a fetch is triggered.
 
 ### Fixed
+
+- **Workspace visualization type loading**: Fixed `load_workspace()` to apply the visualization type from pane config. Previously, all panes would default to time series regardless of the `visualization` field in the workspace file.
 
 - **Command palette centering**: The command palette now always opens centered on screen.
 

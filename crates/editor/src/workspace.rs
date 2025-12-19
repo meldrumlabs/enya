@@ -636,7 +636,8 @@ children = [
 ]
 "#;
 
-/// Demo workspace with sample queries that work without a backend connection
+/// Demo workspace with sample queries that work without a backend connection.
+/// Uses realistic Prometheus metric names from the DemoMetricsClient catalog.
 pub const DEMO_WORKSPACE_TOML: &str = r#"[workspace]
 name = "demo"
 description = "Interactive demo with sample data - no backend required"
@@ -653,40 +654,40 @@ inspector = false
 [time]
 preset = "1h"
 
-# Time Series: CPU usage by host
+# Time Series: HTTP request rate by method (rate of counter)
 [[panes]]
-query = "sum(env:prod AND cpu_usage) by (host)"
-name = "CPU by Host"
+query = "sum(rate(http_requests_total[5m])) by (method)"
+name = "HTTP Request Rate"
 visualization = "time_series"
 granularity = "1m"
 
-# Stat: Current request rate
+# Stat: Active database connections (gauge - current value)
 [[panes]]
-query = "rate[5m](env:prod AND http_requests_total)"
-name = "Request Rate"
+query = "sum(db_connections_active) by (pool)"
+name = "DB Connections"
 visualization = "stat"
 granularity = "1m"
 
-# Gauge: Memory utilization
+# Time Series: Request latency p99 (histogram quantile)
 [[panes]]
-query = "avg(env:prod AND memory_usage)"
-name = "Memory Usage"
-visualization = "gauge"
-granularity = "5m"
+query = "histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))"
+name = "Request Latency (p99)"
+visualization = "time_series"
+granularity = "1m"
 
-# Bar Chart: Errors by service
+# Gauge: Application queue depth (gauge - current value)
 [[panes]]
-query = "sum(env:prod AND error_count) by (service)"
-name = "Errors by Service"
-visualization = "bar_chart"
-granularity = "5m"
+query = "sum(app_queue_depth) by (queue)"
+name = "Queue Depth"
+visualization = "gauge"
+granularity = "1m"
 
 # Layout: 2x2 grid
-# +------------------+------------------+
-# | CPU by Host (0)  | Request Rate (1) |
-# +------------------+------------------+
-# | Memory Usage (2) | Errors (3)       |
-# +------------------+------------------+
+# +----------------------+------------------+
+# | HTTP Request Rate(0) | DB Connections(1)|
+# +----------------------+------------------+
+# | Request Latency(2)   | Queue Depth (3)  |
+# +----------------------+------------------+
 [layout]
 type = "vertical"
 children = [

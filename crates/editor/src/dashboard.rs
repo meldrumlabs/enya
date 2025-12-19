@@ -2813,6 +2813,9 @@ impl Dashboard {
             let state = pane_config.to_query_state(&workspace.time.preset);
             query_pane.set_query_state(state);
 
+            // Apply visualization type from config
+            query_pane.set_visualization_type(pane_config.visualization_type());
+
             // Track the chart
             self.open_charts.insert(pane_config.query.clone());
 

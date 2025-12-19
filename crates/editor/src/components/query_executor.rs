@@ -6,12 +6,12 @@
 use std::collections::HashMap;
 
 use enya_client::{
-    LabelsManager, MetricLabels, MetricLabelsManager, QueryManager, QueryRequest, QueryResponse,
-    prometheus::PrometheusClient,
+    DemoMetricsClient, LabelsManager, MetricLabels, MetricLabelsManager, QueryManager,
+    QueryRequest, QueryResponse, prometheus::PrometheusClient,
 };
 
 use super::time_series_chart::{DataPoint, Series};
-use super::visualization::{Visualization, populate_demo_data};
+use super::visualization::Visualization;
 
 /// Backend type for query execution.
 #[derive(Debug, Clone, PartialEq)]
@@ -46,6 +46,8 @@ pub struct ExecuteParams<'a> {
 pub struct QueryExecutor {
     /// The current backend
     backend: Backend,
+    /// Demo client for offline mode
+    demo_client: DemoMetricsClient,
     /// Prometheus client (if connected)
     prometheus_client: Option<PrometheusClient>,
     /// Query manager for tracking in-flight queries
@@ -75,6 +77,7 @@ impl QueryExecutor {
     pub fn new() -> Self {
         Self {
             backend: Backend::Demo,
+            demo_client: DemoMetricsClient::new(),
             prometheus_client: None,
             query_manager: QueryManager::new(),
             labels_manager: LabelsManager::new(),
@@ -124,10 +127,18 @@ impl QueryExecutor {
     /// Fetch metric names from the backend.
     ///
     /// For Prometheus, this fetches the `__name__` label values.
-    /// Does nothing in demo mode or if a fetch is already in flight.
+    /// For demo mode, uses the demo client's metric catalog.
     pub fn fetch_metric_names(&mut self, ctx: &egui::Context) {
-        if let Some(client) = &self.prometheus_client {
-            self.labels_manager.fetch_metric_names(client, ctx);
+        match &self.backend {
+            Backend::Demo => {
+                self.labels_manager
+                    .fetch_metric_names(&self.demo_client, ctx);
+            }
+            Backend::Prometheus(_) => {
+                if let Some(client) = &self.prometheus_client {
+                    self.labels_manager.fetch_metric_names(client, ctx);
+                }
+            }
         }
     }
 
@@ -165,10 +176,18 @@ impl QueryExecutor {
     /// Fetch label names (tag keys) from the backend.
     ///
     /// For Prometheus, this fetches from `/api/v1/labels`.
-    /// Does nothing in demo mode or if a fetch is already in flight.
+    /// For demo mode, uses the demo client's label catalog.
     pub fn fetch_label_names(&mut self, ctx: &egui::Context) {
-        if let Some(client) = &self.prometheus_client {
-            self.label_names_manager.fetch_label_names(client, ctx);
+        match &self.backend {
+            Backend::Demo => {
+                self.label_names_manager
+                    .fetch_label_names(&self.demo_client, ctx);
+            }
+            Backend::Prometheus(_) => {
+                if let Some(client) = &self.prometheus_client {
+                    self.label_names_manager.fetch_label_names(client, ctx);
+                }
+            }
         }
     }
 
@@ -217,8 +236,16 @@ impl QueryExecutor {
             return;
         }
 
-        if let Some(client) = &self.prometheus_client {
-            self.metric_labels_manager.fetch(client, metric, ctx);
+        match &self.backend {
+            Backend::Demo => {
+                self.metric_labels_manager
+                    .fetch(&self.demo_client, metric, ctx);
+            }
+            Backend::Prometheus(_) => {
+                if let Some(client) = &self.prometheus_client {
+                    self.metric_labels_manager.fetch(client, metric, ctx);
+                }
+            }
         }
     }
 
@@ -269,25 +296,31 @@ impl QueryExecutor {
 
     /// Execute a query.
     ///
-    /// For demo mode, this immediately populates the visualization with demo data.
+    /// For demo mode, uses the DemoMetricsClient to generate realistic data.
     /// For real backends, this fires off an async request.
+    /// Poll with `poll()` to receive results.
     pub fn execute(
         &mut self,
         params: &ExecuteParams<'_>,
-        visualization: &mut Visualization,
+        _visualization: &mut Visualization,
         ctx: &egui::Context,
     ) {
+        // Build request
+        let mut request =
+            QueryRequest::new(params.metric, params.query).with_step(params.step_secs);
+        if let (Some(start), Some(end)) = (params.start_ns, params.end_ns) {
+            request = request.with_range(start, end);
+        }
+
         match &self.backend {
             Backend::Demo => {
-                // Demo mode - populate with generated data
+                // Demo mode - use demo client for realistic data generation
                 log::debug!(
                     "Executing DEMO query for metric '{}': {}",
                     params.metric,
                     params.query
                 );
-                visualization.clear();
-                visualization.set_metric_name(params.query);
-                populate_demo_data(visualization, params.query);
+                self.query_manager.execute(&self.demo_client, request, ctx);
             }
             Backend::Prometheus(endpoint) => {
                 if let Some(client) = &self.prometheus_client {
@@ -297,15 +330,6 @@ impl QueryExecutor {
                         params.query,
                         endpoint
                     );
-
-                    // Build request
-                    let mut request =
-                        QueryRequest::new(params.metric, params.query).with_step(params.step_secs);
-                    if let (Some(start), Some(end)) = (params.start_ns, params.end_ns) {
-                        request = request.with_range(start, end);
-                    }
-
-                    // Fire off query
                     self.query_manager.execute(client, request, ctx);
                 }
             }
@@ -319,8 +343,13 @@ impl QueryExecutor {
         if let Some(result) = self.query_manager.poll() {
             match result {
                 Ok(response) => {
+                    let backend_name = match &self.backend {
+                        Backend::Demo => "Demo",
+                        Backend::Prometheus(_) => "Prometheus",
+                    };
                     log::info!(
-                        "Prometheus query completed: {} groups, {} total points",
+                        "{} query completed: {} groups, {} total points",
+                        backend_name,
                         response.groups.len(),
                         response
                             .groups
