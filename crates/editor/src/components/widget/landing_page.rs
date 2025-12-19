@@ -148,7 +148,7 @@ impl LandingPage {
 
         // Tagline
         ui.label(
-            RichText::new("Your trusted companion for building and running data systems")
+            RichText::new("A Builder's Best Friend")
                 .size(typography::XL)
                 .color(muted_color),
         );
