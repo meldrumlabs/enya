@@ -264,10 +264,7 @@ impl QueryPane {
 
     /// Create a query pane with a full PromQL query, custom name, and demo data
     /// Useful for tutorial where we want editable label selectors
-    pub fn with_demo_query_named(
-        query: impl Into<String>,
-        name: impl Into<String>,
-    ) -> Self {
+    pub fn with_demo_query_named(query: impl Into<String>, name: impl Into<String>) -> Self {
         let query = query.into();
         let pane_name = name.into();
         let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
@@ -287,6 +284,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: false,
+            is_loading: false,
         }
     }
 

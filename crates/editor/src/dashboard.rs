@@ -686,6 +686,26 @@ impl Dashboard {
             LandingPageAction::OpenConnect => {
                 self.open_command_palette_with_text("connect ");
             }
+            LandingPageAction::OpenTutorial => {
+                // Hide landing page and add demo panes for the tutorial
+                self.show_landing = false;
+                let demo_queries = [
+                    (
+                        "http_requests_total{env=\"prod\", service=\"api\"}",
+                        "HTTP Requests",
+                    ),
+                    ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage"),
+                    (
+                        "memory_used_bytes{env=\"prod\", service=\"api\"}",
+                        "Memory Used",
+                    ),
+                ];
+                for (query, name) in demo_queries {
+                    self.add_demo_query_pane(query, name);
+                }
+                self.tutorial_overlay.open();
+                ctx.request_repaint();
+            }
             LandingPageAction::None => {}
         }
 
@@ -796,8 +816,7 @@ impl Dashboard {
 
     /// Add a demo query pane with a full PromQL query and custom name (for tutorial)
     fn add_demo_query_pane(&mut self, query: &str, name: &str) {
-        let pane: Box<dyn Component> =
-            Box::new(QueryPane::with_demo_query_named(query, name));
+        let pane: Box<dyn Component> = Box::new(QueryPane::with_demo_query_named(query, name));
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
         if self.add_tile_to_viewport(pane_tile) {
@@ -936,9 +955,15 @@ impl Dashboard {
                     // Add multiple demo query panes with PromQL label selectors
                     // These use env="prod" so users can practice multi-edit to change to "staging"
                     let demo_queries = [
-                        ("http_requests_total{env=\"prod\", service=\"api\"}", "HTTP Requests"),
+                        (
+                            "http_requests_total{env=\"prod\", service=\"api\"}",
+                            "HTTP Requests",
+                        ),
                         ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage"),
-                        ("memory_used_bytes{env=\"prod\", service=\"api\"}", "Memory Used"),
+                        (
+                            "memory_used_bytes{env=\"prod\", service=\"api\"}",
+                            "Memory Used",
+                        ),
                     ];
                     for (query, name) in demo_queries {
                         self.add_demo_query_pane(query, name);
@@ -2047,11 +2072,8 @@ impl Dashboard {
             || self.buffer_editor.is_open()
             || self.multi_edit_overlay.is_open()
             || self.which_key.is_open()
-<<<<<<< HEAD
             || self.viewport_filter.is_open()
-=======
             || self.tutorial_overlay.is_open()
->>>>>>> c05aad1 (feat(editor): add interactive tutorial overlay with :tutorial command)
         {
             return None;
         }
