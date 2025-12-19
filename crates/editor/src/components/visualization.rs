@@ -20,6 +20,10 @@ use super::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart}
 /// Global counter for unique component IDs
 static NEXT_ID: AtomicUsize = AtomicUsize::new(5000);
 
+/// Standard padding for visualization types (for consistent spacing)
+const VIZ_PADDING_TOP: f32 = 16.0;
+const VIZ_PADDING_BOTTOM: f32 = 16.0;
+
 /// Types of visualizations supported in panes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VisualizationType {
@@ -349,8 +353,7 @@ impl StatChart {
         let text_col = text_color(self.theme);
 
         ui.vertical_centered(|ui| {
-            // Add some vertical padding at the top
-            ui.add_space(20.0);
+            ui.add_space(VIZ_PADDING_TOP);
 
             // Title / metric name
             ui.label(
@@ -400,12 +403,12 @@ impl StatChart {
 
             // Sparkline at bottom
             if self.show_sparkline && self.sparkline_data.len() >= 2 {
-                ui.add_space(16.0);
+                ui.add_space(VIZ_PADDING_TOP);
                 let available_width = ui.available_width().min(300.0);
                 self.render_sparkline(ui, available_width);
             }
 
-            ui.add_space(16.0);
+            ui.add_space(VIZ_PADDING_BOTTOM);
         });
     }
 }
@@ -616,7 +619,7 @@ impl GaugeChart {
         let text_col = text_color(self.theme);
 
         ui.vertical_centered(|ui| {
-            ui.add_space(16.0);
+            ui.add_space(VIZ_PADDING_TOP);
 
             // Title / metric name
             ui.label(
@@ -661,7 +664,7 @@ impl GaugeChart {
                 });
             }
 
-            ui.add_space(12.0);
+            ui.add_space(VIZ_PADDING_BOTTOM);
         });
     }
 }
@@ -804,7 +807,7 @@ impl BarChartViz {
         let accent_color = palette::accent::PRIMARY;
 
         ui.vertical(|ui| {
-            ui.add_space(12.0);
+            ui.add_space(VIZ_PADDING_TOP);
 
             // Title / metric name
             ui.horizontal(|ui| {
@@ -904,7 +907,7 @@ impl BarChartViz {
                     }
                 });
 
-            ui.add_space(8.0);
+            ui.add_space(VIZ_PADDING_BOTTOM);
         });
     }
 }
@@ -1026,7 +1029,7 @@ impl SparklineViz {
         let line_color = self.line_color();
 
         ui.vertical(|ui| {
-            ui.add_space(12.0);
+            ui.add_space(VIZ_PADDING_TOP);
 
             // Header with metric name and optional value
             ui.horizontal(|ui| {
@@ -1121,7 +1124,7 @@ impl SparklineViz {
                 painter.circle_filled(last_point, 4.0, line_color);
             }
 
-            ui.add_space(8.0);
+            ui.add_space(VIZ_PADDING_BOTTOM);
         });
     }
 }

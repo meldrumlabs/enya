@@ -3349,6 +3349,72 @@ impl TreeBehavior {
 }
 
 impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
+    /// Gap between panes in horizontal/vertical layouts
+    fn gap_width(&self, _style: &egui::Style) -> f32 {
+        4.0 // Subtle gap for visual separation
+    }
+
+    /// Stroke for the resize handle between panes
+    fn resize_stroke(
+        &self,
+        _style: &egui::Style,
+        resize_state: egui_tiles::ResizeState,
+    ) -> egui::Stroke {
+        let color = match resize_state {
+            egui_tiles::ResizeState::Idle => palette::border_subtle(self.theme),
+            egui_tiles::ResizeState::Hovering => palette::border_default(self.theme),
+            egui_tiles::ResizeState::Dragging => palette::border::FOCUS,
+        };
+        egui::Stroke::new(1.0, color)
+    }
+
+    /// Height of the tab bar
+    fn tab_bar_height(&self, _style: &egui::Style) -> f32 {
+        28.0 // Slightly taller for better visual presence
+    }
+
+    /// Background color of the tab bar
+    fn tab_bar_color(&self, _visuals: &egui::Visuals) -> egui::Color32 {
+        palette::bg_surface(self.theme)
+    }
+
+    /// Background color of individual tabs
+    fn tab_bg_color(
+        &self,
+        _visuals: &egui::Visuals,
+        _tiles: &egui_tiles::Tiles<Box<dyn Component>>,
+        _tile_id: egui_tiles::TileId,
+        state: &egui_tiles::TabState,
+    ) -> egui::Color32 {
+        if state.active {
+            palette::bg_elevated(self.theme)
+        } else if state.is_being_dragged {
+            palette::bg_hover(self.theme)
+        } else {
+            palette::bg_surface(self.theme)
+        }
+    }
+
+    /// Stroke for the line separating tab bar from content
+    fn tab_bar_hline_stroke(&self, _visuals: &egui::Visuals) -> egui::Stroke {
+        egui::Stroke::new(1.0, palette::border_subtle(self.theme))
+    }
+
+    /// Outline stroke around tabs (emerald for active, subtle for inactive)
+    fn tab_outline_stroke(
+        &self,
+        _visuals: &egui::Visuals,
+        _tiles: &egui_tiles::Tiles<Box<dyn Component>>,
+        _tile_id: egui_tiles::TileId,
+        state: &egui_tiles::TabState,
+    ) -> egui::Stroke {
+        if state.active {
+            egui::Stroke::new(1.0, palette::accent::PRIMARY)
+        } else {
+            egui::Stroke::new(1.0, palette::border_subtle(self.theme))
+        }
+    }
+
     fn tab_title_for_pane(&mut self, component: &Box<dyn Component>) -> egui::WidgetText {
         component
             .label()

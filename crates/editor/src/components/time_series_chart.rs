@@ -19,6 +19,12 @@ pub use enya_common::CommitMarker;
 /// Zoom factor for keyboard-based zoom controls
 const ZOOM_FACTOR: f64 = 1.25;
 
+/// Minimum chart height in pixels for a sleek default view
+const MIN_CHART_HEIGHT: f32 = 180.0;
+
+/// Default chart height ratio (height:width) - similar to Grafana/PlanetScale
+const DEFAULT_ASPECT_RATIO: f32 = 0.35;
+
 /// Format a Unix timestamp (in seconds) to a human-readable string.
 /// Adapts format based on the time range being displayed.
 /// Uses UTC time for simplicity and cross-platform compatibility.
@@ -103,6 +109,27 @@ fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
     } else {
         // More than 1 week: show YYYY-MM-DD
         format!("{year}-{month:02}-{day:02}")
+    }
+}
+
+/// Format a numeric value with K, M, B suffixes for large numbers.
+/// Makes Y-axis labels more readable.
+fn format_value(value: f64) -> String {
+    if !value.is_finite() {
+        return String::new();
+    }
+
+    let abs_value = value.abs();
+    if abs_value >= 1_000_000_000.0 {
+        format!("{:.1}B", value / 1_000_000_000.0)
+    } else if abs_value >= 1_000_000.0 {
+        format!("{:.1}M", value / 1_000_000.0)
+    } else if abs_value >= 1_000.0 {
+        format!("{:.1}K", value / 1_000.0)
+    } else if value.fract() == 0.0 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.2}")
     }
 }
 
@@ -579,22 +606,26 @@ impl TimeSeriesChart {
         let text_color = text_color(self.theme);
 
         if self.series.is_empty() {
-            // Empty state with icon - centered in available space
+            // Branded empty state - centered with Enya logo
             ui.vertical_centered(|ui| {
-                ui.add_space(ui.available_height() / 2.0 - 20.0);
-                ui.horizontal(|ui| {
-                    ui.add_space((ui.available_width() - 150.0) / 2.0);
-                    ui.label(
-                        RichText::new(semantic_icons::empty::NO_DATA)
-                            .size(semantic_icons::SIZE_ITEM)
-                            .color(text_color.gamma_multiply(0.5)),
-                    );
-                    ui.label(
-                        RichText::new("No data to display")
-                            .color(text_color.gamma_multiply(0.5))
-                            .italics(),
-                    );
-                });
+                let center_offset = (ui.available_height() / 2.0 - 50.0).max(20.0);
+                ui.add_space(center_offset);
+
+                // Enya logo (slightly transparent for subtle branding)
+                let logo = egui::Image::new(egui::include_image!("../../assets/logo.png"))
+                    .max_width(64.0)
+                    .max_height(64.0)
+                    .tint(text_color.gamma_multiply(0.7));
+                ui.add(logo);
+
+                ui.add_space(16.0);
+
+                // Primary message
+                ui.label(
+                    RichText::new("No data to display")
+                        .color(text_color.gamma_multiply(0.6))
+                        .size(14.0),
+                );
             });
             return;
         }
@@ -634,11 +665,37 @@ impl TimeSeriesChart {
             },
         );
 
+        // Custom y-axis formatter with K/M/B suffixes for large numbers
+        let y_label = self.y_label.clone().unwrap_or_else(|| "Value".to_string());
+        let y_axis = AxisHints::new_y()
+            .label(y_label)
+            .formatter(|mark: GridMark, _range: &RangeInclusive<f64>| format_value(mark.value));
+
+        // Calculate optimal height for a sleek Grafana/PlanetScale-style view
+        // Use available height if constrained by layout, otherwise calculate from aspect ratio
+        let available_width = ui.available_width();
+        let available_height = ui.available_height();
+        let aspect_height = available_width * DEFAULT_ASPECT_RATIO;
+        // Use the smaller of available height or aspect-based height, but respect minimum
+        let optimal_height = available_height.min(aspect_height).max(MIN_CHART_HEIGHT);
+
+        // Center the plot vertically if there's extra space
+        let vertical_padding = (available_height - optimal_height).max(0.0) / 2.0;
+        if vertical_padding > 1.0 {
+            ui.add_space(vertical_padding);
+        }
+
+        // Apply softer grid lines by overriding the style
+        let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.4);
+        ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
+
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         let plot = Plot::new(format!("plot_{}", self.id))
+            .min_size(egui::vec2(100.0, MIN_CHART_HEIGHT))
+            .height(optimal_height)
             .legend(egui_plot::Legend::default().position(egui_plot::Corner::RightTop))
             .custom_x_axes(vec![x_axis])
-            .y_axis_label(self.y_label.as_deref().unwrap_or("Value"))
+            .custom_y_axes(vec![y_axis])
             .show_axes(true)
             .show_grid(true)
             .allow_zoom(true)

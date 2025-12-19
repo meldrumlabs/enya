@@ -7,10 +7,59 @@ use crate::components::query_state::QueryState;
 use crate::components::visualization::{Visualization, VisualizationType, populate_demo_data};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// Global counter for unique pane IDs
 static NEXT_PANE_ID: AtomicUsize = AtomicUsize::new(1000);
+
+/// Render a loading animation with a pulsing emerald bar
+fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
+    let text_col = text_color(theme);
+    let time = ui.ctx().input(|i| i.time);
+
+    ui.vertical_centered(|ui| {
+        let center_offset = (ui.available_height() / 2.0 - 30.0).max(20.0);
+        ui.add_space(center_offset);
+
+        // Animated loading bar
+        let bar_width = 120.0;
+        let bar_height = 4.0;
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
+
+        // Background bar
+        ui.painter()
+            .rect_filled(rect, 2.0, palette::bg_elevated(theme));
+
+        // Animated fill (emerald accent) - oscillates back and forth
+        let fill_width = bar_width * 0.35;
+        let progress = ((time * 1.2).sin() as f32 + 1.0) / 2.0; // 0.0 to 1.0
+        let offset = progress * (bar_width - fill_width);
+        let fill_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.left() + offset, rect.top()),
+            egui::vec2(fill_width, bar_height),
+        );
+
+        // Pulse the alpha for subtle shimmer effect
+        let alpha = 0.7 + 0.3 * ((time * 3.0).sin() as f32 + 1.0) / 2.0;
+        ui.painter().rect_filled(
+            fill_rect,
+            2.0,
+            palette::accent::PRIMARY.gamma_multiply(alpha),
+        );
+
+        ui.add_space(16.0);
+        ui.label(
+            RichText::new("Loading...")
+                .color(text_col.gamma_multiply(0.5))
+                .size(12.0),
+        );
+    });
+
+    // Request repaint for smooth animation
+    ui.ctx().request_repaint();
+}
 
 /// A QueryPane combines a Buffer (for editing queries) with a visualization.
 /// This is the first-class "buffer" concept where:
@@ -38,6 +87,8 @@ pub struct QueryPane {
     tag: String,
     /// Whether this pane needs a query refresh (set on save, cleared after execution)
     needs_refresh: bool,
+    /// Whether a query is currently in flight (for loading state)
+    is_loading: bool,
 }
 
 impl Default for QueryPane {
@@ -73,6 +124,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: false,
+            is_loading: false,
         }
     }
 
@@ -127,6 +179,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: true, // Trigger query on first frame
+            is_loading: false,
         }
     }
 
@@ -152,6 +205,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: false,
+            is_loading: false,
         }
     }
 
@@ -178,6 +232,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: true,
+            is_loading: false,
         }
     }
 
@@ -364,6 +419,16 @@ impl QueryPane {
         self.needs_refresh = true;
     }
 
+    /// Check if this pane is currently loading (query in flight)
+    pub fn is_loading(&self) -> bool {
+        self.is_loading
+    }
+
+    /// Set the loading state
+    pub fn set_loading(&mut self, loading: bool) {
+        self.is_loading = loading;
+    }
+
     /// Render the query pane
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
         let mut action = QueryPaneAction::None;
@@ -466,7 +531,12 @@ impl QueryPane {
             }
 
             // Visualization area (takes remaining space)
-            self.visualization.show(ui);
+            // Show loading state if query is in flight, otherwise show visualization
+            if self.is_loading {
+                render_loading_state(ui, self.theme);
+            } else {
+                self.visualization.show(ui);
+            }
         });
 
         action
