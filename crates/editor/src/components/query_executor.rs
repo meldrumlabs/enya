@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 
 use enya_client::{
-    DemoMetricsClient, LabelsManager, MetricLabels, MetricLabelsManager, QueryManager,
-    QueryRequest, QueryResponse, prometheus::PrometheusClient,
+    DemoMetricsClient, HealthCheckManager, LabelsManager, MetricLabels, MetricLabelsManager,
+    QueryManager, QueryRequest, QueryResponse, prometheus::PrometheusClient,
 };
 
 use super::time_series_chart::{DataPoint, Series};
@@ -58,6 +58,33 @@ pub struct ExecuteParams<'a> {
     pub end_ns: Option<u128>,
 }
 
+/// Connection health status.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum ConnectionHealth {
+    /// Not connected (demo mode or disconnected)
+    #[default]
+    Offline,
+    /// Health check in progress
+    Checking,
+    /// Successfully connected and validated
+    Online {
+        /// Backend version string
+        version: String,
+    },
+    /// Connection failed
+    Failed {
+        /// Error message
+        error: String,
+    },
+}
+
+impl ConnectionHealth {
+    /// Returns true if the connection is validated and online.
+    pub fn is_online(&self) -> bool {
+        matches!(self, ConnectionHealth::Online { .. })
+    }
+}
+
 /// Manages query execution against a backend.
 pub struct QueryExecutor {
     /// The current backend
@@ -74,6 +101,10 @@ pub struct QueryExecutor {
     label_names_manager: LabelsManager,
     /// Labels manager for fetching per-metric labels
     metric_labels_manager: MetricLabelsManager,
+    /// Health check manager for validating backend connectivity
+    health_check_manager: HealthCheckManager,
+    /// Current connection health status
+    connection_health: ConnectionHealth,
     /// Cached list of available metric names
     metric_names: Vec<String>,
     /// Cached list of available label names (tag keys)
@@ -99,35 +130,89 @@ impl QueryExecutor {
             labels_manager: LabelsManager::new(),
             label_names_manager: LabelsManager::new(),
             metric_labels_manager: MetricLabelsManager::new(),
+            health_check_manager: HealthCheckManager::new(),
+            connection_health: ConnectionHealth::Offline,
             metric_names: Vec::new(),
             label_names: Vec::new(),
             metric_labels_cache: HashMap::new(),
         }
     }
 
-    /// Connect to a Prometheus backend.
-    pub fn connect_prometheus(&mut self, endpoint: &str) {
+    /// Connect to a Prometheus backend and initiate a health check.
+    ///
+    /// The connection is not considered "online" until the health check passes.
+    /// Call `poll_health_check()` to check for the result.
+    pub fn connect_prometheus(&mut self, endpoint: &str, ctx: &egui::Context) {
         let client = PrometheusClient::new(endpoint);
         self.prometheus_client = Some(client);
         self.backend = Backend::Prometheus(endpoint.to_string());
+        self.connection_health = ConnectionHealth::Checking;
+
+        // Initiate health check
+        if let Some(client) = &self.prometheus_client {
+            self.health_check_manager.check(client, ctx);
+        }
     }
 
     /// Disconnect and return to demo mode.
     pub fn disconnect(&mut self) {
         self.prometheus_client = None;
         self.backend = Backend::Demo;
+        self.connection_health = ConnectionHealth::Offline;
         self.query_manager.cancel();
         self.labels_manager.cancel();
         self.label_names_manager.cancel();
         self.metric_labels_manager.cancel();
+        self.health_check_manager.cancel();
         self.metric_names.clear();
         self.label_names.clear();
         self.metric_labels_cache.clear();
     }
 
-    /// Check if connected to a backend.
+    /// Check if connected to a backend (configured, but not necessarily validated).
     pub fn is_connected(&self) -> bool {
         !matches!(self.backend, Backend::Demo)
+    }
+
+    /// Check if the connection is validated and online.
+    pub fn is_online(&self) -> bool {
+        self.connection_health.is_online()
+    }
+
+    /// Get the current connection health status.
+    pub fn connection_health(&self) -> &ConnectionHealth {
+        &self.connection_health
+    }
+
+    /// Poll for health check completion.
+    ///
+    /// Returns `Some(true)` if health check passed, `Some(false)` if it failed,
+    /// `None` if still in progress or no check pending.
+    pub fn poll_health_check(&mut self) -> Option<bool> {
+        if let Some(result) = self.health_check_manager.poll() {
+            match result {
+                Ok(info) => {
+                    log::info!(
+                        "Health check passed: {} v{}",
+                        info.backend_type,
+                        info.version
+                    );
+                    self.connection_health = ConnectionHealth::Online {
+                        version: info.version,
+                    };
+                    Some(true)
+                }
+                Err(e) => {
+                    log::error!("Health check failed: {e}");
+                    self.connection_health = ConnectionHealth::Failed {
+                        error: e.to_string(),
+                    };
+                    Some(false)
+                }
+            }
+        } else {
+            None
+        }
     }
 
     /// Get the current backend type.
@@ -485,7 +570,11 @@ mod tests {
     #[test]
     fn test_query_executor_connect_prometheus() {
         let mut executor = QueryExecutor::new();
-        executor.connect_prometheus("http://localhost:9090");
+        // Manually set up connection state for test (no egui context available)
+        executor.prometheus_client = Some(enya_client::prometheus::PrometheusClient::new(
+            "http://localhost:9090",
+        ));
+        executor.backend = Backend::Prometheus("http://localhost:9090".to_string());
         assert!(executor.is_connected());
         assert!(matches!(executor.backend(), Backend::Prometheus(_)));
     }

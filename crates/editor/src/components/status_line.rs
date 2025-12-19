@@ -636,11 +636,11 @@ impl StatusLine {
             }
 
             // Connection status
-            // Connected: bright emerald (positive), Offline: muted gray (neutral, not alarming)
+            // Online: bright emerald (positive), Offline: muted gray (neutral, not alarming)
             let (conn_icon, conn_text, conn_color) = if self.is_connected {
                 (
                     semantic_icons::status::CONNECTED,
-                    "CONNECTED",
+                    "ONLINE",
                     palette::accent::HOVER, // Bright emerald - positive state
                 )
             } else {

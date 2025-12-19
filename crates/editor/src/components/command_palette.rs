@@ -575,6 +575,8 @@ impl CommandPalette {
             let cmd = self.suggestions[self.selected_index].command;
             self.input = format!("{} ", cmd.name);
             self.refresh_suggestions();
+            // Move cursor to end after tab completion
+            self.cursor_to_end = true;
         }
 
         if confirm {
@@ -619,7 +621,8 @@ impl CommandPalette {
                                     .color(text_color(self.theme).gamma_multiply(0.4)),
                             )
                             .frame(false)
-                            .desired_width(popup_width - 50.0);
+                            .desired_width(popup_width - 50.0)
+                            .lock_focus(true); // Prevent Tab from navigating away
 
                         let response = ui.add(text_edit);
 

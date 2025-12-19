@@ -43,6 +43,33 @@ pub struct PrometheusSeriesResponse {
     pub data: Vec<HashMap<String, String>>,
 }
 
+/// Prometheus API response wrapper for buildinfo endpoint.
+#[derive(Debug, Deserialize)]
+pub struct PrometheusBuildInfoResponse {
+    pub status: String,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub error_type: Option<String>,
+    pub data: Option<PrometheusBuildInfo>,
+}
+
+/// Build information from Prometheus.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PrometheusBuildInfo {
+    pub version: String,
+    #[serde(default)]
+    pub revision: String,
+    #[serde(default)]
+    pub branch: String,
+    #[serde(default, rename = "buildUser")]
+    pub build_user: String,
+    #[serde(default, rename = "buildDate")]
+    pub build_date: String,
+    #[serde(default, rename = "goVersion")]
+    pub go_version: String,
+}
+
 /// Prometheus query result data.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -196,6 +223,33 @@ pub fn parse_series_response(json: &[u8]) -> Result<MetricLabels, ClientError> {
         .collect();
 
     Ok(MetricLabels { labels })
+}
+
+/// Parse a Prometheus buildinfo response.
+///
+/// Used for `/api/v1/status/buildinfo` to validate connectivity and get version.
+///
+/// # Errors
+///
+/// Returns `ClientError::ParseError` if the JSON is invalid.
+/// Returns `ClientError::BackendError` if Prometheus returned an error status.
+pub fn parse_buildinfo_response(json: &[u8]) -> Result<PrometheusBuildInfo, ClientError> {
+    let response: PrometheusBuildInfoResponse =
+        serde_json::from_slice(json).map_err(|e| ClientError::ParseError(e.to_string()))?;
+
+    if response.status != "success" {
+        let message = response
+            .error
+            .unwrap_or_else(|| "unknown error".to_string());
+        return Err(ClientError::BackendError {
+            status: 400,
+            message,
+        });
+    }
+
+    response
+        .data
+        .ok_or_else(|| ClientError::ParseError("missing data field".to_string()))
 }
 
 /// Convert a Prometheus result entry to a MetricsGroup.

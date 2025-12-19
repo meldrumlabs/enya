@@ -309,7 +309,10 @@ impl Dashboard {
             .set_keys(app_state.settings.api_key.to_owned());
 
         // Process query execution: poll for results and execute pending queries
-        self.process_query_execution(ctx);
+        let query_action = self.process_query_execution(ctx);
+        if query_action != DashboardAction::None {
+            return query_action;
+        }
 
         // Sync visual-multi state to behavior for rendering
         let (is_visual_multi, selected_ids, tile_queries) = match &self.visual_multi_state {
@@ -842,14 +845,12 @@ impl Dashboard {
                 DashboardAction::None
             }
             CommandResult::Connect(endpoint) => {
-                self.query_executor.connect_prometheus(&endpoint);
+                self.query_executor.connect_prometheus(&endpoint, ctx);
                 // Immediately start fetching metric names and label names
                 self.query_executor.fetch_metric_names(ctx);
                 self.query_executor.fetch_label_names(ctx);
-                DashboardAction::Notify {
-                    level: "success".to_string(),
-                    message: format!("Connected to Prometheus at {endpoint}"),
-                }
+                // No notification here - health check result will show success/failure
+                DashboardAction::None
             }
             CommandResult::Disconnect => {
                 self.query_executor.disconnect();
@@ -921,8 +922,50 @@ impl Dashboard {
     }
 
     /// Process query execution: poll for pending results and execute queries for panes that need refresh
-    fn process_query_execution(&mut self, ctx: &egui::Context) {
-        // 0. Poll for metric names and label names fetch completion
+    /// Returns a notification action if a connection status changed.
+    fn process_query_execution(&mut self, ctx: &egui::Context) -> DashboardAction {
+        // 0. Poll for health check completion
+        let mut notification_action = DashboardAction::None;
+        if let Some(success) = self.query_executor.poll_health_check() {
+            if success {
+                if let super::components::query_executor::ConnectionHealth::Online { ref version } =
+                    self.query_executor.connection_health().clone()
+                {
+                    log::info!("Connected to Prometheus v{version}");
+                    // Add success diagnostic
+                    let diagnostic = super::components::diagnostics_pane::Diagnostic::info(
+                        format!("Connected to Prometheus v{version}"),
+                    )
+                    .with_source(
+                        super::components::diagnostics_pane::DiagnosticSource::DataConnection,
+                    );
+                    self.diagnostics_pane.add(diagnostic);
+                    // Show success notification
+                    notification_action = DashboardAction::Notify {
+                        level: "success".to_string(),
+                        message: format!("Connected to Prometheus v{version}"),
+                    };
+                }
+            } else if let super::components::query_executor::ConnectionHealth::Failed {
+                ref error,
+            } = self.query_executor.connection_health().clone()
+            {
+                log::error!("Connection failed: {error}");
+                // Add error diagnostic
+                let diagnostic = super::components::diagnostics_pane::Diagnostic::error(format!(
+                    "Connection failed: {error}"
+                ))
+                .with_source(super::components::diagnostics_pane::DiagnosticSource::DataConnection);
+                self.diagnostics_pane.add(diagnostic);
+                // Show error notification
+                notification_action = DashboardAction::Notify {
+                    level: "error".to_string(),
+                    message: format!("Connection failed: {error}"),
+                };
+            }
+        }
+
+        // 0a. Poll for metric names and label names fetch completion
         if self.query_executor.poll_metric_names() {
             // Update buffer editor if it's open
             if self.buffer_editor.is_open() {
@@ -1100,6 +1143,8 @@ impl Dashboard {
                 }
             }
         }
+
+        notification_action
     }
 
     /// Toggle commit markers on the focused chart
@@ -1708,6 +1753,11 @@ impl Dashboard {
         } else {
             None
         }
+    }
+
+    /// Check if the connection is validated and online.
+    pub fn is_online(&self) -> bool {
+        self.query_executor.is_online()
     }
 
     /// Split panes horizontally (`:split` - panes stacked vertically, one above another)

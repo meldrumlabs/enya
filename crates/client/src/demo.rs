@@ -11,7 +11,10 @@ use crate::error::ClientError;
 use crate::now_unix_secs;
 use crate::prometheus::response::MetricLabels;
 use crate::request::QueryRequest;
-use crate::{LabelsResult, MetricLabelsResult, MetricsClient, QueryResponse, QueryResult};
+use crate::{
+    BackendInfo, HealthCheckResult, LabelsResult, MetricLabelsResult, MetricsClient, QueryResponse,
+    QueryResult,
+};
 use enya_common::{MetricsBucket, MetricsGroup};
 
 /// A demo metric definition with its labels.
@@ -361,6 +364,14 @@ impl MetricsClient for DemoMetricsClient {
 
     fn backend_type(&self) -> &'static str {
         "demo"
+    }
+
+    fn health_check(&self, _ctx: &egui::Context) -> Promise<HealthCheckResult> {
+        // Demo mode is always "healthy"
+        Promise::from_ready(Ok(BackendInfo {
+            backend_type: "demo".to_string(),
+            version: "offline".to_string(),
+        }))
     }
 }
 

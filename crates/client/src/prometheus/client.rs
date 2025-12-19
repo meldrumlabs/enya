@@ -6,9 +6,13 @@ use crate::error::ClientError;
 use crate::now_unix_secs;
 use crate::promise::promise_channel;
 use crate::request::QueryRequest;
-use crate::{LabelsResult, MetricLabelsResult, MetricsClient, QueryResult};
+use crate::{
+    BackendInfo, HealthCheckResult, LabelsResult, MetricLabelsResult, MetricsClient, QueryResult,
+};
 
-use super::response::{parse_labels_response, parse_response, parse_series_response};
+use super::response::{
+    parse_buildinfo_response, parse_labels_response, parse_response, parse_series_response,
+};
 
 /// Client for querying Prometheus via its HTTP API.
 ///
@@ -233,6 +237,39 @@ impl MetricsClient for PrometheusClient {
 
     fn backend_type(&self) -> &'static str {
         "prometheus"
+    }
+
+    fn health_check(&self, ctx: &egui::Context) -> Promise<HealthCheckResult> {
+        let url = format!("{}/api/v1/status/buildinfo", self.base_url);
+        let ctx = ctx.clone();
+
+        log::debug!("Prometheus health check: {url}");
+
+        let (sender, promise) = promise_channel();
+
+        ehttp::fetch(ehttp::Request::get(&url), move |response| {
+            let result = match response {
+                Ok(response) => {
+                    if response.ok {
+                        parse_buildinfo_response(&response.bytes).map(|info| BackendInfo {
+                            backend_type: "prometheus".to_string(),
+                            version: info.version,
+                        })
+                    } else {
+                        Err(ClientError::BackendError {
+                            status: response.status,
+                            message: response.status_text,
+                        })
+                    }
+                }
+                Err(e) => Err(ClientError::NetworkError(e)),
+            };
+
+            sender.send(result);
+            ctx.request_repaint();
+        });
+
+        promise
     }
 }
 

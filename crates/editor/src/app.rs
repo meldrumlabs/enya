@@ -245,8 +245,6 @@ impl EnyaApp {
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
         // Update status line state
         self.status_line.set_theme(self.state.theme);
-        self.status_line
-            .set_connected(self.connection.status().is_connected());
 
         // Set mode based on current UI state
         let mode = match self.state.ui_state {
@@ -297,6 +295,11 @@ impl EnyaApp {
             let (errors, warnings, infos) = dashboard.diagnostics_count_by_level();
             self.status_line
                 .set_diagnostics_count(errors, warnings, infos);
+            // Set connection status based on Prometheus health check
+            self.status_line.set_connected(dashboard.is_online());
+        } else {
+            // No active tab - show offline
+            self.status_line.set_connected(false);
         }
 
         // Update sparkline with editor frame time metrics
