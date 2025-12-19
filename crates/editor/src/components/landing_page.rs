@@ -452,7 +452,7 @@ impl LandingPage {
         ui.horizontal(|ui| {
             // Center the shortcuts
             let shortcut_width = 100.0;
-            let num_shortcuts = 5;
+            let num_shortcuts = 4;
             let gap = 12.0;
             let total_width =
                 shortcut_width * num_shortcuts as f32 + gap * (num_shortcuts - 1) as f32;
@@ -516,25 +516,6 @@ impl LandingPage {
 
             ui.add_space(gap);
 
-            // Workspaces (w)
-            if self
-                .show_shortcut_button(
-                    ui,
-                    semantic_icons::file::FOLDER_OPEN,
-                    "Workspaces",
-                    "w",
-                    text_col,
-                    accent_color,
-                    self.shortcut_focused == Some(3),
-                    shortcut_width,
-                )
-                .clicked()
-            {
-                action = LandingPageAction::OpenWorkspaceFinder;
-            }
-
-            ui.add_space(gap);
-
             // Help (?)
             if self
                 .show_shortcut_button(
@@ -544,7 +525,7 @@ impl LandingPage {
                     "?",
                     text_col,
                     accent_color,
-                    self.shortcut_focused == Some(4),
+                    self.shortcut_focused == Some(3),
                     shortcut_width,
                 )
                 .clicked()

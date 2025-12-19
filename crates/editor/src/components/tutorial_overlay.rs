@@ -71,7 +71,7 @@ impl TutorialOverlay {
             },
             TutorialStep {
                 title: "Navigate Between Panes",
-                instruction: "Use vim-style navigation keys to move focus between panes in your dashboard.",
+                instruction: "Use vim-style navigation keys to move focus between panes in your workspace.",
                 key_hint: "h j k l",
                 tip: Some("h=left, j=down, k=up, l=right (or use arrow keys)"),
                 icon: semantic_icons::nav::COMPASS,
