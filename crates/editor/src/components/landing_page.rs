@@ -207,7 +207,7 @@ impl LandingPage {
         action
     }
 
-    /// Show the recent plots column
+    /// Show the recent queries column
     fn show_recent_plots_column(
         &mut self,
         ui: &mut egui::Ui,
@@ -219,7 +219,7 @@ impl LandingPage {
         let mut action = LandingPageAction::None;
 
         // Section header (white/light text color, not accent)
-        let header_text = format!("{}  Recent Plots", semantic_icons::action::CHART);
+        let header_text = format!("{}  Recent Queries", semantic_icons::action::CHART);
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(header_text)
@@ -243,7 +243,7 @@ impl LandingPage {
                         .color(muted_color),
                 );
                 ui.label(
-                    RichText::new("No recent plots")
+                    RichText::new("No recent queries")
                         .size(typography::LG)
                         .color(muted_color)
                         .italics(),
@@ -403,12 +403,20 @@ impl LandingPage {
             },
         );
 
+        // Calculate max label width (leave room for icon + padding + shortcut hint)
+        let label_start = rect.min.x + 32.0;
+        let hint_width = if shortcut_hint.is_some() { 24.0 } else { 8.0 };
+        let max_label_width = rect.max.x - label_start - hint_width;
+
+        // Truncate label if needed
+        let truncated_label = truncate_text(label, max_label_width, ui, typography::LG);
+
         // Label
         let label_color = if is_selected { accent_color } else { text_col };
         ui.painter().text(
-            egui::pos2(rect.min.x + 32.0, rect.center().y),
+            egui::pos2(label_start, rect.center().y),
             egui::Align2::LEFT_CENTER,
-            label,
+            &truncated_label,
             typography::proportional(typography::LG),
             label_color,
         );
@@ -778,4 +786,42 @@ impl LandingPage {
             AppTheme::Dark => palette::accent::PRIMARY,
         }
     }
+}
+
+/// Truncate text with ellipsis if it exceeds the maximum width
+fn truncate_text(text: &str, max_width: f32, ui: &egui::Ui, font_size: f32) -> String {
+    let font_id = typography::proportional(font_size);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font_id.clone(), Color32::WHITE);
+
+    if galley.size().x <= max_width {
+        return text.to_string();
+    }
+
+    // Binary search for the right truncation point
+    let ellipsis = "…";
+    let ellipsis_galley =
+        ui.painter()
+            .layout_no_wrap(ellipsis.to_string(), font_id.clone(), Color32::WHITE);
+    let ellipsis_width = ellipsis_galley.size().x;
+    let target_width = max_width - ellipsis_width;
+
+    if target_width <= 0.0 {
+        return ellipsis.to_string();
+    }
+
+    // Start from the end and find where to cut
+    let chars: Vec<char> = text.chars().collect();
+    for len in (1..chars.len()).rev() {
+        let truncated: String = chars[..len].iter().collect();
+        let galley =
+            ui.painter()
+                .layout_no_wrap(truncated.clone(), font_id.clone(), Color32::WHITE);
+        if galley.size().x <= target_width {
+            return format!("{truncated}{ellipsis}");
+        }
+    }
+
+    ellipsis.to_string()
 }

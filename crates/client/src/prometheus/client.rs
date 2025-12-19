@@ -6,14 +6,17 @@ use crate::error::ClientError;
 use crate::now_unix_secs;
 use crate::promise::promise_channel;
 use crate::request::QueryRequest;
-use crate::{LabelsResult, MetricLabelsResult, MetricsClient, QueryResult};
+use crate::{
+    BackendInfo, HealthCheckResult, LabelsResult, MetricLabelsResult, MetricsClient, QueryResult,
+};
 
-use super::response::{parse_labels_response, parse_response, parse_series_response};
-use super::translate::translate;
+use super::response::{
+    parse_buildinfo_response, parse_labels_response, parse_response, parse_series_response,
+};
 
 /// Client for querying Prometheus via its HTTP API.
 ///
-/// Translates enya-lang queries to PromQL and executes them against
+/// Executes PromQL queries directly against
 /// the `/api/v1/query_range` endpoint.
 ///
 /// # Example
@@ -84,13 +87,12 @@ impl PrometheusClient {
 
 impl MetricsClient for PrometheusClient {
     fn query(&self, request: QueryRequest, ctx: &egui::Context) -> Promise<QueryResult> {
-        // Translate enya-lang to PromQL
-        let promql = match translate(&request.metric, &request.query) {
-            Ok(p) => p.query,
-            Err(e) => {
-                // Return an immediately-resolved promise with the error
-                return Promise::from_ready(Err(e));
-            }
+        // Use query directly as PromQL (no translation)
+        // If query is empty or "*", use the metric name as the query
+        let promql = if request.query.is_empty() || request.query == "*" {
+            request.metric.clone()
+        } else {
+            request.query.clone()
         };
 
         let url = self.build_url(&promql, &request);
@@ -235,6 +237,39 @@ impl MetricsClient for PrometheusClient {
 
     fn backend_type(&self) -> &'static str {
         "prometheus"
+    }
+
+    fn health_check(&self, ctx: &egui::Context) -> Promise<HealthCheckResult> {
+        let url = format!("{}/api/v1/status/buildinfo", self.base_url);
+        let ctx = ctx.clone();
+
+        log::debug!("Prometheus health check: {url}");
+
+        let (sender, promise) = promise_channel();
+
+        ehttp::fetch(ehttp::Request::get(&url), move |response| {
+            let result = match response {
+                Ok(response) => {
+                    if response.ok {
+                        parse_buildinfo_response(&response.bytes).map(|info| BackendInfo {
+                            backend_type: "prometheus".to_string(),
+                            version: info.version,
+                        })
+                    } else {
+                        Err(ClientError::BackendError {
+                            status: response.status,
+                            message: response.status_text,
+                        })
+                    }
+                }
+                Err(e) => Err(ClientError::NetworkError(e)),
+            };
+
+            sender.send(result);
+            ctx.request_repaint();
+        });
+
+        promise
     }
 }
 

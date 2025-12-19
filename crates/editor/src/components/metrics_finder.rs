@@ -444,7 +444,7 @@ impl MetricsFinder {
         );
         cursor_x += icon_galley.size().x + 10.0;
 
-        // Main text with highlighted matches
+        // Main text with highlighted matches (full metric name - priority over category)
         let search_text = result.item.search_text();
         let text_galley = create_highlighted_text(
             ui,
@@ -463,21 +463,27 @@ impl MetricsFinder {
         );
         cursor_x += text_galley.size().x + 12.0;
 
-        // Category label
+        // Category label - only show if there's enough space
+        let remaining_width = content_rect.right() - cursor_x;
         let category_text = format!("[{}]", result.item.category_label());
         let category_galley = ui.painter().layout_no_wrap(
             category_text,
             typography::proportional(typography::SM),
             category_color,
         );
-        ui.painter().galley(
-            egui::pos2(
-                cursor_x,
-                content_rect.center().y - category_galley.size().y / 2.0,
-            ),
-            category_galley,
-            category_color,
-        );
+
+        if category_galley.size().x <= remaining_width {
+            // Enough space - show full category
+            ui.painter().galley(
+                egui::pos2(
+                    cursor_x,
+                    content_rect.center().y - category_galley.size().y / 2.0,
+                ),
+                category_galley,
+                category_color,
+            );
+        }
+        // If not enough space, simply don't show the category tag
 
         // Scroll selected item into view
         if is_selected {

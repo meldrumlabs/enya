@@ -19,8 +19,8 @@ fn main() -> eframe::Result {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 300.0])
-            .with_min_inner_size([300.0, 220.0])
+            .with_inner_size([1280.0, 800.0])
+            .with_min_inner_size([800.0, 600.0])
             .with_icon(
                 enya_editor::util::png_to_icon_data(&include_bytes!("../assets/logo.png")[..]), //.expect("Failed to load icon"),
             )
@@ -28,12 +28,14 @@ fn main() -> eframe::Result {
             // macOS native titlebar is hidden for seamless Obsidian Glass theme
             .with_titlebar_shown(false)
             .with_titlebar_buttons_shown(false)
-            .with_fullsize_content_view(true),
+            .with_fullsize_content_view(true)
+            // Set app identifier for Wayland and macOS app identification
+            .with_app_id("Enya"),
         ..Default::default()
     };
 
     eframe::run_native(
-        "Enya",
+        "",
         native_options,
         Box::new(|cc| Ok(Box::new(enya_editor::EnyaApp::new(cc)))),
     )

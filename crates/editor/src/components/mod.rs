@@ -23,6 +23,7 @@ pub mod query_validation;
 pub mod status_line;
 pub mod time_range;
 pub mod time_series_chart;
+pub mod viewport_filter;
 pub mod visualization;
 pub mod which_key;
 pub mod workspace_finder;
@@ -43,13 +44,14 @@ pub use multi_buffer::{MultiBufferMode, MultiBufferState, Selection};
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
 pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, QueryCompletion};
-pub use query_executor::{Backend, ExecuteParams, QueryExecutor};
+pub use query_executor::{Backend, ExecuteParams, QueryExecutor, QueryPollResult};
 pub use query_pane::{QueryPane, QueryPaneAction};
 pub use query_state::{Granularity, QueryState};
 pub use query_validation::{QueryValidator, ValidationResult, is_valid_query, validate_query};
 pub use status_line::{Sparkline, StatusLine, StatusMode};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
+pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
 pub use visualization::{
     Bar, BarChartViz, GaugeChart, SparklineViz, StatChart, Threshold, Visualization,
     VisualizationType,

@@ -6,12 +6,12 @@
 use std::collections::HashMap;
 
 use enya_client::{
-    LabelsManager, MetricLabels, MetricLabelsManager, QueryManager, QueryRequest, QueryResponse,
-    prometheus::PrometheusClient,
+    DemoMetricsClient, HealthCheckManager, LabelsManager, MetricLabels, MetricLabelsManager,
+    QueryManager, QueryRequest, QueryResponse, prometheus::PrometheusClient,
 };
 
 use super::time_series_chart::{DataPoint, Series};
-use super::visualization::{Visualization, populate_demo_data};
+use super::visualization::Visualization;
 
 /// Backend type for query execution.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +28,22 @@ impl Default for Backend {
     }
 }
 
+/// Result of polling for query completion.
+#[derive(Debug)]
+pub enum QueryPollResult {
+    /// Query is still in flight
+    Pending,
+    /// Query completed successfully with data
+    Complete {
+        /// Number of data series returned
+        series_count: usize,
+        /// Total number of data points
+        point_count: usize,
+    },
+    /// Query failed with an error
+    Error(String),
+}
+
 /// Parameters for executing a query.
 pub struct ExecuteParams<'a> {
     /// The metric name
@@ -42,10 +58,39 @@ pub struct ExecuteParams<'a> {
     pub end_ns: Option<u128>,
 }
 
+/// Connection health status.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum ConnectionHealth {
+    /// Not connected (demo mode or disconnected)
+    #[default]
+    Offline,
+    /// Health check in progress
+    Checking,
+    /// Successfully connected and validated
+    Online {
+        /// Backend version string
+        version: String,
+    },
+    /// Connection failed
+    Failed {
+        /// Error message
+        error: String,
+    },
+}
+
+impl ConnectionHealth {
+    /// Returns true if the connection is validated and online.
+    pub fn is_online(&self) -> bool {
+        matches!(self, ConnectionHealth::Online { .. })
+    }
+}
+
 /// Manages query execution against a backend.
 pub struct QueryExecutor {
     /// The current backend
     backend: Backend,
+    /// Demo client for offline mode
+    demo_client: DemoMetricsClient,
     /// Prometheus client (if connected)
     prometheus_client: Option<PrometheusClient>,
     /// Query manager for tracking in-flight queries
@@ -56,6 +101,10 @@ pub struct QueryExecutor {
     label_names_manager: LabelsManager,
     /// Labels manager for fetching per-metric labels
     metric_labels_manager: MetricLabelsManager,
+    /// Health check manager for validating backend connectivity
+    health_check_manager: HealthCheckManager,
+    /// Current connection health status
+    connection_health: ConnectionHealth,
     /// Cached list of available metric names
     metric_names: Vec<String>,
     /// Cached list of available label names (tag keys)
@@ -75,40 +124,95 @@ impl QueryExecutor {
     pub fn new() -> Self {
         Self {
             backend: Backend::Demo,
+            demo_client: DemoMetricsClient::new(),
             prometheus_client: None,
             query_manager: QueryManager::new(),
             labels_manager: LabelsManager::new(),
             label_names_manager: LabelsManager::new(),
             metric_labels_manager: MetricLabelsManager::new(),
+            health_check_manager: HealthCheckManager::new(),
+            connection_health: ConnectionHealth::Offline,
             metric_names: Vec::new(),
             label_names: Vec::new(),
             metric_labels_cache: HashMap::new(),
         }
     }
 
-    /// Connect to a Prometheus backend.
-    pub fn connect_prometheus(&mut self, endpoint: &str) {
+    /// Connect to a Prometheus backend and initiate a health check.
+    ///
+    /// The connection is not considered "online" until the health check passes.
+    /// Call `poll_health_check()` to check for the result.
+    pub fn connect_prometheus(&mut self, endpoint: &str, ctx: &egui::Context) {
         let client = PrometheusClient::new(endpoint);
         self.prometheus_client = Some(client);
         self.backend = Backend::Prometheus(endpoint.to_string());
+        self.connection_health = ConnectionHealth::Checking;
+
+        // Initiate health check
+        if let Some(client) = &self.prometheus_client {
+            self.health_check_manager.check(client, ctx);
+        }
     }
 
     /// Disconnect and return to demo mode.
     pub fn disconnect(&mut self) {
         self.prometheus_client = None;
         self.backend = Backend::Demo;
+        self.connection_health = ConnectionHealth::Offline;
         self.query_manager.cancel();
         self.labels_manager.cancel();
         self.label_names_manager.cancel();
         self.metric_labels_manager.cancel();
+        self.health_check_manager.cancel();
         self.metric_names.clear();
         self.label_names.clear();
         self.metric_labels_cache.clear();
     }
 
-    /// Check if connected to a backend.
+    /// Check if connected to a backend (configured, but not necessarily validated).
     pub fn is_connected(&self) -> bool {
         !matches!(self.backend, Backend::Demo)
+    }
+
+    /// Check if the connection is validated and online.
+    pub fn is_online(&self) -> bool {
+        self.connection_health.is_online()
+    }
+
+    /// Get the current connection health status.
+    pub fn connection_health(&self) -> &ConnectionHealth {
+        &self.connection_health
+    }
+
+    /// Poll for health check completion.
+    ///
+    /// Returns `Some(true)` if health check passed, `Some(false)` if it failed,
+    /// `None` if still in progress or no check pending.
+    pub fn poll_health_check(&mut self) -> Option<bool> {
+        if let Some(result) = self.health_check_manager.poll() {
+            match result {
+                Ok(info) => {
+                    log::info!(
+                        "Health check passed: {} v{}",
+                        info.backend_type,
+                        info.version
+                    );
+                    self.connection_health = ConnectionHealth::Online {
+                        version: info.version,
+                    };
+                    Some(true)
+                }
+                Err(e) => {
+                    log::error!("Health check failed: {e}");
+                    self.connection_health = ConnectionHealth::Failed {
+                        error: e.to_string(),
+                    };
+                    Some(false)
+                }
+            }
+        } else {
+            None
+        }
     }
 
     /// Get the current backend type.
@@ -124,10 +228,18 @@ impl QueryExecutor {
     /// Fetch metric names from the backend.
     ///
     /// For Prometheus, this fetches the `__name__` label values.
-    /// Does nothing in demo mode or if a fetch is already in flight.
+    /// For demo mode, uses the demo client's metric catalog.
     pub fn fetch_metric_names(&mut self, ctx: &egui::Context) {
-        if let Some(client) = &self.prometheus_client {
-            self.labels_manager.fetch_metric_names(client, ctx);
+        match &self.backend {
+            Backend::Demo => {
+                self.labels_manager
+                    .fetch_metric_names(&self.demo_client, ctx);
+            }
+            Backend::Prometheus(_) => {
+                if let Some(client) = &self.prometheus_client {
+                    self.labels_manager.fetch_metric_names(client, ctx);
+                }
+            }
         }
     }
 
@@ -165,10 +277,18 @@ impl QueryExecutor {
     /// Fetch label names (tag keys) from the backend.
     ///
     /// For Prometheus, this fetches from `/api/v1/labels`.
-    /// Does nothing in demo mode or if a fetch is already in flight.
+    /// For demo mode, uses the demo client's label catalog.
     pub fn fetch_label_names(&mut self, ctx: &egui::Context) {
-        if let Some(client) = &self.prometheus_client {
-            self.label_names_manager.fetch_label_names(client, ctx);
+        match &self.backend {
+            Backend::Demo => {
+                self.label_names_manager
+                    .fetch_label_names(&self.demo_client, ctx);
+            }
+            Backend::Prometheus(_) => {
+                if let Some(client) = &self.prometheus_client {
+                    self.label_names_manager.fetch_label_names(client, ctx);
+                }
+            }
         }
     }
 
@@ -217,8 +337,16 @@ impl QueryExecutor {
             return;
         }
 
-        if let Some(client) = &self.prometheus_client {
-            self.metric_labels_manager.fetch(client, metric, ctx);
+        match &self.backend {
+            Backend::Demo => {
+                self.metric_labels_manager
+                    .fetch(&self.demo_client, metric, ctx);
+            }
+            Backend::Prometheus(_) => {
+                if let Some(client) = &self.prometheus_client {
+                    self.metric_labels_manager.fetch(client, metric, ctx);
+                }
+            }
         }
     }
 
@@ -269,25 +397,31 @@ impl QueryExecutor {
 
     /// Execute a query.
     ///
-    /// For demo mode, this immediately populates the visualization with demo data.
+    /// For demo mode, uses the DemoMetricsClient to generate realistic data.
     /// For real backends, this fires off an async request.
+    /// Poll with `poll()` to receive results.
     pub fn execute(
         &mut self,
         params: &ExecuteParams<'_>,
-        visualization: &mut Visualization,
+        _visualization: &mut Visualization,
         ctx: &egui::Context,
     ) {
+        // Build request
+        let mut request =
+            QueryRequest::new(params.metric, params.query).with_step(params.step_secs);
+        if let (Some(start), Some(end)) = (params.start_ns, params.end_ns) {
+            request = request.with_range(start, end);
+        }
+
         match &self.backend {
             Backend::Demo => {
-                // Demo mode - populate with generated data
+                // Demo mode - use demo client for realistic data generation
                 log::debug!(
                     "Executing DEMO query for metric '{}': {}",
                     params.metric,
                     params.query
                 );
-                visualization.clear();
-                visualization.set_metric_name(params.query);
-                populate_demo_data(visualization, params.query);
+                self.query_manager.execute(&self.demo_client, request, ctx);
             }
             Backend::Prometheus(endpoint) => {
                 if let Some(client) = &self.prometheus_client {
@@ -297,15 +431,6 @@ impl QueryExecutor {
                         params.query,
                         endpoint
                     );
-
-                    // Build request
-                    let mut request =
-                        QueryRequest::new(params.metric, params.query).with_step(params.step_secs);
-                    if let (Some(start), Some(end)) = (params.start_ns, params.end_ns) {
-                        request = request.with_range(start, end);
-                    }
-
-                    // Fire off query
                     self.query_manager.execute(client, request, ctx);
                 }
             }
@@ -314,33 +439,35 @@ impl QueryExecutor {
 
     /// Poll for query completion and update visualization if ready.
     ///
-    /// Returns `true` if data was updated.
-    pub fn poll(&mut self, visualization: &mut Visualization) -> bool {
+    /// Returns the poll result indicating pending, complete, or error.
+    pub fn poll(&mut self, visualization: &mut Visualization) -> QueryPollResult {
         if let Some(result) = self.query_manager.poll() {
             match result {
                 Ok(response) => {
+                    let backend_name = match &self.backend {
+                        Backend::Demo => "Demo",
+                        Backend::Prometheus(_) => "Prometheus",
+                    };
+                    let series_count = response.groups.len();
+                    let point_count: usize = response.groups.iter().map(|g| g.buckets.len()).sum();
                     log::info!(
-                        "Prometheus query completed: {} groups, {} total points",
-                        response.groups.len(),
-                        response
-                            .groups
-                            .iter()
-                            .map(|g| g.buckets.len())
-                            .sum::<usize>()
+                        "{backend_name} query completed: {series_count} groups, {point_count} total points"
                     );
                     visualization.clear();
                     visualization.set_metric_name(&response.metric);
                     populate_from_response(visualization, &response);
-                    true
+                    QueryPollResult::Complete {
+                        series_count,
+                        point_count,
+                    }
                 }
                 Err(e) => {
                     log::error!("Query failed: {e}");
-                    // Could show error in visualization
-                    false
+                    QueryPollResult::Error(e.to_string())
                 }
             }
         } else {
-            false
+            QueryPollResult::Pending
         }
     }
 }
@@ -443,7 +570,11 @@ mod tests {
     #[test]
     fn test_query_executor_connect_prometheus() {
         let mut executor = QueryExecutor::new();
-        executor.connect_prometheus("http://localhost:9090");
+        // Manually set up connection state for test (no egui context available)
+        executor.prometheus_client = Some(enya_client::prometheus::PrometheusClient::new(
+            "http://localhost:9090",
+        ));
+        executor.backend = Backend::Prometheus("http://localhost:9090".to_string());
         assert!(executor.is_connected());
         assert!(matches!(executor.backend(), Backend::Prometheus(_)));
     }

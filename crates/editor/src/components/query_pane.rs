@@ -7,10 +7,112 @@ use crate::components::query_state::QueryState;
 use crate::components::visualization::{Visualization, VisualizationType, populate_demo_data};
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 
 /// Global counter for unique pane IDs
 static NEXT_PANE_ID: AtomicUsize = AtomicUsize::new(1000);
+
+/// Render a skeleton loading state with shimmer effect
+fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
+    let time = ui.ctx().input(|i| i.time);
+    let available = ui.available_size();
+
+    // Skeleton colors - obsidian glass emerald style
+    let base = palette::bg_elevated(theme);
+    // Add subtle emerald tint to skeleton elements for cohesive look
+    let skeleton_base = Color32::from_rgba_unmultiplied(
+        base.r().saturating_sub(5),
+        base.g().saturating_add(8), // subtle green tint
+        base.b().saturating_add(3),
+        base.a(),
+    );
+    // Richer emerald shimmer for glassy effect
+    let shimmer_color = palette::accent::PRIMARY.gamma_multiply(0.3);
+
+    // Calculate shimmer position (sweeps left to right)
+    let shimmer_progress = ((time * 0.8) % 2.0) as f32; // 0.0 to 2.0, loops
+    let shimmer_width = available.x * 0.4;
+    let shimmer_x = (shimmer_progress - 0.5) * (available.x + shimmer_width);
+
+    let padding = 24.0;
+    let chart_area_top = 40.0;
+    let chart_area_height = (available.y - chart_area_top - padding).max(60.0);
+
+    // Allocate the full area
+    let (full_rect, _) = ui.allocate_exact_size(available, egui::Sense::hover());
+    let painter = ui.painter();
+
+    // Y-axis skeleton (left side) - series of short horizontal lines
+    let y_axis_x = full_rect.left() + padding;
+    let y_axis_width = 40.0;
+    for i in 0..5 {
+        let y = full_rect.top() + chart_area_top + (i as f32 / 4.0) * chart_area_height;
+        let line_rect =
+            egui::Rect::from_min_size(egui::pos2(y_axis_x, y - 4.0), egui::vec2(y_axis_width, 8.0));
+        painter.rect_filled(line_rect, 4.0, skeleton_base);
+    }
+
+    // Chart area skeleton (main area with grid-like pattern)
+    let chart_left = y_axis_x + y_axis_width + 16.0;
+    let chart_right = full_rect.right() - padding;
+    let chart_width = chart_right - chart_left;
+
+    // Horizontal grid lines
+    for i in 0..5 {
+        let y = full_rect.top() + chart_area_top + (i as f32 / 4.0) * chart_area_height;
+        let line_rect = egui::Rect::from_min_size(
+            egui::pos2(chart_left, y - 1.0),
+            egui::vec2(chart_width, 2.0),
+        );
+        painter.rect_filled(line_rect, 1.0, skeleton_base.gamma_multiply(0.5));
+    }
+
+    // Fake data line skeleton (wavy placeholder)
+    let line_y_center = full_rect.top() + chart_area_top + chart_area_height * 0.5;
+    let line_rect = egui::Rect::from_min_size(
+        egui::pos2(chart_left, line_y_center - 2.0),
+        egui::vec2(chart_width, 4.0),
+    );
+    painter.rect_filled(line_rect, 2.0, skeleton_base);
+
+    // X-axis skeleton (bottom) - time labels
+    let x_axis_y = full_rect.top() + chart_area_top + chart_area_height + 8.0;
+    for i in 0..6 {
+        let x = chart_left + (i as f32 / 5.0) * chart_width - 20.0;
+        let label_rect = egui::Rect::from_min_size(egui::pos2(x, x_axis_y), egui::vec2(40.0, 10.0));
+        painter.rect_filled(label_rect, 4.0, skeleton_base);
+    }
+
+    // Shimmer overlay - diagonal gradient sweep
+    let shimmer_rect = egui::Rect::from_min_size(
+        egui::pos2(full_rect.left() + shimmer_x, full_rect.top()),
+        egui::vec2(shimmer_width, available.y),
+    );
+
+    // Clip shimmer to our bounds
+    let clipped = shimmer_rect.intersect(full_rect);
+    if clipped.width() > 0.0 {
+        // Create gradient effect with multiple rects
+        let segments = 10;
+        let segment_width = clipped.width() / segments as f32;
+        for i in 0..segments {
+            let alpha = {
+                let t = i as f32 / segments as f32;
+                // Bell curve for smooth fade in/out
+                (-(t - 0.5).powi(2) * 8.0).exp()
+            };
+            let seg_rect = egui::Rect::from_min_size(
+                egui::pos2(clipped.left() + i as f32 * segment_width, clipped.top()),
+                egui::vec2(segment_width, clipped.height()),
+            );
+            painter.rect_filled(seg_rect, 0.0, shimmer_color.gamma_multiply(alpha));
+        }
+    }
+
+    // Request repaint for smooth animation
+    ui.ctx().request_repaint();
+}
 
 /// A QueryPane combines a Buffer (for editing queries) with a visualization.
 /// This is the first-class "buffer" concept where:
@@ -38,6 +140,8 @@ pub struct QueryPane {
     tag: String,
     /// Whether this pane needs a query refresh (set on save, cleared after execution)
     needs_refresh: bool,
+    /// Whether a query is currently in flight (for loading state)
+    is_loading: bool,
 }
 
 impl Default for QueryPane {
@@ -73,6 +177,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: false,
+            is_loading: false,
         }
     }
 
@@ -127,6 +232,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: true, // Trigger query on first frame
+            is_loading: false,
         }
     }
 
@@ -152,6 +258,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: false,
+            is_loading: false,
         }
     }
 
@@ -178,6 +285,7 @@ impl QueryPane {
             query_state: QueryState::default(),
             tag: String::new(),
             needs_refresh: true,
+            is_loading: false,
         }
     }
 
@@ -364,6 +472,16 @@ impl QueryPane {
         self.needs_refresh = true;
     }
 
+    /// Check if this pane is currently loading (query in flight)
+    pub fn is_loading(&self) -> bool {
+        self.is_loading
+    }
+
+    /// Set the loading state
+    pub fn set_loading(&mut self, loading: bool) {
+        self.is_loading = loading;
+    }
+
     /// Render the query pane
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
         let mut action = QueryPaneAction::None;
@@ -466,7 +584,12 @@ impl QueryPane {
             }
 
             // Visualization area (takes remaining space)
-            self.visualization.show(ui);
+            // Show loading state if query is in flight, otherwise show visualization
+            if self.is_loading {
+                render_loading_state(ui, self.theme);
+            } else {
+                self.visualization.show(ui);
+            }
         });
 
         action

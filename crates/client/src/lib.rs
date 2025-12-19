@@ -31,6 +31,7 @@
 //! }
 //! ```
 
+pub mod demo;
 pub mod error;
 pub mod prometheus;
 pub mod promise;
@@ -38,6 +39,7 @@ pub mod request;
 
 use poll_promise::Promise;
 
+pub use demo::DemoMetricsClient;
 pub use error::ClientError;
 pub use promise::{Sender, promise_channel};
 pub use request::QueryRequest;
@@ -81,6 +83,18 @@ pub type LabelsResult = Result<Vec<String>, ClientError>;
 /// Result type for metric series label operations.
 pub type MetricLabelsResult = Result<MetricLabels, ClientError>;
 
+/// Result type for health check operations.
+pub type HealthCheckResult = Result<BackendInfo, ClientError>;
+
+/// Backend health/version information from a health check.
+#[derive(Debug, Clone)]
+pub struct BackendInfo {
+    /// Backend type (e.g., "prometheus", "enya")
+    pub backend_type: String,
+    /// Version string from the backend
+    pub version: String,
+}
+
 /// Metrics client trait - promise-based async interface.
 ///
 /// Implementations translate enya-lang queries to their native format
@@ -117,6 +131,12 @@ pub trait MetricsClient {
 
     /// Get the backend type identifier (e.g., "prometheus", "enya").
     fn backend_type(&self) -> &'static str;
+
+    /// Check backend health and connectivity.
+    ///
+    /// For Prometheus, this calls `/api/v1/status/buildinfo`.
+    /// Returns backend version information on success.
+    fn health_check(&self, ctx: &egui::Context) -> Promise<HealthCheckResult>;
 }
 
 /// Manages in-flight queries using poll-promise.
@@ -393,6 +413,65 @@ impl MetricLabelsManager {
     pub fn cancel(&mut self) {
         self.promise = None;
         self.metric = None;
+    }
+}
+
+/// Manages in-flight health check requests using poll-promise.
+///
+/// Similar to [`LabelsManager`], but specifically for checking
+/// backend connectivity and version information.
+pub struct HealthCheckManager {
+    /// The pending promise, if any.
+    promise: Option<Promise<HealthCheckResult>>,
+}
+
+impl Default for HealthCheckManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HealthCheckManager {
+    /// Create a new health check manager.
+    #[must_use]
+    pub fn new() -> Self {
+        Self { promise: None }
+    }
+
+    /// Check if a health check is currently in flight.
+    #[must_use]
+    pub fn is_checking(&self) -> bool {
+        self.promise.is_some()
+    }
+
+    /// Initiate a health check on the given client.
+    ///
+    /// If a check is already in flight, this does nothing.
+    pub fn check<C: MetricsClient + ?Sized>(&mut self, client: &C, ctx: &egui::Context) {
+        if self.promise.is_some() {
+            return;
+        }
+
+        self.promise = Some(client.health_check(ctx));
+    }
+
+    /// Poll for the health check result.
+    ///
+    /// Returns `Some(result)` if a check just completed, `None` otherwise.
+    pub fn poll(&mut self) -> Option<HealthCheckResult> {
+        let promise = self.promise.as_ref()?;
+        if let Some(result) = promise.ready() {
+            let result = result.clone();
+            self.promise = None;
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    /// Cancel any pending health check.
+    pub fn cancel(&mut self) {
+        self.promise = None;
     }
 }
 
