@@ -770,9 +770,10 @@ impl Dashboard {
             self.show_landing = false;
             log::debug!("Added query pane for {metric_name}");
 
-            // Return action to track this in recent plots
+            // Return action to track this in recent queries
+            // Use "Query N" as the display name, metric_name for lookup
             return DashboardAction::TrackRecentPlot {
-                name: metric_name.to_string(),
+                name: format!("Query {query_number}"),
                 metric_name: metric_name.to_string(),
                 is_query: false,
             };
