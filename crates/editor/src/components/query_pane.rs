@@ -13,49 +13,107 @@ use crate::ui::semantic_icons;
 /// Global counter for unique pane IDs
 static NEXT_PANE_ID: AtomicUsize = AtomicUsize::new(1000);
 
-/// Render a loading animation with a pulsing emerald bar
+/// Render a skeleton loading state with shimmer effect
 fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
-    let text_col = text_color(theme);
     let time = ui.ctx().input(|i| i.time);
+    let available = ui.available_size();
 
-    ui.vertical_centered(|ui| {
-        let center_offset = (ui.available_height() / 2.0 - 30.0).max(20.0);
-        ui.add_space(center_offset);
+    // Skeleton colors - obsidian glass emerald style
+    let base = palette::bg_elevated(theme);
+    // Add subtle emerald tint to skeleton elements for cohesive look
+    let skeleton_base = Color32::from_rgba_unmultiplied(
+        base.r().saturating_sub(5),
+        base.g().saturating_add(8), // subtle green tint
+        base.b().saturating_add(3),
+        base.a(),
+    );
+    // Richer emerald shimmer for glassy effect
+    let shimmer_color = palette::accent::PRIMARY.gamma_multiply(0.3);
 
-        // Animated loading bar
-        let bar_width = 120.0;
-        let bar_height = 4.0;
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(bar_width, bar_height), egui::Sense::hover());
+    // Calculate shimmer position (sweeps left to right)
+    let shimmer_progress = ((time * 0.8) % 2.0) as f32; // 0.0 to 2.0, loops
+    let shimmer_width = available.x * 0.4;
+    let shimmer_x = (shimmer_progress - 0.5) * (available.x + shimmer_width);
 
-        // Background bar
-        ui.painter()
-            .rect_filled(rect, 2.0, palette::bg_elevated(theme));
+    let padding = 24.0;
+    let chart_area_top = 40.0;
+    let chart_area_height = (available.y - chart_area_top - padding).max(60.0);
 
-        // Animated fill (emerald accent) - oscillates back and forth
-        let fill_width = bar_width * 0.35;
-        let progress = ((time * 1.2).sin() as f32 + 1.0) / 2.0; // 0.0 to 1.0
-        let offset = progress * (bar_width - fill_width);
-        let fill_rect = egui::Rect::from_min_size(
-            egui::pos2(rect.left() + offset, rect.top()),
-            egui::vec2(fill_width, bar_height),
+    // Allocate the full area
+    let (full_rect, _) = ui.allocate_exact_size(available, egui::Sense::hover());
+    let painter = ui.painter();
+
+    // Y-axis skeleton (left side) - series of short horizontal lines
+    let y_axis_x = full_rect.left() + padding;
+    let y_axis_width = 40.0;
+    for i in 0..5 {
+        let y = full_rect.top() + chart_area_top + (i as f32 / 4.0) * chart_area_height;
+        let line_rect = egui::Rect::from_min_size(
+            egui::pos2(y_axis_x, y - 4.0),
+            egui::vec2(y_axis_width, 8.0),
         );
+        painter.rect_filled(line_rect, 4.0, skeleton_base);
+    }
 
-        // Pulse the alpha for subtle shimmer effect
-        let alpha = 0.7 + 0.3 * ((time * 3.0).sin() as f32 + 1.0) / 2.0;
-        ui.painter().rect_filled(
-            fill_rect,
-            2.0,
-            palette::accent::PRIMARY.gamma_multiply(alpha),
-        );
+    // Chart area skeleton (main area with grid-like pattern)
+    let chart_left = y_axis_x + y_axis_width + 16.0;
+    let chart_right = full_rect.right() - padding;
+    let chart_width = chart_right - chart_left;
 
-        ui.add_space(16.0);
-        ui.label(
-            RichText::new("Loading...")
-                .color(text_col.gamma_multiply(0.5))
-                .size(12.0),
+    // Horizontal grid lines
+    for i in 0..5 {
+        let y = full_rect.top() + chart_area_top + (i as f32 / 4.0) * chart_area_height;
+        let line_rect = egui::Rect::from_min_size(
+            egui::pos2(chart_left, y - 1.0),
+            egui::vec2(chart_width, 2.0),
         );
-    });
+        painter.rect_filled(line_rect, 1.0, skeleton_base.gamma_multiply(0.5));
+    }
+
+    // Fake data line skeleton (wavy placeholder)
+    let line_y_center = full_rect.top() + chart_area_top + chart_area_height * 0.5;
+    let line_rect = egui::Rect::from_min_size(
+        egui::pos2(chart_left, line_y_center - 2.0),
+        egui::vec2(chart_width, 4.0),
+    );
+    painter.rect_filled(line_rect, 2.0, skeleton_base);
+
+    // X-axis skeleton (bottom) - time labels
+    let x_axis_y = full_rect.top() + chart_area_top + chart_area_height + 8.0;
+    for i in 0..6 {
+        let x = chart_left + (i as f32 / 5.0) * chart_width - 20.0;
+        let label_rect = egui::Rect::from_min_size(
+            egui::pos2(x, x_axis_y),
+            egui::vec2(40.0, 10.0),
+        );
+        painter.rect_filled(label_rect, 4.0, skeleton_base);
+    }
+
+    // Shimmer overlay - diagonal gradient sweep
+    let shimmer_rect = egui::Rect::from_min_size(
+        egui::pos2(full_rect.left() + shimmer_x, full_rect.top()),
+        egui::vec2(shimmer_width, available.y),
+    );
+
+    // Clip shimmer to our bounds
+    let clipped = shimmer_rect.intersect(full_rect);
+    if clipped.width() > 0.0 {
+        // Create gradient effect with multiple rects
+        let segments = 10;
+        let segment_width = clipped.width() / segments as f32;
+        for i in 0..segments {
+            let alpha = {
+                let t = i as f32 / segments as f32;
+                // Bell curve for smooth fade in/out
+                (-(t - 0.5).powi(2) * 8.0).exp()
+            };
+            let seg_rect = egui::Rect::from_min_size(
+                egui::pos2(clipped.left() + i as f32 * segment_width, clipped.top()),
+                egui::vec2(segment_width, clipped.height()),
+            );
+            painter.rect_filled(seg_rect, 0.0, shimmer_color.gamma_multiply(alpha));
+        }
+    }
 
     // Request repaint for smooth animation
     ui.ctx().request_repaint();

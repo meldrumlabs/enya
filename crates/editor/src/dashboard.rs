@@ -6,10 +6,11 @@ use crate::app::AppState;
 
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, BufferMode, CommandPalette, CommandResult, Component,
-    Diagnostic, DiagnosticsPane, EditExcerpt, ExecuteParams, InfoOverlay, LandingPage,
-    LandingPageAction, MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState,
-    MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState, TimeRangeToolbar,
-    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder, WorkspaceItem,
+    Diagnostic, DiagnosticSource, DiagnosticsPane, EditExcerpt, ExecuteParams, InfoOverlay,
+    LandingPage, LandingPageAction, MetricItem, MetricsFinder, MultiBufferMode, MultiBufferState,
+    MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryPollResult, QueryState,
+    TimeRangeToolbar, ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder,
+    WorkspaceItem,
 };
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -993,10 +994,52 @@ impl Dashboard {
                 self.viewport_tree.tiles.get_mut(tile_id)
             {
                 if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                    if self.query_executor.poll(query_pane.visualization_mut()) {
-                        // Query completed, clear pending state
-                        self.pending_query_tile = None;
-                        log::debug!("Query completed for tile {tile_id:?}");
+                    let pane_id = query_pane.id();
+                    let pane_name = query_pane.name().to_string();
+
+                    match self.query_executor.poll(query_pane.visualization_mut()) {
+                        QueryPollResult::Complete {
+                            series_count,
+                            point_count,
+                        } => {
+                            // Query completed
+                            self.pending_query_tile = None;
+                            query_pane.set_loading(false);
+                            // Clear any previous errors for this pane
+                            self.diagnostics_pane.clear_for_pane(pane_id);
+
+                            if series_count == 0 || point_count == 0 {
+                                // Query succeeded but returned no data - add info diagnostic
+                                let diagnostic = Diagnostic::info(
+                                    "Query returned no data. Check the metric name and time range.",
+                                )
+                                .with_source(DiagnosticSource::DataConnection)
+                                .with_pane(pane_id, &pane_name);
+                                self.diagnostics_pane.add(diagnostic);
+                                log::info!(
+                                    "Query for tile {tile_id:?} returned no data (0 series, 0 points)"
+                                );
+                            } else {
+                                log::debug!(
+                                    "Query completed for tile {tile_id:?}: {series_count} series, {point_count} points"
+                                );
+                            }
+                        }
+                        QueryPollResult::Error(error) => {
+                            // Query failed - add diagnostic
+                            self.pending_query_tile = None;
+                            query_pane.set_loading(false);
+                            // Clear previous diagnostics for this pane and add the new error
+                            self.diagnostics_pane.clear_for_pane(pane_id);
+                            let diagnostic = Diagnostic::error(&error)
+                                .with_source(DiagnosticSource::DataConnection)
+                                .with_pane(pane_id, &pane_name);
+                            self.diagnostics_pane.add(diagnostic);
+                            log::error!("Query failed for tile {tile_id:?}: {error}");
+                        }
+                        QueryPollResult::Pending => {
+                            // Still waiting for results
+                        }
                     }
                 }
             }
@@ -1053,6 +1096,7 @@ impl Dashboard {
                         self.query_executor
                             .execute(&params, query_pane.visualization_mut(), ctx);
                         self.pending_query_tile = Some(tile_id);
+                        query_pane.set_loading(true);
 
                         log::debug!("Executing query for tile {tile_id:?}: {query}");
                     }
@@ -1612,10 +1656,10 @@ impl Dashboard {
         self.diagnostics_pane.count()
     }
 
-    /// Get diagnostics count by level (errors, warnings)
-    pub fn diagnostics_count_by_level(&self) -> (usize, usize) {
-        let (errors, warnings, _, _) = self.diagnostics_pane.count_by_level();
-        (errors, warnings)
+    /// Get diagnostics count by level (errors, warnings, infos)
+    pub fn diagnostics_count_by_level(&self) -> (usize, usize, usize) {
+        let (errors, warnings, infos, _) = self.diagnostics_pane.count_by_level();
+        (errors, warnings, infos)
     }
 
     /// Check if there are any errors

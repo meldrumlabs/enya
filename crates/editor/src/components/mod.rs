@@ -44,7 +44,7 @@ pub use multi_buffer::{MultiBufferMode, MultiBufferState, Selection};
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
 pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, QueryCompletion};
-pub use query_executor::{Backend, ExecuteParams, QueryExecutor};
+pub use query_executor::{Backend, ExecuteParams, QueryExecutor, QueryPollResult};
 pub use query_pane::{QueryPane, QueryPaneAction};
 pub use query_state::{Granularity, QueryState};
 pub use query_validation::{QueryValidator, ValidationResult, is_valid_query, validate_query};

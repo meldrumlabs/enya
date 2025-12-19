@@ -294,8 +294,8 @@ impl EnyaApp {
                     Some(multi_buffer_status)
                 });
             // Set diagnostics count
-            let (errors, warnings) = dashboard.diagnostics_count_by_level();
-            self.status_line.set_diagnostics_count(errors, warnings);
+            let (errors, warnings, infos) = dashboard.diagnostics_count_by_level();
+            self.status_line.set_diagnostics_count(errors, warnings, infos);
         }
 
         // Update sparkline with editor frame time metrics

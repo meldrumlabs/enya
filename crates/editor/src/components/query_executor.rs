@@ -28,6 +28,22 @@ impl Default for Backend {
     }
 }
 
+/// Result of polling for query completion.
+#[derive(Debug)]
+pub enum QueryPollResult {
+    /// Query is still in flight
+    Pending,
+    /// Query completed successfully with data
+    Complete {
+        /// Number of data series returned
+        series_count: usize,
+        /// Total number of data points
+        point_count: usize,
+    },
+    /// Query failed with an error
+    Error(String),
+}
+
 /// Parameters for executing a query.
 pub struct ExecuteParams<'a> {
     /// The metric name
@@ -338,8 +354,8 @@ impl QueryExecutor {
 
     /// Poll for query completion and update visualization if ready.
     ///
-    /// Returns `true` if data was updated.
-    pub fn poll(&mut self, visualization: &mut Visualization) -> bool {
+    /// Returns the poll result indicating pending, complete, or error.
+    pub fn poll(&mut self, visualization: &mut Visualization) -> QueryPollResult {
         if let Some(result) = self.query_manager.poll() {
             match result {
                 Ok(response) => {
@@ -347,29 +363,30 @@ impl QueryExecutor {
                         Backend::Demo => "Demo",
                         Backend::Prometheus(_) => "Prometheus",
                     };
+                    let series_count = response.groups.len();
+                    let point_count: usize =
+                        response.groups.iter().map(|g| g.buckets.len()).sum();
                     log::info!(
                         "{} query completed: {} groups, {} total points",
                         backend_name,
-                        response.groups.len(),
-                        response
-                            .groups
-                            .iter()
-                            .map(|g| g.buckets.len())
-                            .sum::<usize>()
+                        series_count,
+                        point_count
                     );
                     visualization.clear();
                     visualization.set_metric_name(&response.metric);
                     populate_from_response(visualization, &response);
-                    true
+                    QueryPollResult::Complete {
+                        series_count,
+                        point_count,
+                    }
                 }
                 Err(e) => {
                     log::error!("Query failed: {e}");
-                    // Could show error in visualization
-                    false
+                    QueryPollResult::Error(e.to_string())
                 }
             }
         } else {
-            false
+            QueryPollResult::Pending
         }
     }
 }

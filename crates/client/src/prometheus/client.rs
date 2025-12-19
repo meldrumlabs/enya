@@ -9,11 +9,10 @@ use crate::request::QueryRequest;
 use crate::{LabelsResult, MetricLabelsResult, MetricsClient, QueryResult};
 
 use super::response::{parse_labels_response, parse_response, parse_series_response};
-use super::translate::translate;
 
 /// Client for querying Prometheus via its HTTP API.
 ///
-/// Translates enya-lang queries to PromQL and executes them against
+/// Executes PromQL queries directly against
 /// the `/api/v1/query_range` endpoint.
 ///
 /// # Example
@@ -84,13 +83,12 @@ impl PrometheusClient {
 
 impl MetricsClient for PrometheusClient {
     fn query(&self, request: QueryRequest, ctx: &egui::Context) -> Promise<QueryResult> {
-        // Translate enya-lang to PromQL
-        let promql = match translate(&request.metric, &request.query) {
-            Ok(p) => p.query,
-            Err(e) => {
-                // Return an immediately-resolved promise with the error
-                return Promise::from_ready(Err(e));
-            }
+        // Use query directly as PromQL (no translation)
+        // If query is empty or "*", use the metric name as the query
+        let promql = if request.query.is_empty() || request.query == "*" {
+            request.metric.clone()
+        } else {
+            request.query.clone()
         };
 
         let url = self.build_url(&promql, &request);

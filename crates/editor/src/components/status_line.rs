@@ -287,8 +287,8 @@ pub struct StatusLine {
     sparkline: Option<Sparkline>,
     /// Timestamp of last data refresh (for relative time display)
     last_refresh: Option<std::time::Instant>,
-    /// Diagnostics counts (errors, warnings)
-    diagnostics_count: (usize, usize),
+    /// Diagnostics counts (errors, warnings, infos)
+    diagnostics_count: (usize, usize, usize),
 }
 
 impl Default for StatusLine {
@@ -304,7 +304,7 @@ impl Default for StatusLine {
             extra_status: None,
             sparkline: None,
             last_refresh: None,
-            diagnostics_count: (0, 0),
+            diagnostics_count: (0, 0, 0),
         }
     }
 }
@@ -360,9 +360,9 @@ impl StatusLine {
         self.sparkline = sparkline;
     }
 
-    /// Set diagnostics counts (errors, warnings)
-    pub fn set_diagnostics_count(&mut self, errors: usize, warnings: usize) {
-        self.diagnostics_count = (errors, warnings);
+    /// Set diagnostics counts (errors, warnings, infos)
+    pub fn set_diagnostics_count(&mut self, errors: usize, warnings: usize, infos: usize) {
+        self.diagnostics_count = (errors, warnings, infos);
     }
 
     /// Mark the last refresh time (call when data is updated)
@@ -588,30 +588,36 @@ impl StatusLine {
                 self.render_separator_rtl(ui, height);
             }
 
-            // Diagnostics indicator (errors/warnings)
-            let (errors, warnings) = self.diagnostics_count;
-            if errors > 0 || warnings > 0 {
-                let diag_text = if errors > 0 && warnings > 0 {
-                    format!(
-                        "{} {} {} {}",
-                        semantic_icons::diagnostic::ERROR,
-                        errors,
+            // Diagnostics indicator (errors/warnings/infos)
+            let (errors, warnings, infos) = self.diagnostics_count;
+            if errors > 0 || warnings > 0 || infos > 0 {
+                // Build text with relevant counts
+                let mut parts = Vec::new();
+                if errors > 0 {
+                    parts.push(format!("{} {}", semantic_icons::diagnostic::ERROR, errors));
+                }
+                if warnings > 0 {
+                    parts.push(format!(
+                        "{} {}",
                         semantic_icons::diagnostic::WARNING,
                         warnings
-                    )
-                } else if errors > 0 {
-                    format!("{} {}", semantic_icons::diagnostic::ERROR, errors)
-                } else {
-                    format!("{} {}", semantic_icons::diagnostic::WARNING, warnings)
-                };
+                    ));
+                }
+                if infos > 0 {
+                    parts.push(format!("{} {}", semantic_icons::diagnostic::INFO, infos));
+                }
+                let diag_text = parts.join(" ");
 
+                // Color based on severity (errors > warnings > infos)
                 let diag_color = if errors > 0 {
                     palette::semantic::ERROR
-                } else {
+                } else if warnings > 0 {
                     palette::semantic::WARNING
+                } else {
+                    palette::semantic::INFO
                 };
 
-                self.render_segment_rtl(
+                let response = self.render_segment_rtl_with_response(
                     ui,
                     &diag_text,
                     None, // Icons are embedded in text
@@ -621,6 +627,16 @@ impl StatusLine {
                     padding,
                     false,
                 );
+                if response.hovered() {
+                    egui::show_tooltip_at_pointer(
+                        ui.ctx(),
+                        ui.layer_id(),
+                        egui::Id::new("diagnostics_tooltip"),
+                        |ui| {
+                            ui.label("Diagnostics available (Space+d to open)");
+                        },
+                    );
+                }
 
                 // Separator
                 self.render_separator_rtl(ui, height);
@@ -726,8 +742,24 @@ impl StatusLine {
         fg_color: Color32,
         height: f32,
         padding: f32,
-        _bold: bool,
+        bold: bool,
     ) {
+        self.render_segment_rtl_with_response(ui, text, icon, bg_color, fg_color, height, padding, bold);
+    }
+
+    /// Render a single segment (right-to-left layout) and return the response for interactions
+    #[allow(clippy::too_many_arguments)]
+    fn render_segment_rtl_with_response(
+        &self,
+        ui: &mut Ui,
+        text: &str,
+        icon: Option<&str>,
+        bg_color: Color32,
+        fg_color: Color32,
+        height: f32,
+        padding: f32,
+        _bold: bool,
+    ) -> egui::Response {
         let content = if let Some(icon) = icon {
             format!("{icon} {text}")
         } else {
@@ -743,8 +775,8 @@ impl StatusLine {
         let text_width = galley.size().x + padding * 2.0;
 
         // Draw the segment background and text
-        let (rect, _response) =
-            ui.allocate_exact_size(egui::vec2(text_width, height), egui::Sense::hover());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(text_width, height), egui::Sense::click());
 
         if ui.is_rect_visible(rect) {
             ui.painter().rect_filled(rect, 0.0, bg_color);
@@ -756,6 +788,8 @@ impl StatusLine {
                 fg_color,
             );
         }
+
+        response
     }
 
     /// Render a sparkline segment with current value and label
