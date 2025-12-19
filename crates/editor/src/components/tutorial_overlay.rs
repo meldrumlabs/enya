@@ -112,6 +112,13 @@ impl TutorialOverlay {
                 icon: semantic_icons::mode::VISUAL,
             },
             TutorialStep {
+                title: "Filter Panes",
+                instruction: "Quickly filter visible panes by query content. Non-matching panes are dimmed so you can focus on what matters.",
+                key_hint: "/",
+                tip: Some("Type to filter, Enter to apply, Esc twice to clear"),
+                icon: semantic_icons::action::SEARCH,
+            },
+            TutorialStep {
                 title: "Metrics Finder",
                 instruction: "Quickly search and insert metrics using the fuzzy finder. Browse available metrics with live preview.",
                 key_hint: "Space+m",
