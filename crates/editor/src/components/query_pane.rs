@@ -262,6 +262,34 @@ impl QueryPane {
         }
     }
 
+    /// Create a query pane with a full PromQL query, custom name, and demo data
+    /// Useful for tutorial where we want editable label selectors
+    pub fn with_demo_query_named(
+        query: impl Into<String>,
+        name: impl Into<String>,
+    ) -> Self {
+        let query = query.into();
+        let pane_name = name.into();
+        let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
+
+        let buffer = Buffer::with_name(query.clone(), &pane_name);
+        let mut visualization = Visualization::new(VisualizationType::default(), &pane_name);
+        visualization.set_metric_name(&pane_name);
+        populate_demo_data(&mut visualization, &query);
+
+        Self {
+            id,
+            buffer,
+            visualization,
+            theme: AppTheme::default(),
+            api_key: String::new(),
+            buffer_expanded: false,
+            query_state: QueryState::default(),
+            tag: String::new(),
+            needs_refresh: false,
+        }
+    }
+
     /// Create a query pane from workspace config with a specific query number
     pub fn from_config_numbered(query: &str, name: &str, query_number: usize) -> Self {
         let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);

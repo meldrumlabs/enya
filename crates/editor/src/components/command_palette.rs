@@ -101,6 +101,8 @@ pub enum CommandResult {
     NextWorkspaceTab,
     /// Go to previous workspace tab
     PrevWorkspaceTab,
+    /// Open the interactive tutorial
+    OpenTutorial,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -233,6 +235,18 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "tabclose",
         aliases: &[],
         description: "Close current workspace tab",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "prometheus",
+        aliases: &["prom"],
+        description: "Connect to Prometheus endpoint (or 'disconnect')",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "tutorial",
+        aliases: &[],
+        description: "Start the interactive tutorial",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -534,6 +548,20 @@ impl CommandPalette {
                 CommandResult::NewWorkspaceTab(name)
             }
             "tabclose" => CommandResult::CloseWorkspaceTab,
+            "prometheus" => {
+                // :prometheus <url> - connect to Prometheus
+                // :prometheus disconnect - return to demo mode
+                if args.is_empty() {
+                    CommandResult::Error(
+                        "Usage: :prometheus <url> or :prometheus disconnect".to_string(),
+                    )
+                } else if args[0].to_lowercase() == "disconnect" {
+                    CommandResult::Disconnect
+                } else {
+                    CommandResult::Connect(args.join(" "))
+                }
+            }
+            "tutorial" => CommandResult::OpenTutorial,
             _ => CommandResult::None,
         }
     }
