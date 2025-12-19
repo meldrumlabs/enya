@@ -628,14 +628,7 @@ impl StatusLine {
                     false,
                 );
                 if response.hovered() {
-                    egui::show_tooltip_at_pointer(
-                        ui.ctx(),
-                        ui.layer_id(),
-                        egui::Id::new("diagnostics_tooltip"),
-                        |ui| {
-                            ui.label("Diagnostics available (Space+d to open)");
-                        },
-                    );
+                    response.show_tooltip_text("Diagnostics available (Space+d to open)");
                 }
 
                 // Separator
@@ -744,7 +737,9 @@ impl StatusLine {
         padding: f32,
         bold: bool,
     ) {
-        self.render_segment_rtl_with_response(ui, text, icon, bg_color, fg_color, height, padding, bold);
+        self.render_segment_rtl_with_response(
+            ui, text, icon, bg_color, fg_color, height, padding, bold,
+        );
     }
 
     /// Render a single segment (right-to-left layout) and return the response for interactions

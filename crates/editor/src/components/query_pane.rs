@@ -48,10 +48,8 @@ fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
     let y_axis_width = 40.0;
     for i in 0..5 {
         let y = full_rect.top() + chart_area_top + (i as f32 / 4.0) * chart_area_height;
-        let line_rect = egui::Rect::from_min_size(
-            egui::pos2(y_axis_x, y - 4.0),
-            egui::vec2(y_axis_width, 8.0),
-        );
+        let line_rect =
+            egui::Rect::from_min_size(egui::pos2(y_axis_x, y - 4.0), egui::vec2(y_axis_width, 8.0));
         painter.rect_filled(line_rect, 4.0, skeleton_base);
     }
 
@@ -82,10 +80,7 @@ fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
     let x_axis_y = full_rect.top() + chart_area_top + chart_area_height + 8.0;
     for i in 0..6 {
         let x = chart_left + (i as f32 / 5.0) * chart_width - 20.0;
-        let label_rect = egui::Rect::from_min_size(
-            egui::pos2(x, x_axis_y),
-            egui::vec2(40.0, 10.0),
-        );
+        let label_rect = egui::Rect::from_min_size(egui::pos2(x, x_axis_y), egui::vec2(40.0, 10.0));
         painter.rect_filled(label_rect, 4.0, skeleton_base);
     }
 

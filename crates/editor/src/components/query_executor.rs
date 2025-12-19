@@ -364,13 +364,9 @@ impl QueryExecutor {
                         Backend::Prometheus(_) => "Prometheus",
                     };
                     let series_count = response.groups.len();
-                    let point_count: usize =
-                        response.groups.iter().map(|g| g.buckets.len()).sum();
+                    let point_count: usize = response.groups.iter().map(|g| g.buckets.len()).sum();
                     log::info!(
-                        "{} query completed: {} groups, {} total points",
-                        backend_name,
-                        series_count,
-                        point_count
+                        "{backend_name} query completed: {series_count} groups, {point_count} total points"
                     );
                     visualization.clear();
                     visualization.set_metric_name(&response.metric);

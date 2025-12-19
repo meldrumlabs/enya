@@ -54,8 +54,6 @@ pub enum DashboardAction {
     SharePane(usize),
     /// Quit the application
     QuitApp,
-    /// Connect to an agent endpoint
-    Connect(String),
     /// Create a new workspace tab
     NewWorkspaceTab(Option<String>),
     /// Close current workspace tab
@@ -843,8 +841,7 @@ impl Dashboard {
                 self.toggle_commits_on_focused();
                 DashboardAction::None
             }
-            CommandResult::Connect(endpoint) => DashboardAction::Connect(endpoint),
-            CommandResult::ConnectPrometheus(endpoint) => {
+            CommandResult::Connect(endpoint) => {
                 self.query_executor.connect_prometheus(&endpoint);
                 // Immediately start fetching metric names and label names
                 self.query_executor.fetch_metric_names(ctx);
@@ -854,7 +851,7 @@ impl Dashboard {
                     message: format!("Connected to Prometheus at {endpoint}"),
                 }
             }
-            CommandResult::DisconnectPrometheus => {
+            CommandResult::Disconnect => {
                 self.query_executor.disconnect();
                 DashboardAction::Notify {
                     level: "info".to_string(),

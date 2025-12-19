@@ -77,12 +77,10 @@ pub enum CommandResult {
     ShareWorkspace,
     /// Toggle commit markers visibility on charts
     ToggleCommits,
-    /// Connect to agent endpoint
+    /// Connect to Prometheus endpoint
     Connect(String),
-    /// Connect to Prometheus endpoint for query execution
-    ConnectPrometheus(String),
     /// Disconnect from Prometheus (return to demo mode)
-    DisconnectPrometheus,
+    Disconnect,
     /// Toggle diagnostics pane
     ToggleDiagnostics,
     /// Show diagnostics pane
@@ -215,8 +213,8 @@ const COMMANDS: &[PaletteCommand] = &[
     },
     PaletteCommand {
         name: "connect",
-        aliases: &[],
-        description: "Connect to agent",
+        aliases: &["c"],
+        description: "Connect to Prometheus compatible endpoint (or 'disconnect')",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
@@ -236,12 +234,6 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &[],
         description: "Close current workspace tab",
         kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "prometheus",
-        aliases: &["prom"],
-        description: "Connect to Prometheus endpoint (or 'disconnect')",
-        kind: CommandKind::SingleArg,
     },
 ];
 
@@ -503,8 +495,12 @@ impl CommandPalette {
             "share" => CommandResult::ShareWorkspace,
             "commits" => CommandResult::ToggleCommits,
             "connect" => {
+                // :connect <url> - connect to Prometheus
+                // :connect disconnect - return to demo mode
                 if args.is_empty() {
-                    CommandResult::Error("Usage: :connect <url>".to_string())
+                    CommandResult::Error("Usage: :connect <url> or :connect disconnect".to_string())
+                } else if args[0].to_lowercase() == "disconnect" {
+                    CommandResult::Disconnect
                 } else {
                     CommandResult::Connect(args.join(" "))
                 }
@@ -538,19 +534,6 @@ impl CommandPalette {
                 CommandResult::NewWorkspaceTab(name)
             }
             "tabclose" => CommandResult::CloseWorkspaceTab,
-            "prometheus" => {
-                // :prometheus <url> - connect to Prometheus
-                // :prometheus disconnect - return to demo mode
-                if args.is_empty() {
-                    CommandResult::Error(
-                        "Usage: :prometheus <url> or :prometheus disconnect".to_string(),
-                    )
-                } else if args[0].to_lowercase() == "disconnect" {
-                    CommandResult::DisconnectPrometheus
-                } else {
-                    CommandResult::ConnectPrometheus(args.join(" "))
-                }
-            }
             _ => CommandResult::None,
         }
     }

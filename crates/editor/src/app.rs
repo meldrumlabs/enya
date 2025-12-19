@@ -295,7 +295,8 @@ impl EnyaApp {
                 });
             // Set diagnostics count
             let (errors, warnings, infos) = dashboard.diagnostics_count_by_level();
-            self.status_line.set_diagnostics_count(errors, warnings, infos);
+            self.status_line
+                .set_diagnostics_count(errors, warnings, infos);
         }
 
         // Update sparkline with editor frame time metrics
@@ -508,9 +509,6 @@ impl EnyaApp {
             }
             DashboardAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-            DashboardAction::Connect(endpoint) => {
-                self.connection.connect(&endpoint, ctx);
             }
             DashboardAction::NewWorkspaceTab(name) => {
                 if let Some(name) = name {
