@@ -1,0 +1,238 @@
+//! Query execution coordination for the workspace.
+//!
+//! This module handles polling for query results, executing queries for panes
+//! that need refresh, and coordinating with the query executor and diagnostics.
+
+use super::{Workspace, WorkspaceAction};
+use crate::components::{Diagnostic, DiagnosticSource, ExecuteParams, QueryPane, QueryPollResult};
+
+impl Workspace {
+    /// Process query execution: poll for pending results and execute queries for panes that need refresh
+    /// Returns a notification action if a connection status changed.
+    pub(super) fn process_query_execution(&mut self, ctx: &egui::Context) -> WorkspaceAction {
+        // 0. Poll for health check completion
+        let mut notification_action = WorkspaceAction::None;
+        if let Some(success) = self.query_executor.poll_health_check() {
+            if success {
+                if let crate::components::util::query_executor::ConnectionHealth::Online {
+                    ref version,
+                } = self.query_executor.connection_health().clone()
+                {
+                    log::info!("Connected to Prometheus v{version}");
+                    // Add success diagnostic
+                    let diagnostic = crate::components::overlay::diagnostics::Diagnostic::info(
+                        format!("Connected to Prometheus v{version}"),
+                    )
+                    .with_source(
+                        crate::components::overlay::diagnostics::DiagnosticSource::DataConnection,
+                    );
+                    self.diagnostics_pane.add(diagnostic);
+                    // Show success notification
+                    notification_action = WorkspaceAction::Notify {
+                        level: "success".to_string(),
+                        message: format!("Connected to Prometheus v{version}"),
+                    };
+                }
+            } else if let crate::components::util::query_executor::ConnectionHealth::Failed {
+                ref error,
+            } = self.query_executor.connection_health().clone()
+            {
+                log::error!("Connection failed: {error}");
+                // Add error diagnostic
+                let diagnostic = crate::components::overlay::diagnostics::Diagnostic::error(
+                    format!("Connection failed: {error}"),
+                )
+                .with_source(
+                    crate::components::overlay::diagnostics::DiagnosticSource::DataConnection,
+                );
+                self.diagnostics_pane.add(diagnostic);
+                // Show error notification
+                notification_action = WorkspaceAction::Notify {
+                    level: "error".to_string(),
+                    message: format!("Connection failed: {error}"),
+                };
+            }
+        }
+
+        // 0a. Poll for metric names and label names fetch completion
+        if self.query_executor.poll_metric_names() {
+            // Update buffer editor if it's open
+            if self.buffer_editor.is_open() {
+                let metric_names = self.query_executor.metric_names().to_vec();
+                log::debug!(
+                    "Updating buffer editor with {} newly fetched metric names",
+                    metric_names.len()
+                );
+                self.buffer_editor.set_metric_names(metric_names);
+            }
+        }
+        self.query_executor.poll_label_names();
+
+        // 0b. Poll for per-metric labels and update the finder/buffer editor if labels were received
+        if let Some(metric_name) = self.query_executor.poll_metric_labels() {
+            // Convert MetricLabels to HashMap<String, HashSet<String>> for the finder
+            if let Some(labels) = self.query_executor.get_metric_labels(&metric_name) {
+                let tags: std::collections::HashMap<String, std::collections::HashSet<String>> =
+                    labels
+                        .labels
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+                        .collect();
+                self.metrics_finder.update_metric_tags(&metric_name, tags);
+
+                // Also update buffer editor completions if editing this metric
+                if self.buffer_editor.editing_metric_name() == Some(metric_name.as_str()) {
+                    self.buffer_editor
+                        .set_completions_from_labels(&labels.labels);
+                    log::debug!(
+                        "Updated buffer editor completions from {} labels for '{}'",
+                        labels.labels.len(),
+                        metric_name
+                    );
+                }
+            }
+        }
+
+        // 0c. If metrics finder is open and connected, fetch labels for selected metric
+        if self.metrics_finder.is_open() && self.query_executor.is_connected() {
+            if let Some(metric_name) = self.metrics_finder.selected_metric_name() {
+                // Only fetch if not already cached and not currently fetching this metric
+                if !self.query_executor.has_metric_labels(metric_name)
+                    && self.query_executor.fetching_metric() != Some(metric_name)
+                {
+                    self.query_executor.fetch_metric_labels(metric_name, ctx);
+                }
+            }
+        }
+
+        // 0d. If buffer editor is open and connected, fetch labels for the metric being edited
+        if self.buffer_editor.is_open() && self.query_executor.is_connected() {
+            if let Some(metric_name) = self.buffer_editor.editing_metric_name() {
+                // Only fetch if not already cached and not currently fetching this metric
+                if !self.query_executor.has_metric_labels(metric_name)
+                    && self.query_executor.fetching_metric() != Some(metric_name)
+                {
+                    self.query_executor.fetch_metric_labels(metric_name, ctx);
+                }
+            }
+        }
+
+        // 1. Poll for query results if there's a pending query
+        if let Some(tile_id) = self.pending_query_tile {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    let pane_id = query_pane.id();
+                    let pane_name = query_pane.name().to_string();
+
+                    match self.query_executor.poll(query_pane.visualization_mut()) {
+                        QueryPollResult::Complete {
+                            series_count,
+                            point_count,
+                        } => {
+                            // Query completed
+                            self.pending_query_tile = None;
+                            query_pane.set_loading(false);
+                            // Clear any previous errors for this pane
+                            self.diagnostics_pane.clear_for_pane(pane_id);
+
+                            if series_count == 0 || point_count == 0 {
+                                // Query succeeded but returned no data - add info diagnostic
+                                let diagnostic = Diagnostic::info(
+                                    "Query returned no data. Check the metric name and time range.",
+                                )
+                                .with_source(DiagnosticSource::DataConnection)
+                                .with_pane(pane_id, &pane_name);
+                                self.diagnostics_pane.add(diagnostic);
+                                log::info!(
+                                    "Query for tile {tile_id:?} returned no data (0 series, 0 points)"
+                                );
+                            } else {
+                                log::debug!(
+                                    "Query completed for tile {tile_id:?}: {series_count} series, {point_count} points"
+                                );
+                            }
+                        }
+                        QueryPollResult::Error(error) => {
+                            // Query failed - add diagnostic
+                            self.pending_query_tile = None;
+                            query_pane.set_loading(false);
+                            // Clear previous diagnostics for this pane and add the new error
+                            self.diagnostics_pane.clear_for_pane(pane_id);
+                            let diagnostic = Diagnostic::error(&error)
+                                .with_source(DiagnosticSource::DataConnection)
+                                .with_pane(pane_id, &pane_name);
+                            self.diagnostics_pane.add(diagnostic);
+                            log::error!("Query failed for tile {tile_id:?}: {error}");
+                        }
+                        QueryPollResult::Pending => {
+                            // Still waiting for results
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. If no query in flight, check for panes that need refresh and execute
+        if self.pending_query_tile.is_none() {
+            let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
+
+            // Find the first pane that needs refresh
+            let pane_ids: Vec<egui_tiles::TileId> = self
+                .viewport_tree
+                .tiles
+                .iter()
+                .filter_map(|(id, tile)| {
+                    if let egui_tiles::Tile::Pane(component) = tile {
+                        if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                            if query_pane.needs_refresh() {
+                                log::debug!(
+                                    "Found pane {:?} that needs refresh: {}",
+                                    id,
+                                    query_pane.name()
+                                );
+                                return Some(*id);
+                            }
+                        }
+                    }
+                    None
+                })
+                .collect();
+
+            // Execute query for the first pane that needs refresh
+            if let Some(tile_id) = pane_ids.first().copied() {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get_mut(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                        // Get query parameters from the pane
+                        let metric = query_pane.name().to_string();
+                        let query = query_pane.saved_query().to_string();
+                        let step_secs = query_pane.query_state().granularity.seconds();
+
+                        // Clear the refresh flag
+                        query_pane.clear_refresh();
+
+                        // Execute the query
+                        let params = ExecuteParams {
+                            metric: &metric,
+                            query: &query,
+                            step_secs,
+                            start_ns: Some(start_ns),
+                            end_ns: Some(end_ns),
+                        };
+                        self.query_executor
+                            .execute(&params, query_pane.visualization_mut(), ctx);
+                        self.pending_query_tile = Some(tile_id);
+                        query_pane.set_loading(true);
+
+                        log::debug!("Executing query for tile {tile_id:?}: {query}");
+                    }
+                }
+            }
+        }
+
+        notification_action
+    }
+}

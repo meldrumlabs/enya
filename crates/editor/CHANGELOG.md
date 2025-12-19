@@ -26,7 +26,11 @@ All notable changes to the Enya editor will be documented in this file.
 - **Split workspace module into submodules**: Extracted independent types from `workspace/mod.rs` into focused submodules:
   - `workspace/input.rs` - Navigation direction enum (`NavDirection`) and visual multi-select state (`VisualMultiState`)
   - `workspace/tiles.rs` - `TreeBehavior` struct implementing `egui_tiles::Behavior` for pane rendering, focus borders, and filter overlays
-  - The main `Workspace` struct and its methods remain in `mod.rs` for coordinating the tile tree and overlays.
+  - `workspace/keyboard.rs` - Vim-style keyboard navigation handlers (`handle_viewport_keyboard`, `handle_visual_multi_keyboard`), navigation helpers, and visual-multi mode operations (~860 lines)
+  - `workspace/serialization.rs` - Workspace save/load methods (`to_workspace_config`, `load_workspace_config`) and layout tree building/extraction (~350 lines)
+  - `workspace/query.rs` - Query execution coordination (`process_query_execution`), polling for results, and triggering pane refreshes (~230 lines)
+  - `workspace/overlays.rs` - Diagnostics overlay management methods (`toggle_diagnostics`, `show_diagnostics`, etc.) (~60 lines)
+  - The main `Workspace` struct and core methods remain in `mod.rs` (~1940 lines, down from ~2600).
 
 ### Added
 
