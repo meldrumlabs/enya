@@ -23,6 +23,11 @@ All notable changes to the Enya editor will be documented in this file.
   - `components/util/` - Non-UI helpers (finder_utils, id_generator, multi_buffer, query_completion, query_executor, query_state, query_validation)
   - All types are re-exported from `components/mod.rs` for backwards compatibility.
 
+- **Split workspace module into submodules**: Extracted independent types from `workspace/mod.rs` into focused submodules:
+  - `workspace/input.rs` - Navigation direction enum (`NavDirection`) and visual multi-select state (`VisualMultiState`)
+  - `workspace/tiles.rs` - `TreeBehavior` struct implementing `egui_tiles::Behavior` for pane rendering, focus borders, and filter overlays
+  - The main `Workspace` struct and its methods remain in `mod.rs` for coordinating the tile tree and overlays.
+
 ### Added
 
 - **DemoMetricsClient for offline demo mode**: Added a new `DemoMetricsClient` in the `enya-client` crate that implements the `MetricsClient` trait with realistic mock data. The demo client provides:
