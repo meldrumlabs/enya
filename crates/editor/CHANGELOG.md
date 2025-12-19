@@ -35,6 +35,15 @@ All notable changes to the Enya editor will be documented in this file.
   - `workspace/rendering.rs` - Filtered view rendering, custom scrollbar, and scroll-to-focused-tile (~210 lines)
   - The main `Workspace` struct and core methods remain in `mod.rs` (~1190 lines, down from ~1940).
 
+- **Split visualization module into submodules**: Reorganized the large `visualization.rs` file (1912 lines) into a focused `visualization/` module directory:
+  - `visualization/mod.rs` - Core `VisualizationType` enum, `Visualization` wrapper enum, and common constants (~520 lines)
+  - `visualization/stat.rs` - `StatChart` for big number display with sparkline and change indicators (~280 lines)
+  - `visualization/gauge.rs` - `GaugeChart` for circular percentage/utilization gauges (~260 lines)
+  - `visualization/bar.rs` - `Bar` and `BarChartViz` for horizontal bar charts (~240 lines)
+  - `visualization/sparkline.rs` - `SparklineViz` for compact inline line charts (~200 lines)
+  - `visualization/demo.rs` - Demo data population functions for all visualization types (~270 lines)
+  - All types are re-exported from `pane/mod.rs` for backwards compatibility.
+
 ### Added
 
 - **DemoMetricsClient for offline demo mode**: Added a new `DemoMetricsClient` in the `enya-client` crate that implements the `MetricsClient` trait with realistic mock data. The demo client provides:

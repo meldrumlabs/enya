@@ -12,5 +12,5 @@ pub use query_pane::{QueryPane, QueryPaneAction};
 pub use time_series_chart::{DataPoint, Series, TimeSeriesChart};
 pub use visualization::{
     Bar, BarChartViz, GaugeChart, SparklineViz, StatChart, Threshold, Visualization,
-    VisualizationType,
+    VisualizationType, populate_demo_data,
 };
