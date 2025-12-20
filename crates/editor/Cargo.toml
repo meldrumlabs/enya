@@ -78,5 +78,20 @@ gloo-timers = { workspace = true, features = ["futures"] }
 enya-build-tools = { workspace = true }
 chrono = { workspace = true }
 
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "finder"
+harness = false
+
+[[bench]]
+name = "encoding"
+harness = false
+
+[[bench]]
+name = "rendering"
+harness = false
+
 [lints]
 workspace = true

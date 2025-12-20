@@ -2857,6 +2857,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "criterion",
  "eframe",
  "egui",
  "egui_extras",
