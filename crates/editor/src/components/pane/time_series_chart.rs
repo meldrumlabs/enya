@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ops::RangeInclusive;
 
 use nohash_hasher::IntMap;
@@ -187,13 +188,17 @@ impl Series {
         self
     }
 
-    /// Build a label from the series name and tags
-    pub fn label(&self) -> String {
+    /// Build a label from the series name and tags.
+    /// Returns a `Cow<str>` to avoid allocation when there are no tags.
+    pub fn label(&self) -> Cow<'_, str> {
         if self.tags.is_empty() {
-            self.name.clone()
+            Cow::Borrowed(&self.name)
         } else {
-            let tags: Vec<_> = self.tags.iter().map(|(k, v)| format!("{k}={v}")).collect();
-            format!("{} {{{}}}", self.name, tags.join(", "))
+            let mut tags: Vec<_> = Vec::with_capacity(self.tags.len());
+            for (k, v) in &self.tags {
+                tags.push(format!("{k}={v}"));
+            }
+            Cow::Owned(format!("{} {{{}}}", self.name, tags.join(", ")))
         }
     }
 }
@@ -664,7 +669,7 @@ impl TimeSeriesChart {
         );
 
         // Custom y-axis formatter with K/M/B suffixes for large numbers
-        let y_label = self.y_label.clone().unwrap_or_else(|| "Value".to_string());
+        let y_label = self.y_label.as_deref().unwrap_or("Value");
         let y_axis = AxisHints::new_y()
             .label(y_label)
             .formatter(|mark: GridMark, _range: &RangeInclusive<f64>| format_value(mark.value));
@@ -860,10 +865,11 @@ impl TimeSeriesChart {
 
                 // Compute cumulative values for each series at each timestamp
                 // cumulative[i] contains (timestamp, cumulative_value) pairs
-                let mut cumulative: Vec<Vec<(f64, f64)>> = Vec::new();
+                let mut cumulative: Vec<Vec<(f64, f64)>> = Vec::with_capacity(self.series.len());
 
                 for (i, series) in self.series.iter().enumerate() {
-                    let mut points_with_cumulative: Vec<(f64, f64)> = Vec::new();
+                    let mut points_with_cumulative: Vec<(f64, f64)> =
+                        Vec::with_capacity(series.points.len());
 
                     for point in &series.points {
                         let ts_key = (point.timestamp * 1000.0) as i64;
@@ -885,7 +891,10 @@ impl TimeSeriesChart {
                     let top_points = &cumulative[i];
 
                     if !top_points.is_empty() {
-                        let mut polygon_points: Vec<[f64; 2]> = Vec::new();
+                        // Estimate capacity: top points + bottom points (either 2 for y=0 or prev series len)
+                        let bottom_len = if i == 0 { 2 } else { cumulative[i - 1].len() };
+                        let mut polygon_points: Vec<[f64; 2]> =
+                            Vec::with_capacity(top_points.len() + bottom_len);
 
                         // Top edge: current cumulative line (left to right)
                         for &(t, v) in top_points {
