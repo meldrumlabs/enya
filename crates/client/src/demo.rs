@@ -3,9 +3,8 @@
 //! Provides a `DemoMetricsClient` that implements `MetricsClient` with realistic
 //! mock data, enabling the editor to work without a real Prometheus connection.
 
-use std::collections::HashMap;
-
 use poll_promise::Promise;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::error::ClientError;
 use crate::now_unix_secs;
@@ -28,7 +27,7 @@ struct DemoMetric {
     /// Label names this metric has
     labels: Vec<String>,
     /// Possible values for each label
-    label_values: HashMap<String, Vec<String>>,
+    label_values: FxHashMap<String, Vec<String>>,
     /// Type of metric (affects data generation pattern)
     metric_type: MetricType,
 }
@@ -60,7 +59,7 @@ impl DemoMetric {
             name: name.to_string(),
             category,
             labels: Vec::new(),
-            label_values: HashMap::new(),
+            label_values: FxHashMap::default(),
             metric_type,
         }
     }
@@ -209,25 +208,27 @@ impl DemoMetricsClient {
     }
 
     /// Generate label combinations for series.
-    fn generate_series_labels(&self, metric_name: &str) -> Vec<HashMap<String, String>> {
+    fn generate_series_labels(&self, metric_name: &str) -> Vec<FxHashMap<String, String>> {
         let Some(metric) = self.get_metric(metric_name) else {
             // Unknown metric - return single series with generic labels
-            return vec![HashMap::from([
-                ("env".to_string(), "prod".to_string()),
-                ("host".to_string(), "server-1".to_string()),
-            ])];
+            let mut labels = FxHashMap::default();
+            labels.insert("env".to_string(), "prod".to_string());
+            labels.insert("host".to_string(), "server-1".to_string());
+            return vec![labels];
         };
 
         // Generate a few combinations based on first 2 labels
         let mut combinations = Vec::new();
 
         if metric.labels.is_empty() {
-            combinations.push(HashMap::new());
+            combinations.push(FxHashMap::default());
         } else if metric.labels.len() == 1 {
             let label = &metric.labels[0];
             if let Some(values) = metric.label_values.get(label) {
                 for value in values.iter().take(4) {
-                    combinations.push(HashMap::from([(label.clone(), value.clone())]));
+                    let mut map = FxHashMap::default();
+                    map.insert(label.clone(), value.clone());
+                    combinations.push(map);
                 }
             }
         } else {
@@ -239,16 +240,16 @@ impl DemoMetricsClient {
 
             for v1 in values1.iter().take(2) {
                 for v2 in values2.iter().take(2) {
-                    combinations.push(HashMap::from([
-                        (label1.clone(), v1.clone()),
-                        (label2.clone(), v2.clone()),
-                    ]));
+                    let mut map = FxHashMap::default();
+                    map.insert(label1.clone(), v1.clone());
+                    map.insert(label2.clone(), v2.clone());
+                    combinations.push(map);
                 }
             }
         }
 
         if combinations.is_empty() {
-            combinations.push(HashMap::new());
+            combinations.push(FxHashMap::default());
         }
 
         combinations
@@ -337,7 +338,7 @@ impl MetricsClient for DemoMetricsClient {
             .filter_map(|m| m.label_values.get(label))
             .flatten()
             .cloned()
-            .collect::<std::collections::HashSet<_>>()
+            .collect::<FxHashSet<_>>()
             .into_iter()
             .collect();
 

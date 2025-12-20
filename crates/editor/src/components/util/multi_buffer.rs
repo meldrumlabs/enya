@@ -9,7 +9,7 @@
 //! - Open a find/replace modal to edit all selected buffers at once
 //! - Preview matches with live highlighting before applying changes
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::time::Instant;
 
 /// A selection range within a buffer (byte offsets).
@@ -60,10 +60,10 @@ pub struct MultiBufferState {
     /// The search pattern being typed or that was searched
     pub search_pattern: String,
     /// Selections per pane: pane_id -> Vec<Selection>
-    pub selections: HashMap<usize, Vec<Selection>>,
+    pub selections: FxHashMap<usize, Vec<Selection>>,
     /// Original content per pane (stored when entering editing mode)
     /// Used to apply replacements from a stable base
-    pub original_content: HashMap<usize, String>,
+    pub original_content: FxHashMap<usize, String>,
     /// Accumulated input during editing mode (replacement text)
     pub input_buffer: String,
     /// Time of last input (for debounced chart refresh)

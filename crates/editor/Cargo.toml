@@ -40,6 +40,9 @@ enya-build-info = { path = "../build-info" }
 nucleo-matcher = { workspace = true }
 ehttp = { workspace = true }
 serde_json = { workspace = true }
+rustc-hash = { workspace = true }
+# nohash-hasher comes transitively from egui, pin to same version
+nohash-hasher = "0.2"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -77,6 +80,21 @@ gloo-timers = { workspace = true, features = ["futures"] }
 [build-dependencies]
 enya-build-tools = { workspace = true }
 chrono = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "finder"
+harness = false
+
+[[bench]]
+name = "encoding"
+harness = false
+
+[[bench]]
+name = "rendering"
+harness = false
 
 [lints]
 workspace = true

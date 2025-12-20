@@ -3,7 +3,7 @@
 //! This module provides vim-style navigation state and direction handling
 //! for navigating between panes in the workspace.
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 use egui_tiles::TileId;
 
@@ -141,7 +141,7 @@ impl LeaderKeyState {
 #[derive(Debug, Clone, Default)]
 pub struct VisualMultiState {
     /// The panes that are currently selected
-    pub selected_tile_ids: HashSet<TileId>,
+    pub selected_tile_ids: FxHashSet<TileId>,
     /// The pane that currently has the cursor (for j/k navigation)
     pub cursor_tile_id: Option<TileId>,
 }
@@ -149,7 +149,7 @@ pub struct VisualMultiState {
 impl VisualMultiState {
     /// Create a new visual multi state with the given starting pane
     pub fn new(starting_tile_id: TileId) -> Self {
-        let mut selected = HashSet::new();
+        let mut selected = FxHashSet::default();
         selected.insert(starting_tile_id);
         Self {
             selected_tile_ids: selected,

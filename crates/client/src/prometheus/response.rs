@@ -1,9 +1,15 @@
 //! Prometheus response parsing.
 //!
 //! Converts Prometheus HTTP API JSON responses to `QueryResponse`.
+//!
+//! Note: Some structs use `std::collections::HashMap` for serde compatibility,
+//! as `FxHashMap` doesn't implement `Deserialize`. The module-level allow
+//! suppresses the disallowed_types lint for these cases.
 
+#![allow(clippy::disallowed_types)]
+
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
-use std::collections::HashMap;
 
 use crate::error::ClientError;
 use enya_common::{MetricsBucket, MetricsGroup, QueryResponse};
@@ -40,7 +46,7 @@ pub struct PrometheusSeriesResponse {
     #[serde(default)]
     pub error_type: Option<String>,
     #[serde(default)]
-    pub data: Vec<HashMap<String, String>>,
+    pub data: Vec<std::collections::HashMap<String, String>>,
 }
 
 /// Prometheus API response wrapper for buildinfo endpoint.
@@ -82,7 +88,7 @@ pub struct PrometheusData {
 #[derive(Debug, Deserialize)]
 pub struct PrometheusResult {
     /// Label set for this series (metric name + labels).
-    pub metric: HashMap<String, String>,
+    pub metric: std::collections::HashMap<String, String>,
     /// Time series values as [timestamp, value] pairs.
     /// Timestamps are Unix seconds (float), values are strings.
     pub values: Vec<(f64, String)>,
@@ -173,7 +179,7 @@ pub fn parse_labels_response(json: &[u8]) -> Result<Vec<String>, ClientError> {
 #[derive(Debug, Clone, Default)]
 pub struct MetricLabels {
     /// Map of label name -> set of possible values
-    pub labels: HashMap<String, Vec<String>>,
+    pub labels: FxHashMap<String, Vec<String>>,
 }
 
 /// Parse a Prometheus series response into MetricLabels.
@@ -200,7 +206,7 @@ pub fn parse_series_response(json: &[u8]) -> Result<MetricLabels, ClientError> {
     }
 
     // Collect all label names and their values across all series
-    let mut labels: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    let mut labels: FxHashMap<String, FxHashSet<String>> = FxHashMap::default();
 
     for series in response.data {
         for (key, value) in series {

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui_tiles::{Tile, TileId, Tiles};
 
@@ -108,7 +108,7 @@ pub struct Workspace {
     viewport_tree: egui_tiles::Tree<Box<dyn Component>>,
     behavior: TreeBehavior,
     /// Track which metrics already have charts open (by metric name)
-    open_charts: HashSet<String>,
+    open_charts: FxHashSet<String>,
     /// Pending chart to add (metric name)
     pending_chart: Option<String>,
     /// Time range toolbar
@@ -179,7 +179,7 @@ impl Default for Workspace {
         Self {
             viewport_tree,
             behavior: TreeBehavior::default(),
-            open_charts: HashSet::new(),
+            open_charts: FxHashSet::default(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
@@ -232,7 +232,7 @@ impl Workspace {
         Self {
             viewport_tree,
             behavior: TreeBehavior::default(),
-            open_charts: HashSet::new(),
+            open_charts: FxHashSet::default(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
@@ -285,7 +285,7 @@ impl Workspace {
         let (is_visual_multi, selected_ids, tile_queries) = match &self.visual_multi_state {
             Some(state) => {
                 // Build query mapping for selected tiles
-                let mut queries = HashMap::new();
+                let mut queries = FxHashMap::default();
                 for &tile_id in &state.selected_tile_ids {
                     if let Some(egui_tiles::Tile::Pane(component)) =
                         self.viewport_tree.tiles.get(tile_id)
@@ -297,7 +297,7 @@ impl Workspace {
                 }
                 (true, state.selected_tile_ids.clone(), queries)
             }
-            None => (false, HashSet::new(), HashMap::new()),
+            None => (false, FxHashSet::default(), FxHashMap::default()),
         };
         self.behavior
             .set_visual_multi_state(is_visual_multi, selected_ids, tile_queries);
@@ -321,7 +321,7 @@ impl Workspace {
                 })
                 .collect()
         } else {
-            HashSet::new()
+            FxHashSet::default()
         };
         self.behavior
             .set_filter_state(self.viewport_filter.is_active(), filtered_out_tiles);

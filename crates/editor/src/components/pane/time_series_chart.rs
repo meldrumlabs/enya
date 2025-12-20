@@ -1,5 +1,8 @@
-use std::collections::HashMap;
+use std::borrow::Cow;
 use std::ops::RangeInclusive;
+
+use nohash_hasher::IntMap;
+use rustc_hash::FxHashMap;
 
 use egui::{Color32, Key, RichText, Stroke};
 use egui_plot::{
@@ -147,7 +150,7 @@ pub struct Series {
     /// Display name for this series
     pub name: String,
     /// Tag values that identify this series (e.g., {"host": "server1"})
-    pub tags: HashMap<String, String>,
+    pub tags: FxHashMap<String, String>,
     /// The data points
     pub points: Vec<DataPoint>,
     /// Color for this series (optional, will be auto-assigned if None)
@@ -158,7 +161,7 @@ impl Series {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            tags: HashMap::new(),
+            tags: FxHashMap::default(),
             points: Vec::new(),
             color: None,
         }
@@ -180,18 +183,22 @@ impl Series {
     }
 
     /// Set tags from a HashMap
-    pub fn with_tags_map(mut self, tags: HashMap<String, String>) -> Self {
+    pub fn with_tags_map(mut self, tags: FxHashMap<String, String>) -> Self {
         self.tags = tags;
         self
     }
 
-    /// Build a label from the series name and tags
-    pub fn label(&self) -> String {
+    /// Build a label from the series name and tags.
+    /// Returns a `Cow<str>` to avoid allocation when there are no tags.
+    pub fn label(&self) -> Cow<'_, str> {
         if self.tags.is_empty() {
-            self.name.clone()
+            Cow::Borrowed(&self.name)
         } else {
-            let tags: Vec<_> = self.tags.iter().map(|(k, v)| format!("{k}={v}")).collect();
-            format!("{} {{{}}}", self.name, tags.join(", "))
+            let mut tags: Vec<_> = Vec::with_capacity(self.tags.len());
+            for (k, v) in &self.tags {
+                tags.push(format!("{k}={v}"));
+            }
+            Cow::Owned(format!("{} {{{}}}", self.name, tags.join(", ")))
         }
     }
 }
@@ -662,7 +669,7 @@ impl TimeSeriesChart {
         );
 
         // Custom y-axis formatter with K/M/B suffixes for large numbers
-        let y_label = self.y_label.clone().unwrap_or_else(|| "Value".to_string());
+        let y_label = self.y_label.as_deref().unwrap_or("Value");
         let y_axis = AxisHints::new_y()
             .label(y_label)
             .formatter(|mark: GridMark, _range: &RangeInclusive<f64>| format_value(mark.value));
@@ -844,7 +851,8 @@ impl TimeSeriesChart {
                 // Each area fills from its cumulative baseline to the previous series
 
                 // Build a lookup for each series: timestamp -> value
-                let series_values: Vec<HashMap<i64, f64>> = self
+                // Use IntMap for O(1) lookup with no hashing overhead for i64 keys
+                let series_values: Vec<IntMap<i64, f64>> = self
                     .series
                     .iter()
                     .map(|s| {
@@ -857,10 +865,11 @@ impl TimeSeriesChart {
 
                 // Compute cumulative values for each series at each timestamp
                 // cumulative[i] contains (timestamp, cumulative_value) pairs
-                let mut cumulative: Vec<Vec<(f64, f64)>> = Vec::new();
+                let mut cumulative: Vec<Vec<(f64, f64)>> = Vec::with_capacity(self.series.len());
 
                 for (i, series) in self.series.iter().enumerate() {
-                    let mut points_with_cumulative: Vec<(f64, f64)> = Vec::new();
+                    let mut points_with_cumulative: Vec<(f64, f64)> =
+                        Vec::with_capacity(series.points.len());
 
                     for point in &series.points {
                         let ts_key = (point.timestamp * 1000.0) as i64;
@@ -882,7 +891,10 @@ impl TimeSeriesChart {
                     let top_points = &cumulative[i];
 
                     if !top_points.is_empty() {
-                        let mut polygon_points: Vec<[f64; 2]> = Vec::new();
+                        // Estimate capacity: top points + bottom points (either 2 for y=0 or prev series len)
+                        let bottom_len = if i == 0 { 2 } else { cumulative[i - 1].len() };
+                        let mut polygon_points: Vec<[f64; 2]> =
+                            Vec::with_capacity(top_points.len() + bottom_len);
 
                         // Top edge: current cumulative line (left to right)
                         for &(t, v) in top_points {

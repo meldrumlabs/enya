@@ -3,7 +3,7 @@
 //! Handles executing queries against backends (Prometheus, Enya) and
 //! converting responses to visualization-ready data structures.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use enya_client::{
     DemoMetricsClient, HealthCheckManager, LabelsManager, MetricLabels, MetricLabelsManager,
@@ -110,7 +110,7 @@ pub struct QueryExecutor {
     /// Cached list of available label names (tag keys)
     label_names: Vec<String>,
     /// Cached per-metric labels (metric name -> labels)
-    metric_labels_cache: HashMap<String, MetricLabels>,
+    metric_labels_cache: FxHashMap<String, MetricLabels>,
 }
 
 impl Default for QueryExecutor {
@@ -134,7 +134,7 @@ impl QueryExecutor {
             connection_health: ConnectionHealth::Offline,
             metric_names: Vec::new(),
             label_names: Vec::new(),
-            metric_labels_cache: HashMap::new(),
+            metric_labels_cache: FxHashMap::default(),
         }
     }
 
@@ -511,8 +511,8 @@ pub fn response_to_series(response: &QueryResponse) -> Vec<Series> {
 /// Parse a group identifier string into a tag map.
 ///
 /// Group format: "key1:value1,key2:value2" or "{key1=\"value1\", key2=\"value2\"}"
-fn parse_group_tags(group: &str) -> HashMap<String, String> {
-    let mut tags = HashMap::new();
+fn parse_group_tags(group: &str) -> FxHashMap<String, String> {
+    let mut tags = FxHashMap::default();
 
     if group.is_empty() {
         return tags;
