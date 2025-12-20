@@ -17,7 +17,7 @@ pub mod config;
 
 // Input handling (navigation, visual-multi mode)
 mod input;
-pub use input::{NavDirection, VisualMultiState};
+pub use input::{LEADER_KEY_TIMEOUT_MS, LeaderKeyState, NavDirection, VisualMultiState};
 
 // Tile tree behavior (egui_tiles integration)
 mod tiles;
@@ -131,14 +131,8 @@ pub struct Workspace {
     landing_page: LandingPage,
     /// Whether to show the landing page
     show_landing: bool,
-    /// Last time 'y' was pressed (for yy detection)
-    last_y_press: Option<crate::util::Instant>,
-    /// Last time 'c' was pressed (for cv detection - cycle visualization)
-    last_c_press: Option<crate::util::Instant>,
-    /// Last time Space was pressed (for leader key sequences like Space+m, Space+q)
-    last_space_press: Option<crate::util::Instant>,
-    /// Last time 't' was pressed (for time range shortcuts like t5, th, td)
-    last_t_press: Option<crate::util::Instant>,
+    /// State for leader key sequences (t, Space, y, c)
+    leader_keys: LeaderKeyState,
     /// Info overlay (shows build/version info)
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
@@ -197,10 +191,7 @@ impl Default for Workspace {
             fullscreen_tile: None,
             landing_page: LandingPage::new(),
             show_landing: true,
-            last_y_press: None,
-            last_c_press: None,
-            last_space_press: None,
-            last_t_press: None,
+            leader_keys: LeaderKeyState::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             tutorial_overlay: TutorialOverlay::new(),
@@ -253,10 +244,7 @@ impl Workspace {
             fullscreen_tile: None,
             landing_page: LandingPage::new(),
             show_landing: true, // Start with landing page
-            last_y_press: None,
-            last_c_press: None,
-            last_space_press: None,
-            last_t_press: None,
+            leader_keys: LeaderKeyState::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             tutorial_overlay: TutorialOverlay::new(),
@@ -727,20 +715,16 @@ impl Workspace {
             ctx.input_mut(|input| {
                 // Space - leader key for sequences
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
-                    self.last_space_press = Some(crate::util::Instant::now());
+                    self.leader_keys.press_space();
                 }
 
-                // Leader key sequences (must follow Space within 500ms)
-                let space_active = self.last_space_press.is_some_and(|last| {
-                    crate::util::Instant::now().duration_since(last).as_millis() < 500
-                });
-
-                if space_active {
+                // Leader key sequences (must follow Space within timeout)
+                if self.leader_keys.is_space_active() {
                     // Space+d - toggle diagnostics overlay
                     if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                         self.diagnostics_pane.toggle();
                         self.diagnostics_visible = self.diagnostics_pane.is_open();
-                        self.last_space_press = None;
+                        self.leader_keys.clear_space();
                     }
                 }
             });

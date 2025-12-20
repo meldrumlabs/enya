@@ -66,41 +66,34 @@ impl Workspace {
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Y) && current_focus.is_some() {
-                let now = crate::util::Instant::now();
-                if let Some(last_press) = self.last_y_press {
-                    // If second y within 500ms, trigger share
-                    if now.duration_since(last_press).as_millis() < 500 {
-                        should_share_pane = true;
-                        self.last_y_press = None;
-                        consumed = true;
-                        return;
-                    }
+                if self.leader_keys.is_yy_active() {
+                    // Second y within timeout - trigger share
+                    should_share_pane = true;
+                    self.leader_keys.clear_y();
+                    consumed = true;
+                    return;
                 }
                 // First y - record time
-                self.last_y_press = Some(now);
+                self.leader_keys.press_y();
                 consumed = true;
                 return;
             }
 
             // cv - cycle visualization type on focused pane (time series -> stat -> ...)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::C) && current_focus.is_some() {
-                let now = crate::util::Instant::now();
                 // Record c press time for cv detection
-                self.last_c_press = Some(now);
+                self.leader_keys.press_c();
                 consumed = true;
                 return;
             }
 
             if input.consume_key(egui::Modifiers::NONE, egui::Key::V) && current_focus.is_some() {
                 // Check if this is part of a cv sequence
-                if let Some(last_press) = self.last_c_press {
-                    let now = crate::util::Instant::now();
-                    if now.duration_since(last_press).as_millis() < 500 {
-                        should_cycle_visualization = true;
-                        self.last_c_press = None;
-                        consumed = true;
-                        return;
-                    }
+                if self.leader_keys.is_cv_ready() {
+                    should_cycle_visualization = true;
+                    self.leader_keys.clear_c();
+                    consumed = true;
+                    return;
                 }
             }
 
@@ -120,22 +113,17 @@ impl Workspace {
 
             // Space - leader key for sequences (Space+m, Space+q, Space+w)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
-                let now = crate::util::Instant::now();
-                self.last_space_press = Some(now);
+                self.leader_keys.press_space();
                 consumed = true;
                 return;
             }
 
-            // Leader key sequences (must follow Space within 500ms)
-            let space_active = self.last_space_press.is_some_and(|last| {
-                crate::util::Instant::now().duration_since(last).as_millis() < 500
-            });
-
-            if space_active {
+            // Leader key sequences (must follow Space within timeout)
+            if self.leader_keys.is_space_active() {
                 // Space+m - open metrics finder
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
                     should_open_metrics_finder = true;
-                    self.last_space_press = None;
+                    self.leader_keys.clear_space();
                     consumed = true;
                     return;
                 }
@@ -143,7 +131,7 @@ impl Workspace {
                 // Space+w - open workspace finder
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
                     should_open_workspace_finder = true;
-                    self.last_space_press = None;
+                    self.leader_keys.clear_space();
                     consumed = true;
                     return;
                 }
@@ -151,7 +139,7 @@ impl Workspace {
                 // Space+h - show home/landing page
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
                     should_show_home = true;
-                    self.last_space_press = None;
+                    self.leader_keys.clear_space();
                     consumed = true;
                     return;
                 }
@@ -159,7 +147,7 @@ impl Workspace {
                 // Space+d - toggle diagnostics overlay
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                     should_toggle_diagnostics = true;
-                    self.last_space_press = None;
+                    self.leader_keys.clear_space();
                     consumed = true;
                     return;
                 }
@@ -167,64 +155,59 @@ impl Workspace {
 
             // t - time range leader key (t5, t1, t3, th, t6, td, tw)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
-                let now = crate::util::Instant::now();
-                self.last_t_press = Some(now);
+                self.leader_keys.press_t();
                 consumed = true;
                 return;
             }
 
-            // Time range shortcuts (must follow 't' within 500ms)
-            let t_active = self.last_t_press.is_some_and(|last| {
-                crate::util::Instant::now().duration_since(last).as_millis() < 500
-            });
-
-            if t_active {
+            // Time range shortcuts (must follow 't' within timeout)
+            if self.leader_keys.is_t_active() {
                 // t5 - Last 5 minutes
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Num5) {
                     time_range_preset = Some(TimeRangePreset::Last5Minutes);
-                    self.last_t_press = None;
+                    self.leader_keys.clear_t();
                     consumed = true;
                     return;
                 }
                 // t1 - Last 15 minutes (default, easy to type)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Num1) {
                     time_range_preset = Some(TimeRangePreset::Last15Minutes);
-                    self.last_t_press = None;
+                    self.leader_keys.clear_t();
                     consumed = true;
                     return;
                 }
                 // t3 - Last 30 minutes
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Num3) {
                     time_range_preset = Some(TimeRangePreset::Last30Minutes);
-                    self.last_t_press = None;
+                    self.leader_keys.clear_t();
                     consumed = true;
                     return;
                 }
                 // th - Last 1 hour
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
                     time_range_preset = Some(TimeRangePreset::Last1Hour);
-                    self.last_t_press = None;
+                    self.leader_keys.clear_t();
                     consumed = true;
                     return;
                 }
                 // t6 - Last 6 hours
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Num6) {
                     time_range_preset = Some(TimeRangePreset::Last6Hours);
-                    self.last_t_press = None;
+                    self.leader_keys.clear_t();
                     consumed = true;
                     return;
                 }
                 // td - Last 24 hours (day)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                     time_range_preset = Some(TimeRangePreset::Last24Hours);
-                    self.last_t_press = None;
+                    self.leader_keys.clear_t();
                     consumed = true;
                     return;
                 }
                 // tw - Last 7 days (week)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
                     time_range_preset = Some(TimeRangePreset::Last7Days);
-                    self.last_t_press = None;
+                    self.leader_keys.clear_t();
                     consumed = true;
                     return;
                 }

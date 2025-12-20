@@ -357,3 +357,407 @@ impl TimeRangeToolbar {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== TimeRangePreset Tests ====================
+
+    #[test]
+    fn test_preset_duration_5_minutes() {
+        let preset = TimeRangePreset::Last5Minutes;
+        let duration = preset.duration().expect("should have duration");
+        assert_eq!(duration, Duration::from_secs(5 * 60));
+    }
+
+    #[test]
+    fn test_preset_duration_15_minutes() {
+        let preset = TimeRangePreset::Last15Minutes;
+        let duration = preset.duration().expect("should have duration");
+        assert_eq!(duration, Duration::from_secs(15 * 60));
+    }
+
+    #[test]
+    fn test_preset_duration_30_minutes() {
+        let preset = TimeRangePreset::Last30Minutes;
+        let duration = preset.duration().expect("should have duration");
+        assert_eq!(duration, Duration::from_secs(30 * 60));
+    }
+
+    #[test]
+    fn test_preset_duration_1_hour() {
+        let preset = TimeRangePreset::Last1Hour;
+        let duration = preset.duration().expect("should have duration");
+        assert_eq!(duration, Duration::from_secs(60 * 60));
+    }
+
+    #[test]
+    fn test_preset_duration_6_hours() {
+        let preset = TimeRangePreset::Last6Hours;
+        let duration = preset.duration().expect("should have duration");
+        assert_eq!(duration, Duration::from_secs(6 * 60 * 60));
+    }
+
+    #[test]
+    fn test_preset_duration_24_hours() {
+        let preset = TimeRangePreset::Last24Hours;
+        let duration = preset.duration().expect("should have duration");
+        assert_eq!(duration, Duration::from_secs(24 * 60 * 60));
+    }
+
+    #[test]
+    fn test_preset_duration_7_days() {
+        let preset = TimeRangePreset::Last7Days;
+        let duration = preset.duration().expect("should have duration");
+        assert_eq!(duration, Duration::from_secs(7 * 24 * 60 * 60));
+    }
+
+    #[test]
+    fn test_preset_duration_custom_returns_none() {
+        let preset = TimeRangePreset::Custom;
+        assert!(preset.duration().is_none());
+    }
+
+    #[test]
+    fn test_preset_labels() {
+        assert_eq!(TimeRangePreset::Last5Minutes.label(), "5m");
+        assert_eq!(TimeRangePreset::Last15Minutes.label(), "15m");
+        assert_eq!(TimeRangePreset::Last30Minutes.label(), "30m");
+        assert_eq!(TimeRangePreset::Last1Hour.label(), "1h");
+        assert_eq!(TimeRangePreset::Last6Hours.label(), "6h");
+        assert_eq!(TimeRangePreset::Last24Hours.label(), "24h");
+        assert_eq!(TimeRangePreset::Last7Days.label(), "7d");
+        assert_eq!(TimeRangePreset::Custom.label(), "Custom");
+    }
+
+    #[test]
+    fn test_all_presets_excludes_custom() {
+        let presets = TimeRangePreset::all_presets();
+        assert_eq!(presets.len(), 7);
+        assert!(!presets.contains(&TimeRangePreset::Custom));
+    }
+
+    #[test]
+    fn test_all_presets_order() {
+        let presets = TimeRangePreset::all_presets();
+        assert_eq!(presets[0], TimeRangePreset::Last5Minutes);
+        assert_eq!(presets[1], TimeRangePreset::Last15Minutes);
+        assert_eq!(presets[2], TimeRangePreset::Last30Minutes);
+        assert_eq!(presets[3], TimeRangePreset::Last1Hour);
+        assert_eq!(presets[4], TimeRangePreset::Last6Hours);
+        assert_eq!(presets[5], TimeRangePreset::Last24Hours);
+        assert_eq!(presets[6], TimeRangePreset::Last7Days);
+    }
+
+    #[test]
+    fn test_default_preset_is_15_minutes() {
+        assert_eq!(TimeRangePreset::default(), TimeRangePreset::Last15Minutes);
+    }
+
+    // ==================== TimeRange Tests ====================
+
+    #[test]
+    fn test_time_range_from_preset_sets_correct_preset() {
+        let range = TimeRange::from_preset(TimeRangePreset::Last1Hour);
+        assert_eq!(range.preset, TimeRangePreset::Last1Hour);
+    }
+
+    #[test]
+    fn test_time_range_from_preset_calculates_duration() {
+        let range = TimeRange::from_preset(TimeRangePreset::Last1Hour);
+        // end - start should be ~1 hour (3600 seconds)
+        let duration_secs = range.end - range.start;
+        assert!((duration_secs - 3600.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_time_range_from_preset_end_is_now() {
+        let before = TimeRange::now();
+        let range = TimeRange::from_preset(TimeRangePreset::Last5Minutes);
+        let after = TimeRange::now();
+
+        // end should be between before and after
+        assert!(range.end >= before);
+        assert!(range.end <= after);
+    }
+
+    #[test]
+    fn test_time_range_custom() {
+        let start = 1000.0;
+        let end = 2000.0;
+        let range = TimeRange::custom(start, end);
+
+        assert_eq!(range.preset, TimeRangePreset::Custom);
+        assert_eq!(range.start, start);
+        assert_eq!(range.end, end);
+    }
+
+    #[test]
+    fn test_time_range_duration() {
+        let range = TimeRange::custom(1000.0, 2000.0);
+        let duration = range.duration();
+        assert_eq!(duration, Duration::from_secs(1000));
+    }
+
+    #[test]
+    fn test_time_range_duration_handles_negative() {
+        // start > end should give 0 duration (max(0.0))
+        let range = TimeRange::custom(2000.0, 1000.0);
+        let duration = range.duration();
+        assert_eq!(duration, Duration::ZERO);
+    }
+
+    #[test]
+    fn test_time_range_set_preset() {
+        let mut range = TimeRange::from_preset(TimeRangePreset::Last5Minutes);
+        assert_eq!(range.preset, TimeRangePreset::Last5Minutes);
+
+        range.set_preset(TimeRangePreset::Last1Hour);
+        assert_eq!(range.preset, TimeRangePreset::Last1Hour);
+
+        // Duration should now be ~1 hour
+        let duration_secs = range.end - range.start;
+        assert!((duration_secs - 3600.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_time_range_refresh_preset() {
+        let mut range = TimeRange::from_preset(TimeRangePreset::Last5Minutes);
+        let original_end = range.end;
+
+        // Wait a tiny bit (simulate time passing)
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        range.refresh();
+
+        // End should be updated (newer)
+        assert!(range.end >= original_end);
+        // Preset should remain the same
+        assert_eq!(range.preset, TimeRangePreset::Last5Minutes);
+        // Duration should still be ~5 minutes
+        let duration_secs = range.end - range.start;
+        assert!((duration_secs - 300.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_time_range_refresh_custom_preserves_duration() {
+        let mut range = TimeRange::custom(1000.0, 2000.0);
+        let original_duration = range.duration();
+
+        range.refresh();
+
+        // Duration should be preserved
+        let new_duration = range.duration();
+        assert_eq!(original_duration, new_duration);
+        // Preset should remain Custom
+        assert_eq!(range.preset, TimeRangePreset::Custom);
+        // End should now be close to "now"
+        let now = TimeRange::now();
+        assert!((range.end - now).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_time_range_default_is_15_minutes() {
+        let range = TimeRange::default();
+        assert_eq!(range.preset, TimeRangePreset::Last15Minutes);
+        let duration_secs = range.end - range.start;
+        assert!((duration_secs - 900.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_time_range_now_returns_reasonable_value() {
+        let now = TimeRange::now();
+        // Should be a large positive number (seconds since Unix epoch)
+        // As of 2024, this should be around 1.7 billion seconds
+        assert!(now > 1_700_000_000.0);
+        // And not absurdly large (less than year 2100)
+        assert!(now < 4_100_000_000.0);
+    }
+
+    #[test]
+    fn test_format_range_minutes() {
+        let now = TimeRange::now();
+        let range = TimeRange {
+            preset: TimeRangePreset::Last15Minutes,
+            start: now - 15.0 * 60.0,
+            end: now,
+        };
+        let formatted = range.format_range();
+        assert!(formatted.contains("15 minutes") || formatted.contains("14 minutes"));
+    }
+
+    #[test]
+    fn test_format_range_hours() {
+        let now = TimeRange::now();
+        let range = TimeRange {
+            preset: TimeRangePreset::Last6Hours,
+            start: now - 6.0 * 60.0 * 60.0,
+            end: now,
+        };
+        let formatted = range.format_range();
+        assert!(formatted.contains("6 hours") || formatted.contains("5 hours"));
+    }
+
+    #[test]
+    fn test_format_range_days() {
+        let now = TimeRange::now();
+        let range = TimeRange {
+            preset: TimeRangePreset::Last7Days,
+            start: now - 7.0 * 24.0 * 60.0 * 60.0,
+            end: now,
+        };
+        let formatted = range.format_range();
+        assert!(formatted.contains("7 days") || formatted.contains("6 days"));
+    }
+
+    #[test]
+    fn test_format_range_historical() {
+        let now = TimeRange::now();
+        // A range that ended 30 minutes ago
+        let range = TimeRange {
+            preset: TimeRangePreset::Custom,
+            start: now - 60.0 * 60.0,
+            end: now - 30.0 * 60.0,
+        };
+        let formatted = range.format_range();
+        // Should show "X min ago - Y min ago" format
+        assert!(formatted.contains("min ago"));
+    }
+
+    // ==================== TimeRangeToolbar Tests ====================
+
+    #[test]
+    fn test_toolbar_new() {
+        let toolbar = TimeRangeToolbar::new();
+        assert_eq!(toolbar.time_range().preset, TimeRangePreset::Last15Minutes);
+        assert!(!toolbar.auto_refresh());
+        assert!(!toolbar.changed());
+    }
+
+    #[test]
+    fn test_toolbar_default_equals_new() {
+        let new = TimeRangeToolbar::new();
+        let default = TimeRangeToolbar::default();
+
+        assert_eq!(new.time_range().preset, default.time_range().preset);
+        assert_eq!(new.auto_refresh(), default.auto_refresh());
+        assert_eq!(new.changed(), default.changed());
+    }
+
+    #[test]
+    fn test_toolbar_set_preset() {
+        let mut toolbar = TimeRangeToolbar::new();
+        assert!(!toolbar.changed());
+
+        toolbar.set_preset(TimeRangePreset::Last1Hour);
+
+        assert_eq!(toolbar.time_range().preset, TimeRangePreset::Last1Hour);
+        assert!(toolbar.changed());
+    }
+
+    #[test]
+    fn test_toolbar_set_theme() {
+        let mut toolbar = TimeRangeToolbar::new();
+        toolbar.set_theme(AppTheme::Light);
+        // Theme is private, but we can verify it doesn't panic
+        toolbar.set_theme(AppTheme::Dark);
+    }
+
+    #[test]
+    fn test_toolbar_get_range_ns_conversion() {
+        let mut toolbar = TimeRangeToolbar::new();
+        toolbar.set_preset(TimeRangePreset::Last5Minutes);
+
+        let (start_ns, end_ns) = toolbar.get_range_ns();
+
+        // end_ns should be greater than start_ns
+        assert!(end_ns > start_ns);
+
+        // The difference should be ~5 minutes in nanoseconds
+        let diff_ns = end_ns - start_ns;
+        let expected_ns: u128 = 5 * 60 * 1_000_000_000;
+
+        // Allow some tolerance (1 second)
+        let tolerance: u128 = 1_000_000_000;
+        assert!(
+            (diff_ns as i128 - expected_ns as i128).unsigned_abs() < tolerance,
+            "Expected ~5 min in ns, got diff_ns={diff_ns}"
+        );
+    }
+
+    #[test]
+    fn test_toolbar_get_range_ns_custom_uses_stored_values() {
+        let mut toolbar = TimeRangeToolbar::new();
+
+        // Set custom range through the underlying time_range
+        toolbar.time_range = TimeRange::custom(1000.0, 2000.0);
+
+        let (start_ns, end_ns) = toolbar.get_range_ns();
+
+        // Should use stored values, not recalculate
+        let expected_start_ns = (1000.0 * 1_000_000_000.0) as u128;
+        let expected_end_ns = (2000.0 * 1_000_000_000.0) as u128;
+
+        assert_eq!(start_ns, expected_start_ns);
+        assert_eq!(end_ns, expected_end_ns);
+    }
+
+    #[test]
+    fn test_toolbar_get_range_ns_preset_recalculates() {
+        let mut toolbar = TimeRangeToolbar::new();
+        toolbar.set_preset(TimeRangePreset::Last5Minutes);
+
+        let (_, end_ns_1) = toolbar.get_range_ns();
+
+        // Wait a tiny bit
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let (_, end_ns_2) = toolbar.get_range_ns();
+
+        // For presets, end_ns should increase (recalculated from "now")
+        assert!(
+            end_ns_2 >= end_ns_1,
+            "end_ns should increase for presets, got {end_ns_2} >= {end_ns_1}"
+        );
+    }
+
+    #[test]
+    fn test_toolbar_time_range_returns_reference() {
+        let toolbar = TimeRangeToolbar::new();
+        let range = toolbar.time_range();
+        assert_eq!(range.preset, TimeRangePreset::Last15Minutes);
+    }
+
+    #[test]
+    fn test_preset_equality() {
+        assert_eq!(TimeRangePreset::Last5Minutes, TimeRangePreset::Last5Minutes);
+        assert_ne!(TimeRangePreset::Last5Minutes, TimeRangePreset::Last1Hour);
+    }
+
+    #[test]
+    fn test_preset_clone() {
+        let preset = TimeRangePreset::Last6Hours;
+        let cloned = preset;
+        assert_eq!(preset, cloned);
+    }
+
+    #[test]
+    fn test_time_range_clone() {
+        let range = TimeRange::custom(100.0, 200.0);
+        let cloned = range.clone();
+        assert_eq!(range.start, cloned.start);
+        assert_eq!(range.end, cloned.end);
+        assert_eq!(range.preset, cloned.preset);
+    }
+
+    #[test]
+    fn test_time_range_equality() {
+        let range1 = TimeRange::custom(100.0, 200.0);
+        let range2 = TimeRange::custom(100.0, 200.0);
+        let range3 = TimeRange::custom(100.0, 300.0);
+
+        assert_eq!(range1, range2);
+        assert_ne!(range1, range3);
+    }
+}
