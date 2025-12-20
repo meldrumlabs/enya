@@ -41,6 +41,8 @@ nucleo-matcher = { workspace = true }
 ehttp = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
+# nohash-hasher comes transitively from egui, pin to same version
+nohash-hasher = "0.2"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

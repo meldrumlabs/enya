@@ -1,5 +1,6 @@
 use std::ops::RangeInclusive;
 
+use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 
 use egui::{Color32, Key, RichText, Stroke};
@@ -845,7 +846,8 @@ impl TimeSeriesChart {
                 // Each area fills from its cumulative baseline to the previous series
 
                 // Build a lookup for each series: timestamp -> value
-                let series_values: Vec<FxHashMap<i64, f64>> = self
+                // Use IntMap for O(1) lookup with no hashing overhead for i64 keys
+                let series_values: Vec<IntMap<i64, f64>> = self
                     .series
                     .iter()
                     .map(|s| {
