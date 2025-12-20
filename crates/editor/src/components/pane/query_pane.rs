@@ -140,6 +140,9 @@ pub struct QueryPane {
     needs_refresh: bool,
     /// Whether a query is currently in flight (for loading state)
     is_loading: bool,
+    /// Whether the user has manually overridden the visualization type.
+    /// When true, auto-suggestion will not change the visualization type.
+    has_user_override: bool,
 }
 
 impl Default for QueryPane {
@@ -176,6 +179,7 @@ impl QueryPane {
             tag: String::new(),
             needs_refresh: false,
             is_loading: false,
+            has_user_override: false,
         }
     }
 
@@ -231,6 +235,7 @@ impl QueryPane {
             tag: String::new(),
             needs_refresh: true, // Trigger query on first frame
             is_loading: false,
+            has_user_override: false,
         }
     }
 
@@ -257,6 +262,7 @@ impl QueryPane {
             tag: String::new(),
             needs_refresh: false,
             is_loading: false,
+            has_user_override: false,
         }
     }
 
@@ -283,6 +289,7 @@ impl QueryPane {
             tag: String::new(),
             needs_refresh: false,
             is_loading: false,
+            has_user_override: false,
         }
     }
 
@@ -310,6 +317,7 @@ impl QueryPane {
             tag: String::new(),
             needs_refresh: true,
             is_loading: false,
+            has_user_override: false,
         }
     }
 
@@ -318,22 +326,44 @@ impl QueryPane {
         self.visualization.viz_type()
     }
 
-    /// Cycle to the next visualization type
+    /// Cycle to the next visualization type (user action - sets override flag).
     pub fn cycle_visualization(&mut self) {
         self.visualization.cycle();
+        self.has_user_override = true;
         // Re-populate demo data for the new visualization type
         let query = self.buffer.saved_content().to_string();
         populate_demo_data(&mut self.visualization, &query);
     }
 
-    /// Set the visualization type explicitly
+    /// Set the visualization type explicitly (user action - sets override flag).
     pub fn set_visualization_type(&mut self, viz_type: VisualizationType) {
         if self.visualization.viz_type() != viz_type {
             let query = self.buffer.saved_content().to_string();
             self.visualization = Visualization::new(viz_type, &query);
             self.visualization.set_theme(self.theme);
+            self.has_user_override = true;
             populate_demo_data(&mut self.visualization, &query);
         }
+    }
+
+    /// Set the visualization type from auto-suggestion (does not set override flag).
+    ///
+    /// Use this when applying automatic visualization suggestions based on query results.
+    /// The visualization will be changed, but `has_user_override` remains false,
+    /// allowing future auto-suggestions to update it again.
+    pub fn set_visualization_type_auto(&mut self, viz_type: VisualizationType) {
+        if self.visualization.viz_type() != viz_type {
+            let query = self.buffer.saved_content().to_string();
+            self.visualization = Visualization::new(viz_type, &query);
+            self.visualization.set_theme(self.theme);
+            // Note: does NOT set has_user_override = true
+            // Note: does NOT populate demo data - real data is already being set
+        }
+    }
+
+    /// Check if the user has manually overridden the visualization type.
+    pub fn has_user_override(&self) -> bool {
+        self.has_user_override
     }
 
     /// Get the pane ID

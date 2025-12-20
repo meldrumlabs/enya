@@ -6,6 +6,14 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Query-based visualization auto-selection**: The editor now automatically suggests an appropriate visualization type based on Prometheus query result characteristics:
+  - `Scalar`/`String` results → Stat visualization
+  - `Vector` results (single series) → Stat or Gauge (if percentage values)
+  - `Vector` results (multiple series) → Bar Chart
+  - `Matrix` results (single series, few points) → Stat/Sparkline
+  - `Matrix` results (many points or series) → Time Series
+  - The `cv` command continues to work for manual override, and once a user manually changes the visualization type, auto-selection is disabled for that pane
+
 - **Comprehensive test coverage for command module**: Added 29 tests for `command.rs` covering `UICommand` variants (text, tooltips, keyboard shortcuts, icons, links), command channel (send/receive, FIFO ordering, clone, drop behavior), and the `UICommandSender` trait.
 
 - **Extended test coverage for workspace config module**: Added 40+ new tests to `workspace/config/mod.rs` covering:

@@ -9,6 +9,26 @@ use serde::{Deserialize, Serialize};
 /// Nanosecond timestamp (same as metrics-store Timestamp)
 pub type Timestamp = u128;
 
+/// Prometheus query result type.
+///
+/// Indicates the shape of data returned by a Prometheus query.
+/// See: <https://prometheus.io/docs/prometheus/latest/querying/api/>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ResultType {
+    /// Range vector - time series data with multiple data points per series.
+    /// Returned by range queries (`/api/v1/query_range`).
+    #[default]
+    Matrix,
+    /// Instant vector - single data point per series.
+    /// Returned by instant queries (`/api/v1/query`).
+    Vector,
+    /// Single numeric value (e.g., from `scalar()` function).
+    Scalar,
+    /// String value (e.g., from `label_replace()` function).
+    String,
+}
+
 /// MIME type for bitcode binary format
 pub const BITCODE_MIME: &str = "application/x-bitcode";
 
@@ -57,4 +77,8 @@ pub struct QueryResponse {
     pub granularity_ns: u128,
     /// Result groups
     pub groups: Vec<MetricsGroup>,
+    /// The Prometheus result type (matrix, vector, scalar, string).
+    /// Used to suggest appropriate visualization types.
+    #[serde(default)]
+    pub result_type: ResultType,
 }

@@ -129,12 +129,21 @@ impl Workspace {
                         QueryPollResult::Complete {
                             series_count,
                             point_count,
+                            suggested_viz,
                         } => {
                             // Query completed
                             self.pending_query_tile = None;
                             query_pane.set_loading(false);
                             // Clear any previous errors for this pane
                             self.diagnostics_pane.clear_for_pane(pane_id);
+
+                            // Apply suggested visualization if user hasn't manually overridden
+                            if !query_pane.has_user_override() {
+                                query_pane.set_visualization_type_auto(suggested_viz);
+                                log::debug!(
+                                    "Auto-selected visualization {suggested_viz:?} for pane '{pane_name}'"
+                                );
+                            }
 
                             if series_count == 0 || point_count == 0 {
                                 // Query succeeded but returned no data - add info diagnostic

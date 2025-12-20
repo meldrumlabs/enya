@@ -14,7 +14,7 @@ use crate::{
     BackendInfo, HealthCheckResult, LabelsResult, MetricLabelsResult, MetricsClient, QueryResponse,
     QueryResult,
 };
-use enya_common::{MetricsBucket, MetricsGroup};
+use enya_common::{MetricsBucket, MetricsGroup, ResultType};
 
 /// A demo metric definition with its labels.
 #[derive(Debug, Clone)]
@@ -204,6 +204,8 @@ impl DemoMetricsClient {
             end: Some(end_ns),
             granularity_ns,
             groups,
+            // Demo mode always generates range query (matrix) results
+            result_type: ResultType::Matrix,
         }
     }
 
