@@ -10,8 +10,6 @@ description = "Example workspace demonstrating Enya features with i3-style layou
 
 [view]
 theme = "dark"
-metrics_panel = true
-inspector = false
 
 [time]
 preset = "1h"
@@ -60,8 +58,6 @@ description = "Production viewport with complex nested i3 layout"
 
 [view]
 theme = "dark"
-metrics_panel = false
-inspector = false
 
 [time]
 preset = "1h"
@@ -160,8 +156,6 @@ endpoint = ""
 
 [view]
 theme = "dark"
-metrics_panel = false
-inspector = false
 
 [time]
 preset = "1h"

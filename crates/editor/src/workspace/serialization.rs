@@ -58,8 +58,6 @@ impl Workspace {
                     AppTheme::Light => "light".to_string(),
                     AppTheme::Dark => "dark".to_string(),
                 },
-                metrics_panel: false, // Left panel removed
-                inspector: false,     // Inspector panel removed
                 zen_mode: self.zen_mode,
             },
             time: TimeConfig::from_preset(self.time_range_toolbar.time_range().preset),
@@ -77,7 +75,6 @@ impl Workspace {
     ) -> Option<ConnectionConfig> {
         // Apply view settings
         *theme = config.view.app_theme();
-        // Note: metrics_panel setting ignored (left panel removed)
         self.zen_mode = config.view.zen_mode;
 
         // Apply time range

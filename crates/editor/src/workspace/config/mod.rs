@@ -23,8 +23,6 @@
 //!
 //! [view]
 //! theme = "dark"
-//! metrics_panel = true
-//! inspector = false
 //!
 //! [time]
 //! preset = "1h"
@@ -196,14 +194,6 @@ pub struct ViewConfig {
     #[serde(default = "default_theme", skip_serializing_if = "is_default_theme")]
     pub theme: String,
 
-    /// Show metrics panel (left sidebar)
-    #[serde(default = "default_true", skip_serializing_if = "is_true")]
-    pub metrics_panel: bool,
-
-    /// Show inspector panel (right sidebar)
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub inspector: bool,
-
     /// Zen mode (hide all panels)
     #[serde(default, skip_serializing_if = "is_false")]
     pub zen_mode: bool,
@@ -211,10 +201,6 @@ pub struct ViewConfig {
 
 fn is_default_theme(s: &String) -> bool {
     s == "dark"
-}
-
-fn is_true(b: &bool) -> bool {
-    *b
 }
 
 fn is_false(b: &bool) -> bool {
@@ -225,16 +211,10 @@ fn default_theme() -> String {
     "dark".to_string()
 }
 
-fn default_true() -> bool {
-    true
-}
-
 impl Default for ViewConfig {
     fn default() -> Self {
         Self {
             theme: default_theme(),
-            metrics_panel: true,
-            inspector: false,
             zen_mode: false,
         }
     }
@@ -251,7 +231,7 @@ impl ViewConfig {
 
     /// Check if all values are defaults
     pub fn is_default(&self) -> bool {
-        self.theme == "dark" && self.metrics_panel && !self.inspector && !self.zen_mode
+        self.theme == "dark" && !self.zen_mode
     }
 }
 
@@ -707,7 +687,6 @@ name = "test"
         assert_eq!(ws.workspace.name, "test");
         assert_eq!(ws.workspace.version, WORKSPACE_VERSION);
         assert_eq!(ws.view.theme, "dark");
-        assert!(ws.view.metrics_panel);
     }
 
     #[test]
@@ -720,8 +699,6 @@ version = 1
 
 [view]
 theme = "light"
-metrics_panel = true
-inspector = true
 zen_mode = false
 
 [time]
@@ -756,7 +733,6 @@ granularity = "5m"
         let mut ws = WorkspaceConfig::new("test");
         ws.workspace.description = "Test workspace".to_string();
         ws.view.theme = "light".to_string();
-        ws.view.inspector = true;
         ws.time.preset = "1h".to_string();
         ws.add_pane(
             PaneConfig::new("avg(env:prod) by (service)")
@@ -770,7 +746,6 @@ granularity = "5m"
         assert_eq!(parsed.workspace.name, "test");
         assert_eq!(parsed.workspace.description, "Test workspace");
         assert_eq!(parsed.view.theme, "light");
-        assert!(parsed.view.inspector);
         assert_eq!(parsed.time.preset, "1h");
         assert_eq!(parsed.panes.len(), 1);
         assert_eq!(parsed.panes[0].name, "Production");
@@ -929,8 +904,6 @@ query = "test"
 
         // View defaults
         assert_eq!(ws.view.theme, "dark");
-        assert!(ws.view.metrics_panel);
-        assert!(!ws.view.inspector);
         assert!(!ws.view.zen_mode);
 
         // Time defaults
