@@ -236,3 +236,350 @@ impl UICommandSender for CommandSender {
         self.ui_sender.send(command).ok();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== UICommand Tests ====================
+
+    #[test]
+    fn test_ui_command_all_returns_all_variants() {
+        let commands: Vec<UICommand> = UICommand::all().collect();
+        assert_eq!(commands.len(), 9);
+        assert!(commands.contains(&UICommand::Home));
+        assert!(commands.contains(&UICommand::Dashboard));
+        assert!(commands.contains(&UICommand::Help));
+        assert!(commands.contains(&UICommand::ToggleTheme));
+        assert!(commands.contains(&UICommand::OpenFuzzyFinder));
+        assert!(commands.contains(&UICommand::OpenCommandPalette));
+    }
+
+    #[test]
+    fn test_ui_command_text_returns_expected_values() {
+        assert_eq!(UICommand::Home.text(), "Home");
+        assert_eq!(UICommand::Help.text(), "Help");
+        assert_eq!(UICommand::Dashboard.text(), "Dashboard");
+        assert_eq!(UICommand::ToggleTheme.text(), "Toggle Theme...");
+        assert_eq!(UICommand::OpenFuzzyFinder.text(), "Search...");
+        assert_eq!(UICommand::OpenCommandPalette.text(), "Command Palette");
+    }
+
+    #[test]
+    fn test_ui_command_tooltip_returns_expected_values() {
+        assert_eq!(UICommand::Home.tooltip(), "Open Welcome Screen");
+        assert_eq!(
+            UICommand::Help.tooltip(),
+            "Get help with any Playground issues"
+        );
+        assert_eq!(UICommand::Dashboard.tooltip(), "Open Enya Dashboard");
+        assert_eq!(
+            UICommand::ToggleTheme.tooltip(),
+            "Toggles the application theme"
+        );
+        assert_eq!(
+            UICommand::OpenFuzzyFinder.tooltip(),
+            "Open fuzzy finder to search metrics"
+        );
+        assert_eq!(
+            UICommand::OpenCommandPalette.tooltip(),
+            "Open command palette"
+        );
+    }
+
+    #[test]
+    fn test_ui_command_text_and_tooltip_consistency() {
+        for cmd in UICommand::all() {
+            let (text, tooltip) = cmd.text_and_tooltip();
+            assert_eq!(cmd.text(), text);
+            assert_eq!(cmd.tooltip(), tooltip);
+        }
+    }
+
+    #[test]
+    fn test_ui_command_is_link() {
+        assert!(UICommand::Help.is_link());
+        assert!(!UICommand::Home.is_link());
+        assert!(!UICommand::Dashboard.is_link());
+        assert!(!UICommand::ToggleTheme.is_link());
+        assert!(!UICommand::OpenFuzzyFinder.is_link());
+        assert!(!UICommand::OpenCommandPalette.is_link());
+    }
+
+    #[test]
+    fn test_ui_command_icon() {
+        assert!(UICommand::Help.icon().is_some());
+        assert!(UICommand::Home.icon().is_none());
+        assert!(UICommand::Dashboard.icon().is_none());
+        assert!(UICommand::ToggleTheme.icon().is_none());
+        assert!(UICommand::OpenFuzzyFinder.icon().is_none());
+        assert!(UICommand::OpenCommandPalette.icon().is_none());
+    }
+
+    #[test]
+    fn test_ui_command_kb_shortcuts_dashboard() {
+        let shortcuts = UICommand::Dashboard.kb_shortcuts(OperatingSystem::Mac);
+        assert_eq!(shortcuts.len(), 1);
+        assert_eq!(shortcuts[0].logical_key, Key::D);
+        assert_eq!(shortcuts[0].modifiers, Modifiers::NONE);
+    }
+
+    #[test]
+    fn test_ui_command_kb_shortcuts_command_palette() {
+        let shortcuts = UICommand::OpenCommandPalette.kb_shortcuts(OperatingSystem::Mac);
+        assert_eq!(shortcuts.len(), 1);
+        assert_eq!(shortcuts[0].logical_key, Key::Colon);
+        assert_eq!(shortcuts[0].modifiers, Modifiers::NONE);
+    }
+
+    #[test]
+    fn test_ui_command_kb_shortcuts_empty_for_some_commands() {
+        assert!(
+            UICommand::Home
+                .kb_shortcuts(OperatingSystem::Mac)
+                .is_empty()
+        );
+        assert!(
+            UICommand::Help
+                .kb_shortcuts(OperatingSystem::Mac)
+                .is_empty()
+        );
+        assert!(
+            UICommand::ToggleTheme
+                .kb_shortcuts(OperatingSystem::Mac)
+                .is_empty()
+        );
+        assert!(
+            UICommand::OpenFuzzyFinder
+                .kb_shortcuts(OperatingSystem::Mac)
+                .is_empty()
+        );
+        assert!(
+            UICommand::Theme(AppTheme::Dark)
+                .kb_shortcuts(OperatingSystem::Mac)
+                .is_empty()
+        );
+        assert!(
+            UICommand::OpenExampleDashboard(0)
+                .kb_shortcuts(OperatingSystem::Mac)
+                .is_empty()
+        );
+        assert!(
+            UICommand::ConnectionStatus(false)
+                .kb_shortcuts(OperatingSystem::Mac)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn test_ui_command_kb_shortcuts_consistent_across_os() {
+        let mac_shortcuts = UICommand::Dashboard.kb_shortcuts(OperatingSystem::Mac);
+        let windows_shortcuts = UICommand::Dashboard.kb_shortcuts(OperatingSystem::Windows);
+        let linux_shortcuts = UICommand::Dashboard.kb_shortcuts(OperatingSystem::Nix);
+
+        assert_eq!(mac_shortcuts, windows_shortcuts);
+        assert_eq!(mac_shortcuts, linux_shortcuts);
+    }
+
+    #[test]
+    fn test_ui_command_primary_kb_shortcut() {
+        assert!(
+            UICommand::Dashboard
+                .primary_kb_shortcut(OperatingSystem::Mac)
+                .is_some()
+        );
+        assert!(
+            UICommand::OpenCommandPalette
+                .primary_kb_shortcut(OperatingSystem::Mac)
+                .is_some()
+        );
+        assert!(
+            UICommand::Home
+                .primary_kb_shortcut(OperatingSystem::Mac)
+                .is_none()
+        );
+        assert!(
+            UICommand::Help
+                .primary_kb_shortcut(OperatingSystem::Mac)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_ui_command_equality() {
+        assert_eq!(UICommand::Home, UICommand::Home);
+        assert_eq!(UICommand::Help, UICommand::Help);
+        assert_eq!(UICommand::Dashboard, UICommand::Dashboard);
+        assert_ne!(UICommand::Home, UICommand::Help);
+        assert_ne!(UICommand::Dashboard, UICommand::Home);
+    }
+
+    #[test]
+    fn test_ui_command_theme_variants() {
+        let dark = UICommand::Theme(AppTheme::Dark);
+        let light = UICommand::Theme(AppTheme::Light);
+        assert_ne!(dark, light);
+        assert_eq!(dark.text(), "...");
+        assert_eq!(light.text(), "...");
+    }
+
+    #[test]
+    fn test_ui_command_open_example_dashboard_with_index() {
+        let cmd0 = UICommand::OpenExampleDashboard(0);
+        let cmd1 = UICommand::OpenExampleDashboard(1);
+        let cmd5 = UICommand::OpenExampleDashboard(5);
+        assert_ne!(cmd0, cmd1);
+        assert_ne!(cmd1, cmd5);
+        assert_eq!(cmd0.text(), "...");
+        assert_eq!(cmd1.text(), "...");
+    }
+
+    #[test]
+    fn test_ui_command_connection_status_variants() {
+        let connected = UICommand::ConnectionStatus(true);
+        let disconnected = UICommand::ConnectionStatus(false);
+        assert_ne!(connected, disconnected);
+        assert_eq!(connected.text(), "");
+        assert_eq!(disconnected.text(), "");
+    }
+
+    #[test]
+    fn test_ui_command_clone() {
+        let cmd = UICommand::Dashboard;
+        let cloned = cmd;
+        assert_eq!(cmd, cloned);
+    }
+
+    #[test]
+    fn test_ui_command_copy() {
+        let cmd = UICommand::OpenCommandPalette;
+        let copied: UICommand = cmd;
+        assert_eq!(cmd, copied);
+    }
+
+    #[test]
+    fn test_ui_command_debug() {
+        let debug_str = format!("{:?}", UICommand::Home);
+        assert!(debug_str.contains("Home"));
+    }
+
+    #[test]
+    fn test_ui_command_hash() {
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        set.insert(UICommand::Home);
+        set.insert(UICommand::Dashboard);
+        set.insert(UICommand::Home); // duplicate
+        assert_eq!(set.len(), 2);
+    }
+
+    // ==================== CommandSender/Receiver Tests ====================
+
+    #[test]
+    fn test_command_channel_creation() {
+        let (sender, receiver) = command_channel();
+        // Channel should be created successfully
+        drop(sender);
+        drop(receiver);
+    }
+
+    #[test]
+    fn test_command_channel_send_and_receive() {
+        let (sender, receiver) = command_channel();
+        sender.send_ui(UICommand::Home);
+        let received = receiver.recv_ui();
+        assert_eq!(received, Some(UICommand::Home));
+    }
+
+    #[test]
+    fn test_command_channel_multiple_messages() {
+        let (sender, receiver) = command_channel();
+        sender.send_ui(UICommand::Home);
+        sender.send_ui(UICommand::Dashboard);
+        sender.send_ui(UICommand::Help);
+
+        assert_eq!(receiver.recv_ui(), Some(UICommand::Home));
+        assert_eq!(receiver.recv_ui(), Some(UICommand::Dashboard));
+        assert_eq!(receiver.recv_ui(), Some(UICommand::Help));
+    }
+
+    #[test]
+    fn test_command_channel_empty_returns_none() {
+        let (_sender, receiver) = command_channel();
+        assert_eq!(receiver.recv_ui(), None);
+    }
+
+    #[test]
+    fn test_command_channel_recv_after_all_consumed() {
+        let (sender, receiver) = command_channel();
+        sender.send_ui(UICommand::Home);
+        let _ = receiver.recv_ui();
+        assert_eq!(receiver.recv_ui(), None);
+    }
+
+    #[test]
+    fn test_command_sender_clone() {
+        let (sender, receiver) = command_channel();
+        let sender_clone = sender.clone();
+
+        sender.send_ui(UICommand::Home);
+        sender_clone.send_ui(UICommand::Dashboard);
+
+        assert_eq!(receiver.recv_ui(), Some(UICommand::Home));
+        assert_eq!(receiver.recv_ui(), Some(UICommand::Dashboard));
+    }
+
+    #[test]
+    fn test_command_sender_dropped_receiver_does_not_panic() {
+        let (sender, receiver) = command_channel();
+        drop(receiver);
+        // Should not panic, just silently fail
+        sender.send_ui(UICommand::Home);
+    }
+
+    #[test]
+    fn test_command_receiver_dropped_sender_returns_none() {
+        let (sender, receiver) = command_channel();
+        drop(sender);
+        assert_eq!(receiver.recv_ui(), None);
+    }
+
+    #[test]
+    fn test_ui_command_sender_trait() {
+        struct MockSender {
+            commands: std::cell::RefCell<Vec<UICommand>>,
+        }
+
+        impl UICommandSender for MockSender {
+            fn send_ui(&self, command: UICommand) {
+                self.commands.borrow_mut().push(command);
+            }
+        }
+
+        let mock = MockSender {
+            commands: std::cell::RefCell::new(Vec::new()),
+        };
+        mock.send_ui(UICommand::Home);
+        mock.send_ui(UICommand::Dashboard);
+
+        let commands = mock.commands.borrow();
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[0], UICommand::Home);
+        assert_eq!(commands[1], UICommand::Dashboard);
+    }
+
+    #[test]
+    fn test_command_channel_fifo_order() {
+        let (sender, receiver) = command_channel();
+
+        // Send in specific order
+        sender.send_ui(UICommand::OpenExampleDashboard(1));
+        sender.send_ui(UICommand::OpenExampleDashboard(2));
+        sender.send_ui(UICommand::OpenExampleDashboard(3));
+
+        // Receive in same order (FIFO)
+        assert_eq!(receiver.recv_ui(), Some(UICommand::OpenExampleDashboard(1)));
+        assert_eq!(receiver.recv_ui(), Some(UICommand::OpenExampleDashboard(2)));
+        assert_eq!(receiver.recv_ui(), Some(UICommand::OpenExampleDashboard(3)));
+    }
+}

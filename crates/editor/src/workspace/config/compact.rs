@@ -502,3 +502,534 @@ pub fn encode_pane(ws: &WorkspaceConfig, pane_index: usize) -> Result<String, Wo
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&compressed)
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==========================================================================
+    // Helper functions for tests
+    // ==========================================================================
+
+    fn make_pane(query: &str) -> PaneConfig {
+        PaneConfig::new(query)
+    }
+
+    fn make_pane_full(
+        query: &str,
+        name: &str,
+        tag: &str,
+        granularity: &str,
+        visualization: &str,
+    ) -> PaneConfig {
+        PaneConfig {
+            query: query.to_string(),
+            name: name.to_string(),
+            tag: tag.to_string(),
+            granularity: granularity.to_string(),
+            visualization: visualization.to_string(),
+        }
+    }
+
+    // ==========================================================================
+    // Round-trip encoding tests
+    // ==========================================================================
+
+    #[test]
+    fn test_workspace_round_trip_empty() {
+        let ws = WorkspaceConfig::new("test");
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.workspace.name, "test");
+        assert!(decoded.panes.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_round_trip_single_pane() {
+        let mut ws = WorkspaceConfig::new("single");
+        ws.panes.push(make_pane("rate(http_requests_total[5m])"));
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.workspace.name, "single");
+        assert_eq!(decoded.panes.len(), 1);
+        assert_eq!(decoded.panes[0].query, "rate(http_requests_total[5m])");
+    }
+
+    #[test]
+    fn test_workspace_round_trip_multiple_panes() {
+        let mut ws = WorkspaceConfig::new("multi");
+        ws.panes.push(make_pane("query1"));
+        ws.panes.push(make_pane("query2"));
+        ws.panes.push(make_pane("query3"));
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.panes.len(), 3);
+        assert_eq!(decoded.panes[0].query, "query1");
+        assert_eq!(decoded.panes[1].query, "query2");
+        assert_eq!(decoded.panes[2].query, "query3");
+    }
+
+    #[test]
+    fn test_workspace_round_trip_preserves_pane_fields() {
+        let mut ws = WorkspaceConfig::new("detailed");
+        ws.panes
+            .push(make_pane_full("query", "My Pane", "Critical", "1h", "stat"));
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.panes[0].query, "query");
+        assert_eq!(decoded.panes[0].name, "My Pane");
+        assert_eq!(decoded.panes[0].tag, "Critical");
+        assert_eq!(decoded.panes[0].granularity, "1h");
+        assert_eq!(decoded.panes[0].visualization, "stat");
+    }
+
+    // ==========================================================================
+    // Header bit-packing tests (time preset + theme)
+    // ==========================================================================
+
+    #[test]
+    fn test_header_all_time_presets() {
+        let presets = ["5m", "15m", "30m", "1h", "6h", "24h", "7d"];
+
+        for preset in &presets {
+            let mut ws = WorkspaceConfig::new("test");
+            ws.time.preset = preset.to_string();
+
+            let encoded = encode_workspace(&ws).expect("encode should succeed");
+            let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+            assert_eq!(
+                decoded.time.preset, *preset,
+                "Time preset {preset} should round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn test_header_theme_dark() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.view.theme = "dark".to_string();
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.view.theme, "dark");
+    }
+
+    #[test]
+    fn test_header_theme_light() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.view.theme = "light".to_string();
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.view.theme, "light");
+    }
+
+    #[test]
+    fn test_header_all_combinations() {
+        // Test all 14 combinations: 7 time presets × 2 themes
+        let presets = ["5m", "15m", "30m", "1h", "6h", "24h", "7d"];
+        let themes = ["dark", "light"];
+
+        for preset in &presets {
+            for theme in &themes {
+                let mut ws = WorkspaceConfig::new("combo");
+                ws.time.preset = preset.to_string();
+                ws.view.theme = theme.to_string();
+
+                let encoded = encode_workspace(&ws).expect("encode should succeed");
+                let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+                assert_eq!(
+                    decoded.time.preset, *preset,
+                    "preset={preset}, theme={theme}"
+                );
+                assert_eq!(decoded.view.theme, *theme, "preset={preset}, theme={theme}");
+            }
+        }
+    }
+
+    // ==========================================================================
+    // Pane flags bit-packing tests (granularity + visualization)
+    // ==========================================================================
+
+    #[test]
+    fn test_pane_flags_all_granularities() {
+        let granularities = ["1m", "5m", "15m", "1h", "6h", "1d"];
+
+        for gran in &granularities {
+            let mut ws = WorkspaceConfig::new("test");
+            ws.panes
+                .push(make_pane_full("q", "", "", gran, "time_series"));
+
+            let encoded = encode_workspace(&ws).expect("encode should succeed");
+            let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+            assert_eq!(
+                decoded.panes[0].granularity, *gran,
+                "Granularity {gran} should round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn test_pane_flags_all_visualizations() {
+        let visualizations = [
+            "time_series",
+            "stat",
+            "gauge",
+            "bar_chart",
+            "sparkline",
+            "heatmap",
+        ];
+
+        for viz in &visualizations {
+            let mut ws = WorkspaceConfig::new("test");
+            ws.panes.push(make_pane_full("q", "", "", "5m", viz));
+
+            let encoded = encode_workspace(&ws).expect("encode should succeed");
+            let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+            assert_eq!(
+                decoded.panes[0].visualization, *viz,
+                "Visualization {viz} should round-trip"
+            );
+        }
+    }
+
+    #[test]
+    fn test_pane_flags_all_combinations() {
+        // Test a subset of granularity × visualization combinations
+        let granularities = ["1m", "1h", "1d"];
+        let visualizations = ["time_series", "stat", "heatmap"];
+
+        for gran in &granularities {
+            for viz in &visualizations {
+                let mut ws = WorkspaceConfig::new("combo");
+                ws.panes.push(make_pane_full("q", "", "", gran, viz));
+
+                let encoded = encode_workspace(&ws).expect("encode should succeed");
+                let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+                assert_eq!(
+                    decoded.panes[0].granularity, *gran,
+                    "gran={gran}, viz={viz}"
+                );
+                assert_eq!(
+                    decoded.panes[0].visualization, *viz,
+                    "gran={gran}, viz={viz}"
+                );
+            }
+        }
+    }
+
+    // ==========================================================================
+    // Layout encoding tests
+    // ==========================================================================
+
+    #[test]
+    fn test_layout_tabs_is_default_and_not_encoded() {
+        // Default tabs layout with all panes should not be explicitly encoded
+        let mut ws = WorkspaceConfig::new("tabs");
+        ws.panes.push(make_pane("q1"));
+        ws.panes.push(make_pane("q2"));
+        // No explicit layout = tabs with all panes in order
+
+        let compact = CompactWorkspaceConfig::from_workspace(&ws);
+        assert!(
+            compact.layout.is_none(),
+            "Default tabs layout should be None"
+        );
+    }
+
+    #[test]
+    fn test_layout_horizontal_split() {
+        let mut ws = WorkspaceConfig::new("hsplit");
+        ws.panes.push(make_pane("left"));
+        ws.panes.push(make_pane("right"));
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+            shares: vec![],
+        });
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let layout = decoded.layout.expect("layout should exist");
+        assert_eq!(layout.layout_type, LayoutType::Horizontal);
+        assert_eq!(layout.children.len(), 2);
+        assert!(matches!(layout.children[0], LayoutNode::Pane(0)));
+        assert!(matches!(layout.children[1], LayoutNode::Pane(1)));
+    }
+
+    #[test]
+    fn test_layout_vertical_split() {
+        let mut ws = WorkspaceConfig::new("vsplit");
+        ws.panes.push(make_pane("top"));
+        ws.panes.push(make_pane("bottom"));
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Vertical,
+            children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+            shares: vec![],
+        });
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let layout = decoded.layout.expect("layout should exist");
+        assert_eq!(layout.layout_type, LayoutType::Vertical);
+    }
+
+    #[test]
+    fn test_layout_nested_containers() {
+        // Create: horizontal [ vertical [0, 1], 2 ]
+        let mut ws = WorkspaceConfig::new("nested");
+        ws.panes.push(make_pane("top-left"));
+        ws.panes.push(make_pane("bottom-left"));
+        ws.panes.push(make_pane("right"));
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![
+                LayoutNode::Container(LayoutContainer {
+                    layout_type: LayoutType::Vertical,
+                    children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+                    shares: vec![],
+                }),
+                LayoutNode::Pane(2),
+            ],
+            shares: vec![],
+        });
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let layout = decoded.layout.expect("layout should exist");
+        assert_eq!(layout.layout_type, LayoutType::Horizontal);
+        assert_eq!(layout.children.len(), 2);
+
+        // First child should be a vertical container
+        match &layout.children[0] {
+            LayoutNode::Container(c) => {
+                assert_eq!(c.layout_type, LayoutType::Vertical);
+                assert_eq!(c.children.len(), 2);
+            }
+            _ => panic!("Expected nested container"),
+        }
+
+        // Second child should be pane 2
+        assert!(matches!(layout.children[1], LayoutNode::Pane(2)));
+    }
+
+    #[test]
+    fn test_layout_pane_index_encoding() {
+        // Test that pane indices are correctly encoded with 128+ offset
+        // Use horizontal layout since default tabs layout is optimized away
+        let mut ws = WorkspaceConfig::new("indices");
+        for i in 0..5 {
+            ws.panes.push(make_pane(&format!("pane{i}")));
+        }
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![
+                LayoutNode::Pane(0),
+                LayoutNode::Pane(1),
+                LayoutNode::Pane(2),
+                LayoutNode::Pane(3),
+                LayoutNode::Pane(4),
+            ],
+            shares: vec![],
+        });
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let layout = decoded.layout.expect("layout should exist");
+        for (i, child) in layout.children.iter().enumerate() {
+            match child {
+                LayoutNode::Pane(idx) => assert_eq!(*idx, i, "Pane index should be {i}"),
+                _ => panic!("Expected pane at index {i}"),
+            }
+        }
+    }
+
+    // ==========================================================================
+    // Single pane encoding tests
+    // ==========================================================================
+
+    #[test]
+    fn test_single_pane_round_trip() {
+        let mut ws = WorkspaceConfig::new("single");
+        ws.panes
+            .push(make_pane_full("my_query", "My Name", "", "15m", "stat"));
+        ws.time.preset = "1h".to_string();
+        ws.view.theme = "light".to_string();
+
+        let encoded = encode_pane(&ws, 0).expect("encode should succeed");
+        assert!(encoded.starts_with('q'), "Should have 'q' prefix");
+
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.panes.len(), 1);
+        assert_eq!(decoded.panes[0].query, "my_query");
+        assert_eq!(decoded.panes[0].name, "My Name");
+        assert_eq!(decoded.panes[0].granularity, "15m");
+        assert_eq!(decoded.panes[0].visualization, "stat");
+        assert_eq!(decoded.time.preset, "1h");
+        assert_eq!(decoded.view.theme, "light");
+    }
+
+    #[test]
+    fn test_single_pane_more_compact() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.panes.push(make_pane("query"));
+
+        let workspace_encoded = encode_workspace(&ws).expect("encode should succeed");
+        let pane_encoded = encode_pane(&ws, 0).expect("encode should succeed");
+
+        assert!(
+            pane_encoded.len() <= workspace_encoded.len(),
+            "Single pane format should be at most as long as workspace format"
+        );
+    }
+
+    #[test]
+    fn test_single_pane_index_out_of_range() {
+        let ws = WorkspaceConfig::new("empty");
+        let result = encode_pane(&ws, 0);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, WorkspaceError::Encode(_)),
+            "Should be an encode error"
+        );
+    }
+
+    // ==========================================================================
+    // Error handling tests
+    // ==========================================================================
+
+    #[test]
+    fn test_decode_invalid_base64() {
+        let result = decode_workspace("p!!!invalid-base64!!!");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_empty_string() {
+        // Empty string should fail (no prefix, not valid TOML)
+        let result = decode_workspace("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_just_prefix() {
+        // Just "p" or "q" with no data should fail
+        let result = decode_workspace("p");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_corrupt_lz4() {
+        use base64::Engine;
+        // Valid base64 but corrupt LZ4 data
+        let garbage = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([1, 2, 3, 4, 5]);
+        let result = decode_workspace(&format!("p{garbage}"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decode_corrupt_postcard() {
+        use base64::Engine;
+        // Valid LZ4 but definitely invalid postcard data
+        // Use bytes that can't be a valid postcard CompactWorkspaceConfig
+        let garbage_data = vec![0xFFu8; 10]; // 0xFF bytes are unlikely to form valid varint
+        let compressed = lz4_flex::compress_prepend_size(&garbage_data);
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&compressed);
+        let result = decode_workspace(&format!("p{encoded}"));
+        // This may or may not fail depending on how postcard interprets the garbage
+        // The important thing is it doesn't panic
+        let _ = result;
+    }
+
+    // ==========================================================================
+    // Optional field handling tests
+    // ==========================================================================
+
+    #[test]
+    fn test_empty_name_preserved_as_empty() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.panes.push(PaneConfig {
+            query: "q".to_string(),
+            name: String::new(),
+            tag: String::new(),
+            granularity: "5m".to_string(),
+            visualization: "time_series".to_string(),
+        });
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert!(decoded.panes[0].name.is_empty());
+        assert!(decoded.panes[0].tag.is_empty());
+    }
+
+    #[test]
+    fn test_unicode_in_queries() {
+        let mut ws = WorkspaceConfig::new("unicode");
+        ws.panes.push(make_pane("metric{label=\"日本語\"}"));
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.panes[0].query, "metric{label=\"日本語\"}");
+    }
+
+    #[test]
+    fn test_special_chars_in_name() {
+        let mut ws = WorkspaceConfig::new("special");
+        ws.panes.push(
+            PaneConfig::new("q")
+                .with_name("Test <script>alert('xss')</script>")
+                .with_tag("🔥 Critical"),
+        );
+
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.panes[0].name, "Test <script>alert('xss')</script>");
+        assert_eq!(decoded.panes[0].tag, "🔥 Critical");
+    }
+
+    // ==========================================================================
+    // Prefix detection tests
+    // ==========================================================================
+
+    #[test]
+    fn test_workspace_encoded_has_p_prefix() {
+        let ws = WorkspaceConfig::new("test");
+        let encoded = encode_workspace(&ws).expect("encode should succeed");
+        assert!(encoded.starts_with('p'), "Workspace should have 'p' prefix");
+    }
+
+    #[test]
+    fn test_pane_encoded_has_q_prefix() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.panes.push(make_pane("q"));
+        let encoded = encode_pane(&ws, 0).expect("encode should succeed");
+        assert!(
+            encoded.starts_with('q'),
+            "Single pane should have 'q' prefix"
+        );
+    }
+}

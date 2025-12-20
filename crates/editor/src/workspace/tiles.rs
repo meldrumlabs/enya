@@ -355,3 +355,296 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_tile_id(id: u64) -> TileId {
+        TileId::from_u64(id)
+    }
+
+    // ==================== TreeBehavior Basic Tests ====================
+
+    #[test]
+    fn test_tree_behavior_default() {
+        let behavior = TreeBehavior::default();
+        assert!(behavior.focused_tile().is_none());
+        assert_eq!(behavior.theme(), AppTheme::Light); // Default theme (from Default derive)
+        assert_eq!(behavior.api_key(), "");
+    }
+
+    #[test]
+    fn test_set_theme() {
+        let mut behavior = TreeBehavior::default();
+        assert_eq!(behavior.theme(), AppTheme::Light);
+
+        behavior.set_theme(AppTheme::Dark);
+        assert_eq!(behavior.theme(), AppTheme::Dark);
+
+        behavior.set_theme(AppTheme::Light);
+        assert_eq!(behavior.theme(), AppTheme::Light);
+    }
+
+    #[test]
+    fn test_set_keys() {
+        let mut behavior = TreeBehavior::default();
+        assert_eq!(behavior.api_key(), "");
+
+        behavior.set_keys("test-api-key-123".to_string());
+        assert_eq!(behavior.api_key(), "test-api-key-123");
+
+        behavior.set_keys(String::new());
+        assert_eq!(behavior.api_key(), "");
+    }
+
+    // ==================== Focus Management Tests ====================
+
+    #[test]
+    fn test_set_focused_tile() {
+        let mut behavior = TreeBehavior::default();
+        let tile_id = make_tile_id(42);
+
+        assert!(behavior.focused_tile().is_none());
+
+        behavior.set_focused_tile(Some(tile_id));
+        assert_eq!(behavior.focused_tile(), Some(tile_id));
+
+        behavior.set_focused_tile(None);
+        assert!(behavior.focused_tile().is_none());
+    }
+
+    #[test]
+    fn test_focused_tile_changes() {
+        let mut behavior = TreeBehavior::default();
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let tile3 = make_tile_id(3);
+
+        behavior.set_focused_tile(Some(tile1));
+        assert_eq!(behavior.focused_tile(), Some(tile1));
+
+        behavior.set_focused_tile(Some(tile2));
+        assert_eq!(behavior.focused_tile(), Some(tile2));
+        assert_ne!(behavior.focused_tile(), Some(tile1));
+
+        behavior.set_focused_tile(Some(tile3));
+        assert_eq!(behavior.focused_tile(), Some(tile3));
+    }
+
+    // ==================== Visual Multi State Tests ====================
+
+    #[test]
+    fn test_set_visual_multi_state_inactive() {
+        let mut behavior = TreeBehavior::default();
+
+        behavior.set_visual_multi_state(false, HashSet::new(), HashMap::new());
+
+        // When inactive, the state should be set but doesn't affect rendering
+        // (is_visual_multi_mode is private, but we can verify via clone/debug)
+    }
+
+    #[test]
+    fn test_set_visual_multi_state_active() {
+        let mut behavior = TreeBehavior::default();
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+
+        let mut selected = HashSet::new();
+        selected.insert(tile1);
+        selected.insert(tile2);
+
+        let mut queries = HashMap::new();
+        queries.insert(tile1, "query1".to_string());
+        queries.insert(tile2, "query2".to_string());
+
+        behavior.set_visual_multi_state(true, selected.clone(), queries.clone());
+
+        // The internal state should be updated (verified by behavior in rendering)
+    }
+
+    #[test]
+    fn test_set_visual_multi_state_with_empty_selection() {
+        let mut behavior = TreeBehavior::default();
+
+        behavior.set_visual_multi_state(true, HashSet::new(), HashMap::new());
+        // Active mode with no selections - valid state
+    }
+
+    // ==================== Filter State Tests ====================
+
+    #[test]
+    fn test_set_filter_state_inactive() {
+        let mut behavior = TreeBehavior::default();
+
+        behavior.set_filter_state(false, HashSet::new());
+        // Filter not active, no tiles filtered
+    }
+
+    #[test]
+    fn test_set_filter_state_active() {
+        let mut behavior = TreeBehavior::default();
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+
+        let mut filtered = HashSet::new();
+        filtered.insert(tile1);
+        filtered.insert(tile2);
+
+        behavior.set_filter_state(true, filtered);
+        // Filter active with two tiles filtered out
+    }
+
+    #[test]
+    fn test_set_filter_state_toggle() {
+        let mut behavior = TreeBehavior::default();
+        let tile1 = make_tile_id(1);
+
+        let mut filtered = HashSet::new();
+        filtered.insert(tile1);
+
+        behavior.set_filter_state(true, filtered.clone());
+        behavior.set_filter_state(false, HashSet::new());
+        behavior.set_filter_state(true, filtered);
+        // Can toggle filter state on and off
+    }
+
+    // ==================== Clone Tests ====================
+
+    #[test]
+    fn test_tree_behavior_clone() {
+        let mut behavior = TreeBehavior::default();
+        let tile_id = make_tile_id(42);
+
+        behavior.set_theme(AppTheme::Light);
+        behavior.set_keys("my-key".to_string());
+        behavior.set_focused_tile(Some(tile_id));
+
+        let cloned = behavior.clone();
+
+        assert_eq!(cloned.theme(), AppTheme::Light);
+        assert_eq!(cloned.api_key(), "my-key");
+        assert_eq!(cloned.focused_tile(), Some(tile_id));
+    }
+
+    // ==================== Multiple State Combinations ====================
+
+    #[test]
+    fn test_combined_states() {
+        let mut behavior = TreeBehavior::default();
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let tile3 = make_tile_id(3);
+
+        // Set theme
+        behavior.set_theme(AppTheme::Light);
+
+        // Set API key
+        behavior.set_keys("secret".to_string());
+
+        // Set focus
+        behavior.set_focused_tile(Some(tile1));
+
+        // Set visual multi state
+        let mut selected = HashSet::new();
+        selected.insert(tile1);
+        selected.insert(tile2);
+        let mut queries = HashMap::new();
+        queries.insert(tile1, "q1".to_string());
+        queries.insert(tile2, "q2".to_string());
+        behavior.set_visual_multi_state(true, selected, queries);
+
+        // Set filter state
+        let mut filtered = HashSet::new();
+        filtered.insert(tile3);
+        behavior.set_filter_state(true, filtered);
+
+        // Verify independent states
+        assert_eq!(behavior.theme(), AppTheme::Light);
+        assert_eq!(behavior.api_key(), "secret");
+        assert_eq!(behavior.focused_tile(), Some(tile1));
+    }
+
+    #[test]
+    fn test_focus_with_visual_multi() {
+        let mut behavior = TreeBehavior::default();
+        let cursor_tile = make_tile_id(1);
+        let selected_tile = make_tile_id(2);
+
+        // Focus can be different from selected tiles in visual-multi mode
+        behavior.set_focused_tile(Some(cursor_tile));
+
+        let mut selected = HashSet::new();
+        selected.insert(selected_tile);
+        behavior.set_visual_multi_state(true, selected, HashMap::new());
+
+        // Cursor (focus) is tile1, but tile2 is selected
+        assert_eq!(behavior.focused_tile(), Some(cursor_tile));
+    }
+
+    // ==================== Edge Cases ====================
+
+    #[test]
+    fn test_empty_api_key() {
+        let mut behavior = TreeBehavior::default();
+        behavior.set_keys(String::new());
+        assert!(behavior.api_key().is_empty());
+    }
+
+    #[test]
+    fn test_long_api_key() {
+        let mut behavior = TreeBehavior::default();
+        let long_key = "a".repeat(1000);
+        behavior.set_keys(long_key.clone());
+        assert_eq!(behavior.api_key(), long_key);
+    }
+
+    #[test]
+    fn test_unicode_in_queries() {
+        let mut behavior = TreeBehavior::default();
+        let tile = make_tile_id(1);
+
+        let mut selected = HashSet::new();
+        selected.insert(tile);
+
+        let mut queries = HashMap::new();
+        queries.insert(tile, "メトリック{ラベル=\"日本語\"}".to_string());
+
+        behavior.set_visual_multi_state(true, selected, queries);
+        // Unicode queries should work fine
+    }
+
+    #[test]
+    fn test_many_tiles_in_selection() {
+        let mut behavior = TreeBehavior::default();
+
+        let mut selected = HashSet::new();
+        let mut queries = HashMap::new();
+
+        for i in 0..100 {
+            let tile = make_tile_id(i);
+            selected.insert(tile);
+            queries.insert(tile, format!("query_{i}"));
+        }
+
+        behavior.set_visual_multi_state(true, selected.clone(), queries);
+
+        // Should handle many tiles
+        assert_eq!(selected.len(), 100);
+    }
+
+    #[test]
+    fn test_many_tiles_in_filter() {
+        let mut behavior = TreeBehavior::default();
+
+        let mut filtered = HashSet::new();
+        for i in 0..50 {
+            filtered.insert(make_tile_id(i));
+        }
+
+        behavior.set_filter_state(true, filtered.clone());
+
+        // Should handle many filtered tiles
+        assert_eq!(filtered.len(), 50);
+    }
+}

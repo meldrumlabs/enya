@@ -957,4 +957,601 @@ query = "env:prod"
         assert_eq!(ws.connection.endpoint, "https://metrics.example.com");
         assert_eq!(ws.connection.api_key, "sk-test-123");
     }
+
+    // ==================== LayoutConfig Tests ====================
+
+    #[test]
+    fn test_layout_config_default_tabs() {
+        let layout = LayoutConfig::default_tabs(3);
+        assert_eq!(layout.layout_type, LayoutType::Tabs);
+        assert_eq!(layout.children.len(), 3);
+        assert!(layout.shares.is_empty());
+
+        // Children should be pane references 0, 1, 2
+        match &layout.children[0] {
+            LayoutNode::Pane(i) => assert_eq!(*i, 0),
+            _ => panic!("expected Pane"),
+        }
+        match &layout.children[1] {
+            LayoutNode::Pane(i) => assert_eq!(*i, 1),
+            _ => panic!("expected Pane"),
+        }
+        match &layout.children[2] {
+            LayoutNode::Pane(i) => assert_eq!(*i, 2),
+            _ => panic!("expected Pane"),
+        }
+    }
+
+    #[test]
+    fn test_layout_config_share_for() {
+        let layout = LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+            shares: vec![0.3, 0.7],
+        };
+        assert!((layout.share_for(0) - 0.3).abs() < 0.001);
+        assert!((layout.share_for(1) - 0.7).abs() < 0.001);
+        // Out of bounds defaults to 1.0
+        assert!((layout.share_for(2) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_layout_config_share_for_empty() {
+        let layout = LayoutConfig::default_tabs(2);
+        // Empty shares defaults to 1.0
+        assert!((layout.share_for(0) - 1.0).abs() < 0.001);
+        assert!((layout.share_for(1) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_layout_config_validate_valid() {
+        let layout = LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+            shares: Vec::new(),
+        };
+        assert!(layout.validate(2).is_ok());
+        assert!(layout.validate(3).is_ok()); // More panes than referenced is ok
+    }
+
+    #[test]
+    fn test_layout_config_validate_invalid_index() {
+        let layout = LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![LayoutNode::Pane(0), LayoutNode::Pane(5)],
+            shares: Vec::new(),
+        };
+        let result = layout.validate(3);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("pane index 5"));
+    }
+
+    #[test]
+    fn test_layout_config_validate_nested_container() {
+        let layout = LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![
+                LayoutNode::Pane(0),
+                LayoutNode::Container(LayoutContainer {
+                    layout_type: LayoutType::Vertical,
+                    children: vec![LayoutNode::Pane(1), LayoutNode::Pane(10)], // 10 is invalid
+                    shares: Vec::new(),
+                }),
+            ],
+            shares: Vec::new(),
+        };
+        let result = layout.validate(3);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("pane index 10"));
+    }
+
+    // ==================== LayoutContainer Tests ====================
+
+    #[test]
+    fn test_layout_container_share_for() {
+        let container = LayoutContainer {
+            layout_type: LayoutType::Vertical,
+            children: vec![
+                LayoutNode::Pane(0),
+                LayoutNode::Pane(1),
+                LayoutNode::Pane(2),
+            ],
+            shares: vec![1.0, 2.0, 1.0],
+        };
+        assert!((container.share_for(0) - 1.0).abs() < 0.001);
+        assert!((container.share_for(1) - 2.0).abs() < 0.001);
+        assert!((container.share_for(2) - 1.0).abs() < 0.001);
+        // Out of bounds defaults to 1.0
+        assert!((container.share_for(3) - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_layout_container_share_for_empty() {
+        let container = LayoutContainer {
+            layout_type: LayoutType::Tabs,
+            children: vec![LayoutNode::Pane(0)],
+            shares: Vec::new(),
+        };
+        assert!((container.share_for(0) - 1.0).abs() < 0.001);
+    }
+
+    // ==================== LayoutType Tests ====================
+
+    #[test]
+    fn test_layout_type_equality() {
+        assert_eq!(LayoutType::Horizontal, LayoutType::Horizontal);
+        assert_eq!(LayoutType::Vertical, LayoutType::Vertical);
+        assert_eq!(LayoutType::Tabs, LayoutType::Tabs);
+        assert_ne!(LayoutType::Horizontal, LayoutType::Vertical);
+        assert_ne!(LayoutType::Tabs, LayoutType::Horizontal);
+    }
+
+    #[test]
+    fn test_layout_type_serde() {
+        // Test serialization
+        let toml = r#"
+[workspace]
+name = "layout-test"
+
+[[panes]]
+query = "a"
+
+[[panes]]
+query = "b"
+
+[layout]
+type = "horizontal"
+children = [0, 1]
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        let layout = ws.layout.unwrap();
+        assert_eq!(layout.layout_type, LayoutType::Horizontal);
+    }
+
+    #[test]
+    fn test_layout_type_vertical_serde() {
+        let toml = r#"
+[workspace]
+name = "layout-test"
+
+[[panes]]
+query = "a"
+
+[[panes]]
+query = "b"
+
+[layout]
+type = "vertical"
+children = [0, 1]
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        let layout = ws.layout.unwrap();
+        assert_eq!(layout.layout_type, LayoutType::Vertical);
+    }
+
+    #[test]
+    fn test_layout_type_tabs_serde() {
+        let toml = r#"
+[workspace]
+name = "layout-test"
+
+[[panes]]
+query = "a"
+
+[[panes]]
+query = "b"
+
+[layout]
+type = "tabs"
+children = [0, 1]
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        let layout = ws.layout.unwrap();
+        assert_eq!(layout.layout_type, LayoutType::Tabs);
+    }
+
+    // ==================== Layout with Shares Tests ====================
+
+    #[test]
+    fn test_layout_with_shares() {
+        let toml = r#"
+[workspace]
+name = "layout-shares"
+
+[[panes]]
+query = "a"
+
+[[panes]]
+query = "b"
+
+[layout]
+type = "horizontal"
+children = [0, 1]
+shares = [0.25, 0.75]
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        let layout = ws.layout.unwrap();
+        assert_eq!(layout.shares.len(), 2);
+        assert!((layout.shares[0] - 0.25).abs() < 0.001);
+        assert!((layout.shares[1] - 0.75).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_nested_layout() {
+        let toml = r#"
+[workspace]
+name = "nested-layout"
+
+[[panes]]
+query = "a"
+
+[[panes]]
+query = "b"
+
+[[panes]]
+query = "c"
+
+[layout]
+type = "horizontal"
+children = [0, { type = "vertical", children = [1, 2] }]
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        let layout = ws.layout.unwrap();
+        assert_eq!(layout.layout_type, LayoutType::Horizontal);
+        assert_eq!(layout.children.len(), 2);
+
+        match &layout.children[0] {
+            LayoutNode::Pane(i) => assert_eq!(*i, 0),
+            _ => panic!("expected Pane"),
+        }
+
+        match &layout.children[1] {
+            LayoutNode::Container(c) => {
+                assert_eq!(c.layout_type, LayoutType::Vertical);
+                assert_eq!(c.children.len(), 2);
+            }
+            _ => panic!("expected Container"),
+        }
+    }
+
+    // ==================== ViewConfig Tests ====================
+
+    #[test]
+    fn test_view_config_default() {
+        let config = ViewConfig::default();
+        assert_eq!(config.theme, "dark");
+        assert!(!config.zen_mode);
+        assert!(config.is_default());
+    }
+
+    #[test]
+    fn test_view_config_is_default() {
+        let mut config = ViewConfig::default();
+        assert!(config.is_default());
+
+        config.theme = "light".to_string();
+        assert!(!config.is_default());
+
+        config.theme = "dark".to_string();
+        config.zen_mode = true;
+        assert!(!config.is_default());
+    }
+
+    #[test]
+    fn test_view_config_app_theme() {
+        let mut config = ViewConfig::default();
+        assert_eq!(config.app_theme(), AppTheme::Dark);
+
+        config.theme = "light".to_string();
+        assert_eq!(config.app_theme(), AppTheme::Light);
+
+        config.theme = "LIGHT".to_string();
+        assert_eq!(config.app_theme(), AppTheme::Light);
+
+        config.theme = "invalid".to_string();
+        assert_eq!(config.app_theme(), AppTheme::Dark); // Defaults to dark
+    }
+
+    // ==================== TimeConfig Tests ====================
+
+    #[test]
+    fn test_time_config_default() {
+        let config = TimeConfig::default();
+        assert_eq!(config.preset, "15m");
+        assert!(config.is_default());
+    }
+
+    #[test]
+    fn test_time_config_is_default() {
+        let mut config = TimeConfig::default();
+        assert!(config.is_default());
+
+        config.preset = "1h".to_string();
+        assert!(!config.is_default());
+    }
+
+    #[test]
+    fn test_time_config_from_preset() {
+        let config = TimeConfig::from_preset(TimeRangePreset::Last1Hour);
+        assert_eq!(config.preset, "1h");
+
+        let config = TimeConfig::from_preset(TimeRangePreset::Last7Days);
+        assert_eq!(config.preset, "7d");
+    }
+
+    #[test]
+    fn test_time_config_to_preset_all() {
+        let cases = [
+            ("5m", TimeRangePreset::Last5Minutes),
+            ("15m", TimeRangePreset::Last15Minutes),
+            ("30m", TimeRangePreset::Last30Minutes),
+            ("1h", TimeRangePreset::Last1Hour),
+            ("6h", TimeRangePreset::Last6Hours),
+            ("24h", TimeRangePreset::Last24Hours),
+            ("7d", TimeRangePreset::Last7Days),
+            ("invalid", TimeRangePreset::Last15Minutes), // Default fallback
+        ];
+
+        for (input, expected) in cases {
+            let config = TimeConfig {
+                preset: input.to_string(),
+            };
+            assert_eq!(config.to_preset(), expected, "Failed for input: {input}");
+        }
+    }
+
+    // ==================== ConnectionConfig Tests ====================
+
+    #[test]
+    fn test_connection_config_default() {
+        let config = ConnectionConfig::default();
+        assert!(config.endpoint.is_empty());
+        assert!(config.api_key.is_empty());
+        assert!(config.is_empty());
+    }
+
+    #[test]
+    fn test_connection_config_with_endpoint() {
+        let config = ConnectionConfig::with_endpoint("https://api.example.com");
+        assert_eq!(config.endpoint, "https://api.example.com");
+        assert!(config.api_key.is_empty());
+        assert!(!config.is_empty());
+    }
+
+    #[test]
+    fn test_connection_config_is_empty() {
+        let mut config = ConnectionConfig::default();
+        assert!(config.is_empty());
+
+        config.endpoint = "http://localhost".to_string();
+        assert!(!config.is_empty());
+
+        config.endpoint = String::new();
+        config.api_key = "key".to_string();
+        assert!(!config.is_empty());
+    }
+
+    // ==================== PaneConfig Builder Tests ====================
+
+    #[test]
+    fn test_pane_config_builder() {
+        let pane = PaneConfig::new("sum(*) by (host)")
+            .with_name("Host Metrics")
+            .with_tag("Important")
+            .with_granularity(Granularity::OneHour)
+            .with_visualization(VisualizationType::Stat);
+
+        assert_eq!(pane.query, "sum(*) by (host)");
+        assert_eq!(pane.name, "Host Metrics");
+        assert_eq!(pane.tag, "Important");
+        assert_eq!(pane.granularity, "1h");
+        assert_eq!(pane.visualization, "stat");
+    }
+
+    #[test]
+    fn test_pane_config_new_defaults() {
+        let pane = PaneConfig::new("query");
+        assert_eq!(pane.query, "query");
+        assert!(pane.name.is_empty());
+        assert!(pane.tag.is_empty());
+        assert_eq!(pane.granularity, "5m");
+        assert_eq!(pane.visualization, "time_series");
+    }
+
+    #[test]
+    fn test_pane_config_granularity_value_all() {
+        let cases = [
+            ("1m", Granularity::OneMinute),
+            ("5m", Granularity::FiveMinutes),
+            ("15m", Granularity::FifteenMinutes),
+            ("1h", Granularity::OneHour),
+            ("6h", Granularity::SixHours),
+            ("1d", Granularity::OneDay),
+            ("invalid", Granularity::FiveMinutes), // Default fallback
+        ];
+
+        for (input, expected) in cases {
+            let pane = PaneConfig {
+                query: "test".to_string(),
+                name: String::new(),
+                tag: String::new(),
+                granularity: input.to_string(),
+                visualization: "time_series".to_string(),
+            };
+            assert_eq!(pane.granularity_value(), expected, "Failed for: {input}");
+        }
+    }
+
+    #[test]
+    fn test_pane_config_from_query_state_with_viz() {
+        let state = QueryState {
+            granularity: Granularity::OneMinute,
+            time_range_label: "1h".to_string(),
+        };
+        let pane = PaneConfig::from_query_state_with_viz(
+            "sum(*)",
+            "Test",
+            "MyTag",
+            &state,
+            VisualizationType::Stat,
+        );
+
+        assert_eq!(pane.query, "sum(*)");
+        assert_eq!(pane.name, "Test");
+        assert_eq!(pane.tag, "MyTag");
+        assert_eq!(pane.granularity, "1m");
+        assert_eq!(pane.visualization, "stat");
+    }
+
+    // ==================== WorkspaceMeta Tests ====================
+
+    #[test]
+    fn test_workspace_meta_version() {
+        let toml = r#"
+[workspace]
+name = "versioned"
+version = 1
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.workspace.version, 1);
+    }
+
+    #[test]
+    fn test_workspace_meta_default_version() {
+        let toml = r#"
+[workspace]
+name = "no-version"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.workspace.version, WORKSPACE_VERSION);
+    }
+
+    // ==================== WorkspaceConfig Tests ====================
+
+    #[test]
+    fn test_workspace_config_new() {
+        let ws = WorkspaceConfig::new("my-workspace");
+        assert_eq!(ws.workspace.name, "my-workspace");
+        assert!(ws.workspace.description.is_empty());
+        assert_eq!(ws.workspace.version, WORKSPACE_VERSION);
+        assert!(ws.connection.is_empty());
+        assert!(ws.panes.is_empty());
+        assert!(ws.layout.is_none());
+    }
+
+    #[test]
+    fn test_workspace_config_with_endpoint() {
+        let ws = WorkspaceConfig::with_endpoint("test", "https://api.example.com");
+        assert_eq!(ws.workspace.name, "test");
+        assert_eq!(ws.connection.endpoint, "https://api.example.com");
+    }
+
+    #[test]
+    fn test_workspace_config_add_pane() {
+        let mut ws = WorkspaceConfig::new("test");
+        assert!(ws.panes.is_empty());
+
+        ws.add_pane(PaneConfig::new("query1"));
+        assert_eq!(ws.panes.len(), 1);
+
+        ws.add_pane(PaneConfig::new("query2"));
+        assert_eq!(ws.panes.len(), 2);
+    }
+
+    #[test]
+    fn test_workspace_config_validate_ok() {
+        let ws = WorkspaceConfig::new("test");
+        assert!(ws.validate().is_ok());
+    }
+
+    #[test]
+    fn test_workspace_config_validate_unsupported_version() {
+        let toml = r#"
+[workspace]
+name = "future"
+version = 999
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        let result = ws.validate();
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            WorkspaceError::UnsupportedVersion(v) => assert_eq!(v, 999),
+            _ => panic!("expected UnsupportedVersion"),
+        }
+    }
+
+    #[test]
+    fn test_workspace_config_default_example() {
+        let ws = WorkspaceConfig::default_example();
+        assert!(!ws.workspace.name.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_config_default_demo() {
+        let ws = WorkspaceConfig::default_demo();
+        assert!(!ws.workspace.name.is_empty());
+    }
+
+    // ==================== WorkspaceError Tests ====================
+
+    #[test]
+    fn test_workspace_error_display_parse() {
+        let error =
+            WorkspaceError::Parse(toml::from_str::<WorkspaceConfig>("invalid").unwrap_err());
+        let msg = format!("{error}");
+        assert!(msg.contains("failed to parse workspace"));
+    }
+
+    #[test]
+    fn test_workspace_error_display_decode() {
+        let error = WorkspaceError::Decode("invalid base64".to_string());
+        let msg = format!("{error}");
+        assert!(msg.contains("decode error"));
+        assert!(msg.contains("invalid base64"));
+    }
+
+    #[test]
+    fn test_workspace_error_display_encode() {
+        let error = WorkspaceError::Encode("compression failed".to_string());
+        let msg = format!("{error}");
+        assert!(msg.contains("encode error"));
+        assert!(msg.contains("compression failed"));
+    }
+
+    #[test]
+    fn test_workspace_error_display_unsupported_version() {
+        let error = WorkspaceError::UnsupportedVersion(99);
+        let msg = format!("{error}");
+        assert!(msg.contains("unsupported workspace version: 99"));
+    }
+
+    // ==================== TOML Serialization Skip Tests ====================
+
+    #[test]
+    fn test_skip_default_values_in_serialization() {
+        let ws = WorkspaceConfig::new("test");
+        let toml = ws.to_toml().unwrap();
+
+        // Default values should be skipped
+        assert!(!toml.contains("theme")); // "dark" is default
+        assert!(!toml.contains("zen_mode"));
+        assert!(!toml.contains("preset")); // "15m" is default
+        assert!(!toml.contains("[connection]")); // Empty connection
+        assert!(!toml.contains("[time]")); // Default time
+        assert!(!toml.contains("[[panes]]")); // No panes
+    }
+
+    #[test]
+    fn test_include_non_default_values_in_serialization() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.view.theme = "light".to_string();
+        ws.view.zen_mode = true;
+        ws.time.preset = "1h".to_string();
+
+        let toml = ws.to_toml().unwrap();
+
+        assert!(toml.contains("theme = \"light\""));
+        assert!(toml.contains("zen_mode = true"));
+        assert!(toml.contains("preset = \"1h\""));
+    }
 }

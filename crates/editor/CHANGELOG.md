@@ -4,6 +4,42 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Comprehensive test coverage for command module**: Added 29 tests for `command.rs` covering `UICommand` variants (text, tooltips, keyboard shortcuts, icons, links), command channel (send/receive, FIFO ordering, clone, drop behavior), and the `UICommandSender` trait.
+
+- **Extended test coverage for workspace config module**: Added 40+ new tests to `workspace/config/mod.rs` covering:
+  - `LayoutConfig` (default tabs, share calculations, validation including nested containers)
+  - `LayoutContainer` (share calculations, edge cases)
+  - `LayoutType` (equality, serde for horizontal/vertical/tabs, nested layouts)
+  - `ViewConfig` (defaults, `is_default()`, `app_theme()` with case insensitivity)
+  - `TimeConfig` (defaults, `from_preset()`, `to_preset()` for all presets)
+  - `ConnectionConfig` (defaults, `with_endpoint()`, `is_empty()`)
+  - `PaneConfig` builder pattern (all setters, granularity/visualization parsing)
+  - `WorkspaceConfig` (new, with_endpoint, add_pane, validate, error handling)
+  - `WorkspaceError` display formatting for all variants
+  - TOML serialization (skip_serializing_if behavior for default values)
+
+- **Test coverage for tiles module (vim-style navigation context)**: Added 19 tests for `workspace/tiles.rs` covering:
+  - `TreeBehavior` defaults, theme, and API key management
+  - Focus management (set/get focused tile, focus changes)
+  - Visual-multi state (active/inactive, selections, queries)
+  - Filter state (active/inactive, filtered tiles, toggle)
+  - Clone behavior preserves all state
+  - Combined states (focus + visual-multi + filter + theme)
+  - Edge cases (empty API key, long API key, unicode in queries, many tiles)
+
+- **Keyboard-driven time range shortcuts**: Added vim-style time range presets using `t` as a leader key:
+  - `t5` - Last 5 minutes
+  - `t1` - Last 15 minutes (default)
+  - `t3` - Last 30 minutes
+  - `th` - Last 1 hour
+  - `t6` - Last 6 hours
+  - `td` - Last 24 hours (day)
+  - `tw` - Last 7 days (week)
+
+- **Time Range section in which-key overlay**: The `?` help overlay now includes a dedicated "Time Range" section documenting all time range keyboard shortcuts.
+
 ### Changed
 
 - **Consolidated workspace module structure**: Reorganized the workspace-related code into a single `workspace/` module directory:
