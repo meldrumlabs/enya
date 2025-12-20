@@ -103,6 +103,8 @@ pub enum CommandResult {
     PrevWorkspaceTab,
     /// Open the interactive tutorial
     OpenTutorial,
+    /// Import a Grafana dashboard - carries the path to parse/convert
+    ImportGrafana(String),
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -248,6 +250,12 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &[],
         description: "Start the interactive tutorial",
         kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "import",
+        aliases: &["i"],
+        description: "Import Grafana dashboard JSON (import grafana <path>)",
+        kind: CommandKind::MultiArg,
     },
 ];
 
@@ -562,6 +570,31 @@ impl CommandPalette {
                 }
             }
             "tutorial" => CommandResult::OpenTutorial,
+            "import" => {
+                // :import grafana <path> - import a Grafana dashboard
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :import grafana <path>".to_string())
+                } else {
+                    let format = args[0].to_lowercase();
+                    match format.as_str() {
+                        "grafana" | "g" => {
+                            if args.len() < 2 {
+                                CommandResult::Error(
+                                    "Usage: :import grafana <path-to-dashboard.json>".to_string(),
+                                )
+                            } else {
+                                // Join remaining args as path (handles paths with spaces)
+                                let path = args[1..].join(" ");
+                                CommandResult::ImportGrafana(path)
+                            }
+                        }
+                        _ => CommandResult::Error(format!(
+                            "Unknown import format: {}. Supported: grafana",
+                            args[0]
+                        )),
+                    }
+                }
+            }
             _ => CommandResult::None,
         }
     }

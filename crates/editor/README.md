@@ -29,6 +29,7 @@ Press `:` to open the command palette (similar to neovim's command mode).
 | `:diagnostics` | `diag` | Toggle/show/hide/clear diagnostics |
 | `:tabnew` | | Create new workspace tab |
 | `:tabclose` | | Close current workspace tab |
+| `:import` | `i` | Import Grafana dashboard (`import grafana <path>`) |
 | `:info` | `version` | Show version and build info |
 | `:help` | `h` | Show help |
 
@@ -236,6 +237,53 @@ children = [
 endpoint = "http://localhost:9797"
 api_key = "optional-api-key"
 ```
+
+## Importing Grafana Dashboards
+
+Enya can import Grafana dashboard JSON exports and convert them to native workspace TOML format.
+
+### Usage
+
+```
+:import grafana /path/to/dashboard.json
+```
+
+Or use the short alias:
+
+```
+:i g /path/to/dashboard.json
+```
+
+### What Gets Converted
+
+| Grafana | Enya |
+|---------|------|
+| `timeseries` | `time_series` |
+| `stat` | `stat` |
+| `gauge` | `gauge` |
+| `barchart` | `bar` |
+| `heatmap` | `heatmap` |
+| `graph` (legacy) | `time_series` |
+
+### Features
+
+- **Layout preservation**: Grafana's 24-column grid layout is converted to i3-style nested horizontal/vertical containers
+- **Time range mapping**: Presets like `now-1h`, `now-6h` are mapped to Enya equivalents
+- **Query extraction**: Prometheus queries are extracted from panel targets
+- **Collapsed rows**: Panels inside collapsed row panels are included
+
+### Limitations
+
+- **Template variables**: Grafana's `$variable` syntax is preserved in queries but not dynamically resolved. A warning is shown in `:diagnostics`
+- **Unsupported panels**: Panel types like `logs`, `table`, `news` are skipped with warnings
+- **Panel options**: Visualization-specific options (thresholds, colors, overrides) are not converted
+
+### Exporting from Grafana
+
+1. Open your dashboard in Grafana
+2. Click the share icon (or press `s`)
+3. Select "Export" tab
+4. Click "Save to file" to download the JSON
 
 ## Building
 

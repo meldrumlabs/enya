@@ -62,6 +62,8 @@ pub enum DashboardAction {
     NextWorkspaceTab,
     /// Go to previous workspace tab
     PrevWorkspaceTab,
+    /// Parse and import a Grafana dashboard JSON file (app handles file I/O)
+    ImportGrafanaFile(String),
 }
 
 /// The main dashboard layout with a flexible viewport for tabbed views/charts.
@@ -973,6 +975,7 @@ impl Dashboard {
                 ctx.request_repaint();
                 DashboardAction::None
             }
+            CommandResult::ImportGrafana(path) => DashboardAction::ImportGrafanaFile(path),
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 DashboardAction::None
             }
@@ -2914,6 +2917,7 @@ impl Dashboard {
                 name: name.to_string(),
                 description: String::new(),
                 version: crate::workspace::WORKSPACE_VERSION,
+                includes: Vec::new(),
             },
             connection: endpoint.map_or_else(ConnectionConfig::default, |e| {
                 ConnectionConfig::with_endpoint(e)
@@ -3019,6 +3023,35 @@ impl Dashboard {
         } else {
             Some(workspace.connection.clone())
         }
+    }
+
+    /// Import a Grafana workspace and add any warnings to diagnostics
+    /// Returns the connection config if specified, and the workspace name
+    pub fn import_grafana_workspace(
+        &mut self,
+        workspace: &Workspace,
+        warnings: &[String],
+        theme: &mut AppTheme,
+    ) -> (Option<ConnectionConfig>, String) {
+        use super::components::diagnostics_pane::{Diagnostic, DiagnosticSource};
+
+        // Add warnings as diagnostics
+        for warning in warnings {
+            let diagnostic =
+                Diagnostic::warning(warning.clone()).with_source(DiagnosticSource::Import);
+            self.diagnostics_pane.add(diagnostic);
+        }
+
+        // If there are warnings, show the diagnostics pane
+        if !warnings.is_empty() {
+            self.diagnostics_visible = true;
+        }
+
+        // Load the workspace
+        let connection = self.load_workspace(workspace, theme);
+        let name = workspace.workspace.name.clone();
+
+        (connection, name)
     }
 
     /// Clear all panes from the viewport

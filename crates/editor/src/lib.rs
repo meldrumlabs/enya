@@ -5,6 +5,7 @@ pub mod command;
 pub mod components;
 pub mod connection;
 pub mod dashboard;
+pub mod grafana;
 mod theme;
 pub mod ui;
 pub mod util;

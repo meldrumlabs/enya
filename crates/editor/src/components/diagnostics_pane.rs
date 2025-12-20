@@ -113,6 +113,8 @@ pub enum DiagnosticSource {
     DataConnection,
     /// Performance hint
     Performance,
+    /// Import operation (e.g., Grafana dashboard import)
+    Import,
     /// Unknown/other source
     Unknown,
 }
@@ -125,6 +127,7 @@ impl DiagnosticSource {
             Self::QueryValidation => "validation",
             Self::DataConnection => "connection",
             Self::Performance => "performance",
+            Self::Import => "import",
             Self::Unknown => "unknown",
         }
     }
