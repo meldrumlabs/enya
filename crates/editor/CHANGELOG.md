@@ -4,6 +4,19 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Keyboard-driven time range shortcuts**: Added vim-style time range presets using `t` as a leader key:
+  - `t5` - Last 5 minutes
+  - `t1` - Last 15 minutes (default)
+  - `t3` - Last 30 minutes
+  - `th` - Last 1 hour
+  - `t6` - Last 6 hours
+  - `td` - Last 24 hours (day)
+  - `tw` - Last 7 days (week)
+
+- **Time Range section in which-key overlay**: The `?` help overlay now includes a dedicated "Time Range" section documenting all time range keyboard shortcuts.
+
 ### Changed
 
 - **Consolidated workspace module structure**: Reorganized the workspace-related code into a single `workspace/` module directory:

@@ -7,7 +7,7 @@
 use egui_tiles::{Tile, TileId};
 
 use super::{NavDirection, Workspace, WorkspaceAction};
-use crate::components::{Buffer, BufferMode, EditExcerpt, QueryPane};
+use crate::components::{Buffer, BufferMode, EditExcerpt, QueryPane, TimeRangePreset};
 
 impl Workspace {
     /// Handle vim-style keyboard navigation for the viewport.
@@ -61,6 +61,7 @@ impl Workspace {
         let mut should_toggle_diagnostics = false;
         let mut should_edit_buffer = false;
         let mut new_tile_id: Option<TileId> = None;
+        let mut time_range_preset: Option<TimeRangePreset> = None;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -159,6 +160,71 @@ impl Workspace {
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                     should_toggle_diagnostics = true;
                     self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+            }
+
+            // t - time range leader key (t5, t1, t3, th, t6, td, tw)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
+                let now = crate::util::Instant::now();
+                self.last_t_press = Some(now);
+                consumed = true;
+                return;
+            }
+
+            // Time range shortcuts (must follow 't' within 500ms)
+            let t_active = self.last_t_press.is_some_and(|last| {
+                crate::util::Instant::now().duration_since(last).as_millis() < 500
+            });
+
+            if t_active {
+                // t5 - Last 5 minutes
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Num5) {
+                    time_range_preset = Some(TimeRangePreset::Last5Minutes);
+                    self.last_t_press = None;
+                    consumed = true;
+                    return;
+                }
+                // t1 - Last 15 minutes (default, easy to type)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Num1) {
+                    time_range_preset = Some(TimeRangePreset::Last15Minutes);
+                    self.last_t_press = None;
+                    consumed = true;
+                    return;
+                }
+                // t3 - Last 30 minutes
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Num3) {
+                    time_range_preset = Some(TimeRangePreset::Last30Minutes);
+                    self.last_t_press = None;
+                    consumed = true;
+                    return;
+                }
+                // th - Last 1 hour
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
+                    time_range_preset = Some(TimeRangePreset::Last1Hour);
+                    self.last_t_press = None;
+                    consumed = true;
+                    return;
+                }
+                // t6 - Last 6 hours
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Num6) {
+                    time_range_preset = Some(TimeRangePreset::Last6Hours);
+                    self.last_t_press = None;
+                    consumed = true;
+                    return;
+                }
+                // td - Last 24 hours (day)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                    time_range_preset = Some(TimeRangePreset::Last24Hours);
+                    self.last_t_press = None;
+                    consumed = true;
+                    return;
+                }
+                // tw - Last 7 days (week)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                    time_range_preset = Some(TimeRangePreset::Last7Days);
+                    self.last_t_press = None;
                     consumed = true;
                     return;
                 }
@@ -287,6 +353,13 @@ impl Workspace {
         if should_prev_workspace_tab {
             ctx.request_repaint();
             return Some(WorkspaceAction::PrevWorkspaceTab);
+        }
+
+        // Handle time range preset changes (t5, t1, th, td, tw, etc.)
+        if let Some(preset) = time_range_preset {
+            self.time_range_toolbar.set_preset(preset);
+            log::debug!("Time range set to {preset:?} via keyboard");
+            ctx.request_repaint();
         }
 
         // Handle workspace finder (w key)

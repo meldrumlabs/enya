@@ -185,28 +185,36 @@ impl WhichKey {
                 ],
             },
             KeybindingGroup {
-                name: "Chart Controls",
-                icon: semantic_icons::action::CHART,
+                name: "Time Range",
+                icon: semantic_icons::time::CLOCK,
                 bindings: vec![
                     Keybinding {
-                        key: "+ / =",
-                        description: "Zoom in time range",
+                        key: "t5",
+                        description: "Last 5 minutes",
                     },
                     Keybinding {
-                        key: "- / _",
-                        description: "Zoom out time range",
+                        key: "t1",
+                        description: "Last 15 minutes",
                     },
                     Keybinding {
-                        key: "[ / {",
-                        description: "Pan time left",
+                        key: "t3",
+                        description: "Last 30 minutes",
                     },
                     Keybinding {
-                        key: "] / }",
-                        description: "Pan time right",
+                        key: "th",
+                        description: "Last 1 hour",
                     },
                     Keybinding {
-                        key: "0",
-                        description: "Reset to default range",
+                        key: "t6",
+                        description: "Last 6 hours",
+                    },
+                    Keybinding {
+                        key: "td",
+                        description: "Last 24 hours (day)",
+                    },
+                    Keybinding {
+                        key: "tw",
+                        description: "Last 7 days (week)",
                     },
                 ],
             },

@@ -137,6 +137,8 @@ pub struct Workspace {
     last_c_press: Option<crate::util::Instant>,
     /// Last time Space was pressed (for leader key sequences like Space+m, Space+q)
     last_space_press: Option<crate::util::Instant>,
+    /// Last time 't' was pressed (for time range shortcuts like t5, th, td)
+    last_t_press: Option<crate::util::Instant>,
     /// Info overlay (shows build/version info)
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
@@ -198,6 +200,7 @@ impl Default for Workspace {
             last_y_press: None,
             last_c_press: None,
             last_space_press: None,
+            last_t_press: None,
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             tutorial_overlay: TutorialOverlay::new(),
@@ -253,6 +256,7 @@ impl Workspace {
             last_y_press: None,
             last_c_press: None,
             last_space_press: None,
+            last_t_press: None,
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             tutorial_overlay: TutorialOverlay::new(),
