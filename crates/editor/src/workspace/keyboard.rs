@@ -1,0 +1,860 @@
+//! Keyboard input handling for workspace navigation.
+//!
+//! This module contains vim-style keyboard navigation handlers for the workspace,
+//! including normal mode navigation (h/j/k/l), visual-multi mode selection,
+//! and leader key sequences (Space+m, Space+w, etc.).
+
+use egui_tiles::{Tile, TileId};
+
+use super::{NavDirection, Workspace, WorkspaceAction};
+use crate::components::{Buffer, BufferMode, EditExcerpt, QueryPane};
+
+impl Workspace {
+    /// Handle vim-style keyboard navigation for the viewport.
+    /// Returns an optional WorkspaceAction if a key triggered an action.
+    pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<WorkspaceAction> {
+        // Don't handle keys if a text field or modal has focus
+        if ctx.memory(|mem| mem.focused().is_some()) {
+            return None;
+        }
+
+        // Don't handle if any modal is open
+        if self.metrics_finder.is_open()
+            || self.workspace_finder.is_open()
+            || self.command_palette.is_open()
+            || self.buffer_editor.is_open()
+            || self.multi_edit_overlay.is_open()
+            || self.which_key.is_open()
+            || self.viewport_filter.is_open()
+            || self.tutorial_overlay.is_open()
+        {
+            return None;
+        }
+
+        // Handle visual-multi mode keyboard shortcuts
+        if self.visual_multi_state.is_some() {
+            return self.handle_visual_multi_keyboard(ctx);
+        }
+
+        // Check if any buffer is in insert mode - if so, don't handle navigation keys
+        if self.is_any_buffer_in_insert_mode() {
+            return None;
+        }
+
+        let pane_ids = self.get_pane_tile_ids();
+        let current_focus = self.behavior.focused_tile();
+
+        let mut consumed = false;
+        let mut should_clear_focus = false;
+        let mut should_close_focused = false;
+        let mut should_toggle_zen = false;
+        let mut should_toggle_fullscreen = false;
+        let mut should_share_pane = false;
+        let mut should_open_which_key = false;
+        let mut should_enter_visual_multi = false;
+        let mut should_cycle_visualization = false;
+        let mut should_next_workspace_tab = false;
+        let mut should_prev_workspace_tab = false;
+        let mut should_open_workspace_finder = false;
+        let mut should_open_metrics_finder = false;
+        let mut should_show_home = false;
+        let mut should_toggle_diagnostics = false;
+        let mut should_edit_buffer = false;
+        let mut new_tile_id: Option<TileId> = None;
+
+        ctx.input_mut(|input| {
+            // yy - share focused pane (vim-style yank)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Y) && current_focus.is_some() {
+                let now = crate::util::Instant::now();
+                if let Some(last_press) = self.last_y_press {
+                    // If second y within 500ms, trigger share
+                    if now.duration_since(last_press).as_millis() < 500 {
+                        should_share_pane = true;
+                        self.last_y_press = None;
+                        consumed = true;
+                        return;
+                    }
+                }
+                // First y - record time
+                self.last_y_press = Some(now);
+                consumed = true;
+                return;
+            }
+
+            // cv - cycle visualization type on focused pane (time series -> stat -> ...)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::C) && current_focus.is_some() {
+                let now = crate::util::Instant::now();
+                // Record c press time for cv detection
+                self.last_c_press = Some(now);
+                consumed = true;
+                return;
+            }
+
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::V) && current_focus.is_some() {
+                // Check if this is part of a cv sequence
+                if let Some(last_press) = self.last_c_press {
+                    let now = crate::util::Instant::now();
+                    if now.duration_since(last_press).as_millis() < 500 {
+                        should_cycle_visualization = true;
+                        self.last_c_press = None;
+                        consumed = true;
+                        return;
+                    }
+                }
+            }
+
+            // N - go to next workspace tab
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::N) {
+                should_next_workspace_tab = true;
+                consumed = true;
+                return;
+            }
+
+            // P - go to previous workspace tab
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::P) {
+                should_prev_workspace_tab = true;
+                consumed = true;
+                return;
+            }
+
+            // Space - leader key for sequences (Space+m, Space+q, Space+w)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                let now = crate::util::Instant::now();
+                self.last_space_press = Some(now);
+                consumed = true;
+                return;
+            }
+
+            // Leader key sequences (must follow Space within 500ms)
+            let space_active = self.last_space_press.is_some_and(|last| {
+                crate::util::Instant::now().duration_since(last).as_millis() < 500
+            });
+
+            if space_active {
+                // Space+m - open metrics finder
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
+                    should_open_metrics_finder = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+w - open workspace finder
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                    should_open_workspace_finder = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+h - show home/landing page
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
+                    should_show_home = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+
+                // Space+d - toggle diagnostics overlay
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                    should_toggle_diagnostics = true;
+                    self.last_space_press = None;
+                    consumed = true;
+                    return;
+                }
+            }
+
+            // e - enter edit mode on focused pane (vim-style)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
+                should_edit_buffer = true;
+                consumed = true;
+                return;
+            }
+
+            // Z - toggle zen mode (works even with no panes)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Z) {
+                should_toggle_zen = true;
+                consumed = true;
+                return;
+            }
+            // F - toggle fullscreen for focused pane
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+                should_toggle_fullscreen = true;
+                consumed = true;
+                return;
+            }
+
+            // Ctrl+V - enter visual-block (multi-select) mode
+            // If no pane is focused, auto-focus the first (topmost) pane
+            if input.consume_key(egui::Modifiers::CTRL, egui::Key::V) {
+                if current_focus.is_none() {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                should_enter_visual_multi = true;
+                consumed = true;
+                return;
+            }
+
+            // ? - open which-key help overlay (Shift+/ on US keyboards)
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::Slash) {
+                should_open_which_key = true;
+                consumed = true;
+                return;
+            }
+
+            // h or left arrow - move left
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+            {
+                if let Some(current_id) = current_focus {
+                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
+                } else {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // l or right arrow - move right
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+            {
+                if let Some(current_id) = current_focus {
+                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
+                } else {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // j or down arrow - move down
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+            {
+                if let Some(current_id) = current_focus {
+                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
+                } else {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // k or up arrow - move up
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+            {
+                if let Some(current_id) = current_focus {
+                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
+                } else {
+                    new_tile_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // x - close focused pane
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::X) && current_focus.is_some() {
+                should_close_focused = true;
+                consumed = true;
+                return;
+            }
+
+            // Escape - clear focus
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                should_clear_focus = true;
+                consumed = true;
+            }
+        });
+
+        // Handle share pane action (yy)
+        if should_share_pane {
+            if let Some(tile_id) = current_focus {
+                // Find the pane index for the focused tile
+                if let Some(pane_index) = self.get_pane_index(tile_id) {
+                    ctx.request_repaint();
+                    return Some(WorkspaceAction::SharePane(pane_index));
+                }
+            }
+        }
+
+        // Handle workspace tab navigation (gt/gT)
+        if should_next_workspace_tab {
+            ctx.request_repaint();
+            return Some(WorkspaceAction::NextWorkspaceTab);
+        }
+        if should_prev_workspace_tab {
+            ctx.request_repaint();
+            return Some(WorkspaceAction::PrevWorkspaceTab);
+        }
+
+        // Handle workspace finder (w key)
+        if should_open_workspace_finder {
+            self.pending_open_workspace_finder = true;
+            ctx.request_repaint();
+        }
+
+        // Handle metrics finder (m key)
+        if should_open_metrics_finder {
+            self.open_metrics_finder();
+            ctx.request_repaint();
+        }
+
+        if should_show_home {
+            self.show_landing = true;
+            self.close_all_charts();
+            ctx.request_repaint();
+        }
+
+        if should_toggle_diagnostics {
+            self.toggle_diagnostics();
+            ctx.request_repaint();
+        }
+
+        if should_open_which_key {
+            self.which_key.open();
+        } else if should_enter_visual_multi {
+            // Use the newly auto-focused tile if we set one, otherwise use current focus
+            let starting_tile = new_tile_id.or(current_focus);
+            if let Some(tile_id) = starting_tile {
+                self.enter_visual_multi_mode(tile_id);
+            }
+        } else if should_edit_buffer {
+            self.edit_focused_buffer();
+        } else if should_cycle_visualization {
+            self.cycle_focused_visualization();
+        } else if should_toggle_zen {
+            self.toggle_zen_mode();
+        } else if should_toggle_fullscreen {
+            self.toggle_fullscreen();
+        } else if should_close_focused {
+            if let Some(tile_id) = current_focus {
+                self.close_tile(tile_id);
+            }
+        } else if should_clear_focus {
+            self.behavior.set_focused_tile(None);
+        } else if let Some(tile_id) = new_tile_id {
+            // Set focus and also switch to that tab if it's in a tabs container
+            self.behavior.set_focused_tile(Some(tile_id));
+            self.activate_tile(tile_id);
+            // Trigger smooth scroll to bring the focused tile into view
+            self.scroll_to_focused_tile(ctx);
+        }
+
+        if consumed {
+            ctx.request_repaint();
+            log::debug!(
+                "Workspace navigation: focus is now {:?}",
+                self.behavior.focused_tile()
+            );
+        }
+
+        None
+    }
+
+    /// Handle keyboard input while in visual-multi mode.
+    pub(super) fn handle_visual_multi_keyboard(
+        &mut self,
+        ctx: &egui::Context,
+    ) -> Option<WorkspaceAction> {
+        let pane_ids = self.get_pane_tile_ids();
+
+        // Get current cursor position from visual-multi state
+        let cursor_tile_id = self
+            .visual_multi_state
+            .as_ref()
+            .and_then(|s| s.cursor_tile_id);
+
+        let mut consumed = false;
+        let mut should_exit = false;
+        let mut should_toggle_selection = false;
+        let mut should_select_all = false;
+        let mut should_clear_selection = false;
+        let mut should_open_multi_edit = false;
+        let mut should_close_selected = false;
+        let mut should_refresh_selected = false;
+        let mut new_cursor_id: Option<TileId> = None;
+
+        ctx.input_mut(|input| {
+            // Escape - exit visual-multi mode
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                should_exit = true;
+                consumed = true;
+                return;
+            }
+
+            // e - open multi-edit overlay for selected panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
+                should_open_multi_edit = true;
+                consumed = true;
+                return;
+            }
+
+            // x - close all selected panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::X) {
+                should_close_selected = true;
+                consumed = true;
+                return;
+            }
+
+            // r - refresh all selected panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::R) {
+                should_refresh_selected = true;
+                consumed = true;
+                return;
+            }
+
+            // Space - toggle selection on current pane
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                should_toggle_selection = true;
+                consumed = true;
+                return;
+            }
+
+            // a - select all panes
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                should_select_all = true;
+                consumed = true;
+                return;
+            }
+
+            // n - clear all selections (select none)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
+                should_clear_selection = true;
+                consumed = true;
+                return;
+            }
+
+            // j or down arrow - move cursor down
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+            {
+                if let Some(current_id) = cursor_tile_id {
+                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
+                } else {
+                    new_cursor_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // k or up arrow - move cursor up
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+            {
+                if let Some(current_id) = cursor_tile_id {
+                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
+                } else {
+                    new_cursor_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // h or left arrow - move cursor left
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+            {
+                if let Some(current_id) = cursor_tile_id {
+                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
+                } else {
+                    new_cursor_id = pane_ids.first().copied();
+                }
+                consumed = true;
+                return;
+            }
+
+            // l or right arrow - move cursor right
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+            {
+                if let Some(current_id) = cursor_tile_id {
+                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
+                } else {
+                    new_cursor_id = pane_ids.first().copied();
+                }
+                consumed = true;
+            }
+        });
+
+        // Apply actions
+        if should_exit {
+            self.exit_visual_multi_mode();
+            self.multi_buffer_state.reset();
+        } else if should_close_selected {
+            self.close_selected_panes();
+        } else if should_refresh_selected {
+            self.refresh_selected_panes();
+        } else if should_open_multi_edit {
+            self.open_multi_edit_for_selected();
+        } else if should_toggle_selection {
+            if let (Some(state), Some(tile_id)) = (self.visual_multi_state.as_mut(), cursor_tile_id)
+            {
+                state.toggle_selection(tile_id);
+            }
+        } else if should_select_all {
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                state.select_all(&pane_ids);
+            }
+        } else if should_clear_selection {
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                state.clear_selection();
+            }
+        } else if let Some(tile_id) = new_cursor_id {
+            // Move cursor to the new pane and select it (visual-line style)
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                state.set_cursor(tile_id);
+                // Auto-select the pane when navigating to it
+                state.selected_tile_ids.insert(tile_id);
+            }
+            // Also update the behavior's focused tile to show the focus border
+            self.behavior.set_focused_tile(Some(tile_id));
+            self.activate_tile(tile_id);
+            self.scroll_to_focused_tile(ctx);
+        }
+
+        if consumed {
+            ctx.request_repaint();
+            log::debug!(
+                "Visual-multi mode: cursor is now {:?}, {} selected, IDs: {:?}",
+                self.visual_multi_state
+                    .as_ref()
+                    .and_then(|s| s.cursor_tile_id),
+                self.visual_multi_selection_count(),
+                self.visual_multi_state.as_ref().map(|s| s
+                    .selected_tile_ids
+                    .iter()
+                    .copied()
+                    .collect::<Vec<_>>())
+            );
+        }
+
+        None
+    }
+
+    // =========================================================================
+    // Navigation Helpers
+    // =========================================================================
+
+    /// Get the pane index for a given tile ID (0-indexed position in the pane list).
+    pub(super) fn get_pane_index(&self, tile_id: TileId) -> Option<usize> {
+        self.get_pane_tile_ids()
+            .iter()
+            .position(|&id| id == tile_id)
+    }
+
+    /// Check if any buffer in the viewport is currently in insert mode.
+    pub(super) fn is_any_buffer_in_insert_mode(&self) -> bool {
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                // Check QueryPane
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    if query_pane.buffer_mode() == BufferMode::Insert {
+                        return true;
+                    }
+                }
+                // Check Buffer
+                if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                    if buffer.mode() == BufferMode::Insert {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Find sibling tile in a given direction, respecting container layout.
+    pub(super) fn find_sibling_in_direction(
+        &self,
+        current_id: TileId,
+        direction: NavDirection,
+    ) -> Option<TileId> {
+        // Find the parent container of the current tile
+        if let Some(root_id) = self.viewport_tree.root() {
+            return self.find_sibling_recursive(root_id, current_id, direction);
+        }
+        None
+    }
+
+    /// Recursively search for a sibling in the given direction.
+    fn find_sibling_recursive(
+        &self,
+        container_id: TileId,
+        target_id: TileId,
+        direction: NavDirection,
+    ) -> Option<TileId> {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+
+            // Check if target is a direct child
+            if let Some(idx) = children.iter().position(|&id| id == target_id) {
+                // Determine if direction matches container orientation
+                let container_kind = container.kind();
+                let container_is_horizontal = matches!(
+                    container_kind,
+                    egui_tiles::ContainerKind::Tabs
+                        | egui_tiles::ContainerKind::Horizontal
+                        | egui_tiles::ContainerKind::Grid
+                );
+                let container_is_vertical =
+                    matches!(container_kind, egui_tiles::ContainerKind::Vertical);
+
+                let nav_is_horizontal =
+                    matches!(direction, NavDirection::Left | NavDirection::Right);
+                let nav_is_vertical = matches!(direction, NavDirection::Up | NavDirection::Down);
+
+                // Navigate within this container if orientation matches
+                if (container_is_horizontal && nav_is_horizontal)
+                    || (container_is_vertical && nav_is_vertical)
+                {
+                    let next_idx = match direction {
+                        NavDirection::Left | NavDirection::Up => {
+                            if idx > 0 {
+                                Some(idx - 1)
+                            } else {
+                                None
+                            }
+                        }
+                        NavDirection::Right | NavDirection::Down => {
+                            if idx + 1 < children.len() {
+                                Some(idx + 1)
+                            } else {
+                                None
+                            }
+                        }
+                    };
+
+                    if let Some(next_idx) = next_idx {
+                        // Get the target tile (might be a container, so get first/last pane)
+                        let next_tile_id = children[next_idx];
+                        return Some(self.get_edge_pane(next_tile_id, direction));
+                    }
+                }
+                // Target is direct child but direction doesn't match container orientation
+                // No sibling in this direction at this level
+                return None;
+            }
+
+            // Check if target is in a nested container (target is NOT a direct child)
+            for &child_id in &children {
+                if child_id != target_id && self.contains_tile(child_id, target_id) {
+                    // First try to find sibling within the nested container
+                    if let Some(sibling) =
+                        self.find_sibling_recursive(child_id, target_id, direction)
+                    {
+                        return Some(sibling);
+                    }
+                    // If not found in nested container, try to find sibling at this level
+                    // by treating the nested container as the target
+                    return self.find_sibling_recursive(container_id, child_id, direction);
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if a container (recursively) contains a specific tile.
+    fn contains_tile(&self, container_id: TileId, target_id: TileId) -> bool {
+        if container_id == target_id {
+            return true;
+        }
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            for child_id in container.children() {
+                if self.contains_tile(*child_id, target_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Get the first or last pane within a tile (handles nested containers).
+    fn get_edge_pane(&self, tile_id: TileId, direction: NavDirection) -> TileId {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(tile_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+            if !children.is_empty() {
+                // When navigating right/down, get the first child; when left/up, get the last
+                let edge_child = match direction {
+                    NavDirection::Right | NavDirection::Down => children[0],
+                    NavDirection::Left | NavDirection::Up => children[children.len() - 1],
+                };
+                return self.get_edge_pane(edge_child, direction);
+            }
+        }
+        // It's a pane or empty container
+        tile_id
+    }
+
+    // =========================================================================
+    // Visual Multi-Select Mode Helpers
+    // =========================================================================
+
+    /// Enter visual-multi mode starting from the given pane.
+    pub(super) fn enter_visual_multi_mode(&mut self, starting_tile_id: TileId) {
+        use super::VisualMultiState;
+
+        let pane_ids = self.get_pane_tile_ids();
+
+        // Validate that the starting tile exists in the current pane list
+        // (it might be stale after a :split operation)
+        let valid_starting_tile = if pane_ids.contains(&starting_tile_id) {
+            starting_tile_id
+        } else {
+            // Fall back to first pane if the starting tile is invalid
+            log::debug!(
+                "Starting tile {starting_tile_id:?} not found in panes, falling back to first pane"
+            );
+            match pane_ids.first() {
+                Some(&first) => first,
+                None => {
+                    log::debug!("No panes available for visual-multi mode");
+                    return;
+                }
+            }
+        };
+
+        log::debug!("Entering visual-multi mode with tile {valid_starting_tile:?}");
+        self.visual_multi_state = Some(VisualMultiState::new(valid_starting_tile));
+        // Sync the cursor to the behavior so the focus border is drawn
+        self.behavior.set_focused_tile(Some(valid_starting_tile));
+    }
+
+    /// Exit visual-multi mode.
+    pub(super) fn exit_visual_multi_mode(&mut self) {
+        log::debug!("Exiting visual-multi mode");
+        self.visual_multi_state = None;
+    }
+
+    /// Close all selected panes in visual-multi mode.
+    pub(super) fn close_selected_panes(&mut self) {
+        let selected_ids: Vec<TileId> = self
+            .visual_multi_state
+            .as_ref()
+            .map(|s| s.selected_tile_ids.iter().copied().collect())
+            .unwrap_or_default();
+
+        if selected_ids.is_empty() {
+            log::debug!("No panes selected to close");
+            return;
+        }
+
+        log::debug!(
+            "Closing {} selected panes: {:?}",
+            selected_ids.len(),
+            selected_ids
+        );
+
+        // Close each selected tile
+        for tile_id in selected_ids {
+            self.close_tile(tile_id);
+        }
+
+        // Exit visual-multi mode after closing
+        self.exit_visual_multi_mode();
+        self.multi_buffer_state.reset();
+    }
+
+    /// Refresh all selected panes in visual-multi mode.
+    pub(super) fn refresh_selected_panes(&mut self) {
+        let selected_ids: Vec<TileId> = self
+            .visual_multi_state
+            .as_ref()
+            .map(|s| s.selected_tile_ids.iter().copied().collect())
+            .unwrap_or_default();
+
+        if selected_ids.is_empty() {
+            log::debug!("No panes selected to refresh");
+            return;
+        }
+
+        log::debug!(
+            "Refreshing {} selected panes: {:?}",
+            selected_ids.len(),
+            selected_ids
+        );
+
+        // Refresh each selected pane
+        for tile_id in selected_ids {
+            if let Some(egui_tiles::Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
+                    query_pane.refresh();
+                }
+            }
+        }
+    }
+
+    /// Open the multi-edit overlay for all selected panes in visual-multi mode.
+    pub(super) fn open_multi_edit_for_selected(&mut self) {
+        let selected_ids: Vec<TileId> = self
+            .visual_multi_state
+            .as_ref()
+            .map(|s| s.selected_tile_ids.iter().copied().collect())
+            .unwrap_or_default();
+
+        log::debug!(
+            "open_multi_edit_for_selected: {} tile IDs selected: {:?}",
+            selected_ids.len(),
+            selected_ids
+        );
+
+        if selected_ids.is_empty() {
+            log::debug!("No panes selected for multi-edit");
+            return;
+        }
+
+        // Collect excerpts from selected panes
+        let mut excerpts = Vec::new();
+        for tile_id in &selected_ids {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(*tile_id)
+            {
+                // Try to get query content from QueryPane
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    log::debug!(
+                        "  tile {:?} -> QueryPane '{}' with query '{}'",
+                        tile_id,
+                        query_pane.name(),
+                        query_pane.query()
+                    );
+                    excerpts.push(EditExcerpt::new(
+                        query_pane.id(),
+                        query_pane.name().to_string(),
+                        query_pane.query().to_string(),
+                    ));
+                }
+                // Try to get content from Buffer
+                else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                    log::debug!(
+                        "  tile {:?} -> Buffer '{}' with content '{}'",
+                        tile_id,
+                        buffer.name(),
+                        buffer.content()
+                    );
+                    excerpts.push(EditExcerpt::new(
+                        buffer.id(),
+                        buffer.name().to_string(),
+                        buffer.content().to_string(),
+                    ));
+                } else {
+                    log::debug!(
+                        "  tile {tile_id:?} -> Unknown component type (not QueryPane or Buffer)"
+                    );
+                }
+            } else {
+                log::debug!("  tile {tile_id:?} -> Not found or not a Pane");
+            }
+        }
+
+        if excerpts.is_empty() {
+            log::debug!("No query panes found in selection");
+            return;
+        }
+
+        log::debug!("Opening multi-edit with {} excerpts", excerpts.len());
+        self.multi_edit_overlay.open(excerpts);
+
+        // Exit visual-multi mode when opening the overlay
+        self.exit_visual_multi_mode();
+    }
+}

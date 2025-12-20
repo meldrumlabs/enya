@@ -4,6 +4,70 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Consolidated workspace module structure**: Reorganized the workspace-related code into a single `workspace/` module directory:
+  - `Dashboard` → `Viewport` → `Workspace` (the runtime pane layout manager)
+  - `Workspace` → `WorkspaceConfig` (the serialization/config struct)
+  - `DashboardAction` → `ViewportAction` → `WorkspaceAction`
+  - `dashboard.rs` → `viewport.rs` → `workspace/mod.rs`
+  - `workspace.rs` → `workspace/config.rs`
+  - This aligns internal naming with user-facing terminology where "Workspace" is the concept users interact with.
+
+- **Centralized ID generation**: Replaced 8+ scattered `AtomicUsize`/`AtomicU64` static counters throughout the codebase with a single centralized `id_generator` module. This ensures unique IDs across all component types and eliminates duplicate ID generation patterns. The new module provides `next_id()` and `next_id_usize()` functions.
+
+- **Reorganized components into categorized subdirectories**: Split the flat 27-file `components/` directory into four focused subdirectories:
+  - `components/pane/` - Tile content types (query_pane, flamegraph, heatmap, time_series_chart, visualization)
+  - `components/overlay/` - Modal UI (command_palette, metrics_finder, diagnostics, buffer_editor, info, multi_edit, tutorial, viewport_filter, which_key, workspace_finder)
+  - `components/widget/` - Reusable UI elements (buffer, landing_page, notifications, status_line, time_range)
+  - `components/util/` - Non-UI helpers (finder_utils, id_generator, multi_buffer, query_completion, query_executor, query_state, query_validation)
+  - All types are re-exported from `components/mod.rs` for backwards compatibility.
+
+- **Split workspace module into submodules**: Extracted independent types from `workspace/mod.rs` into focused submodules:
+  - `workspace/input.rs` - Navigation direction enum (`NavDirection`) and visual multi-select state (`VisualMultiState`)
+  - `workspace/tiles.rs` - `TreeBehavior` struct implementing `egui_tiles::Behavior` for pane rendering, focus borders, and filter overlays
+  - `workspace/keyboard.rs` - Vim-style keyboard navigation handlers (`handle_viewport_keyboard`, `handle_visual_multi_keyboard`), navigation helpers, and visual-multi mode operations (~860 lines)
+  - `workspace/serialization.rs` - Workspace save/load methods (`to_workspace_config`, `load_workspace_config`) and layout tree building/extraction (~350 lines)
+  - `workspace/query.rs` - Query execution coordination (`process_query_execution`), polling for results, and triggering pane refreshes (~230 lines)
+  - `workspace/overlays.rs` - Diagnostics overlay management methods (`toggle_diagnostics`, `show_diagnostics`, etc.) (~60 lines)
+  - `workspace/panes.rs` - Pane management (add, close, split panes), tile tree queries, and activation (~290 lines)
+  - `workspace/finders.rs` - Metrics finder and workspace finder modal methods, including demo/Prometheus metric item generation (~230 lines)
+  - `workspace/rendering.rs` - Filtered view rendering, custom scrollbar, and scroll-to-focused-tile (~210 lines)
+  - The main `Workspace` struct and core methods remain in `mod.rs` (~1190 lines, down from ~1940).
+
+- **Split visualization module into submodules**: Reorganized the large `visualization.rs` file (1912 lines) into a focused `visualization/` module directory:
+  - `visualization/mod.rs` - Core `VisualizationType` enum, `Visualization` wrapper enum, and common constants (~520 lines)
+  - `visualization/stat.rs` - `StatChart` for big number display with sparkline and change indicators (~280 lines)
+  - `visualization/gauge.rs` - `GaugeChart` for circular percentage/utilization gauges (~260 lines)
+  - `visualization/bar.rs` - `Bar` and `BarChartViz` for horizontal bar charts (~240 lines)
+  - `visualization/sparkline.rs` - `SparklineViz` for compact inline line charts (~200 lines)
+  - `visualization/demo.rs` - Demo data population functions for all visualization types (~270 lines)
+  - All types are re-exported from `pane/mod.rs` for backwards compatibility.
+
+- **Split app module into submodules**: Reorganized the large `app.rs` file (~1485 lines) into a focused `app/` module directory:
+  - `app/mod.rs` - Core `EnyaApp` struct, `eframe::App` implementation, UI command handling, and titlebar rendering (~510 lines)
+  - `app/state.rs` - `AppState`, `UIState`, and `EditorMetrics` types for persisted state and frame time tracking (~95 lines)
+  - `app/workspace_io.rs` - Workspace save/load/share/list operations with platform-specific implementations for native (TOML files) and WASM (base64 URL encoding) (~490 lines)
+
+- **Split workspace config module into submodules**: Reorganized `workspace/config.rs` (~1,630 lines) into a focused `config/` module directory:
+  - `config/mod.rs` - Core types (`WorkspaceConfig`, `WorkspaceMeta`, `ConnectionConfig`, `ViewConfig`, `TimeConfig`, `PaneConfig`), layout types (`LayoutConfig`, `LayoutType`, `LayoutNode`, `LayoutContainer`), `WorkspaceError` enum, and all tests (~640 lines)
+  - `config/compact.rs` - Compact binary encoding for URL sharing using postcard + LZ4 compression (`CompactWorkspaceConfig`, `CompactLayout`, `CompactSinglePane`, `CompactPane`, `decode_workspace()`, `encode_workspace()`, `encode_pane()`) (~440 lines)
+  - `config/templates.rs` - Default workspace TOML templates (`DEFAULT_WORKSPACE_TOML`, `COMPLEX_VIEWPORT_TOML`, `DEMO_WORKSPACE_TOML`) (~150 lines)
+
+- **Shared overlay styling system**: Consolidated duplicate styling code across modal overlay components into shared utilities in `finder_utils.rs`:
+  - `OverlayColors` - Theme-aware colors (text, muted_text, faint_text, accent, separator, elevated_bg, badge_bg)
+  - `draw_separator()` / `draw_separator_colored()` - Horizontal separator lines at cursor position
+  - `render_key_badge()` / `render_key_badge_large()` - Styled keyboard key badges (e.g., `Esc`, `⌘K`)
+  - `draw_backdrop()` - Semi-transparent backdrop overlay for modals
+  - Updated `which_key.rs`, `tutorial.rs`, `multi_edit.rs`, and `buffer_editor.rs` to use shared utilities, reducing code duplication.
+
+- **Generic `Finder<T>` abstraction**: Created a reusable fuzzy finder component in `components/util/finder.rs` that extracts common patterns from finder modals:
+  - `FinderItem` trait - Define how items are displayed and searched (`search_text()`, `icon()`, `secondary_text()`)
+  - `FinderConfig` - Configuration for placeholder text, icons, preview pane, and empty state messages
+  - `Finder<T>` - Generic finder with fuzzy matching via `nucleo`, keyboard navigation, match highlighting, and optional preview pane
+  - `show_with_preview()` - Callback-based preview pane rendering for custom preview content
+  - Refactored `MetricsFinder` and `WorkspaceFinder` to use the generic `Finder<T>`, reducing ~320 lines of duplicate code while maintaining full functionality including the metrics preview pane with tag display.
+
 ### Added
 
 - **DemoMetricsClient for offline demo mode**: Added a new `DemoMetricsClient` in the `enya-client` crate that implements the `MetricsClient` trait with realistic mock data. The demo client provides:
