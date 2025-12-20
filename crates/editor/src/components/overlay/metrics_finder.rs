@@ -173,6 +173,7 @@ impl MetricsFinder {
     /// Shows the metrics finder modal.
     ///
     /// Returns `Some(metric)` if the user selected a metric this frame.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> Option<MetricItem> {
         let theme = self.finder.theme();
         self.finder.show_with_preview(ctx, |ui, result, colors| {

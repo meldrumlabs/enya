@@ -43,6 +43,8 @@ serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 # nohash-hasher comes transitively from egui, pin to same version
 nohash-hasher = "0.2"
+# Zero-cost profiling abstraction - macros compile to nothing without a backend
+profiling = { version = "1.0", default-features = false }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -83,6 +85,25 @@ chrono = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+insta = { version = "1.43", features = ["toml"] }
+
+[features]
+default = []
+# Enable puffin profiling backend (use with puffin_viewer)
+puffin = ["profiling/profile-with-puffin", "dep:puffin", "dep:puffin_http"]
+# Enable tracy profiling backend (use with tracy profiler)
+tracy = ["profiling/profile-with-tracy"]
+
+[dependencies.puffin]
+version = "0.19"
+optional = true
+
+[dependencies.puffin_http]
+version = "0.16"
+optional = true
+
+# NOTE: egui_kittest requires Rust 1.88+ (we're on 1.85)
+# Add when rust-version is updated: egui_kittest = { version = "0.33", features = ["snapshot"] }
 
 [[bench]]
 name = "finder"

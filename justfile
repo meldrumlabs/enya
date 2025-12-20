@@ -55,6 +55,7 @@ lint: check-fmt clippy
 test:
     cargo nextest run {{ _features }} --cargo-profile ci
 
-# Runs a local CI check (enables --all-features)
-ci: 
-    just features=all lint machete test check-wasm
+# Runs a local CI check
+# Note: We don't use --all-features because puffin and tracy profiling backends are mutually exclusive
+ci:
+    just lint machete test check-wasm

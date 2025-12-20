@@ -605,6 +605,7 @@ impl TimeSeriesChart {
     }
 
     /// Render the chart
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_color = text_color(self.theme);
 

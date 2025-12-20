@@ -9,6 +9,7 @@ use crate::components::{Diagnostic, DiagnosticSource, ExecuteParams, QueryPane, 
 impl Workspace {
     /// Process query execution: poll for pending results and execute queries for panes that need refresh
     /// Returns a notification action if a connection status changed.
+    #[profiling::function]
     pub(super) fn process_query_execution(&mut self, ctx: &egui::Context) -> WorkspaceAction {
         // 0. Poll for health check completion
         let mut notification_action = WorkspaceAction::None;
