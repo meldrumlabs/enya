@@ -9,12 +9,14 @@ mod demo;
 mod gauge;
 mod sparkline;
 mod stat;
+mod suggester;
 
 pub use bar::{Bar, BarChartViz};
 pub use demo::populate_demo_data;
 pub use gauge::GaugeChart;
 pub use sparkline::SparklineViz;
 pub use stat::{StatChart, Threshold};
+pub use suggester::{ResultCharacteristics, suggest_visualization};
 
 use crate::theme::AppTheme;
 use crate::ui::semantic_icons;

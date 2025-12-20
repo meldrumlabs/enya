@@ -12,7 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
 
 use crate::error::ClientError;
-use enya_common::{MetricsBucket, MetricsGroup, QueryResponse};
+use enya_common::{MetricsBucket, MetricsGroup, QueryResponse, ResultType};
 
 /// Prometheus API response wrapper for query endpoints.
 #[derive(Debug, Deserialize)]
@@ -131,6 +131,15 @@ pub fn parse_response(
         .data
         .ok_or_else(|| ClientError::ParseError("missing data field".to_string()))?;
 
+    // Parse result_type string to enum
+    let result_type = match data.result_type.as_str() {
+        "matrix" => ResultType::Matrix,
+        "vector" => ResultType::Vector,
+        "scalar" => ResultType::Scalar,
+        "string" => ResultType::String,
+        _ => ResultType::Matrix, // Default fallback
+    };
+
     // Convert Prometheus results to MetricsGroups
     let groups = data.result.into_iter().map(convert_result).collect();
 
@@ -145,6 +154,7 @@ pub fn parse_response(
         end: None,
         granularity_ns,
         groups,
+        result_type,
     })
 }
 
@@ -311,6 +321,7 @@ mod tests {
             .expect("should parse");
 
         assert_eq!(response.metric, "cpu_usage");
+        assert_eq!(response.result_type, ResultType::Matrix);
         assert_eq!(response.groups.len(), 1);
 
         let group = &response.groups[0];
@@ -527,5 +538,57 @@ mod tests {
             }
             _ => panic!("expected BackendError"),
         }
+    }
+
+    // === Result type tests ===
+
+    #[test]
+    fn test_parse_result_type_vector() {
+        let json = r#"{
+            "status": "success",
+            "data": {
+                "resultType": "vector",
+                "result": [
+                    {
+                        "metric": {"env": "prod"},
+                        "values": [[1700000000, "42"]]
+                    }
+                ]
+            }
+        }"#;
+
+        let response =
+            parse_response(json.as_bytes(), "metric", "*", 60_000_000_000).expect("should parse");
+        assert_eq!(response.result_type, ResultType::Vector);
+    }
+
+    #[test]
+    fn test_parse_result_type_scalar() {
+        let json = r#"{
+            "status": "success",
+            "data": {
+                "resultType": "scalar",
+                "result": []
+            }
+        }"#;
+
+        let response =
+            parse_response(json.as_bytes(), "metric", "*", 60_000_000_000).expect("should parse");
+        assert_eq!(response.result_type, ResultType::Scalar);
+    }
+
+    #[test]
+    fn test_parse_result_type_string() {
+        let json = r#"{
+            "status": "success",
+            "data": {
+                "resultType": "string",
+                "result": []
+            }
+        }"#;
+
+        let response =
+            parse_response(json.as_bytes(), "metric", "*", 60_000_000_000).expect("should parse");
+        assert_eq!(response.result_type, ResultType::String);
     }
 }

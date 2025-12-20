@@ -11,7 +11,9 @@ use enya_client::{
 };
 
 use crate::components::pane::time_series_chart::{DataPoint, Series};
-use crate::components::pane::visualization::Visualization;
+use crate::components::pane::visualization::{
+    ResultCharacteristics, Visualization, VisualizationType, suggest_visualization,
+};
 
 /// Backend type for query execution.
 #[derive(Debug, Clone, PartialEq)]
@@ -39,6 +41,8 @@ pub enum QueryPollResult {
         series_count: usize,
         /// Total number of data points
         point_count: usize,
+        /// Suggested visualization type based on result characteristics
+        suggested_viz: VisualizationType,
     },
     /// Query failed with an error
     Error(String),
@@ -440,6 +444,7 @@ impl QueryExecutor {
     /// Poll for query completion and update visualization if ready.
     ///
     /// Returns the poll result indicating pending, complete, or error.
+    /// The result includes a suggested visualization type based on the query results.
     pub fn poll(&mut self, visualization: &mut Visualization) -> QueryPollResult {
         if let Some(result) = self.query_manager.poll() {
             match result {
@@ -450,15 +455,21 @@ impl QueryExecutor {
                     };
                     let series_count = response.groups.len();
                     let point_count: usize = response.groups.iter().map(|g| g.buckets.len()).sum();
+
+                    // Compute visualization suggestion based on result characteristics
+                    let chars = ResultCharacteristics::from_response(&response);
+                    let suggested_viz = suggest_visualization(&chars);
                     log::info!(
-                        "{backend_name} query completed: {series_count} groups, {point_count} total points"
+                        "{backend_name} query completed: {series_count} groups, {point_count} total points (suggested: {suggested_viz:?})"
                     );
+
                     visualization.clear();
                     visualization.set_metric_name(&response.metric);
                     populate_from_response(visualization, &response);
                     QueryPollResult::Complete {
                         series_count,
                         point_count,
+                        suggested_viz,
                     }
                 }
                 Err(e) => {

@@ -244,6 +244,8 @@ pub async fn query_handler(
                 end: end_ts,
                 granularity_ns: granularity,
                 groups,
+                // Enya's internal query engine always returns range (matrix) results
+                result_type: enya_common::ResultType::Matrix,
             };
 
             // Check Accept header for content negotiation
