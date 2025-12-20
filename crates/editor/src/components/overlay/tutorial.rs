@@ -3,7 +3,7 @@
 //! Inspired by vim's `:tutor` command, this component provides a step-by-step
 //! walkthrough of the editor's features in a modal overlay.
 
-use egui::{Color32, Key, RichText};
+use egui::{Key, RichText};
 
 use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
@@ -11,7 +11,7 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::{OverlayStyle, render_key_badge_large};
 
 /// A single step in the tutorial
 #[derive(Clone)]
@@ -351,7 +351,7 @@ impl TutorialOverlay {
                         // Estimate badge width based on text
                         let badge_width = step.key_hint.len() as f32 * 10.0 + 24.0;
                         ui.add_space((available_width - badge_width) / 2.0);
-                        Self::render_key_badge(ui, step.key_hint, key_bg, accent_color);
+                        render_key_badge_large(ui, step.key_hint, key_bg, accent_color);
                     });
                     ui.add_space(24.0);
 
@@ -421,7 +421,7 @@ impl TutorialOverlay {
 
                         // Previous
                         if self.current_step > 0 {
-                            Self::render_key_badge(ui, "← h", key_bg, text_color(self.theme));
+                            render_key_badge_large(ui, "← h", key_bg, text_color(self.theme));
                             ui.label(
                                 RichText::new(" prev")
                                     .color(muted_text)
@@ -436,7 +436,7 @@ impl TutorialOverlay {
                         } else {
                             "next"
                         };
-                        Self::render_key_badge(ui, "→ l", key_bg, text_color(self.theme));
+                        render_key_badge_large(ui, "→ l", key_bg, text_color(self.theme));
                         ui.label(
                             RichText::new(format!(" {next_label}"))
                                 .color(muted_text)
@@ -453,7 +453,7 @@ impl TutorialOverlay {
                                     .color(muted_text)
                                     .size(typography::SM),
                             );
-                            Self::render_key_badge(ui, "Esc", key_bg, text_color(self.theme));
+                            render_key_badge_large(ui, "Esc", key_bg, text_color(self.theme));
 
                             ui.add_space(24.0);
 
@@ -463,7 +463,7 @@ impl TutorialOverlay {
                                     .color(muted_text)
                                     .size(typography::SM),
                             );
-                            Self::render_key_badge(ui, "t", key_bg, text_color(self.theme));
+                            render_key_badge_large(ui, "t", key_bg, text_color(self.theme));
                         });
                     });
 
@@ -488,20 +488,5 @@ impl TutorialOverlay {
         }
 
         should_close
-    }
-
-    /// Render a keyboard key badge
-    fn render_key_badge(ui: &mut egui::Ui, key: &str, bg_color: Color32, text_color: Color32) {
-        let font = typography::monospace(typography::MD);
-        let text = RichText::new(key).color(text_color).font(font);
-
-        egui::Frame::new()
-            .fill(bg_color)
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::symmetric(8, 4))
-            .stroke(egui::Stroke::new(1.0, text_color.gamma_multiply(0.2)))
-            .show(ui, |ui| {
-                ui.label(text);
-            });
     }
 }

@@ -11,7 +11,7 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::{OverlayStyle, render_key_badge};
 
 /// A keybinding with its key and description
 #[derive(Clone)]
@@ -373,13 +373,13 @@ impl WhichKey {
                                 .color(muted_text)
                                 .font(typography::proportional(typography::MD)),
                         );
-                        Self::render_key_badge(ui, "Esc", key_bg, accent_color);
+                        render_key_badge(ui, "Esc", key_bg, accent_color);
                         ui.label(
                             RichText::new(" or ")
                                 .color(muted_text)
                                 .font(typography::proportional(typography::MD)),
                         );
-                        Self::render_key_badge(ui, "?", key_bg, accent_color);
+                        render_key_badge(ui, "?", key_bg, accent_color);
                         ui.label(
                             RichText::new(" to close")
                                 .color(muted_text)
@@ -429,7 +429,7 @@ impl WhichKey {
                 ui.add_space(20.0); // Indent under group header
 
                 // Key badge
-                Self::render_key_badge(ui, binding.key, key_bg, text_color(theme));
+                render_key_badge(ui, binding.key, key_bg, text_color(theme));
 
                 ui.add_space(8.0);
 
@@ -442,20 +442,5 @@ impl WhichKey {
             });
             ui.add_space(2.0);
         }
-    }
-
-    /// Render a keyboard key badge (like a physical key cap)
-    fn render_key_badge(ui: &mut egui::Ui, key: &str, bg_color: Color32, text_color: Color32) {
-        let font = typography::monospace(typography::MD);
-        let text = RichText::new(key).color(text_color).font(font);
-
-        egui::Frame::new()
-            .fill(bg_color)
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::symmetric(6, 2))
-            .stroke(egui::Stroke::new(1.0, text_color.gamma_multiply(0.2)))
-            .show(ui, |ui| {
-                ui.label(text);
-            });
     }
 }

@@ -1,11 +1,16 @@
-//! Common utilities for finder components (MetricsFinder, QueryFinder)
+//! Common utilities for overlay and finder components.
 //!
-//! This module provides shared functionality for telescope/fzf-style finder modals,
-//! including theme colors, text highlighting, preview data generation, and keyboard handling.
+//! This module provides shared functionality for modal overlays including:
+//! - Theme-aware colors and styling (`OverlayStyle`, `FinderColors`, `OverlayColors`)
+//! - Text highlighting for fuzzy matching
+//! - Keyboard navigation helpers
+//! - Common UI elements (separators, key badges, backdrops)
+//! - Preview data generation for demo mode
 
-use egui::{Color32, Key, TextFormat, text::LayoutJob};
+use egui::{Color32, Key, RichText, Stroke, TextFormat, text::LayoutJob};
 
 use crate::theme::AppTheme;
+use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::typography;
 
@@ -314,4 +319,142 @@ pub fn render_keyboard_hints(ui: &mut egui::Ui, hint_color: Color32) {
                 .size(typography::SM),
         );
     });
+}
+
+// =============================================================================
+// Shared Overlay Colors
+// =============================================================================
+
+/// Common theme-aware colors for overlay components.
+///
+/// This provides a single source of truth for colors used across
+/// modal overlays, reducing duplication and ensuring consistency.
+pub struct OverlayColors {
+    /// Primary text color
+    pub text: Color32,
+    /// Muted text color (60% opacity)
+    pub muted_text: Color32,
+    /// Very muted text color (40% opacity)
+    pub faint_text: Color32,
+    /// Accent color for highlights
+    pub accent: Color32,
+    /// Separator line color
+    pub separator: Color32,
+    /// Elevated background color (for input fields, cards)
+    pub elevated_bg: Color32,
+    /// Badge/key background color
+    pub badge_bg: Color32,
+}
+
+impl OverlayColors {
+    /// Create overlay colors for the given theme
+    pub fn new(theme: AppTheme) -> Self {
+        let text = text_color(theme);
+        match theme {
+            AppTheme::Light => Self {
+                text,
+                muted_text: text.gamma_multiply(0.6),
+                faint_text: text.gamma_multiply(0.4),
+                accent: palette::accent::LIGHT,
+                separator: palette::light_border::SUBTLE,
+                elevated_bg: palette::light_bg::ELEVATED,
+                badge_bg: palette::light_bg::HOVER,
+            },
+            AppTheme::Dark => Self {
+                text,
+                muted_text: text.gamma_multiply(0.6),
+                faint_text: text.gamma_multiply(0.4),
+                accent: palette::accent::HOVER,
+                separator: palette::border::SUBTLE,
+                elevated_bg: palette::bg::ELEVATED,
+                badge_bg: palette::bg::HOVER,
+            },
+        }
+    }
+}
+
+// =============================================================================
+// Shared UI Elements
+// =============================================================================
+
+/// Draw a horizontal separator line at the current cursor position.
+///
+/// This is a common pattern used across all overlay components to
+/// visually separate sections.
+pub fn draw_separator(ui: &mut egui::Ui, theme: AppTheme) {
+    let separator_color = match theme {
+        AppTheme::Light => palette::light_border::SUBTLE,
+        AppTheme::Dark => palette::border::SUBTLE,
+    };
+    ui.painter().hline(
+        ui.available_rect_before_wrap().x_range(),
+        ui.cursor().top(),
+        Stroke::new(1.0, separator_color),
+    );
+}
+
+/// Draw a horizontal separator line with a specific color.
+pub fn draw_separator_colored(ui: &mut egui::Ui, color: Color32) {
+    ui.painter().hline(
+        ui.available_rect_before_wrap().x_range(),
+        ui.cursor().top(),
+        Stroke::new(1.0, color),
+    );
+}
+
+/// Render a keyboard key badge (like `⌘K` or `Enter`).
+///
+/// This renders a styled badge with the key text, commonly used
+/// in tutorials, which-key popups, and keyboard hints.
+pub fn render_key_badge(ui: &mut egui::Ui, key: &str, bg_color: Color32, text_color: Color32) {
+    let font = typography::monospace(typography::MD);
+    let text = RichText::new(key).color(text_color).font(font);
+
+    egui::Frame::new()
+        .fill(bg_color)
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .stroke(Stroke::new(1.0, text_color.gamma_multiply(0.2)))
+        .show(ui, |ui| {
+            ui.label(text);
+        });
+}
+
+/// Render a keyboard key badge with larger padding (for tutorials).
+pub fn render_key_badge_large(
+    ui: &mut egui::Ui,
+    key: &str,
+    bg_color: Color32,
+    text_color: Color32,
+) {
+    let font = typography::monospace(typography::MD);
+    let text = RichText::new(key).color(text_color).font(font);
+
+    egui::Frame::new()
+        .fill(bg_color)
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(8, 4))
+        .stroke(Stroke::new(1.0, text_color.gamma_multiply(0.2)))
+        .show(ui, |ui| {
+            ui.label(text);
+        });
+}
+
+/// Draw a semi-transparent backdrop overlay covering the entire screen.
+///
+/// This is used by modals like the buffer editor and multi-edit overlay
+/// to dim the background content.
+#[allow(deprecated)]
+pub fn draw_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
+    let screen_rect = ctx.screen_rect();
+    egui::Area::new(egui::Id::new(format!("{id_suffix}_backdrop")))
+        .fixed_pos(screen_rect.min)
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            let backdrop_color = match theme {
+                AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
+                AppTheme::Dark => Color32::from_rgba_unmultiplied(0, 0, 0, 180),
+            };
+            ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
+        });
 }

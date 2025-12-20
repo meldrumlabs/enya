@@ -52,6 +52,13 @@ All notable changes to the Enya editor will be documented in this file.
   - `app/fonts.rs` - Font configuration for DepartureMono and Nerd Fonts icons (~35 lines)
   - All types remain re-exported from `app/mod.rs` for backwards compatibility.
 
+- **Shared overlay styling system**: Consolidated duplicate styling code across modal overlay components into shared utilities in `finder_utils.rs`:
+  - `OverlayColors` - Theme-aware colors (text, muted_text, faint_text, accent, separator, elevated_bg, badge_bg)
+  - `draw_separator()` / `draw_separator_colored()` - Horizontal separator lines at cursor position
+  - `render_key_badge()` / `render_key_badge_large()` - Styled keyboard key badges (e.g., `Esc`, `⌘K`)
+  - `draw_backdrop()` - Semi-transparent backdrop overlay for modals
+  - Updated `which_key.rs`, `tutorial.rs`, `multi_edit.rs`, and `buffer_editor.rs` to use shared utilities, reducing code duplication.
+
 ### Added
 
 - **DemoMetricsClient for offline demo mode**: Added a new `DemoMetricsClient` in the `enya-client` crate that implements the `MetricsClient` trait with realistic mock data. The demo client provides:

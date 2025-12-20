@@ -5,7 +5,7 @@ use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 
-use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
 
 /// An excerpt from a query pane shown in the multi-edit overlay
 #[derive(Debug, Clone)]
@@ -198,20 +198,11 @@ impl MultiEditOverlay {
         }
 
         // Semi-transparent backdrop (matching BufferEditor)
-        #[allow(deprecated)]
-        let screen_rect = ctx.screen_rect();
-        egui::Area::new(egui::Id::new("multi_edit_backdrop"))
-            .fixed_pos(screen_rect.min)
-            .order(egui::Order::Middle)
-            .show(ctx, |ui| {
-                let backdrop_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
-                    AppTheme::Dark => Color32::from_rgba_unmultiplied(0, 0, 0, 180),
-                };
-                ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
-            });
+        draw_backdrop(ctx, self.theme, "multi_edit");
 
         // Main modal panel - wider to accommodate query excerpts
+        #[allow(deprecated)]
+        let screen_rect = ctx.screen_rect();
         let popup_width = (screen_rect.width() * 0.8).clamp(600.0, 1100.0);
         let max_excerpts_height = (screen_rect.height() * 0.5).min(500.0);
 

@@ -8,6 +8,11 @@ pub mod query_executor;
 pub mod query_state;
 pub mod query_validation;
 
+pub use finder_utils::{
+    FinderColors, FinderKeyboardInput, OverlayColors, OverlayStyle, OverlayStyleVariant,
+    draw_backdrop, draw_separator, draw_separator_colored, render_key_badge,
+    render_key_badge_large,
+};
 pub use id_generator::{next_id, next_id_usize};
 pub use multi_buffer::{MultiBufferMode, MultiBufferState, Selection};
 pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, QueryCompletion};

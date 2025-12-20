@@ -11,7 +11,7 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::typography;
 
-use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
 
 /// Truncate a message to a maximum length, adding ellipsis if needed
 fn truncate_message(msg: &str, max_len: usize) -> String {
@@ -663,20 +663,11 @@ impl BufferEditor {
         }
 
         // Semi-transparent backdrop
-        #[allow(deprecated)]
-        let screen_rect = ctx.screen_rect();
-        egui::Area::new(egui::Id::new("buffer_editor_backdrop"))
-            .fixed_pos(screen_rect.min)
-            .order(egui::Order::Middle)
-            .show(ctx, |ui| {
-                let backdrop_color = match self.theme {
-                    AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
-                    AppTheme::Dark => Color32::from_rgba_unmultiplied(0, 0, 0, 180),
-                };
-                ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
-            });
+        draw_backdrop(ctx, self.theme, "buffer_editor");
 
         // Main editor popup
+        #[allow(deprecated)]
+        let screen_rect = ctx.screen_rect();
         let popup_width = (screen_rect.width() * 0.7).clamp(500.0, 900.0);
 
         egui::Area::new(egui::Id::new("buffer_editor_popup"))
