@@ -3,14 +3,13 @@
 //! These benchmarks measure the CPU-side rendering performance of UI components
 //! without GPU interaction. This helps identify expensive layout/paint operations.
 
-use std::collections::HashMap;
-
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use egui::{CentralPanel, Context, RawInput};
 use enya_editor::components::{
     DataPoint, Notification, NotificationLevel, NotificationManager, Series, Sparkline, StatusLine,
     StatusMode, TimeSeriesChart,
 };
+use rustc_hash::FxHashMap;
 
 /// Run an egui frame with the given closure
 fn run_egui_frame<F>(ctx: &Context, mut f: F)
@@ -43,7 +42,7 @@ fn generate_series(point_count: usize, series_count: usize) -> Vec<Series> {
                 })
                 .collect();
 
-            let mut tags = HashMap::new();
+            let mut tags = FxHashMap::default();
             tags.insert("host".to_string(), format!("server-{s}"));
             tags.insert("env".to_string(), "prod".to_string());
 

@@ -1,4 +1,6 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui_tiles::{Tile, TileId, Tiles};
 
@@ -285,7 +287,7 @@ impl Workspace {
         let (is_visual_multi, selected_ids, tile_queries) = match &self.visual_multi_state {
             Some(state) => {
                 // Build query mapping for selected tiles
-                let mut queries = HashMap::new();
+                let mut queries = FxHashMap::default();
                 for &tile_id in &state.selected_tile_ids {
                     if let Some(egui_tiles::Tile::Pane(component)) =
                         self.viewport_tree.tiles.get(tile_id)
@@ -297,7 +299,7 @@ impl Workspace {
                 }
                 (true, state.selected_tile_ids.clone(), queries)
             }
-            None => (false, HashSet::new(), HashMap::new()),
+            None => (false, FxHashSet::default(), FxHashMap::default()),
         };
         self.behavior
             .set_visual_multi_state(is_visual_multi, selected_ids, tile_queries);
@@ -321,7 +323,7 @@ impl Workspace {
                 })
                 .collect()
         } else {
-            HashSet::new()
+            FxHashSet::default()
         };
         self.behavior
             .set_filter_state(self.viewport_filter.is_active(), filtered_out_tiles);

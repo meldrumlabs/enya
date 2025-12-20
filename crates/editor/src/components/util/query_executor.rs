@@ -5,6 +5,8 @@
 
 use std::collections::HashMap;
 
+use rustc_hash::FxHashMap;
+
 use enya_client::{
     DemoMetricsClient, HealthCheckManager, LabelsManager, MetricLabels, MetricLabelsManager,
     QueryManager, QueryRequest, QueryResponse, prometheus::PrometheusClient,
@@ -511,8 +513,8 @@ pub fn response_to_series(response: &QueryResponse) -> Vec<Series> {
 /// Parse a group identifier string into a tag map.
 ///
 /// Group format: "key1:value1,key2:value2" or "{key1=\"value1\", key2=\"value2\"}"
-fn parse_group_tags(group: &str) -> HashMap<String, String> {
-    let mut tags = HashMap::new();
+fn parse_group_tags(group: &str) -> FxHashMap<String, String> {
+    let mut tags = FxHashMap::default();
 
     if group.is_empty() {
         return tags;

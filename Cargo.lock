@@ -2882,6 +2882,7 @@ dependencies = [
  "nucleo-matcher",
  "parking_lot 0.11.2",
  "postcard",
+ "rustc-hash 2.1.1",
  "rustls",
  "serde",
  "serde_json",

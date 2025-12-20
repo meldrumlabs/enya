@@ -3,7 +3,7 @@
 //! This module provides the `TreeBehavior` struct that implements
 //! `egui_tiles::Behavior` for rendering and managing the pane layout.
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
@@ -22,15 +22,15 @@ pub struct TreeBehavior {
     /// Currently focused tile for vim-style navigation
     focused_tile_id: Option<TileId>,
     /// Selected tiles in visual-multi mode (empty when not in visual-multi mode)
-    selected_tile_ids: HashSet<TileId>,
+    selected_tile_ids: FxHashSet<TileId>,
     /// Whether we're currently in visual-multi mode
     is_visual_multi_mode: bool,
     /// Query content per tile (for display in visual-multi mode)
-    tile_queries: HashMap<TileId, String>,
+    tile_queries: FxHashMap<TileId, String>,
     theme: AppTheme,
     api_key: String,
     /// Tile IDs that are filtered out (should be dimmed)
-    filtered_out_tiles: HashSet<TileId>,
+    filtered_out_tiles: FxHashSet<TileId>,
     /// Whether viewport filter is active
     is_filter_active: bool,
 }
@@ -55,15 +55,15 @@ impl TreeBehavior {
     pub fn set_visual_multi_state(
         &mut self,
         is_active: bool,
-        selected_ids: HashSet<TileId>,
-        tile_queries: HashMap<TileId, String>,
+        selected_ids: FxHashSet<TileId>,
+        tile_queries: FxHashMap<TileId, String>,
     ) {
         self.is_visual_multi_mode = is_active;
         self.selected_tile_ids = selected_ids;
         self.tile_queries = tile_queries;
     }
 
-    pub fn set_filter_state(&mut self, is_active: bool, filtered_out_tiles: HashSet<TileId>) {
+    pub fn set_filter_state(&mut self, is_active: bool, filtered_out_tiles: FxHashSet<TileId>) {
         self.is_filter_active = is_active;
         self.filtered_out_tiles = filtered_out_tiles;
     }
@@ -438,7 +438,7 @@ mod tests {
     fn test_set_visual_multi_state_inactive() {
         let mut behavior = TreeBehavior::default();
 
-        behavior.set_visual_multi_state(false, HashSet::new(), HashMap::new());
+        behavior.set_visual_multi_state(false, FxHashSet::default(), FxHashMap::default());
 
         // When inactive, the state should be set but doesn't affect rendering
         // (is_visual_multi_mode is private, but we can verify via clone/debug)
@@ -450,11 +450,11 @@ mod tests {
         let tile1 = make_tile_id(1);
         let tile2 = make_tile_id(2);
 
-        let mut selected = HashSet::new();
+        let mut selected = FxHashSet::default();
         selected.insert(tile1);
         selected.insert(tile2);
 
-        let mut queries = HashMap::new();
+        let mut queries = FxHashMap::default();
         queries.insert(tile1, "query1".to_string());
         queries.insert(tile2, "query2".to_string());
 
@@ -467,7 +467,7 @@ mod tests {
     fn test_set_visual_multi_state_with_empty_selection() {
         let mut behavior = TreeBehavior::default();
 
-        behavior.set_visual_multi_state(true, HashSet::new(), HashMap::new());
+        behavior.set_visual_multi_state(true, FxHashSet::default(), FxHashMap::default());
         // Active mode with no selections - valid state
     }
 
@@ -477,7 +477,7 @@ mod tests {
     fn test_set_filter_state_inactive() {
         let mut behavior = TreeBehavior::default();
 
-        behavior.set_filter_state(false, HashSet::new());
+        behavior.set_filter_state(false, FxHashSet::default());
         // Filter not active, no tiles filtered
     }
 
@@ -487,7 +487,7 @@ mod tests {
         let tile1 = make_tile_id(1);
         let tile2 = make_tile_id(2);
 
-        let mut filtered = HashSet::new();
+        let mut filtered = FxHashSet::default();
         filtered.insert(tile1);
         filtered.insert(tile2);
 
@@ -500,11 +500,11 @@ mod tests {
         let mut behavior = TreeBehavior::default();
         let tile1 = make_tile_id(1);
 
-        let mut filtered = HashSet::new();
+        let mut filtered = FxHashSet::default();
         filtered.insert(tile1);
 
         behavior.set_filter_state(true, filtered.clone());
-        behavior.set_filter_state(false, HashSet::new());
+        behavior.set_filter_state(false, FxHashSet::default());
         behavior.set_filter_state(true, filtered);
         // Can toggle filter state on and off
     }
@@ -546,16 +546,16 @@ mod tests {
         behavior.set_focused_tile(Some(tile1));
 
         // Set visual multi state
-        let mut selected = HashSet::new();
+        let mut selected = FxHashSet::default();
         selected.insert(tile1);
         selected.insert(tile2);
-        let mut queries = HashMap::new();
+        let mut queries = FxHashMap::default();
         queries.insert(tile1, "q1".to_string());
         queries.insert(tile2, "q2".to_string());
         behavior.set_visual_multi_state(true, selected, queries);
 
         // Set filter state
-        let mut filtered = HashSet::new();
+        let mut filtered = FxHashSet::default();
         filtered.insert(tile3);
         behavior.set_filter_state(true, filtered);
 
@@ -574,9 +574,9 @@ mod tests {
         // Focus can be different from selected tiles in visual-multi mode
         behavior.set_focused_tile(Some(cursor_tile));
 
-        let mut selected = HashSet::new();
+        let mut selected = FxHashSet::default();
         selected.insert(selected_tile);
-        behavior.set_visual_multi_state(true, selected, HashMap::new());
+        behavior.set_visual_multi_state(true, selected, FxHashMap::default());
 
         // Cursor (focus) is tile1, but tile2 is selected
         assert_eq!(behavior.focused_tile(), Some(cursor_tile));
@@ -604,10 +604,10 @@ mod tests {
         let mut behavior = TreeBehavior::default();
         let tile = make_tile_id(1);
 
-        let mut selected = HashSet::new();
+        let mut selected = FxHashSet::default();
         selected.insert(tile);
 
-        let mut queries = HashMap::new();
+        let mut queries = FxHashMap::default();
         queries.insert(tile, "メトリック{ラベル=\"日本語\"}".to_string());
 
         behavior.set_visual_multi_state(true, selected, queries);
@@ -618,8 +618,8 @@ mod tests {
     fn test_many_tiles_in_selection() {
         let mut behavior = TreeBehavior::default();
 
-        let mut selected = HashSet::new();
-        let mut queries = HashMap::new();
+        let mut selected = FxHashSet::default();
+        let mut queries = FxHashMap::default();
 
         for i in 0..100 {
             let tile = make_tile_id(i);
@@ -637,7 +637,7 @@ mod tests {
     fn test_many_tiles_in_filter() {
         let mut behavior = TreeBehavior::default();
 
-        let mut filtered = HashSet::new();
+        let mut filtered = FxHashSet::default();
         for i in 0..50 {
             filtered.insert(make_tile_id(i));
         }

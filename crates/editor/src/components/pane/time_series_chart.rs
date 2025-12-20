@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use std::ops::RangeInclusive;
+
+use rustc_hash::FxHashMap;
 
 use egui::{Color32, Key, RichText, Stroke};
 use egui_plot::{
@@ -147,7 +148,7 @@ pub struct Series {
     /// Display name for this series
     pub name: String,
     /// Tag values that identify this series (e.g., {"host": "server1"})
-    pub tags: HashMap<String, String>,
+    pub tags: FxHashMap<String, String>,
     /// The data points
     pub points: Vec<DataPoint>,
     /// Color for this series (optional, will be auto-assigned if None)
@@ -158,7 +159,7 @@ impl Series {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            tags: HashMap::new(),
+            tags: FxHashMap::default(),
             points: Vec::new(),
             color: None,
         }
@@ -180,7 +181,7 @@ impl Series {
     }
 
     /// Set tags from a HashMap
-    pub fn with_tags_map(mut self, tags: HashMap<String, String>) -> Self {
+    pub fn with_tags_map(mut self, tags: FxHashMap<String, String>) -> Self {
         self.tags = tags;
         self
     }
@@ -844,7 +845,7 @@ impl TimeSeriesChart {
                 // Each area fills from its cumulative baseline to the previous series
 
                 // Build a lookup for each series: timestamp -> value
-                let series_values: Vec<HashMap<i64, f64>> = self
+                let series_values: Vec<FxHashMap<i64, f64>> = self
                     .series
                     .iter()
                     .map(|s| {
