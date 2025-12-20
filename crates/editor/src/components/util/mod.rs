@@ -1,5 +1,6 @@
 //! Utility modules - non-UI helpers for components.
 
+pub mod finder;
 pub mod finder_utils;
 pub mod id_generator;
 pub mod multi_buffer;
@@ -8,6 +9,7 @@ pub mod query_executor;
 pub mod query_state;
 pub mod query_validation;
 
+pub use finder::{Finder, FinderConfig, FinderItem, FinderResult};
 pub use finder_utils::{
     FinderColors, FinderKeyboardInput, OverlayColors, OverlayStyle, OverlayStyleVariant,
     draw_backdrop, draw_separator, draw_separator_colored, render_key_badge,
