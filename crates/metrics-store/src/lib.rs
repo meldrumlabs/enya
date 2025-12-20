@@ -164,7 +164,7 @@ mod tag_sets;
 mod time;
 
 type SeriesId = u32;
-type HashMap<K, V> = std::collections::HashMap<K, V, rustc_hash::FxBuildHasher>;
+type HashMap<K, V> = rustc_hash::FxHashMap<K, V>;
 
 pub use agg::{Bucket, GroupedAggregation};
 pub use cache::CacheConfig;

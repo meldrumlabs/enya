@@ -485,7 +485,7 @@ impl BufferEditor {
     /// This replaces any existing completion data with the labels from the metric.
     pub fn set_completions_from_labels(
         &mut self,
-        labels: &std::collections::HashMap<String, Vec<String>>,
+        labels: &rustc_hash::FxHashMap<String, Vec<String>>,
     ) {
         // Clear existing completions
         self.completion.clear();

@@ -110,7 +110,7 @@ pub struct QueryCompletion {
     /// Known tag keys / label names (from metrics store)
     known_tag_keys: Vec<String>,
     /// Known tag values / label values per key
-    known_tag_values: std::collections::HashMap<String, Vec<String>>,
+    known_tag_values: rustc_hash::FxHashMap<String, Vec<String>>,
     /// Known metric names (for suggesting inside functions)
     known_metrics: Vec<String>,
     /// Current completion context
@@ -133,7 +133,7 @@ impl QueryCompletion {
             selected_index: 0,
             theme: AppTheme::default(),
             known_tag_keys: Vec::new(),
-            known_tag_values: std::collections::HashMap::new(),
+            known_tag_values: rustc_hash::FxHashMap::default(),
             known_metrics: Vec::new(),
             current_context: None,
             language: QueryLanguage::default(),

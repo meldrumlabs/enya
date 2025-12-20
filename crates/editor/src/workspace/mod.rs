@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui_tiles::{Tile, TileId, Tiles};
@@ -110,7 +108,7 @@ pub struct Workspace {
     viewport_tree: egui_tiles::Tree<Box<dyn Component>>,
     behavior: TreeBehavior,
     /// Track which metrics already have charts open (by metric name)
-    open_charts: HashSet<String>,
+    open_charts: FxHashSet<String>,
     /// Pending chart to add (metric name)
     pending_chart: Option<String>,
     /// Time range toolbar
@@ -181,7 +179,7 @@ impl Default for Workspace {
         Self {
             viewport_tree,
             behavior: TreeBehavior::default(),
-            open_charts: HashSet::new(),
+            open_charts: FxHashSet::default(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),
@@ -234,7 +232,7 @@ impl Workspace {
         Self {
             viewport_tree,
             behavior: TreeBehavior::default(),
-            open_charts: HashSet::new(),
+            open_charts: FxHashSet::default(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
             metrics_finder: MetricsFinder::new(),

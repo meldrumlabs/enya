@@ -33,7 +33,7 @@
 //! }
 //! ```
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui::{Color32, RichText};
 
@@ -60,7 +60,7 @@ pub struct MetricItem {
     /// Optional unit of measurement (e.g., "bytes", "seconds").
     pub unit: Option<String>,
     /// Tags/labels associated with this metric (key -> set of values).
-    pub tags: HashMap<String, HashSet<String>>,
+    pub tags: FxHashMap<String, FxHashSet<String>>,
     /// Number of active time series for this metric.
     pub series_count: usize,
 }
@@ -156,7 +156,7 @@ impl MetricsFinder {
     pub fn update_metric_tags(
         &mut self,
         metric_name: &str,
-        tags: HashMap<String, HashSet<String>>,
+        tags: FxHashMap<String, FxHashSet<String>>,
     ) {
         // Update in the items list
         if let Some(item) = self

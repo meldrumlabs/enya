@@ -70,14 +70,13 @@ impl Workspace {
 
         // 0b. Poll for per-metric labels and update the finder/buffer editor if labels were received
         if let Some(metric_name) = self.query_executor.poll_metric_labels() {
-            // Convert MetricLabels to HashMap<String, HashSet<String>> for the finder
+            // Convert MetricLabels to FxHashMap<String, FxHashSet<String>> for the finder
             if let Some(labels) = self.query_executor.get_metric_labels(&metric_name) {
-                let tags: std::collections::HashMap<String, std::collections::HashSet<String>> =
-                    labels
-                        .labels
-                        .iter()
-                        .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
-                        .collect();
+                let tags: rustc_hash::FxHashMap<String, rustc_hash::FxHashSet<String>> = labels
+                    .labels
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+                    .collect();
                 self.metrics_finder.update_metric_tags(&metric_name, tags);
 
                 // Also update buffer editor completions if editing this metric

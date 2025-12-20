@@ -465,8 +465,8 @@ mod tests {
 
     #[test]
     fn test_ui_command_hash() {
-        use std::collections::HashSet;
-        let mut set = HashSet::new();
+        use rustc_hash::FxHashSet;
+        let mut set = FxHashSet::default();
         set.insert(UICommand::Home);
         set.insert(UICommand::Dashboard);
         set.insert(UICommand::Home); // duplicate

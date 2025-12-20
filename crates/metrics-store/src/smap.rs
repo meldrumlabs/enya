@@ -23,7 +23,7 @@ use crate::cache::SeriesCache;
 use crate::storage::{Storage, prefix};
 use byteorder::{BigEndian, ReadBytesExt};
 use bytes::Bytes;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -136,8 +136,8 @@ impl SeriesMapping {
     /// List all series IDs in the mapping
     ///
     /// Note: This performs a full scan and may be expensive for large datasets.
-    pub async fn list_all(&self) -> crate::Result<HashSet<SeriesId>> {
-        let mut result = HashSet::new();
+    pub async fn list_all(&self) -> crate::Result<FxHashSet<SeriesId>> {
+        let mut result = FxHashSet::default();
 
         // Scan all keys with SMAP prefix
         let start = Bytes::from_static(prefix::SMAP);

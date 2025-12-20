@@ -18,14 +18,13 @@
 //! - Per-series numeric/histogram wheels for aggregation queries
 //! - A global bloom filter wheel for temporal tag existence checks
 
-use std::collections::HashMap;
 use std::hash::BuildHasher;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use enya_common::aggregators::DDSketchAggregator;
-use rustc_hash::FxBuildHasher;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use tokio::sync::{mpsc, oneshot};
 use uwheel::aggregator::bloom::BloomAggregator;
 use uwheel::aggregator::sum::U64SumAggregator;
@@ -473,7 +472,7 @@ impl Drop for WheelIndex {
 /// Main loop for the wheel thread.
 #[allow(clippy::too_many_lines)] // Command dispatch requires handling all variants in one place
 fn wheel_thread_main(mut rx: mpsc::UnboundedReceiver<Command>, initial_watermark: u64) {
-    let mut wheels: HashMap<SeriesId, Wheel> = HashMap::new();
+    let mut wheels: FxHashMap<SeriesId, Wheel> = FxHashMap::default();
     let mut watermark = initial_watermark;
 
     // Create the global bloom filter wheel for tag existence checks

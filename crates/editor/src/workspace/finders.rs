@@ -3,7 +3,7 @@
 //! This module handles the metrics finder and workspace finder overlays,
 //! including generating metric items from Prometheus or demo data.
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{Workspace, WorkspaceAction};
 use crate::app::AppState;
@@ -44,7 +44,7 @@ impl Workspace {
                 let category = Self::infer_prometheus_category(name);
 
                 // Check if we have cached labels for this metric
-                let tags: HashMap<String, HashSet<String>> =
+                let tags: FxHashMap<String, FxHashSet<String>> =
                     if let Some(labels) = self.query_executor.get_metric_labels(name) {
                         // Use actual per-metric labels
                         labels
@@ -54,7 +54,7 @@ impl Workspace {
                             .collect()
                     } else {
                         // No labels cached yet - show empty (will be fetched on selection)
-                        HashMap::new()
+                        FxHashMap::default()
                     };
 
                 MetricItem {
@@ -121,13 +121,13 @@ impl Workspace {
                 category: "Tokio Runtime".to_string(),
                 description: None,
                 unit: None,
-                tags: HashMap::new(),
+                tags: FxHashMap::default(),
                 series_count: 0,
             });
         }
 
         // Task metrics with tags
-        let task_tags: HashMap<String, HashSet<String>> = [(
+        let task_tags: FxHashMap<String, FxHashSet<String>> = [(
             "task".to_string(),
             ["ingestor", "query_handler", "compactor"]
                 .iter()
@@ -165,13 +165,13 @@ impl Workspace {
                 category: "DataFusion".to_string(),
                 description: None,
                 unit: None,
-                tags: HashMap::new(),
+                tags: FxHashMap::default(),
                 series_count: 0,
             });
         }
 
         // System metrics
-        let host_tags: HashMap<String, HashSet<String>> = [(
+        let host_tags: FxHashMap<String, FxHashSet<String>> = [(
             "host".to_string(),
             ["server1", "server2", "server3"]
                 .iter()
@@ -196,13 +196,13 @@ impl Workspace {
                 category: "System".to_string(),
                 description: None,
                 unit: None,
-                tags: HashMap::new(),
+                tags: FxHashMap::default(),
                 series_count: 0,
             });
         }
 
         // Application metrics
-        let app_tags: HashMap<String, HashSet<String>> = [
+        let app_tags: FxHashMap<String, FxHashSet<String>> = [
             (
                 "env".to_string(),
                 ["prod", "staging"].iter().map(|s| s.to_string()).collect(),
@@ -230,7 +230,7 @@ impl Workspace {
                 category: "Application".to_string(),
                 description: None,
                 unit: None,
-                tags: HashMap::new(),
+                tags: FxHashMap::default(),
                 series_count: 0,
             });
         }
@@ -262,7 +262,7 @@ impl Workspace {
             .collect();
 
         // Track names already in the list
-        let existing_names: HashSet<String> = workspaces.iter().map(|w| w.name.clone()).collect();
+        let existing_names: FxHashSet<String> = workspaces.iter().map(|w| w.name.clone()).collect();
 
         // Add available workspaces from filesystem that aren't already in recent
         for (name, description) in available_workspaces {

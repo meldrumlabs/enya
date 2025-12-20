@@ -4,7 +4,7 @@
 //! for persistence (saving/loading workspaces), including layout tree building
 //! and extraction.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use egui_tiles::{Tile, TileId, Tiles};
 
@@ -275,7 +275,7 @@ impl Workspace {
 
         // Build a mapping from TileId to pane index
         let pane_ids = self.get_pane_tile_ids();
-        let pane_index_map: HashMap<TileId, usize> = pane_ids
+        let pane_index_map: FxHashMap<TileId, usize> = pane_ids
             .iter()
             .enumerate()
             .map(|(i, &id)| (id, i))
@@ -308,7 +308,7 @@ impl Workspace {
     fn extract_container(
         &self,
         container: &egui_tiles::Container,
-        pane_index_map: &HashMap<TileId, usize>,
+        pane_index_map: &FxHashMap<TileId, usize>,
     ) -> (LayoutType, Vec<LayoutNode>, Vec<f32>) {
         match container {
             egui_tiles::Container::Tabs(tabs) => {
@@ -359,7 +359,7 @@ impl Workspace {
     fn tile_to_layout_node(
         &self,
         tile_id: TileId,
-        pane_index_map: &HashMap<TileId, usize>,
+        pane_index_map: &FxHashMap<TileId, usize>,
     ) -> Option<LayoutNode> {
         match self.viewport_tree.tiles.get(tile_id)? {
             Tile::Pane(_) => {

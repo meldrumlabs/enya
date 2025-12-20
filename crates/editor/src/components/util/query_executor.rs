@@ -3,8 +3,6 @@
 //! Handles executing queries against backends (Prometheus, Enya) and
 //! converting responses to visualization-ready data structures.
 
-use std::collections::HashMap;
-
 use rustc_hash::FxHashMap;
 
 use enya_client::{
@@ -112,7 +110,7 @@ pub struct QueryExecutor {
     /// Cached list of available label names (tag keys)
     label_names: Vec<String>,
     /// Cached per-metric labels (metric name -> labels)
-    metric_labels_cache: HashMap<String, MetricLabels>,
+    metric_labels_cache: FxHashMap<String, MetricLabels>,
 }
 
 impl Default for QueryExecutor {
@@ -136,7 +134,7 @@ impl QueryExecutor {
             connection_health: ConnectionHealth::Offline,
             metric_names: Vec::new(),
             label_names: Vec::new(),
-            metric_labels_cache: HashMap::new(),
+            metric_labels_cache: FxHashMap::default(),
         }
     }
 

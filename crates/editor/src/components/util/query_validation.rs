@@ -5,7 +5,7 @@
 //!
 //! Supports dual-language mode: PromQL (default) and EnyaLang.
 
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticLevel, DiagnosticSource};
 use crate::components::util::query_completion::QueryLanguage;
@@ -45,9 +45,9 @@ pub struct QueryValidator {
     /// Query language mode (PromQL or EnyaLang)
     language: QueryLanguage,
     /// Known tag keys (for semantic validation)
-    known_tag_keys: HashSet<String>,
+    known_tag_keys: FxHashSet<String>,
     /// Known tag values by key
-    known_tag_values: std::collections::HashMap<String, HashSet<String>>,
+    known_tag_values: rustc_hash::FxHashMap<String, FxHashSet<String>>,
 }
 
 impl Default for QueryValidator {
@@ -61,8 +61,8 @@ impl QueryValidator {
     pub fn new() -> Self {
         let mut validator = Self {
             language: QueryLanguage::default(),
-            known_tag_keys: HashSet::new(),
-            known_tag_values: std::collections::HashMap::new(),
+            known_tag_keys: FxHashSet::default(),
+            known_tag_values: rustc_hash::FxHashMap::default(),
         };
 
         // Add common tag keys
