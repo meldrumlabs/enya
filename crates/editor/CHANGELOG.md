@@ -44,6 +44,14 @@ All notable changes to the Enya editor will be documented in this file.
   - `visualization/demo.rs` - Demo data population functions for all visualization types (~270 lines)
   - All types are re-exported from `pane/mod.rs` for backwards compatibility.
 
+- **Split app module into submodules**: Reorganized the large `app.rs` file (~1485 lines) into a focused `app/` module directory:
+  - `app/mod.rs` - Core `EnyaApp` struct, `eframe::App` implementation, UI command handling, and titlebar rendering (~510 lines)
+  - `app/state.rs` - `AppState`, `UIState`, and `EditorMetrics` types for persisted state and frame time tracking (~95 lines)
+  - `app/workspace_io.rs` - Workspace save/load/share/list operations with platform-specific implementations for native (TOML files) and WASM (base64 URL encoding) (~490 lines)
+  - `app/screenshot.rs` - Screenshot capture and saving, with browser download support on WASM (~150 lines)
+  - `app/fonts.rs` - Font configuration for DepartureMono and Nerd Fonts icons (~35 lines)
+  - All types remain re-exported from `app/mod.rs` for backwards compatibility.
+
 ### Added
 
 - **DemoMetricsClient for offline demo mode**: Added a new `DemoMetricsClient` in the `enya-client` crate that implements the `MetricsClient` trait with realistic mock data. The demo client provides:
