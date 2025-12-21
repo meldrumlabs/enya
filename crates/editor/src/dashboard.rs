@@ -695,15 +695,17 @@ impl Dashboard {
                     (
                         "http_requests_total{env=\"prod\", service=\"api\"}",
                         "HTTP Requests",
+                        "req/s",
                     ),
-                    ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage"),
+                    ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
                     (
                         "memory_used_bytes{env=\"prod\", service=\"api\"}",
                         "Memory Used",
+                        "MB",
                     ),
                 ];
-                for (query, name) in demo_queries {
-                    self.add_demo_query_pane(query, name);
+                for (query, name, unit) in demo_queries {
+                    self.add_demo_query_pane(query, name, unit);
                 }
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
@@ -816,9 +818,10 @@ impl Dashboard {
         DashboardAction::None
     }
 
-    /// Add a demo query pane with a full PromQL query and custom name (for tutorial)
-    fn add_demo_query_pane(&mut self, query: &str, name: &str) {
-        let pane: Box<dyn Component> = Box::new(QueryPane::with_demo_query_named(query, name));
+    /// Add a demo query pane with a full PromQL query, custom name, and unit (for tutorial)
+    fn add_demo_query_pane(&mut self, query: &str, name: &str, unit: &str) {
+        let pane: Box<dyn Component> =
+            Box::new(QueryPane::with_demo_query_named_unit(query, name, unit));
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
         if self.add_tile_to_viewport(pane_tile) {
@@ -960,15 +963,17 @@ impl Dashboard {
                         (
                             "http_requests_total{env=\"prod\", service=\"api\"}",
                             "HTTP Requests",
+                            "req/s",
                         ),
-                        ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage"),
+                        ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
                         (
                             "memory_used_bytes{env=\"prod\", service=\"api\"}",
                             "Memory Used",
+                            "MB",
                         ),
                     ];
-                    for (query, name) in demo_queries {
-                        self.add_demo_query_pane(query, name);
+                    for (query, name, unit) in demo_queries {
+                        self.add_demo_query_pane(query, name, unit);
                     }
                 }
                 self.tutorial_overlay.open();
@@ -2917,7 +2922,6 @@ impl Dashboard {
                 name: name.to_string(),
                 description: String::new(),
                 version: crate::workspace::WORKSPACE_VERSION,
-                includes: Vec::new(),
             },
             connection: endpoint.map_or_else(ConnectionConfig::default, |e| {
                 ConnectionConfig::with_endpoint(e)
@@ -2981,6 +2985,11 @@ impl Dashboard {
 
             // Apply visualization type from config
             query_pane.set_visualization_type(pane_config.visualization_type());
+
+            // Apply unit suffix if specified
+            if !pane_config.unit.is_empty() {
+                query_pane.set_unit(&pane_config.unit);
+            }
 
             // Track the chart
             self.open_charts.insert(pane_config.query.clone());

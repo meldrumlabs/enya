@@ -198,6 +198,11 @@ impl StatChart {
         self.unit = unit.into();
     }
 
+    /// Get the unit suffix
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
     /// Set the sparkline data
     pub fn set_sparkline_data(&mut self, data: Vec<f64>) {
         self.sparkline_data = data;
@@ -483,6 +488,11 @@ impl GaugeChart {
         self.unit = unit.into();
     }
 
+    /// Get the unit suffix
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
     /// Set the metric name
     pub fn set_metric_name(&mut self, name: impl Into<String>) {
         self.metric_name = name.into();
@@ -724,6 +734,8 @@ pub struct BarChartViz {
     show_values: bool,
     /// Whether bars are sorted by value (descending)
     sorted: bool,
+    /// Unit suffix for value formatting (e.g., "ms", "req/s")
+    unit: String,
 }
 
 impl Default for BarChartViz {
@@ -743,6 +755,7 @@ impl BarChartViz {
             theme: AppTheme::default(),
             show_values: true,
             sorted: true,
+            unit: String::new(),
         }
     }
 
@@ -787,6 +800,16 @@ impl BarChartViz {
         self.sorted = sorted;
     }
 
+    /// Set the unit suffix for value formatting
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        self.unit = unit.into();
+    }
+
+    /// Get the unit suffix
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
     /// Get bars sorted by value (descending) if sorted is true
     fn get_display_bars(&self) -> Vec<&Bar> {
         let mut bars: Vec<&Bar> = self.bars.iter().collect();
@@ -800,9 +823,9 @@ impl BarChartViz {
         bars
     }
 
-    /// Format a value for display
-    fn format_value(value: f64) -> String {
-        if value.abs() >= 1_000_000.0 {
+    /// Format a value for display with optional unit suffix
+    fn format_value(&self, value: f64) -> String {
+        let formatted = if value.abs() >= 1_000_000.0 {
             format!("{:.1}M", value / 1_000_000.0)
         } else if value.abs() >= 1_000.0 {
             format!("{:.1}K", value / 1_000.0)
@@ -810,6 +833,12 @@ impl BarChartViz {
             format!("{value:.0}")
         } else {
             format!("{value:.1}")
+        };
+
+        if self.unit.is_empty() {
+            formatted
+        } else {
+            format!("{formatted} {}", self.unit)
         }
     }
 
@@ -907,7 +936,7 @@ impl BarChartViz {
                                 ui.add_sized(
                                     [value_width, bar_height],
                                     egui::Label::new(
-                                        RichText::new(Self::format_value(bar.value))
+                                        RichText::new(self.format_value(bar.value))
                                             .color(text_col.gamma_multiply(0.7))
                                             .size(12.0),
                                     ),
@@ -943,6 +972,8 @@ pub struct SparklineViz {
     fill: bool,
     /// Line color (uses accent if None)
     color: Option<Color32>,
+    /// Unit suffix for value formatting (e.g., "ms", "req/s")
+    unit: String,
 }
 
 impl Default for SparklineViz {
@@ -963,6 +994,7 @@ impl SparklineViz {
             show_value: true,
             fill: true,
             color: None,
+            unit: String::new(),
         }
     }
 
@@ -1012,6 +1044,16 @@ impl SparklineViz {
         self.color = Some(color);
     }
 
+    /// Set the unit suffix for value formatting
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        self.unit = unit.into();
+    }
+
+    /// Get the unit suffix
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
     /// Get the line color (uses accent if not set)
     fn line_color(&self) -> Color32 {
         self.color.unwrap_or(palette::accent::PRIMARY)
@@ -1022,9 +1064,9 @@ impl SparklineViz {
         self.data.last().copied()
     }
 
-    /// Format a value for display
-    fn format_value(value: f64) -> String {
-        if value.abs() >= 1_000_000.0 {
+    /// Format a value for display with optional unit suffix
+    fn format_value(&self, value: f64) -> String {
+        let formatted = if value.abs() >= 1_000_000.0 {
             format!("{:.1}M", value / 1_000_000.0)
         } else if value.abs() >= 1_000.0 {
             format!("{:.1}K", value / 1_000.0)
@@ -1032,6 +1074,12 @@ impl SparklineViz {
             format!("{value:.0}")
         } else {
             format!("{value:.1}")
+        };
+
+        if self.unit.is_empty() {
+            formatted
+        } else {
+            format!("{formatted} {}", self.unit)
         }
     }
 
@@ -1057,7 +1105,7 @@ impl SparklineViz {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(8.0);
                             ui.label(
-                                RichText::new(Self::format_value(value))
+                                RichText::new(self.format_value(value))
                                     .color(line_color)
                                     .size(18.0)
                                     .strong(),
@@ -1226,6 +1274,32 @@ impl Visualization {
             Self::Sparkline(spark) => spark.set_metric_name(name),
             Self::Heatmap(heatmap) => heatmap.set_metric_name(name),
             Self::Flamegraph(fg) => fg.set_title(name),
+        }
+    }
+
+    /// Set the unit suffix for value formatting (e.g., "ms", "req/s")
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        let unit = unit.into();
+        match self {
+            Self::TimeSeries(chart) => chart.set_unit(unit),
+            Self::Stat(stat) => stat.set_unit(unit),
+            Self::Gauge(gauge) => gauge.set_unit(unit),
+            Self::BarChart(bar) => bar.set_unit(unit),
+            Self::Sparkline(spark) => spark.set_unit(unit),
+            // Heatmap and Flamegraph don't support units currently
+            Self::Heatmap(_) | Self::Flamegraph(_) => {}
+        }
+    }
+
+    /// Get the unit suffix
+    pub fn unit(&self) -> &str {
+        match self {
+            Self::TimeSeries(chart) => chart.unit(),
+            Self::Stat(stat) => stat.unit(),
+            Self::Gauge(gauge) => gauge.unit(),
+            Self::BarChart(bar) => bar.unit(),
+            Self::Sparkline(spark) => spark.unit(),
+            Self::Heatmap(_) | Self::Flamegraph(_) => "",
         }
     }
 
@@ -1885,10 +1959,16 @@ mod tests {
 
     #[test]
     fn test_bar_chart_format_value() {
-        assert_eq!(BarChartViz::format_value(75.0), "75");
-        assert_eq!(BarChartViz::format_value(1234.0), "1.2K");
-        assert_eq!(BarChartViz::format_value(1_234_567.0), "1.2M");
-        assert_eq!(BarChartViz::format_value(42.5), "42.5");
+        let bar = BarChartViz::new("test");
+        assert_eq!(bar.format_value(75.0), "75");
+        assert_eq!(bar.format_value(1234.0), "1.2K");
+        assert_eq!(bar.format_value(1_234_567.0), "1.2M");
+        assert_eq!(bar.format_value(42.5), "42.5");
+
+        // Test with unit
+        let mut bar_with_unit = BarChartViz::new("test");
+        bar_with_unit.set_unit("req/s");
+        assert_eq!(bar_with_unit.format_value(1234.0), "1.2K req/s");
     }
 
     #[test]

@@ -265,13 +265,27 @@ impl QueryPane {
     /// Create a query pane with a full PromQL query, custom name, and demo data
     /// Useful for tutorial where we want editable label selectors
     pub fn with_demo_query_named(query: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::with_demo_query_named_unit(query, name, "")
+    }
+
+    /// Create a query pane with a full PromQL query, custom name, unit, and demo data
+    /// Useful for tutorial where we want editable label selectors with proper units
+    pub fn with_demo_query_named_unit(
+        query: impl Into<String>,
+        name: impl Into<String>,
+        unit: impl Into<String>,
+    ) -> Self {
         let query = query.into();
         let pane_name = name.into();
+        let unit = unit.into();
         let id = NEXT_PANE_ID.fetch_add(1, Ordering::Relaxed);
 
         let buffer = Buffer::with_name(query.clone(), &pane_name);
         let mut visualization = Visualization::new(VisualizationType::default(), &pane_name);
         visualization.set_metric_name(&pane_name);
+        if !unit.is_empty() {
+            visualization.set_unit(&unit);
+        }
         populate_demo_data(&mut visualization, &query);
 
         Self {
@@ -336,6 +350,16 @@ impl QueryPane {
             self.visualization.set_theme(self.theme);
             populate_demo_data(&mut self.visualization, &query);
         }
+    }
+
+    /// Set the unit suffix for value formatting (e.g., "ms", "req/s")
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        self.visualization.set_unit(unit);
+    }
+
+    /// Get the unit suffix
+    pub fn unit(&self) -> &str {
+        self.visualization.unit()
     }
 
     /// Get the pane ID

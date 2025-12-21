@@ -112,15 +112,14 @@ fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
     }
 }
 
-/// Format a numeric value with K, M, B suffixes for large numbers.
-/// Makes Y-axis labels more readable.
-fn format_value(value: f64) -> String {
+/// Format a numeric value with K, M, B suffixes and an optional unit suffix.
+fn format_value_with_unit(value: f64, unit: &str) -> String {
     if !value.is_finite() {
         return String::new();
     }
 
     let abs_value = value.abs();
-    if abs_value >= 1_000_000_000.0 {
+    let formatted = if abs_value >= 1_000_000_000.0 {
         format!("{:.1}B", value / 1_000_000_000.0)
     } else if abs_value >= 1_000_000.0 {
         format!("{:.1}M", value / 1_000_000.0)
@@ -130,6 +129,12 @@ fn format_value(value: f64) -> String {
         format!("{value:.0}")
     } else {
         format!("{value:.2}")
+    };
+
+    if unit.is_empty() {
+        formatted
+    } else {
+        format!("{formatted} {unit}")
     }
 }
 
@@ -237,8 +242,8 @@ pub struct TimeSeriesChart {
     api_key: String,
     /// Whether to show the legend
     show_legend: bool,
-    /// Y-axis label
-    y_label: Option<String>,
+    /// Unit suffix for Y-axis values (e.g., "ms", "req/s")
+    unit: String,
     /// Chart title (shown in tab)
     title: String,
     /// Whether we're waiting for a second 'g' press (for gg command)
@@ -270,7 +275,7 @@ impl TimeSeriesChart {
             theme: AppTheme::default(),
             api_key: String::new(),
             show_legend: true,
-            y_label: None,
+            unit: String::new(),
             pending_g: false,
             pending_bracket: None,
             legend_expanded: false,
@@ -430,9 +435,14 @@ impl TimeSeriesChart {
         self.title = title.into();
     }
 
-    /// Set the Y-axis label
-    pub fn set_y_label(&mut self, label: impl Into<String>) {
-        self.y_label = Some(label.into());
+    /// Set the unit suffix for Y-axis values (e.g., "ms", "req/s")
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        self.unit = unit.into();
+    }
+
+    /// Get the unit suffix
+    pub fn unit(&self) -> &str {
+        &self.unit
     }
 
     /// Set whether to show the legend
@@ -665,11 +675,13 @@ impl TimeSeriesChart {
             },
         );
 
-        // Custom y-axis formatter with K/M/B suffixes for large numbers
-        let y_label = self.y_label.clone().unwrap_or_else(|| "Value".to_string());
-        let y_axis = AxisHints::new_y()
-            .label(y_label)
-            .formatter(|mark: GridMark, _range: &RangeInclusive<f64>| format_value(mark.value));
+        // Custom y-axis formatter with K/M/B suffixes for large numbers and unit suffix
+        let unit = self.unit.clone();
+        let y_axis = AxisHints::new_y().formatter(
+            move |mark: GridMark, _range: &RangeInclusive<f64>| {
+                format_value_with_unit(mark.value, &unit)
+            },
+        );
 
         // Calculate optimal height for a sleek Grafana/PlanetScale-style view
         // Use available height if constrained by layout, otherwise calculate from aspect ratio

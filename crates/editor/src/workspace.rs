@@ -373,6 +373,7 @@ impl CompactWorkspace {
                         _ => "time_series",
                     }
                     .to_string(),
+                    unit: String::new(), // URL sharing doesn't preserve unit
                 }
             })
             .collect();
@@ -482,6 +483,7 @@ impl CompactSinglePane {
                 _ => "time_series",
             }
             .to_string(),
+            unit: String::new(), // URL sharing doesn't preserve unit
         });
 
         ws
@@ -660,6 +662,7 @@ query = "sum(rate(http_requests_total[5m])) by (method)"
 name = "HTTP Request Rate"
 visualization = "time_series"
 granularity = "1m"
+unit = "req/s"
 
 # Stat: Active database connections (gauge - current value)
 [[panes]]
@@ -674,6 +677,7 @@ query = "histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))"
 name = "Request Latency (p99)"
 visualization = "time_series"
 granularity = "1m"
+unit = "ms"
 
 # Gauge: Application queue depth (gauge - current value)
 [[panes]]
@@ -924,6 +928,10 @@ pub struct PaneConfig {
         skip_serializing_if = "is_default_visualization"
     )]
     pub visualization: String,
+
+    /// Unit suffix for value formatting (e.g., "ms", "req/s", "%", "MB/s")
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub unit: String,
 }
 
 fn default_granularity() -> String {
@@ -951,7 +959,14 @@ impl PaneConfig {
             tag: String::new(),
             granularity: default_granularity(),
             visualization: default_visualization(),
+            unit: String::new(),
         }
+    }
+
+    /// Set the unit suffix
+    pub fn with_unit(mut self, unit: impl Into<String>) -> Self {
+        self.unit = unit.into();
+        self
     }
 }
 
@@ -1117,6 +1132,7 @@ impl PaneConfig {
             tag: tag.to_string(),
             granularity: state.granularity.label().to_string(),
             visualization: default_visualization(),
+            unit: String::new(),
         }
     }
 
@@ -1134,6 +1150,7 @@ impl PaneConfig {
             tag: tag.to_string(),
             granularity: state.granularity.label().to_string(),
             visualization: viz_type.as_str().to_string(),
+            unit: String::new(),
         }
     }
 }
@@ -1506,10 +1523,12 @@ granularity = "5m"
             tag: "Critical".to_string(),
             granularity: "15m".to_string(),
             visualization: "time_series".to_string(),
+            unit: "req/s".to_string(),
         };
 
         assert_eq!(pane.granularity_value(), Granularity::FifteenMinutes);
         assert_eq!(pane.tag, "Critical");
+        assert_eq!(pane.unit, "req/s");
 
         let state = pane.to_query_state("1h");
         assert_eq!(state.granularity, Granularity::FifteenMinutes);

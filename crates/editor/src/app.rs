@@ -536,6 +536,11 @@ impl EnyaApp {
             DashboardAction::PrevWorkspaceTab => {
                 self.workspace_tabs.prev_tab();
             }
+            DashboardAction::ImportGrafanaFile(path) => {
+                // This action is handled directly in Dashboard::import_grafana_workspace
+                // which is called when the command is processed
+                log::debug!("ImportGrafanaFile action for: {path}");
+            }
         }
     }
 

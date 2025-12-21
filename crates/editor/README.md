@@ -162,12 +162,14 @@ query = "env:prod AND service:api"
 name = "API Latency"
 aggregation = "p95"
 granularity = "1m"
+unit = "ms"  # Unit suffix for values
 
 [[panes]]
 query = "env:prod AND name:error_rate"
 name = "Error Rate"
 aggregation = "sum"
 granularity = "5m"
+unit = "req/s"
 ```
 
 ### i3-Style Layout Configuration
@@ -270,6 +272,7 @@ Or use the short alias:
 - **Layout preservation**: Grafana's 24-column grid layout is converted to i3-style nested horizontal/vertical containers
 - **Time range mapping**: Presets like `now-1h`, `now-6h` are mapped to Enya equivalents
 - **Query extraction**: Prometheus queries are extracted from panel targets
+- **Unit conversion**: Panel units (ms, %, bytes, req/s, etc.) are extracted and displayed on values
 - **Collapsed rows**: Panels inside collapsed row panels are included
 
 ### Limitations

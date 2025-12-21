@@ -107,6 +107,10 @@ pub struct GrafanaPanel {
     /// Whether this is a collapsed row
     #[serde(default)]
     pub collapsed: bool,
+
+    /// Field configuration (contains unit, thresholds, etc.)
+    #[serde(default)]
+    pub field_config: Option<FieldConfig>,
 }
 
 /// Grid position for a panel (24-column grid)
@@ -213,6 +217,22 @@ pub struct VariableValue {
     /// Display text
     #[serde(default)]
     pub text: Option<serde_json::Value>,
+}
+
+/// Field configuration for a panel
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct FieldConfig {
+    /// Default field configuration
+    #[serde(default)]
+    pub defaults: Option<FieldDefaults>,
+}
+
+/// Default field settings
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct FieldDefaults {
+    /// Unit for the values (e.g., "ms", "percent", "bytes", "reqps")
+    #[serde(default)]
+    pub unit: Option<String>,
 }
 
 /// Errors that can occur during conversion
@@ -444,6 +464,9 @@ fn convert_panel(panel: &GrafanaPanel, warnings: &mut Vec<String>) -> Option<Pan
 
     let visualization = convert_panel_type(&panel.panel_type);
 
+    // Extract unit from field config
+    let unit = extract_unit(panel);
+
     Some(PaneConfig {
         query: if query.is_empty() {
             format!("# {}", panel.title) // Comment-style placeholder
@@ -454,7 +477,91 @@ fn convert_panel(panel: &GrafanaPanel, warnings: &mut Vec<String>) -> Option<Pan
         tag: String::new(),
         granularity: "5m".to_string(), // Default, Grafana doesn't have an equivalent
         visualization: visualization.to_string(),
+        unit,
     })
+}
+
+/// Extract and convert unit from panel field config
+fn extract_unit(panel: &GrafanaPanel) -> String {
+    panel
+        .field_config
+        .as_ref()
+        .and_then(|fc| fc.defaults.as_ref())
+        .and_then(|d| d.unit.as_ref())
+        .map(|u| convert_grafana_unit(u))
+        .unwrap_or_default()
+}
+
+/// Convert Grafana unit identifiers to human-readable suffixes
+fn convert_grafana_unit(unit: &str) -> String {
+    match unit {
+        // Time units
+        "s" | "seconds" => "s".to_string(),
+        "ms" | "milliseconds" => "ms".to_string(),
+        "µs" | "us" | "microseconds" => "µs".to_string(),
+        "ns" | "nanoseconds" => "ns".to_string(),
+        "m" | "minutes" => "min".to_string(),
+        "h" | "hours" => "h".to_string(),
+        "d" | "days" => "d".to_string(),
+
+        // Data size
+        "bytes" | "decbytes" => "B".to_string(),
+        "bits" | "decbits" => "b".to_string(),
+        "kbytes" | "deckbytes" => "KB".to_string(),
+        "mbytes" | "decmbytes" => "MB".to_string(),
+        "gbytes" | "decgbytes" => "GB".to_string(),
+        "tbytes" | "dectbytes" => "TB".to_string(),
+
+        // Data rate
+        "binBps" | "Bps" => "B/s".to_string(),
+        "binbps" | "bps" => "b/s".to_string(),
+        "KBs" | "kBs" => "KB/s".to_string(),
+        "MBs" | "mBs" => "MB/s".to_string(),
+        "GBs" | "gBs" => "GB/s".to_string(),
+
+        // Throughput
+        "ops" | "opm" | "ops/s" => "ops".to_string(),
+        "reqps" | "rps" => "req/s".to_string(),
+        "cps" => "conn/s".to_string(),
+        "iops" => "iops".to_string(),
+        "wps" => "writes/s".to_string(),
+        "rps_read" => "reads/s".to_string(),
+
+        // Percentage
+        "percent" | "percentunit" => "%".to_string(),
+        "percent0" => "%".to_string(),
+        "percent100" => "%".to_string(),
+
+        // Currency
+        "currencyUSD" => "$".to_string(),
+        "currencyEUR" => "€".to_string(),
+        "currencyGBP" => "£".to_string(),
+
+        // Energy
+        "watt" | "W" => "W".to_string(),
+        "kwatt" | "kW" => "kW".to_string(),
+        "mwatt" | "mW" => "mW".to_string(),
+        "voltamp" | "VA" => "VA".to_string(),
+
+        // Temperature
+        "celsius" => "°C".to_string(),
+        "fahrenheit" => "°F".to_string(),
+        "kelvin" => "K".to_string(),
+
+        // Frequency
+        "hertz" | "Hz" => "Hz".to_string(),
+        "mhertz" | "mHz" => "mHz".to_string(),
+        "khertz" | "kHz" => "kHz".to_string(),
+        "mHertz" | "MHz" => "MHz".to_string(),
+        "ghertz" | "GHz" => "GHz".to_string(),
+
+        // Other common units
+        "short" | "none" => String::new(), // No unit suffix for these
+        "locale" | "string" => String::new(),
+
+        // Pass through unknown units as-is (they might be custom)
+        other => other.to_string(),
+    }
 }
 
 /// Extract the query expression from panel targets

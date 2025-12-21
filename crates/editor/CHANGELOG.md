@@ -6,6 +6,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Custom unit suffixes for values**: Added support for custom unit formatting in visualizations. Panes can now specify a `unit` field (e.g., "ms", "req/s", "%", "MB/s") which is displayed alongside Y-axis labels in time series charts, stat panels, gauges, bar charts, and sparklines.
+
+- **Grafana unit extraction**: When importing Grafana dashboards, unit information is now automatically extracted from panel `fieldConfig.defaults.unit` and converted to human-readable suffixes. Supports time units (ms, s, min, h), data sizes (B, KB, MB, GB), rates (B/s, req/s, ops), percentages, and more.
+
 - **DemoMetricsClient for offline demo mode**: Added a new `DemoMetricsClient` in the `enya-client` crate that implements the `MetricsClient` trait with realistic mock data. The demo client provides:
   - A catalog of ~25 realistic Prometheus metrics (system, HTTP, Tokio runtime, application, database)
   - Proper label dimensions for each metric (host, env, method, status_code, pool, etc.)
