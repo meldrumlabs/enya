@@ -15,6 +15,9 @@ use crate::theme::AppTheme;
 // Workspace configuration module (serialization)
 pub mod config;
 
+// Grafana dashboard JSON import
+pub mod grafana;
+
 // Input handling (navigation, visual-multi mode)
 mod input;
 pub use input::{LEADER_KEY_TIMEOUT_MS, LeaderKeyState, NavDirection, VisualMultiState};

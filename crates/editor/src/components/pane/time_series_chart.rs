@@ -114,15 +114,15 @@ fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
     }
 }
 
-/// Format a numeric value with K, M, B suffixes for large numbers.
-/// Makes Y-axis labels more readable.
-fn format_value(value: f64) -> String {
+/// Format a numeric value with K, M, B suffixes and an optional unit suffix.
+/// Used for Y-axis labels and legend values.
+pub fn format_value_with_unit(value: f64, unit: &str) -> String {
     if !value.is_finite() {
         return String::new();
     }
 
     let abs_value = value.abs();
-    if abs_value >= 1_000_000_000.0 {
+    let formatted = if abs_value >= 1_000_000_000.0 {
         format!("{:.1}B", value / 1_000_000_000.0)
     } else if abs_value >= 1_000_000.0 {
         format!("{:.1}M", value / 1_000_000.0)
@@ -132,6 +132,12 @@ fn format_value(value: f64) -> String {
         format!("{value:.0}")
     } else {
         format!("{value:.2}")
+    };
+
+    if unit.is_empty() {
+        formatted
+    } else {
+        format!("{formatted} {unit}")
     }
 }
 
@@ -244,6 +250,8 @@ pub struct TimeSeriesChart {
     y_label: Option<String>,
     /// Chart title (shown in tab)
     title: String,
+    /// Unit suffix for values (e.g., "ms", "req/s", "%")
+    unit: String,
     /// Whether we're waiting for a second 'g' press (for gg command)
     pending_g: bool,
     /// Whether we're waiting for 'c' after '[' or ']' (for commit navigation)
@@ -274,11 +282,22 @@ impl TimeSeriesChart {
             api_key: String::new(),
             show_legend: true,
             y_label: None,
+            unit: String::new(),
             pending_g: false,
             pending_bracket: None,
             legend_expanded: false,
             stacked: false,
         }
+    }
+
+    /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        self.unit = unit.into();
+    }
+
+    /// Get the unit suffix
+    pub fn unit(&self) -> &str {
+        &self.unit
     }
 
     /// Set whether to render as a stacked area chart
@@ -669,11 +688,14 @@ impl TimeSeriesChart {
             },
         );
 
-        // Custom y-axis formatter with K/M/B suffixes for large numbers
+        // Custom y-axis formatter with K/M/B suffixes for large numbers and unit suffix
         let y_label = self.y_label.as_deref().unwrap_or("Value");
-        let y_axis = AxisHints::new_y()
-            .label(y_label)
-            .formatter(|mark: GridMark, _range: &RangeInclusive<f64>| format_value(mark.value));
+        let unit = self.unit.clone();
+        let y_axis = AxisHints::new_y().label(y_label).formatter(
+            move |mark: GridMark, _range: &RangeInclusive<f64>| {
+                format_value_with_unit(mark.value, &unit)
+            },
+        );
 
         // Calculate optimal height for a sleek Grafana/PlanetScale-style view
         // Use available height if constrained by layout, otherwise calculate from aspect ratio
@@ -981,26 +1003,33 @@ impl TimeSeriesChart {
             };
 
             ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 24.0; // Spacing between legend items
+
                 for (i, series) in self.series.iter().take(visible_count).enumerate() {
                     let color = series.color.unwrap_or_else(|| self.series_color(i));
+                    let latest_value = series.points.last().map(|p| p.value).unwrap_or(0.0);
 
-                    // Color indicator
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 2.0, color);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
 
-                    ui.label(
-                        RichText::new(series.label())
-                            .color(text_color.gamma_multiply(0.8))
-                            .small(),
-                    );
+                        // Colored dot
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                        ui.painter().circle_filled(rect.center(), 6.0, color);
 
-                    ui.add_space(16.0);
+                        // Series name with value: "series: 1.2K unit"
+                        let formatted_value = format_value_with_unit(latest_value, &self.unit);
+                        ui.label(
+                            RichText::new(format!("{}: {}", series.label(), formatted_value))
+                                .color(text_color.gamma_multiply(0.9))
+                                .size(14.0),
+                        );
+                    });
                 }
 
-                // Show "N more..." button if there are hidden series
-                if total_series > MAX_VISIBLE_SERIES {
-                    let hidden_count = total_series - visible_count;
+                // Show "+ N more" button if there are hidden series
+                if !show_all && total_series > MAX_VISIBLE_SERIES {
+                    let hidden_count = total_series - MAX_VISIBLE_SERIES;
                     let button_text = if self.legend_expanded {
                         "show less".to_string()
                     } else {

@@ -48,6 +48,8 @@ pub struct BarChartViz {
     pub(crate) theme: AppTheme,
     /// Title (shown in tab)
     title: String,
+    /// Unit suffix for values (e.g., "ms", "req/s", "%")
+    unit: String,
     /// Whether to show values on bars
     show_values: bool,
     /// Whether bars are sorted by value (descending)
@@ -69,9 +71,15 @@ impl BarChartViz {
             metric_name: name,
             bars: Vec::new(),
             theme: AppTheme::default(),
+            unit: String::new(),
             show_values: true,
             sorted: true,
         }
+    }
+
+    /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        self.unit = unit.into();
     }
 
     /// Set the metric name

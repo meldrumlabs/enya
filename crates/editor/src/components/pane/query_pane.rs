@@ -143,6 +143,8 @@ pub struct QueryPane {
     /// Whether the user has manually overridden the visualization type.
     /// When true, auto-suggestion will not change the visualization type.
     has_user_override: bool,
+    /// Whether edit was requested via button click (for workspace to pick up)
+    edit_requested: bool,
 }
 
 impl Default for QueryPane {
@@ -180,6 +182,7 @@ impl QueryPane {
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
+            edit_requested: false,
         }
     }
 
@@ -236,6 +239,7 @@ impl QueryPane {
             needs_refresh: true, // Trigger query on first frame
             is_loading: false,
             has_user_override: false,
+            edit_requested: false,
         }
     }
 
@@ -263,6 +267,7 @@ impl QueryPane {
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
+            edit_requested: false,
         }
     }
 
@@ -290,6 +295,7 @@ impl QueryPane {
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
+            edit_requested: false,
         }
     }
 
@@ -318,6 +324,7 @@ impl QueryPane {
             needs_refresh: true,
             is_loading: false,
             has_user_override: false,
+            edit_requested: false,
         }
     }
 
@@ -399,6 +406,11 @@ impl QueryPane {
     /// Set the user-defined tag
     pub fn set_tag(&mut self, tag: &str) {
         self.tag = tag.to_string();
+    }
+
+    /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
+    pub fn set_unit(&mut self, unit: &str) {
+        self.visualization.set_unit(unit);
     }
 
     /// Toggle commit markers visibility on the visualization (only for time series)
@@ -534,6 +546,16 @@ impl QueryPane {
     /// Set the loading state
     pub fn set_loading(&mut self, loading: bool) {
         self.is_loading = loading;
+    }
+
+    /// Check if edit was requested via button click
+    pub fn edit_requested(&self) -> bool {
+        self.edit_requested
+    }
+
+    /// Clear the edit requested flag (called after workspace handles it)
+    pub fn clear_edit_requested(&mut self) {
+        self.edit_requested = false;
     }
 
     /// Render the query pane

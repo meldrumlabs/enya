@@ -421,6 +421,22 @@ impl Visualization {
             _ => None,
         }
     }
+
+    /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
+    /// This applies to visualization types that support units.
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        let unit = unit.into();
+        match self {
+            Self::TimeSeries(chart) => chart.set_unit(unit),
+            Self::Stat(stat) => stat.set_unit(unit),
+            Self::Gauge(gauge) => gauge.set_unit(unit),
+            Self::BarChart(bar) => bar.set_unit(unit),
+            Self::Sparkline(spark) => spark.set_unit(unit),
+            Self::Heatmap(_) | Self::Flamegraph(_) => {
+                // Heatmaps and flamegraphs don't use simple unit suffixes
+            }
+        }
+    }
 }
 
 #[cfg(test)]
