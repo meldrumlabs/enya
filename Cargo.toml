@@ -13,7 +13,25 @@ repository = "https://github.com/meldrumlabs/enya"
 
 [workspace]
 resolver = "3"
-members = ["crates/*", "examples/*"]
+members = [
+  "crates/editor",
+  "crates/lang",
+  "crates/promql",
+  "crates/common",
+  "crates/client",
+  "crates/build-info",
+  "crates/build-tools",
+  "crates/egui_nerdfonts",
+]
+# Excluded for faster compilation (editor-focused development):
+# - crates/datafusion-enya (heavy DataFusion dependency)
+# - crates/enya (main server)
+# - crates/agent
+# - crates/metrics-store
+# - crates/log-store
+# - crates/macros
+# - crates/integration-tests
+# - examples/*
 
 [workspace.dependencies]
 enya = { path = "crates/enya", version = "0.1.0" }
