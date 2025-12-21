@@ -149,6 +149,17 @@ impl Workspace {
             self.show_landing = false;
         }
 
+        // Store codebase URL for deferred initialization (native only)
+        // The actual clone/index happens in show() when ctx is available
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.pending_codebase_config = if config.codebase.is_empty() {
+                None
+            } else {
+                Some(config.codebase.url.clone())
+            };
+        }
+
         // Return connection config if present
         if config.connection.is_empty() {
             None

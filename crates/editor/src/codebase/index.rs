@@ -1,14 +1,17 @@
 //! Codebase index for discovered metrics.
 //!
-//! Builds and maintains an in-memory index of all metrics-rs instrumentation
-//! points discovered in a repository.
+//! Builds and maintains an in-memory index of all metric instrumentation
+//! points discovered in a repository using registered scanners.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 
+use rustc_hash::FxHashSet;
 use walkdir::WalkDir;
 
-use super::metrics::{MetricInstrumentation, scan_file};
+use super::IndexProgress;
 use super::parser::ParseError;
+use super::scanner::{MetricInstrumentation, ScannerRegistry};
 use crate::util::now_unix_secs;
 
 /// An index of all discovered metric instrumentation in a codebase.
@@ -56,33 +59,62 @@ impl CodebaseIndex {
     }
 }
 
-/// Builds a codebase index by scanning all Rust files in the repository.
-pub fn build_index(repo_url: &str, repo_path: &Path) -> Result<CodebaseIndex, ParseError> {
-    let mut all_metrics = Vec::new();
+/// Builds a codebase index by scanning all supported source files.
+///
+/// Uses the provided [`ScannerRegistry`] to determine which files to scan
+/// and which scanner to use for each file type.
+///
+/// Updates the provided `IndexProgress` atomics as files are processed,
+/// allowing the UI to show progress like "Indexing [5/42]...".
+pub fn build_index_with_progress(
+    repo_url: &str,
+    repo_path: &Path,
+    progress: &IndexProgress,
+    registry: &ScannerRegistry,
+) -> Result<CodebaseIndex, ParseError> {
+    // Get all supported extensions from registered scanners
+    let extensions: FxHashSet<&str> = registry.all_extensions().into_iter().collect();
 
-    // Walk the repository, scanning all .rs files
-    for entry in WalkDir::new(repo_path)
+    // First pass: collect all scannable files
+    let source_files: Vec<_> = WalkDir::new(repo_path)
         .follow_links(true)
         .into_iter()
         .filter_map(|e| e.ok())
-    {
+        .filter(|e| {
+            e.path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| extensions.contains(ext))
+        })
+        .filter(|e| {
+            !e.path().components().any(|c| {
+                matches!(
+                    c.as_os_str().to_str(),
+                    Some("target" | ".git" | "vendor" | "node_modules")
+                )
+            })
+        })
+        .collect();
+
+    // Set total count
+    progress.total.store(source_files.len(), Ordering::SeqCst);
+
+    let mut all_metrics = Vec::new();
+
+    // Second pass: scan files with progress updates
+    for (i, entry) in source_files.iter().enumerate() {
+        // Update current progress (1-indexed for display)
+        progress.current.store(i + 1, Ordering::SeqCst);
+
         let path = entry.path();
 
-        // Skip non-Rust files
-        if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+        // Find the appropriate scanner for this file
+        let Some(scanner) = registry.scanner_for(path) else {
             continue;
-        }
-
-        // Skip common non-source directories
-        if path
-            .components()
-            .any(|c| matches!(c.as_os_str().to_str(), Some("target" | ".git" | "vendor")))
-        {
-            continue;
-        }
+        };
 
         // Scan the file for metrics
-        match scan_file(path) {
+        match scanner.scan_file(path) {
             Ok(metrics) => {
                 // Convert absolute paths to relative paths from repo root
                 for mut metric in metrics {
@@ -113,7 +145,7 @@ pub fn build_index(repo_url: &str, repo_path: &Path) -> Result<CodebaseIndex, Pa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codebase::metrics::MetricKind;
+    use crate::codebase::scanner::MetricKind;
 
     fn make_test_metric(name: &str, file: &str, line: usize) -> MetricInstrumentation {
         MetricInstrumentation {

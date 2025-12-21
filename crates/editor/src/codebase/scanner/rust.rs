@@ -1,25 +1,18 @@
-//! Metrics-rs instrumentation discovery.
+//! Rust metrics-rs scanner implementation.
 //!
 //! Scans Rust source files to find `counter!`, `gauge!`, and `histogram!` macro
-//! invocations and extracts metric names and labels.
+//! invocations from the metrics-rs crate and extracts metric names and labels.
 
 use std::path::Path;
 
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, Query, QueryCursor};
 
-use super::parser::{METRICS_QUERY, ParseError, RustParser};
-
-/// The kind of metric instrumentation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MetricKind {
-    Counter,
-    Gauge,
-    Histogram,
-}
+use super::{MetricInstrumentation, MetricKind, Scanner};
+use crate::codebase::parser::{METRICS_QUERY, ParseError, RustParser};
 
 impl MetricKind {
-    /// Parses a metric kind from a macro name.
+    /// Parses a metric kind from a metrics-rs macro name.
     pub fn from_macro_name(name: &str) -> Option<Self> {
         match name {
             "counter" => Some(Self::Counter),
@@ -28,47 +21,41 @@ impl MetricKind {
             _ => None,
         }
     }
+}
 
-    /// Returns the macro name for this kind.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Counter => "counter",
-            Self::Gauge => "gauge",
-            Self::Histogram => "histogram",
-        }
+/// Scanner for Rust files using metrics-rs macros.
+///
+/// Detects the following patterns:
+/// - `counter!("metric.name")` / `counter!("metric.name", "label" => value)`
+/// - `gauge!("metric.name")` / `gauge!("metric.name", "label" => value)`
+/// - `histogram!("metric.name")` / `histogram!("metric.name", "label" => value)`
+pub struct RustMetricsScanner;
+
+impl RustMetricsScanner {
+    /// Creates a new Rust metrics-rs scanner.
+    pub fn new() -> Self {
+        Self
     }
 }
 
-impl std::fmt::Display for MetricKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
+impl Default for RustMetricsScanner {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-/// A discovered metric instrumentation point in the source code.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MetricInstrumentation {
-    /// The kind of metric (counter, gauge, histogram).
-    pub kind: MetricKind,
-    /// The metric name (e.g., "http.requests").
-    pub name: String,
-    /// Label keys used with this metric (e.g., ["method", "endpoint"]).
-    pub labels: Vec<String>,
-    /// The file path where this metric is defined.
-    pub file: std::path::PathBuf,
-    /// Line number (1-indexed).
-    pub line: usize,
-    /// Column number (0-indexed).
-    pub column: usize,
-}
+impl Scanner for RustMetricsScanner {
+    fn extensions(&self) -> &[&str] {
+        &["rs"]
+    }
 
-/// Scans a Rust source file for metrics-rs macro invocations.
-pub fn scan_file(path: &Path) -> Result<Vec<MetricInstrumentation>, ParseError> {
-    let mut parser = RustParser::new()?;
-    let (source, tree) = parser.parse_file(path)?;
-    let query = parser.create_query(METRICS_QUERY)?;
+    fn scan_file(&self, path: &Path) -> Result<Vec<MetricInstrumentation>, ParseError> {
+        let mut parser = RustParser::new()?;
+        let (source, tree) = parser.parse_file(path)?;
+        let query = parser.create_query(METRICS_QUERY)?;
 
-    scan_tree(&source, &tree, &query, path)
+        scan_tree(&source, &tree, &query, path)
+    }
 }
 
 /// Scans a parsed syntax tree for metrics macros.

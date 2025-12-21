@@ -226,9 +226,18 @@ impl EnyaApp {
                 .set_diagnostics_count(errors, warnings, infos);
             // Set connection status based on Prometheus health check
             self.status_line.set_connected(workspace.is_online());
+            // Set codebase status (Cloning..., Indexing..., Ready, Error)
+            // Only show when not on landing page - user expects status after entering workspace
+            if workspace.is_landing_page() {
+                self.status_line.set_codebase_status(None);
+            } else {
+                self.status_line
+                    .set_codebase_status(workspace.codebase_status_text());
+            }
         } else {
             // No active tab - show offline
             self.status_line.set_connected(false);
+            self.status_line.set_codebase_status(None);
         }
 
         // Update sparkline with editor frame time metrics

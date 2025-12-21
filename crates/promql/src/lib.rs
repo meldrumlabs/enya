@@ -79,10 +79,15 @@ fn extract_metric_from_expr(expr: &promql_parser::parser::Expr) -> Option<String
     match expr {
         Expr::VectorSelector(vs) => vs.name.clone(),
         Expr::MatrixSelector(ms) => ms.vs.name.clone(),
-        Expr::Call(call) => call.args.args.first().and_then(|arg| extract_metric_from_expr(arg.as_ref())),
+        Expr::Call(call) => call
+            .args
+            .args
+            .first()
+            .and_then(|arg| extract_metric_from_expr(arg.as_ref())),
         Expr::Aggregate(agg) => extract_metric_from_expr(&agg.expr),
-        Expr::Binary(bin) => extract_metric_from_expr(&bin.lhs)
-            .or_else(|| extract_metric_from_expr(&bin.rhs)),
+        Expr::Binary(bin) => {
+            extract_metric_from_expr(&bin.lhs).or_else(|| extract_metric_from_expr(&bin.rhs))
+        }
         Expr::Unary(un) => extract_metric_from_expr(&un.expr),
         Expr::Paren(p) => extract_metric_from_expr(&p.expr),
         Expr::Subquery(sq) => extract_metric_from_expr(&sq.expr),

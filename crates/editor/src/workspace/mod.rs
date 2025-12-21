@@ -177,6 +177,9 @@ pub struct Workspace {
     /// Codebase manager for git repo and metrics discovery (native only)
     #[cfg(not(target_arch = "wasm32"))]
     codebase_manager: CodebaseManager,
+    /// Pending codebase config to initialize (set during load, executed in show())
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_codebase_config: Option<String>,
 }
 
 impl Default for Workspace {
@@ -222,6 +225,8 @@ impl Default for Workspace {
             source_preview: SourcePreviewOverlay::new(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_codebase_config: None,
         }
     }
 }
@@ -278,6 +283,8 @@ impl Workspace {
             source_preview: SourcePreviewOverlay::new(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_codebase_config: None,
         }
     }
 
@@ -297,6 +304,17 @@ impl Workspace {
         if query_action != WorkspaceAction::None {
             return query_action;
         }
+
+        // Handle pending codebase initialization (native only)
+        // This deferred pattern is needed because load_workspace_config() doesn't have ctx
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(url) = self.pending_codebase_config.take() {
+            self.codebase_manager.clone_repo(&url, ctx);
+        }
+
+        // Poll codebase manager for clone/index completion (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        self.codebase_manager.poll(ctx);
 
         // Handle edit button clicks from panes (opens buffer editor)
         for tile_id in self.get_pane_tile_ids() {
@@ -331,6 +349,7 @@ impl Workspace {
                 }
             }
         }
+
 
         // Sync visual-multi state to behavior for rendering
         let (is_visual_multi, selected_ids, tile_queries) = match &self.visual_multi_state {
@@ -1345,5 +1364,37 @@ impl Workspace {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_source_preview_demo(&mut self) {
         self.source_preview.open_demo();
+    }
+
+    /// Get the current codebase status for StatusLine display.
+    ///
+    /// Returns None if no codebase operation is active, or a status string
+    /// like "Cloning repo...", "Indexing [5/42]...", "Codebase ready", or "Error: ...".
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn codebase_status_text(&self) -> Option<String> {
+        use crate::codebase::CodebaseStatus;
+        match self.codebase_manager.status() {
+            CodebaseStatus::None => None,
+            CodebaseStatus::Cloning { .. } => Some("Cloning repo...".to_string()),
+            CodebaseStatus::Fetching { .. } => Some("Fetching...".to_string()),
+            CodebaseStatus::Indexing { current, total, .. } => {
+                if *total > 0 {
+                    Some(format!("Indexing [{current}/{total}]..."))
+                } else {
+                    Some("Indexing...".to_string())
+                }
+            }
+            CodebaseStatus::Ready { .. } => {
+                let count = self.codebase_manager.all_metrics().len();
+                Some(format!("{count} metrics indexed"))
+            }
+            CodebaseStatus::Error { message, .. } => Some(format!("Error: {message}")),
+        }
+    }
+
+    /// Get the current codebase status for StatusLine display (WASM stub).
+    #[cfg(target_arch = "wasm32")]
+    pub fn codebase_status_text(&self) -> Option<String> {
+        None
     }
 }

@@ -1,28 +1,62 @@
 //! Codebase integration for the Enya editor.
 //!
 //! This module provides functionality to connect the editor to a git repository,
-//! parse Rust source files using tree-sitter, and discover metrics-rs instrumentation
-//! points (counter!, gauge!, histogram! macros).
+//! parse source files using tree-sitter, and discover metric instrumentation
+//! points across multiple languages.
 //!
 //! # Architecture
 //!
 //! - [`CodebaseManager`]: Main entry point, manages git clone/fetch and indexing
+//! - [`scanner`]: Language-agnostic scanner framework with trait-based extensibility
 //! - [`repo`]: Git operations (clone, fetch, update)
-//! - [`parser`]: Tree-sitter Rust parsing
-//! - [`metrics`]: Metrics macro discovery
+//! - [`parser`]: Tree-sitter parsing utilities
 //! - [`index`]: In-memory index of discovered instrumentation
 
 mod index;
-mod metrics;
 mod parser;
 mod repo;
+pub mod scanner;
 
 pub use index::CodebaseIndex;
-pub use metrics::{MetricInstrumentation, MetricKind};
+pub use scanner::{MetricInstrumentation, MetricKind, Scanner, ScannerRegistry};
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
+
+/// Progress tracking for indexing operations.
+#[derive(Debug, Clone)]
+pub struct IndexProgress {
+    /// Current file being processed (1-indexed)
+    pub current: Arc<AtomicUsize>,
+    /// Total number of files to process
+    pub total: Arc<AtomicUsize>,
+}
+
+impl IndexProgress {
+    /// Create a new progress tracker.
+    pub fn new() -> Self {
+        Self {
+            current: Arc::new(AtomicUsize::new(0)),
+            total: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Get the current progress values.
+    pub fn get(&self) -> (usize, usize) {
+        (
+            self.current.load(Ordering::Relaxed),
+            self.total.load(Ordering::Relaxed),
+        )
+    }
+}
+
+impl Default for IndexProgress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Status of codebase operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +68,13 @@ pub enum CodebaseStatus {
     /// Currently fetching updates.
     Fetching { url: String },
     /// Currently indexing the codebase.
-    Indexing { url: String },
+    Indexing {
+        url: String,
+        /// Current file being indexed (1-indexed)
+        current: usize,
+        /// Total files to index
+        total: usize,
+    },
     /// Codebase is ready and indexed.
     Ready { url: String },
     /// An error occurred.
@@ -61,7 +101,7 @@ impl CodebaseStatus {
             Self::None => None,
             Self::Cloning { url }
             | Self::Fetching { url }
-            | Self::Indexing { url }
+            | Self::Indexing { url, .. }
             | Self::Ready { url }
             | Self::Error { url, .. } => Some(url),
         }
@@ -96,6 +136,10 @@ pub struct CodebaseManager {
     status: CodebaseStatus,
     pending_result: Arc<Mutex<Option<CodebaseResult>>>,
     index: Option<CodebaseIndex>,
+    /// Progress tracking for indexing (shared with background thread)
+    indexing_progress: Option<IndexProgress>,
+    /// Registry of available scanners for different languages
+    scanner_registry: ScannerRegistry,
 }
 
 impl Default for CodebaseManager {
@@ -111,7 +155,14 @@ impl CodebaseManager {
             status: CodebaseStatus::None,
             pending_result: Arc::new(Mutex::new(None)),
             index: None,
+            indexing_progress: None,
+            scanner_registry: ScannerRegistry::default(),
         }
+    }
+
+    /// Returns a reference to the scanner registry.
+    pub fn scanner_registry(&self) -> &ScannerRegistry {
+        &self.scanner_registry
     }
 
     /// Returns the current status.
@@ -186,13 +237,24 @@ impl CodebaseManager {
 
     /// Builds the codebase index from the given repository path.
     fn start_indexing(&mut self, url: String, path: std::path::PathBuf, ctx: &egui::Context) {
-        self.status = CodebaseStatus::Indexing { url: url.clone() };
+        // Create shared progress tracker
+        let progress = IndexProgress::new();
+        self.indexing_progress = Some(progress.clone());
+
+        self.status = CodebaseStatus::Indexing {
+            url: url.clone(),
+            current: 0,
+            total: 0,
+        };
 
         let pending = Arc::clone(&self.pending_result);
         let ctx = ctx.clone();
 
         std::thread::spawn(move || {
-            let result = match index::build_index(&url, &path) {
+            // Create scanner registry for the indexing thread
+            let registry = ScannerRegistry::default();
+
+            let result = match index::build_index_with_progress(&url, &path, &progress, &registry) {
                 Ok(idx) => CodebaseResult::IndexComplete { url, index: idx },
                 Err(e) => CodebaseResult::Error {
                     url,
@@ -209,6 +271,22 @@ impl CodebaseManager {
     ///
     /// Call this each frame to check if clone/fetch/index operations have completed.
     pub fn poll(&mut self, ctx: &egui::Context) {
+        // Update indexing progress from the shared atomics
+        if let Some(ref progress) = self.indexing_progress {
+            let (current, total) = progress.get();
+            if let CodebaseStatus::Indexing { url, .. } = &self.status {
+                self.status = CodebaseStatus::Indexing {
+                    url: url.clone(),
+                    current,
+                    total,
+                };
+                // Request repaint to show updated progress
+                if current > 0 {
+                    ctx.request_repaint();
+                }
+            }
+        }
+
         let result = self.pending_result.lock().take();
 
         let Some(result) = result else {
@@ -236,9 +314,11 @@ impl CodebaseManager {
             CodebaseResult::IndexComplete { url, index } => {
                 self.index = Some(index);
                 self.status = CodebaseStatus::Ready { url };
+                self.indexing_progress = None; // Clear progress tracker
             }
             CodebaseResult::Error { url, message } => {
                 self.status = CodebaseStatus::Error { url, message };
+                self.indexing_progress = None; // Clear progress tracker
             }
         }
     }
