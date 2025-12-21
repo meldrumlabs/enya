@@ -207,6 +207,35 @@ impl Series {
             Cow::Owned(format!("{} {{{}}}", self.name, tags.join(", ")))
         }
     }
+
+    /// Build a short label for the legend (prefers tag values, truncates long names)
+    pub fn short_label(&self) -> Cow<'_, str> {
+        // If we have tags, just show the tag values (e.g., "GET", "POST" for method=GET)
+        if !self.tags.is_empty() {
+            let values: Vec<_> = self.tags.values().cloned().collect();
+            return Cow::Owned(values.join(", "));
+        }
+
+        // Otherwise truncate the name
+        let name = &self.name;
+        if name.len() <= 20 {
+            Cow::Borrowed(name)
+        } else {
+            // Try to find a meaningful short form
+            // If it looks like a PromQL query, extract the metric name
+            if let Some(paren_idx) = name.find('(') {
+                let after_paren = &name[paren_idx + 1..];
+                if let Some(end) = after_paren.find(|c: char| !c.is_alphanumeric() && c != '_') {
+                    let metric = &after_paren[..end];
+                    if !metric.is_empty() {
+                        return Cow::Owned(metric.to_string());
+                    }
+                }
+            }
+            // Fallback: just truncate
+            Cow::Owned(format!("{}…", &name[..17]))
+        }
+    }
 }
 
 /// Actions that can be triggered by zoom keybindings
@@ -256,8 +285,6 @@ pub struct TimeSeriesChart {
     pending_g: bool,
     /// Whether we're waiting for 'c' after '[' or ']' (for commit navigation)
     pending_bracket: Option<char>,
-    /// Whether the legend is expanded to show all series
-    legend_expanded: bool,
     /// Whether to render as a stacked area chart
     stacked: bool,
 }
@@ -285,7 +312,6 @@ impl TimeSeriesChart {
             unit: String::new(),
             pending_g: false,
             pending_bracket: None,
-            legend_expanded: false,
             stacked: false,
         }
     }
@@ -715,6 +741,109 @@ impl TimeSeriesChart {
         let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.4);
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
+        // Legend above the chart (PlanetScale-style, only show if multiple series)
+        if self.show_legend && self.series.len() > 1 {
+            const MAX_VISIBLE_SERIES: usize = 5;
+            let total_series = self.series.len();
+            let show_overflow = total_series > MAX_VISIBLE_SERIES;
+            let visible_count = if show_overflow {
+                MAX_VISIBLE_SERIES
+            } else {
+                total_series
+            };
+
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 24.0; // Spacing between legend items
+
+                // Show first N series
+                for (i, series) in self.series.iter().take(visible_count).enumerate() {
+                    let color = series.color.unwrap_or_else(|| self.series_color(i));
+                    let latest_value = series.points.last().map(|p| p.value).unwrap_or(0.0);
+
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+
+                        // Colored dot
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                        ui.painter().circle_filled(rect.center(), 6.0, color);
+
+                        // Series name with value: "series: 1.2K unit"
+                        let formatted_value = format_value_with_unit(latest_value, &self.unit);
+                        ui.label(
+                            RichText::new(format!("{}: {}", series.short_label(), formatted_value))
+                                .color(text_color.gamma_multiply(0.9))
+                                .size(14.0),
+                        );
+                    });
+                }
+
+                // Show "+ N more" if there are overflow series (with hover tooltip)
+                if show_overflow {
+                    let overflow_count = total_series - visible_count;
+
+                    // Collect overflow series data for tooltip
+                    let overflow_data: Vec<_> = self
+                        .series
+                        .iter()
+                        .enumerate()
+                        .skip(visible_count)
+                        .map(|(i, series)| {
+                            let latest_value = series.points.last().map(|p| p.value).unwrap_or(0.0);
+                            let formatted_value = format_value_with_unit(latest_value, &self.unit);
+                            let color = series.color.unwrap_or_else(|| self.series_color(i));
+                            let label = series.short_label().to_string();
+                            (color, label, formatted_value)
+                        })
+                        .collect();
+
+                    let more_text = format!("+ {overflow_count} more");
+
+                    // Use a Label with sense for reliable hover detection
+                    let response = ui.add(
+                        egui::Label::new(
+                            RichText::new(&more_text)
+                                .color(text_color.gamma_multiply(0.5))
+                                .size(14.0),
+                        )
+                        .sense(egui::Sense::hover()),
+                    );
+
+                    // Highlight on hover by repainting with brighter color
+                    if response.hovered() {
+                        let rect = response.rect;
+                        // Paint over with highlighted text
+                        ui.painter()
+                            .rect_filled(rect, 0.0, palette::bg_surface(self.theme));
+                        ui.painter().text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            &more_text,
+                            egui::FontId::proportional(14.0),
+                            text_color.gamma_multiply(0.9),
+                        );
+                    }
+
+                    response.on_hover_ui(|ui| {
+                        for (color, label, value) in &overflow_data {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 8.0;
+                                // Colored dot
+                                let (rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(12.0, 12.0),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter().circle_filled(rect.center(), 5.0, *color);
+                                // Label and value
+                                ui.label(format!("{label}: {value}"));
+                            });
+                        }
+                    });
+                }
+            });
+            ui.add_space(8.0);
+        }
+
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         let plot = Plot::new(format!("plot_{}", self.id))
             .min_size(egui::vec2(100.0, MIN_CHART_HEIGHT))
@@ -988,65 +1117,6 @@ impl TimeSeriesChart {
                 }
             }
         });
-
-        // Legend below chart (if enabled and multiple series)
-        if self.show_legend && self.series.len() > 1 {
-            ui.add_space(8.0);
-
-            const MAX_VISIBLE_SERIES: usize = 10;
-            let total_series = self.series.len();
-            let show_all = self.legend_expanded || total_series <= MAX_VISIBLE_SERIES;
-            let visible_count = if show_all {
-                total_series
-            } else {
-                MAX_VISIBLE_SERIES
-            };
-
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 24.0; // Spacing between legend items
-
-                for (i, series) in self.series.iter().take(visible_count).enumerate() {
-                    let color = series.color.unwrap_or_else(|| self.series_color(i));
-                    let latest_value = series.points.last().map(|p| p.value).unwrap_or(0.0);
-
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-
-                        // Colored dot
-                        let (rect, _) =
-                            ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-                        ui.painter().circle_filled(rect.center(), 6.0, color);
-
-                        // Series name with value: "series: 1.2K unit"
-                        let formatted_value = format_value_with_unit(latest_value, &self.unit);
-                        ui.label(
-                            RichText::new(format!("{}: {}", series.label(), formatted_value))
-                                .color(text_color.gamma_multiply(0.9))
-                                .size(14.0),
-                        );
-                    });
-                }
-
-                // Show "+ N more" button if there are hidden series
-                if !show_all && total_series > MAX_VISIBLE_SERIES {
-                    let hidden_count = total_series - MAX_VISIBLE_SERIES;
-                    let button_text = if self.legend_expanded {
-                        "show less".to_string()
-                    } else {
-                        format!("+{hidden_count} more...")
-                    };
-
-                    if ui
-                        .small_button(
-                            RichText::new(button_text).color(text_color.gamma_multiply(0.6)),
-                        )
-                        .clicked()
-                    {
-                        self.legend_expanded = !self.legend_expanded;
-                    }
-                }
-            });
-        }
     }
 }
 
