@@ -51,3 +51,41 @@ pub use validation::{ValidationResult, validate};
 
 // Re-export promql-parser for AST access if needed
 pub use promql_parser::parser::parse;
+
+/// Extract the primary metric name from a PromQL query.
+///
+/// Walks the AST to find the first vector or matrix selector and returns
+/// its metric name. For complex queries (aggregations, functions, binary ops),
+/// this returns the leftmost/innermost metric name.
+///
+/// # Example
+///
+/// ```
+/// use enya_promql::extract_metric_name;
+///
+/// assert_eq!(extract_metric_name("http_requests_total"), Some("http_requests_total".to_string()));
+/// assert_eq!(extract_metric_name("rate(http_requests_total[5m])"), Some("http_requests_total".to_string()));
+/// assert_eq!(extract_metric_name("sum(rate(my_metric[5m])) by (job)"), Some("my_metric".to_string()));
+/// ```
+#[must_use]
+pub fn extract_metric_name(query: &str) -> Option<String> {
+    let expr = promql_parser::parser::parse(query).ok()?;
+    extract_metric_from_expr(&expr)
+}
+
+fn extract_metric_from_expr(expr: &promql_parser::parser::Expr) -> Option<String> {
+    use promql_parser::parser::Expr;
+
+    match expr {
+        Expr::VectorSelector(vs) => vs.name.clone(),
+        Expr::MatrixSelector(ms) => ms.vs.name.clone(),
+        Expr::Call(call) => call.args.args.first().and_then(|arg| extract_metric_from_expr(arg.as_ref())),
+        Expr::Aggregate(agg) => extract_metric_from_expr(&agg.expr),
+        Expr::Binary(bin) => extract_metric_from_expr(&bin.lhs)
+            .or_else(|| extract_metric_from_expr(&bin.rhs)),
+        Expr::Unary(un) => extract_metric_from_expr(&un.expr),
+        Expr::Paren(p) => extract_metric_from_expr(&p.expr),
+        Expr::Subquery(sq) => extract_metric_from_expr(&sq.expr),
+        Expr::NumberLiteral(_) | Expr::StringLiteral(_) | Expr::Extension(_) => None,
+    }
+}

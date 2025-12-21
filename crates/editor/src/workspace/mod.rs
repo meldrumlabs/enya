@@ -1320,18 +1320,17 @@ impl Workspace {
     }
 
     /// Get the metric name from the currently focused pane (if it's a QueryPane).
+    ///
+    /// Parses the saved PromQL query to extract the primary metric name.
     pub fn get_focused_metric_name(&self) -> Option<String> {
         let tile_id = self.behavior.focused_tile()?;
         let tile = self.viewport_tree.tiles.get(tile_id)?;
 
         if let egui_tiles::Tile::Pane(component) = tile {
             if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                // Extract metric name from query - use the pane name as fallback
-                // which is often set to the metric name
-                let name = query_pane.name();
-                if !name.is_empty() && !name.starts_with("Query ") {
-                    return Some(name.to_string());
-                }
+                // Extract metric name from the saved PromQL query
+                let query = query_pane.saved_query();
+                return enya_promql::extract_metric_name(query);
             }
         }
         None
