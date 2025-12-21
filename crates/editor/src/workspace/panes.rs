@@ -55,9 +55,10 @@ impl Workspace {
         WorkspaceAction::None
     }
 
-    /// Add a demo query pane with a full PromQL query and custom name (for tutorial)
-    pub(super) fn add_demo_query_pane(&mut self, query: &str, name: &str) {
-        let pane: Box<dyn Component> = Box::new(QueryPane::with_demo_query_named(query, name));
+    /// Add a demo query pane with a full PromQL query, custom name, and unit (for tutorial)
+    pub(super) fn add_demo_query_pane(&mut self, query: &str, name: &str, unit: &str) {
+        let pane: Box<dyn Component> =
+            Box::new(QueryPane::with_demo_query_named_unit(query, name, unit));
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
         if self.add_tile_to_viewport(pane_tile) {

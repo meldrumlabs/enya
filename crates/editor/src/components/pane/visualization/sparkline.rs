@@ -22,6 +22,8 @@ pub struct SparklineViz {
     pub(crate) theme: AppTheme,
     /// Title (shown in tab)
     title: String,
+    /// Unit suffix for values (e.g., "ms", "req/s", "%")
+    unit: String,
     /// Whether to show the current value
     show_value: bool,
     /// Whether to fill under the line
@@ -45,10 +47,16 @@ impl SparklineViz {
             metric_name: name,
             data: Vec::new(),
             theme: AppTheme::default(),
+            unit: String::new(),
             show_value: true,
             fill: true,
             color: None,
         }
+    }
+
+    /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
+    pub fn set_unit(&mut self, unit: impl Into<String>) {
+        self.unit = unit.into();
     }
 
     /// Set the metric name

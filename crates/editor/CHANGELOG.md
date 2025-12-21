@@ -6,6 +6,14 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Grafana dashboard JSON import**: Added `workspace::grafana` module for converting Grafana dashboard JSON exports to Enya's workspace TOML format. Supports timeseries, graph, stat, singlestat, gauge, barchart, bargauge, and heatmap panel types. See `examples/grafana-dashboard.json` for an example input.
+
+- **Custom unit suffixes for values**: Added `unit` field to `PaneConfig` and all visualization types. Units like "ms", "req/s", "%", "MB/s" are now displayed on Y-axis labels and in chart legends. Grafana panel units are automatically converted during import.
+
+- **Enhanced chart legend with values**: The time series chart legend is now displayed above the chart in a horizontal-wrapped layout showing the latest value for each series. Legends display up to 5 series by default, with a "+ N more" indicator that reveals all hidden series in a hover tooltip. Series labels are truncated intelligently (using tag values when available). Use a query containing "by_endpoint" or "by_method" to test with 12 demo series.
+
+- **Cleaner query pane UI**: The query pane header bar (with mode indicator) is now hidden when not editing. An edit button appears as a subtle overlay in the top-right corner when hovering, and the buffer can be opened with 'e' key or by clicking the pencil icon.
+
 - **Insta snapshot testing infrastructure**: Added the `insta` crate (v1.43) for snapshot testing. This enables easy-to-maintain tests for serialization formats and output stability. Snapshot tests are now used for:
   - Workspace TOML serialization (minimal, full, and with layout)
   - Pane config YAML serialization

@@ -101,6 +101,9 @@ impl Workspace {
             if !pane_config.tag.is_empty() {
                 query_pane.set_tag(&pane_config.tag);
             }
+            if !pane_config.unit.is_empty() {
+                query_pane.set_unit(&pane_config.unit);
+            }
 
             // Apply query state
             let state = pane_config.to_query_state(&config.time.preset);

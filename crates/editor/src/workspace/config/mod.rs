@@ -308,6 +308,10 @@ pub struct PaneConfig {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub tag: String,
 
+    /// Unit suffix for values (e.g., "ms", "req/s", "%", "MB/s")
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub unit: String,
+
     /// Granularity: "1m", "5m", "15m", "1h", "6h", "1d"
     #[serde(
         default = "default_granularity",
@@ -346,6 +350,7 @@ impl PaneConfig {
             query: query.into(),
             name: String::new(),
             tag: String::new(),
+            unit: String::new(),
             granularity: default_granularity(),
             visualization: default_visualization(),
         }
@@ -407,6 +412,7 @@ impl PaneConfig {
             query: query.to_string(),
             name: name.to_string(),
             tag: tag.to_string(),
+            unit: String::new(),
             granularity: state.granularity.label().to_string(),
             visualization: default_visualization(),
         }
@@ -424,6 +430,7 @@ impl PaneConfig {
             query: query.to_string(),
             name: name.to_string(),
             tag: tag.to_string(),
+            unit: String::new(),
             granularity: state.granularity.label().to_string(),
             visualization: viz_type.as_str().to_string(),
         }
@@ -836,6 +843,7 @@ granularity = "5m"
             tag: "Critical".to_string(),
             granularity: "15m".to_string(),
             visualization: "time_series".to_string(),
+            unit: String::new(),
         };
 
         assert_eq!(pane.granularity_value(), Granularity::FifteenMinutes);
@@ -1377,6 +1385,7 @@ children = [0, { type = "vertical", children = [1, 2] }]
                 tag: String::new(),
                 granularity: input.to_string(),
                 visualization: "time_series".to_string(),
+                unit: String::new(),
             };
             assert_eq!(pane.granularity_value(), expected, "Failed for: {input}");
         }

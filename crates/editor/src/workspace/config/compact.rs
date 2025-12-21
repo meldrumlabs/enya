@@ -276,6 +276,7 @@ impl CompactWorkspaceConfig {
                     query: p.query,
                     name: p.name.unwrap_or_default(),
                     tag: p.tag.unwrap_or_default(),
+                    unit: String::new(), // Compact format doesn't encode unit
                     granularity: match gran {
                         0 => "1m",
                         1 => "5m",
@@ -385,6 +386,7 @@ impl CompactSinglePane {
             query: self.query,
             name: self.name.unwrap_or_default(),
             tag: String::new(),
+            unit: String::new(),
             granularity: match gran {
                 0 => "1m",
                 1 => "5m",
@@ -528,6 +530,7 @@ mod tests {
             tag: tag.to_string(),
             granularity: granularity.to_string(),
             visualization: visualization.to_string(),
+            unit: String::new(),
         }
     }
 
@@ -975,6 +978,7 @@ mod tests {
             tag: String::new(),
             granularity: "5m".to_string(),
             visualization: "time_series".to_string(),
+            unit: String::new(),
         });
 
         let encoded = encode_workspace(&ws).expect("encode should succeed");
