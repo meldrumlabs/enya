@@ -285,6 +285,40 @@ impl Workspace {
             return query_action;
         }
 
+        // Handle edit button clicks from panes (opens buffer editor)
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    if query_pane.edit_requested() {
+                        query_pane.clear_edit_requested();
+                        // Focus this tile and open the buffer editor
+                        self.behavior.set_focused_tile(Some(tile_id));
+                        self.editing_tile_id = Some(tile_id);
+
+                        let query = query_pane.saved_query().to_string();
+                        let name = query_pane.name().to_string();
+                        let state = query_pane.query_state().clone();
+                        self.buffer_editor.open_with_state(&query, &name, state);
+
+                        // Populate completions from cached metric labels
+                        if let Some(labels) = self.query_executor.get_metric_labels(&name) {
+                            self.buffer_editor
+                                .set_completions_from_labels(&labels.labels);
+                        } else if self.query_executor.is_connected() {
+                            self.buffer_editor.clear_completions();
+                        }
+
+                        // Set known metric names for completion
+                        let metric_names = self.query_executor.metric_names().to_vec();
+                        self.buffer_editor.set_metric_names(metric_names);
+                        break;
+                    }
+                }
+            }
+        }
+
         // Sync visual-multi state to behavior for rendering
         let (is_visual_multi, selected_ids, tile_queries) = match &self.visual_multi_state {
             Some(state) => {
