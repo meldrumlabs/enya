@@ -715,13 +715,11 @@ impl TimeSeriesChart {
         );
 
         // Custom y-axis formatter with K/M/B suffixes for large numbers and unit suffix
-        let y_label = self.y_label.as_deref().unwrap_or("Value");
         let unit = self.unit.clone();
-        let y_axis = AxisHints::new_y().label(y_label).formatter(
-            move |mark: GridMark, _range: &RangeInclusive<f64>| {
+        let y_axis =
+            AxisHints::new_y().formatter(move |mark: GridMark, _range: &RangeInclusive<f64>| {
                 format_value_with_unit(mark.value, &unit)
-            },
-        );
+            });
 
         // Calculate optimal height for a sleek Grafana/PlanetScale-style view
         // Use available height if constrained by layout, otherwise calculate from aspect ratio

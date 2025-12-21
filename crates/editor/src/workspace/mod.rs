@@ -660,15 +660,22 @@ impl Workspace {
                     (
                         "http_requests_total{env=\"prod\", service=\"api\"}",
                         "HTTP Requests",
+                        "",
                     ),
-                    ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage"),
+                    ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
                     (
                         "memory_used_bytes{env=\"prod\", service=\"api\"}",
                         "Memory Used",
+                        "MB",
+                    ),
+                    (
+                        "sum(rate(http_requests_total[5m])) by_endpoint",
+                        "Requests by Endpoint",
+                        "req/s",
                     ),
                 ];
-                for (query, name) in demo_queries {
-                    self.add_demo_query_pane(query, name);
+                for (query, name, unit) in demo_queries {
+                    self.add_demo_query_pane(query, name, unit);
                 }
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
@@ -863,15 +870,22 @@ impl Workspace {
                         (
                             "http_requests_total{env=\"prod\", service=\"api\"}",
                             "HTTP Requests",
+                            "",
                         ),
-                        ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage"),
+                        ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
                         (
                             "memory_used_bytes{env=\"prod\", service=\"api\"}",
                             "Memory Used",
+                            "MB",
+                        ),
+                        (
+                            "sum(rate(http_requests_total[5m])) by_endpoint",
+                            "Requests by Endpoint",
+                            "req/s",
                         ),
                     ];
-                    for (query, name) in demo_queries {
-                        self.add_demo_query_pane(query, name);
+                    for (query, name, unit) in demo_queries {
+                        self.add_demo_query_pane(query, name, unit);
                     }
                 }
                 self.tutorial_overlay.open();
