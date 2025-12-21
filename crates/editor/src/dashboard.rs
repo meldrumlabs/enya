@@ -514,6 +514,21 @@ impl Dashboard {
             });
         });
 
+        // Check for edit button clicks in query panes
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) =
+                self.viewport_tree.tiles.get_mut(tile_id)
+            {
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    if query_pane.edit_requested() {
+                        query_pane.clear_edit_requested();
+                        self.edit_tile_buffer(tile_id);
+                        break;
+                    }
+                }
+            }
+        }
+
         // Show fuzzy finder modal (rendered on top of everything)
         self.metrics_finder.set_theme(app_state.theme);
         if let Some(selected_item) = self.metrics_finder.show(ctx) {
@@ -702,6 +717,11 @@ impl Dashboard {
                         "memory_used_bytes{env=\"prod\", service=\"api\"}",
                         "Memory Used",
                         "MB",
+                    ),
+                    (
+                        "sum(rate(http_requests_total[5m])) by_endpoint",
+                        "Requests by Endpoint",
+                        "req/s",
                     ),
                 ];
                 for (query, name, unit) in demo_queries {
@@ -970,6 +990,11 @@ impl Dashboard {
                             "memory_used_bytes{env=\"prod\", service=\"api\"}",
                             "Memory Used",
                             "MB",
+                        ),
+                        (
+                            "sum(rate(http_requests_total[5m])) by_endpoint",
+                            "Requests by Endpoint",
+                            "req/s",
                         ),
                     ];
                     for (query, name, unit) in demo_queries {
@@ -1242,51 +1267,56 @@ impl Dashboard {
     /// Enter edit mode on the focused buffer - opens the modal editor
     fn edit_focused_buffer(&mut self) {
         if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                // Try to downcast to QueryPane and get query info
-                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                    let query = query_pane.saved_query().to_string();
-                    let name = query_pane.name().to_string();
-                    let state = query_pane.query_state().clone();
-                    self.buffer_editor.open_with_state(&query, &name, state);
-                    self.editing_tile_id = Some(tile_id);
+            self.edit_tile_buffer(tile_id);
+        }
+    }
 
-                    // Populate completions from cached metric labels
-                    if let Some(labels) = self.query_executor.get_metric_labels(&name) {
-                        self.buffer_editor
-                            .set_completions_from_labels(&labels.labels);
-                        log::debug!(
-                            "Set buffer editor completions from {} labels for '{}'",
-                            labels.labels.len(),
-                            name
-                        );
-                    } else if self.query_executor.is_connected() {
-                        // Clear default completions if connected but no labels cached
-                        self.buffer_editor.clear_completions();
-                    }
+    /// Enter edit mode on a specific tile's buffer - opens the modal editor
+    fn edit_tile_buffer(&mut self, tile_id: egui_tiles::TileId) {
+        if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+            // Try to downcast to QueryPane and get query info
+            if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                let query = query_pane.saved_query().to_string();
+                let name = query_pane.name().to_string();
+                let state = query_pane.query_state().clone();
+                self.buffer_editor.open_with_state(&query, &name, state);
+                self.editing_tile_id = Some(tile_id);
 
-                    // Set known metric names for completion
-                    let metric_names = self.query_executor.metric_names().to_vec();
+                // Populate completions from cached metric labels
+                if let Some(labels) = self.query_executor.get_metric_labels(&name) {
+                    self.buffer_editor
+                        .set_completions_from_labels(&labels.labels);
                     log::debug!(
-                        "Setting {} metric names for completion: {:?}",
-                        metric_names.len(),
-                        metric_names.iter().take(5).collect::<Vec<_>>()
+                        "Set buffer editor completions from {} labels for '{}'",
+                        labels.labels.len(),
+                        name
                     );
-                    self.buffer_editor.set_metric_names(metric_names);
-
-                    log::debug!("Opening buffer editor for QueryPane");
-                } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
-                    let query = buffer.saved_content().to_string();
-                    let name = buffer.name().to_string();
-                    self.buffer_editor.open(&query, &name);
-                    self.editing_tile_id = Some(tile_id);
-
-                    // Set known metric names for completion
-                    let metric_names = self.query_executor.metric_names().to_vec();
-                    self.buffer_editor.set_metric_names(metric_names);
-
-                    log::debug!("Opening buffer editor for Buffer");
+                } else if self.query_executor.is_connected() {
+                    // Clear default completions if connected but no labels cached
+                    self.buffer_editor.clear_completions();
                 }
+
+                // Set known metric names for completion
+                let metric_names = self.query_executor.metric_names().to_vec();
+                log::debug!(
+                    "Setting {} metric names for completion: {:?}",
+                    metric_names.len(),
+                    metric_names.iter().take(5).collect::<Vec<_>>()
+                );
+                self.buffer_editor.set_metric_names(metric_names);
+
+                log::debug!("Opening buffer editor for QueryPane");
+            } else if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
+                let query = buffer.saved_content().to_string();
+                let name = buffer.name().to_string();
+                self.buffer_editor.open(&query, &name);
+                self.editing_tile_id = Some(tile_id);
+
+                // Set known metric names for completion
+                let metric_names = self.query_executor.metric_names().to_vec();
+                self.buffer_editor.set_metric_names(metric_names);
+
+                log::debug!("Opening buffer editor for Buffer");
             }
         }
     }

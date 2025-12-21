@@ -6,6 +6,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Edit button for mouse users**: Added an edit button overlay in the top-right corner of chart panes (aligned with the tab bar + button). Clicking the pencil icon opens the query editor, same as pressing 'e'. The button has hover highlighting and appears only when the buffer is collapsed.
+
+- **Legend overflow handling for many series**: Charts with more than 5 series now show the first 5 in the legend plus "+ N more" text. Hovering over "+ N more" displays a tooltip with all remaining series, showing colored dots and their current values.
+
+- **"Requests by Endpoint" tutorial demo**: Added a 12-series demo chart to the interactive tutorial to demonstrate legend overflow behavior with many series.
+
 - **Custom unit suffixes for values**: Added support for custom unit formatting in visualizations. Panes can now specify a `unit` field (e.g., "ms", "req/s", "%", "MB/s") which is displayed alongside Y-axis labels in time series charts, stat panels, gauges, bar charts, and sparklines.
 
 - **Grafana unit extraction**: When importing Grafana dashboards, unit information is now automatically extracted from panel `fieldConfig.defaults.unit` and converted to human-readable suffixes. Supports time units (ms, s, min, h), data sizes (B, KB, MB, GB), rates (B/s, req/s, ops), percentages, and more.
