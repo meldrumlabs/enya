@@ -1,7 +1,7 @@
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["Meldrum Labs"]
 categories = ["observability", "metrics"]
 keywords = ["observability", "metrics", "logging", "timeseries"]

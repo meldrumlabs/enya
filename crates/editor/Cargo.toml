@@ -86,6 +86,9 @@ chrono = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 insta = { version = "1.43", features = ["toml"] }
+# NOTE: egui_kittest 0.33.3 has a compatibility bug with egui 0.33.2 (accesskit_update field mismatch)
+# Re-enable when egui 0.33.4 or later is released with the fix
+# egui_kittest = { version = "0.33.3", features = ["snapshot"] }
 
 [features]
 default = []
@@ -101,9 +104,6 @@ optional = true
 [dependencies.puffin_http]
 version = "0.16"
 optional = true
-
-# NOTE: egui_kittest requires Rust 1.88+ (we're on 1.85)
-# Add when rust-version is updated: egui_kittest = { version = "0.33", features = ["snapshot"] }
 
 [[bench]]
 name = "finder"
