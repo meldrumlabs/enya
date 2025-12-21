@@ -845,10 +845,10 @@ impl TimeSeriesChart {
         }
 
         // The plot - let egui_plot manage bounds internally via its ID-based memory
+        // Note: We use our own custom legend above the chart, so no egui_plot legend
         let plot = Plot::new(format!("plot_{}", self.id))
             .min_size(egui::vec2(100.0, MIN_CHART_HEIGHT))
             .height(optimal_height)
-            .legend(egui_plot::Legend::default().position(egui_plot::Corner::RightTop))
             .custom_x_axes(vec![x_axis])
             .custom_y_axes(vec![y_axis])
             .show_axes(true)

@@ -49,6 +49,16 @@ pub fn populate_demo_data(viz: &mut Visualization, query: &str) {
 
 /// Populate demo data for time series
 fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
+    // Check if this is a "many series" demo query (e.g., by endpoint, by method, etc.)
+    let query_lower = query.to_lowercase();
+    if query_lower.contains("by_endpoint")
+        || query_lower.contains("by endpoint")
+        || query_lower.contains("by_method")
+    {
+        populate_many_series_demo(chart, query);
+        return;
+    }
+
     // Generate some demo data based on query hash for variety
     let hash = query
         .bytes()
@@ -302,4 +312,70 @@ fn populate_sparkline_demo(spark: &mut SparklineViz, query: &str) {
         .collect();
 
     spark.set_data(data);
+}
+
+/// Populate demo data with many series (12 API endpoints) for testing legend overflow
+fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
+    let now = 1_700_000_000.0;
+    let duration = 86400.0;
+    let num_points = 120;
+
+    // API endpoints for the demo
+    let endpoints = [
+        "/api/users",
+        "/api/orders",
+        "/api/products",
+        "/api/auth/login",
+        "/api/auth/logout",
+        "/api/cart",
+        "/api/checkout",
+        "/api/search",
+        "/api/inventory",
+        "/api/payments",
+        "/api/webhooks",
+        "/api/notifications",
+    ];
+
+    // Colors for each series
+    let colors = [
+        Color32::from_rgb(99, 179, 237),  // Sky blue
+        Color32::from_rgb(129, 140, 248), // Indigo
+        Color32::from_rgb(94, 234, 212),  // Teal
+        Color32::from_rgb(192, 132, 252), // Purple
+        Color32::from_rgb(251, 191, 36),  // Amber
+        Color32::from_rgb(244, 114, 182), // Pink
+        Color32::from_rgb(52, 211, 153),  // Emerald
+        Color32::from_rgb(248, 113, 113), // Coral
+        Color32::from_rgb(163, 230, 53),  // Lime
+        Color32::from_rgb(251, 146, 60),  // Orange
+        Color32::from_rgb(147, 197, 253), // Light blue
+        Color32::from_rgb(196, 181, 253), // Light purple
+    ];
+
+    for (i, endpoint) in endpoints.iter().enumerate() {
+        let hash = endpoint
+            .bytes()
+            .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
+        let base = 20.0 + (hash % 80) as f64;
+        let freq = 100.0 + (hash % 200) as f64;
+        let phase = (i as f64) * 0.5;
+
+        let points: Vec<DataPoint> = (0..num_points)
+            .map(|j| {
+                let t = now + (j as f64 / num_points as f64) * duration;
+                let value = base + 15.0 * ((t / freq) + phase).sin() + (t * 13.0).sin() * 3.0;
+                DataPoint {
+                    timestamp: t,
+                    value: value.max(0.0),
+                }
+            })
+            .collect();
+
+        chart.add_series(
+            Series::new(query)
+                .with_tag("endpoint", *endpoint)
+                .with_points(points)
+                .with_color(colors[i % colors.len()]),
+        );
+    }
 }

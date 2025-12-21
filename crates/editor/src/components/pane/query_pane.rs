@@ -563,76 +563,46 @@ impl QueryPane {
         let mut action = QueryPaneAction::None;
         let text_col = text_color(self.theme);
 
+        // Get the full pane rect for the edit button overlay
+        let pane_rect = ui.available_rect_before_wrap();
+
         ui.vertical(|ui| {
-            // Buffer toggle bar (always visible)
-            ui.horizontal(|ui| {
-                // Toggle button for buffer visibility
-                let toggle_icon = if self.buffer_expanded {
-                    semantic_icons::nav::EXPAND
-                } else {
-                    semantic_icons::nav::COLLAPSE
-                };
+            // Buffer editor bar (only visible when expanded for editing)
+            if self.buffer_expanded {
+                ui.horizontal(|ui| {
+                    // Toggle button to collapse
+                    let toggle_btn = egui::Button::new(
+                        RichText::new(format!("{} Query", semantic_icons::nav::EXPAND))
+                            .color(text_col)
+                            .size(12.0),
+                    )
+                    .fill(Color32::TRANSPARENT);
 
-                let toggle_btn = egui::Button::new(
-                    RichText::new(format!("{toggle_icon} Query"))
-                        .color(text_col)
-                        .size(12.0),
-                )
-                .fill(Color32::TRANSPARENT);
+                    if ui.add(toggle_btn).clicked() {
+                        self.toggle_buffer();
+                    }
 
-                if ui.add(toggle_btn).clicked() {
-                    self.toggle_buffer();
-                }
-
-                // Mode indicator
-                let mode_text = match self.buffer.mode() {
-                    BufferMode::Normal => "NORMAL",
-                    BufferMode::Insert => "INSERT",
-                };
-                let mode_color = match self.buffer.mode() {
-                    BufferMode::Normal => text_col.gamma_multiply(0.5),
-                    BufferMode::Insert => Color32::from_rgb(100, 180, 100),
-                };
-                ui.label(RichText::new(mode_text).color(mode_color).size(10.0));
-
-                // Modified indicator
-                if self.buffer.is_modified() {
-                    ui.label(
-                        RichText::new("[+]")
-                            .color(Color32::from_rgb(220, 160, 50))
-                            .size(10.0),
-                    );
-                }
-
-                // Saved query preview (when collapsed)
-                if !self.buffer_expanded {
-                    ui.add_space(8.0);
-                    let preview = self.buffer.saved_content();
-                    let preview = if preview.len() > 50 {
-                        format!("{}...", &preview[..50])
-                    } else {
-                        preview.to_string()
+                    // Mode indicator
+                    let mode_text = match self.buffer.mode() {
+                        BufferMode::Normal => "NORMAL",
+                        BufferMode::Insert => "INSERT",
                     };
-                    ui.label(
-                        RichText::new(preview)
-                            .color(text_col.gamma_multiply(0.6))
-                            .size(11.0)
-                            .italics(),
-                    );
-                }
+                    let mode_color = match self.buffer.mode() {
+                        BufferMode::Normal => text_col.gamma_multiply(0.5),
+                        BufferMode::Insert => Color32::from_rgb(100, 180, 100),
+                    };
+                    ui.label(RichText::new(mode_text).color(mode_color).size(10.0));
 
-                // Right side controls
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Edit button
-                    if ui
-                        .small_button(RichText::new(semantic_icons::action::EDIT).size(12.0))
-                        .on_hover_text("Edit query (e)")
-                        .clicked()
-                    {
-                        self.enter_edit_mode();
+                    // Modified indicator
+                    if self.buffer.is_modified() {
+                        ui.label(
+                            RichText::new("[+]")
+                                .color(Color32::from_rgb(220, 160, 50))
+                                .size(10.0),
+                        );
                     }
                 });
-            });
+            }
 
             // Buffer area (collapsible)
             if self.buffer_expanded {
@@ -667,6 +637,40 @@ impl QueryPane {
                 self.visualization.show(ui);
             }
         });
+
+        // Edit button overlay in top-right corner (only when buffer is collapsed)
+        // Positioned to align with the + button in the tab bar above
+        if !self.buffer_expanded {
+            let button_size = egui::vec2(24.0, 24.0);
+            let button_pos = egui::pos2(
+                pane_rect.right() - button_size.x - 4.0,
+                pane_rect.top() + 4.0,
+            );
+            let button_rect = egui::Rect::from_min_size(button_pos, button_size);
+
+            // Determine icon color based on hover state
+            let is_hovered = ui.rect_contains_pointer(button_rect);
+            let icon_color = if is_hovered {
+                text_col.gamma_multiply(0.9)
+            } else {
+                text_col.gamma_multiply(0.5)
+            };
+
+            let response = ui.put(
+                button_rect,
+                egui::Button::new(
+                    RichText::new(semantic_icons::action::EDIT)
+                        .color(icon_color)
+                        .size(14.0),
+                )
+                .fill(Color32::TRANSPARENT)
+                .frame(false),
+            );
+
+            if response.on_hover_text("Edit query (e)").clicked() {
+                self.edit_requested = true;
+            }
+        }
 
         action
     }
