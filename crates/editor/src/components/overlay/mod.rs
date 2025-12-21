@@ -6,6 +6,7 @@ pub mod diagnostics;
 pub mod info;
 pub mod metrics_finder;
 pub mod multi_edit;
+pub mod source_preview;
 pub mod tutorial;
 pub mod viewport_filter;
 pub mod which_key;
@@ -20,6 +21,7 @@ pub use diagnostics::{
 pub use info::InfoOverlay;
 pub use metrics_finder::{MetricItem, MetricsFinder};
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
+pub use source_preview::{SourcePreviewOverlay, SourcePreviewResult};
 pub use tutorial::TutorialOverlay;
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
 pub use which_key::WhichKey;

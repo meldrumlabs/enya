@@ -28,6 +28,7 @@ impl Workspace {
             || self.which_key.is_open()
             || self.viewport_filter.is_open()
             || self.tutorial_overlay.is_open()
+            || self.source_preview.is_open()
         {
             return None;
         }
@@ -61,6 +62,8 @@ impl Workspace {
         let mut should_show_home = false;
         let mut should_toggle_diagnostics = false;
         let mut should_edit_buffer = false;
+        let mut should_go_to_definition = false;
+        let mut should_show_definition_demo = false;
         let mut new_tile_id: Option<TileId> = None;
         let mut time_range_preset: Option<TimeRangePreset> = None;
 
@@ -161,6 +164,14 @@ impl Workspace {
                 return;
             }
 
+            // g - go-to leader key (gd = go to definition)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::G) {
+                log::debug!("'g' key pressed - setting go-to leader key");
+                self.leader_keys.press_g();
+                consumed = true;
+                return;
+            }
+
             // Time range shortcuts (must follow 't' within timeout)
             if self.leader_keys.is_t_active() {
                 // t5 - Last 5 minutes
@@ -209,6 +220,27 @@ impl Workspace {
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
                     time_range_preset = Some(TimeRangePreset::Last7Days);
                     self.leader_keys.clear_t();
+                    consumed = true;
+                    return;
+                }
+            }
+
+            // Go-to shortcuts (must follow 'g' within timeout)
+            if self.leader_keys.is_g_active() {
+                log::debug!("g leader key is active, checking for d/p");
+                // gd - go to definition
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
+                    log::debug!("gd shortcut triggered - go to definition");
+                    should_go_to_definition = true;
+                    self.leader_keys.clear_g();
+                    consumed = true;
+                    return;
+                }
+                // gp - show definition demo/preview overlay (for testing)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
+                    log::debug!("gp shortcut triggered - showing definition demo");
+                    should_show_definition_demo = true;
+                    self.leader_keys.clear_g();
                     consumed = true;
                     return;
                 }
@@ -379,6 +411,15 @@ impl Workspace {
             }
         } else if should_edit_buffer {
             self.edit_focused_buffer();
+        } else if should_go_to_definition {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(metric_name) = self.get_focused_metric_name() {
+                self.open_metric_definition(&metric_name);
+            }
+        } else if should_show_definition_demo {
+            log::debug!("Executing open_source_preview_demo()");
+            #[cfg(not(target_arch = "wasm32"))]
+            self.open_source_preview_demo();
         } else if should_cycle_visualization {
             self.cycle_focused_visualization();
         } else if should_toggle_zen {

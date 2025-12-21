@@ -14,6 +14,24 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Cleaner query pane UI**: The query pane header bar (with mode indicator) is now hidden when not editing. An edit button appears as a subtle overlay in the top-right corner when hovering, and the buffer can be opened with 'e' key or by clicking the pencil icon.
 
+- **Go to Metric Definition (`gd`)**: Press `gd` on a focused chart pane to view the source code where the metric is instrumented. Features include:
+  - Source preview overlay showing ~20 lines of context around the metric definition
+  - Proper Rust syntax highlighting using `tree-sitter-highlight` (keywords, types, strings, comments, functions, macros, etc.)
+  - File path header with relative path and metric kind badge (counter/gauge/histogram)
+  - Labels extracted from the metric macro displayed in the footer
+  - Press `Escape` to dismiss the overlay
+  - Demo shortcut: `gp` shows a preview with mock data for testing the UI
+  - Native-only feature (requires codebase to be indexed via `[codebase]` config)
+
+- **Codebase integration module**: Added a new `codebase` module for connecting the editor to git repositories and discovering metrics-rs instrumentation points. Features include:
+  - `CodebaseManager` - Manages git repo lifecycle (clone, fetch, index) with async polling pattern
+  - `CodebaseConfig` - Workspace config section (`[codebase]`) for specifying a git URL and optional branch
+  - Tree-sitter parsing for Rust source files to find `counter!`, `gauge!`, and `histogram!` macros
+  - `MetricInstrumentation` struct capturing metric name, kind, labels, file location, and line number
+  - `CodebaseIndex` - In-memory index of all discovered metrics with search and lookup methods
+  - Native-only feature (git/tree-sitter operations are `#[cfg(not(target_arch = "wasm32"))]`)
+  - New dependencies: `gix` (pure Rust git), `tree-sitter`, `tree-sitter-rust`, `tree-sitter-highlight`, `walkdir`
+
 - **Insta snapshot testing infrastructure**: Added the `insta` crate (v1.43) for snapshot testing. This enables easy-to-maintain tests for serialization formats and output stability. Snapshot tests are now used for:
   - Workspace TOML serialization (minimal, full, and with layout)
   - Pane config YAML serialization

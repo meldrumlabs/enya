@@ -3,12 +3,14 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use egui_tiles::{Tile, TileId, Tiles};
 
 use crate::app::AppState;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::codebase::CodebaseManager;
 use crate::components::{
     Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
     DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MetricsFinder, MultiBufferMode,
     MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
-    TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceFinder,
+    SourcePreviewOverlay, SourcePreviewResult, TimeRangeToolbar, TutorialOverlay, ViewportFilter,
+    ViewportFilterResult, WhichKey, WorkspaceFinder,
 };
 use crate::theme::AppTheme;
 
@@ -49,9 +51,9 @@ mod rendering;
 
 // Re-export config types for convenience
 pub use config::{
-    COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
-    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig, TimeConfig, ViewConfig,
-    WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
+    COMPLEX_VIEWPORT_TOML, CodebaseConfig, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
+    DEMO_WORKSPACE_TOML, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
+    TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
 };
 
 /// Actions that the Workspace needs the App to handle
@@ -170,6 +172,11 @@ pub struct Workspace {
     next_query_number: usize,
     /// Workspace filter for filtering visible panes by query content
     viewport_filter: ViewportFilter,
+    /// Source code preview overlay for "go to definition"
+    source_preview: SourcePreviewOverlay,
+    /// Codebase manager for git repo and metrics discovery (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    codebase_manager: CodebaseManager,
 }
 
 impl Default for Workspace {
@@ -212,6 +219,9 @@ impl Default for Workspace {
             pending_query_tile: None,
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
+            source_preview: SourcePreviewOverlay::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            codebase_manager: CodebaseManager::new(),
         }
     }
 }
@@ -265,6 +275,9 @@ impl Workspace {
             pending_query_tile: None,
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
+            source_preview: SourcePreviewOverlay::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            codebase_manager: CodebaseManager::new(),
         }
     }
 
@@ -565,6 +578,22 @@ impl Workspace {
         // Show diagnostics overlay modal
         self.diagnostics_pane.set_theme(app_state.theme);
         self.diagnostics_pane.show_overlay(ctx);
+
+        // Show source preview overlay modal
+        if self.source_preview.is_open() {
+            log::debug!("source_preview.is_open() = true, calling show()");
+        }
+        self.source_preview.set_theme(app_state.theme);
+        match self.source_preview.show(ctx) {
+            SourcePreviewResult::Closed => {
+                log::debug!("Source preview closed");
+            }
+            SourcePreviewResult::None => {}
+        }
+
+        // Poll codebase manager for async operations (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        self.codebase_manager.poll(ctx);
 
         // Show viewport filter overlay and handle results
         self.viewport_filter.set_theme(app_state.theme);
@@ -1227,5 +1256,95 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    // =========================================================================
+    // Codebase Integration (Go to Definition)
+    // =========================================================================
+
+    /// Open the source preview overlay for a metric definition.
+    ///
+    /// Looks up the metric in the codebase index and shows the source file
+    /// context around the instrumentation point.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_metric_definition(&mut self, metric_name: &str) {
+        use crate::codebase::CodebaseStatus;
+
+        // Check if codebase is ready
+        if !self.codebase_manager.status().is_ready() {
+            let status_msg = match self.codebase_manager.status() {
+                CodebaseStatus::None => "No codebase configured",
+                CodebaseStatus::Cloning { .. } => "Codebase is being cloned...",
+                CodebaseStatus::Fetching { .. } => "Fetching updates...",
+                CodebaseStatus::Indexing { .. } => "Indexing codebase...",
+                CodebaseStatus::Ready { .. } => unreachable!(),
+                CodebaseStatus::Error { message, .. } => message,
+            };
+            self.source_preview.open_error(metric_name, status_msg);
+            return;
+        }
+
+        // Look up the metric in the index
+        let Some(index) = self.codebase_manager.index() else {
+            self.source_preview
+                .open_error(metric_name, "Codebase index not available");
+            return;
+        };
+
+        let matches = index.find_by_name(metric_name);
+        if matches.is_empty() {
+            self.source_preview.open_error(
+                metric_name,
+                &format!("Metric '{metric_name}' not found in codebase"),
+            );
+            return;
+        }
+
+        // Use the first match (TODO: show picker if multiple)
+        let instrumentation = matches[0];
+        self.source_preview
+            .open_metric(instrumentation, &index.repo_path);
+        log::debug!(
+            "Opening source preview for '{}' at {}:{}",
+            metric_name,
+            instrumentation.file.display(),
+            instrumentation.line
+        );
+    }
+
+    /// WASM stub for open_metric_definition - shows not available message.
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_metric_definition(&mut self, metric_name: &str) {
+        self.source_preview
+            .open_error(metric_name, "Go to definition is not available in browser");
+    }
+
+    /// Get the metric name from the currently focused pane (if it's a QueryPane).
+    pub fn get_focused_metric_name(&self) -> Option<String> {
+        let tile_id = self.behavior.focused_tile()?;
+        let tile = self.viewport_tree.tiles.get(tile_id)?;
+
+        if let egui_tiles::Tile::Pane(component) = tile {
+            if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                // Extract metric name from query - use the pane name as fallback
+                // which is often set to the metric name
+                let name = query_pane.name();
+                if !name.is_empty() && !name.starts_with("Query ") {
+                    return Some(name.to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if source preview overlay is open
+    pub fn is_source_preview_open(&self) -> bool {
+        self.source_preview.is_open()
+    }
+
+    /// Open the source preview with demo data (for testing/showcase).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_source_preview_demo(&mut self) {
+        self.source_preview.open_demo();
     }
 }

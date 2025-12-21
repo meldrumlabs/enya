@@ -21,6 +21,10 @@
 //! # api_key can be set but is often omitted for security
 //! # api_key = "sk-..."
 //!
+//! [codebase]
+//! url = "https://github.com/org/repo.git"
+//! # branch = "main"  # optional, defaults to repo's default branch
+//!
 //! [view]
 //! theme = "dark"
 //!
@@ -117,6 +121,10 @@ pub struct WorkspaceConfig {
     #[serde(default, skip_serializing_if = "ConnectionConfig::is_empty")]
     pub connection: ConnectionConfig,
 
+    /// Codebase integration settings (git repo for source code awareness)
+    #[serde(default, skip_serializing_if = "CodebaseConfig::is_empty")]
+    pub codebase: CodebaseConfig,
+
     /// View/UI preferences
     #[serde(default, skip_serializing_if = "ViewConfig::is_default")]
     pub view: ViewConfig,
@@ -183,6 +191,44 @@ impl ConnectionConfig {
         Self {
             endpoint: endpoint.into(),
             api_key: String::new(),
+        }
+    }
+}
+
+/// Codebase integration configuration
+///
+/// Allows the editor to connect to a git repository for source code awareness,
+/// enabling features like metrics-to-code mapping.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CodebaseConfig {
+    /// Git repository URL (e.g., "https://github.com/org/repo.git")
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub url: String,
+
+    /// Branch to track (defaults to the repo's default branch if not specified)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub branch: String,
+}
+
+impl CodebaseConfig {
+    /// Check if this config has any codebase settings
+    pub fn is_empty(&self) -> bool {
+        self.url.is_empty()
+    }
+
+    /// Create a new codebase config with a URL
+    pub fn with_url(url: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            branch: String::new(),
+        }
+    }
+
+    /// Create a new codebase config with a URL and branch
+    pub fn with_url_and_branch(url: impl Into<String>, branch: impl Into<String>) -> Self {
+        Self {
+            url: url.into(),
+            branch: branch.into(),
         }
     }
 }
@@ -556,6 +602,7 @@ impl WorkspaceConfig {
                 version: WORKSPACE_VERSION,
             },
             connection: ConnectionConfig::default(),
+            codebase: CodebaseConfig::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
             panes: Vec::new(),
