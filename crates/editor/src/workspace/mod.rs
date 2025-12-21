@@ -265,6 +265,7 @@ impl Workspace {
         }
     }
 
+    #[profiling::function]
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,

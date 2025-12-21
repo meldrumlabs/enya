@@ -231,6 +231,7 @@ impl Visualization {
     }
 
     /// Render the visualization
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         match self {
             Self::TimeSeries(chart) => chart.show(ui),

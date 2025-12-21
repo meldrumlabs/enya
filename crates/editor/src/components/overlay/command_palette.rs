@@ -567,6 +567,7 @@ impl CommandPalette {
     }
 
     /// Show the command palette. Returns a CommandResult if a command was executed.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> CommandResult {
         if !self.is_open {
             return CommandResult::None;

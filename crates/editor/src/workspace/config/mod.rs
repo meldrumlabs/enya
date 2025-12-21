@@ -1554,4 +1554,155 @@ version = 999
         assert!(toml.contains("zen_mode = true"));
         assert!(toml.contains("preset = \"1h\""));
     }
+
+    // ==================== Insta Snapshot Tests ====================
+    //
+    // These tests use insta inline snapshots for serialization stability.
+    // To update snapshots: cargo insta test --accept
+
+    #[test]
+    fn test_snapshot_minimal_workspace_toml() {
+        let ws = WorkspaceConfig::new("minimal-test");
+        let toml = ws.to_toml().unwrap();
+        insta::assert_snapshot!(toml, @r#"
+        [workspace]
+        name = "minimal-test"
+        "#);
+    }
+
+    #[test]
+    fn test_snapshot_full_workspace_toml() {
+        let mut ws = WorkspaceConfig::new("full-dashboard");
+        ws.workspace.description = "A comprehensive monitoring dashboard".to_string();
+        ws.connection = ConnectionConfig::with_endpoint("https://metrics.example.com");
+        ws.view.theme = "light".to_string();
+        ws.time.preset = "1h".to_string();
+        ws.add_pane(
+            PaneConfig::new("sum(env:prod AND service:api) by (service)")
+                .with_name("API Latency")
+                .with_tag("Critical")
+                .with_granularity(Granularity::OneMinute),
+        );
+        ws.add_pane(
+            PaneConfig::new("avg(env:prod AND name:cpu_usage) by (host)")
+                .with_name("CPU Usage")
+                .with_granularity(Granularity::FiveMinutes)
+                .with_visualization(VisualizationType::Stat),
+        );
+
+        let toml = ws.to_toml().unwrap();
+        insta::assert_snapshot!(toml, @r#"
+        [workspace]
+        name = "full-dashboard"
+        description = "A comprehensive monitoring dashboard"
+
+        [connection]
+        endpoint = "https://metrics.example.com"
+
+        [view]
+        theme = "light"
+
+        [time]
+        preset = "1h"
+
+        [[panes]]
+        query = "sum(env:prod AND service:api) by (service)"
+        name = "API Latency"
+        tag = "Critical"
+        granularity = "1m"
+
+        [[panes]]
+        query = "avg(env:prod AND name:cpu_usage) by (host)"
+        name = "CPU Usage"
+        visualization = "stat"
+        "#);
+    }
+
+    #[test]
+    fn test_snapshot_workspace_with_layout() {
+        let mut ws = WorkspaceConfig::new("layout-test");
+        ws.add_pane(PaneConfig::new("query1").with_name("Pane 1"));
+        ws.add_pane(PaneConfig::new("query2").with_name("Pane 2"));
+        ws.add_pane(PaneConfig::new("query3").with_name("Pane 3"));
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![
+                LayoutNode::Pane(0),
+                LayoutNode::Container(LayoutContainer {
+                    layout_type: LayoutType::Vertical,
+                    children: vec![LayoutNode::Pane(1), LayoutNode::Pane(2)],
+                    shares: vec![1.0, 2.0],
+                }),
+            ],
+            shares: vec![0.4, 0.6],
+        });
+
+        let toml = ws.to_toml().unwrap();
+        insta::assert_snapshot!(toml, @r#"
+        [workspace]
+        name = "layout-test"
+
+        [[panes]]
+        query = "query1"
+        name = "Pane 1"
+
+        [[panes]]
+        query = "query2"
+        name = "Pane 2"
+
+        [[panes]]
+        query = "query3"
+        name = "Pane 3"
+
+        [layout]
+        type = "horizontal"
+        children = [
+            0,
+            { type = "vertical", children = [
+            1,
+            2,
+        ], shares = [
+            1.0,
+            2.0,
+        ] },
+        ]
+        shares = [
+            0.4000000059604645,
+            0.6000000238418579,
+        ]
+        "#);
+    }
+
+    #[test]
+    fn test_snapshot_pane_config_toml() {
+        let pane = PaneConfig::new("sum(*) by (host)")
+            .with_name("Host Metrics")
+            .with_tag("Critical")
+            .with_granularity(Granularity::OneHour)
+            .with_visualization(VisualizationType::Gauge);
+
+        insta::assert_toml_snapshot!(pane, @r#"
+        query = 'sum(*) by (host)'
+        name = 'Host Metrics'
+        tag = 'Critical'
+        granularity = '1h'
+        visualization = 'gauge'
+        "#);
+    }
+
+    #[test]
+    fn test_snapshot_base64_encoding_stability() {
+        // This test ensures our URL encoding format remains stable
+        let mut ws = WorkspaceConfig::new("shared");
+        ws.view.theme = "light".to_string();
+        ws.time.preset = "1h".to_string();
+        ws.add_pane(
+            PaneConfig::new("sum(env:prod) by (service)")
+                .with_name("Production")
+                .with_granularity(Granularity::FiveMinutes),
+        );
+
+        let encoded = ws.to_base64().unwrap();
+        insta::assert_snapshot!(encoded, @"pMwAAAPAkBnNoYXJlZAsBGnN1bShlbnY6cHJvZCkgYnkgKHNlcnZpY2UpAQpQcm9kdWN0aW9uAAEA");
+    }
 }

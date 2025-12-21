@@ -12,6 +12,7 @@ use crate::components::{Buffer, BufferMode, EditExcerpt, QueryPane, TimeRangePre
 impl Workspace {
     /// Handle vim-style keyboard navigation for the viewport.
     /// Returns an optional WorkspaceAction if a key triggered an action.
+    #[profiling::function]
     pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<WorkspaceAction> {
         // Don't handle keys if a text field or modal has focus
         if ctx.memory(|mem| mem.focused().is_some()) {

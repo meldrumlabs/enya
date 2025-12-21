@@ -6,6 +6,27 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Insta snapshot testing infrastructure**: Added the `insta` crate (v1.43) for snapshot testing. This enables easy-to-maintain tests for serialization formats and output stability. Snapshot tests are now used for:
+  - Workspace TOML serialization (minimal, full, and with layout)
+  - Pane config YAML serialization
+  - Base64 URL encoding format stability
+  - To update snapshots, run: `cargo insta test --accept` or `UPDATE_SNAPSHOTS=1 cargo test`
+
+- **Rust 1.88 MSRV**: Updated minimum supported Rust version from 1.85 to 1.88.
+
+- **Note on egui_kittest**: `egui_kittest` (UI snapshot testing) is ready to be enabled once egui 0.33.4 or later is released. Currently blocked by a compatibility bug between egui_kittest 0.33.3 and egui 0.33.2 (accesskit_update field mismatch in egui-winit).
+
+- **Profiling instrumentation**: Added zero-cost profiling via the `profiling` crate. Instrumentation is always present but compiles to nothing without a backend. Two profiling backends are available:
+  - `--features puffin` - Enables puffin profiler with HTTP server on port 8585 (use with `puffin_viewer`)
+  - `--features tracy` - Enables tracy profiler backend (use with the Tracy profiler)
+  - Instrumented locations:
+    - Main render loop (`EnyaApp::update`, `show_main_content`, `draw_workspace`)
+    - Workspace rendering (`Workspace::show`)
+    - Query execution (`process_query_execution`)
+    - Visualization rendering (`Visualization::show`, `TimeSeriesChart::show`)
+    - Keyboard handling (`handle_viewport_keyboard`)
+    - Overlay modals (`CommandPalette::show`, `MetricsFinder::show`)
+
 - **Query-based visualization auto-selection**: The editor now automatically suggests an appropriate visualization type based on Prometheus query result characteristics:
   - `Scalar`/`String` results → Stat visualization
   - `Vector` results (single series) → Stat or Gauge (if percentage values)

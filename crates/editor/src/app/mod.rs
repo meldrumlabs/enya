@@ -251,6 +251,7 @@ impl EnyaApp {
 
     // This draws the main panel
     #[inline]
+    #[profiling::function]
     fn show_main_content(&mut self, ctx: &egui::Context) {
         match self.state.ui_state() {
             UIState::Dashboard => self.draw_workspace(ctx),
@@ -322,6 +323,7 @@ impl EnyaApp {
         });
     }
 
+    #[profiling::function]
     fn draw_workspace(&mut self, ctx: &egui::Context) {
         // On WASM, check for workspace or pane parameter in URL on first frame
         #[cfg(target_arch = "wasm32")]
@@ -507,7 +509,10 @@ impl eframe::App for EnyaApp {
     }
 
     /// Called each time the UI needs repainting, which may be many times per second.
+    #[profiling::function]
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        profiling::finish_frame!();
+
         // Record frame time for editor metrics sparkline
         self.editor_metrics.record_frame();
 

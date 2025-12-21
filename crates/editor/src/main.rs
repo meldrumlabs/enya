@@ -11,6 +11,16 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
+    // Initialize puffin profiler server when puffin feature is enabled
+    // Connect with puffin_viewer to see profiling data
+    #[cfg(feature = "puffin")]
+    let _puffin_server = {
+        let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+        puffin::set_scopes_on(true);
+        log::info!("Puffin profiler server listening on {server_addr}");
+        puffin_http::Server::new(&server_addr).ok()
+    };
+
     // Setup a CryptoProvider to be able to use wss connections
     match rustls::crypto::ring::default_provider().install_default() {
         Ok(()) => {} // Do nothing crypto provider install successful

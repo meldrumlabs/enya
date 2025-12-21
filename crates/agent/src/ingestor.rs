@@ -27,7 +27,7 @@ pub struct Ingestor {
 }
 
 impl Ingestor {
-    pub fn spawn(core: Core, task_metrics: &TaskMetricsOptions) -> Self {
+    pub fn spawn(core: Core, #[allow(unused_variables)] task_metrics: &TaskMetricsOptions) -> Self {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (tx, rx) = mpsc::unbounded_channel();
 
