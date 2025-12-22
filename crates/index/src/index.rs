@@ -4,15 +4,49 @@
 //! points discovered in a repository using registered scanners.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rustc_hash::FxHashSet;
 use walkdir::WalkDir;
 
-use super::IndexProgress;
-use super::parser::ParseError;
-use super::scanner::{MetricInstrumentation, ScannerRegistry};
-use crate::util::now_unix_secs;
+use crate::parser::ParseError;
+use crate::scanner::{MetricInstrumentation, ScannerRegistry};
+
+/// Progress tracking for indexing operations.
+#[derive(Debug, Clone)]
+pub struct IndexProgress {
+    /// Current file being processed (1-indexed)
+    pub current: Arc<AtomicUsize>,
+    /// Total number of files to process
+    pub total: Arc<AtomicUsize>,
+}
+
+impl IndexProgress {
+    /// Create a new progress tracker.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            current: Arc::new(AtomicUsize::new(0)),
+            total: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Get the current progress values.
+    #[must_use]
+    pub fn get(&self) -> (usize, usize) {
+        (
+            self.current.load(Ordering::Relaxed),
+            self.total.load(Ordering::Relaxed),
+        )
+    }
+}
+
+impl Default for IndexProgress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// An index of all discovered metric instrumentation in a codebase.
 #[derive(Debug, Clone)]
@@ -29,6 +63,7 @@ pub struct CodebaseIndex {
 
 impl CodebaseIndex {
     /// Returns the number of unique metric names.
+    #[must_use]
     pub fn unique_metric_count(&self) -> usize {
         let mut names: Vec<_> = self.metrics.iter().map(|m| &m.name).collect();
         names.sort();
@@ -37,6 +72,7 @@ impl CodebaseIndex {
     }
 
     /// Returns the number of files containing metrics.
+    #[must_use]
     pub fn files_with_metrics(&self) -> usize {
         let mut files: Vec<_> = self.metrics.iter().map(|m| &m.file).collect();
         files.sort();
@@ -45,6 +81,7 @@ impl CodebaseIndex {
     }
 
     /// Searches for metrics matching the given query.
+    #[must_use]
     pub fn search(&self, query: &str) -> Vec<&MetricInstrumentation> {
         let query_lower = query.to_lowercase();
         self.metrics
@@ -54,6 +91,7 @@ impl CodebaseIndex {
     }
 
     /// Finds all instrumentation points for a specific metric name.
+    #[must_use]
     pub fn find_by_name(&self, name: &str) -> Vec<&MetricInstrumentation> {
         self.metrics.iter().filter(|m| m.name == name).collect()
     }
@@ -66,6 +104,10 @@ impl CodebaseIndex {
 ///
 /// Updates the provided `IndexProgress` atomics as files are processed,
 /// allowing the UI to show progress like "Indexing [5/42]...".
+///
+/// # Errors
+///
+/// Returns an error if scanning fails.
 pub fn build_index_with_progress(
     repo_url: &str,
     repo_path: &Path,
@@ -79,7 +121,7 @@ pub fn build_index_with_progress(
     let source_files: Vec<_> = WalkDir::new(repo_path)
         .follow_links(true)
         .into_iter()
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|e| {
             e.path()
                 .extension()
@@ -138,14 +180,14 @@ pub fn build_index_with_progress(
         repo_url: repo_url.to_string(),
         repo_path: repo_path.to_path_buf(),
         metrics: all_metrics,
-        last_updated: now_unix_secs(),
+        last_updated: crate::now_unix_secs(),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codebase::scanner::MetricKind;
+    use crate::scanner::MetricKind;
 
     fn make_test_metric(name: &str, file: &str, line: usize) -> MetricInstrumentation {
         MetricInstrumentation {

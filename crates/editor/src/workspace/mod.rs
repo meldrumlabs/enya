@@ -350,7 +350,6 @@ impl Workspace {
             }
         }
 
-
         // Sync visual-multi state to behavior for rendering
         let (is_visual_multi, selected_ids, tile_queries) = match &self.visual_multi_state {
             Some(state) => {

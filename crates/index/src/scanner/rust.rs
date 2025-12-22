@@ -9,10 +9,11 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Node, Query, QueryCursor};
 
 use super::{MetricInstrumentation, MetricKind, Scanner};
-use crate::codebase::parser::{METRICS_QUERY, ParseError, RustParser};
+use crate::parser::{METRICS_QUERY, ParseError, RustParser};
 
 impl MetricKind {
     /// Parses a metric kind from a metrics-rs macro name.
+    #[must_use]
     pub fn from_macro_name(name: &str) -> Option<Self> {
         match name {
             "counter" => Some(Self::Counter),
@@ -33,6 +34,7 @@ pub struct RustMetricsScanner;
 
 impl RustMetricsScanner {
     /// Creates a new Rust metrics-rs scanner.
+    #[must_use]
     pub fn new() -> Self {
         Self
     }
@@ -120,8 +122,8 @@ fn scan_tree(
 /// Extracts the metric name and label keys from a macro's token tree.
 ///
 /// Parses patterns like:
-/// - `("metric.name")` -> name="metric.name", labels=[]
-/// - `("metric.name", "key" => value)` -> name="metric.name", labels=["key"]
+/// - `("metric.name")` -> `name="metric.name"`, `labels=[]`
+/// - `("metric.name", "key" => value)` -> `name="metric.name"`, `labels=["key"]`
 fn extract_metric_info(args_node: &Node<'_>, source: &str) -> (String, Vec<String>) {
     let mut name = String::new();
     let mut labels = Vec::new();
@@ -146,17 +148,17 @@ fn extract_metric_info(args_node: &Node<'_>, source: &str) -> (String, Vec<Strin
         } else if c == '"' && in_string {
             let string_content: String = chars[string_start..i].iter().collect();
 
-            if !found_name {
-                // First string is the metric name
-                name = string_content;
-                found_name = true;
-            } else {
+            if found_name {
                 // Check if this is followed by =>
                 let rest: String = chars[i + 1..].iter().collect();
                 let rest_trimmed = rest.trim_start();
                 if rest_trimmed.starts_with("=>") {
                     labels.push(string_content);
                 }
+            } else {
+                // First string is the metric name
+                name = string_content;
+                found_name = true;
             }
             in_string = false;
         }
@@ -172,10 +174,12 @@ mod tests {
     use super::*;
 
     fn parse_and_scan(source: &str) -> Vec<MetricInstrumentation> {
-        let mut parser = RustParser::new().unwrap();
-        let tree = parser.parse(source).unwrap();
-        let query = parser.create_query(METRICS_QUERY).unwrap();
-        scan_tree(source, &tree, &query, Path::new("test.rs")).unwrap()
+        let mut parser = RustParser::new().expect("Failed to create parser");
+        let tree = parser.parse(source).expect("Failed to parse");
+        let query = parser
+            .create_query(METRICS_QUERY)
+            .expect("Failed to create query");
+        scan_tree(source, &tree, &query, Path::new("test.rs")).expect("Failed to scan")
     }
 
     #[test]

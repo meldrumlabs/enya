@@ -27,6 +27,10 @@ pub struct RustParser {
 
 impl RustParser {
     /// Creates a new Rust parser.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the tree-sitter language cannot be set.
     pub fn new() -> Result<Self, ParseError> {
         let language: Language = tree_sitter_rust::LANGUAGE.into();
 
@@ -39,11 +43,16 @@ impl RustParser {
     }
 
     /// Parses the given source code into a syntax tree.
+    #[must_use]
     pub fn parse(&mut self, source: &str) -> Option<Tree> {
         self.parser.parse(source, None)
     }
 
     /// Parses a file from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or parsed.
     pub fn parse_file(&mut self, path: &Path) -> Result<(String, Tree), ParseError> {
         let source = std::fs::read_to_string(path)
             .map_err(|e| ParseError(format!("Failed to read file {}: {e}", path.display())))?;
@@ -56,6 +65,10 @@ impl RustParser {
     }
 
     /// Creates a query for matching patterns in the syntax tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the query is invalid.
     pub fn create_query(&self, query_str: &str) -> Result<Query, ParseError> {
         Query::new(&self.language, query_str).map_err(|e| ParseError(format!("Invalid query: {e}")))
     }
@@ -73,11 +86,11 @@ impl Default for RustParser {
 /// - `counter!("name", ...)`
 /// - `gauge!("name", ...)`
 /// - `histogram!("name", ...)`
-pub const METRICS_QUERY: &str = r#"
+pub const METRICS_QUERY: &str = r"
 (macro_invocation
   macro: (identifier) @macro_name
   (token_tree) @args)
-"#;
+";
 
 #[cfg(test)]
 mod tests {
@@ -85,25 +98,25 @@ mod tests {
 
     #[test]
     fn test_parse_simple_function() {
-        let mut parser = RustParser::new().unwrap();
+        let mut parser = RustParser::new().expect("Failed to create parser");
         let source = r#"
 fn main() {
     println!("Hello, world!");
 }
 "#;
-        let tree = parser.parse(source).unwrap();
+        let tree = parser.parse(source).expect("Failed to parse");
         assert_eq!(tree.root_node().kind(), "source_file");
     }
 
     #[test]
     fn test_parse_with_metrics_macro() {
-        let mut parser = RustParser::new().unwrap();
+        let mut parser = RustParser::new().expect("Failed to create parser");
         let source = r#"
 fn handle_request() {
     counter!("http.requests", "method" => "GET").increment(1);
 }
 "#;
-        let tree = parser.parse(source).unwrap();
+        let tree = parser.parse(source).expect("Failed to parse");
         assert_eq!(tree.root_node().kind(), "source_file");
     }
 
@@ -112,7 +125,7 @@ fn handle_request() {
         use streaming_iterator::StreamingIterator;
         use tree_sitter::QueryCursor;
 
-        let mut parser = RustParser::new().unwrap();
+        let mut parser = RustParser::new().expect("Failed to create parser");
         let source = r#"
 fn handle_request() {
     counter!("http.requests", "method" => "GET").increment(1);
@@ -120,8 +133,10 @@ fn handle_request() {
     histogram!("request.latency_ms").record(150.0);
 }
 "#;
-        let tree = parser.parse(source).unwrap();
-        let query = parser.create_query(METRICS_QUERY).unwrap();
+        let tree = parser.parse(source).expect("Failed to parse");
+        let query = parser
+            .create_query(METRICS_QUERY)
+            .expect("Failed to create query");
         let mut cursor = QueryCursor::new();
 
         let mut count = 0;

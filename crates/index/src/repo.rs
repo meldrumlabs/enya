@@ -26,6 +26,7 @@ impl From<std::io::Error> for RepoError {
 /// Returns the directory where repositories are stored.
 ///
 /// Uses `~/.enya/repos/` as the base directory.
+#[must_use]
 pub fn repos_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".enya").join("repos"))
 }
@@ -34,11 +35,14 @@ pub fn repos_dir() -> Option<PathBuf> {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```
+/// use enya_index::repo::repo_name_from_url;
+///
 /// assert_eq!(repo_name_from_url("https://github.com/org/repo.git"), "repo");
 /// assert_eq!(repo_name_from_url("git@github.com:org/repo.git"), "repo");
 /// assert_eq!(repo_name_from_url("https://github.com/org/repo"), "repo");
 /// ```
+#[must_use]
 pub fn repo_name_from_url(url: &str) -> String {
     // Remove trailing .git if present
     let url = url.strip_suffix(".git").unwrap_or(url);
@@ -55,6 +59,10 @@ pub fn repo_name_from_url(url: &str) -> String {
 ///
 /// The repository is cloned to `~/.enya/repos/<repo-name>/`.
 /// Returns the path to the cloned repository.
+///
+/// # Errors
+///
+/// Returns an error if cloning fails.
 pub fn clone_repo(url: &str) -> Result<PathBuf, RepoError> {
     let Some(base_dir) = repos_dir() else {
         return Err(RepoError("Could not determine home directory".to_string()));
@@ -89,6 +97,10 @@ pub fn clone_repo(url: &str) -> Result<PathBuf, RepoError> {
 /// Fetches updates for an existing repository.
 ///
 /// Returns `true` if there were remote changes.
+///
+/// # Errors
+///
+/// Returns an error if fetching fails.
 pub fn fetch_updates(repo_path: &Path) -> Result<bool, RepoError> {
     // Get current HEAD
     let head_before = get_head_commit(repo_path)?;

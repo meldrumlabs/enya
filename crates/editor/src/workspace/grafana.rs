@@ -313,6 +313,7 @@ impl GrafanaDashboard {
                 version: WORKSPACE_VERSION,
             },
             connection: Default::default(),
+            codebase: Default::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
             panes: Vec::new(),

@@ -1,62 +1,16 @@
 //! Codebase integration for the Enya editor.
 //!
-//! This module provides functionality to connect the editor to a git repository,
-//! parse source files using tree-sitter, and discover metric instrumentation
-//! points across multiple languages.
-//!
-//! # Architecture
-//!
-//! - [`CodebaseManager`]: Main entry point, manages git clone/fetch and indexing
-//! - [`scanner`]: Language-agnostic scanner framework with trait-based extensibility
-//! - [`repo`]: Git operations (clone, fetch, update)
-//! - [`parser`]: Tree-sitter parsing utilities
-//! - [`index`]: In-memory index of discovered instrumentation
-
-mod index;
-mod parser;
-mod repo;
-pub mod scanner;
-
-pub use index::CodebaseIndex;
-pub use scanner::{MetricInstrumentation, MetricKind, Scanner, ScannerRegistry};
+//! Provides egui integration for the enya-index crate.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
 
-/// Progress tracking for indexing operations.
-#[derive(Debug, Clone)]
-pub struct IndexProgress {
-    /// Current file being processed (1-indexed)
-    pub current: Arc<AtomicUsize>,
-    /// Total number of files to process
-    pub total: Arc<AtomicUsize>,
-}
-
-impl IndexProgress {
-    /// Create a new progress tracker.
-    pub fn new() -> Self {
-        Self {
-            current: Arc::new(AtomicUsize::new(0)),
-            total: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    /// Get the current progress values.
-    pub fn get(&self) -> (usize, usize) {
-        (
-            self.current.load(Ordering::Relaxed),
-            self.total.load(Ordering::Relaxed),
-        )
-    }
-}
-
-impl Default for IndexProgress {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// Re-export from enya-index
+pub use enya_index::{
+    CodebaseIndex, IndexProgress, MetricInstrumentation, MetricKind, Scanner, ScannerRegistry,
+    build_index_with_progress,
+};
 
 /// Status of codebase operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,7 +142,7 @@ impl CodebaseManager {
         let url_clone = url.clone();
 
         std::thread::spawn(move || {
-            let result = match repo::clone_repo(&url_clone) {
+            let result = match enya_index::repo::clone_repo(&url_clone) {
                 Ok(path) => CodebaseResult::CloneComplete {
                     url: url_clone,
                     path,
@@ -218,7 +172,7 @@ impl CodebaseManager {
         let ctx = ctx.clone();
 
         std::thread::spawn(move || {
-            let result = match repo::fetch_updates(&path) {
+            let result = match enya_index::repo::fetch_updates(&path) {
                 Ok(has_changes) => CodebaseResult::FetchComplete {
                     url,
                     path,
@@ -254,7 +208,7 @@ impl CodebaseManager {
             // Create scanner registry for the indexing thread
             let registry = ScannerRegistry::default();
 
-            let result = match index::build_index_with_progress(&url, &path, &progress, &registry) {
+            let result = match build_index_with_progress(&url, &path, &progress, &registry) {
                 Ok(idx) => CodebaseResult::IndexComplete { url, index: idx },
                 Err(e) => CodebaseResult::Error {
                     url,

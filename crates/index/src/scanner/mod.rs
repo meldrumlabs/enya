@@ -17,7 +17,7 @@ pub use rust::RustMetricsScanner;
 
 use std::path::{Path, PathBuf};
 
-use super::parser::ParseError;
+use crate::parser::ParseError;
 
 /// The kind of metric instrumentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -29,6 +29,7 @@ pub enum MetricKind {
 
 impl MetricKind {
     /// Returns the display name for this kind.
+    #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Counter => "counter",
@@ -53,9 +54,9 @@ impl std::fmt::Display for MetricKind {
 pub struct MetricInstrumentation {
     /// The kind of metric (counter, gauge, histogram).
     pub kind: MetricKind,
-    /// The metric name (e.g., "http_requests_total").
+    /// The metric name (e.g., `http_requests_total`).
     pub name: String,
-    /// Label keys used with this metric (e.g., ["method", "status"]).
+    /// Label keys used with this metric (e.g., `["method", "status"]`).
     pub labels: Vec<String>,
     /// The file path where this metric is defined.
     pub file: PathBuf,
@@ -94,6 +95,10 @@ pub trait Scanner: Send + Sync {
     /// Scan a source file for metric instrumentation points.
     ///
     /// Returns all metrics found in the file, or an error if parsing fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ParseError`] if the file cannot be read or parsed.
     fn scan_file(&self, path: &Path) -> Result<Vec<MetricInstrumentation>, ParseError>;
 }
 
@@ -107,6 +112,7 @@ pub struct ScannerRegistry {
 
 impl ScannerRegistry {
     /// Creates an empty registry.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             scanners: Vec::new(),
@@ -121,15 +127,17 @@ impl ScannerRegistry {
     /// Finds a scanner that can handle the given file path.
     ///
     /// Returns `None` if no registered scanner handles this file type.
+    #[must_use]
     pub fn scanner_for(&self, path: &Path) -> Option<&dyn Scanner> {
         let ext = path.extension()?.to_str()?;
         self.scanners
             .iter()
             .find(|s| s.extensions().contains(&ext))
-            .map(|s| s.as_ref())
+            .map(AsRef::as_ref)
     }
 
     /// Returns all file extensions supported by registered scanners.
+    #[must_use]
     pub fn all_extensions(&self) -> Vec<&str> {
         self.scanners
             .iter()
