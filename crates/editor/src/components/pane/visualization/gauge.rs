@@ -147,12 +147,15 @@ impl GaugeChart {
 
     /// Render the gauge arc
     fn render_arc(&self, ui: &mut egui::Ui, size: f32) {
+        // Arc height: radius + stroke_width/2 + needle overhang + small padding
+        // radius = size * 0.4, stroke = 12, needle = ~10, padding = ~5
+        let arc_visual_height = size * 0.4 + 12.0 + 15.0;
         let (response, painter) =
-            ui.allocate_painter(egui::vec2(size, size * 0.6), egui::Sense::hover());
+            ui.allocate_painter(egui::vec2(size, arc_visual_height), egui::Sense::hover());
 
         let rect = response.rect;
-        let center = egui::pos2(rect.center().x, rect.bottom() - 10.0);
-        let radius = (size * 0.4).min(rect.height() - 20.0);
+        let center = egui::pos2(rect.center().x, rect.bottom());
+        let radius = size * 0.4;
 
         // Arc parameters: semicircle from 180° to 0° (left to right)
         let start_angle = std::f32::consts::PI; // 180° (left)
@@ -229,13 +232,14 @@ impl GaugeChart {
         let value_size = (36.0 * scale_factor).clamp(24.0, 64.0);
         let label_size = (11.0 * scale_factor).clamp(9.0, 14.0);
 
-        // Calculate content height based on scaled sizes
-        let arc_height = gauge_size * 0.6;
+        // Calculate content height based on scaled sizes (same pattern as stat)
+        // Arc height matches render_arc: radius + stroke/2 + needle + padding
+        let arc_height = gauge_size * 0.4 + 12.0 + 15.0;
         let content_height = title_size
-            + 8.0
+            + 12.0
             + arc_height
             + value_size
-            + 20.0
+            + 40.0
             + VIZ_PADDING_TOP
             + VIZ_PADDING_BOTTOM;
         let vertical_offset = ((available_height - content_height) / 2.0).max(VIZ_PADDING_TOP);
@@ -251,7 +255,7 @@ impl GaugeChart {
                         .size(title_size)
                         .strong(),
                 );
-                ui.add_space(8.0);
+                ui.add_space(12.0);
             }
 
             // Render the arc gauge
