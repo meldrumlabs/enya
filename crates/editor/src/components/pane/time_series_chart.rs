@@ -654,6 +654,21 @@ impl TimeSeriesChart {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_color = text_color(self.theme);
 
+        // Calculate scale factor based on available space
+        let available_width = ui.available_width();
+        let available_height = ui.available_height();
+        let base_size = available_width.min(available_height * 1.5);
+        let scale_factor = (base_size / 400.0).clamp(0.8, 1.6);
+
+        // Scaled dimensions
+        let legend_text_size = (14.0 * scale_factor).clamp(11.0, 18.0);
+        let legend_dot_size = (14.0 * scale_factor).clamp(10.0, 20.0);
+        let legend_dot_radius = (6.0 * scale_factor).clamp(4.0, 9.0);
+        let legend_item_spacing = (24.0 * scale_factor).clamp(16.0, 36.0);
+        let legend_inner_spacing = (8.0 * scale_factor).clamp(6.0, 12.0);
+        let line_stroke_width = (1.5 * scale_factor).clamp(1.0, 2.5);
+        let logo_size = (64.0 * scale_factor).clamp(48.0, 96.0);
+
         if self.series.is_empty() {
             // Branded empty state - centered with Enya logo
             ui.vertical_centered(|ui| {
@@ -662,18 +677,18 @@ impl TimeSeriesChart {
 
                 // Enya logo (slightly transparent for subtle branding)
                 let logo = egui::Image::new(egui::include_image!("../../../assets/logo.png"))
-                    .max_width(64.0)
-                    .max_height(64.0)
+                    .max_width(logo_size)
+                    .max_height(logo_size)
                     .tint(text_color.gamma_multiply(0.7));
                 ui.add(logo);
 
-                ui.add_space(16.0);
+                ui.add_space(16.0 * scale_factor);
 
                 // Primary message
                 ui.label(
                     RichText::new("No data to display")
                         .color(text_color.gamma_multiply(0.6))
-                        .size(14.0),
+                        .size(legend_text_size),
                 );
             });
             return;
@@ -751,7 +766,7 @@ impl TimeSeriesChart {
             };
 
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 24.0; // Spacing between legend items
+                ui.spacing_mut().item_spacing.x = legend_item_spacing;
 
                 // Show first N series
                 for (i, series) in self.series.iter().take(visible_count).enumerate() {
@@ -759,19 +774,22 @@ impl TimeSeriesChart {
                     let latest_value = series.points.last().map(|p| p.value).unwrap_or(0.0);
 
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
+                        ui.spacing_mut().item_spacing.x = legend_inner_spacing;
 
                         // Colored dot
-                        let (rect, _) =
-                            ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-                        ui.painter().circle_filled(rect.center(), 6.0, color);
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(legend_dot_size, legend_dot_size),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter()
+                            .circle_filled(rect.center(), legend_dot_radius, color);
 
                         // Series name with value: "series: 1.2K unit"
                         let formatted_value = format_value_with_unit(latest_value, &self.unit);
                         ui.label(
                             RichText::new(format!("{}: {}", series.short_label(), formatted_value))
                                 .color(text_color.gamma_multiply(0.9))
-                                .size(14.0),
+                                .size(legend_text_size),
                         );
                     });
                 }
@@ -802,7 +820,7 @@ impl TimeSeriesChart {
                         egui::Label::new(
                             RichText::new(&more_text)
                                 .color(text_color.gamma_multiply(0.5))
-                                .size(14.0),
+                                .size(legend_text_size),
                         )
                         .sense(egui::Sense::hover()),
                     );
@@ -817,21 +835,29 @@ impl TimeSeriesChart {
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
                             &more_text,
-                            egui::FontId::proportional(14.0),
+                            egui::FontId::proportional(legend_text_size),
                             text_color.gamma_multiply(0.9),
                         );
                     }
 
+                    // Tooltip dot sizes (slightly smaller than legend)
+                    let tooltip_dot_size = legend_dot_size * 0.85;
+                    let tooltip_dot_radius = legend_dot_radius * 0.85;
+
                     response.on_hover_ui(|ui| {
                         for (color, label, value) in &overflow_data {
                             ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 8.0;
+                                ui.spacing_mut().item_spacing.x = legend_inner_spacing;
                                 // Colored dot
                                 let (rect, _) = ui.allocate_exact_size(
-                                    egui::vec2(12.0, 12.0),
+                                    egui::vec2(tooltip_dot_size, tooltip_dot_size),
                                     egui::Sense::hover(),
                                 );
-                                ui.painter().circle_filled(rect.center(), 5.0, *color);
+                                ui.painter().circle_filled(
+                                    rect.center(),
+                                    tooltip_dot_radius,
+                                    *color,
+                                );
                                 // Label and value
                                 ui.label(format!("{label}: {value}"));
                             });
@@ -1090,7 +1116,7 @@ impl TimeSeriesChart {
                         cumulative[i].iter().map(|&(t, v)| [t, v]).collect();
                     let line = Line::new(series.label(), points)
                         .color(color)
-                        .stroke(Stroke::new(1.5, color));
+                        .stroke(Stroke::new(line_stroke_width, color));
                     plot_ui.line(line);
                 }
             } else {
@@ -1107,7 +1133,7 @@ impl TimeSeriesChart {
                     // PlanetScale-style: thin line with soft gradient fill underneath
                     let line = Line::new(series.label(), points)
                         .color(color)
-                        .stroke(Stroke::new(1.5, color))
+                        .stroke(Stroke::new(line_stroke_width, color))
                         .fill(0.0) // Fill down to y=0
                         .fill_alpha(0.15); // Subtle gradient fill
 
