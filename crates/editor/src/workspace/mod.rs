@@ -1337,16 +1337,15 @@ impl Workspace {
             return;
         }
 
-        // Use the first match (TODO: show picker if multiple)
-        let instrumentation = matches[0];
-        self.source_preview
-            .open_metric(instrumentation, &index.repo_path);
+        // Pass all matches to allow cycling with N/P keys
+        let locations: Vec<_> = matches.into_iter().cloned().collect();
         log::debug!(
-            "Opening source preview for '{}' at {}:{}",
+            "Opening source preview for '{}' with {} location(s)",
             metric_name,
-            instrumentation.file.display(),
-            instrumentation.line
+            locations.len()
         );
+        self.source_preview
+            .open_metric_with_locations(locations, &index.repo_path);
     }
 
     /// WASM stub for open_metric_definition - shows not available message.

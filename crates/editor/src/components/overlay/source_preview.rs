@@ -128,6 +128,15 @@ pub struct SourcePreviewOverlay {
     alert_expr: Option<String>,
     /// Horizontal scroll offset for vim-style navigation.
     scroll_offset_x: f32,
+    /// All metric locations for cycling (only used for metrics).
+    #[cfg(not(target_arch = "wasm32"))]
+    metric_locations: Vec<MetricInstrumentation>,
+    /// Current location index (0-based).
+    #[cfg(not(target_arch = "wasm32"))]
+    current_location_index: usize,
+    /// Path to the repository root for constructing full paths.
+    #[cfg(not(target_arch = "wasm32"))]
+    repo_path: PathBuf,
 }
 
 impl Default for SourcePreviewOverlay {
@@ -167,6 +176,12 @@ impl SourcePreviewOverlay {
             alert_message: None,
             alert_expr: None,
             scroll_offset_x: 0.0,
+            #[cfg(not(target_arch = "wasm32"))]
+            metric_locations: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            current_location_index: 0,
+            #[cfg(not(target_arch = "wasm32"))]
+            repo_path: PathBuf::new(),
         }
     }
 
@@ -189,6 +204,8 @@ impl SourcePreviewOverlay {
             self.source_content.clear();
             self.line_offsets.clear();
             self.highlight_spans.clear();
+            self.metric_locations.clear();
+            self.current_location_index = 0;
         }
         self.error = None;
         self.alert_severity = None;
@@ -226,6 +243,52 @@ impl SourcePreviewOverlay {
         // Load the source file
         self.load_source_file();
         self.is_open = true;
+    }
+
+    /// Open the overlay with multiple metric instrumentation locations.
+    ///
+    /// This allows cycling through multiple locations with N/P keys.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_metric_with_locations(
+        &mut self,
+        locations: Vec<MetricInstrumentation>,
+        repo_path: &std::path::Path,
+    ) {
+        if locations.is_empty() {
+            return;
+        }
+
+        self.metric_locations = locations;
+        self.current_location_index = 0;
+        self.repo_path = repo_path.to_path_buf();
+
+        // Load the first location
+        self.load_location(0);
+        self.is_open = true;
+    }
+
+    /// Load a specific location by index.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_location(&mut self, index: usize) {
+        let Some(instrumentation) = self.metric_locations.get(index) else {
+            return;
+        };
+
+        self.preview_kind = PreviewKind::Metric;
+        self.metric_name = instrumentation.name.clone();
+        self.metric_kind = Some(instrumentation.kind);
+        self.labels = instrumentation.labels.clone();
+        self.target_line = instrumentation.line;
+        self.relative_path = instrumentation.file.display().to_string();
+        self.full_path = self.repo_path.join(&instrumentation.file);
+        self.function_name = instrumentation.function_name.clone();
+        self.impl_type = instrumentation.impl_type.clone();
+        self.alert_severity = None;
+        self.alert_message = None;
+        self.alert_expr = None;
+        self.current_location_index = index;
+
+        self.load_source_file();
     }
 
     /// Open the overlay with an alert rule.
@@ -427,6 +490,8 @@ impl HttpHandler {
         }
 
         let mut should_close = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut next_location: Option<usize> = None;
 
         // Handle keyboard input
         ctx.input(|i| {
@@ -442,7 +507,31 @@ impl HttpHandler {
             if i.key_pressed(Key::L) {
                 self.scroll_offset_x += scroll_step;
             }
+
+            // N/P navigation for cycling through multiple locations
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.metric_locations.len() > 1 {
+                // N - next location (vim quickfix-style)
+                if i.key_pressed(Key::N) && !i.modifiers.shift {
+                    next_location =
+                        Some((self.current_location_index + 1) % self.metric_locations.len());
+                }
+                // Shift+N or P - previous location
+                if i.key_pressed(Key::P) || (i.key_pressed(Key::N) && i.modifiers.shift) {
+                    next_location = Some(if self.current_location_index == 0 {
+                        self.metric_locations.len() - 1
+                    } else {
+                        self.current_location_index - 1
+                    });
+                }
+            }
         });
+
+        // Apply location change outside the input closure
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(idx) = next_location {
+            self.load_location(idx);
+        }
 
         // Draw backdrop
         draw_backdrop(ctx, self.theme, "source_preview");
@@ -509,17 +598,27 @@ impl HttpHandler {
             ui.label(RichText::new(icon).color(accent_color).size(18.0));
             ui.add_space(8.0);
 
-            // File path and line number - truncate if too long
-            let path_text = if self.target_line > 0 {
+            // File path and line number, with optional function context
+            let mut path_text = if self.target_line > 0 {
                 format!("{}:{}", self.relative_path, self.target_line)
             } else {
                 self.relative_path.clone()
             };
 
+            // Append function context to path string
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(ref fn_name) = self.function_name {
+                if let Some(ref impl_type) = self.impl_type {
+                    path_text.push_str(&format!(" • {impl_type}::{fn_name}"));
+                } else {
+                    path_text.push_str(&format!(" • {fn_name}"));
+                }
+            }
+
             // Reserve space for badge (~100px) and margins
             let max_path_width = ui.available_width() - 120.0;
-            let truncated_path = if path_text.chars().count() > 60 {
-                let truncated: String = path_text.chars().take(57).collect();
+            let truncated_path = if path_text.chars().count() > 70 {
+                let truncated: String = path_text.chars().take(67).collect();
                 format!("{truncated}...")
             } else {
                 path_text
@@ -534,21 +633,6 @@ impl HttpHandler {
                         .strong(),
                 ),
             );
-
-            // Function context (if available)
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Some(ref fn_name) = self.function_name {
-                let fn_text = if let Some(ref impl_type) = self.impl_type {
-                    format!(" • {impl_type}::{fn_name}")
-                } else {
-                    format!(" • {fn_name}")
-                };
-                ui.label(
-                    RichText::new(fn_text)
-                        .color(text_color(self.theme).gamma_multiply(0.7))
-                        .font(typography::monospace(typography::MD)),
-                );
-            }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
@@ -769,6 +853,21 @@ impl HttpHandler {
                 ui.horizontal(|ui| {
                     ui.add_space(16.0);
 
+                    // Show location indicator if multiple locations exist
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if self.metric_locations.len() > 1 {
+                        ui.label(
+                            RichText::new(format!(
+                                "[{}/{}]",
+                                self.current_location_index + 1,
+                                self.metric_locations.len()
+                            ))
+                            .color(muted_text)
+                            .font(typography::proportional(typography::MD)),
+                        );
+                        ui.add_space(12.0);
+                    }
+
                     // Show labels if any
                     if !self.labels.is_empty() {
                         ui.label(
@@ -786,8 +885,19 @@ impl HttpHandler {
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(16.0);
+
+                        // Show hint with N/P if multiple locations
+                        #[cfg(not(target_arch = "wasm32"))]
+                        let hint = if self.metric_locations.len() > 1 {
+                            "N/P to cycle • Esc to close"
+                        } else {
+                            "Esc to close"
+                        };
+                        #[cfg(target_arch = "wasm32")]
+                        let hint = "Esc to close";
+
                         ui.label(
-                            RichText::new("Esc to close")
+                            RichText::new(hint)
                                 .color(muted_text)
                                 .font(typography::proportional(typography::MD)),
                         );
