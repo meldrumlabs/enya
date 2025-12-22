@@ -8,10 +8,45 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rustc_hash::FxHashSet;
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 use crate::parser::ParseError;
 use crate::scanner::{AlertRule, MetricInstrumentation, ScannerRegistry, YamlAlertScanner};
+
+/// Directories to exclude from scanning.
+const EXCLUDED_DIRS: [&str; 4] = ["target", ".git", "vendor", "node_modules"];
+
+/// Discover files in a directory that match the given extensions.
+///
+/// Walks the directory tree, filtering for files with matching extensions
+/// and excluding common build/vendor directories.
+fn discover_files<'a>(
+    root: &Path,
+    extensions: &'a FxHashSet<&str>,
+) -> impl Iterator<Item = DirEntry> + 'a {
+    let root = root.to_path_buf();
+    WalkDir::new(&root)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(move |entry| {
+            // Check extension matches
+            let has_matching_ext = entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| extensions.contains(ext));
+
+            // Check not in excluded directory
+            let in_excluded_dir = entry.path().components().any(|c| {
+                c.as_os_str()
+                    .to_str()
+                    .is_some_and(|s| EXCLUDED_DIRS.contains(&s))
+            });
+
+            has_matching_ext && !in_excluded_dir
+        })
+}
 
 /// Progress tracking for indexing operations.
 #[derive(Debug, Clone)]
@@ -67,19 +102,21 @@ impl CodebaseIndex {
     /// Returns the number of unique metric names.
     #[must_use]
     pub fn unique_metric_count(&self) -> usize {
-        let mut names: Vec<_> = self.metrics.iter().map(|m| &m.name).collect();
-        names.sort();
-        names.dedup();
-        names.len()
+        self.metrics
+            .iter()
+            .map(|m| &m.name)
+            .collect::<FxHashSet<_>>()
+            .len()
     }
 
     /// Returns the number of files containing metrics.
     #[must_use]
     pub fn files_with_metrics(&self) -> usize {
-        let mut files: Vec<_> = self.metrics.iter().map(|m| &m.file).collect();
-        files.sort();
-        files.dedup();
-        files.len()
+        self.metrics
+            .iter()
+            .map(|m| &m.file)
+            .collect::<FxHashSet<_>>()
+            .len()
     }
 
     /// Searches for metrics matching the given query.
@@ -156,25 +193,7 @@ pub fn build_index_with_progress(
     let extensions: FxHashSet<&str> = registry.all_extensions().into_iter().collect();
 
     // First pass: collect all scannable files
-    let source_files: Vec<_> = WalkDir::new(repo_path)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(std::result::Result::ok)
-        .filter(|e| {
-            e.path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| extensions.contains(ext))
-        })
-        .filter(|e| {
-            !e.path().components().any(|c| {
-                matches!(
-                    c.as_os_str().to_str(),
-                    Some("target" | ".git" | "vendor" | "node_modules")
-                )
-            })
-        })
-        .collect();
+    let source_files: Vec<_> = discover_files(repo_path, &extensions).collect();
 
     // Set total count
     progress.total.store(source_files.len(), Ordering::SeqCst);
@@ -243,29 +262,9 @@ fn scan_yaml_alerts(repo_path: &Path) -> Vec<AlertRule> {
     };
     let yaml_extensions: FxHashSet<&str> = ["yaml", "yml"].into_iter().collect();
 
-    let yaml_files: Vec<_> = WalkDir::new(repo_path)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(std::result::Result::ok)
-        .filter(|e| {
-            e.path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| yaml_extensions.contains(ext))
-        })
-        .filter(|e| {
-            !e.path().components().any(|c| {
-                matches!(
-                    c.as_os_str().to_str(),
-                    Some("target" | ".git" | "vendor" | "node_modules")
-                )
-            })
-        })
-        .collect();
-
     let mut all_alerts = Vec::new();
 
-    for entry in yaml_files {
+    for entry in discover_files(repo_path, &yaml_extensions) {
         let path = entry.path();
         match alert_scanner.scan_file(path) {
             Ok(alerts) => {
