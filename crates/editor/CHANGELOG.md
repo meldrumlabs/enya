@@ -4,6 +4,43 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Query timeout handling**: Panes no longer get stuck in a perpetual loading state when the Prometheus backend is unreachable. Features include:
+  - Default 30-second timeout for query requests
+  - Automatic timeout detection with clear error messages ("query timed out after 30s")
+  - Loading animation stops and error diagnostic is shown when timeout occurs
+  - Queries are not started until the connection health check completes
+  - If the connection fails, panes don't show loading state (no query is attempted)
+  - Orphaned loading states are now cleaned up if a pane is removed during query execution
+
+- **Workspace connection config**: The `[connection]` section in workspace TOML files is now applied when loading a workspace. Previously, the endpoint was logged but not used. Now:
+  - Connection is automatically established to the specified Prometheus endpoint
+  - Health check is initiated and metric/label metadata is fetched
+  - If the connection fails (e.g., Prometheus is not running), panes show an error rather than staying in loading state indefinitely
+
+- **Go to Alert (`ga`)**: Press `ga` on a focused chart pane to view alert rules that reference the metric. Features include:
+  - Source preview overlay showing ~20 lines of context around the alert definition in YAML files
+  - Alert severity badge (critical/warning) displayed in the header
+  - Alert name and message shown in the footer
+  - Press `Escape` to dismiss the overlay
+  - Native-only feature (requires codebase to be indexed via `[codebase]` config)
+
+- **Alert rule indexing**: The codebase indexer now scans YAML files for Prometheus alerting rules. Features include:
+  - Parses standard Prometheus alert rule format (`groups.rules.alert`)
+  - Extracts alert name, PromQL expression, severity, message, and runbook URL
+  - Uses `enya-promql::extract_metric_name()` to identify which metric an alert references
+  - New `AlertRule` struct capturing alert metadata and file location
+  - `CodebaseIndex.find_alerts_by_metric()` to look up alerts by metric name
+  - New dependency: `tree-sitter-yaml` for YAML parsing (consistent with the Rust scanner)
+
+- **Go To section in which-key overlay**: The `?` help overlay now includes a "Go To" section documenting `gd` (go to metric definition) and `ga` (go to alert) shortcuts.
+
+- **Atlas example workspace**: Added a new built-in workspace template (`atlas.toml`) that demonstrates codebase integration with the `polygon-io/rust-app-atlas` repository. This workspace is created automatically in the `.enya/workspaces/` directory and includes:
+  - `[codebase]` configuration pointing to the Atlas git repository
+  - Sample pane querying `atlas_live_consumer_errors_total` metrics
+  - Prometheus endpoint configured for local development
+
 ### Changed
 
 - **Cleaner visualization headers**: Removed the gray metric name/query text that was displayed at the top of Gauge, Stat, Bar Chart, and Sparkline visualizations. Visualizations now only show a title when explicitly set (and not "Untitled"), using a stronger, more prominent text style. This eliminates visual clutter and prevents raw query text from appearing in chart displays.

@@ -10,8 +10,8 @@ use rustc_hash::FxHashMap;
 pub use enya_common::CommitMarker;
 // Re-export from enya-index
 pub use enya_index::{
-    CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind, Scanner,
-    ScannerRegistry, build_index_with_progress, fetch_commit_history,
+    AlertRule, CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind,
+    Scanner, ScannerRegistry, build_index_with_progress, fetch_commit_history,
 };
 
 /// Status of codebase operations.

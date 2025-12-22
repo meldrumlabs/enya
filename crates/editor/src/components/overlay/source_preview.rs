@@ -21,7 +21,7 @@ use crate::ui::typography;
 use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::codebase::{MetricInstrumentation, MetricKind};
+use crate::codebase::{AlertRule, MetricInstrumentation, MetricKind};
 
 /// Highlight names recognized by our syntax highlighter.
 /// These map to tree-sitter highlight capture names.
@@ -69,12 +69,24 @@ pub enum SourcePreviewResult {
     Closed,
 }
 
-/// A modal overlay that displays source code context around a metric definition.
+/// The kind of preview being shown.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum PreviewKind {
+    /// Showing a metric definition.
+    #[default]
+    Metric,
+    /// Showing an alert rule.
+    Alert,
+}
+
+/// A modal overlay that displays source code context around a metric or alert definition.
 pub struct SourcePreviewOverlay {
     /// Whether the overlay is open.
     is_open: bool,
     /// Current theme.
     theme: AppTheme,
+    /// What kind of content is being previewed.
+    preview_kind: PreviewKind,
     /// Relative path to display (from repo root).
     relative_path: String,
     /// Full path to source file for reading.
@@ -93,7 +105,7 @@ pub struct SourcePreviewOverlay {
     highlight_spans: Vec<HighlightSpan>,
     /// Target line number (1-indexed) to highlight.
     target_line: usize,
-    /// The metric name being shown.
+    /// The metric name being shown (for metrics) or alert name (for alerts).
     metric_name: String,
     /// The kind of metric (counter, gauge, histogram).
     #[cfg(not(target_arch = "wasm32"))]
@@ -102,6 +114,14 @@ pub struct SourcePreviewOverlay {
     labels: Vec<String>,
     /// Error message if file couldn't be loaded.
     error: Option<String>,
+    /// Alert severity (if showing an alert).
+    alert_severity: Option<String>,
+    /// Alert message (if showing an alert).
+    alert_message: Option<String>,
+    /// Alert expression (if showing an alert).
+    alert_expr: Option<String>,
+    /// Horizontal scroll offset for vim-style navigation.
+    scroll_offset_x: f32,
 }
 
 impl Default for SourcePreviewOverlay {
@@ -116,6 +136,7 @@ impl SourcePreviewOverlay {
         Self {
             is_open: false,
             theme: AppTheme::default(),
+            preview_kind: PreviewKind::default(),
             relative_path: String::new(),
             #[cfg(not(target_arch = "wasm32"))]
             full_path: PathBuf::new(),
@@ -132,6 +153,10 @@ impl SourcePreviewOverlay {
             metric_kind: None,
             labels: Vec::new(),
             error: None,
+            alert_severity: None,
+            alert_message: None,
+            alert_expr: None,
+            scroll_offset_x: 0.0,
         }
     }
 
@@ -156,6 +181,11 @@ impl SourcePreviewOverlay {
             self.highlight_spans.clear();
         }
         self.error = None;
+        self.alert_severity = None;
+        self.alert_message = None;
+        self.alert_expr = None;
+        self.preview_kind = PreviewKind::default();
+        self.scroll_offset_x = 0.0;
     }
 
     /// Check if the overlay is open.
@@ -170,12 +200,35 @@ impl SourcePreviewOverlay {
         instrumentation: &MetricInstrumentation,
         repo_path: &std::path::Path,
     ) {
+        self.preview_kind = PreviewKind::Metric;
         self.metric_name = instrumentation.name.clone();
         self.metric_kind = Some(instrumentation.kind);
         self.labels = instrumentation.labels.clone();
         self.target_line = instrumentation.line;
         self.relative_path = instrumentation.file.display().to_string();
         self.full_path = repo_path.join(&instrumentation.file);
+        self.alert_severity = None;
+        self.alert_message = None;
+        self.alert_expr = None;
+
+        // Load the source file
+        self.load_source_file();
+        self.is_open = true;
+    }
+
+    /// Open the overlay with an alert rule.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_alert(&mut self, alert: &AlertRule, repo_path: &std::path::Path) {
+        self.preview_kind = PreviewKind::Alert;
+        self.metric_name = alert.name.clone();
+        self.metric_kind = None;
+        self.labels = Vec::new();
+        self.target_line = alert.line;
+        self.relative_path = alert.file.display().to_string();
+        self.full_path = repo_path.join(&alert.file);
+        self.alert_severity = alert.severity.clone();
+        self.alert_message = alert.message.clone();
+        self.alert_expr = Some(alert.expr.clone());
 
         // Load the source file
         self.load_source_file();
@@ -359,10 +412,19 @@ impl HttpHandler {
 
         let mut should_close = false;
 
-        // Handle keyboard input (Escape to close)
+        // Handle keyboard input
         ctx.input(|i| {
+            // Escape to close
             if i.key_pressed(Key::Escape) {
                 should_close = true;
+            }
+            // Vim-style horizontal scrolling: h/l
+            let scroll_step = 50.0;
+            if i.key_pressed(Key::H) {
+                self.scroll_offset_x = (self.scroll_offset_x - scroll_step).max(0.0);
+            }
+            if i.key_pressed(Key::L) {
+                self.scroll_offset_x += scroll_step;
             }
         });
 
@@ -390,7 +452,9 @@ impl HttpHandler {
                 };
 
                 overlay_style.frame().show(ui, |ui| {
+                    // Cap width to prevent content from stretching the overlay
                     ui.set_width(popup_width);
+                    ui.set_max_width(popup_width);
                     ui.set_max_height(popup_max_height);
 
                     // Header section
@@ -404,7 +468,7 @@ impl HttpHandler {
                     }
 
                     // Footer
-                    self.render_footer(ui, muted_text, separator_color);
+                    self.render_footer(ui, muted_text, separator_color, popup_width);
                 });
             });
 
@@ -421,51 +485,107 @@ impl HttpHandler {
         ui.horizontal(|ui| {
             ui.add_space(16.0);
 
-            // Code icon
-            ui.label(
-                RichText::new(semantic_icons::status::INFO)
-                    .color(accent_color)
-                    .size(18.0),
-            );
+            // Icon varies by preview type
+            let icon = match self.preview_kind {
+                PreviewKind::Metric => semantic_icons::status::INFO,
+                PreviewKind::Alert => semantic_icons::status::WARNING,
+            };
+            ui.label(RichText::new(icon).color(accent_color).size(18.0));
             ui.add_space(8.0);
 
-            // File path and line number
+            // File path and line number - truncate if too long
             let path_text = if self.target_line > 0 {
                 format!("{}:{}", self.relative_path, self.target_line)
             } else {
                 self.relative_path.clone()
             };
-            ui.label(
-                RichText::new(&path_text)
-                    .color(accent_color)
-                    .font(typography::monospace(typography::LG))
-                    .strong(),
+
+            // Reserve space for badge (~100px) and margins
+            let max_path_width = ui.available_width() - 120.0;
+            let truncated_path = if path_text.chars().count() > 60 {
+                let truncated: String = path_text.chars().take(57).collect();
+                format!("{truncated}...")
+            } else {
+                path_text
+            };
+
+            ui.add_sized(
+                [max_path_width.max(100.0), ui.spacing().interact_size.y],
+                egui::Label::new(
+                    RichText::new(&truncated_path)
+                        .color(accent_color)
+                        .font(typography::monospace(typography::LG))
+                        .strong(),
+                ),
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
 
-                // Metric kind badge
-                #[cfg(not(target_arch = "wasm32"))]
-                if let Some(kind) = self.metric_kind {
-                    let (badge_text, badge_color) = match kind {
-                        MetricKind::Counter => ("counter", palette::semantic::SUCCESS),
-                        MetricKind::Gauge => ("gauge", palette::semantic::WARNING),
-                        MetricKind::Histogram => ("histogram", palette::semantic::INFO),
-                    };
-                    let bg_color = badge_color.gamma_multiply(0.2);
+                match self.preview_kind {
+                    PreviewKind::Metric => {
+                        // Metric kind badge
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if let Some(kind) = self.metric_kind {
+                            let (badge_text, badge_color) = match kind {
+                                MetricKind::Counter => ("counter", palette::semantic::SUCCESS),
+                                MetricKind::Gauge => ("gauge", palette::semantic::WARNING),
+                                MetricKind::Histogram => ("histogram", palette::semantic::INFO),
+                            };
+                            let bg_color = badge_color.gamma_multiply(0.2);
 
-                    egui::Frame::new()
-                        .fill(bg_color)
-                        .corner_radius(4.0)
-                        .inner_margin(egui::Margin::symmetric(8, 2))
-                        .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(badge_text)
-                                    .color(badge_color)
-                                    .font(typography::monospace(typography::SM)),
-                            );
-                        });
+                            egui::Frame::new()
+                                .fill(bg_color)
+                                .corner_radius(4.0)
+                                .inner_margin(egui::Margin::symmetric(8, 2))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new(badge_text)
+                                            .color(badge_color)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                });
+                        }
+                    }
+                    PreviewKind::Alert => {
+                        // Alert severity badge
+                        if let Some(ref severity) = self.alert_severity {
+                            let badge_color = match severity.as_str() {
+                                "critical" => palette::semantic::ERROR,
+                                "warning" => palette::semantic::WARNING,
+                                _ => palette::semantic::INFO,
+                            };
+                            let bg_color = badge_color.gamma_multiply(0.2);
+
+                            egui::Frame::new()
+                                .fill(bg_color)
+                                .corner_radius(4.0)
+                                .inner_margin(egui::Margin::symmetric(8, 2))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new(severity.as_str())
+                                            .color(badge_color)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                });
+                        } else {
+                            // Default "alert" badge
+                            let badge_color = palette::semantic::WARNING;
+                            let bg_color = badge_color.gamma_multiply(0.2);
+
+                            egui::Frame::new()
+                                .fill(bg_color)
+                                .corner_radius(4.0)
+                                .inner_margin(egui::Margin::symmetric(8, 2))
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        RichText::new("alert")
+                                            .color(badge_color)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                });
+                        }
+                    }
                 }
             });
         });
@@ -533,60 +653,73 @@ impl HttpHandler {
 
         ui.add_space(8.0);
 
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.vertical(|ui| {
-                // Render only lines in the fixed window
-                for line_num in start_line..=end_line {
-                    let line_idx = line_num.saturating_sub(1);
-                    let line_content = self
-                        .source_lines
-                        .get(line_idx)
-                        .map(String::as_str)
-                        .unwrap_or("");
-                    let is_target = line_num == self.target_line;
+        // Use a scroll area to clip long lines instead of expanding the overlay
+        // Apply vim-style scroll offset via scroll_to_x
+        egui::ScrollArea::horizontal()
+            .id_salt("source_preview_scroll")
+            .scroll_offset(egui::vec2(self.scroll_offset_x, 0.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    ui.vertical(|ui| {
+                        // Render only lines in the fixed window
+                        for line_num in start_line..=end_line {
+                            let line_idx = line_num.saturating_sub(1);
+                            let line_content = self
+                                .source_lines
+                                .get(line_idx)
+                                .map(String::as_str)
+                                .unwrap_or("");
+                            let is_target = line_num == self.target_line;
 
-                    // Syntax highlight the code
-                    let highlighted = self.highlight_rust_line(line_num, line_content);
+                            // Syntax highlight the code
+                            let highlighted = self.highlight_rust_line(line_num, line_content);
 
-                    // Draw highlight background for target line
-                    if is_target {
-                        let response = ui.horizontal(|ui| {
-                            // Line number with arrow
-                            ui.label(
-                                RichText::new(format!("{line_num:>line_num_width$} →"))
-                                    .color(palette::semantic::WARNING)
-                                    .font(typography::monospace(typography::MD)),
-                            );
-                            ui.add_space(4.0);
-                            // Code content with syntax highlighting
-                            ui.label(highlighted);
-                        });
+                            // Draw highlight background for target line
+                            if is_target {
+                                let response = ui.horizontal(|ui| {
+                                    // Line number with arrow
+                                    ui.label(
+                                        RichText::new(format!("{line_num:>line_num_width$} →"))
+                                            .color(palette::semantic::WARNING)
+                                            .font(typography::monospace(typography::MD)),
+                                    );
+                                    ui.add_space(4.0);
+                                    // Code content with syntax highlighting
+                                    ui.label(highlighted);
+                                });
 
-                        // Draw background behind the row
-                        let rect = response.response.rect.expand2(egui::vec2(4.0, 1.0));
-                        ui.painter().rect_filled(rect, 2.0, highlight_bg);
-                    } else {
-                        ui.horizontal(|ui| {
-                            // Line number
-                            ui.label(
-                                RichText::new(format!("{line_num:>line_num_width$}  "))
-                                    .color(line_num_color)
-                                    .font(typography::monospace(typography::MD)),
-                            );
-                            ui.add_space(4.0);
-                            // Code content with syntax highlighting
-                            ui.label(highlighted);
-                        });
-                    }
-                }
+                                // Draw background behind the row
+                                let rect = response.response.rect.expand2(egui::vec2(4.0, 1.0));
+                                ui.painter().rect_filled(rect, 2.0, highlight_bg);
+                            } else {
+                                ui.horizontal(|ui| {
+                                    // Line number
+                                    ui.label(
+                                        RichText::new(format!("{line_num:>line_num_width$}  "))
+                                            .color(line_num_color)
+                                            .font(typography::monospace(typography::MD)),
+                                    );
+                                    ui.add_space(4.0);
+                                    // Code content with syntax highlighting
+                                    ui.label(highlighted);
+                                });
+                            }
+                        }
+                    });
+                });
             });
-        });
 
         ui.add_space(8.0);
     }
 
-    fn render_footer(&self, ui: &mut egui::Ui, muted_text: Color32, separator_color: Color32) {
+    fn render_footer(
+        &self,
+        ui: &mut egui::Ui,
+        muted_text: Color32,
+        separator_color: Color32,
+        popup_width: f32,
+    ) {
         // Separator above footer
         ui.painter().hline(
             ui.available_rect_before_wrap().x_range(),
@@ -595,37 +728,97 @@ impl HttpHandler {
         );
         ui.add_space(8.0);
 
-        ui.horizontal(|ui| {
-            ui.add_space(16.0);
+        let key_color = match self.theme {
+            AppTheme::Light => palette::light_text::TERTIARY,
+            AppTheme::Dark => palette::text::TERTIARY,
+        };
 
-            // Show labels if any
-            if !self.labels.is_empty() {
-                let key_color = match self.theme {
-                    AppTheme::Light => palette::light_text::TERTIARY,
-                    AppTheme::Dark => palette::text::TERTIARY,
-                };
-                ui.label(
-                    RichText::new("Labels: ")
-                        .color(key_color)
-                        .font(typography::proportional(typography::MD)),
-                );
-                ui.label(
-                    RichText::new(self.labels.join(", "))
-                        .color(text_color(self.theme))
-                        .font(typography::monospace(typography::MD)),
-                );
-                ui.add_space(16.0);
+        match self.preview_kind {
+            PreviewKind::Metric => {
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0);
+
+                    // Show labels if any
+                    if !self.labels.is_empty() {
+                        ui.label(
+                            RichText::new("Labels: ")
+                                .color(key_color)
+                                .font(typography::proportional(typography::MD)),
+                        );
+                        ui.label(
+                            RichText::new(self.labels.join(", "))
+                                .color(text_color(self.theme))
+                                .font(typography::monospace(typography::MD)),
+                        );
+                        ui.add_space(16.0);
+                    }
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new("Esc to close")
+                                .color(muted_text)
+                                .font(typography::proportional(typography::MD)),
+                        );
+                    });
+                });
             }
+            PreviewKind::Alert => {
+                // Constrain the vertical layout to the popup width minus margins
+                let content_width = popup_width - 32.0;
+                ui.vertical(|ui| {
+                    ui.set_max_width(content_width);
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new("Esc to close")
-                        .color(muted_text)
-                        .font(typography::proportional(typography::MD)),
-                );
-            });
-        });
+                    // Show alert name
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(
+                            RichText::new("Alert: ")
+                                .color(key_color)
+                                .font(typography::proportional(typography::MD)),
+                        );
+                        ui.label(
+                            RichText::new(&self.metric_name)
+                                .color(text_color(self.theme))
+                                .font(typography::monospace(typography::MD))
+                                .strong(),
+                        );
+                    });
+
+                    // Show message if available - constrained to popup width
+                    if let Some(ref message) = self.alert_message {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            // Use a fixed max width based on popup size (leave room for margins)
+                            let max_msg_width = content_width - 48.0;
+                            ui.add_sized(
+                                [max_msg_width, ui.spacing().interact_size.y],
+                                egui::Label::new(
+                                    RichText::new(message)
+                                        .color(muted_text)
+                                        .font(typography::proportional(typography::SM)),
+                                )
+                                .truncate(),
+                            );
+                        });
+                    }
+
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(16.0);
+                            ui.label(
+                                RichText::new("Esc to close")
+                                    .color(muted_text)
+                                    .font(typography::proportional(typography::MD)),
+                            );
+                        });
+                    });
+                });
+            }
+        }
         ui.add_space(12.0);
     }
 

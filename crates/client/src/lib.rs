@@ -139,10 +139,15 @@ pub trait MetricsClient {
     fn health_check(&self, ctx: &egui::Context) -> Promise<HealthCheckResult>;
 }
 
+/// Default query timeout in seconds.
+/// If a query doesn't complete within this time, it will be cancelled with a timeout error.
+pub const DEFAULT_QUERY_TIMEOUT_SECS: u64 = 30;
+
 /// Manages in-flight queries using poll-promise.
 ///
 /// This provides state management for query operations, tracking whether
 /// a query is in flight and providing a polling interface for results.
+/// Includes timeout detection to prevent queries from hanging indefinitely.
 ///
 /// # Example
 ///
@@ -154,12 +159,16 @@ pub trait MetricsClient {
 ///
 /// // In update loop
 /// if let Some(result) = manager.poll() {
-///     // Handle result
+///     // Handle result (including timeout errors)
 /// }
 /// ```
 pub struct QueryManager {
     /// The pending promise, if any.
     promise: Option<Promise<QueryResult>>,
+    /// When the current query started (Unix timestamp in seconds, for timeout detection).
+    started_at: Option<u64>,
+    /// Timeout duration in seconds.
+    timeout_secs: u64,
 }
 
 impl Default for QueryManager {
@@ -169,10 +178,24 @@ impl Default for QueryManager {
 }
 
 impl QueryManager {
-    /// Create a new query manager.
+    /// Create a new query manager with the default timeout.
     #[must_use]
     pub fn new() -> Self {
-        Self { promise: None }
+        Self {
+            promise: None,
+            started_at: None,
+            timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
+        }
+    }
+
+    /// Create a new query manager with a custom timeout.
+    #[must_use]
+    pub fn with_timeout(timeout_secs: u64) -> Self {
+        Self {
+            promise: None,
+            started_at: None,
+            timeout_secs,
+        }
     }
 
     /// Check if a query is currently in flight.
@@ -197,21 +220,46 @@ impl QueryManager {
         }
 
         self.promise = Some(client.query(request, ctx));
+        self.started_at = Some(now_unix_secs());
     }
 
     /// Poll for the query result.
     ///
-    /// Returns `Some(result)` if a query just completed, `None` otherwise.
+    /// Returns `Some(result)` if a query just completed or timed out, `None` otherwise.
     /// After returning a result, `is_querying()` will return `false`.
+    ///
+    /// If the query has been pending longer than the timeout duration, this returns
+    /// a timeout error and cancels the pending query.
     pub fn poll(&mut self) -> Option<QueryResult> {
         let promise = self.promise.as_ref()?;
+
+        // Check if the query has completed
         if let Some(result) = promise.ready() {
             let result = result.clone();
             self.promise = None;
-            Some(result)
-        } else {
-            None
+            self.started_at = None;
+            return Some(result);
         }
+
+        // Check for timeout
+        if let Some(started_at) = self.started_at {
+            let elapsed = now_unix_secs().saturating_sub(started_at);
+            if elapsed >= self.timeout_secs {
+                log::warn!(
+                    "Query timed out after {} seconds (timeout: {}s)",
+                    elapsed,
+                    self.timeout_secs
+                );
+                self.promise = None;
+                self.started_at = None;
+                return Some(Err(ClientError::Timeout {
+                    elapsed_secs: elapsed,
+                    timeout_secs: self.timeout_secs,
+                }));
+            }
+        }
+
+        None
     }
 
     /// Cancel any pending query.
@@ -220,6 +268,7 @@ impl QueryManager {
     /// but it will ignore the result when it arrives.
     pub fn cancel(&mut self) {
         self.promise = None;
+        self.started_at = None;
     }
 }
 

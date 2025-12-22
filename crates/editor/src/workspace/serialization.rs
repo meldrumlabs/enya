@@ -160,7 +160,15 @@ impl Workspace {
             };
         }
 
-        // Return connection config if present
+        // Store connection endpoint for deferred initialization
+        // The actual connection happens in show() when ctx is available
+        self.pending_connection_endpoint = if config.connection.is_empty() {
+            None
+        } else {
+            Some(config.connection.endpoint.clone())
+        };
+
+        // Return connection config if present (for logging/tracking in caller)
         if config.connection.is_empty() {
             None
         } else {

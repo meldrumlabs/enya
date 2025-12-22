@@ -13,8 +13,13 @@ pub enum ClientError {
     BackendError { status: u16, message: String },
     /// Failed to parse the backend's response.
     ParseError(String),
-    /// Query timed out.
-    Timeout,
+    /// Query timed out waiting for a response.
+    Timeout {
+        /// How long we waited before timing out.
+        elapsed_secs: u64,
+        /// The configured timeout threshold.
+        timeout_secs: u64,
+    },
     /// Invalid request parameters.
     InvalidRequest(String),
 }
@@ -28,7 +33,13 @@ impl fmt::Display for ClientError {
                 write!(f, "backend error (HTTP {status}): {message}")
             }
             Self::ParseError(msg) => write!(f, "failed to parse response: {msg}"),
-            Self::Timeout => write!(f, "query timed out"),
+            Self::Timeout {
+                elapsed_secs,
+                timeout_secs,
+            } => write!(
+                f,
+                "query timed out after {elapsed_secs}s (limit: {timeout_secs}s)"
+            ),
             Self::InvalidRequest(msg) => write!(f, "invalid request: {msg}"),
         }
     }
