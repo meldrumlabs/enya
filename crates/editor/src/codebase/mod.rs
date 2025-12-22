@@ -5,11 +5,13 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use rustc_hash::FxHashMap;
 
+pub use enya_common::CommitMarker;
 // Re-export from enya-index
 pub use enya_index::{
-    CodebaseIndex, IndexProgress, MetricInstrumentation, MetricKind, Scanner, ScannerRegistry,
-    build_index_with_progress,
+    CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind, Scanner,
+    ScannerRegistry, build_index_with_progress, fetch_commit_history,
 };
 
 /// Status of codebase operations.
@@ -78,6 +80,12 @@ pub enum CodebaseResult {
     },
     /// Indexing completed.
     IndexComplete { url: String, index: CodebaseIndex },
+    /// Commit history fetch completed.
+    HistoryComplete {
+        start_secs: i64,
+        end_secs: i64,
+        commits: Vec<CommitInfo>,
+    },
     /// An error occurred.
     Error { url: String, message: String },
 }
@@ -94,6 +102,12 @@ pub struct CodebaseManager {
     indexing_progress: Option<IndexProgress>,
     /// Registry of available scanners for different languages
     scanner_registry: ScannerRegistry,
+    /// Cached commit history keyed by (start_secs, end_secs)
+    commit_cache: FxHashMap<(i64, i64), Vec<CommitMarker>>,
+    /// Time range currently being fetched (to avoid duplicate requests)
+    pending_history_range: Option<(i64, i64)>,
+    /// Flag indicating new commits arrived this frame
+    commits_updated: bool,
 }
 
 impl Default for CodebaseManager {
@@ -111,6 +125,9 @@ impl CodebaseManager {
             index: None,
             indexing_progress: None,
             scanner_registry: ScannerRegistry::default(),
+            commit_cache: FxHashMap::default(),
+            pending_history_range: None,
+            commits_updated: false,
         }
     }
 
@@ -225,6 +242,9 @@ impl CodebaseManager {
     ///
     /// Call this each frame to check if clone/fetch/index operations have completed.
     pub fn poll(&mut self, ctx: &egui::Context) {
+        // Reset per-frame flags
+        self.commits_updated = false;
+
         // Update indexing progress from the shared atomics
         if let Some(ref progress) = self.indexing_progress {
             let (current, total) = progress.get();
@@ -270,9 +290,24 @@ impl CodebaseManager {
                 self.status = CodebaseStatus::Ready { url };
                 self.indexing_progress = None; // Clear progress tracker
             }
+            CodebaseResult::HistoryComplete {
+                start_secs,
+                end_secs,
+                commits,
+            } => {
+                // Convert CommitInfo to CommitMarker and cache
+                let markers: Vec<CommitMarker> = commits
+                    .into_iter()
+                    .map(|c| CommitMarker::new(c.hash, c.timestamp as f64, c.message))
+                    .collect();
+                self.commit_cache.insert((start_secs, end_secs), markers);
+                self.pending_history_range = None;
+                self.commits_updated = true;
+            }
             CodebaseResult::Error { url, message } => {
                 self.status = CodebaseStatus::Error { url, message };
                 self.indexing_progress = None; // Clear progress tracker
+                self.pending_history_range = None;
             }
         }
     }
@@ -297,5 +332,74 @@ impl CodebaseManager {
             .as_ref()
             .map(|i| i.metrics.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// Initiates fetching commit history for a time range.
+    ///
+    /// The fetch happens in a background thread. Call [`poll`](Self::poll) each
+    /// frame to check for completion. Results are cached.
+    pub fn fetch_history(&mut self, start_secs: f64, end_secs: f64, ctx: &egui::Context) {
+        let Some(index) = &self.index else {
+            return;
+        };
+
+        let start = start_secs as i64;
+        let end = end_secs as i64;
+
+        // Already cached?
+        if self.commit_cache.contains_key(&(start, end)) {
+            return;
+        }
+
+        // Already fetching this range?
+        if self.pending_history_range == Some((start, end)) {
+            return;
+        }
+
+        let repo_path = index.repo_path.clone();
+        self.pending_history_range = Some((start, end));
+
+        let pending = Arc::clone(&self.pending_result);
+        let ctx = ctx.clone();
+
+        std::thread::spawn(move || {
+            let result = match fetch_commit_history(&repo_path, start, end) {
+                Ok(commits) => CodebaseResult::HistoryComplete {
+                    start_secs: start,
+                    end_secs: end,
+                    commits,
+                },
+                Err(e) => CodebaseResult::Error {
+                    url: repo_path.display().to_string(),
+                    message: format!("Failed to fetch history: {e}"),
+                },
+            };
+
+            *pending.lock() = Some(result);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Returns cached commits for the given time range, if available.
+    ///
+    /// Returns `None` if commits haven't been fetched yet for this range.
+    /// Call [`fetch_history`](Self::fetch_history) to initiate a fetch.
+    #[must_use]
+    pub fn get_commits(&self, start_secs: f64, end_secs: f64) -> Option<&[CommitMarker]> {
+        let key = (start_secs as i64, end_secs as i64);
+        self.commit_cache.get(&key).map(Vec::as_slice)
+    }
+
+    /// Returns true if new commits arrived during the last [`poll`](Self::poll) call.
+    #[must_use]
+    pub fn commits_updated(&self) -> bool {
+        self.commits_updated
+    }
+
+    /// Clears the commit cache.
+    ///
+    /// Call this when the codebase is updated to ensure fresh history.
+    pub fn clear_commit_cache(&mut self) {
+        self.commit_cache.clear();
     }
 }

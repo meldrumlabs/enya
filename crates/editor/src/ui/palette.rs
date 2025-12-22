@@ -155,8 +155,8 @@ pub mod chart {
         Color32::from_rgb(248, 113, 113), // Soft coral
     ];
 
-    /// Commit marker color (emerald - matches brand)
-    pub const COMMIT_MARKER: Color32 = Color32::from_rgb(52, 211, 153); // #34D399
+    /// Commit marker color (amber - high visibility on charts)
+    pub const COMMIT_MARKER: Color32 = Color32::from_rgb(251, 191, 36); // #FBBF24
 }
 
 // ============================================================================

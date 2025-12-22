@@ -12,6 +12,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Git commit timeline markers**: Time-series charts now display vertical markers for git commits that occurred during the visible time range. This helps correlate code changes with metric behavior (e.g., identify which deploy caused a spike). Features include:
+  - Automatic commit fetching when codebase is configured and indexed
+  - Commits displayed as dashed emerald vertical lines
+  - Commit labels shown above the chart with truncated messages (up to 8 visible)
+  - Hover over a commit marker to see the hash and full commit message
+  - Navigate between commits with `]c` (next) and `[c` (previous)
+  - Commits are cached per time range for performance
+  - Native-only feature (requires `[codebase]` config with git repository)
+
 - **Grafana dashboard JSON import**: Added `workspace::grafana` module for converting Grafana dashboard JSON exports to Enya's workspace TOML format. Supports timeseries, graph, stat, singlestat, gauge, barchart, bargauge, and heatmap panel types. See `examples/grafana-dashboard.json` for an example input.
 
 - **Custom unit suffixes for values**: Added `unit` field to `PaneConfig` and all visualization types. Units like "ms", "req/s", "%", "MB/s" are now displayed on Y-axis labels and in chart legends. Grafana panel units are automatically converted during import.

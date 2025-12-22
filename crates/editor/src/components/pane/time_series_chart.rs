@@ -255,6 +255,8 @@ enum ChartAction {
     PrevCommit,
     /// Toggle stacked mode
     ToggleStacked,
+    /// Toggle commit markers visibility (gc)
+    ToggleCommits,
 }
 
 /// A time series chart component
@@ -418,6 +420,9 @@ impl TimeSeriesChart {
             "Performance improvements",
         ));
 
+        // Enable commit visibility for demo
+        chart.show_commits = true;
+
         chart
     }
 
@@ -434,6 +439,7 @@ impl TimeSeriesChart {
 
     /// Set all commit markers at once
     pub fn set_commits(&mut self, commits: Vec<CommitMarker>) {
+        self.show_commits = !commits.is_empty();
         self.commits = commits;
         self.commits.sort_by(|a, b| {
             a.timestamp
@@ -531,6 +537,11 @@ impl TimeSeriesChart {
                 };
             }
 
+            // Check for 'c' after pending 'g' for gc (toggle commits)
+            if self.pending_g && input.key_pressed(Key::C) {
+                return ChartAction::ToggleCommits;
+            }
+
             // Check for bracket keys ([ and ])
             if input.key_pressed(Key::OpenBracket) {
                 return ChartAction::None; // Will be handled in state machine
@@ -611,6 +622,12 @@ impl TimeSeriesChart {
         // Clear pending bracket if another key was pressed
         if action != ChartAction::None {
             self.pending_bracket = None;
+        }
+
+        // Handle gc (toggle commits) - must come before gg handling
+        if action == ChartAction::ToggleCommits {
+            self.pending_g = false;
+            return ChartAction::ToggleCommits;
         }
 
         // Handle gg (double g) state machine
@@ -701,6 +718,9 @@ impl TimeSeriesChart {
         // Handle stacked toggle outside the plot closure (since it modifies self)
         if chart_action == ChartAction::ToggleStacked {
             self.stacked = !self.stacked;
+        }
+        if chart_action == ChartAction::ToggleCommits {
+            self.toggle_commits();
         }
 
         // Pre-compute commit navigation targets (need to do this outside the plot closure
@@ -881,7 +901,7 @@ impl TimeSeriesChart {
             .allow_drag(true)
             .allow_scroll(true);
 
-        plot.show(ui, |plot_ui| {
+        let plot_response = plot.show(ui, |plot_ui| {
             // Apply chart action inside the plot closure where we have access to plot_ui
             match chart_action {
                 ChartAction::ZoomInY => {
@@ -961,23 +981,15 @@ impl TimeSeriesChart {
                         plot_ui.set_plot_bounds(new_bounds);
                     }
                 }
-                ChartAction::None | ChartAction::ToggleStacked => {}
+                ChartAction::None | ChartAction::ToggleStacked | ChartAction::ToggleCommits => {}
             }
 
-            // Draw commit markers as vertical lines
-            for commit in &commits_to_render {
-                // Truncate message to ~30 chars for legend readability
-                let msg_preview = if commit.message.len() > 30 {
-                    format!("{}...", &commit.message[..27])
-                } else {
-                    commit.message.clone()
-                };
-                let label = format!("{} {}", commit.short_hash(), msg_preview);
-                let vline = VLine::new(label, commit.timestamp)
+            // Draw commit markers as vertical dashed lines
+            for (i, commit) in commits_to_render.iter().enumerate() {
+                let vline = VLine::new(format!("commit_{i}"), commit.timestamp)
                     .color(commit_color)
                     .style(LineStyle::dashed_dense())
                     .stroke(Stroke::new(1.5, commit_color));
-
                 plot_ui.vline(vline);
             }
 
@@ -1141,6 +1153,47 @@ impl TimeSeriesChart {
                 }
             }
         });
+
+        // Render commit labels below the plot, positioned at their timestamp's X coordinate
+        if self.show_commits && !commits_to_render.is_empty() {
+            let transform = plot_response.transform;
+            let plot_rect = plot_response.response.rect;
+
+            // Allocate space for the labels row and get its rect
+            ui.add_space(4.0);
+            let (label_row_rect, _) = ui
+                .allocate_exact_size(egui::vec2(ui.available_width(), 16.0), egui::Sense::hover());
+
+            let painter = ui.painter();
+
+            for commit in &commits_to_render {
+                // Convert timestamp to screen X coordinate
+                let screen_x = transform.position_from_point_x(commit.timestamp);
+
+                // Only render if within the plot's horizontal bounds
+                if screen_x >= plot_rect.left() && screen_x <= plot_rect.right() {
+                    // Truncate message
+                    let msg = if commit.message.len() > 18 {
+                        format!("{}…", &commit.message[..17])
+                    } else {
+                        commit.message.clone()
+                    };
+
+                    // Position centered under the commit's line
+                    let label_pos = egui::pos2(screen_x, label_row_rect.top());
+
+                    // Draw git icon + message, centered under the line
+                    let label_text = format!("{} {}", semantic_icons::git::COMMIT, msg);
+                    painter.text(
+                        label_pos,
+                        egui::Align2::CENTER_TOP,
+                        label_text,
+                        egui::FontId::proportional(11.0),
+                        commit_color,
+                    );
+                }
+            }
+        }
     }
 }
 

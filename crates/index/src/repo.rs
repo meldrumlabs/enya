@@ -150,6 +150,88 @@ fn get_head_commit(repo_path: &Path) -> Result<String, RepoError> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Information about a git commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitInfo {
+    /// Full git commit hash
+    pub hash: String,
+    /// Commit timestamp in Unix seconds
+    pub timestamp: i64,
+    /// Commit message (subject line)
+    pub message: String,
+}
+
+/// Fetches commit history for a repository within a time range.
+///
+/// Returns commits between `start_secs` and `end_secs` (Unix timestamps).
+/// Commits are returned in reverse chronological order (newest first).
+///
+/// # Errors
+///
+/// Returns an error if the git command fails.
+pub fn fetch_commit_history(
+    repo_path: &Path,
+    start_secs: i64,
+    end_secs: i64,
+) -> Result<Vec<CommitInfo>, RepoError> {
+    let output = Command::new("git")
+        .args([
+            "log",
+            &format!("--after=@{start_secs}"),
+            &format!("--before=@{end_secs}"),
+            "--format=%H|%ct|%s",
+        ])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| RepoError(format!("Failed to run git log: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(RepoError(format!("git log failed: {stderr}")));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_git_log_output(&stdout)
+}
+
+/// Parses git log output in the format `hash|timestamp|message`.
+fn parse_git_log_output(output: &str) -> Result<Vec<CommitInfo>, RepoError> {
+    let mut commits = Vec::new();
+
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Split on first two pipes only (message may contain pipes)
+        let mut parts = line.splitn(3, '|');
+
+        let hash = parts
+            .next()
+            .ok_or_else(|| RepoError("Missing hash in git log output".to_string()))?
+            .to_string();
+
+        let timestamp_str = parts
+            .next()
+            .ok_or_else(|| RepoError("Missing timestamp in git log output".to_string()))?;
+
+        let timestamp = timestamp_str
+            .parse::<i64>()
+            .map_err(|e| RepoError(format!("Invalid timestamp '{timestamp_str}': {e}")))?;
+
+        let message = parts.next().unwrap_or("").to_string();
+
+        commits.push(CommitInfo {
+            hash,
+            timestamp,
+            message,
+        });
+    }
+
+    Ok(commits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,5 +251,85 @@ mod tests {
             repo_name_from_url("https://gitlab.com/group/subgroup/project.git"),
             "project"
         );
+    }
+
+    #[test]
+    fn test_parse_git_log_output_single_commit() {
+        let output = "abc123def456|1700000000|Initial commit\n";
+        let commits = parse_git_log_output(output).expect("should parse");
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].hash, "abc123def456");
+        assert_eq!(commits[0].timestamp, 1_700_000_000);
+        assert_eq!(commits[0].message, "Initial commit");
+    }
+
+    #[test]
+    fn test_parse_git_log_output_multiple_commits() {
+        let output = "\
+abc123|1700000000|First commit
+def456|1700001000|Second commit
+ghi789|1700002000|Third commit
+";
+        let commits = parse_git_log_output(output).expect("should parse");
+        assert_eq!(commits.len(), 3);
+        assert_eq!(commits[0].hash, "abc123");
+        assert_eq!(commits[1].hash, "def456");
+        assert_eq!(commits[2].hash, "ghi789");
+    }
+
+    #[test]
+    fn test_parse_git_log_output_message_with_pipes() {
+        let output = "abc123|1700000000|Fix bug | add feature | cleanup\n";
+        let commits = parse_git_log_output(output).expect("should parse");
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].message, "Fix bug | add feature | cleanup");
+    }
+
+    #[test]
+    fn test_parse_git_log_output_empty() {
+        let output = "";
+        let commits = parse_git_log_output(output).expect("should parse");
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn test_parse_git_log_output_whitespace_only() {
+        let output = "  \n  \n  ";
+        let commits = parse_git_log_output(output).expect("should parse");
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn test_parse_git_log_output_empty_message() {
+        let output = "abc123|1700000000|\n";
+        let commits = parse_git_log_output(output).expect("should parse");
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].message, "");
+    }
+
+    #[test]
+    fn test_commit_info_equality() {
+        let c1 = CommitInfo {
+            hash: "abc".to_string(),
+            timestamp: 1000,
+            message: "test".to_string(),
+        };
+        let c2 = CommitInfo {
+            hash: "abc".to_string(),
+            timestamp: 1000,
+            message: "test".to_string(),
+        };
+        assert_eq!(c1, c2);
+    }
+
+    #[test]
+    fn test_commit_info_clone() {
+        let c1 = CommitInfo {
+            hash: "abc".to_string(),
+            timestamp: 1000,
+            message: "test".to_string(),
+        };
+        let c2 = c1.clone();
+        assert_eq!(c1, c2);
     }
 }

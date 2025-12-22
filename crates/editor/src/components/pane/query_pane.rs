@@ -432,6 +432,11 @@ impl QueryPane {
         self.visualization.toggle_commits();
     }
 
+    /// Set commit markers on the visualization (only for time series)
+    pub fn set_commits(&mut self, commits: Vec<enya_common::CommitMarker>) {
+        self.visualization.set_commits(commits);
+    }
+
     /// Get the buffer mode
     pub fn buffer_mode(&self) -> BufferMode {
         self.buffer.mode()

@@ -22,6 +22,7 @@ pub mod scanner;
 
 pub use index::{CodebaseIndex, IndexProgress, build_index_with_progress};
 pub use parser::ParseError;
+pub use repo::{CommitInfo, fetch_commit_history};
 pub use scanner::{MetricInstrumentation, MetricKind, Scanner, ScannerRegistry};
 
 /// Get the current Unix timestamp in seconds.
