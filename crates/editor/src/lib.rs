@@ -14,6 +14,10 @@
 
 #![warn(clippy::all, rust_2018_idioms)]
 
+/// Codebase integration: git repo management and metrics-rs instrumentation discovery.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod codebase;
+
 /// Main application entry point and event loop.
 mod app;
 

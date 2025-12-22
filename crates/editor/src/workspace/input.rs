@@ -43,7 +43,7 @@ impl NavDirection {
     }
 }
 
-/// Tracks the state of leader key sequences (like `t5`, `Space+m`, `yy`, `cv`).
+/// Tracks the state of leader key sequences (like `t5`, `Space+m`, `yy`, `cv`, `gd`).
 ///
 /// Leader keys are keys that must be followed by another key within a timeout
 /// to trigger an action. This struct manages the timing and state for all
@@ -58,6 +58,8 @@ pub struct LeaderKeyState {
     pub last_space_press: Option<Instant>,
     /// Last time 't' was pressed (for time range shortcuts like t5, th, td)
     pub last_t_press: Option<Instant>,
+    /// Last time 'g' was pressed (for go-to shortcuts like gd)
+    pub last_g_press: Option<Instant>,
 }
 
 impl LeaderKeyState {
@@ -86,6 +88,11 @@ impl LeaderKeyState {
         self.last_t_press = Some(Instant::now());
     }
 
+    /// Record that 'g' was pressed.
+    pub fn press_g(&mut self) {
+        self.last_g_press = Some(Instant::now());
+    }
+
     /// Clear the 'y' leader key state.
     pub fn clear_y(&mut self) {
         self.last_y_press = None;
@@ -106,6 +113,11 @@ impl LeaderKeyState {
         self.last_t_press = None;
     }
 
+    /// Clear the 'g' leader key state.
+    pub fn clear_g(&mut self) {
+        self.last_g_press = None;
+    }
+
     /// Check if 'yy' sequence is active (second 'y' within timeout).
     pub fn is_yy_active(&self) -> bool {
         self.is_active(self.last_y_press)
@@ -124,6 +136,11 @@ impl LeaderKeyState {
     /// Check if 't' leader key is active.
     pub fn is_t_active(&self) -> bool {
         self.is_active(self.last_t_press)
+    }
+
+    /// Check if 'g' leader key is active.
+    pub fn is_g_active(&self) -> bool {
+        self.is_active(self.last_g_press)
     }
 
     /// Check if a leader key press is still within the timeout window.

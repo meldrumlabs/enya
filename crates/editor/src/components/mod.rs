@@ -18,8 +18,9 @@ pub use pane::{
 pub use overlay::{
     BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Diagnostic, DiagnosticLevel,
     DiagnosticSource, DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt,
-    InfoOverlay, MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult, TutorialOverlay,
-    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder, WorkspaceItem,
+    InfoOverlay, MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult,
+    SourcePreviewOverlay, SourcePreviewResult, TutorialOverlay, ViewportFilter,
+    ViewportFilterResult, WhichKey, WorkspaceFinder, WorkspaceItem,
 };
 
 // Re-export from widget

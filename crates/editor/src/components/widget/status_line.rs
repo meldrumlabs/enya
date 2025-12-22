@@ -289,6 +289,8 @@ pub struct StatusLine {
     last_refresh: Option<std::time::Instant>,
     /// Diagnostics counts (errors, warnings, infos)
     diagnostics_count: (usize, usize, usize),
+    /// Codebase operation status (Cloning..., Indexing..., Ready)
+    codebase_status: Option<String>,
 }
 
 impl Default for StatusLine {
@@ -305,6 +307,7 @@ impl Default for StatusLine {
             sparkline: None,
             last_refresh: None,
             diagnostics_count: (0, 0, 0),
+            codebase_status: None,
         }
     }
 }
@@ -363,6 +366,11 @@ impl StatusLine {
     /// Set diagnostics counts (errors, warnings, infos)
     pub fn set_diagnostics_count(&mut self, errors: usize, warnings: usize, infos: usize) {
         self.diagnostics_count = (errors, warnings, infos);
+    }
+
+    /// Set codebase status (e.g., "Cloning repo...", "Indexing...", "Codebase ready")
+    pub fn set_codebase_status(&mut self, status: Option<String>) {
+        self.codebase_status = status;
     }
 
     /// Mark the last refresh time (call when data is updated)
@@ -630,6 +638,32 @@ impl StatusLine {
                 if response.hovered() {
                     response.show_tooltip_text("Diagnostics available (Space+d to open)");
                 }
+
+                // Separator
+                self.render_separator_rtl(ui, height);
+            }
+
+            // Codebase status (Cloning..., Indexing [5/42]..., Codebase ready)
+            if let Some(ref status) = self.codebase_status {
+                // Use loading icon for in-progress, code icon for ready
+                let (icon, color) = if status.contains("...") {
+                    (semantic_icons::status::LOADING, self.segment_fg()) // muted for loading
+                } else if status.starts_with("Error") {
+                    (semantic_icons::diagnostic::ERROR, palette::semantic::ERROR)
+                } else {
+                    (semantic_icons::file::CODE, palette::accent::PRIMARY) // emerald for ready
+                };
+
+                self.render_segment_rtl(
+                    ui,
+                    status,
+                    Some(icon),
+                    self.segment_bg(),
+                    color,
+                    height,
+                    padding,
+                    false,
+                );
 
                 // Separator
                 self.render_separator_rtl(ui, height);

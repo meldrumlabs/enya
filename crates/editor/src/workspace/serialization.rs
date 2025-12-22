@@ -9,8 +9,9 @@ use rustc_hash::FxHashMap;
 use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
-    ConnectionConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
-    TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta,
+    CodebaseConfig, ConnectionConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
+    PaneConfig, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
+    WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
 use crate::theme::AppTheme;
@@ -53,6 +54,7 @@ impl Workspace {
             connection: endpoint.map_or_else(ConnectionConfig::default, |e| {
                 ConnectionConfig::with_endpoint(e)
             }),
+            codebase: CodebaseConfig::default(),
             view: ViewConfig {
                 theme: match theme {
                     AppTheme::Light => "light".to_string(),
@@ -145,6 +147,17 @@ impl Workspace {
         // Hide landing page if we have panes
         if !config.panes.is_empty() {
             self.show_landing = false;
+        }
+
+        // Store codebase URL for deferred initialization (native only)
+        // The actual clone/index happens in show() when ctx is available
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.pending_codebase_config = if config.codebase.is_empty() {
+                None
+            } else {
+                Some(config.codebase.url.clone())
+            };
         }
 
         // Return connection config if present
