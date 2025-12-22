@@ -989,7 +989,7 @@ impl TimeSeriesChart {
                 let vline = VLine::new(format!("commit_{i}"), commit.timestamp)
                     .color(commit_color)
                     .style(LineStyle::dashed_dense())
-                    .stroke(Stroke::new(1.5, commit_color));
+                    .stroke(Stroke::new(2.5, commit_color));
                 plot_ui.vline(vline);
             }
 
@@ -1166,12 +1166,21 @@ impl TimeSeriesChart {
 
             let painter = ui.painter();
 
+            // Track the right edge of the last rendered label to avoid overlaps
+            let mut last_label_right: f32 = f32::NEG_INFINITY;
+            const MIN_LABEL_SPACING: f32 = 100.0;
+
             for commit in &commits_to_render {
                 // Convert timestamp to screen X coordinate
                 let screen_x = transform.position_from_point_x(commit.timestamp);
 
                 // Only render if within the plot's horizontal bounds
                 if screen_x >= plot_rect.left() && screen_x <= plot_rect.right() {
+                    // Skip if this label would overlap with the previous one
+                    if screen_x < last_label_right + MIN_LABEL_SPACING {
+                        continue;
+                    }
+
                     // Truncate message
                     let msg = if commit.message.len() > 18 {
                         format!("{}…", &commit.message[..17])
@@ -1184,11 +1193,17 @@ impl TimeSeriesChart {
 
                     // Draw git icon + message, centered under the line
                     let label_text = format!("{} {}", semantic_icons::git::COMMIT, msg);
+
+                    // Update the right edge for collision detection
+                    // Estimate label width as ~8px per character for proportional 12pt font
+                    let estimated_width = label_text.len() as f32 * 8.0;
+                    last_label_right = screen_x + estimated_width / 2.0;
+
                     painter.text(
                         label_pos,
                         egui::Align2::CENTER_TOP,
                         label_text,
-                        egui::FontId::proportional(11.0),
+                        egui::FontId::proportional(12.0),
                         commit_color,
                     );
                 }
