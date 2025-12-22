@@ -8,6 +8,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Cleaner visualization headers**: Removed the gray metric name/query text that was displayed at the top of Gauge, Stat, Bar Chart, and Sparkline visualizations. Visualizations now only show a title when explicitly set (and not "Untitled"), using a stronger, more prominent text style. This eliminates visual clutter and prevents raw query text from appearing in chart displays.
 
+- **Responsive gauge scaling**: The gauge visualization now scales dynamically based on available panel space, from 180px to 500px diameter. Text sizes (title, value, min/max labels) scale proportionally. The min/max labels are now properly aligned with the arc edges regardless of panel width.
+
 ### Added
 
 - **Grafana dashboard JSON import**: Added `workspace::grafana` module for converting Grafana dashboard JSON exports to Enya's workspace TOML format. Supports timeseries, graph, stat, singlestat, gauge, barchart, bargauge, and heatmap panel types. See `examples/grafana-dashboard.json` for an example input.
