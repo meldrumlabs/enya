@@ -154,6 +154,22 @@ impl BarChartViz {
         let text_col = text_color(self.theme);
         let accent_color = palette::accent::PRIMARY;
 
+        let available_width = ui.available_width();
+        let available_height = ui.available_height();
+
+        // Scale based on available space
+        let base_size = available_width.min(available_height);
+        let scale_factor = (base_size / 300.0).clamp(0.8, 1.8);
+
+        // Scale dimensions proportionally
+        let title_size = (14.0 * scale_factor).clamp(12.0, 20.0);
+        let label_size = (12.0 * scale_factor).clamp(10.0, 16.0);
+        let label_width = (100.0 * scale_factor).clamp(80.0, 160.0);
+        let value_width = (60.0 * scale_factor).clamp(50.0, 90.0);
+        let bar_height = (24.0 * scale_factor).clamp(20.0, 40.0);
+        let bar_spacing = (4.0 * scale_factor).clamp(3.0, 8.0);
+        let corner_radius = (4.0 * scale_factor).clamp(3.0, 6.0);
+
         ui.vertical(|ui| {
             ui.add_space(VIZ_PADDING_TOP);
 
@@ -164,7 +180,7 @@ impl BarChartViz {
                     ui.label(
                         RichText::new(&self.title)
                             .color(text_col)
-                            .size(14.0)
+                            .size(title_size)
                             .strong(),
                     );
                 });
@@ -176,7 +192,7 @@ impl BarChartViz {
                     ui.label(
                         RichText::new("No data")
                             .color(text_col.gamma_multiply(0.4))
-                            .size(14.0),
+                            .size(title_size),
                     );
                 });
                 return;
@@ -189,11 +205,8 @@ impl BarChartViz {
                 .fold(0.0_f64, |a, b| a.max(b))
                 .max(0.001);
 
-            // Calculate label width (for alignment)
-            let label_width = 100.0_f32;
-            let value_width = 60.0_f32;
-            let bar_height = 24.0_f32;
-            let bar_spacing = 4.0_f32;
+            // Calculate max label chars based on label width
+            let max_label_chars = ((label_width / label_size) * 1.2) as usize;
 
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
@@ -203,8 +216,8 @@ impl BarChartViz {
                             ui.add_space(8.0);
 
                             // Label (left-aligned, fixed width)
-                            let label_text = if bar.label.len() > 12 {
-                                format!("{}...", &bar.label[..12])
+                            let label_text = if bar.label.len() > max_label_chars {
+                                format!("{}...", &bar.label[..max_label_chars])
                             } else {
                                 bar.label.clone()
                             };
@@ -213,31 +226,34 @@ impl BarChartViz {
                                 egui::Label::new(
                                     RichText::new(label_text)
                                         .color(text_col.gamma_multiply(0.8))
-                                        .size(12.0),
+                                        .size(label_size),
                                 ),
                             );
 
                             // Bar
-                            let available_width = ui.available_width() - value_width - 16.0;
-                            let bar_width = (bar.value / max_value) as f32 * available_width;
+                            let bar_area_width = ui.available_width() - value_width - 16.0;
+                            let bar_width = (bar.value / max_value) as f32 * bar_area_width;
                             let bar_color = bar.color.unwrap_or(accent_color);
 
                             let (rect, _response) = ui.allocate_exact_size(
-                                egui::vec2(available_width, bar_height),
+                                egui::vec2(bar_area_width, bar_height),
                                 egui::Sense::hover(),
                             );
 
                             // Draw background
-                            ui.painter()
-                                .rect_filled(rect, 4.0, text_col.gamma_multiply(0.05));
+                            ui.painter().rect_filled(
+                                rect,
+                                corner_radius,
+                                text_col.gamma_multiply(0.05),
+                            );
 
                             // Draw filled bar
                             if bar_width > 0.0 {
                                 let bar_rect = egui::Rect::from_min_size(
                                     rect.min,
-                                    egui::vec2(bar_width.max(4.0), bar_height),
+                                    egui::vec2(bar_width.max(corner_radius), bar_height),
                                 );
-                                ui.painter().rect_filled(bar_rect, 4.0, bar_color);
+                                ui.painter().rect_filled(bar_rect, corner_radius, bar_color);
                             }
 
                             // Value (right-aligned)
@@ -247,7 +263,7 @@ impl BarChartViz {
                                     egui::Label::new(
                                         RichText::new(Self::format_value(bar.value))
                                             .color(text_col.gamma_multiply(0.7))
-                                            .size(12.0),
+                                            .size(label_size),
                                     ),
                                 );
                             }

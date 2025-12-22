@@ -133,6 +133,19 @@ impl SparklineViz {
         let text_col = text_color(self.theme);
         let line_color = self.line_color();
 
+        let available_width = ui.available_width();
+        let available_height = ui.available_height();
+
+        // Scale based on available space
+        let base_size = available_width.min(available_height * 2.0);
+        let scale_factor = (base_size / 300.0).clamp(0.8, 1.8);
+
+        // Scale dimensions proportionally
+        let title_size = (14.0 * scale_factor).clamp(12.0, 20.0);
+        let value_size = (18.0 * scale_factor).clamp(14.0, 28.0);
+        let line_width = (2.0 * scale_factor).clamp(1.5, 3.5);
+        let dot_radius = (4.0 * scale_factor).clamp(3.0, 6.0);
+
         ui.vertical(|ui| {
             ui.add_space(VIZ_PADDING_TOP);
 
@@ -149,7 +162,7 @@ impl SparklineViz {
                         ui.label(
                             RichText::new(&self.title)
                                 .color(text_col)
-                                .size(14.0)
+                                .size(title_size)
                                 .strong(),
                         );
                     }
@@ -163,7 +176,7 @@ impl SparklineViz {
                                     ui.label(
                                         RichText::new(Self::format_value(value))
                                             .color(line_color)
-                                            .size(18.0)
+                                            .size(value_size)
                                             .strong(),
                                     );
                                 },
@@ -179,22 +192,22 @@ impl SparklineViz {
                     ui.label(
                         RichText::new("No data")
                             .color(text_col.gamma_multiply(0.4))
-                            .size(14.0),
+                            .size(title_size),
                     );
                 });
                 return;
             }
 
-            // Render the sparkline
+            // Render the sparkline - scale height with available space
             let available = ui.available_size();
-            let height = (available.y - 24.0).clamp(60.0, 200.0);
+            let height = (available.y - 24.0).clamp(60.0, 400.0);
             let width = available.x - 16.0;
 
             let (response, painter) =
                 ui.allocate_painter(egui::vec2(width, height), egui::Sense::hover());
 
             let rect = response.rect;
-            let padding = 4.0;
+            let padding = 4.0 * scale_factor;
             let inner_rect = rect.shrink(padding);
 
             // Calculate value range
@@ -233,12 +246,12 @@ impl SparklineViz {
             // Draw the line
             painter.add(egui::Shape::line(
                 points.clone(),
-                Stroke::new(2.0, line_color),
+                Stroke::new(line_width, line_color),
             ));
 
             // Draw endpoint dot
             if let Some(&last_point) = points.last() {
-                painter.circle_filled(last_point, 4.0, line_color);
+                painter.circle_filled(last_point, dot_radius, line_color);
             }
 
             ui.add_space(VIZ_PADDING_BOTTOM);
