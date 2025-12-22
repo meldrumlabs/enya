@@ -8,7 +8,7 @@ use std::ops::Range;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
-use egui::{Color32, Key, RichText, ScrollArea, text::LayoutJob};
+use egui::{Color32, Key, RichText, text::LayoutJob};
 #[cfg(not(target_arch = "wasm32"))]
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
@@ -102,8 +102,6 @@ pub struct SourcePreviewOverlay {
     labels: Vec<String>,
     /// Error message if file couldn't be loaded.
     error: Option<String>,
-    /// Number of context lines to show before/after target.
-    context_lines: usize,
 }
 
 impl Default for SourcePreviewOverlay {
@@ -134,7 +132,6 @@ impl SourcePreviewOverlay {
             metric_kind: None,
             labels: Vec::new(),
             error: None,
-            context_lines: 10,
         }
     }
 
@@ -362,11 +359,12 @@ impl HttpHandler {
 
         let mut should_close = false;
 
-        // Handle keyboard input
-        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
-        if escape {
-            should_close = true;
-        }
+        // Handle keyboard input (Escape to close)
+        ctx.input(|i| {
+            if i.key_pressed(Key::Escape) {
+                should_close = true;
+            }
+        });
 
         // Draw backdrop
         draw_backdrop(ctx, self.theme, "source_preview");
@@ -502,7 +500,7 @@ impl HttpHandler {
         ui.add_space(24.0);
     }
 
-    fn render_source_code(&self, ui: &mut egui::Ui, max_height: f32) {
+    fn render_source_code(&mut self, ui: &mut egui::Ui, _max_height: f32) {
         if self.source_lines.is_empty() {
             ui.add_space(24.0);
             ui.horizontal(|ui| {
@@ -517,11 +515,12 @@ impl HttpHandler {
             return;
         }
 
-        // Calculate line range to display
-        let start_line = self.target_line.saturating_sub(self.context_lines).max(1);
-        let end_line = (self.target_line + self.context_lines).min(self.source_lines.len());
+        // Fixed window: show 10 lines before and 10 lines after the target
+        let context_lines = 10;
+        let start_line = self.target_line.saturating_sub(context_lines).max(1);
+        let end_line = (self.target_line + context_lines).min(self.source_lines.len());
 
-        let line_num_width = format!("{end_line}").len();
+        let line_num_width = format!("{}", self.source_lines.len()).len();
 
         let line_num_color = match self.theme {
             AppTheme::Light => palette::light_text::TERTIARY,
@@ -534,60 +533,55 @@ impl HttpHandler {
 
         ui.add_space(8.0);
 
-        ScrollArea::vertical()
-            .max_height(max_height)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.add_space(8.0);
-                    ui.vertical(|ui| {
-                        for line_num in start_line..=end_line {
-                            let line_idx = line_num - 1;
-                            let line_content = self
-                                .source_lines
-                                .get(line_idx)
-                                .map(|s| s.as_str())
-                                .unwrap_or("");
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            ui.vertical(|ui| {
+                // Render only lines in the fixed window
+                for line_num in start_line..=end_line {
+                    let line_idx = line_num.saturating_sub(1);
+                    let line_content = self
+                        .source_lines
+                        .get(line_idx)
+                        .map(String::as_str)
+                        .unwrap_or("");
+                    let is_target = line_num == self.target_line;
 
-                            let is_target = line_num == self.target_line;
+                    // Syntax highlight the code
+                    let highlighted = self.highlight_rust_line(line_num, line_content);
 
-                            // Syntax highlight the code
-                            let highlighted = self.highlight_rust_line(line_num, line_content);
+                    // Draw highlight background for target line
+                    if is_target {
+                        let response = ui.horizontal(|ui| {
+                            // Line number with arrow
+                            ui.label(
+                                RichText::new(format!("{line_num:>line_num_width$} →"))
+                                    .color(palette::semantic::WARNING)
+                                    .font(typography::monospace(typography::MD)),
+                            );
+                            ui.add_space(4.0);
+                            // Code content with syntax highlighting
+                            ui.label(highlighted);
+                        });
 
-                            // Draw highlight background for target line
-                            if is_target {
-                                let response = ui.horizontal(|ui| {
-                                    // Line number with arrow
-                                    ui.label(
-                                        RichText::new(format!("{line_num:>line_num_width$} →"))
-                                            .color(palette::semantic::WARNING)
-                                            .font(typography::monospace(typography::MD)),
-                                    );
-                                    ui.add_space(4.0);
-                                    // Code content with syntax highlighting
-                                    ui.label(highlighted);
-                                });
-
-                                // Draw background behind the row
-                                let rect = response.response.rect.expand2(egui::vec2(4.0, 1.0));
-                                ui.painter().rect_filled(rect, 2.0, highlight_bg);
-                            } else {
-                                ui.horizontal(|ui| {
-                                    // Line number
-                                    ui.label(
-                                        RichText::new(format!("{line_num:>line_num_width$}  "))
-                                            .color(line_num_color)
-                                            .font(typography::monospace(typography::MD)),
-                                    );
-                                    ui.add_space(4.0);
-                                    // Code content with syntax highlighting
-                                    ui.label(highlighted);
-                                });
-                            }
-                        }
-                    });
-                });
+                        // Draw background behind the row
+                        let rect = response.response.rect.expand2(egui::vec2(4.0, 1.0));
+                        ui.painter().rect_filled(rect, 2.0, highlight_bg);
+                    } else {
+                        ui.horizontal(|ui| {
+                            // Line number
+                            ui.label(
+                                RichText::new(format!("{line_num:>line_num_width$}  "))
+                                    .color(line_num_color)
+                                    .font(typography::monospace(typography::MD)),
+                            );
+                            ui.add_space(4.0);
+                            // Code content with syntax highlighting
+                            ui.label(highlighted);
+                        });
+                    }
+                }
             });
+        });
 
         ui.add_space(8.0);
     }
@@ -626,17 +620,7 @@ impl HttpHandler {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
                 ui.label(
-                    RichText::new(" to close")
-                        .color(muted_text)
-                        .font(typography::proportional(typography::MD)),
-                );
-                ui.label(
-                    RichText::new("Esc")
-                        .color(text_color(self.theme))
-                        .font(typography::monospace(typography::MD)),
-                );
-                ui.label(
-                    RichText::new("Press ")
+                    RichText::new("Esc to close")
                         .color(muted_text)
                         .font(typography::proportional(typography::MD)),
                 );
