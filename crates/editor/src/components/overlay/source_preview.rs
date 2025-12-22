@@ -112,6 +112,12 @@ pub struct SourcePreviewOverlay {
     metric_kind: Option<MetricKind>,
     /// Labels discovered for this metric.
     labels: Vec<String>,
+    /// The function containing this metric (if any).
+    #[cfg(not(target_arch = "wasm32"))]
+    function_name: Option<String>,
+    /// The impl type if inside an impl block (if any).
+    #[cfg(not(target_arch = "wasm32"))]
+    impl_type: Option<String>,
     /// Error message if file couldn't be loaded.
     error: Option<String>,
     /// Alert severity (if showing an alert).
@@ -152,6 +158,10 @@ impl SourcePreviewOverlay {
             #[cfg(not(target_arch = "wasm32"))]
             metric_kind: None,
             labels: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            function_name: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            impl_type: None,
             error: None,
             alert_severity: None,
             alert_message: None,
@@ -207,6 +217,8 @@ impl SourcePreviewOverlay {
         self.target_line = instrumentation.line;
         self.relative_path = instrumentation.file.display().to_string();
         self.full_path = repo_path.join(&instrumentation.file);
+        self.function_name = instrumentation.function_name.clone();
+        self.impl_type = instrumentation.impl_type.clone();
         self.alert_severity = None;
         self.alert_message = None;
         self.alert_expr = None;
@@ -226,6 +238,8 @@ impl SourcePreviewOverlay {
         self.target_line = alert.line;
         self.relative_path = alert.file.display().to_string();
         self.full_path = repo_path.join(&alert.file);
+        self.function_name = None;
+        self.impl_type = None;
         self.alert_severity = alert.severity.clone();
         self.alert_message = alert.message.clone();
         self.alert_expr = Some(alert.expr.clone());
@@ -252,6 +266,8 @@ impl SourcePreviewOverlay {
         self.labels = vec!["method".to_string(), "status".to_string()];
         self.relative_path = "src/handlers/http.rs".to_string();
         self.target_line = 12;
+        self.function_name = Some("handle".to_string());
+        self.impl_type = Some("HttpHandler".to_string());
         self.error = None;
 
         // Mock Rust source code
@@ -518,6 +534,21 @@ impl HttpHandler {
                         .strong(),
                 ),
             );
+
+            // Function context (if available)
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(ref fn_name) = self.function_name {
+                let fn_text = if let Some(ref impl_type) = self.impl_type {
+                    format!(" • {impl_type}::{fn_name}")
+                } else {
+                    format!(" • {fn_name}")
+                };
+                ui.label(
+                    RichText::new(fn_text)
+                        .color(text_color(self.theme).gamma_multiply(0.7))
+                        .font(typography::monospace(typography::MD)),
+                );
+            }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);

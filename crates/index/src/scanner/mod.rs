@@ -67,6 +67,10 @@ pub struct MetricInstrumentation {
     pub line: usize,
     /// Column number (0-indexed).
     pub column: usize,
+    /// The function containing this metric (e.g., `handle_request`).
+    pub function_name: Option<String>,
+    /// The impl type if inside an impl block (e.g., `Handler`).
+    pub impl_type: Option<String>,
 }
 
 /// A discovered Prometheus alert rule.

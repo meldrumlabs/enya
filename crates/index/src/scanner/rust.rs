@@ -105,6 +105,10 @@ fn scan_tree(
 
         if !name.is_empty() {
             let start = macro_node.start_position();
+
+            // Find the containing function and impl type
+            let (function_name, impl_type) = find_function_context(macro_node, source);
+
             results.push(MetricInstrumentation {
                 kind,
                 name,
@@ -112,11 +116,48 @@ fn scan_tree(
                 file: file_path.to_path_buf(),
                 line: start.row + 1, // Convert to 1-indexed
                 column: start.column,
+                function_name,
+                impl_type,
             });
         }
     }
 
     Ok(results)
+}
+
+/// Finds the containing function and impl type for a node by walking up the AST.
+///
+/// Returns `(function_name, impl_type)` where either may be `None` if the metric
+/// is not inside a function or impl block.
+fn find_function_context(node: Node<'_>, source: &str) -> (Option<String>, Option<String>) {
+    let mut current = node;
+    let mut function_name = None;
+    let mut impl_type = None;
+
+    while let Some(parent) = current.parent() {
+        match parent.kind() {
+            "function_item" => {
+                if function_name.is_none() {
+                    function_name = parent
+                        .child_by_field_name("name")
+                        .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                        .map(String::from);
+                }
+            }
+            "impl_item" => {
+                if impl_type.is_none() {
+                    impl_type = parent
+                        .child_by_field_name("type")
+                        .and_then(|n| n.utf8_text(source.as_bytes()).ok())
+                        .map(String::from);
+                }
+            }
+            _ => {}
+        }
+        current = parent;
+    }
+
+    (function_name, impl_type)
 }
 
 /// Extracts the metric name and label keys from a macro's token tree.
@@ -249,5 +290,76 @@ fn main() {
         let metrics = parse_and_scan(source);
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0].line, 2);
+    }
+
+    #[test]
+    fn test_function_context_simple() {
+        let source = r#"
+fn handle_request() {
+    counter!("http.requests").increment(1);
+}
+"#;
+        let metrics = parse_and_scan(source);
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].function_name, Some("handle_request".to_string()));
+        assert_eq!(metrics[0].impl_type, None);
+    }
+
+    #[test]
+    fn test_function_context_in_impl() {
+        let source = r#"
+impl Handler {
+    fn process(&self) {
+        counter!("http.requests").increment(1);
+    }
+}
+"#;
+        let metrics = parse_and_scan(source);
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].function_name, Some("process".to_string()));
+        assert_eq!(metrics[0].impl_type, Some("Handler".to_string()));
+    }
+
+    #[test]
+    fn test_function_context_in_closure() {
+        let source = r#"
+fn setup() {
+    let handler = || {
+        counter!("http.requests").increment(1);
+    };
+}
+"#;
+        let metrics = parse_and_scan(source);
+        assert_eq!(metrics.len(), 1);
+        // Closures should still find the outer function
+        assert_eq!(metrics[0].function_name, Some("setup".to_string()));
+        assert_eq!(metrics[0].impl_type, None);
+    }
+
+    #[test]
+    fn test_function_context_at_module_level() {
+        let source = r#"
+counter!("startup.count").increment(1);
+"#;
+        let metrics = parse_and_scan(source);
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].function_name, None);
+        assert_eq!(metrics[0].impl_type, None);
+    }
+
+    #[test]
+    fn test_function_context_trait_impl() {
+        let source = r#"
+impl Service for MyHandler {
+    fn handle(&self) {
+        counter!("service.requests").increment(1);
+    }
+}
+"#;
+        let metrics = parse_and_scan(source);
+        assert_eq!(metrics.len(), 1);
+        assert_eq!(metrics[0].function_name, Some("handle".to_string()));
+        // The impl type captures the type, not the trait
+        assert_eq!(metrics[0].impl_type, Some("MyHandler".to_string()));
     }
 }

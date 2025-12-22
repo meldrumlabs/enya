@@ -41,6 +41,8 @@ All notable changes to the Enya editor will be documented in this file.
   - Sample pane querying `atlas_live_consumer_errors_total` metrics
   - Prometheus endpoint configured for local development
 
+- **Function context in metric definitions**: The go-to-definition feature (`gd`) now shows the containing function name when viewing metric source code. For metrics inside impl blocks, the display shows `Type::function_name` format. This helps quickly understand which code path records a metric.
+
 ### Changed
 
 - **Cleaner visualization headers**: Removed the gray metric name/query text that was displayed at the top of Gauge, Stat, Bar Chart, and Sparkline visualizations. Visualizations now only show a title when explicitly set (and not "Untitled"), using a stronger, more prominent text style. This eliminates visual clutter and prevents raw query text from appearing in chart displays.

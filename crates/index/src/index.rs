@@ -302,6 +302,8 @@ mod tests {
             file: PathBuf::from(file),
             line,
             column: 0,
+            function_name: None,
+            impl_type: None,
         }
     }
 
