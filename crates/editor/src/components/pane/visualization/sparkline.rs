@@ -136,31 +136,43 @@ impl SparklineViz {
         ui.vertical(|ui| {
             ui.add_space(VIZ_PADDING_TOP);
 
-            // Header with metric name and optional value
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(&self.metric_name)
-                        .color(text_col.gamma_multiply(0.6))
-                        .size(13.0),
-                );
+            // Header with title and optional value
+            let has_title = !self.title.is_empty() && self.title != "Untitled";
+            let has_value = self.show_value && self.current_value().is_some();
 
-                if self.show_value {
-                    if let Some(value) = self.current_value() {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new(Self::format_value(value))
-                                    .color(line_color)
-                                    .size(18.0)
-                                    .strong(),
-                            );
-                        });
+            if has_title || has_value {
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+
+                    // Title (only show if explicitly set and different from default)
+                    if has_title {
+                        ui.label(
+                            RichText::new(&self.title)
+                                .color(text_col)
+                                .size(14.0)
+                                .strong(),
+                        );
                     }
-                }
-            });
 
-            ui.add_space(8.0);
+                    if let Some(value) = self.current_value() {
+                        if self.show_value {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        RichText::new(Self::format_value(value))
+                                            .color(line_color)
+                                            .size(18.0)
+                                            .strong(),
+                                    );
+                                },
+                            );
+                        }
+                    }
+                });
+                ui.add_space(8.0);
+            }
 
             if self.data.len() < 2 {
                 ui.centered_and_justified(|ui| {

@@ -224,14 +224,16 @@ impl GaugeChart {
         ui.vertical_centered(|ui| {
             ui.add_space(vertical_offset);
 
-            // Title / metric name
-            ui.label(
-                RichText::new(&self.metric_name)
-                    .color(text_col.gamma_multiply(0.6))
-                    .size(13.0),
-            );
-
-            ui.add_space(8.0);
+            // Title (only show if explicitly set and different from default)
+            if !self.title.is_empty() && self.title != "Untitled" {
+                ui.label(
+                    RichText::new(&self.title)
+                        .color(text_col)
+                        .size(14.0)
+                        .strong(),
+                );
+                ui.add_space(8.0);
+            }
 
             // Render the arc gauge
             let available_width = ui.available_width().min(280.0);
