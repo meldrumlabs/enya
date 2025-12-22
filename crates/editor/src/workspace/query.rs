@@ -119,10 +119,12 @@ impl Workspace {
 
         // 1. Poll for query results if there's a pending query
         if let Some(tile_id) = self.pending_query_tile {
+            let mut pane_found = false;
             if let Some(egui_tiles::Tile::Pane(component)) =
                 self.viewport_tree.tiles.get_mut(tile_id)
             {
                 if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    pane_found = true;
                     let pane_id = query_pane.id();
                     let pane_name = query_pane.name().to_string();
 
@@ -181,10 +183,51 @@ impl Workspace {
                     }
                 }
             }
+
+            // If we couldn't find the pane (it was removed or replaced), clean up
+            if !pane_found {
+                log::warn!(
+                    "Pending query tile {tile_id:?} no longer exists, clearing pending state"
+                );
+                self.pending_query_tile = None;
+                self.query_executor.cancel_query();
+                // Clear loading state on all panes to prevent stuck loading animations
+                for (_id, tile) in self.viewport_tree.tiles.iter_mut() {
+                    if let egui_tiles::Tile::Pane(component) = tile {
+                        if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>()
+                        {
+                            if query_pane.is_loading() {
+                                log::debug!("Clearing orphaned loading state on pane");
+                                query_pane.set_loading(false);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // 2. If no query in flight, check for panes that need refresh and execute
-        if self.pending_query_tile.is_none() {
+        // Only execute queries if:
+        // - We're in demo mode (always works), OR
+        // - We're connected to Prometheus AND the connection is online
+        //
+        // If the connection failed, clear the refresh flags on all panes to prevent
+        // them from staying in a "needs refresh" state indefinitely.
+        if self.query_executor.is_connection_failed() {
+            for (_id, tile) in self.viewport_tree.tiles.iter_mut() {
+                if let egui_tiles::Tile::Pane(component) = tile {
+                    if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                        if query_pane.needs_refresh() {
+                            query_pane.clear_refresh();
+                        }
+                    }
+                }
+            }
+        }
+
+        let can_execute = !self.query_executor.is_connected() || self.query_executor.is_online();
+
+        if self.pending_query_tile.is_none() && can_execute {
             let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
 
             // Find the first pane that needs refresh

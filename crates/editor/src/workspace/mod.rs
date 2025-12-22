@@ -181,6 +181,8 @@ pub struct Workspace {
     /// Pending codebase config to initialize (set during load, executed in show())
     #[cfg(not(target_arch = "wasm32"))]
     pending_codebase_config: Option<String>,
+    /// Pending connection endpoint to apply (set during load, executed in show())
+    pending_connection_endpoint: Option<String>,
 }
 
 impl Default for Workspace {
@@ -228,6 +230,7 @@ impl Default for Workspace {
             codebase_manager: CodebaseManager::new(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_codebase_config: None,
+            pending_connection_endpoint: None,
         }
     }
 }
@@ -286,6 +289,7 @@ impl Workspace {
             codebase_manager: CodebaseManager::new(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_codebase_config: None,
+            pending_connection_endpoint: None,
         }
     }
 
@@ -311,6 +315,16 @@ impl Workspace {
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(url) = self.pending_codebase_config.take() {
             self.codebase_manager.clone_repo(&url, ctx);
+        }
+
+        // Handle pending connection initialization
+        // This deferred pattern is needed because load_workspace_config() doesn't have ctx
+        if let Some(endpoint) = self.pending_connection_endpoint.take() {
+            log::info!("Applying connection from workspace config: {endpoint}");
+            self.query_executor.connect_prometheus(&endpoint, ctx);
+            // Start fetching metadata for autocomplete
+            self.query_executor.fetch_metric_names(ctx);
+            self.query_executor.fetch_label_names(ctx);
         }
 
         // Poll codebase manager for clone/index completion (native only)

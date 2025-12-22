@@ -87,6 +87,16 @@ impl ConnectionHealth {
     pub fn is_online(&self) -> bool {
         matches!(self, ConnectionHealth::Online { .. })
     }
+
+    /// Returns true if the connection health check failed.
+    pub fn is_failed(&self) -> bool {
+        matches!(self, ConnectionHealth::Failed { .. })
+    }
+
+    /// Returns true if a health check is currently in progress.
+    pub fn is_checking(&self) -> bool {
+        matches!(self, ConnectionHealth::Checking)
+    }
 }
 
 /// Manages query execution against a backend.
@@ -183,6 +193,16 @@ impl QueryExecutor {
         self.connection_health.is_online()
     }
 
+    /// Check if the connection health check failed.
+    pub fn is_connection_failed(&self) -> bool {
+        self.connection_health.is_failed()
+    }
+
+    /// Check if a health check is currently in progress.
+    pub fn is_checking_connection(&self) -> bool {
+        self.connection_health.is_checking()
+    }
+
     /// Get the current connection health status.
     pub fn connection_health(&self) -> &ConnectionHealth {
         &self.connection_health
@@ -227,6 +247,14 @@ impl QueryExecutor {
     /// Check if a query is currently in flight.
     pub fn is_querying(&self) -> bool {
         self.query_manager.is_querying()
+    }
+
+    /// Cancel any pending query.
+    ///
+    /// Note: This doesn't actually cancel the HTTP request (ehttp doesn't support that),
+    /// but it will ignore the result when it arrives.
+    pub fn cancel_query(&mut self) {
+        self.query_manager.cancel();
     }
 
     /// Fetch metric names from the backend.
