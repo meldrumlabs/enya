@@ -266,6 +266,13 @@ impl Visualization {
         }
     }
 
+    /// Set all commit markers at once (only for time series)
+    pub fn set_commits(&mut self, commits: Vec<CommitMarker>) {
+        if let Self::TimeSeries(chart) = self {
+            chart.set_commits(commits);
+        }
+    }
+
     /// Toggle commit marker visibility (only for time series)
     pub fn toggle_commits(&mut self) {
         if let Self::TimeSeries(chart) = self {

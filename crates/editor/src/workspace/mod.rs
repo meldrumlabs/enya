@@ -316,6 +316,10 @@ impl Workspace {
         #[cfg(not(target_arch = "wasm32"))]
         self.codebase_manager.poll(ctx);
 
+        // Sync git commits to panes when codebase is ready (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        self.sync_commits_to_panes(ctx);
+
         // Handle edit button clicks from panes (opens buffer editor)
         for tile_id in self.get_pane_tile_ids() {
             if let Some(egui_tiles::Tile::Pane(component)) =
@@ -1395,5 +1399,42 @@ impl Workspace {
     #[cfg(target_arch = "wasm32")]
     pub fn codebase_status_text(&self) -> Option<String> {
         None
+    }
+
+    /// Sync git commit history to all time-series panes.
+    ///
+    /// Called each frame when the codebase is ready. Fetches commits for the
+    /// current time range and propagates them to all QueryPane visualizations.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn sync_commits_to_panes(&mut self, ctx: &egui::Context) {
+        // Only sync if codebase is ready
+        if !self.codebase_manager.status().is_ready() {
+            return;
+        }
+
+        // Get current time range
+        let time_range = self.time_range_toolbar.time_range();
+        let start = time_range.start;
+        let end = time_range.end;
+
+        // Trigger fetch if not cached
+        self.codebase_manager.fetch_history(start, end, ctx);
+
+        // If commits were just updated OR this is the first sync, propagate to panes
+        if self.codebase_manager.commits_updated() {
+            if let Some(commits) = self.codebase_manager.get_commits(start, end) {
+                let commits_vec = commits.to_vec();
+                for tile_id in self.get_pane_tile_ids() {
+                    if let Some(egui_tiles::Tile::Pane(component)) =
+                        self.viewport_tree.tiles.get_mut(tile_id)
+                    {
+                        if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>()
+                        {
+                            query_pane.set_commits(commits_vec.clone());
+                        }
+                    }
+                }
+            }
+        }
     }
 }
