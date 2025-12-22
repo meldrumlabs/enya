@@ -147,12 +147,15 @@ impl GaugeChart {
 
     /// Render the gauge arc
     fn render_arc(&self, ui: &mut egui::Ui, size: f32) {
+        // Arc height: radius + stroke_width/2 + needle overhang + small padding
+        // radius = size * 0.4, stroke = 12, needle = ~10, padding = ~5
+        let arc_visual_height = size * 0.4 + 12.0 + 15.0;
         let (response, painter) =
-            ui.allocate_painter(egui::vec2(size, size * 0.6), egui::Sense::hover());
+            ui.allocate_painter(egui::vec2(size, arc_visual_height), egui::Sense::hover());
 
         let rect = response.rect;
-        let center = egui::pos2(rect.center().x, rect.bottom() - 10.0);
-        let radius = (size * 0.4).min(rect.height() - 20.0);
+        let center = egui::pos2(rect.center().x, rect.bottom());
+        let radius = size * 0.4;
 
         // Arc parameters: semicircle from 180° to 0° (left to right)
         let start_angle = std::f32::consts::PI; // 180° (left)
@@ -215,27 +218,48 @@ impl GaugeChart {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
 
-        // Calculate content height to center vertically
-        // Approximate: title(13) + spacing(8) + arc(~120) + value(36) + minmax(20) + padding
-        let content_height = 220.0;
+        let available_width = ui.available_width();
         let available_height = ui.available_height();
+
+        // Scale gauge based on available space
+        // Use the smaller dimension to ensure it fits, with reasonable min/max
+        let base_size = available_width.min(available_height * 1.2);
+        let gauge_size = base_size.clamp(180.0, 500.0);
+
+        // Scale text sizes proportionally
+        let scale_factor = gauge_size / 280.0; // 280 was the old fixed size
+        let title_size = (14.0 * scale_factor).clamp(12.0, 18.0);
+        let value_size = (36.0 * scale_factor).clamp(24.0, 64.0);
+        let label_size = (11.0 * scale_factor).clamp(9.0, 14.0);
+
+        // Calculate content height based on scaled sizes (same pattern as stat)
+        // Arc height matches render_arc: radius + stroke/2 + needle + padding
+        let arc_height = gauge_size * 0.4 + 12.0 + 15.0;
+        let content_height = title_size
+            + 12.0
+            + arc_height
+            + value_size
+            + 40.0
+            + VIZ_PADDING_TOP
+            + VIZ_PADDING_BOTTOM;
         let vertical_offset = ((available_height - content_height) / 2.0).max(VIZ_PADDING_TOP);
 
         ui.vertical_centered(|ui| {
             ui.add_space(vertical_offset);
 
-            // Title / metric name
-            ui.label(
-                RichText::new(&self.metric_name)
-                    .color(text_col.gamma_multiply(0.6))
-                    .size(13.0),
-            );
-
-            ui.add_space(8.0);
+            // Title (only show if explicitly set and different from default)
+            if !self.title.is_empty() && self.title != "Untitled" {
+                ui.label(
+                    RichText::new(&self.title)
+                        .color(text_col)
+                        .size(title_size)
+                        .strong(),
+                );
+                ui.add_space(12.0);
+            }
 
             // Render the arc gauge
-            let available_width = ui.available_width().min(280.0);
-            self.render_arc(ui, available_width);
+            self.render_arc(ui, gauge_size);
 
             // Value display in center area
             let value_color = self.color_for_value();
@@ -244,25 +268,36 @@ impl GaugeChart {
             ui.label(
                 RichText::new(format!("{}{}", formatted, self.unit))
                     .color(value_color)
-                    .size(36.0)
+                    .size(value_size)
                     .strong(),
             );
 
-            // Min/Max labels
+            // Min/Max labels - positioned to align with arc edges
             if self.show_min_max {
                 ui.add_space(8.0);
+                // The arc uses size * 0.4 as radius, so the arc spans 2 * radius = size * 0.8
+                let arc_width = gauge_size * 0.8;
+                // Scale the label spacing based on gauge size
+                let label_spacing = arc_width - (label_size * 3.5); // Approximate space for both labels
+
                 ui.horizontal(|ui| {
-                    ui.add_space(ui.available_width() * 0.15);
+                    let container_width = ui.available_width();
+                    // Center the labels within the same width as the arc
+                    let side_padding = (container_width - arc_width) / 2.0;
+
+                    ui.add_space(side_padding);
                     ui.label(
                         RichText::new(format!("{:.0}", self.min_value))
                             .color(text_col.gamma_multiply(0.4))
-                            .size(11.0),
+                            .size(label_size),
                     );
-                    ui.add_space(ui.available_width() * 0.5);
+
+                    ui.add_space(label_spacing);
+
                     ui.label(
                         RichText::new(format!("{:.0}", self.max_value))
                             .color(text_col.gamma_multiply(0.4))
-                            .size(11.0),
+                            .size(label_size),
                     );
                 });
             }

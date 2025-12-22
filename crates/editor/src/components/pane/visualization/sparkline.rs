@@ -133,56 +133,81 @@ impl SparklineViz {
         let text_col = text_color(self.theme);
         let line_color = self.line_color();
 
+        let available_width = ui.available_width();
+        let available_height = ui.available_height();
+
+        // Scale based on available space
+        let base_size = available_width.min(available_height * 2.0);
+        let scale_factor = (base_size / 300.0).clamp(0.8, 1.8);
+
+        // Scale dimensions proportionally
+        let title_size = (14.0 * scale_factor).clamp(12.0, 20.0);
+        let value_size = (18.0 * scale_factor).clamp(14.0, 28.0);
+        let line_width = (2.0 * scale_factor).clamp(1.5, 3.5);
+        let dot_radius = (4.0 * scale_factor).clamp(3.0, 6.0);
+
         ui.vertical(|ui| {
             ui.add_space(VIZ_PADDING_TOP);
 
-            // Header with metric name and optional value
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(&self.metric_name)
-                        .color(text_col.gamma_multiply(0.6))
-                        .size(13.0),
-                );
+            // Header with title and optional value
+            let has_title = !self.title.is_empty() && self.title != "Untitled";
+            let has_value = self.show_value && self.current_value().is_some();
 
-                if self.show_value {
-                    if let Some(value) = self.current_value() {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new(Self::format_value(value))
-                                    .color(line_color)
-                                    .size(18.0)
-                                    .strong(),
-                            );
-                        });
+            if has_title || has_value {
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+
+                    // Title (only show if explicitly set and different from default)
+                    if has_title {
+                        ui.label(
+                            RichText::new(&self.title)
+                                .color(text_col)
+                                .size(title_size)
+                                .strong(),
+                        );
                     }
-                }
-            });
 
-            ui.add_space(8.0);
+                    if let Some(value) = self.current_value() {
+                        if self.show_value {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        RichText::new(Self::format_value(value))
+                                            .color(line_color)
+                                            .size(value_size)
+                                            .strong(),
+                                    );
+                                },
+                            );
+                        }
+                    }
+                });
+                ui.add_space(8.0);
+            }
 
             if self.data.len() < 2 {
                 ui.centered_and_justified(|ui| {
                     ui.label(
                         RichText::new("No data")
                             .color(text_col.gamma_multiply(0.4))
-                            .size(14.0),
+                            .size(title_size),
                     );
                 });
                 return;
             }
 
-            // Render the sparkline
+            // Render the sparkline - scale height with available space
             let available = ui.available_size();
-            let height = (available.y - 24.0).clamp(60.0, 200.0);
+            let height = (available.y - 24.0).clamp(60.0, 400.0);
             let width = available.x - 16.0;
 
             let (response, painter) =
                 ui.allocate_painter(egui::vec2(width, height), egui::Sense::hover());
 
             let rect = response.rect;
-            let padding = 4.0;
+            let padding = 4.0 * scale_factor;
             let inner_rect = rect.shrink(padding);
 
             // Calculate value range
@@ -221,12 +246,12 @@ impl SparklineViz {
             // Draw the line
             painter.add(egui::Shape::line(
                 points.clone(),
-                Stroke::new(2.0, line_color),
+                Stroke::new(line_width, line_color),
             ));
 
             // Draw endpoint dot
             if let Some(&last_point) = points.last() {
-                painter.circle_filled(last_point, 4.0, line_color);
+                painter.circle_filled(last_point, dot_radius, line_color);
             }
 
             ui.add_space(VIZ_PADDING_BOTTOM);

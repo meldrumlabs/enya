@@ -250,23 +250,36 @@ impl StatChart {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
 
-        // Calculate content height to center vertically
-        // Approximate: title(13) + spacing(12) + value(56) + unit(14) + change(20) + padding
-        let content_height = 130.0;
+        let available_width = ui.available_width();
         let available_height = ui.available_height();
+
+        // Scale based on available space
+        let base_size = available_width.min(available_height * 1.5);
+        let scale_factor = (base_size / 200.0).clamp(0.8, 2.0);
+
+        // Scale text sizes proportionally
+        let title_size = (14.0 * scale_factor).clamp(12.0, 20.0);
+        let value_size = (56.0 * scale_factor).clamp(36.0, 96.0);
+        let unit_size = (14.0 * scale_factor).clamp(12.0, 20.0);
+        let change_size = (12.0 * scale_factor).clamp(10.0, 16.0);
+
+        // Calculate content height based on scaled sizes
+        let content_height = title_size + 12.0 + value_size + unit_size + 8.0 + change_size + 48.0;
         let vertical_offset = ((available_height - content_height) / 2.0).max(VIZ_PADDING_TOP);
 
         ui.vertical_centered(|ui| {
             ui.add_space(vertical_offset);
 
-            // Title / metric name
-            ui.label(
-                RichText::new(&self.metric_name)
-                    .color(text_col.gamma_multiply(0.6))
-                    .size(13.0),
-            );
-
-            ui.add_space(12.0);
+            // Title (only show if explicitly set and different from default)
+            if !self.title.is_empty() && self.title != "Untitled" {
+                ui.label(
+                    RichText::new(&self.title)
+                        .color(text_col)
+                        .size(title_size)
+                        .strong(),
+                );
+                ui.add_space(12.0);
+            }
 
             // Big number
             let value_color = self.color_for_value(self.current_value);
@@ -275,7 +288,7 @@ impl StatChart {
             ui.label(
                 RichText::new(&formatted)
                     .color(value_color)
-                    .size(56.0)
+                    .size(value_size)
                     .strong(),
             );
 
@@ -284,7 +297,7 @@ impl StatChart {
                 ui.label(
                     RichText::new(&self.unit)
                         .color(text_col.gamma_multiply(0.5))
-                        .size(14.0),
+                        .size(unit_size),
                 );
             }
 
@@ -301,15 +314,15 @@ impl StatChart {
                 ui.label(
                     RichText::new(format!("{} {:+.1}% {}", icon, change, self.change_period))
                         .color(color)
-                        .size(12.0),
+                        .size(change_size),
                 );
             }
 
             // Sparkline at bottom
             if self.show_sparkline && self.sparkline_data.len() >= 2 {
                 ui.add_space(VIZ_PADDING_TOP);
-                let available_width = ui.available_width().min(300.0);
-                self.render_sparkline(ui, available_width);
+                let sparkline_width = (available_width * 0.8).clamp(200.0, 500.0);
+                self.render_sparkline(ui, sparkline_width);
             }
 
             ui.add_space(VIZ_PADDING_BOTTOM);
