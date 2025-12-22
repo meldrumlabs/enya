@@ -74,7 +74,8 @@ impl EnyaApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn ensure_default_workspace() {
         use crate::workspace::{
-            COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
+            ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML,
+            DEMO_WORKSPACE_TOML,
         };
 
         let dir = Self::workspace_dir();
@@ -106,6 +107,16 @@ impl EnyaApp {
                 log::warn!("Failed to create demo workspace: {e}");
             } else {
                 log::info!("Created demo workspace: {}", demo_path.display());
+            }
+        }
+
+        // Create atlas workspace if it doesn't exist
+        let atlas_path = dir.join("atlas.toml");
+        if !atlas_path.exists() {
+            if let Err(e) = std::fs::write(&atlas_path, ATLAS_WORKSPACE_TOML) {
+                log::warn!("Failed to create atlas workspace: {e}");
+            } else {
+                log::info!("Created atlas workspace: {}", atlas_path.display());
             }
         }
     }

@@ -63,6 +63,7 @@ impl Workspace {
         let mut should_toggle_diagnostics = false;
         let mut should_edit_buffer = false;
         let mut should_go_to_definition = false;
+        let mut should_go_to_alert = false;
         let mut should_show_definition_demo = false;
         let mut new_tile_id: Option<TileId> = None;
         let mut time_range_preset: Option<TimeRangePreset> = None;
@@ -227,11 +228,19 @@ impl Workspace {
 
             // Go-to shortcuts (must follow 'g' within timeout)
             if self.leader_keys.is_g_active() {
-                log::debug!("g leader key is active, checking for d/p");
+                log::debug!("g leader key is active, checking for d/a/p");
                 // gd - go to definition
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                     log::debug!("gd shortcut triggered - go to definition");
                     should_go_to_definition = true;
+                    self.leader_keys.clear_g();
+                    consumed = true;
+                    return;
+                }
+                // ga - go to alert
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                    log::debug!("ga shortcut triggered - go to alert");
+                    should_go_to_alert = true;
                     self.leader_keys.clear_g();
                     consumed = true;
                     return;
@@ -415,6 +424,11 @@ impl Workspace {
             #[cfg(not(target_arch = "wasm32"))]
             if let Some(metric_name) = self.get_focused_metric_name() {
                 self.open_metric_definition(&metric_name);
+            }
+        } else if should_go_to_alert {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(metric_name) = self.get_focused_metric_name() {
+                self.open_alert_for_metric(&metric_name);
             }
         } else if should_show_definition_demo {
             log::debug!("Executing open_source_preview_demo()");

@@ -218,6 +218,20 @@ impl WhichKey {
                     },
                 ],
             },
+            KeybindingGroup {
+                name: "Go To",
+                icon: semantic_icons::action::LINK,
+                bindings: vec![
+                    Keybinding {
+                        key: "gd",
+                        description: "Go to metric definition",
+                    },
+                    Keybinding {
+                        key: "ga",
+                        description: "Go to alert for metric",
+                    },
+                ],
+            },
         ]
     }
 

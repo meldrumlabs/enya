@@ -51,9 +51,10 @@ mod rendering;
 
 // Re-export config types for convenience
 pub use config::{
-    COMPLEX_VIEWPORT_TOML, CodebaseConfig, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
-    DEMO_WORKSPACE_TOML, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
-    TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
+    ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, CodebaseConfig, ConnectionConfig,
+    DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML, LayoutConfig, LayoutContainer, LayoutNode,
+    LayoutType, PaneConfig, TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig,
+    WorkspaceError, WorkspaceMeta,
 };
 
 /// Actions that the Workspace needs the App to handle
@@ -1339,6 +1340,62 @@ impl Workspace {
     pub fn open_metric_definition(&mut self, metric_name: &str) {
         self.source_preview
             .open_error(metric_name, "Go to definition is not available in browser");
+    }
+
+    /// Open the source preview overlay for an alert that references a metric.
+    ///
+    /// Looks up alerts in the codebase index that reference the given metric name
+    /// and shows the source file context around the alert definition.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_alert_for_metric(&mut self, metric_name: &str) {
+        use crate::codebase::CodebaseStatus;
+
+        // Check if codebase is ready
+        if !self.codebase_manager.status().is_ready() {
+            let status_msg = match self.codebase_manager.status() {
+                CodebaseStatus::None => "No codebase configured",
+                CodebaseStatus::Cloning { .. } => "Codebase is being cloned...",
+                CodebaseStatus::Fetching { .. } => "Fetching updates...",
+                CodebaseStatus::Indexing { .. } => "Indexing codebase...",
+                CodebaseStatus::Ready { .. } => unreachable!(),
+                CodebaseStatus::Error { message, .. } => message,
+            };
+            self.source_preview.open_error(metric_name, status_msg);
+            return;
+        }
+
+        // Look up alerts in the index
+        let Some(index) = self.codebase_manager.index() else {
+            self.source_preview
+                .open_error(metric_name, "Codebase index not available");
+            return;
+        };
+
+        let matches = index.find_alerts_by_metric(metric_name);
+        if matches.is_empty() {
+            self.source_preview.open_error(
+                metric_name,
+                &format!("No alerts found for metric '{metric_name}'"),
+            );
+            return;
+        }
+
+        // Use the first match (TODO: show picker if multiple)
+        let alert = matches[0];
+        self.source_preview.open_alert(alert, &index.repo_path);
+        log::debug!(
+            "Opening alert preview for '{}' at {}:{}",
+            alert.name,
+            alert.file.display(),
+            alert.line
+        );
+    }
+
+    /// WASM stub for open_alert_for_metric - shows not available message.
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_alert_for_metric(&mut self, metric_name: &str) {
+        self.source_preview
+            .open_error(metric_name, "Go to alert is not available in browser");
     }
 
     /// Get the metric name from the currently focused pane (if it's a QueryPane).

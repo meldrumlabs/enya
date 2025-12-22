@@ -11,7 +11,7 @@ use rustc_hash::FxHashSet;
 use walkdir::WalkDir;
 
 use crate::parser::ParseError;
-use crate::scanner::{MetricInstrumentation, ScannerRegistry};
+use crate::scanner::{AlertRule, MetricInstrumentation, ScannerRegistry, YamlAlertScanner};
 
 /// Progress tracking for indexing operations.
 #[derive(Debug, Clone)]
@@ -48,7 +48,7 @@ impl Default for IndexProgress {
     }
 }
 
-/// An index of all discovered metric instrumentation in a codebase.
+/// An index of all discovered metric instrumentation and alert rules in a codebase.
 #[derive(Debug, Clone)]
 pub struct CodebaseIndex {
     /// The git URL of the repository.
@@ -57,6 +57,8 @@ pub struct CodebaseIndex {
     pub repo_path: PathBuf,
     /// All discovered metric instrumentation points.
     pub metrics: Vec<MetricInstrumentation>,
+    /// All discovered Prometheus alert rules.
+    pub alerts: Vec<AlertRule>,
     /// Unix timestamp when this index was built.
     pub last_updated: i64,
 }
@@ -94,6 +96,42 @@ impl CodebaseIndex {
     #[must_use]
     pub fn find_by_name(&self, name: &str) -> Vec<&MetricInstrumentation> {
         self.metrics.iter().filter(|m| m.name == name).collect()
+    }
+
+    /// Returns the number of alert rules.
+    #[must_use]
+    pub fn alert_count(&self) -> usize {
+        self.alerts.len()
+    }
+
+    /// Finds all alert rules that reference a specific metric name.
+    #[must_use]
+    pub fn find_alerts_by_metric(&self, metric_name: &str) -> Vec<&AlertRule> {
+        self.alerts
+            .iter()
+            .filter(|a| a.metric_name.as_deref() == Some(metric_name))
+            .collect()
+    }
+
+    /// Finds an alert rule by its name.
+    #[must_use]
+    pub fn find_alert_by_name(&self, alert_name: &str) -> Option<&AlertRule> {
+        self.alerts.iter().find(|a| a.name == alert_name)
+    }
+
+    /// Searches for alert rules matching the given query.
+    #[must_use]
+    pub fn search_alerts(&self, query: &str) -> Vec<&AlertRule> {
+        let query_lower = query.to_lowercase();
+        self.alerts
+            .iter()
+            .filter(|a| {
+                a.name.to_lowercase().contains(&query_lower)
+                    || a.metric_name
+                        .as_ref()
+                        .is_some_and(|m| m.to_lowercase().contains(&query_lower))
+            })
+            .collect()
     }
 }
 
@@ -176,12 +214,80 @@ pub fn build_index_with_progress(
     // Sort by file path, then line number for consistent ordering
     all_metrics.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
 
+    // Scan for alert rules in YAML files
+    let all_alerts = scan_yaml_alerts(repo_path);
+
+    log::info!(
+        "Indexed {} metrics, {} alerts",
+        all_metrics.len(),
+        all_alerts.len()
+    );
+
     Ok(CodebaseIndex {
         repo_url: repo_url.to_string(),
         repo_path: repo_path.to_path_buf(),
         metrics: all_metrics,
+        alerts: all_alerts,
         last_updated: crate::now_unix_secs(),
     })
+}
+
+/// Scan YAML files for Prometheus alert rules.
+fn scan_yaml_alerts(repo_path: &Path) -> Vec<AlertRule> {
+    let mut alert_scanner = match YamlAlertScanner::new() {
+        Ok(scanner) => scanner,
+        Err(e) => {
+            log::warn!("Failed to initialize YAML alert scanner: {e}");
+            return Vec::new();
+        }
+    };
+    let yaml_extensions: FxHashSet<&str> = ["yaml", "yml"].into_iter().collect();
+
+    let yaml_files: Vec<_> = WalkDir::new(repo_path)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+        .filter(|e| {
+            e.path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| yaml_extensions.contains(ext))
+        })
+        .filter(|e| {
+            !e.path().components().any(|c| {
+                matches!(
+                    c.as_os_str().to_str(),
+                    Some("target" | ".git" | "vendor" | "node_modules")
+                )
+            })
+        })
+        .collect();
+
+    let mut all_alerts = Vec::new();
+
+    for entry in yaml_files {
+        let path = entry.path();
+        match alert_scanner.scan_file(path) {
+            Ok(alerts) => {
+                // Convert absolute paths to relative paths from repo root
+                for mut alert in alerts {
+                    if let Ok(relative) = alert.file.strip_prefix(repo_path) {
+                        alert.file = relative.to_path_buf();
+                    }
+                    all_alerts.push(alert);
+                }
+            }
+            Err(e) => {
+                // Log but don't fail on individual file errors
+                log::debug!("Failed to scan YAML file {}: {}", path.display(), e);
+            }
+        }
+    }
+
+    // Sort alerts by file path, then line number
+    all_alerts.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
+
+    all_alerts
 }
 
 #[cfg(test)]
@@ -210,6 +316,7 @@ mod tests {
                 make_test_metric("http.requests", "b.rs", 1), // Same name, different file
                 make_test_metric("db.queries", "c.rs", 1),
             ],
+            alerts: vec![],
             last_updated: 0,
         };
 
@@ -226,6 +333,7 @@ mod tests {
                 make_test_metric("metric2", "a.rs", 2), // Same file
                 make_test_metric("metric3", "b.rs", 1),
             ],
+            alerts: vec![],
             last_updated: 0,
         };
 
@@ -242,6 +350,7 @@ mod tests {
                 make_test_metric("http.errors", "a.rs", 2),
                 make_test_metric("db.queries", "b.rs", 1),
             ],
+            alerts: vec![],
             last_updated: 0,
         };
 
@@ -265,6 +374,7 @@ mod tests {
                 make_test_metric("http.requests", "b.rs", 5),
                 make_test_metric("other.metric", "c.rs", 1),
             ],
+            alerts: vec![],
             last_updated: 0,
         };
 
@@ -273,5 +383,68 @@ mod tests {
 
         let results = index.find_by_name("nonexistent");
         assert_eq!(results.len(), 0);
+    }
+
+    fn make_test_alert(name: &str, metric_name: Option<&str>) -> AlertRule {
+        AlertRule {
+            name: name.to_string(),
+            expr: "test_expr".to_string(),
+            metric_name: metric_name.map(String::from),
+            severity: None,
+            message: None,
+            runbook_url: None,
+            file: PathBuf::from("alerts.yaml"),
+            line: 1,
+            column: 0,
+        }
+    }
+
+    #[test]
+    fn test_find_alerts_by_metric() {
+        let index = CodebaseIndex {
+            repo_url: "test".to_string(),
+            repo_path: PathBuf::from("/test"),
+            metrics: vec![],
+            alerts: vec![
+                make_test_alert("HighErrorRate", Some("errors_total")),
+                make_test_alert("HighLatency", Some("latency_seconds")),
+                make_test_alert("AnotherErrorAlert", Some("errors_total")),
+            ],
+            last_updated: 0,
+        };
+
+        let results = index.find_alerts_by_metric("errors_total");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].name, "HighErrorRate");
+        assert_eq!(results[1].name, "AnotherErrorAlert");
+
+        let results = index.find_alerts_by_metric("nonexistent");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_search_alerts() {
+        let index = CodebaseIndex {
+            repo_url: "test".to_string(),
+            repo_path: PathBuf::from("/test"),
+            metrics: vec![],
+            alerts: vec![
+                make_test_alert("HighErrorRate", Some("errors_total")),
+                make_test_alert("HighLatency", Some("latency_seconds")),
+            ],
+            last_updated: 0,
+        };
+
+        // Search by alert name
+        let results = index.search_alerts("Error");
+        assert_eq!(results.len(), 1);
+
+        // Search by metric name
+        let results = index.search_alerts("latency");
+        assert_eq!(results.len(), 1);
+
+        // Case insensitive
+        let results = index.search_alerts("HIGH");
+        assert_eq!(results.len(), 2);
     }
 }

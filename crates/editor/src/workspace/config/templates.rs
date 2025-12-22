@@ -144,6 +144,39 @@ children = [
 ]
 "#;
 
+/// Atlas workspace for Polygon's rust-app-atlas repository.
+/// Demonstrates codebase integration with alert rules and metric definitions.
+pub const ATLAS_WORKSPACE_TOML: &str = r#"[workspace]
+name = "atlas"
+description = "Atlas observability dashboard with codebase integration"
+
+[connection]
+endpoint = "http://localhost:9090"
+
+[codebase]
+url = "git@github.com:polygon-io/rust-app-atlas.git"
+branch = "main"
+
+[view]
+theme = "dark"
+
+[time]
+preset = "1h"
+
+# Atlas Live Consumer metrics
+[[panes]]
+query = "sum(rate(atlas_live_consumer_errors_total[5m])) by (status)"
+name = "Live Consumer Errors"
+tag = "Critical"
+visualization = "time_series"
+granularity = "1m"
+
+# Layout: Single pane for now
+[layout]
+type = "horizontal"
+children = [0]
+"#;
+
 /// Demo workspace with sample queries that work without a backend connection.
 /// Uses realistic Prometheus metric names from the DemoMetricsClient catalog.
 pub const DEMO_WORKSPACE_TOML: &str = r#"[workspace]

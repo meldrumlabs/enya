@@ -102,7 +102,9 @@ use crate::components::{Granularity, QueryState, TimeRangePreset, VisualizationT
 use crate::theme::AppTheme;
 
 // Re-export templates
-pub use templates::{COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML};
+pub use templates::{
+    ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
+};
 
 /// Current workspace format version
 pub const WORKSPACE_VERSION: u32 = 1;

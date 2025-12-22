@@ -1,8 +1,8 @@
-//! Language-agnostic metric scanner framework.
+//! Language-agnostic scanner framework.
 //!
 //! Provides a trait-based architecture for scanning source files to discover
-//! metric instrumentation points. Each language/library combination can
-//! implement the [`Scanner`] trait to support different ecosystems.
+//! metric instrumentation points and alert rule definitions. Each language/library
+//! combination can implement the [`Scanner`] trait to support different ecosystems.
 //!
 //! # Architecture
 //!
@@ -10,10 +10,13 @@
 //! - [`ScannerRegistry`] - Collection of registered scanners
 //! - [`MetricInstrumentation`] - Language-agnostic metric definition
 //! - [`MetricKind`] - Counter, Gauge, or Histogram
+//! - [`AlertRule`] - Prometheus alert rule definition
 
 mod rust;
+mod yaml;
 
 pub use rust::RustMetricsScanner;
+pub use yaml::YamlAlertScanner;
 
 use std::path::{Path, PathBuf};
 
@@ -61,6 +64,32 @@ pub struct MetricInstrumentation {
     /// The file path where this metric is defined.
     pub file: PathBuf,
     /// Line number (1-indexed).
+    pub line: usize,
+    /// Column number (0-indexed).
+    pub column: usize,
+}
+
+/// A discovered Prometheus alert rule.
+///
+/// Represents an alert rule found in YAML files that references a metric
+/// via its `PromQL` expression.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlertRule {
+    /// The alert name (e.g., `HighErrorRate`).
+    pub name: String,
+    /// The `PromQL` expression for this alert.
+    pub expr: String,
+    /// The primary metric name extracted from the expression.
+    pub metric_name: Option<String>,
+    /// Alert severity (if specified in labels).
+    pub severity: Option<String>,
+    /// Alert message (from annotations).
+    pub message: Option<String>,
+    /// Runbook URL (from annotations).
+    pub runbook_url: Option<String>,
+    /// The file path where this alert is defined.
+    pub file: PathBuf,
+    /// Line number (1-indexed) where the alert starts.
     pub line: usize,
     /// Column number (0-indexed).
     pub column: usize,
