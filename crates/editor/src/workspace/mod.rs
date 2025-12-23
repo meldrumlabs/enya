@@ -7,11 +7,12 @@ use crate::app::AppState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::CodebaseManager;
 use crate::components::{
-    Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
-    DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MetricsFinder, MultiBufferMode,
-    MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
-    SourcePreviewOverlay, SourcePreviewResult, TimeRangeToolbar, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceFinder,
+    AgentPanel, AgentPanelResult, Buffer, BufferEditor, BufferEditorResult, CommandPalette,
+    CommandResult, Component, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction,
+    MetricsFinder, MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult,
+    QueryExecutor, QueryPane, QueryState, SourcePreviewOverlay, SourcePreviewResult,
+    TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
+    WorkspaceFinder,
 };
 use crate::theme::AppTheme;
 
@@ -176,6 +177,8 @@ pub struct Workspace {
     viewport_filter: ViewportFilter,
     /// Source code preview overlay for "go to definition"
     source_preview: SourcePreviewOverlay,
+    /// Agent panel for Claude Code integration
+    agent_panel: AgentPanel,
     /// Codebase manager for git repo and metrics discovery (native only)
     #[cfg(not(target_arch = "wasm32"))]
     codebase_manager: CodebaseManager,
@@ -237,6 +240,7 @@ impl Workspace {
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
             source_preview: SourcePreviewOverlay::new(),
+            agent_panel: AgentPanel::new(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -578,6 +582,15 @@ impl Workspace {
                 log::debug!("Source preview closed");
             }
             SourcePreviewResult::None => {}
+        }
+
+        // Show agent panel (Claude Code integration)
+        self.agent_panel.set_theme(app_state.theme);
+        match self.agent_panel.show(ctx) {
+            AgentPanelResult::Closed => {
+                log::debug!("Agent panel closed");
+            }
+            AgentPanelResult::None => {}
         }
 
         // Poll codebase manager for async operations (native only)

@@ -6,6 +6,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Agent Panel (Claude Code integration)**: Press `Space+a` to toggle the agent panel, a side panel for chatting with Claude Code. Features include:
+  - Real-time streaming responses from Claude Code CLI
+  - Chat history with user/assistant messages
+  - Enter to send, Escape to close
+  - Native-only feature (CLI not available in WASM)
+
 - **Query timeout handling**: Panes no longer get stuck in a perpetual loading state when the Prometheus backend is unreachable. Features include:
   - Default 30-second timeout for query requests
   - Automatic timeout detection with clear error messages ("query timed out after 30s")

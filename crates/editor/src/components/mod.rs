@@ -16,11 +16,12 @@ pub use pane::{
 
 // Re-export from overlay
 pub use overlay::{
-    BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Diagnostic, DiagnosticLevel,
-    DiagnosticSource, DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt,
-    InfoOverlay, MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult,
-    SourcePreviewOverlay, SourcePreviewResult, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceFinder, WorkspaceItem,
+    AgentPanel, AgentPanelResult, BufferEditor, BufferEditorResult, ChatMessage, CommandPalette,
+    CommandResult, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
+    DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, InfoOverlay, MessageRole, MetricItem,
+    MetricsFinder, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay, SourcePreviewResult,
+    TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder,
+    WorkspaceItem,
 };
 
 // Re-export from widget

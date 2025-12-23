@@ -29,6 +29,7 @@ impl Workspace {
             || self.viewport_filter.is_open()
             || self.tutorial_overlay.is_open()
             || self.source_preview.is_open()
+            || self.agent_panel.is_open()
         {
             return None;
         }
@@ -65,6 +66,7 @@ impl Workspace {
         let mut should_go_to_definition = false;
         let mut should_go_to_alert = false;
         let mut should_show_definition_demo = false;
+        let mut should_toggle_agent_panel = false;
         let mut new_tile_id: Option<TileId> = None;
         let mut time_range_preset: Option<TimeRangePreset> = None;
 
@@ -152,6 +154,14 @@ impl Workspace {
                 // Space+d - toggle diagnostics overlay
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                     should_toggle_diagnostics = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+a - toggle agent panel (Claude Code)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                    should_toggle_agent_panel = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -407,6 +417,11 @@ impl Workspace {
 
         if should_toggle_diagnostics {
             self.toggle_diagnostics();
+            ctx.request_repaint();
+        }
+
+        if should_toggle_agent_panel {
+            self.agent_panel.toggle();
             ctx.request_repaint();
         }
 

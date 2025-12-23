@@ -1,5 +1,6 @@
 //! Overlay components - modal UI that appears on top of the workspace.
 
+pub mod agent_panel;
 pub mod buffer_editor;
 pub mod command_palette;
 pub mod diagnostics;
@@ -12,6 +13,7 @@ pub mod viewport_filter;
 pub mod which_key;
 pub mod workspace_finder;
 
+pub use agent_panel::{AgentPanel, AgentPanelResult, ChatMessage, MessageRole};
 pub use buffer_editor::{BufferEditor, BufferEditorResult};
 pub use command_palette::{CommandPalette, CommandResult};
 pub use diagnostics::{
