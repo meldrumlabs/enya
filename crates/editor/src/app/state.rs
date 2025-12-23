@@ -11,7 +11,6 @@ use crate::theme::light;
 use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::util::Instant;
-use crate::workspace::Workspace;
 
 /// Tracks internal editor metrics for the status line sparkline
 pub(super) struct EditorMetrics {
@@ -74,8 +73,6 @@ pub struct AppState {
     /// Current active Theme
     pub(crate) theme: AppTheme,
     pub(crate) ui_state: UIState,
-    #[serde(skip)]
-    pub(crate) workspace: Workspace,
 }
 
 impl AppState {

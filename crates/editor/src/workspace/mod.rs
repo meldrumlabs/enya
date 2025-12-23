@@ -2,6 +2,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui_tiles::{Tile, TileId, Tiles};
 
+use crate::AsyncRuntime;
 use crate::app::AppState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::CodebaseManager;
@@ -185,65 +186,16 @@ pub struct Workspace {
     pending_connection_endpoint: Option<String>,
 }
 
-impl Default for Workspace {
-    fn default() -> Self {
-        let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
-        let tabs = Vec::new();
-        let root = tiles.insert_tab_tile(tabs);
-
-        let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
-        Self {
-            viewport_tree,
-            behavior: TreeBehavior::default(),
-            open_charts: FxHashSet::default(),
-            pending_chart: None,
-            time_range_toolbar: TimeRangeToolbar::new(),
-            metrics_finder: MetricsFinder::new(),
-            workspace_finder: WorkspaceFinder::new(),
-            command_palette: CommandPalette::new(),
-            buffer_editor: BufferEditor::new(),
-            editing_tile_id: None,
-            zen_mode: false,
-            fullscreen_tile: None,
-            landing_page: LandingPage::new(),
-            show_landing: true,
-            leader_keys: LeaderKeyState::new(),
-            info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
-            which_key: WhichKey::new(),
-            tutorial_overlay: TutorialOverlay::new(),
-            viewport_scroll_offset: 0.0,
-            viewport_scroll_target: 0.0,
-            viewport_content_height: 0.0,
-            viewport_visible_height: 0.0,
-            visual_multi_state: None,
-            multi_buffer_state: MultiBufferState::new(),
-            multi_edit_overlay: MultiEditOverlay::new(),
-            diagnostics_pane: DiagnosticsPane::new(),
-            diagnostics_visible: false,
-            pending_open_workspace_finder: false,
-            query_executor: QueryExecutor::new(),
-            pending_query_tile: None,
-            next_query_number: 1,
-            viewport_filter: ViewportFilter::new(),
-            source_preview: SourcePreviewOverlay::new(),
-            #[cfg(not(target_arch = "wasm32"))]
-            codebase_manager: CodebaseManager::new(),
-            #[cfg(not(target_arch = "wasm32"))]
-            pending_codebase_config: None,
-            pending_connection_endpoint: None,
-        }
-    }
-}
-
 impl Workspace {
     /// Create a new empty dashboard (no landing page)
-    pub fn new_empty() -> Self {
-        let mut dashboard = Self::example(String::new());
+    pub fn new_empty(async_runtime: AsyncRuntime) -> Self {
+        let mut dashboard = Self::new(async_runtime);
         dashboard.show_landing = false;
         dashboard
     }
 
-    pub fn example(_api_key: String) -> Self {
+    /// Create a new workspace with the given async runtime.
+    pub fn new(async_runtime: AsyncRuntime) -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
 
         // Start with empty tabs - show landing page first
@@ -280,7 +232,7 @@ impl Workspace {
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
-            query_executor: QueryExecutor::new(),
+            query_executor: QueryExecutor::new(async_runtime),
             pending_query_tile: None,
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),

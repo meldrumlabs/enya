@@ -38,7 +38,7 @@ lz4_flex = "0.11"
 postcard = { version = "1.1", features = ["alloc"] }
 enya-build-info = { path = "../build-info" }
 nucleo-matcher = { workspace = true }
-ehttp = { workspace = true }
+reqwest = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 # nohash-hasher comes transitively from egui, pin to same version
@@ -60,6 +60,8 @@ enya-index = { workspace = true }
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
 tree-sitter-highlight = "0.25"
+# Async runtime for AI agent and background tasks
+tokio = { workspace = true, features = ["rt-multi-thread"] }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

@@ -14,6 +14,7 @@ repository = "https://github.com/meldrumlabs/enya"
 [workspace]
 resolver = "3"
 members = [
+  "crates/ai",
   "crates/editor",
   "crates/index",
   "crates/lang",
@@ -46,6 +47,7 @@ enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 enya-client = { path = "crates/client", version = "0.1.0" }
 enya-index = { path = "crates/index", version = "0.1.0" }
+enya-ai = { path = "crates/ai", version = "0.1.0" }
 tokio-metrics = "0.4"
 
 egui = "0.33.2"
@@ -66,7 +68,6 @@ wgpu = { version = "27.0", default-features = false, features = [
 egui_plot = "0.34.0"
 egui_extras = { version = "0.33.2", features = ["image", "svg"] }
 egui_nerdfonts = { path = "crates/egui_nerdfonts" }
-ehttp = { version = "0.5.0" }
 egui_tiles = { version = "0.14.0", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["wasmbind"] }
 itertools = "0.14.0"
@@ -115,6 +116,7 @@ pprof = { version = "0.15", default-features = false, features = [
   "prost-codec",
 ] }
 tokio = "1.48"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 tracing = "0.1"
 tracing-subscriber = "0.3"

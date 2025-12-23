@@ -10,6 +10,7 @@ use enya_client::{
     QueryManager, QueryRequest, QueryResponse, prometheus::PrometheusClient,
 };
 
+use crate::AsyncRuntime;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
 use crate::components::pane::visualization::{
     ResultCharacteristics, Visualization, VisualizationType, suggest_visualization,
@@ -125,17 +126,35 @@ pub struct QueryExecutor {
     label_names: Vec<String>,
     /// Cached per-metric labels (metric name -> labels)
     metric_labels_cache: FxHashMap<String, MetricLabels>,
-}
-
-impl Default for QueryExecutor {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// Async runtime for spawning background tasks (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    async_runtime: AsyncRuntime,
 }
 
 impl QueryExecutor {
-    /// Create a new query executor in demo mode.
-    pub fn new() -> Self {
+    /// Create a new query executor in demo mode with the given async runtime.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new(async_runtime: AsyncRuntime) -> Self {
+        Self {
+            backend: Backend::Demo,
+            demo_client: DemoMetricsClient::new(),
+            prometheus_client: None,
+            query_manager: QueryManager::new(),
+            labels_manager: LabelsManager::new(),
+            label_names_manager: LabelsManager::new(),
+            metric_labels_manager: MetricLabelsManager::new(),
+            health_check_manager: HealthCheckManager::new(),
+            connection_health: ConnectionHealth::Offline,
+            metric_names: Vec::new(),
+            label_names: Vec::new(),
+            metric_labels_cache: FxHashMap::default(),
+            async_runtime,
+        }
+    }
+
+    /// Create a new query executor in demo mode (WASM version).
+    #[cfg(target_arch = "wasm32")]
+    pub fn new(_async_runtime: AsyncRuntime) -> Self {
         Self {
             backend: Backend::Demo,
             demo_client: DemoMetricsClient::new(),
@@ -157,7 +176,11 @@ impl QueryExecutor {
     /// The connection is not considered "online" until the health check passes.
     /// Call `poll_health_check()` to check for the result.
     pub fn connect_prometheus(&mut self, endpoint: &str, ctx: &egui::Context) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let client = PrometheusClient::with_runtime(endpoint, self.async_runtime.handle().clone());
+        #[cfg(target_arch = "wasm32")]
         let client = PrometheusClient::new(endpoint);
+
         self.prometheus_client = Some(client);
         self.backend = Backend::Prometheus(endpoint.to_string());
         self.connection_health = ConnectionHealth::Checking;
@@ -601,17 +624,26 @@ mod tests {
 
     #[test]
     fn test_query_executor_default_demo() {
-        let executor = QueryExecutor::new();
+        // Create a runtime for the test
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let async_runtime = crate::AsyncRuntime::new(rt.handle().clone());
+
+        let executor = QueryExecutor::new(async_runtime);
         assert!(!executor.is_connected());
         assert_eq!(executor.backend(), &Backend::Demo);
     }
 
     #[test]
     fn test_query_executor_connect_prometheus() {
-        let mut executor = QueryExecutor::new();
+        // Create a runtime for the test
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let async_runtime = crate::AsyncRuntime::new(rt.handle().clone());
+
+        let mut executor = QueryExecutor::new(async_runtime.clone());
         // Manually set up connection state for test (no egui context available)
-        executor.prometheus_client = Some(enya_client::prometheus::PrometheusClient::new(
+        executor.prometheus_client = Some(enya_client::prometheus::PrometheusClient::with_runtime(
             "http://localhost:9090",
+            async_runtime.handle().clone(),
         ));
         executor.backend = Backend::Prometheus("http://localhost:9090".to_string());
         assert!(executor.is_connected());

@@ -7,7 +7,8 @@
 //!
 //! The [`MetricsClient`] trait defines a promise-based async interface that all
 //! backends implement. Methods return [`Promise`] objects that can be polled
-//! each frame in immediate mode GUIs like egui.
+//! each frame in immediate mode GUIs like egui. HTTP requests are handled by
+//! `reqwest` which works on both native (with tokio) and WASM (with browser fetch).
 //!
 //! # Example
 //!
@@ -36,12 +37,10 @@ pub mod error;
 pub mod prometheus;
 pub mod promise;
 pub mod request;
-
-use poll_promise::Promise;
-
 pub use demo::DemoMetricsClient;
 pub use error::ClientError;
-pub use promise::{Sender, promise_channel};
+pub use poll_promise::Promise;
+pub use promise::promise_channel;
 pub use request::QueryRequest;
 
 // Re-export response types from enya-common
@@ -143,7 +142,7 @@ pub trait MetricsClient {
 /// If a query doesn't complete within this time, it will be cancelled with a timeout error.
 pub const DEFAULT_QUERY_TIMEOUT_SECS: u64 = 30;
 
-/// Manages in-flight queries using poll-promise.
+/// Manages in-flight queries using promises.
 ///
 /// This provides state management for query operations, tracking whether
 /// a query is in flight and providing a polling interface for results.
@@ -272,7 +271,7 @@ impl QueryManager {
     }
 }
 
-/// Manages in-flight label/metadata fetches using poll-promise.
+/// Manages in-flight label/metadata fetches using promises.
 ///
 /// Similar to [`QueryManager`], but for metadata operations like
 /// fetching label names, label values, and metric names.
@@ -383,7 +382,7 @@ impl LabelsManager {
     }
 }
 
-/// Manages in-flight per-metric label fetches using poll-promise.
+/// Manages in-flight per-metric label fetches using promises.
 ///
 /// Similar to [`LabelsManager`], but specifically for fetching
 /// label names and values for a single metric.
@@ -465,7 +464,7 @@ impl MetricLabelsManager {
     }
 }
 
-/// Manages in-flight health check requests using poll-promise.
+/// Manages in-flight health check requests using promises.
 ///
 /// Similar to [`LabelsManager`], but specifically for checking
 /// backend connectivity and version information.
