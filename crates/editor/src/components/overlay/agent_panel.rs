@@ -434,8 +434,15 @@ impl AgentPanel {
         let session_id = self.session_id.clone();
 
         std::thread::spawn(move || {
-            // Build command
-            let mut cmd = Command::new("claude");
+            // Build command - use the full path to claude from the same location
+            // that is used when running from terminal
+            let claude_path = std::env::var("HOME")
+                .map(|home| {
+                    format!("{home}/Library/Application Support/com.conductor.app/./bin/claude")
+                })
+                .unwrap_or_else(|_| "claude".to_string());
+
+            let mut cmd = Command::new(&claude_path);
             cmd.arg("-p")
                 .arg("--output-format")
                 .arg("stream-json")
@@ -448,6 +455,8 @@ impl AgentPanel {
             if let Some(ref sid) = session_id {
                 cmd.arg("--resume").arg(sid);
             }
+
+            log::debug!("Spawning claude CLI: {cmd:?}");
 
             match cmd.spawn() {
                 Ok(mut child) => {
@@ -550,29 +559,40 @@ impl AgentPanel {
                 }
             }
             "result" => {
-                // Final result - extract session_id for continuation
+                // Check for errors first
+                let is_error = json
+                    .get("is_error")
+                    .and_then(|e| e.as_bool())
+                    .unwrap_or(false);
+
                 if let Some(result_text) = json.get("result").and_then(|r| r.as_str()) {
                     let mut state = streaming_state.lock();
                     if let Some(ref mut s) = *state {
-                        if s.response_text.is_empty() {
+                        if is_error {
+                            // Show the error message from Claude
+                            s.error = Some(result_text.to_string());
+                        } else if s.response_text.is_empty() {
                             s.response_text = result_text.to_string();
                         }
                         s.is_complete = true;
                     }
                 }
 
-                // Check for errors
-                if json
-                    .get("is_error")
-                    .and_then(|e| e.as_bool())
-                    .unwrap_or(false)
-                {
-                    let mut state = streaming_state.lock();
-                    if let Some(ref mut s) = *state {
-                        s.error = Some("Claude returned an error".to_string());
-                    }
-                }
+                ctx.request_repaint();
+            }
+            "error" => {
+                // Handle error events
+                let error_msg = json
+                    .get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("Unknown error");
 
+                let mut state = streaming_state.lock();
+                if let Some(ref mut s) = *state {
+                    s.error = Some(error_msg.to_string());
+                    s.is_complete = true;
+                }
                 ctx.request_repaint();
             }
             "system" => {
