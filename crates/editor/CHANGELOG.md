@@ -41,6 +41,16 @@ All notable changes to the Enya editor will be documented in this file.
   - Sample pane querying `atlas_live_consumer_errors_total` metrics
   - Prometheus endpoint configured for local development
 
+- **Function context in metric definitions**: The go-to-definition feature (`gd`) now shows the containing function name when viewing metric source code. For metrics inside impl blocks, the display shows `Type::function_name` format. This helps quickly understand which code path records a metric.
+
+- **Metric prefix matching**: Go-to-definition (`gd`) now handles runtime metric prefixes. When metrics-rs adds a prefix at runtime (e.g., `myapp_`), the lookup now falls back to suffix matching to find the source definition. For example, querying `myapp_http_requests_total` will find `counter!("http_requests_total")` in the source code.
+
+- **Multi-location navigation**: When a metric is defined at multiple locations in the codebase, the source preview now supports cycling through all of them. Features include:
+  - Location indicator `[1/3]` shown in the footer when multiple locations exist
+  - Press `N` to go to the next location, `P` (or `Shift+N`) for previous
+  - Footer hint updates to show `N/P to cycle • Esc to close` when applicable
+  - Wraps around at the ends (pressing `N` on the last goes to the first)
+
 ### Changed
 
 - **Cleaner visualization headers**: Removed the gray metric name/query text that was displayed at the top of Gauge, Stat, Bar Chart, and Sparkline visualizations. Visualizations now only show a title when explicitly set (and not "Untitled"), using a stronger, more prominent text style. This eliminates visual clutter and prevents raw query text from appearing in chart displays.

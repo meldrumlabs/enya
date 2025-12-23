@@ -130,9 +130,40 @@ impl CodebaseIndex {
     }
 
     /// Finds all instrumentation points for a specific metric name.
+    ///
+    /// First tries exact matching. If no matches found, falls back to suffix
+    /// matching to handle runtime prefixes (e.g., `app_http_requests_total`
+    /// matches `http_requests_total` in source code).
     #[must_use]
     pub fn find_by_name(&self, name: &str) -> Vec<&MetricInstrumentation> {
-        self.metrics.iter().filter(|m| m.name == name).collect()
+        // Try exact match first
+        let exact: Vec<_> = self.metrics.iter().filter(|m| m.name == name).collect();
+        if !exact.is_empty() {
+            return exact;
+        }
+
+        // Fallback: suffix matching for prefixed metric names
+        // e.g., "app_http_requests_total".ends_with("http_requests_total")
+        let suffix_matches: Vec<_> = self
+            .metrics
+            .iter()
+            .filter(|m| name.ends_with(&m.name))
+            .collect();
+
+        // If multiple suffix matches, prefer the longest (most specific) match
+        if suffix_matches.len() > 1 {
+            let max_len = suffix_matches
+                .iter()
+                .map(|m| m.name.len())
+                .max()
+                .unwrap_or(0);
+            suffix_matches
+                .into_iter()
+                .filter(|m| m.name.len() == max_len)
+                .collect()
+        } else {
+            suffix_matches
+        }
     }
 
     /// Returns the number of alert rules.
@@ -302,6 +333,8 @@ mod tests {
             file: PathBuf::from(file),
             line,
             column: 0,
+            function_name: None,
+            impl_type: None,
         }
     }
 
@@ -382,6 +415,58 @@ mod tests {
 
         let results = index.find_by_name("nonexistent");
         assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_find_by_name_suffix_matching() {
+        let index = CodebaseIndex {
+            repo_url: "test".to_string(),
+            repo_path: PathBuf::from("/test"),
+            metrics: vec![
+                make_test_metric("grpc_requests_total", "a.rs", 1),
+                make_test_metric("http_requests", "b.rs", 5),
+            ],
+            alerts: vec![],
+            last_updated: 0,
+        };
+
+        // Exact match still works
+        let results = index.find_by_name("grpc_requests_total");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "grpc_requests_total");
+
+        // Suffix matching: myapp_grpc_requests_total -> grpc_requests_total
+        let results = index.find_by_name("myapp_grpc_requests_total");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "grpc_requests_total");
+
+        // Suffix matching with different prefix
+        let results = index.find_by_name("myapp_http_requests");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "http_requests");
+
+        // No match at all
+        let results = index.find_by_name("myapp_unknown_metric");
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_find_by_name_prefers_longest_suffix() {
+        let index = CodebaseIndex {
+            repo_url: "test".to_string(),
+            repo_path: PathBuf::from("/test"),
+            metrics: vec![
+                make_test_metric("requests_total", "a.rs", 1),
+                make_test_metric("grpc_requests_total", "b.rs", 5),
+            ],
+            alerts: vec![],
+            last_updated: 0,
+        };
+
+        // Should prefer the longer match (grpc_requests_total over requests_total)
+        let results = index.find_by_name("myapp_grpc_requests_total");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "grpc_requests_total");
     }
 
     fn make_test_alert(name: &str, metric_name: Option<&str>) -> AlertRule {
