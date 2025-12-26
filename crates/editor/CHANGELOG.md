@@ -4,6 +4,21 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Alpha-nvim inspired landing page**: Redesigned the landing page with a minimal, centered layout inspired by alpha-nvim. Changes include:
+  - Clean vertical menu with six actions: Find workspace (`w`), Create workspace (`n`), Tutorial (`t`), Docs (`d`), Shortcuts (`?`), and About (`i`)
+  - Docs option opens the documentation website at enya.build/docs
+  - Shortcuts option opens the which-key overlay with all keyboard shortcuts
+  - About option opens the info overlay with version and build information
+  - Menu items display icon, label, and keyboard shortcut in a single row
+  - Vim-style navigation with `j`/`k` (or arrows) to move through menu items
+  - Press `Enter` to activate the selected item, or use direct shortcuts
+  - Keyboard hints footer showing available navigation keys
+  - Content is vertically centered in the viewport
+  - Large centered logo and Enya branding
+  - Status line is hidden on the landing page (only shows in workspaces)
+
 ### Added
 
 - **Query timeout handling**: Panes no longer get stuck in a perpetual loading state when the Prometheus backend is unreachable. Features include:
