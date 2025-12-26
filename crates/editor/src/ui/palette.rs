@@ -1,11 +1,11 @@
 //! Obsidian Glass Design System
 //!
-//! A cohesive dark theme palette inspired by Linear, Vercel, and Raycast.
+//! A cohesive dark theme palette with layered depth and muted accents.
 //! This module provides a centralized color system for consistent UI styling.
 
 use egui::Color32;
 
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 
 /// Core background colors - layered for depth
 pub mod bg {
@@ -136,7 +136,7 @@ pub mod syntax {
     pub const NEGATION: Color32 = Color32::from_rgb(248, 113, 113); // #F87171
 }
 
-/// Chart colors - PlanetScale-inspired palette
+/// Chart colors - modern muted palette
 pub mod chart {
     use super::*;
 

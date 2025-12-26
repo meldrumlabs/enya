@@ -1,9 +1,9 @@
 use egui::{Color32, NumExt, RichText, Vec2};
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 /// Action returned by the landing page

@@ -30,24 +30,15 @@ pub mod components;
 /// Backend connection management for Prometheus and demo data sources.
 pub mod connection;
 
-/// Theme definitions for light and dark mode styling.
-mod theme;
-
-/// UI primitives: colors, typography, icons, and design tokens.
+/// UI primitives: colors, typography, icons, design tokens, and theme definitions.
 pub mod ui;
 
 /// General utilities including WASM-compatible time handling.
 pub mod util;
 
-/// GPU-accelerated rendering for high-density visualizations like heatmaps.
-pub mod wgpu;
-
-/// Workspace runtime (pane layout) and configuration (serialization).
+/// Workspace runtime (pane layout), configuration (serialization), and tab management.
 pub mod workspace;
 
-/// Tab bar for managing multiple workspace tabs.
-mod workspace_tabs;
-
-pub use workspace_tabs::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
+pub use workspace::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
 
 pub use app::EnyaApp;

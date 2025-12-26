@@ -12,7 +12,7 @@ use crate::components::{
     SourcePreviewOverlay, SourcePreviewResult, TimeRangeToolbar, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceFinder,
 };
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 
 // Workspace configuration module (serialization)
 pub mod config;
@@ -48,6 +48,10 @@ mod panes;
 
 // UI rendering (filtered view, scrollbar, scroll-to-focus)
 mod rendering;
+
+// Workspace tab bar (barbar.nvim style workspace switching)
+mod tabs;
+pub use tabs::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
 
 // Re-export config types for convenience
 pub use config::{

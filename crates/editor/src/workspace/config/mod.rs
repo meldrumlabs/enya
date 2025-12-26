@@ -99,7 +99,7 @@ mod templates;
 use serde::{Deserialize, Serialize};
 
 use crate::components::{Granularity, QueryState, TimeRangePreset, VisualizationType};
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 
 // Re-export templates
 pub use templates::{

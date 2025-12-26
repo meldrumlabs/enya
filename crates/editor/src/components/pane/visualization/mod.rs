@@ -7,6 +7,7 @@
 mod bar;
 mod demo;
 mod gauge;
+mod heatmap;
 mod sparkline;
 mod stat;
 mod suggester;
@@ -14,15 +15,14 @@ mod suggester;
 pub use bar::{Bar, BarChartViz};
 pub use demo::populate_demo_data;
 pub use gauge::GaugeChart;
+pub use heatmap::{HeatmapCell, HeatmapLabels, HeatmapViz};
 pub use sparkline::SparklineViz;
 pub use stat::{StatChart, Threshold};
 pub use suggester::{ResultCharacteristics, suggest_visualization};
 
-use crate::theme::AppTheme;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 
-use super::flamegraph::FlamegraphViz;
-use super::heatmap::HeatmapViz;
 use super::time_series_chart::{CommitMarker, Series, TimeSeriesChart};
 
 /// Standard padding for visualization types (for consistent spacing)
@@ -43,10 +43,8 @@ pub enum VisualizationType {
     BarChart,
     /// Compact inline line chart showing trends
     Sparkline,
-    /// GPU-accelerated heatmap for 2D data grids
+    /// Heatmap for 2D data grids
     Heatmap,
-    /// GPU-accelerated flamegraph for CPU/memory profiling
-    Flamegraph,
 }
 
 impl VisualizationType {
@@ -59,7 +57,6 @@ impl VisualizationType {
             Self::BarChart => "Bar Chart",
             Self::Sparkline => "Sparkline",
             Self::Heatmap => "Heatmap",
-            Self::Flamegraph => "Flamegraph",
         }
     }
 
@@ -72,7 +69,6 @@ impl VisualizationType {
             Self::BarChart => egui_nerdfonts::regular::CHART_BAR,
             Self::Sparkline => egui_nerdfonts::regular::CHART_LINE,
             Self::Heatmap => egui_nerdfonts::regular::CHART_HISTOGRAM,
-            Self::Flamegraph => egui_nerdfonts::regular::FIRE,
         }
     }
 
@@ -84,8 +80,7 @@ impl VisualizationType {
             Self::Gauge => Self::BarChart,
             Self::BarChart => Self::Sparkline,
             Self::Sparkline => Self::Heatmap,
-            Self::Heatmap => Self::Flamegraph,
-            Self::Flamegraph => Self::TimeSeries,
+            Self::Heatmap => Self::TimeSeries,
         }
     }
 
@@ -98,7 +93,6 @@ impl VisualizationType {
             Self::BarChart => "bar_chart",
             Self::Sparkline => "sparkline",
             Self::Heatmap => "heatmap",
-            Self::Flamegraph => "flamegraph",
         }
     }
 
@@ -110,7 +104,6 @@ impl VisualizationType {
             "bar_chart" => Self::BarChart,
             "sparkline" => Self::Sparkline,
             "heatmap" => Self::Heatmap,
-            "flamegraph" => Self::Flamegraph,
             _ => Self::TimeSeries, // Default to time series
         }
     }
@@ -124,7 +117,6 @@ pub enum Visualization {
     BarChart(BarChartViz),
     Sparkline(SparklineViz),
     Heatmap(HeatmapViz),
-    Flamegraph(FlamegraphViz),
 }
 
 impl Visualization {
@@ -138,7 +130,6 @@ impl Visualization {
             VisualizationType::BarChart => Self::BarChart(BarChartViz::new(&name)),
             VisualizationType::Sparkline => Self::Sparkline(SparklineViz::new(&name)),
             VisualizationType::Heatmap => Self::Heatmap(HeatmapViz::new(&name)),
-            VisualizationType::Flamegraph => Self::Flamegraph(FlamegraphViz::new(&name)),
         }
     }
 
@@ -151,7 +142,6 @@ impl Visualization {
             Self::BarChart(_) => VisualizationType::BarChart,
             Self::Sparkline(_) => VisualizationType::Sparkline,
             Self::Heatmap(_) => VisualizationType::Heatmap,
-            Self::Flamegraph(_) => VisualizationType::Flamegraph,
         }
     }
 
@@ -174,7 +164,6 @@ impl Visualization {
             Self::BarChart(bar) => &bar.metric_name,
             Self::Sparkline(spark) => &spark.metric_name,
             Self::Heatmap(heatmap) => &heatmap.metric_name,
-            Self::Flamegraph(fg) => &fg.title,
         }
     }
 
@@ -187,7 +176,6 @@ impl Visualization {
             Self::BarChart(bar) => bar.theme,
             Self::Sparkline(spark) => spark.theme,
             Self::Heatmap(heatmap) => heatmap.theme,
-            Self::Flamegraph(fg) => fg.theme,
         }
     }
 
@@ -200,7 +188,6 @@ impl Visualization {
             Self::BarChart(bar) => bar.set_metric_name(name),
             Self::Sparkline(spark) => spark.set_metric_name(name),
             Self::Heatmap(heatmap) => heatmap.set_metric_name(name),
-            Self::Flamegraph(fg) => fg.set_title(name),
         }
     }
 
@@ -213,7 +200,6 @@ impl Visualization {
             Self::BarChart(bar) => bar.set_theme(theme),
             Self::Sparkline(spark) => spark.set_theme(theme),
             Self::Heatmap(heatmap) => heatmap.set_theme(theme),
-            Self::Flamegraph(fg) => fg.set_theme(theme),
         }
     }
 
@@ -226,7 +212,6 @@ impl Visualization {
             Self::BarChart(bar) => bar.clear(),
             Self::Sparkline(spark) => spark.clear(),
             Self::Heatmap(heatmap) => heatmap.clear(),
-            Self::Flamegraph(fg) => fg.clear(),
         }
     }
 
@@ -240,7 +225,6 @@ impl Visualization {
             Self::BarChart(bar) => bar.show(ui),
             Self::Sparkline(spark) => spark.show(ui),
             Self::Heatmap(heatmap) => heatmap.show(ui),
-            Self::Flamegraph(fg) => fg.show(ui),
         }
     }
 
@@ -413,22 +397,6 @@ impl Visualization {
         }
     }
 
-    /// Get access to the underlying FlamegraphViz (if applicable)
-    pub fn as_flamegraph(&self) -> Option<&FlamegraphViz> {
-        match self {
-            Self::Flamegraph(fg) => Some(fg),
-            _ => None,
-        }
-    }
-
-    /// Get mutable access to the underlying FlamegraphViz (if applicable)
-    pub fn as_flamegraph_mut(&mut self) -> Option<&mut FlamegraphViz> {
-        match self {
-            Self::Flamegraph(fg) => Some(fg),
-            _ => None,
-        }
-    }
-
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
     /// This applies to visualization types that support units.
     pub fn set_unit(&mut self, unit: impl Into<String>) {
@@ -439,8 +407,8 @@ impl Visualization {
             Self::Gauge(gauge) => gauge.set_unit(unit),
             Self::BarChart(bar) => bar.set_unit(unit),
             Self::Sparkline(spark) => spark.set_unit(unit),
-            Self::Heatmap(_) | Self::Flamegraph(_) => {
-                // Heatmaps and flamegraphs don't use simple unit suffixes
+            Self::Heatmap(_) => {
+                // Heatmaps don't use simple unit suffixes
             }
         }
     }
@@ -463,10 +431,6 @@ mod tests {
         );
         assert_eq!(
             vt.next().next().next().next().next().next(),
-            VisualizationType::Flamegraph
-        );
-        assert_eq!(
-            vt.next().next().next().next().next().next().next(),
             VisualizationType::TimeSeries
         );
     }
@@ -479,7 +443,6 @@ mod tests {
         assert_eq!(VisualizationType::BarChart.as_str(), "bar_chart");
         assert_eq!(VisualizationType::Sparkline.as_str(), "sparkline");
         assert_eq!(VisualizationType::Heatmap.as_str(), "heatmap");
-        assert_eq!(VisualizationType::Flamegraph.as_str(), "flamegraph");
 
         assert_eq!(
             VisualizationType::parse("time_series"),
@@ -498,10 +461,6 @@ mod tests {
         assert_eq!(
             VisualizationType::parse("heatmap"),
             VisualizationType::Heatmap
-        );
-        assert_eq!(
-            VisualizationType::parse("flamegraph"),
-            VisualizationType::Flamegraph
         );
         assert_eq!(
             VisualizationType::parse("unknown"),
@@ -532,10 +491,6 @@ mod tests {
 
         viz.cycle();
         assert_eq!(viz.viz_type(), VisualizationType::Heatmap);
-        assert_eq!(viz.metric_name(), "test_metric");
-
-        viz.cycle();
-        assert_eq!(viz.viz_type(), VisualizationType::Flamegraph);
         assert_eq!(viz.metric_name(), "test_metric");
 
         viz.cycle();

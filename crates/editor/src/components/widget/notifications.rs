@@ -8,8 +8,8 @@ use std::time::Duration;
 use egui::{Color32, RichText, Ui};
 
 use crate::components::util::id_generator::next_id;
-use crate::theme::AppTheme;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::util::Instant;
 
 /// Notification severity level

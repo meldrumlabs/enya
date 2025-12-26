@@ -1,23 +1,14 @@
 //! Heatmap visualization
 //!
-//! This module provides a heatmap visualization for displaying 2D grids of values.
-//! Supports both CPU rendering (fallback) and GPU-accelerated rendering via wgpu.
-//!
-//! GPU rendering is implemented in the `crate::wgpu::heatmap` module.
+//! This module provides a heatmap visualization for displaying 2D grids of values
+//! using CPU rendering.
 
-use std::sync::Arc;
-
-use eframe::egui_wgpu;
 use egui::{Color32, RichText, Stroke, StrokeKind};
 
 use crate::components::util::id_generator::next_id_usize;
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
-use crate::wgpu::HeatmapCallback;
-
-/// Threshold for switching to GPU rendering (number of cells)
-const GPU_THRESHOLD: usize = 100;
+use crate::ui::theme::AppTheme;
 
 /// A single cell in the heatmap
 #[derive(Debug, Clone, Copy)]
@@ -65,8 +56,6 @@ pub struct HeatmapViz {
     value_range: (f64, f64),
     /// Whether to show a color scale legend
     show_legend: bool,
-    /// Whether to use GPU rendering (auto-detected based on cell count)
-    use_gpu: bool,
 }
 
 impl Default for HeatmapViz {
@@ -89,8 +78,6 @@ impl HeatmapViz {
             theme: AppTheme::default(),
             value_range: (0.0, 1.0),
             show_legend: true,
-            // GPU rendering disabled until shader/transform issues are resolved
-            use_gpu: false,
         }
     }
 
@@ -151,9 +138,6 @@ impl HeatmapViz {
         }
 
         self.grid_size = (data.first().map(|r| r.len()).unwrap_or(0), data.len());
-
-        // Auto-enable GPU for large grids
-        self.use_gpu = self.cells.len() >= GPU_THRESHOLD;
     }
 
     /// Set labels for rows and columns
@@ -164,12 +148,6 @@ impl HeatmapViz {
     /// Clear all data
     pub fn clear(&mut self) {
         self.cells.clear();
-        self.use_gpu = false;
-    }
-
-    /// Force GPU rendering on/off
-    pub fn set_use_gpu(&mut self, use_gpu: bool) {
-        self.use_gpu = use_gpu;
     }
 
     /// Get a color for a normalized value (0-1) - Obsidian Glass theme palette
@@ -213,16 +191,8 @@ impl HeatmapViz {
         )
     }
 
-    /// Render the heatmap grid using GPU
-    fn show_gpu_grid(&self, ui: &mut egui::Ui, rect: egui::Rect) {
-        let callback = HeatmapCallback::new(Arc::new(self.cells.clone()), self.grid_size, rect);
-
-        ui.painter()
-            .add(egui_wgpu::Callback::new_paint_callback(rect, callback));
-    }
-
-    /// Render the heatmap (CPU fallback when GPU not available)
-    fn show_cpu_fallback(&self, ui: &mut egui::Ui) {
+    /// Render the heatmap
+    pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
 
         ui.vertical(|ui| {
@@ -300,23 +270,18 @@ impl HeatmapViz {
                     .allocate_painter(egui::vec2(chart_width, chart_height), egui::Sense::hover());
                 let rect = response.rect;
 
-                // Use GPU or CPU rendering for cells
-                if self.use_gpu {
-                    self.show_gpu_grid(ui, rect);
-                } else {
-                    // Draw cells (CPU)
-                    for cell in &self.cells {
-                        let x = rect.left() + cell.col as f32 * cell_width + gap / 2.0;
-                        let y = rect.top() + cell.row as f32 * cell_height + gap / 2.0;
+                // Draw cells
+                for cell in &self.cells {
+                    let x = rect.left() + cell.col as f32 * cell_width + gap / 2.0;
+                    let y = rect.top() + cell.row as f32 * cell_height + gap / 2.0;
 
-                        let cell_rect = egui::Rect::from_min_size(
-                            egui::pos2(x, y),
-                            egui::vec2(cell_width - gap, cell_height - gap),
-                        );
+                    let cell_rect = egui::Rect::from_min_size(
+                        egui::pos2(x, y),
+                        egui::vec2(cell_width - gap, cell_height - gap),
+                    );
 
-                        let color = Self::get_color(cell.value);
-                        painter.rect_filled(cell_rect, 2.0, color);
-                    }
+                    let color = Self::get_color(cell.value);
+                    painter.rect_filled(cell_rect, 2.0, color);
                 }
 
                 // Draw border
@@ -378,112 +343,6 @@ impl HeatmapViz {
                         .labels
                         .columns
                         .get(col_idx)
-                        .map(|s| s.as_str())
-                        .unwrap_or("");
-                    ui.add_sized(
-                        [cell_width, 16.0],
-                        egui::Label::new(
-                            RichText::new(label)
-                                .color(text_col.gamma_multiply(0.5))
-                                .size(9.0),
-                        ),
-                    );
-                }
-            });
-        });
-    }
-
-    /// Render the heatmap
-    pub fn show(&mut self, ui: &mut egui::Ui) {
-        // Use GPU rendering when enabled, CPU fallback otherwise
-        if self.use_gpu {
-            self.show_with_gpu(ui);
-        } else {
-            self.show_cpu_fallback(ui);
-        }
-    }
-
-    /// Render the heatmap with GPU-accelerated grid
-    fn show_with_gpu(&self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
-
-        ui.vertical(|ui| {
-            ui.add_space(8.0);
-
-            // Title with GPU indicator
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                ui.label(
-                    RichText::new(format!("{} [GPU]", &self.title))
-                        .color(text_col)
-                        .size(16.0)
-                        .strong(),
-                );
-            });
-
-            ui.add_space(8.0);
-
-            if self.cells.is_empty() {
-                ui.centered_and_justified(|ui| {
-                    ui.label(
-                        RichText::new("No data")
-                            .color(text_col.gamma_multiply(0.4))
-                            .size(14.0),
-                    );
-                });
-                return;
-            }
-
-            let (cols, rows) = self.grid_size;
-            if cols == 0 || rows == 0 {
-                return;
-            }
-
-            // Calculate available space for the grid
-            let available = ui.available_size();
-            let left_margin = 80.0; // Space for row labels
-            let bottom_margin = 30.0; // Space for column labels
-            let grid_width = available.x - left_margin - 16.0;
-            let grid_height = (available.y - bottom_margin - 40.0).min(rows as f32 * 30.0);
-
-            // Row labels on the left
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-
-                // Row labels column
-                ui.vertical(|ui| {
-                    let cell_height = grid_height / rows as f32;
-                    for row in 0..rows {
-                        let label = self.labels.rows.get(row).map(|s| s.as_str()).unwrap_or("");
-                        ui.add_sized(
-                            [left_margin - 12.0, cell_height],
-                            egui::Label::new(
-                                RichText::new(label)
-                                    .color(text_col.gamma_multiply(0.7))
-                                    .size(11.0),
-                            ),
-                        );
-                    }
-                });
-
-                // GPU-rendered grid
-                let (rect, _response) = ui
-                    .allocate_exact_size(egui::vec2(grid_width, grid_height), egui::Sense::hover());
-
-                self.show_gpu_grid(ui, rect);
-            });
-
-            ui.add_space(4.0);
-
-            // Column labels at bottom
-            ui.horizontal(|ui| {
-                ui.add_space(left_margin + 4.0);
-                let cell_width = grid_width / cols as f32;
-                for col in 0..cols {
-                    let label = self
-                        .labels
-                        .columns
-                        .get(col)
                         .map(|s| s.as_str())
                         .unwrap_or("");
                     ui.add_sized(
@@ -652,20 +511,5 @@ mod tests {
         assert!(!heatmap.labels.columns.is_empty());
         assert!(!heatmap.labels.rows.is_empty());
         assert_eq!(heatmap.labels.rows.len(), 7); // Sun-Sat
-    }
-
-    #[test]
-    fn test_gpu_threshold() {
-        let mut heatmap = HeatmapViz::new("test");
-
-        // Small grid should use CPU
-        let small_data: Vec<Vec<f64>> = (0..5).map(|_| vec![0.5; 5]).collect();
-        heatmap.set_data(small_data);
-        assert!(!heatmap.use_gpu);
-
-        // Large grid should use GPU
-        let large_data: Vec<Vec<f64>> = (0..20).map(|_| vec![0.5; 20]).collect();
-        heatmap.set_data(large_data);
-        assert!(heatmap.use_gpu);
     }
 }

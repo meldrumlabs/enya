@@ -2,10 +2,7 @@
 
 use egui::{Key, KeyboardShortcut, Modifiers, os::OperatingSystem};
 
-use crate::{
-    theme::AppTheme,
-    ui::{colors::text_color, icons::EXTERNAL_LINK},
-};
+use crate::ui::{colors::text_color, icons::EXTERNAL_LINK, theme::AppTheme};
 
 /// Interface for sending [`UICommand`] messages.
 pub trait UICommandSender {

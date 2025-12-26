@@ -1,6 +1,6 @@
 use egui::Color32;
 
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 
 #[inline]
 pub fn text_color(theme: AppTheme) -> Color32 {

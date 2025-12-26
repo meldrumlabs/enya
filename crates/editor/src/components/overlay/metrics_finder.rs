@@ -37,9 +37,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui::{Color32, RichText};
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::util::finder::{Finder, FinderConfig, FinderItem, FinderResult};

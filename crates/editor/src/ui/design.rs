@@ -576,8 +576,7 @@ pub fn gruvbox_theme() -> Visuals {
 
 pub fn black_theme() -> Visuals {
     // --- Obsidian Glass Design System ---
-    // A cohesive dark theme inspired by Linear, Vercel, and Raycast.
-    // Premium feel with subtle depth and emerald accents.
+    // A cohesive dark theme with subtle depth and emerald accents.
     use super::palette::{accent, bg, border, highlight, semantic, text};
 
     // Subtle corner radius for modern feel (not too rounded, not harsh)

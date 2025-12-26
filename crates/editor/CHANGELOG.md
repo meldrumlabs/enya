@@ -6,6 +6,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Moved heatmap into visualization module**: The `heatmap.rs` module is now located at `components/pane/visualization/heatmap.rs` alongside other visualization types for consistency.
+- **Moved theme into ui module**: The `theme.rs` module is now located at `ui/theme.rs` alongside other UI primitives (colors, typography, icons, etc.).
+- **Moved workspace_tabs into workspace module**: The `workspace_tabs.rs` module is now located at `workspace/tabs.rs` alongside other workspace-related code.
 - **Alpha-nvim inspired landing page**: Redesigned the landing page with a minimal, centered layout inspired by alpha-nvim. Changes include:
   - Clean vertical menu with six actions: Find workspace (`w`), Create workspace (`n`), Tutorial (`t`), Docs (`d`), Shortcuts (`?`), and About (`i`)
   - Docs option opens the documentation website at enya.build/docs
@@ -18,6 +21,11 @@ All notable changes to the Enya editor will be documented in this file.
   - Content is vertically centered in the viewport
   - Large centered logo and Enya branding
   - Status line is hidden on the landing page (only shows in workspaces)
+
+### Removed
+
+- **Flamegraph visualization**: Removed the `FlamegraphViz` visualization type which was used for CPU/memory profiling visualization. This simplifies the visualization options to focus on time-series metrics.
+- **wgpu GPU rendering module**: Removed the GPU-accelerated rendering module (`crate::wgpu`) that was used for heatmap rendering. Heatmaps now use CPU rendering exclusively.
 
 ### Added
 
@@ -185,7 +193,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Centralized ID generation**: Replaced 8+ scattered `AtomicUsize`/`AtomicU64` static counters throughout the codebase with a single centralized `id_generator` module. This ensures unique IDs across all component types and eliminates duplicate ID generation patterns. The new module provides `next_id()` and `next_id_usize()` functions.
 
 - **Reorganized components into categorized subdirectories**: Split the flat 27-file `components/` directory into four focused subdirectories:
-  - `components/pane/` - Tile content types (query_pane, flamegraph, heatmap, time_series_chart, visualization)
+  - `components/pane/` - Tile content types (query_pane, heatmap, time_series_chart, visualization)
   - `components/overlay/` - Modal UI (command_palette, metrics_finder, diagnostics, buffer_editor, info, multi_edit, tutorial, viewport_filter, which_key, workspace_finder)
   - `components/widget/` - Reusable UI elements (buffer, landing_page, notifications, status_line, time_range)
   - `components/util/` - Non-UI helpers (finder_utils, id_generator, multi_buffer, query_completion, query_executor, query_state, query_validation)

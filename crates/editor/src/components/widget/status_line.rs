@@ -7,9 +7,9 @@ use std::collections::VecDeque;
 
 use egui::{Color32, Layout, Ui};
 
-use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 /// Unicode block characters for sparkline rendering (1/8 to 8/8 height)

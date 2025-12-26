@@ -2,9 +2,9 @@
 
 use egui::{Color32, RichText, Stroke};
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
+use crate::ui::theme::AppTheme;
 
 use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
 use crate::components::util::id_generator::next_id_usize;
