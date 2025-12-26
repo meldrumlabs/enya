@@ -33,7 +33,7 @@ crossbeam-channel = "0.5"
 rustc-hash.workspace = true
 
 # Async runtime (native only - this crate doesn't support WASM)
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "process", "io-util", "sync"] }
 
 [dev-dependencies]
 env_logger.workspace = true

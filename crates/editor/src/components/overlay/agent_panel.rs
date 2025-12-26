@@ -271,11 +271,7 @@ impl AgentPanel {
                     .corner_radius(4.0)
                     .inner_margin(egui::Margin::symmetric(6, 2))
                     .show(ui, |ui| {
-                        ui.label(
-                            RichText::new(model)
-                                .color(text_muted)
-                                .size(typography::SM),
-                        );
+                        ui.label(RichText::new(model).color(text_muted).size(typography::SM));
                     });
             }
 
@@ -528,7 +524,7 @@ impl AgentPanel {
                     let time_str = if elapsed < 10.0 {
                         format!("{elapsed:.1}s")
                     } else {
-                        format!("{:.0}s", elapsed)
+                        format!("{elapsed:.0}s")
                     };
                     ui.label(
                         RichText::new(time_str)
@@ -825,7 +821,8 @@ impl AgentPanel {
                                                 .and_then(|n| n.as_str())
                                                 .unwrap_or("Unknown");
                                             let input = block.get("input");
-                                            let summary = Self::format_tool_summary(tool_name, input);
+                                            let summary =
+                                                Self::format_tool_summary(tool_name, input);
                                             s.activities.push(ActivityItem {
                                                 activity_type: ActivityType::ToolUse {
                                                     tool: tool_name.to_string(),
