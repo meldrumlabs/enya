@@ -8,9 +8,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::components::Component;
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
+use crate::ui::theme::AppTheme;
 
 /// Behavior implementation for the egui_tiles tree.
 ///

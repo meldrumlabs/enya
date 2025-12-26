@@ -7,10 +7,10 @@ use std::any::Any;
 
 use egui::{Color32, Key, RichText, ScrollArea, Ui};
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::util::Instant;
 
 use crate::components::Component;

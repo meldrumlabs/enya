@@ -6,9 +6,9 @@ use egui::{Color32, Key};
 use enya_lang::completion as enya_completion;
 use enya_promql::completion as promql_completion;
 
-use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 /// The query language mode for completion.

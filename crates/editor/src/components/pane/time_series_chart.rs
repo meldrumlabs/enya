@@ -10,10 +10,10 @@ use egui_plot::{
 };
 
 use crate::components::util::id_generator::next_id_usize;
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 
 // Re-export CommitMarker from common crate
 pub use enya_common::CommitMarker;
@@ -24,7 +24,7 @@ const ZOOM_FACTOR: f64 = 1.25;
 /// Minimum chart height in pixels for a sleek default view
 const MIN_CHART_HEIGHT: f32 = 180.0;
 
-/// Default chart height ratio (height:width) - similar to Grafana/PlanetScale
+/// Default chart height ratio (height:width)
 const DEFAULT_ASPECT_RATIO: f32 = 0.35;
 
 /// Format a Unix timestamp (in seconds) to a human-readable string.
@@ -650,7 +650,7 @@ impl TimeSeriesChart {
     }
 
     /// Get a default color for series index
-    /// Uses a modern, muted palette inspired by PlanetScale's sleek dashboard aesthetic
+    /// Uses a modern, muted palette with teals, purples, and soft accent colors
     fn series_color(&self, index: usize) -> Color32 {
         // A modern, muted palette - teals, purples, and soft accent colors
         const PALETTE: &[Color32] = &[
@@ -756,7 +756,7 @@ impl TimeSeriesChart {
                 format_value_with_unit(mark.value, &unit)
             });
 
-        // Calculate optimal height for a sleek Grafana/PlanetScale-style view
+        // Calculate optimal height for a sleek dashboard-style view
         // Use available height if constrained by layout, otherwise calculate from aspect ratio
         let available_width = ui.available_width();
         let available_height = ui.available_height();
@@ -774,7 +774,7 @@ impl TimeSeriesChart {
         let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.4);
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
-        // Legend above the chart (PlanetScale-style, only show if multiple series)
+        // Legend above the chart (only show if multiple series)
         if self.show_legend && self.series.len() > 1 {
             const MAX_VISIBLE_SERIES: usize = 5;
             let total_series = self.series.len();
@@ -1142,7 +1142,7 @@ impl TimeSeriesChart {
                         .map(|p| [p.timestamp, p.value])
                         .collect();
 
-                    // PlanetScale-style: thin line with soft gradient fill underneath
+                    // Thin line with soft gradient fill underneath
                     let line = Line::new(series.label(), points)
                         .color(color)
                         .stroke(Stroke::new(line_stroke_width, color))

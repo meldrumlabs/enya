@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 
 pub mod overlay;
 pub mod pane;
@@ -9,9 +9,9 @@ pub mod widget;
 
 // Re-export from pane
 pub use pane::{
-    Bar, BarChartViz, DataPoint, FlameFrame, FlamegraphViz, GaugeChart, HeatmapCell, HeatmapLabels,
-    HeatmapViz, ProfileType, QueryPane, QueryPaneAction, Series, SparklineViz, StatChart,
-    Threshold, TimeSeriesChart, Visualization, VisualizationType,
+    Bar, BarChartViz, DataPoint, GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, QueryPane,
+    QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart, Visualization,
+    VisualizationType,
 };
 
 // Re-export from overlay

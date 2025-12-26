@@ -22,10 +22,9 @@ use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
 };
 use crate::connection::ConnectionManager;
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
-use crate::workspace::WorkspaceAction;
-use crate::workspace_tabs::{TabBarAction, WorkspaceTabBar};
+use crate::workspace::{TabBarAction, WorkspaceAction, WorkspaceTabBar};
 
 use state::EditorMetrics;
 
@@ -121,11 +120,6 @@ impl EnyaApp {
         // Initialize workspace tabs with API key
         app.workspace_tabs = WorkspaceTabBar::new(app.state.settings.api_key.clone());
         app.workspace_tabs.set_theme(app.state.theme);
-
-        // Initialize GPU resources for heatmaps (flamegraphs use CPU rendering)
-        if let Some(render_state) = cc.wgpu_render_state.as_ref() {
-            crate::wgpu::init_heatmap_resources(render_state);
-        }
 
         app
     }

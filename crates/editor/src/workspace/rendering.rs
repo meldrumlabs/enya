@@ -7,8 +7,8 @@ use egui_tiles::Tile;
 
 use super::Workspace;
 use crate::components::{Buffer, QueryPane};
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::theme::AppTheme;
 
 impl Workspace {
     /// Render only matching panes when viewport filter is active

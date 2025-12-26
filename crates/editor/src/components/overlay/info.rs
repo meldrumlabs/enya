@@ -3,10 +3,10 @@
 use egui::{Color32, Key, RichText};
 use enya_build_info::BuildInfo;
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::util::finder_utils::OverlayStyle;

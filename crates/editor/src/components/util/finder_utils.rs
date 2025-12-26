@@ -9,9 +9,9 @@
 
 use egui::{Color32, Key, RichText, Stroke, TextFormat, text::LayoutJob};
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::pane::time_series_chart::DataPoint;
@@ -266,7 +266,6 @@ pub fn generate_demo_preview_data(item_name: &str) -> Vec<DataPoint> {
 }
 
 /// Get the chart line color for the given theme
-/// Uses the modern, muted PlanetScale-style palette
 pub fn chart_color(_theme: AppTheme) -> Color32 {
     palette::chart::PRIMARY
 }

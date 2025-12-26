@@ -7,10 +7,11 @@ use std::path::PathBuf;
 
 use egui::{Color32, Sense, Ui};
 
-use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
-use crate::workspace::Workspace;
+use crate::ui::theme::AppTheme;
+
+use super::Workspace;
 
 /// Actions that can be triggered from the workspace tab bar
 #[derive(Debug, Clone, PartialEq)]
