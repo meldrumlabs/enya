@@ -4,6 +4,19 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Read tool file path in Agent Panel**: Fixed the Agent Panel not showing file paths for Read tool activities. Added `path` field lookup in addition to `file_path` for tool summary extraction.
+
+### Changed
+
+- **Agent Panel uses ACP protocol**: The Agent Panel now uses the Agent Client Protocol (ACP) via the `@zed-industries/claude-code-acp` npm package instead of the legacy CLI output format. This change:
+  - Uses JSON-RPC 2.0 over stdio for agent communication
+  - Implements the standard ACP session lifecycle (initialize → session/new → session/prompt)
+  - Enables future support for other ACP-compatible agents
+  - Streaming responses now use `session/update` notifications
+  - Authentication is inherited from Claude CLI - Claude Max subscription works if you've run `claude /login`
+
 ### Added
 
 - **Agent Panel (Claude Code integration)**: Press `Space+a` to toggle the agent panel, a side panel for chatting with Claude Code. Features include:

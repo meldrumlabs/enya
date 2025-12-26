@@ -184,23 +184,27 @@ async fn run_acp_session(
     let mut writer = tokio::io::BufWriter::new(stdin);
 
     // Send initialization
+    // Note: protocolVersion must be a number (1), not a string
     let init_msg = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "initialize",
         "params": {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": 1,
             "clientInfo": {
                 "name": CLIENT_NAME,
                 "version": CLIENT_VERSION
             },
-            "clientCapabilities": {}
+            "clientCapabilities": {
+                "terminal": true
+            }
         }
     });
     send_message(&mut writer, &init_msg).await?;
     read_response(&mut reader, "Init").await?;
 
     // Create session
+    // Pass Claude Code options via _meta.claudeCode.options to configure the model
     let cwd = config
         .working_dir
         .as_ref()
@@ -209,19 +213,30 @@ async fn run_acp_session(
         "jsonrpc": "2.0",
         "id": 2,
         "method": "session/new",
-        "params": { "cwd": cwd }
+        "params": {
+            "cwd": cwd,
+            "mcpServers": [],
+            "_meta": {
+                "claudeCode": {
+                    "options": {
+                        "model": "claude-sonnet-4-5-20250514"
+                    }
+                }
+            }
+        }
     });
     send_message(&mut writer, &session_msg).await?;
     let session_id = read_session_id(&mut reader).await?;
 
     // Send prompt
+    // Note: prompt must be an array at params.prompt, not params.content
     let prompt_msg = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 3,
         "method": "session/prompt",
         "params": {
             "sessionId": session_id,
-            "content": [{"type": "text", "text": prompt}]
+            "prompt": [{"type": "text", "text": prompt}]
         }
     });
     send_message(&mut writer, &prompt_msg).await?;
@@ -389,8 +404,13 @@ mod tests {
     #[test]
     fn test_agent_config_claude_code() {
         let config = AgentConfig::claude_code();
-        assert!(config.command.contains("claude"));
-        assert!(config.args.contains(&"--acp".to_string()));
+        // Uses npx to run the @zed-industries/claude-code-acp package
+        assert_eq!(config.command, "npx");
+        assert!(
+            config
+                .args
+                .contains(&"@zed-industries/claude-code-acp".to_string())
+        );
     }
 
     #[test]

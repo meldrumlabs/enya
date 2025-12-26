@@ -49,28 +49,33 @@ pub struct AgentConfig {
 }
 
 impl AgentConfig {
-    /// Create a configuration for Claude Code.
+    /// Create a configuration for Claude Code via the ACP adapter.
     ///
-    /// Uses the standard Claude Code CLI with ACP mode enabled.
+    /// Uses the `@zed-industries/claude-code-acp` npm package which wraps
+    /// the Claude Agent SDK with ACP protocol support.
+    ///
+    /// The `-y` flag auto-confirms the npx install prompt (same as avante.nvim).
     #[must_use]
     pub fn claude_code() -> Self {
-        // Use the full path that works with Claude Max subscription
-        let home = std::env::var("HOME").unwrap_or_default();
-        let command = format!("{home}/Library/Application Support/com.conductor.app/./bin/claude");
-
         Self {
             kind: AgentKind::ClaudeCode,
-            command,
-            args: vec!["--acp".to_string()],
-            working_dir: None,
-            // Remove SDK environment variables to use Claude Max subscription
-            env: vec![],
-            env_remove: vec![
-                "CLAUDECODE".to_string(),
-                "CLAUDE_CODE_ENTRYPOINT".to_string(),
-                "CLAUDE_AGENT_SDK_VERSION".to_string(),
-                "ANTHROPIC_API_KEY".to_string(),
+            command: "npx".to_string(),
+            args: vec![
+                "-y".to_string(),
+                "@zed-industries/claude-code-acp".to_string(),
             ],
+            working_dir: None,
+            env: vec![],
+            env_remove: vec![],
+        }
+    }
+
+    /// Create a configuration for Claude Code with a specific API key.
+    #[must_use]
+    pub fn claude_code_with_api_key(api_key: impl Into<String>) -> Self {
+        Self {
+            env: vec![("ANTHROPIC_API_KEY".to_string(), api_key.into())],
+            ..Self::claude_code()
         }
     }
 
