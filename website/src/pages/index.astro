@@ -1,0 +1,1250 @@
+---
+import ThemeProvider from '../components/ThemeProvider.astro';
+import { Code } from 'astro:components';
+
+const codeExample = `#[tokio::main]
+async fn main() -> Result<()> {
+    // Your setup code above
+
+    // Integrates with metrics-rs and opentelemetry
+    enya::init().await?;
+    Ok(())
+}`;
+---
+
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Enya</title>
+		<link rel="icon" type="image/x-icon" href="/favicon.ico" />
+		<meta name="description" content="Enya - Observability at editor speed" />
+		<meta property="og:image" content="/img/enya.png" />
+		<meta property="og:image:alt" content="Enya" />
+	</head>
+	<body>
+		<ThemeProvider />
+		<div class="page">
+			<header class="header">
+				<div class="header-content">
+					<div class="title-wrapper">
+						<a href="/" class="site-title">
+							<img src="/img/enya.png" alt="Enya" />
+						</a>
+					</div>
+					<div class="right-group">
+						<div class="header-links">
+							<a href="/docs" class="header-link">docs</a>
+							<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="header-link" id="github-link">github</a>
+						</div>
+						<button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Toggle menu" aria-expanded="false">
+							<span class="menu-icon menu-icon-bars">☰</span>
+							<span class="menu-icon menu-icon-times">✕</span>
+						</button>
+					</div>
+					<div class="mobile-menu" id="mobile-menu">
+						<a href="/docs" class="mobile-menu-link">docs</a>
+						<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="mobile-menu-link" id="mobile-github-link">github</a>
+					</div>
+				</div>
+			</header>
+			<main class="main">
+                <div class="hero-section">
+                    <img src="/img/enya.png" alt="Enya" class="hero-logo" />
+                    <h1 class="hero-title">Enya</h1>
+                    <p class="hero-tagline">A Builder's Best Friend</p>
+                    <p class="hero-headline">Observability Meets Editor</p>
+                    <div class="hero-buttons">
+                        <a href="#" class="hero-button-primary" id="download-button">
+                            <svg class="download-icon-btn" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            <span class="button-text">Download for <span id="os-name">Your OS</span></span>
+                        </a>
+                        <a href="/editor" class="hero-button-secondary">Try in Browser</a>
+                    </div>
+                    <a href="/docs" class="hero-learn-more">Learn more →</a>
+                </div>
+			</main>
+			<section class="feature-showcase">
+				<div class="feature-section">
+					<div class="feature-content">
+						<h2 class="feature-heading">Find Metrics Instantly</h2>
+						<p class="feature-text">Fuzzy finder (telescope-style) to search through thousands of metrics with minimal keystrokes. Navigate your entire observability stack at the speed of thought.</p>
+					</div>
+					<div class="feature-media">
+						<video autoplay loop muted playsinline>
+							<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
+						</video>
+					</div>
+				</div>
+			</section>
+			<section class="feature-showcase feature-showcase-alt">
+				<div class="feature-section">
+					<div class="feature-content">
+						<h2 class="feature-heading">Everything is a Buffer</h2>
+						<p class="feature-text">Edit and replace labels across multiple plots simultaneously. Make coordinated changes to N plots at once—update metrics, rename series, or modify configurations across your entire dashboard in real-time.</p>
+					</div>
+					<div class="feature-media">
+						<video autoplay loop muted playsinline>
+							<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
+						</video>
+					</div>
+				</div>
+			</section>
+			<section class="feature-showcase">
+				<div class="feature-section">
+					<div class="feature-content">
+						<h2 class="feature-heading">Automatic Inline LSP</h2>
+						<p class="feature-text">Built-in Language Server Protocol support provides real-time autocomplete, syntax validation, and intelligent suggestions as you type. No configuration required.</p>
+					</div>
+					<div class="feature-media">
+						<video autoplay loop muted playsinline>
+							<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
+						</video>
+					</div>
+				</div>
+			</section>
+			<section class="features">
+				<div class="features-content">
+					<h2 class="features-title">Core Features</h2>
+					<div class="features-grid">
+						<a href="/docs/agent" class="feature-card">
+							<h3 class="feature-title">Embeddable</h3>
+							<p class="feature-description">Fully embeddable directly in your application and observable through the Enya editor</p>
+						</a>
+						<a href="/docs/editor" class="feature-card">
+							<h3 class="feature-title">Editor</h3>
+							<p class="feature-description">Neovim-inspired editor for creating and browsing metrics with keyboard-driven workflows and modal editing</p>
+						</a>
+						<div class="feature-card">
+							<h3 class="feature-title">Object Storage</h3>
+							<p class="feature-description">Built on top of SlateDB, enabling bottomless storage on S3, GCP, or Azure</p>
+						</div>
+						<a href="/docs/integrations/datafusion" class="feature-card">
+							<h3 class="feature-title">Apache DataFusion</h3>
+							<p class="feature-description">Built-in observability for Apache DataFusion that helps teams track changes in performance and metadata over time and <strong>commits</strong></p>
+						</a>
+						<div class="feature-card">
+							<h3 class="feature-title">Tokio Observability</h3>
+							<p class="feature-description">Native support for profiling tokio async tasks</p>
+						</div>
+						<div class="feature-card">
+							<h3 class="feature-title">CPU Profiling</h3>
+							<p class="feature-description">Built-in profiling tools to identify and optimize performance bottlenecks</p>
+						</div>
+					</div>
+				</div>
+			</section>
+			<section class="downloads-section" id="downloads">
+				<div class="downloads-content">
+					<h2 class="downloads-title">Try Enya</h2>
+					<p class="downloads-subtitle">Available for Web, macOS, Windows, and Linux</p>
+					<div class="downloads-grid downloads-grid-four">
+						<a href="/editor" class="download-card download-card-featured">
+							<div class="download-icon">
+								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<circle cx="12" cy="12" r="10"/>
+									<path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+									<path d="M2 12h20"/>
+								</svg>
+							</div>
+							<h3 class="download-platform">Try in Browser</h3>
+							<p class="download-detail">WASM • No install required</p>
+						</a>
+						<a href="/downloads/enya-macos.dmg" class="download-card">
+							<div class="download-icon">
+								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+								</svg>
+							</div>
+							<h3 class="download-platform">macOS</h3>
+							<p class="download-detail">10.15 or later</p>
+						</a>
+						<a href="/downloads/enya-windows.exe" class="download-card">
+							<div class="download-icon">
+								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<rect x="3" y="3" width="8" height="8"/>
+									<rect x="13" y="3" width="8" height="8"/>
+									<rect x="3" y="13" width="8" height="8"/>
+									<rect x="13" y="13" width="8" height="8"/>
+								</svg>
+							</div>
+							<h3 class="download-platform">Windows</h3>
+							<p class="download-detail">Windows 10 or later</p>
+						</a>
+						<a href="/downloads/enya-linux.AppImage" class="download-card">
+							<div class="download-icon">
+								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+								</svg>
+							</div>
+							<h3 class="download-platform">Linux</h3>
+							<p class="download-detail">AppImage, .deb, .rpm</p>
+						</a>
+					</div>
+				</div>
+			</section>
+			<section class="open-source-section">
+				<div class="open-source-content">
+					<h2 class="open-source-title">By Builders, For Builders.</h2>
+					<p class="open-source-text">Enya is developed by Meldrum Labs and licensed under MIT.</p>
+					<p class="open-source-team">Interested in being a design partner? <a href="mailto:contact@meldrumlabs.com">Get in touch</a></p>
+				</div>
+			</section>
+			<footer class="footer">
+				<div class="footer-content">
+					<div class="copyright-wrapper">
+						Copyright © 2025 Meldrum Labs AB. All rights reserved.
+					</div>
+					<div class="license-wrapper">
+						Enya is licensed under <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">MIT</a>
+					</div>
+				</div>
+			</footer>
+		</div>
+	</body>
+</html>
+
+<style>
+	@font-face {
+		font-family: 'Departure Mono';
+		src: url('/fonts/DepartureMono-Regular.otf') format('opentype');
+		font-weight: normal;
+		font-style: normal;
+		font-display: swap;
+	}
+
+	html,
+	body {
+		font-family: 'Departure Mono', monospace, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+		margin: 0;
+		padding: 0;
+		height: 100%;
+		background-color: #0A0A0A;
+		color: #F5F5F5;
+	}
+
+	html {
+		height: 100%;
+	}
+
+	body {
+		min-height: 100vh;
+	}
+
+	.sr-only {
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		clip-path: inset(50%);
+		white-space: nowrap;
+		border-width: 0;
+	}
+
+	.page {
+		display: flex;
+		flex-direction: column;
+		min-height: 100vh;
+	}
+
+	.header {
+		z-index: 100;
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		max-width: 100%;
+		padding: 1rem 1.5rem;
+		background-color: #0A0A0A;
+		box-sizing: border-box;
+		overflow: visible;
+	}
+
+	.header-content {
+		display: flex;
+		gap: 1rem;
+		justify-content: space-between;
+		align-items: center;
+		height: 100%;
+		width: 100%;
+		max-width: 100%;
+		box-sizing: border-box;
+		position: relative;
+	}
+
+	.title-wrapper {
+		overflow: clip;
+		padding: 0.25rem;
+		margin: -0.25rem;
+		min-width: 0;
+		flex-shrink: 1;
+	}
+
+	.site-title {
+		display: inline-flex;
+		align-items: center;
+		text-decoration: none;
+	}
+
+	.site-title img {
+		height: 3rem;
+		width: auto;
+		max-width: 100%;
+	}
+
+	.right-group {
+		display: flex;
+		align-items: center;
+		flex-shrink: 0;
+		margin-left: auto;
+	}
+
+	.header-links {
+		display: flex;
+		gap: 1.5rem;
+		align-items: center;
+	}
+
+	.header-link {
+		font-size: 0.875rem;
+		font-family: monospace;
+		color: #F5F5F5;
+		text-decoration: none;
+		transition: color 0.2s ease;
+	}
+
+	.header-link:hover {
+		color: #A3A3A3;
+	}
+
+	.header-link .star-count {
+		display: inline-block;
+		color: #A3A3A3 !important;
+		font-weight: normal;
+		margin-left: 0.25rem;
+		transition: none !important;
+	}
+
+	.header-link:hover .star-count {
+		color: #A3A3A3 !important;
+	}
+
+	#github-link .star-count {
+		color: #A3A3A3 !important;
+	}
+
+	.mobile-menu-toggle {
+		display: none;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.5rem;
+		margin: -0.5rem;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+		width: 2rem;
+		height: 2rem;
+		color: #F5F5F5;
+	}
+
+	.menu-icon {
+		position: absolute;
+		font-size: 1.2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: opacity 0.2s ease;
+	}
+
+	.menu-icon-bars {
+		opacity: 1;
+	}
+
+	.menu-icon-times {
+		opacity: 0;
+	}
+
+	.mobile-menu-toggle[aria-expanded="true"] .menu-icon-bars {
+		opacity: 0;
+	}
+
+	.mobile-menu-toggle[aria-expanded="true"] .menu-icon-times {
+		opacity: 1;
+	}
+
+	.mobile-menu {
+		display: none;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1rem 0;
+		border-top: 1px solid #404040;
+		background-color: #0A0A0A;
+		position: absolute;
+		top: 100%;
+		left: -1.5rem;
+		right: -1.5rem;
+		z-index: 1000;
+		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+		padding-left: 1.5rem;
+		padding-right: 1.5rem;
+	}
+
+	.mobile-menu.open {
+		display: flex;
+	}
+
+	.mobile-menu-link {
+		font-size: 0.875rem;
+		font-family: monospace;
+		color: #F5F5F5;
+		text-decoration: none;
+		transition: color 0.2s ease;
+		padding: 0.5rem 0;
+	}
+
+	.mobile-menu-link:hover {
+		color: #A3A3A3;
+	}
+
+	.mobile-menu-link .star-count {
+		display: inline-block;
+		color: #A3A3A3 !important;
+		font-weight: normal;
+		margin-left: 0.25rem;
+		transition: none !important;
+	}
+
+	@media (max-width: 768px) {
+		.header-links {
+			display: none;
+		}
+
+		.mobile-menu-toggle {
+			display: flex;
+		}
+	}
+
+
+	.main {
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		align-items: center;
+		padding-top: 6rem;
+		padding-bottom: 2rem;
+		max-width: 80%;
+		margin: 0 auto;
+		box-sizing: border-box;
+	}
+
+	.hero-section {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+		width: 100%;
+	}
+
+	.main h1 {
+        font-family: monospace;
+		font-size: 2rem;
+		margin: 0;
+	}
+
+	.hero-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 4rem;
+		font-weight: bold;
+		color: #10B981;
+		margin: -3rem 0 0 0;
+		letter-spacing: 0.15em;
+		text-transform: uppercase;
+		text-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+	}
+
+	@media (max-width: 768px) {
+		.hero-title {
+			font-size: 2.5rem;
+		}
+	}
+
+	.hero-logo {
+		max-width: 350px;
+		width: 100%;
+		height: auto;
+		display: block;
+		/* Reserve space for image to prevent layout shift */
+		aspect-ratio: 1;
+		background-color: transparent;
+	}
+
+	.hero-headline {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.75rem;
+		font-weight: bold;
+		color: #F5F5F5;
+		margin: 0.5rem 0 0.25rem 0;
+		text-align: center;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+	}
+
+	@media (max-width: 768px) {
+		.hero-headline {
+			font-size: 1.25rem;
+			padding: 0 1rem;
+		}
+	}
+
+	.hero-tagline {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.25rem;
+		font-weight: normal;
+		color: #A3A3A3;
+		margin: 0.5rem 0 0 0;
+		text-align: center;
+		max-width: 600px;
+		letter-spacing: 0.02em;
+	}
+
+	@media (max-width: 768px) {
+		.hero-tagline {
+			font-size: 1rem;
+			padding: 0 1rem;
+		}
+	}
+
+	.hero-demo {
+		width: 100%;
+		max-width: 1000px;
+		height: auto;
+		margin: 2rem 0 1rem 0;
+		border: 1px solid #404040;
+		border-radius: 0.5rem;
+		box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+	}
+
+	.hero-demo:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 8px 30px rgba(16, 185, 129, 0.25);
+	}
+
+	@media (max-width: 768px) {
+		.hero-demo {
+			max-width: 100%;
+			margin: 1.5rem 1rem;
+			border-radius: 0.25rem;
+		}
+	}
+
+	.code-example {
+		width: 100%;
+		max-width: 700px;
+		margin: 1rem 0;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.code-example :global(pre) {
+		background-color: #141414 !important;
+		border: 1px solid #404040 !important;
+		border-radius: 0.5rem !important;
+		padding: 1.5rem !important;
+		margin: 0 !important;
+		overflow-x: auto;
+		font-family: 'Departure Mono', monospace !important;
+		font-size: 0.875rem !important;
+		line-height: 1.6 !important;
+	}
+
+	.code-example :global(code) {
+		font-family: 'Departure Mono', monospace !important;
+		font-size: 0.875rem !important;
+	}
+
+	.code-example :global(.astro-code) {
+		background-color: #141414 !important;
+		border: 1px solid #404040 !important;
+		border-radius: 0.5rem !important;
+		padding: 1.5rem !important;
+	}
+
+	.install-command {
+		background-color: #141414;
+		border: 1px solid #404040;
+		border-radius: 0.5rem;
+		padding: 1rem 1.5rem;
+		text-align: center;
+		font-family: 'Departure Mono', monospace;
+	}
+
+	.install-command code {
+		color: #10B981;
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+	}
+
+	@media (max-width: 768px) {
+		.code-example {
+			max-width: 100%;
+			padding: 0 1rem;
+			box-sizing: border-box;
+		}
+
+		.code-example :global(pre),
+		.code-example :global(.astro-code) {
+			font-size: 0.75rem !important;
+			padding: 1rem !important;
+		}
+
+		.code-example :global(code) {
+			font-size: 0.75rem !important;
+		}
+
+		.install-command code {
+			font-size: 0.875rem;
+		}
+	}
+
+	.hero-buttons {
+		display: flex;
+		gap: 1rem;
+		margin-top: 1.5rem;
+		flex-wrap: wrap;
+		justify-content: center;
+	}
+
+	.hero-button-primary {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		padding: 1rem 2rem;
+		text-decoration: none;
+		border: 2px solid #10B981;
+		color: #0A0A0A;
+		background-color: #10B981;
+		transition: all 0.2s ease;
+		letter-spacing: 0.05em;
+		text-transform: lowercase;
+		min-width: 200px;
+		text-align: center;
+		font-weight: bold;
+		border-radius: 0.375rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+	}
+
+	.hero-button-primary:hover {
+		background-color: #34D399;
+		border-color: #34D399;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+	}
+
+	.download-icon-btn {
+		flex-shrink: 0;
+	}
+
+	.hero-button-secondary {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		padding: 1rem 2rem;
+		text-decoration: none;
+		border: 2px solid #404040;
+		color: #F5F5F5;
+		background-color: transparent;
+		transition: all 0.2s ease;
+		letter-spacing: 0.05em;
+		text-transform: lowercase;
+		min-width: 160px;
+		text-align: center;
+		border-radius: 0.375rem;
+	}
+
+	.hero-button-secondary:hover {
+		border-color: #10B981;
+		color: #10B981;
+	}
+
+	.hero-learn-more {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: #A3A3A3;
+		font-weight: 500;
+		text-decoration: none;
+		margin-top: 1rem;
+		display: inline-block;
+		transition: all 0.2s ease;
+	}
+
+	.hero-learn-more:hover {
+		color: #10B981;
+		transform: translateX(4px);
+	}
+
+	@media (max-width: 768px) {
+		.hero-buttons {
+			flex-direction: column;
+			width: 100%;
+			padding: 0 1rem;
+			box-sizing: border-box;
+		}
+
+		.hero-button-primary,
+		.hero-button-secondary {
+			width: 100%;
+			text-align: center;
+		}
+	}
+
+	.feature-showcase {
+		width: 100%;
+		padding: 6rem 1.5rem;
+		background-color: #0A0A0A;
+	}
+
+	.feature-showcase-alt {
+		background-color: #050505;
+	}
+
+	.feature-section {
+		max-width: 800px;
+		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
+		gap: 2rem;
+		align-items: center;
+		text-align: center;
+	}
+
+	.feature-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.feature-heading {
+		font-family: 'Departure Mono', monospace;
+		font-size: 2.5rem;
+		font-weight: bold;
+		color: #F5F5F5;
+		margin: 0;
+		line-height: 1.2;
+	}
+
+	.feature-text {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.125rem;
+		color: #A3A3A3;
+		line-height: 1.8;
+		margin: 0;
+	}
+
+	.feature-media {
+		width: 100%;
+		height: auto;
+	}
+
+	.media-placeholder {
+		width: 100%;
+		aspect-ratio: 4 / 3;
+		background-color: #141414;
+		border: 2px dashed #404040;
+		border-radius: 0.5rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		padding: 2rem;
+		box-sizing: border-box;
+	}
+
+	.placeholder-text {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.5rem;
+		color: #10B981;
+		margin: 0;
+		font-weight: bold;
+	}
+
+	.placeholder-hint {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: #6B6B6B;
+		margin: 0;
+		text-align: center;
+	}
+
+	.feature-media img,
+	.feature-media video {
+		width: 100%;
+		height: auto;
+		aspect-ratio: 16 / 9;
+		object-fit: cover;
+		border-radius: 0.5rem;
+		border: 1px solid #404040;
+		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+	}
+
+	@media (max-width: 1024px) {
+		.feature-section {
+			grid-template-columns: 1fr;
+			gap: 3rem;
+		}
+
+		.feature-section-reverse {
+			direction: ltr;
+		}
+
+		.feature-heading {
+			font-size: 2rem;
+		}
+
+		.feature-text {
+			font-size: 1rem;
+		}
+	}
+
+	@media (max-width: 768px) {
+		.feature-showcase {
+			padding: 4rem 1rem;
+		}
+
+		.feature-section {
+			gap: 2rem;
+		}
+
+		.feature-heading {
+			font-size: 1.75rem;
+		}
+
+		.placeholder-text {
+			font-size: 1.125rem;
+		}
+
+		.placeholder-hint {
+			font-size: 0.75rem;
+		}
+	}
+
+	.downloads-section {
+		width: 100%;
+		padding: 6rem 1.5rem;
+		background-color: #050505;
+	}
+
+	.downloads-content {
+		max-width: 1200px;
+		margin: 0 auto;
+		text-align: center;
+	}
+
+	.downloads-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 2.5rem;
+		font-weight: bold;
+		color: #10B981;
+		margin: 0 0 1rem 0;
+	}
+
+	.downloads-subtitle {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.125rem;
+		color: #A3A3A3;
+		margin: 0 0 3rem 0;
+	}
+
+	.downloads-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 2rem;
+		max-width: 900px;
+		margin: 0 auto;
+	}
+
+	.downloads-grid-four {
+		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+		max-width: 1200px;
+	}
+
+	.download-card {
+		background-color: #141414;
+		border: 2px solid #404040;
+		border-radius: 0.5rem;
+		padding: 3rem 2rem;
+		transition: all 0.2s ease;
+		text-decoration: none;
+		color: inherit;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.download-card:hover {
+		border-color: #10B981;
+		transform: translateY(-4px);
+		box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);
+	}
+
+	.download-card-featured {
+		border-color: #10B981;
+		background-color: rgba(16, 185, 129, 0.05);
+	}
+
+	.download-card-featured:hover {
+		background-color: rgba(16, 185, 129, 0.1);
+		box-shadow: 0 8px 30px rgba(16, 185, 129, 0.3);
+	}
+
+	.download-icon {
+		color: #10B981;
+		margin-bottom: 0.5rem;
+	}
+
+	.download-platform {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.5rem;
+		font-weight: bold;
+		color: #F5F5F5;
+		margin: 0;
+	}
+
+	.download-detail {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: #6B6B6B;
+		margin: 0;
+	}
+
+	@media (max-width: 768px) {
+		.downloads-section {
+			padding: 4rem 1rem;
+		}
+
+		.downloads-title {
+			font-size: 2rem;
+		}
+
+		.downloads-subtitle {
+			font-size: 1rem;
+		}
+
+		.downloads-grid {
+			grid-template-columns: 1fr;
+			gap: 1.5rem;
+		}
+
+		.download-card {
+			padding: 2rem 1.5rem;
+		}
+	}
+
+	.features {
+		width: 100%;
+		padding: 4rem 1.5rem;
+		background-color: #0A0A0A;
+		border-top: 1px solid #404040;
+	}
+
+	.features-content {
+		max-width: 1200px;
+		margin: 0 auto;
+	}
+
+	.features-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 2rem;
+		font-weight: normal;
+		color: #10B981;
+		text-align: center;
+		margin: 0 0 3rem 0;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+	}
+
+	.features-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 2rem;
+		width: 100%;
+	}
+
+	.feature-card {
+		background-color: #141414;
+		border: 1px solid #404040;
+		border-radius: 0.5rem;
+		padding: 2rem;
+		transition: border-color 0.2s ease, transform 0.2s ease;
+		text-decoration: none;
+		color: inherit;
+		display: block;
+	}
+
+	.feature-card:hover {
+		border-color: #10B981;
+		transform: translateY(-4px);
+		cursor: pointer;
+	}
+
+	.feature-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.25rem;
+		font-weight: normal;
+		color: #10B981;
+		margin: 0 0 1rem 0;
+		letter-spacing: 0.05em;
+	}
+
+	.feature-description {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: #A3A3A3;
+		line-height: 1.6;
+		margin: 0;
+	}
+
+	.feature-description strong {
+		font-weight: 900;
+		color: #A3A3A3;
+		text-shadow: 0.5px 0 0 currentColor, -0.5px 0 0 currentColor;
+	}
+
+	@media (max-width: 768px) {
+		.features {
+			padding: 3rem 1rem;
+		}
+
+		.features-title {
+			font-size: 1.5rem;
+			margin-bottom: 2rem;
+		}
+
+		.features-grid {
+			grid-template-columns: 1fr;
+			gap: 1.5rem;
+		}
+
+		.feature-card {
+			padding: 1.5rem;
+		}
+	}
+
+	.open-source-section {
+		width: 100%;
+		padding: 4rem 1.5rem;
+		background-color: #0A0A0A;
+		border-top: 1px solid #404040;
+	}
+
+	.open-source-content {
+		max-width: 600px;
+		margin: 0 auto;
+		text-align: center;
+	}
+
+	.open-source-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.75rem;
+		font-weight: bold;
+		color: #10B981;
+		margin: 0 0 1.5rem 0;
+	}
+
+	.open-source-text {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.125rem;
+		color: #F5F5F5;
+		margin: 0 0 1rem 0;
+		line-height: 1.6;
+	}
+
+	.open-source-team {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		color: #A3A3A3;
+		margin: 0;
+		line-height: 1.6;
+	}
+
+	.open-source-team a {
+		color: #10B981;
+		text-decoration: none;
+		transition: color 0.2s ease;
+	}
+
+	.open-source-team a:hover {
+		color: #34D399;
+	}
+
+	@media (max-width: 768px) {
+		.open-source-section {
+			padding: 3rem 1rem;
+		}
+
+		.open-source-title {
+			font-size: 1.5rem;
+		}
+
+		.open-source-text {
+			font-size: 1rem;
+		}
+
+		.open-source-team {
+			font-size: 0.875rem;
+		}
+	}
+
+	.footer {
+		width: 100%;
+		max-width: 100%;
+		border-top: 1px solid #404040;
+		padding: 1rem 1.5rem;
+		background-color: #0A0A0A;
+		margin-top: auto;
+		box-sizing: border-box;
+		overflow: hidden;
+	}
+
+	.footer-content {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		align-items: center;
+		height: 100%;
+		width: 100%;
+		max-width: 100%;
+		box-sizing: border-box;
+	}
+
+	.copyright-wrapper {
+		font-size: 0.875rem;
+		font-family: 'Departure Mono', monospace;
+		text-align: center;
+		color: #A3A3A3;
+	}
+
+	.license-wrapper {
+		font-size: 0.75rem;
+		font-family: 'Departure Mono', monospace;
+		text-align: center;
+		color: #6B6B6B;
+	}
+
+	.license-wrapper a {
+		color: #A3A3A3;
+		text-decoration: none;
+		transition: color 0.2s ease;
+	}
+
+	.license-wrapper a:hover {
+		color: #F5F5F5;
+	}
+
+	@media (min-width: 50rem) {
+		.header,
+		.footer {
+			padding: 1rem 2rem;
+		}
+	}
+</style>
+
+<script>
+	document.addEventListener('DOMContentLoaded', () => {
+		// OS Detection for Download Button
+		const downloadButton = document.getElementById('download-button');
+		const osNameSpan = document.getElementById('os-name');
+
+		function detectOS() {
+			const userAgent = window.navigator.userAgent.toLowerCase();
+			const platform = window.navigator.platform.toLowerCase();
+
+			if (userAgent.indexOf('mac') !== -1 || platform.indexOf('mac') !== -1) {
+				return { name: 'macOS', download: '/downloads/enya-macos.dmg' };
+			} else if (userAgent.indexOf('win') !== -1 || platform.indexOf('win') !== -1) {
+				return { name: 'Windows', download: '/downloads/enya-windows.exe' };
+			} else if (userAgent.indexOf('linux') !== -1 || platform.indexOf('linux') !== -1) {
+				return { name: 'Linux', download: '/downloads/enya-linux.AppImage' };
+			} else {
+				return { name: 'Your OS', download: '#downloads' };
+			}
+		}
+
+		const os = detectOS();
+		if (osNameSpan) {
+			osNameSpan.textContent = os.name;
+		}
+		if (downloadButton) {
+			downloadButton.href = os.download;
+		}
+
+		// Mobile menu toggle
+		const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+		const mobileMenu = document.getElementById('mobile-menu');
+
+		if (mobileMenuToggle && mobileMenu) {
+			mobileMenuToggle.addEventListener('click', () => {
+				const isExpanded = mobileMenuToggle.getAttribute('aria-expanded') === 'true';
+				mobileMenuToggle.setAttribute('aria-expanded', (!isExpanded).toString());
+				mobileMenu.classList.toggle('open', !isExpanded);
+			});
+
+			// Close menu when clicking on a link
+			const mobileMenuLinks = mobileMenu.querySelectorAll('.mobile-menu-link');
+			mobileMenuLinks.forEach(link => {
+				link.addEventListener('click', () => {
+					mobileMenuToggle.setAttribute('aria-expanded', 'false');
+					mobileMenu.classList.remove('open');
+				});
+			});
+		}
+
+		// Fetch GitHub star count
+		const githubLink = document.getElementById('github-link');
+		const mobileGithubLink = document.getElementById('mobile-github-link');
+
+		const updateGithubLinks = (stars: number) => {
+			let formattedStars;
+
+			if (stars >= 1000) {
+				formattedStars = (stars / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+			} else {
+				formattedStars = stars.toString();
+			}
+
+			const starHtml = `github <span class="star-count">[${formattedStars}★]</span>`;
+
+			if (githubLink) {
+				githubLink.innerHTML = starHtml;
+			}
+
+			if (mobileGithubLink) {
+				mobileGithubLink.innerHTML = starHtml;
+			}
+		};
+
+		if (githubLink || mobileGithubLink) {
+			fetch('https://api.github.com/repos/meldrumlabs/enya')
+				.then(response => response.json())
+				.then(data => {
+					if (data.stargazers_count) {
+						updateGithubLinks(data.stargazers_count);
+					}
+				})
+				.catch(error => {
+					console.error('Failed to fetch GitHub stars:', error);
+				});
+		}
+	});
+</script>

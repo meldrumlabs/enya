@@ -1,0 +1,49 @@
+---
+title: Welcome to Enya
+description: Embeddable observability agent for data systems
+sidebar:
+  hidden: true
+prev: false
+next:
+  link: docs/getting-started/introduction/
+  label: Introduction
+---
+
+# Welcome to Enya Documentation
+
+Embeddable observability agent for data systems.
+
+## Instrument Your Data Systems in Minutes
+
+Enya makes it incredibly easy to add deep observability to your data pipelines. Here's how simple it is:
+
+```rust
+use enya::Enya;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize the Enya observability agent
+    let enya = Enya::new()
+        .with_endpoint("http://localhost:4317")
+        .build()?;
+
+    // Instrument your data pipeline
+    let pipeline = enya.instrument(my_pipeline)
+        .track_lineage()
+        .monitor_quality()
+        .profile_data();
+
+    // Your pipeline now reports metrics, traces, and data quality
+    pipeline.run().await?;
+
+    Ok(())
+}
+```
+
+Just add Enya to your project:
+
+```sh
+cargo add enya
+```
+
+Ready to begin? Check out the [Getting Started](/docs/docs/getting-started/) guide to start instrumenting your data systems with Enya.

@@ -1,0 +1,376 @@
+---
+title: Agent
+description: The embeddable Enya agent that collects observability data
+sidebar:
+  order: 5
+  label: Agent
+---
+
+# Enya Agent
+
+The Enya agent is a lightweight, embeddable observability agent designed to run directly within your data systems. Unlike traditional observability tools that require separate infrastructure, the Enya agent embeds seamlessly into your application, collecting metrics, traces, and data quality information with minimal overhead.
+
+## Architecture
+
+The agent is built with a zero-copy, high-performance architecture that minimizes impact on your data pipelines:
+
+```
+┌─────────────────────────────────────┐
+│   Your Data Application             │
+│                                     │
+│  ┌──────────────────────────────┐  │
+│  │     Enya Agent (Embedded)    │  │
+│  │                              │  │
+│  │  • Metrics Collection        │  │
+│  │  • Trace Sampling            │  │
+│  │  • Data Quality Checks       │  │
+│  │  • Schema Tracking           │  │
+│  └──────────────────────────────┘  │
+│           ↓                         │
+└───────────┼─────────────────────────┘
+            ↓
+    ┌───────────────┐
+    │ OTLP Endpoint │
+    │ or Enya UI    │
+    └───────────────┘
+```
+
+## Key Features
+
+### Fully Embeddable
+
+The agent runs as a library within your application process:
+
+- **No external processes**: No separate daemons or sidecars required
+- **Direct instrumentation**: Hooks directly into your data pipelines
+- **Minimal dependencies**: Lightweight with carefully selected dependencies
+- **Cross-platform**: Runs anywhere Rust runs
+
+### Zero-Copy Instrumentation
+
+Designed for high-performance data systems:
+
+- **Sampling-based collection**: Configurable sampling to minimize overhead
+- **Async-first**: Built on Tokio for non-blocking operation
+- **Memory efficient**: Minimal allocations and buffer reuse
+- **Lazy evaluation**: Only processes metrics when needed
+
+### Observable Through Editor
+
+All collected data flows to the Enya editor:
+
+- **Real-time visualization**: See metrics as they're collected
+- **Interactive exploration**: Browse traces and data lineage
+- **Historical analysis**: Query past performance data
+- **Alerting**: Set up rules for anomaly detection
+
+## Installation
+
+Add the agent to your Rust project:
+
+```sh
+cargo add enya
+```
+
+Or in your `Cargo.toml`:
+
+```toml
+[dependencies]
+enya = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+```
+
+## Basic Usage
+
+### Initialize the Agent
+
+```rust
+use enya::Enya;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize the embedded agent
+    let enya = Enya::new()
+        .with_endpoint("http://localhost:4317")
+        .with_service_name("my-service")
+        .build()?;
+
+    // Agent is now collecting metrics
+    Ok(())
+}
+```
+
+### Configure Collection
+
+```rust
+let enya = Enya::new()
+    // Where to send data
+    .with_endpoint("http://localhost:4317")
+
+    // Service identification
+    .with_service_name("my-pipeline")
+    .with_service_version("1.0.0")
+
+    // Sampling configuration
+    .with_trace_sampling(0.1)  // 10% sampling
+    .with_metrics_interval(Duration::from_secs(60))
+
+    // Data quality settings
+    .with_schema_tracking(true)
+    .with_lineage_tracking(true)
+
+    .build()?;
+```
+
+## What the Agent Collects
+
+### Metrics
+
+Automatically tracked performance metrics:
+
+- **Throughput**: Records processed per second
+- **Latency**: P50, P95, P99 latencies
+- **Error Rates**: Failed operations and errors
+- **Resource Usage**: Memory, CPU per operation
+
+### Traces
+
+Distributed tracing through your data pipeline:
+
+- **Span creation**: Automatic trace context propagation
+- **Custom attributes**: Attach pipeline-specific metadata
+- **Sampling**: Configurable trace sampling rates
+- **Correlation**: Link traces to data lineage
+
+### Data Quality
+
+Continuous data quality monitoring:
+
+- **Record Counts**: Track data volume at each stage
+- **Null Rates**: Monitor missing data
+- **Schema Validation**: Detect schema violations
+- **Value Distributions**: Statistical profiles of data
+
+### Lineage
+
+Automatic data lineage tracking:
+
+- **Source Tracking**: Where data originates
+- **Transformation Tracking**: How data is modified
+- **Dependency Graphs**: Relationships between datasets
+- **Impact Analysis**: Downstream effects of changes
+
+## Configuration
+
+### Environment Variables
+
+Configure the agent via environment:
+
+```sh
+# OTLP endpoint
+export ENYA_ENDPOINT=http://localhost:4317
+
+# Service identification
+export ENYA_SERVICE_NAME=my-service
+export ENYA_SERVICE_VERSION=1.0.0
+
+# Sampling rates
+export ENYA_TRACE_SAMPLING=0.1
+export ENYA_METRICS_INTERVAL=60
+```
+
+### Configuration File
+
+Use a TOML configuration file:
+
+```toml
+# enya.toml
+[agent]
+endpoint = "http://localhost:4317"
+service_name = "my-service"
+
+[sampling]
+trace_sampling = 0.1
+metrics_interval = 60
+
+[features]
+schema_tracking = true
+lineage_tracking = true
+```
+
+Load the configuration:
+
+```rust
+let enya = Enya::from_config("enya.toml")?;
+```
+
+## Advanced Features
+
+### Custom Metrics
+
+Define application-specific metrics:
+
+```rust
+// Register a custom metric
+enya.register_metric("rows_processed", MetricType::Counter);
+
+// Record values
+enya.record("rows_processed", 1000)?;
+```
+
+### Custom Attributes
+
+Attach metadata to traces:
+
+```rust
+enya.with_attributes([
+    ("pipeline.name", "etl-process"),
+    ("data.source", "s3://bucket/data"),
+])?;
+```
+
+### Conditional Instrumentation
+
+Enable instrumentation selectively:
+
+```rust
+let enya = Enya::new()
+    .instrument_when(|ctx| {
+        // Only instrument production
+        ctx.environment == "production"
+    })
+    .build()?;
+```
+
+## Performance Considerations
+
+The agent is designed for minimal overhead:
+
+- **Typical overhead**: < 1% CPU, < 10MB memory
+- **Sampling**: Reduces overhead for high-throughput systems
+- **Async operation**: Non-blocking data collection
+- **Batch reporting**: Efficient network usage
+
+### Tuning for Performance
+
+```rust
+let enya = Enya::new()
+    // Reduce sampling for high-volume
+    .with_trace_sampling(0.01)  // 1%
+
+    // Batch metrics reports
+    .with_metrics_interval(Duration::from_secs(300))
+
+    // Limit queue sizes
+    .with_max_queue_size(1000)
+
+    .build()?;
+```
+
+## Deployment Patterns
+
+### Embedded in Application
+
+The standard deployment - agent runs within your app:
+
+```rust
+// In your main.rs
+let enya = Enya::new().build()?;
+
+// Run your application with instrumentation
+run_pipeline(enya).await?;
+```
+
+### Multiple Instances
+
+Run multiple agents in different services:
+
+```rust
+// Service A
+let enya_a = Enya::new()
+    .with_service_name("service-a")
+    .build()?;
+
+// Service B
+let enya_b = Enya::new()
+    .with_service_name("service-b")
+    .build()?;
+```
+
+### Centralized Collection
+
+All agents report to central OTLP endpoint:
+
+```
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Agent A │────>│         │<────│ Agent C │
+└─────────┘     │  OTLP   │     └─────────┘
+                │Collector│
+┌─────────┐     │         │     ┌─────────┐
+│ Agent B │────>│         │<────│ Agent D │
+└─────────┘     └────┬────┘     └─────────┘
+                     │
+                     ↓
+              ┌──────────────┐
+              │  Enya Editor │
+              └──────────────┘
+```
+
+## Security
+
+The agent includes security features:
+
+- **TLS Support**: Encrypted communication to OTLP endpoints
+- **Authentication**: API key or token-based auth
+- **Data Sanitization**: Automatic PII scrubbing
+- **Access Control**: Fine-grained permissions
+
+```rust
+let enya = Enya::new()
+    .with_tls(true)
+    .with_auth_token(env::var("ENYA_TOKEN")?)
+    .with_pii_scrubbing(true)
+    .build()?;
+```
+
+## Troubleshooting
+
+### Agent Not Collecting Data
+
+Check connectivity to OTLP endpoint:
+
+```rust
+// Enable debug logging
+let enya = Enya::new()
+    .with_debug(true)
+    .build()?;
+```
+
+### High Memory Usage
+
+Reduce queue sizes and sampling:
+
+```rust
+let enya = Enya::new()
+    .with_max_queue_size(100)
+    .with_trace_sampling(0.01)
+    .build()?;
+```
+
+### Missing Metrics
+
+Verify feature flags are enabled:
+
+```rust
+let enya = Enya::new()
+    .with_metrics_enabled(true)
+    .with_traces_enabled(true)
+    .build()?;
+```
+
+## Next Steps
+
+- Explore [Agent Configuration](/docs/agent/configuration) options
+- Learn about [Performance Tuning](/docs/agent/performance)
+- Set up [Custom Metrics](/docs/agent/custom-metrics)
+- Review [Security Best Practices](/docs/agent/security)

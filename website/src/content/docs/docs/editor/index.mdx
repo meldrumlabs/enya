@@ -1,0 +1,108 @@
+---
+title: Editor
+description: Neovim-inspired editor for creating and browsing metrics
+sidebar:
+  order: 3
+  label: Editor
+---
+
+# Enya Editor
+
+The Enya editor is a neovim-inspired interface for creating and browsing observability metrics. Built with keyboard-driven workflows in mind, it provides a powerful and efficient way to interact with your data systems.
+
+## Overview
+
+The editor combines the familiar modal editing paradigm of vim/neovim with observability-specific features, allowing you to:
+
+- Browse metrics and traces with keyboard navigation
+- Create and edit observability configurations
+- Query data systems in real-time
+- Visualize data flows and lineage
+- Profile performance bottlenecks
+
+## Key Features
+
+### Modal Editing
+
+Like neovim, the editor supports multiple modes:
+
+- **Normal mode**: Navigate and browse metrics
+- **Insert mode**: Edit configurations and queries
+- **Visual mode**: Select and manipulate data
+- **Command mode**: Execute editor commands
+
+### Keyboard-Driven Workflows
+
+Designed for efficiency, the editor emphasizes keyboard shortcuts and commands:
+
+- Navigate metrics trees with `j/k`
+- Jump to specific metrics with `/` search
+- Open metric details with `Enter`
+- Switch between views with leader key combinations
+
+### Real-Time Data Exploration
+
+- Live metric updates as data flows through your systems
+- Interactive query execution with instant feedback
+- Data lineage visualization
+- Performance profiling views
+
+## Getting Started
+
+The editor is available both as a web application and as a native desktop application using egui.
+
+### Web Editor
+
+Access the web editor at `/editor` on your Enya deployment, or click "Open Editor" from the homepage.
+
+### Native Application
+
+Download and run the native editor for a more integrated experience:
+
+```sh
+# Install from crates.io (coming soon)
+cargo install enya-editor
+
+# Run the editor
+enya-editor
+```
+
+## Basic Usage
+
+### Opening the Editor
+
+1. Click "Open Editor" from the Enya homepage
+2. Or navigate directly to `/editor`
+3. Or run `enya-editor` for the native application
+
+### Navigation
+
+Use vim-style navigation:
+
+- `j` / `k` - Move down/up through metrics
+- `h` / `l` - Collapse/expand metric groups
+- `gg` / `G` - Jump to top/bottom
+- `/` - Search for metrics
+- `:` - Enter command mode
+
+### Creating Configurations
+
+1. Press `i` to enter insert mode
+2. Edit your observability configuration
+3. Press `Esc` to return to normal mode
+4. Save with `:w`
+
+### Querying Data
+
+1. Open the query panel with `:query`
+2. Write your query in the editor
+3. Execute with `:run` or `Ctrl+Enter`
+4. View results in the output panel
+
+## Next Steps
+
+- Explore the [Editor Commands](/docs/editor/commands) reference
+- Learn about [Keyboard Shortcuts](/docs/editor/shortcuts)
+- Read the [Configuration Guide](/docs/editor/configuration)
+
+The editor is designed to make observability workflows fast and efficient. With practice, you'll be navigating and querying your data systems at the speed of thought.
