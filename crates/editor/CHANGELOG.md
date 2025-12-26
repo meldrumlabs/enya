@@ -9,6 +9,18 @@ All notable changes to the Enya editor will be documented in this file.
 - **Moved heatmap into visualization module**: The `heatmap.rs` module is now located at `components/pane/visualization/heatmap.rs` alongside other visualization types for consistency.
 - **Moved theme into ui module**: The `theme.rs` module is now located at `ui/theme.rs` alongside other UI primitives (colors, typography, icons, etc.).
 - **Moved workspace_tabs into workspace module**: The `workspace_tabs.rs` module is now located at `workspace/tabs.rs` alongside other workspace-related code.
+- **Alpha-nvim inspired landing page**: Redesigned the landing page with a minimal, centered layout inspired by alpha-nvim. Changes include:
+  - Clean vertical menu with six actions: Find workspace (`w`), Create workspace (`n`), Tutorial (`t`), Docs (`d`), Shortcuts (`?`), and About (`i`)
+  - Docs option opens the documentation website at enya.build/docs
+  - Shortcuts option opens the which-key overlay with all keyboard shortcuts
+  - About option opens the info overlay with version and build information
+  - Menu items display icon, label, and keyboard shortcut in a single row
+  - Vim-style navigation with `j`/`k` (or arrows) to move through menu items
+  - Press `Enter` to activate the selected item, or use direct shortcuts
+  - Keyboard hints footer showing available navigation keys
+  - Content is vertically centered in the viewport
+  - Large centered logo and Enya branding
+  - Status line is hidden on the landing page (only shows in workspaces)
 
 ### Removed
 

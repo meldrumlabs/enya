@@ -166,6 +166,13 @@ impl EnyaApp {
 
     // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
+        // Hide status line on landing page - it's part of the workspace UI, not the landing page
+        if let Some(tab) = self.workspace_tabs.active_tab() {
+            if tab.workspace.is_landing_page() {
+                return;
+            }
+        }
+
         // Update status line state
         self.status_line.set_theme(self.state.theme);
 
