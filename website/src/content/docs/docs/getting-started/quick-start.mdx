@@ -1,0 +1,135 @@
+---
+title: Quick Start
+description: Embed Enya observability in your data systems in minutes
+sidebar:
+  order: 2
+  label: Quick Start
+---
+
+# Quick Start
+
+Get started with Enya observability in just a few minutes. This guide will walk you through installation, basic setup, and instrumenting your first data pipeline.
+
+## Prerequisites
+
+Before you begin, make sure you have:
+
+- Rust 1.70 or later
+- Cargo (comes with Rust)
+- An existing data pipeline or application to instrument
+- (Optional) An OpenTelemetry collector endpoint
+
+## Installation
+
+Add Enya to your Rust project:
+
+```sh
+cargo add enya
+cargo add tokio --features full
+```
+
+Or add them manually to your `Cargo.toml`:
+
+```toml
+[dependencies]
+enya = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+```
+
+## Basic Setup
+
+Initialize the Enya observability agent in your application:
+
+```rust
+use enya::Enya;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize Enya with your observability backend
+    let enya = Enya::new()
+        .with_endpoint("http://localhost:4317")  // OTLP endpoint
+        .with_service_name("my-data-pipeline")
+        .build()?;
+
+    Ok(())
+}
+```
+
+## Instrument Your First Pipeline
+
+Let's add observability to a simple data pipeline:
+
+```rust
+use enya::{Enya, instrument};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize Enya
+    let enya = Enya::new()
+        .with_endpoint("http://localhost:4317")
+        .build()?;
+
+    // Instrument your pipeline function
+    #[instrument(enya)]
+    async fn process_data(data: Vec<Record>) -> Result<Vec<Record>, Error> {
+        // Track data lineage automatically
+        enya.track_input(&data)?;
+
+        // Your transformation logic
+        let processed = data
+            .into_iter()
+            .filter(|r| r.is_valid())
+            .map(|r| r.transform())
+            .collect();
+
+        // Track output and quality metrics
+        enya.track_output(&processed)?;
+        enya.record_quality_metrics(&processed)?;
+
+        Ok(processed)
+    }
+
+    // Run your pipeline - now with full observability
+    let results = process_data(input_data).await?;
+
+    Ok(())
+}
+```
+
+## Verify Your Instrumentation
+
+Run your instrumented application:
+
+```sh
+cargo run
+```
+
+If everything is set up correctly, you should see:
+- Trace spans for your pipeline operations
+- Data quality metrics being reported
+- Lineage information captured
+- Performance metrics tracked
+
+Check your observability backend (Jaeger, Grafana, etc.) to view the collected data.
+
+## What Enya Tracks Automatically
+
+Once instrumented, Enya provides:
+
+- **Data Lineage**: Automatic tracking of data flow through your systems
+- **Quality Metrics**: Record counts, null rates, schema validation
+- **Performance**: Latency, throughput, and bottleneck identification
+- **Anomaly Detection**: Automatic detection of data quality issues
+- **Schema Evolution**: Track schema changes over time
+
+## Next Steps
+
+Now that you have Enya embedded, you can:
+
+- Configure custom quality metrics
+- Set up alerting rules for data anomalies
+- Integrate with your observability stack
+- Add instrumentation to more pipelines
+- Explore advanced features like data profiling
+
+Continue reading the documentation to learn more about Enya's observability capabilities.

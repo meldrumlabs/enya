@@ -1,0 +1,71 @@
+---
+import SiteTitle from '@astrojs/starlight/components/SiteTitle.astro';
+import Search from '@astrojs/starlight/components/Search.astro';
+
+---
+
+<div class="header">
+	<div class="title-wrapper sl-flex">
+		<SiteTitle />
+	</div>
+	<div class="sl-hidden md:sl-flex right-group print:hidden">
+		<div class="search-wrapper print:hidden">
+			<Search />
+		</div>
+		<div class="sl-flex header-links">
+			<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="header-link">github</a>
+		</div>
+	</div>
+</div>
+
+<style>
+        .header {
+			display: flex;
+			gap: var(--sl-nav-gap);
+			justify-content: space-between;
+			align-items: center;
+			height: 100%;
+		}
+
+		.title-wrapper {
+			/* Prevent long titles overflowing and covering the search and menu buttons on narrow viewports. */
+			overflow: clip;
+			/* Avoid clipping focus ring around link inside title wrapper. */
+			padding: 0.25rem;
+			margin: -0.25rem;
+			min-width: 0;
+		}
+
+		.search-wrapper {
+			flex: 1;
+			width: 360px;
+			justify-content: flex-end;
+		}
+
+		.right-group {
+			gap: 1rem;
+			align-items: center;
+		}
+
+		.header-links {
+			display: flex;
+			gap: 1.5rem;
+			align-items: center;
+		}
+
+		.header-link {
+			font-size: 0.875rem;
+			font-family: monospace;
+			color: var(--sl-color-text);
+			text-decoration: none;
+			transition: color 0.2s ease;
+		}
+
+		.header-link:hover {
+			color: var(--sl-color-gray-3);
+		}
+
+        .sl-flex {
+            display: flex;
+        }
+</style>
