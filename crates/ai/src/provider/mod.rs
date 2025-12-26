@@ -8,7 +8,7 @@ mod openai;
 pub use anthropic::AnthropicClient;
 pub use openai::OpenAIClient;
 
-use crossbeam_channel::Receiver;
+use std::sync::mpsc::Receiver;
 
 use crate::types::{AgentEvent, Message, ToolDefinition};
 

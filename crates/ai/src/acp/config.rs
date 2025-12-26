@@ -101,16 +101,30 @@ impl AgentConfig {
         }
     }
 
-    /// Create a configuration for OpenAI Codex.
+    /// Create a configuration for OpenAI Codex via the ACP adapter.
+    ///
+    /// Uses the `@zed-industries/codex-acp` npm package which wraps
+    /// the Codex CLI with ACP protocol support.
+    ///
+    /// Requires `OPENAI_API_KEY` environment variable to be set.
     #[must_use]
     pub fn codex() -> Self {
         Self {
             kind: AgentKind::Codex,
-            command: "codex".to_string(),
-            args: vec!["--acp".to_string()],
+            command: "npx".to_string(),
+            args: vec!["-y".to_string(), "@zed-industries/codex-acp".to_string()],
             working_dir: None,
             env: vec![],
             env_remove: vec![],
+        }
+    }
+
+    /// Create a configuration for Codex with a specific API key.
+    #[must_use]
+    pub fn codex_with_api_key(api_key: impl Into<String>) -> Self {
+        Self {
+            env: vec![("OPENAI_API_KEY".to_string(), api_key.into())],
+            ..Self::codex()
         }
     }
 

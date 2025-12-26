@@ -235,11 +235,14 @@ impl Workspace {
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
-            query_executor: QueryExecutor::new(async_runtime),
+            query_executor: QueryExecutor::new(async_runtime.clone()),
             pending_query_tile: None,
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
             source_preview: SourcePreviewOverlay::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            agent_panel: AgentPanel::new(async_runtime.handle().clone()),
+            #[cfg(target_arch = "wasm32")]
             agent_panel: AgentPanel::new(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
@@ -955,6 +958,16 @@ impl Workspace {
                 }
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
+                WorkspaceAction::None
+            }
+            CommandResult::SetProvider(provider_name) => {
+                use crate::components::overlay::agent_panel::AiProvider;
+                if let Some(provider) = AiProvider::parse(&provider_name) {
+                    self.agent_panel.set_provider(provider);
+                    log::info!("Set AI provider to: {}", provider.display_name());
+                } else {
+                    log::warn!("Unknown AI provider: {provider_name}. Use 'claude' or 'codex'.");
+                }
                 WorkspaceAction::None
             }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {

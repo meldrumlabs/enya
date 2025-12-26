@@ -4,13 +4,11 @@
 //! responses displayed in real-time. Styled with the Obsidian Glass design system.
 
 use egui::{Color32, Key, RichText, ScrollArea, TextEdit, Vec2};
-use parking_lot::Mutex;
-use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::io::{BufRead, BufReader, Write};
+use enya_ai::{AcpClient, AgentEvent};
 #[cfg(not(target_arch = "wasm32"))]
-use std::process::{Command, Stdio};
+use std::sync::mpsc::Receiver;
 
 use crate::components::util::finder_utils::OverlayColors;
 use crate::theme::AppTheme;
@@ -75,55 +73,100 @@ enum ResponseStatus {
     Complete,
 }
 
-/// Streaming state for Claude CLI responses
-struct StreamingState {
-    /// Accumulated response text
-    response_text: String,
-    /// Whether streaming is complete
-    is_complete: bool,
-    /// Any error that occurred
-    error: Option<String>,
-    /// Current response status
-    status: ResponseStatus,
-    /// Model being used (extracted from stream events)
-    model: Option<String>,
-    /// Activity log items
-    activities: Vec<ActivityItem>,
-}
-
-/// Available Claude models
+/// Available AI providers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ClaudeModel {
-    /// Claude Sonnet 4.5 - balanced speed and capability
+pub enum AiProvider {
+    /// Claude Code (Anthropic) - default
     #[default]
-    Sonnet45,
-    /// Claude Opus 4.5 - most capable
-    Opus45,
-    /// Claude Haiku 4.5 - fastest
-    Haiku45,
+    Claude,
+    /// Codex (OpenAI)
+    Codex,
 }
 
-impl ClaudeModel {
+impl AiProvider {
+    /// Get the display name for this provider
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude",
+            Self::Codex => "Codex",
+        }
+    }
+
+    /// Parse a provider from string name
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "claude" | "anthropic" => Some(Self::Claude),
+            "codex" | "openai" => Some(Self::Codex),
+            _ => None,
+        }
+    }
+
+    /// List all available providers
+    pub fn all() -> &'static [Self] {
+        &[Self::Claude, Self::Codex]
+    }
+}
+
+/// Available models (varies by provider)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AiModel {
+    // Claude models
+    ClaudeSonnet45,
+    ClaudeOpus45,
+    ClaudeHaiku45,
+    // OpenAI models (GPT-5.2 series)
+    Gpt52,
+    Gpt52Pro,
+    Gpt52Codex,
+}
+
+impl AiModel {
     /// Get the display name for this model
     fn display_name(self) -> &'static str {
         match self {
-            Self::Sonnet45 => "Sonnet 4.5",
-            Self::Opus45 => "Opus 4.5",
-            Self::Haiku45 => "Haiku 4.5",
+            Self::ClaudeSonnet45 => "Sonnet 4.5",
+            Self::ClaudeOpus45 => "Opus 4.5",
+            Self::ClaudeHaiku45 => "Haiku 4.5",
+            Self::Gpt52 => "GPT-5.2",
+            Self::Gpt52Pro => "GPT-5.2 Pro",
+            Self::Gpt52Codex => "GPT-5.2 Codex",
         }
     }
 
     /// Get the API model ID
     fn model_id(self) -> &'static str {
         match self {
-            Self::Sonnet45 => "claude-sonnet-4-5-20250514",
-            Self::Opus45 => "claude-opus-4-5-20250514",
-            Self::Haiku45 => "claude-haiku-4-5-20250514",
+            Self::ClaudeSonnet45 => "claude-sonnet-4-5-20250514",
+            Self::ClaudeOpus45 => "claude-opus-4-5-20250514",
+            Self::ClaudeHaiku45 => "claude-haiku-4-5-20250514",
+            Self::Gpt52 => "gpt-5.2-2025-12-11",
+            Self::Gpt52Pro => "gpt-5.2-pro-2025-12-11",
+            Self::Gpt52Codex => "gpt-5.2-codex",
+        }
+    }
+
+    /// Get models available for a provider
+    fn for_provider(provider: AiProvider) -> &'static [Self] {
+        match provider {
+            AiProvider::Claude => &[
+                Self::ClaudeSonnet45,
+                Self::ClaudeOpus45,
+                Self::ClaudeHaiku45,
+            ],
+            AiProvider::Codex => &[Self::Gpt52Codex, Self::Gpt52, Self::Gpt52Pro],
+        }
+    }
+
+    /// Get the default model for a provider
+    fn default_for(provider: AiProvider) -> Self {
+        match provider {
+            AiProvider::Claude => Self::ClaudeSonnet45,
+            AiProvider::Codex => Self::Gpt52Codex,
         }
     }
 }
 
-/// The agent panel component for Claude Code chat
+/// The agent panel component for AI-assisted chat
 pub struct AgentPanel {
     /// Whether the panel is open
     is_open: bool,
@@ -135,50 +178,91 @@ pub struct AgentPanel {
     input_text: String,
     /// Whether we're currently waiting for a response
     is_waiting: bool,
-    /// Shared state for streaming responses (read by UI, written by background thread)
-    streaming_state: Arc<Mutex<Option<StreamingState>>>,
+    /// Event receiver for streaming ACP responses
+    #[cfg(not(target_arch = "wasm32"))]
+    event_receiver: Option<Receiver<AgentEvent>>,
+    /// Accumulated response text during streaming
+    response_text: String,
     /// Whether the input should be focused
     focus_input: bool,
     /// Scroll to bottom flag
     scroll_to_bottom: bool,
-    /// Session ID for continuing conversations
-    session_id: Option<String>,
     /// Current model being used (display name)
     current_model: Option<String>,
+    /// Selected AI provider
+    selected_provider: AiProvider,
     /// Selected model for next request
-    selected_model: ClaudeModel,
+    selected_model: AiModel,
     /// Current response status for UI display
     current_status: ResponseStatus,
     /// Current activities being displayed
     current_activities: Vec<ActivityItem>,
     /// Timestamp when request started (for elapsed time display)
     request_start_time: Option<std::time::Instant>,
-}
-
-impl Default for AgentPanel {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// Tokio runtime handle for spawning async tasks
+    #[cfg(not(target_arch = "wasm32"))]
+    runtime_handle: Option<tokio::runtime::Handle>,
 }
 
 impl AgentPanel {
-    pub fn new() -> Self {
+    /// Create a new agent panel with a tokio runtime handle.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new(runtime_handle: tokio::runtime::Handle) -> Self {
+        let provider = AiProvider::default();
         Self {
             is_open: false,
             theme: AppTheme::default(),
             messages: Vec::new(),
             input_text: String::new(),
             is_waiting: false,
-            streaming_state: Arc::new(Mutex::new(None)),
+            event_receiver: None,
+            response_text: String::new(),
             focus_input: false,
             scroll_to_bottom: false,
-            session_id: None,
             current_model: None,
-            selected_model: ClaudeModel::default(),
+            selected_provider: provider,
+            selected_model: AiModel::default_for(provider),
+            current_status: ResponseStatus::Complete,
+            current_activities: Vec::new(),
+            request_start_time: None,
+            runtime_handle: Some(runtime_handle),
+        }
+    }
+
+    /// Create a new agent panel (WASM version - no runtime needed).
+    #[cfg(target_arch = "wasm32")]
+    pub fn new() -> Self {
+        let provider = AiProvider::default();
+        Self {
+            is_open: false,
+            theme: AppTheme::default(),
+            messages: Vec::new(),
+            input_text: String::new(),
+            is_waiting: false,
+            response_text: String::new(),
+            focus_input: false,
+            scroll_to_bottom: false,
+            current_model: None,
+            selected_provider: provider,
+            selected_model: AiModel::default_for(provider),
             current_status: ResponseStatus::Complete,
             current_activities: Vec::new(),
             request_start_time: None,
         }
+    }
+
+    /// Set the AI provider
+    pub fn set_provider(&mut self, provider: AiProvider) {
+        if self.selected_provider != provider {
+            self.selected_provider = provider;
+            // Reset to default model for the new provider
+            self.selected_model = AiModel::default_for(provider);
+        }
+    }
+
+    /// Get the current provider
+    pub fn provider(&self) -> AiProvider {
+        self.selected_provider
     }
 
     /// Set the theme
@@ -290,9 +374,9 @@ impl AgentPanel {
             );
             ui.add_space(6.0);
 
-            // Title
+            // Title - shows current provider
             ui.label(
-                RichText::new("Claude")
+                RichText::new(self.selected_provider.display_name())
                     .color(text_primary)
                     .size(typography::LG)
                     .strong(),
@@ -307,8 +391,7 @@ impl AgentPanel {
                 style.visuals.widgets.inactive.bg_fill = colors.badge_bg;
                 style.visuals.widgets.hovered.bg_fill = colors.elevated_bg;
                 style.visuals.widgets.active.bg_fill = colors.elevated_bg;
-                style.visuals.widgets.inactive.fg_stroke =
-                    egui::Stroke::new(1.0, colors.separator);
+                style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, colors.separator);
                 style.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(4);
 
                 egui::ComboBox::from_id_salt("model_selector")
@@ -319,7 +402,7 @@ impl AgentPanel {
                     )
                     .width(90.0)
                     .show_ui(ui, |ui| {
-                        for model in [ClaudeModel::Sonnet45, ClaudeModel::Opus45, ClaudeModel::Haiku45] {
+                        for &model in AiModel::for_provider(self.selected_provider) {
                             ui.selectable_value(
                                 &mut self.selected_model,
                                 model,
@@ -378,8 +461,12 @@ impl AgentPanel {
                                 .size(32.0),
                         );
                         ui.add_space(12.0);
+                        let prompt_text = match self.selected_provider {
+                            AiProvider::Claude => "Ask Claude anything",
+                            AiProvider::Codex => "Ask Codex anything",
+                        };
                         ui.label(
-                            RichText::new("Ask Claude anything")
+                            RichText::new(prompt_text)
                                 .color(text_muted)
                                 .size(typography::LG),
                         );
@@ -443,11 +530,15 @@ impl AgentPanel {
                 .inner_margin(egui::Margin::symmetric(10, 6))
                 .stroke(egui::Stroke::new(1.0, colors.separator))
                 .show(ui, |ui| {
+                    let hint_text = match self.selected_provider {
+                        AiProvider::Claude => "Ask Claude...",
+                        AiProvider::Codex => "Ask Codex...",
+                    };
                     let response = ui.add_sized(
                         Vec2::new(ui.available_width() - 50.0, 20.0),
                         TextEdit::singleline(&mut self.input_text)
                             .hint_text(
-                                RichText::new("Ask Claude...")
+                                RichText::new(hint_text)
                                     .color(text_faint)
                                     .size(typography::MD),
                             )
@@ -507,9 +598,9 @@ impl AgentPanel {
                 },
             ),
             MessageRole::Assistant => (
-                "Claude",
-                palette::accent::PRIMARY, // Emerald for Claude
-                Color32::TRANSPARENT,     // No background for assistant - cleaner
+                self.selected_provider.display_name(),
+                palette::accent::PRIMARY,
+                Color32::TRANSPARENT, // No background for assistant - cleaner
             ),
             MessageRole::System => ("System", colors.faint_text, Color32::TRANSPARENT),
         };
@@ -560,8 +651,10 @@ impl AgentPanel {
     ) {
         // Show content if we have any
         if !message.content.is_empty() {
+            // Normalize unicode characters that may not render in our font
+            let normalized = Self::normalize_text(&message.content);
             ui.label(
-                RichText::new(&message.content)
+                RichText::new(normalized)
                     .color(colors.text)
                     .size(typography::MD),
             );
@@ -662,7 +755,7 @@ impl AgentPanel {
 
     /// Send the current input as a message
     #[cfg(not(target_arch = "wasm32"))]
-    fn send_message(&mut self, ctx: &egui::Context) {
+    fn send_message(&mut self, _ctx: &egui::Context) {
         let prompt = self.input_text.trim().to_string();
         if prompt.is_empty() {
             return;
@@ -682,454 +775,33 @@ impl AgentPanel {
             is_streaming: true,
         });
 
-        // Clear input
+        // Clear input and reset state
         self.input_text.clear();
         self.is_waiting = true;
         self.scroll_to_bottom = true;
         self.request_start_time = Some(std::time::Instant::now());
-
-        // Reset streaming state
-        // Set the model we're requesting (will be updated if server reports different)
-        let model_display = self.selected_model.display_name().to_string();
-        let model_id = self.selected_model.model_id().to_string();
-        *self.streaming_state.lock() = Some(StreamingState {
-            response_text: String::new(),
-            is_complete: false,
-            error: None,
-            status: ResponseStatus::Waiting,
-            model: Some(model_display.clone()),
-            activities: Vec::new(),
-        });
+        self.response_text.clear();
         self.current_status = ResponseStatus::Waiting;
         self.current_activities.clear();
-        self.current_model = Some(model_display);
+        self.current_model = Some(self.selected_model.display_name().to_string());
 
-        // Spawn Claude Code ACP adapter process
-        let streaming_state = Arc::clone(&self.streaming_state);
-        let ctx_clone = ctx.clone();
-        let _session_id = self.session_id.clone();
+        // Get working directory
+        let working_dir = std::env::current_dir().ok();
 
-        std::thread::spawn(move || {
-            // Use the @zed-industries/claude-code-acp npm package
-            // This wraps Claude Code with ACP protocol support using the Claude Agent SDK.
-            // Authentication is inherited from the Claude CLI - if you have Claude Max
-            // subscription and have run `claude /login`, it will use that.
-            // If ANTHROPIC_API_KEY is set, it will use API billing instead.
-            // -y auto-confirms the npx install prompt (same as avante.nvim)
-            let mut cmd = Command::new("npx");
-            cmd.arg("-y")
-                .arg("@zed-industries/claude-code-acp")
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-
-            log::debug!("Spawning claude-code-acp: {cmd:?}");
-
-            match cmd.spawn() {
-                Ok(mut child) => {
-                    // Get handles
-                    let stdin = child.stdin.take();
-                    let stdout = child.stdout.take();
-                    let stderr = child.stderr.take();
-
-                    // Spawn a thread to read stderr and log it
-                    if let Some(stderr) = stderr {
-                        std::thread::spawn(move || {
-                            let reader = BufReader::new(stderr);
-                            for line in reader.lines().map_while(Result::ok) {
-                                log::warn!("claude-code-acp stderr: {line}");
-                            }
-                        });
-                    }
-
-                    if let (Some(mut stdin), Some(stdout)) = (stdin, stdout) {
-                        let reader = BufReader::new(stdout);
-
-                        // Run ACP session
-                        if let Err(e) = Self::run_acp_session(
-                            &mut stdin,
-                            reader,
-                            &prompt,
-                            &model_id,
-                            &streaming_state,
-                            &ctx_clone,
-                        ) {
-                            let mut state = streaming_state.lock();
-                            if let Some(ref mut s) = *state {
-                                s.error = Some(format!("ACP error: {e}"));
-                                s.is_complete = true;
-                            }
-                        }
-                    }
-
-                    // Clean up
-                    let _ = child.kill();
-                    let _ = child.wait();
-
-                    // Mark as complete
-                    let mut state = streaming_state.lock();
-                    if let Some(ref mut s) = *state {
-                        s.is_complete = true;
-                    }
-                    ctx_clone.request_repaint();
-                }
-                Err(e) => {
-                    let mut state = streaming_state.lock();
-                    if let Some(ref mut s) = *state {
-                        s.error = Some(format!("Failed to start claude-code-acp: {e}"));
-                        s.is_complete = true;
-                    }
-                    ctx_clone.request_repaint();
-                }
+        // Create client based on selected provider, with runtime handle for async spawning
+        let client = match (&self.selected_provider, &self.runtime_handle) {
+            (AiProvider::Claude, Some(handle)) => {
+                AcpClient::claude_code_with_runtime(handle.clone())
             }
-        });
-    }
-
-    /// Run the ACP session protocol
-    #[cfg(not(target_arch = "wasm32"))]
-    fn run_acp_session(
-        stdin: &mut std::process::ChildStdin,
-        reader: BufReader<std::process::ChildStdout>,
-        prompt: &str,
-        model_id: &str,
-        streaming_state: &Arc<Mutex<Option<StreamingState>>>,
-        ctx: &egui::Context,
-    ) -> Result<(), String> {
-        use std::io::Lines;
-
-        let mut lines: Lines<BufReader<std::process::ChildStdout>> = reader.lines();
-
-        // Helper to send JSON-RPC message
-        let send_msg =
-            |stdin: &mut std::process::ChildStdin, msg: &serde_json::Value| -> Result<(), String> {
-                writeln!(stdin, "{msg}").map_err(|e| format!("Write error: {e}"))?;
-                stdin.flush().map_err(|e| format!("Flush error: {e}"))
-            };
-
-        // Helper to read response
-        let read_line =
-            |lines: &mut Lines<BufReader<std::process::ChildStdout>>| -> Result<serde_json::Value, String> {
-                let line = lines
-                    .next()
-                    .ok_or("No response")?
-                    .map_err(|e| format!("Read error: {e}"))?;
-                log::trace!("ACP recv: {line}");
-                serde_json::from_str(&line).map_err(|e| format!("Parse error: {e}"))
-            };
-
-        // 1. Send initialize
-        // Note: protocolVersion must be a number (1), not a string
-        let init_msg = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": 1,
-                "clientInfo": {
-                    "name": "Enya",
-                    "version": env!("CARGO_PKG_VERSION")
-                },
-                "clientCapabilities": {
-                    "terminal": true
-                }
-            }
-        });
-        send_msg(stdin, &init_msg)?;
-        let _ = read_line(&mut lines)?; // Read init response
-
-        // 2. Create session
-        // Pass Claude Code options via _meta.claudeCode.options to configure the model
-        // and enable extended thinking. The adapter uses Claude Max subscription by default
-        // when ANTHROPIC_API_KEY is not set.
-        let cwd = std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| ".".to_string());
-        let session_msg = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "session/new",
-            "params": {
-                "cwd": cwd,
-                "mcpServers": [],
-                "_meta": {
-                    "claudeCode": {
-                        "options": {
-                            "model": model_id
-                        }
-                    }
-                }
-            }
-        });
-        send_msg(stdin, &session_msg)?;
-        let session_resp = read_line(&mut lines)?;
-
-        // Extract session ID
-        let session_id = session_resp
-            .get("result")
-            .and_then(|r| r.get("sessionId"))
-            .and_then(|s| s.as_str())
-            .unwrap_or("default")
-            .to_string();
-
-        log::debug!("ACP session created: {session_id}");
-
-        // 3. Send prompt
-        // Note: prompt must be an array at params.prompt, not params.content
-        let prompt_msg = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "session/prompt",
-            "params": {
-                "sessionId": session_id,
-                "prompt": [{"type": "text", "text": prompt}]
-            }
-        });
-        send_msg(stdin, &prompt_msg)?;
-
-        // 4. Read streaming responses
-        for line_result in lines {
-            match line_result {
-                Ok(line) => {
-                    log::debug!("ACP message: {line}");
-                    if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) {
-                        // Process the ACP message
-                        let should_stop = Self::process_acp_event(&msg, streaming_state, ctx);
-                        if should_stop {
-                            break;
-                        }
-                    }
-                }
-                Err(e) => {
-                    return Err(format!("Read error: {e}"));
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Process an ACP event and return true if streaming is complete
-    #[cfg(not(target_arch = "wasm32"))]
-    fn process_acp_event(
-        msg: &serde_json::Value,
-        streaming_state: &Arc<Mutex<Option<StreamingState>>>,
-        ctx: &egui::Context,
-    ) -> bool {
-        // Check for notifications (session/update)
-        if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
-            if method == "session/update" {
-                if let Some(params) = msg.get("params") {
-                    Self::process_session_update(params, streaming_state, ctx);
-                }
-            }
-            return false;
-        }
-
-        // Check for prompt response (completion) - id: 3 is our prompt request
-        if msg.get("id") == Some(&serde_json::json!(3)) {
-            if let Some(result) = msg.get("result") {
-                let mut state = streaming_state.lock();
-                if let Some(ref mut s) = *state {
-                    // Mark all activities as complete
-                    for activity in &mut s.activities {
-                        activity.in_progress = false;
-                    }
-                    s.is_complete = true;
-                    s.status = ResponseStatus::Complete;
-                }
-                ctx.request_repaint();
-
-                // Check stop reason
-                if result.get("stopReason").is_some() {
-                    return true;
-                }
-            }
-
-            // Check for error response
-            if let Some(error) = msg.get("error") {
-                let error_msg = error
-                    .get("message")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("Unknown error");
-                let mut state = streaming_state.lock();
-                if let Some(ref mut s) = *state {
-                    s.error = Some(error_msg.to_string());
-                    s.activities.push(ActivityItem {
-                        activity_type: ActivityType::Error(error_msg.to_string()),
-                        in_progress: false,
-                    });
-                    s.is_complete = true;
-                    s.status = ResponseStatus::Complete;
-                }
-                ctx.request_repaint();
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Process a session/update notification from ACP
-    #[cfg(not(target_arch = "wasm32"))]
-    fn process_session_update(
-        params: &serde_json::Value,
-        streaming_state: &Arc<Mutex<Option<StreamingState>>>,
-        ctx: &egui::Context,
-    ) {
-        let Some(update) = params.get("update") else {
-            return;
+            (AiProvider::Claude, None) => AcpClient::claude_code(),
+            (AiProvider::Codex, Some(handle)) => AcpClient::codex_with_runtime(handle.clone()),
+            (AiProvider::Codex, None) => AcpClient::codex(),
         };
 
-        // Get the session update type
-        let Some(update_type) = update.get("sessionUpdate").and_then(|u| u.as_str()) else {
-            return;
-        };
+        let receiver =
+            client.prompt_with_model(prompt, working_dir, Some(self.selected_model.model_id()));
 
-        let mut state = streaming_state.lock();
-        let Some(ref mut s) = *state else {
-            return;
-        };
-
-        log::debug!("ACP session update: {update_type}");
-
-        match update_type {
-            "agent_message_chunk" => {
-                // Text delta from the agent
-                if let Some(content) = update.get("content") {
-                    if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
-                        s.response_text.push_str(text);
-                        s.status = ResponseStatus::Responding;
-                    }
-                }
-            }
-            "agent_thought_chunk" => {
-                log::debug!("Got thinking chunk");
-                // Thinking delta
-                if let Some(content) = update.get("content") {
-                    if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
-                        s.status = ResponseStatus::Thinking;
-                        // Update or create thinking activity
-                        if let Some(last) = s.activities.last_mut() {
-                            if let ActivityType::Thinking(ref mut thinking_text) =
-                                last.activity_type
-                            {
-                                if thinking_text.len() < 60 {
-                                    thinking_text.push_str(text);
-                                    if thinking_text.len() > 60 {
-                                        thinking_text.truncate(57);
-                                        thinking_text.push_str("...");
-                                    }
-                                }
-                            } else {
-                                // Not a thinking activity, create new one
-                                s.activities.push(ActivityItem {
-                                    activity_type: ActivityType::Thinking(Self::truncate_text(
-                                        text, 60,
-                                    )),
-                                    in_progress: true,
-                                });
-                            }
-                        } else {
-                            s.activities.push(ActivityItem {
-                                activity_type: ActivityType::Thinking(Self::truncate_text(
-                                    text, 60,
-                                )),
-                                in_progress: true,
-                            });
-                        }
-                    }
-                }
-            }
-            "tool_call" => {
-                log::debug!("Got tool_call: {update}");
-                // Tool call started - check multiple possible locations for tool name
-                let tool_name = update
-                    .get("name")
-                    .and_then(|n| n.as_str())
-                    .or_else(|| {
-                        // Also check _meta.claudeCode.toolName
-                        update
-                            .get("_meta")
-                            .and_then(|m| m.get("claudeCode"))
-                            .and_then(|c| c.get("toolName"))
-                            .and_then(|n| n.as_str())
-                    })
-                    .or_else(|| {
-                        // Also check for 'title' field from toolInfoFromToolUse
-                        update.get("title").and_then(|t| t.as_str())
-                    });
-
-                // Try to extract a summary from the tool input
-                // rawInput can be either a JSON object or a JSON string
-                let summary = update
-                    .get("rawInput")
-                    .and_then(|r| {
-                        // Handle both object and string forms
-                        if r.is_object() {
-                            Some(r.clone())
-                        } else {
-                            r.as_str()
-                                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                        }
-                    })
-                    .and_then(|v| {
-                        // Check for file path fields first (use path truncation)
-                        if let Some(path) = v
-                            .get("file_path")
-                            .or_else(|| v.get("path"))
-                            .and_then(|s| s.as_str())
-                        {
-                            return Some(Self::truncate_path(path, 50));
-                        }
-                        // Other fields use regular text truncation
-                        v.get("pattern")
-                            .or_else(|| v.get("command"))
-                            .or_else(|| v.get("description"))
-                            .or_else(|| v.get("prompt"))
-                            .and_then(|s| s.as_str())
-                            .map(|s| Self::truncate_text(s, 50))
-                    })
-                    .or_else(|| {
-                        // Fall back to title if no specific field found
-                        update
-                            .get("title")
-                            .and_then(|t| t.as_str())
-                            .map(String::from)
-                    })
-                    .unwrap_or_default();
-
-                if let Some(name) = tool_name {
-                    log::debug!("Tool name: {name}, summary: {summary}");
-                    // Mark previous activities as complete
-                    for activity in &mut s.activities {
-                        activity.in_progress = false;
-                    }
-                    s.activities.push(ActivityItem {
-                        activity_type: ActivityType::ToolUse {
-                            tool: name.to_string(),
-                            summary,
-                        },
-                        in_progress: true,
-                    });
-                } else {
-                    log::warn!("tool_call missing name field");
-                }
-            }
-            "tool_call_update" => {
-                // Tool call completed or errored
-                if let Some(status) = update.get("status").and_then(|st| st.as_str()) {
-                    if status == "completed" || status == "error" {
-                        // Mark tool as complete
-                        if let Some(last) = s.activities.last_mut() {
-                            last.in_progress = false;
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        ctx.request_repaint();
+        self.event_receiver = Some(receiver);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1162,6 +834,26 @@ impl AgentPanel {
         } else {
             first_line.to_string()
         }
+    }
+
+    /// Normalize unicode characters that may not render correctly in our font.
+    /// Replaces special dashes, quotes, and other symbols with ASCII equivalents.
+    fn normalize_text(text: &str) -> String {
+        text.chars()
+            .map(|c| match c {
+                // Various dash types → regular hyphen
+                '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' => '-',
+                // Curly quotes → straight quotes
+                '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
+                '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
+                // Ellipsis → three dots (we keep it as is since it's a single char)
+                '\u{2026}' => c,
+                // Non-breaking space → regular space
+                '\u{00A0}' => ' ',
+                // Everything else unchanged
+                _ => c,
+            })
+            .collect()
     }
 
     /// Truncate a file path to show the suffix (filename with some parent context)
@@ -1202,44 +894,157 @@ impl AgentPanel {
         }
     }
 
-    /// Poll streaming state and update messages
+    /// Poll the event receiver and update UI state
+    #[cfg(not(target_arch = "wasm32"))]
     fn poll_streaming_response(&mut self) {
-        let state = self.streaming_state.lock();
-        if let Some(ref s) = *state {
-            // Update model and status on the panel
-            if let Some(ref model) = s.model {
-                self.current_model = Some(model.clone());
-            }
-            self.current_status = s.status;
+        let Some(ref receiver) = self.event_receiver else {
+            return;
+        };
 
-            // Sync activities from streaming state
-            self.current_activities = s.activities.clone();
-
-            // Update the last assistant message
-            if let Some(last) = self.messages.last_mut() {
-                if last.role == MessageRole::Assistant && last.is_streaming {
-                    last.content = s.response_text.clone();
-
-                    if s.is_complete {
-                        last.is_streaming = false;
-                        self.is_waiting = false;
-                        self.request_start_time = None;
-
-                        // Handle error
-                        if let Some(ref err) = s.error {
-                            if last.content.is_empty() {
-                                last.content = format!("Error: {err}");
+        // Process all available events
+        while let Ok(event) = receiver.try_recv() {
+            match event {
+                AgentEvent::TextDelta(text) => {
+                    self.response_text.push_str(&text);
+                    self.current_status = ResponseStatus::Responding;
+                }
+                AgentEvent::ThinkingDelta(text) => {
+                    self.current_status = ResponseStatus::Thinking;
+                    // Update or create thinking activity
+                    if let Some(last) = self.current_activities.last_mut() {
+                        if let ActivityType::Thinking(ref mut thinking_text) = last.activity_type {
+                            if thinking_text.len() < 60 {
+                                thinking_text.push_str(&text);
+                                if thinking_text.len() > 60 {
+                                    thinking_text.truncate(57);
+                                    thinking_text.push_str("...");
+                                }
                             }
+                        } else {
+                            self.current_activities.push(ActivityItem {
+                                activity_type: ActivityType::Thinking(Self::truncate_text(
+                                    &text, 60,
+                                )),
+                                in_progress: true,
+                            });
                         }
+                    } else {
+                        self.current_activities.push(ActivityItem {
+                            activity_type: ActivityType::Thinking(Self::truncate_text(&text, 60)),
+                            in_progress: true,
+                        });
                     }
                 }
-            }
+                AgentEvent::ToolCallStart {
+                    name, raw_input, ..
+                } => {
+                    // Mark previous activities as complete
+                    for activity in &mut self.current_activities {
+                        activity.in_progress = false;
+                    }
 
-            // Clear state when complete
-            if s.is_complete {
-                drop(state);
-                *self.streaming_state.lock() = None;
+                    // Extract summary from raw_input
+                    let summary = raw_input
+                        .as_ref()
+                        .and_then(|v| {
+                            // Check for file path fields first (use path truncation)
+                            if let Some(path) = v
+                                .get("file_path")
+                                .or_else(|| v.get("path"))
+                                .and_then(|s| s.as_str())
+                            {
+                                return Some(Self::truncate_path(path, 50));
+                            }
+                            // Other fields use regular text truncation
+                            v.get("pattern")
+                                .or_else(|| v.get("command"))
+                                .or_else(|| v.get("description"))
+                                .or_else(|| v.get("prompt"))
+                                .and_then(|s| s.as_str())
+                                .map(|s| Self::truncate_text(s, 50))
+                        })
+                        .unwrap_or_default();
+
+                    self.current_activities.push(ActivityItem {
+                        activity_type: ActivityType::ToolUse {
+                            tool: name,
+                            summary,
+                        },
+                        in_progress: true,
+                    });
+                }
+                AgentEvent::ToolResult { is_error, .. } => {
+                    // Mark last tool activity as complete
+                    if let Some(last) = self.current_activities.last_mut() {
+                        last.in_progress = false;
+                    }
+                    if is_error {
+                        // Optionally add error indicator
+                    }
+                }
+                AgentEvent::Done { .. } => {
+                    // Mark all activities as complete
+                    for activity in &mut self.current_activities {
+                        activity.in_progress = false;
+                    }
+                    self.current_status = ResponseStatus::Complete;
+
+                    // Update last message
+                    if let Some(last) = self.messages.last_mut() {
+                        if last.role == MessageRole::Assistant && last.is_streaming {
+                            last.content = self.response_text.clone();
+                            last.is_streaming = false;
+                        }
+                    }
+
+                    self.is_waiting = false;
+                    self.request_start_time = None;
+                    self.event_receiver = None;
+                    return;
+                }
+                AgentEvent::Error(e) => {
+                    // Mark all activities as complete
+                    for activity in &mut self.current_activities {
+                        activity.in_progress = false;
+                    }
+                    self.current_activities.push(ActivityItem {
+                        activity_type: ActivityType::Error(e.to_string()),
+                        in_progress: false,
+                    });
+                    self.current_status = ResponseStatus::Complete;
+
+                    // Update last message with error
+                    if let Some(last) = self.messages.last_mut() {
+                        if last.role == MessageRole::Assistant && last.is_streaming {
+                            if self.response_text.is_empty() {
+                                last.content = format!("Error: {e}");
+                            } else {
+                                last.content = self.response_text.clone();
+                            }
+                            last.is_streaming = false;
+                        }
+                    }
+
+                    self.is_waiting = false;
+                    self.request_start_time = None;
+                    self.event_receiver = None;
+                    return;
+                }
+                _ => {}
             }
         }
+
+        // Update last message with current response text
+        if let Some(last) = self.messages.last_mut() {
+            if last.role == MessageRole::Assistant && last.is_streaming {
+                last.content = self.response_text.clone();
+            }
+        }
+    }
+
+    /// Poll streaming state (WASM stub)
+    #[cfg(target_arch = "wasm32")]
+    fn poll_streaming_response(&mut self) {
+        // No-op on WASM
     }
 }

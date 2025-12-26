@@ -5,8 +5,8 @@
 //! ACP protocol stabilizes.
 
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, SyncSender};
 
-use crossbeam_channel::{Receiver, Sender, bounded};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 
@@ -31,19 +31,42 @@ const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// - Any ACP-compatible agent
 pub struct AcpClient {
     config: AgentConfig,
+    /// Optional tokio runtime handle for spawning tasks.
+    /// If not provided, uses the current runtime context (must be in a tokio context).
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl AcpClient {
     /// Create a new ACP client with the given configuration.
     #[must_use]
     pub fn new(config: AgentConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            runtime: None,
+        }
+    }
+
+    /// Create a new ACP client with a specific runtime handle.
+    ///
+    /// Use this when you need to spawn tasks from outside a tokio runtime context.
+    #[must_use]
+    pub fn with_runtime(config: AgentConfig, runtime: tokio::runtime::Handle) -> Self {
+        Self {
+            config,
+            runtime: Some(runtime),
+        }
     }
 
     /// Create a new ACP client configured for Claude Code.
     #[must_use]
     pub fn claude_code() -> Self {
         Self::new(AgentConfig::claude_code())
+    }
+
+    /// Create a new ACP client configured for Claude Code with a runtime handle.
+    #[must_use]
+    pub fn claude_code_with_runtime(runtime: tokio::runtime::Handle) -> Self {
+        Self::with_runtime(AgentConfig::claude_code(), runtime)
     }
 
     /// Create a new ACP client configured for Gemini CLI.
@@ -56,6 +79,12 @@ impl AcpClient {
     #[must_use]
     pub fn codex() -> Self {
         Self::new(AgentConfig::codex())
+    }
+
+    /// Create a new ACP client configured for Codex with a runtime handle.
+    #[must_use]
+    pub fn codex_with_runtime(runtime: tokio::runtime::Handle) -> Self {
+        Self::with_runtime(AgentConfig::codex(), runtime)
     }
 
     /// Send a prompt to the agent and receive streaming events.
@@ -76,8 +105,29 @@ impl AcpClient {
         prompt: impl Into<String>,
         working_dir: Option<PathBuf>,
     ) -> Receiver<AgentEvent> {
-        let (tx, rx) = bounded(256);
+        self.prompt_with_model(prompt, working_dir, None)
+    }
+
+    /// Send a prompt to the agent with a specific model.
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - The user's message to send to the agent
+    /// * `working_dir` - Optional working directory for the agent
+    /// * `model` - Optional model ID (e.g., "claude-sonnet-4-5-20250514")
+    ///
+    /// # Returns
+    ///
+    /// A receiver that yields `AgentEvent`s as the agent responds.
+    pub fn prompt_with_model(
+        &self,
+        prompt: impl Into<String>,
+        working_dir: Option<PathBuf>,
+        model: Option<&str>,
+    ) -> Receiver<AgentEvent> {
+        let (tx, rx) = mpsc::sync_channel(256);
         let prompt = prompt.into();
+        let model = model.map(String::from);
 
         let config = if let Some(dir) = working_dir {
             self.config.clone().with_working_dir(dir)
@@ -86,11 +136,18 @@ impl AcpClient {
         };
 
         // Spawn a tokio task to handle the async ACP connection
-        tokio::spawn(async move {
-            if let Err(e) = run_acp_session(&config, &prompt, tx.clone()).await {
+        // Use the provided runtime handle if available, otherwise use current context
+        let future = async move {
+            if let Err(e) = run_acp_session(&config, &prompt, model.as_deref(), tx.clone()).await {
                 let _ = tx.send(AgentEvent::Error(e));
             }
-        });
+        };
+
+        if let Some(ref handle) = self.runtime {
+            handle.spawn(future);
+        } else {
+            tokio::spawn(future);
+        }
 
         rx
     }
@@ -151,6 +208,9 @@ fn spawn_agent(config: &AgentConfig) -> Result<Child, AgentError> {
         .map_err(|e| AgentError::Http(format!("Failed to spawn agent: {e}")))
 }
 
+/// Default model when none is specified.
+const DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250514";
+
 /// Run the ACP session.
 ///
 /// This is a simplified implementation that spawns the agent and reads
@@ -160,12 +220,15 @@ fn spawn_agent(config: &AgentConfig) -> Result<Child, AgentError> {
 async fn run_acp_session(
     config: &AgentConfig,
     prompt: &str,
-    tx: Sender<AgentEvent>,
+    model: Option<&str>,
+    tx: SyncSender<AgentEvent>,
 ) -> Result<(), AgentError> {
+    let model_id = model.unwrap_or(DEFAULT_MODEL);
     log::info!(
-        "Starting ACP session with {} ({})",
+        "Starting ACP session with {} ({}) using model {}",
         config.kind.display_name(),
-        config.command
+        config.command,
+        model_id
     );
 
     // Spawn the agent process
@@ -219,7 +282,7 @@ async fn run_acp_session(
             "_meta": {
                 "claudeCode": {
                     "options": {
-                        "model": "claude-sonnet-4-5-20250514"
+                        "model": model_id
                     }
                 }
             }
@@ -301,7 +364,7 @@ async fn read_session_id(
 /// Read streaming responses until completion.
 async fn read_streaming_responses(
     reader: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-    tx: &Sender<AgentEvent>,
+    tx: &SyncSender<AgentEvent>,
 ) -> Result<(), AgentError> {
     while let Some(line) = reader
         .next_line()
@@ -343,57 +406,100 @@ async fn read_streaming_responses(
 }
 
 /// Process a session update notification and emit appropriate events.
-fn process_session_update(params: &serde_json::Value, tx: &Sender<AgentEvent>) {
-    if let Some(update) = params.get("update") {
-        // Check the session update type
-        if let Some(update_type) = update.get("sessionUpdate").and_then(|u| u.as_str()) {
-            match update_type {
-                "agent_message_chunk" => {
-                    if let Some(content) = update.get("content") {
-                        if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
-                            let _ = tx.send(AgentEvent::TextDelta(text.to_string()));
-                        }
-                    }
+fn process_session_update(params: &serde_json::Value, tx: &SyncSender<AgentEvent>) {
+    let Some(update) = params.get("update") else {
+        return;
+    };
+
+    // Check the session update type
+    let Some(update_type) = update.get("sessionUpdate").and_then(|u| u.as_str()) else {
+        return;
+    };
+
+    match update_type {
+        "agent_message_chunk" => {
+            if let Some(content) = update.get("content") {
+                if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
+                    let _ = tx.send(AgentEvent::TextDelta(text.to_string()));
                 }
-                "agent_thought_chunk" => {
-                    if let Some(content) = update.get("content") {
-                        if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
-                            let _ = tx.send(AgentEvent::ThinkingDelta(text.to_string()));
-                        }
-                    }
-                }
-                "tool_call" => {
-                    if let (Some(id), Some(name)) = (
-                        update.get("id").and_then(|i| i.as_str()),
-                        update.get("name").and_then(|n| n.as_str()),
-                    ) {
-                        let _ = tx.send(AgentEvent::ToolCallStart {
-                            id: id.to_string(),
-                            name: name.to_string(),
-                        });
-                    }
-                }
-                "tool_call_update" => {
-                    if let Some(id) = update.get("id").and_then(|i| i.as_str()) {
-                        if let Some(status) = update.get("status").and_then(|s| s.as_str()) {
-                            if status == "completed" || status == "error" {
-                                let result = update
-                                    .get("result")
-                                    .and_then(|r| r.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let _ = tx.send(AgentEvent::ToolResult {
-                                    id: id.to_string(),
-                                    output: result,
-                                    is_error: status == "error",
-                                });
-                            }
-                        }
-                    }
-                }
-                _ => {}
             }
         }
+        "agent_thought_chunk" => {
+            if let Some(content) = update.get("content") {
+                if let Some(text) = content.get("text").and_then(|t| t.as_str()) {
+                    let _ = tx.send(AgentEvent::ThinkingDelta(text.to_string()));
+                }
+            }
+        }
+        "tool_call" => {
+            // Extract tool ID - try multiple locations
+            let id = update
+                .get("toolCallId")
+                .or_else(|| update.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            // Extract tool name - check multiple possible locations
+            let name = update
+                .get("name")
+                .and_then(|n| n.as_str())
+                .or_else(|| {
+                    // Check _meta.claudeCode.toolName
+                    update
+                        .get("_meta")
+                        .and_then(|m| m.get("claudeCode"))
+                        .and_then(|c| c.get("toolName"))
+                        .and_then(|n| n.as_str())
+                })
+                .or_else(|| {
+                    // Fall back to title field
+                    update.get("title").and_then(|t| t.as_str())
+                })
+                .unwrap_or("unknown")
+                .to_string();
+
+            // Extract raw input for summary generation
+            // rawInput can be either a JSON object or a JSON string
+            let raw_input = update.get("rawInput").and_then(|r| {
+                if r.is_object() {
+                    Some(r.clone())
+                } else {
+                    r.as_str()
+                        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                }
+            });
+
+            let _ = tx.send(AgentEvent::ToolCallStart {
+                id,
+                name,
+                raw_input,
+            });
+        }
+        "tool_call_update" => {
+            let id = update
+                .get("toolCallId")
+                .or_else(|| update.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            if let Some(status) = update.get("status").and_then(|s| s.as_str()) {
+                if status == "completed" || status == "error" {
+                    let result = update
+                        .get("result")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let _ = tx.send(AgentEvent::ToolResult {
+                        id,
+                        output: result,
+                        is_error: status == "error",
+                    });
+                }
+            }
+        }
+        _ => {}
     }
 }
 

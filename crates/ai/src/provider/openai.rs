@@ -3,8 +3,8 @@
 //! Implements the Chat Completions API: https://platform.openai.com/docs/api-reference/chat
 
 use std::io::{BufRead, BufReader};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 
-use crossbeam_channel::{Receiver, Sender, bounded};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
@@ -55,7 +55,7 @@ impl OpenAIClient {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Receiver<AgentEvent> {
-        let (tx, rx) = bounded(256);
+        let (tx, rx) = mpsc::sync_channel(256);
 
         let request = self.build_request(system, messages, tools);
         let api_key = self.api_key.clone();
@@ -86,7 +86,7 @@ impl OpenAIClient {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Receiver<AgentEvent> {
-        let (tx, rx) = bounded(256);
+        let (tx, rx) = mpsc::sync_channel(256);
 
         let request = self.build_request(system, messages, tools);
         let api_key = self.api_key.clone();
@@ -141,7 +141,7 @@ fn stream_request(
     url: &str,
     api_key: &str,
     request: &Request,
-    tx: &Sender<AgentEvent>,
+    tx: &SyncSender<AgentEvent>,
 ) -> Result<(), AgentError> {
     let body = serde_json::to_string(request).map_err(|e| AgentError::Parse(e.to_string()))?;
 
@@ -169,7 +169,7 @@ fn stream_request(
     parse_sse_stream(reader, tx)
 }
 
-fn parse_sse_stream<R: BufRead>(reader: R, tx: &Sender<AgentEvent>) -> Result<(), AgentError> {
+fn parse_sse_stream<R: BufRead>(reader: R, tx: &SyncSender<AgentEvent>) -> Result<(), AgentError> {
     // Track tool calls being built (OpenAI streams them in pieces)
     let mut tool_calls: rustc_hash::FxHashMap<u32, ToolCallBuilder> =
         rustc_hash::FxHashMap::default();
@@ -268,6 +268,7 @@ fn parse_sse_stream<R: BufRead>(reader: R, tx: &Sender<AgentEvent>) -> Result<()
                         let _ = tx.send(AgentEvent::ToolCallStart {
                             id: builder.id.clone(),
                             name: builder.name.clone(),
+                            raw_input: None,
                         });
                     }
                 }

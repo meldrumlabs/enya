@@ -96,6 +96,8 @@ pub enum AgentEvent {
         id: String,
         /// Tool name
         name: String,
+        /// Raw input JSON (for extracting summaries)
+        raw_input: Option<serde_json::Value>,
     },
 
     /// Tool call input is being streamed.

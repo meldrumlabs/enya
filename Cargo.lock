@@ -1388,7 +1388,6 @@ dependencies = [
 name = "enya-ai"
 version = "0.1.0"
 dependencies = [
- "crossbeam-channel",
  "env_logger",
  "log",
  "rustc-hash 2.1.1",
@@ -1457,6 +1456,7 @@ dependencies = [
  "egui_plot",
  "egui_tiles",
  "env_logger",
+ "enya-ai",
  "enya-build-info",
  "enya-build-tools",
  "enya-client",

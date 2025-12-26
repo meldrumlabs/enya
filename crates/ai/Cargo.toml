@@ -26,9 +26,6 @@ log.workspace = true
 # Error handling
 thiserror = "2"
 
-# Channel for streaming events
-crossbeam-channel = "0.5"
-
 # Fast hash map
 rustc-hash.workspace = true
 

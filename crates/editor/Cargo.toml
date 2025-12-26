@@ -62,6 +62,8 @@ tree-sitter-rust = "0.24"
 tree-sitter-highlight = "0.25"
 # Async runtime for AI agent and background tasks
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+# AI agent integration via ACP
+enya-ai = { workspace = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

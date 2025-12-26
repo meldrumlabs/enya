@@ -3,8 +3,8 @@
 //! Implements the Messages API: https://docs.anthropic.com/en/api/messages
 
 use std::io::{BufRead, BufReader};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 
-use crossbeam_channel::{Receiver, Sender, bounded};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
@@ -47,7 +47,7 @@ impl AnthropicClient {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Receiver<AgentEvent> {
-        let (tx, rx) = bounded(256);
+        let (tx, rx) = mpsc::sync_channel(256);
 
         let request = self.build_request(system, messages, tools);
         let api_key = self.api_key.clone();
@@ -76,7 +76,7 @@ impl AnthropicClient {
         messages: &[Message],
         tools: &[ToolDefinition],
     ) -> Receiver<AgentEvent> {
-        let (tx, rx) = bounded(256);
+        let (tx, rx) = mpsc::sync_channel(256);
 
         let request = self.build_request(system, messages, tools);
         let api_key = self.api_key.clone();
@@ -122,7 +122,7 @@ impl AnthropicClient {
 fn stream_request(
     api_key: &str,
     request: &Request,
-    tx: &Sender<AgentEvent>,
+    tx: &SyncSender<AgentEvent>,
 ) -> Result<(), AgentError> {
     let body = serde_json::to_string(request).map_err(|e| AgentError::Parse(e.to_string()))?;
 
@@ -151,7 +151,7 @@ fn stream_request(
     parse_sse_stream(reader, tx)
 }
 
-fn parse_sse_stream<R: BufRead>(reader: R, tx: &Sender<AgentEvent>) -> Result<(), AgentError> {
+fn parse_sse_stream<R: BufRead>(reader: R, tx: &SyncSender<AgentEvent>) -> Result<(), AgentError> {
     let mut current_tool_id: Option<String> = None;
     let mut current_tool_name: Option<String> = None;
     let mut current_tool_input = String::new();
@@ -183,7 +183,11 @@ fn parse_sse_stream<R: BufRead>(reader: R, tx: &Sender<AgentEvent>) -> Result<()
                         current_tool_id = Some(id.clone());
                         current_tool_name = Some(name.clone());
                         current_tool_input.clear();
-                        let _ = tx.send(AgentEvent::ToolCallStart { id, name });
+                        let _ = tx.send(AgentEvent::ToolCallStart {
+                            id,
+                            name,
+                            raw_input: None,
+                        });
                     }
                 }
             }
