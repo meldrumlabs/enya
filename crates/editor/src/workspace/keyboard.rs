@@ -159,7 +159,7 @@ impl Workspace {
                     return;
                 }
 
-                // Space+a - toggle agent panel (Claude Code)
+                // Space+a - open/focus agent pane (Claude Code)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
                     should_toggle_agent_panel = true;
                     self.leader_keys.clear_space();
@@ -421,7 +421,8 @@ impl Workspace {
         }
 
         if should_toggle_agent_panel {
-            self.agent_panel.toggle();
+            // Create or focus an agent pane instead of toggling the overlay
+            self.focus_or_create_agent_pane();
             ctx.request_repaint();
         }
 

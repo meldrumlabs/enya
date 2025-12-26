@@ -6,8 +6,8 @@
 
 use egui_tiles::{Tile, TileId};
 
-use super::{NavDirection, Workspace, WorkspaceAction};
-use crate::components::{Buffer, Component, QueryPane};
+use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
+use crate::components::{AgentPane, Buffer, Component, QueryPane};
 
 impl Workspace {
     // ==================== Pane Adding ====================
@@ -65,6 +65,199 @@ impl Workspace {
             self.open_charts.insert(query.to_string());
             self.behavior.set_focused_tile(Some(pane_tile));
             log::debug!("Added demo query pane: {name}");
+        }
+    }
+
+    /// Add a query pane with a PromQL query and optional title.
+    ///
+    /// This is used by the agent to create panes programmatically.
+    pub(super) fn add_query_pane(&mut self, query: &str, title: Option<&str>) {
+        let query_number = self.next_query_number;
+        self.next_query_number += 1;
+
+        // Create the pane with the given query
+        let name = title.unwrap_or(query);
+        let pane: Box<dyn Component> = if self.query_executor.is_connected() {
+            Box::new(QueryPane::with_query_named(query, name, query_number))
+        } else {
+            Box::new(QueryPane::with_demo_query_named(query, name, query_number))
+        };
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.open_charts.insert(query.to_string());
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Agent created query pane: {}", title.unwrap_or(query));
+        }
+    }
+
+    /// Add an agent pane to the viewport.
+    ///
+    /// Creates a new AI chat pane that can run in parallel with query panes.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn add_agent_pane(&mut self) -> Option<TileId> {
+        let runtime_handle = self.query_executor.runtime_handle();
+        let mut agent_pane = AgentPane::new(runtime_handle);
+
+        // Set editor context for the agent
+        self.update_agent_context();
+        if let Some(context) = self.build_editor_context() {
+            agent_pane.set_context(context);
+        }
+
+        let pane: Box<dyn Component> = Box::new(agent_pane);
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Added agent pane");
+            Some(pane_tile)
+        } else {
+            None
+        }
+    }
+
+    /// Add an agent pane (WASM stub - agents not supported in browser).
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn add_agent_pane(&mut self) -> Option<TileId> {
+        log::warn!("Agent panes are not available in the browser");
+        None
+    }
+
+    /// Find or create an agent pane. Returns the tile ID.
+    ///
+    /// If an agent pane already exists, focuses it. Otherwise creates a new one.
+    pub(super) fn focus_or_create_agent_pane(&mut self) -> Option<TileId> {
+        // Check if we already have an agent pane
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if component.as_any().downcast_ref::<AgentPane>().is_some() {
+                    // Found an existing agent pane, focus it
+                    self.behavior.set_focused_tile(Some(tile_id));
+                    return Some(tile_id);
+                }
+            }
+        }
+
+        // No agent pane found, create a new one
+        self.add_agent_pane()
+    }
+
+    /// Handle commands from the AI agent.
+    ///
+    /// These commands are parsed from the agent's response and executed
+    /// to manipulate the workspace (create panes, change time range, etc.)
+    #[allow(unused_variables)] // ctx is used conditionally
+    pub(super) fn handle_agent_commands(
+        &mut self,
+        commands: Vec<AgentCommand>,
+        ctx: &egui::Context,
+    ) {
+        for command in commands {
+            match command {
+                AgentCommand::CreatePane { query, title } => {
+                    self.add_query_pane(&query, title.as_deref());
+                }
+                AgentCommand::SetTimeRange { preset } => {
+                    // Parse preset string into a TimeRangePreset
+                    if let Some(preset_enum) = Self::parse_time_preset(&preset) {
+                        self.time_range_toolbar.set_preset(preset_enum);
+                        log::info!("Agent set time range to: {preset}");
+                    } else {
+                        log::warn!("Agent requested unknown time preset: {preset}");
+                    }
+                }
+                AgentCommand::SearchMetrics { pattern } => {
+                    // Open the metrics finder with the pattern
+                    self.metrics_finder.open();
+                    self.metrics_finder.set_query(&pattern);
+                    log::info!("Agent opened metrics search: {pattern}");
+                }
+                AgentCommand::ShowMetricSource { metric } => {
+                    // Open the source preview for the metric definition
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.open_metric_definition(&metric);
+                        log::info!("Agent opened metric source: {metric}");
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("ShowMetricSource not available on WASM: {metric}");
+                    }
+                }
+                AgentCommand::ShowAlertSource { alert } => {
+                    // Open the source preview for the alert rule
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.open_alert_definition(&alert);
+                        log::info!("Agent opened alert source: {alert}");
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("ShowAlertSource not available on WASM: {alert}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Poll all agent panes for pending commands and execute them.
+    ///
+    /// This should be called during the workspace's show() method to ensure
+    /// commands from agent panes are processed.
+    pub(super) fn poll_agent_pane_commands(&mut self, ctx: &egui::Context) {
+        // Build context once before iterating (avoids borrow issues)
+        let context = self.build_editor_context();
+
+        let mut all_commands = Vec::new();
+        let pane_ids = self.get_pane_tile_ids();
+
+        // Iterate through all panes and collect commands from agent panes
+        for tile_id in pane_ids {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(agent_pane) = component.as_any_mut().downcast_mut::<AgentPane>() {
+                    // Update context for the agent
+                    if let Some(ref ctx) = context {
+                        agent_pane.set_context(ctx.clone());
+                    }
+
+                    // Poll for pending commands from this agent pane
+                    let commands = agent_pane.poll_pending_commands();
+                    if !commands.is_empty() {
+                        log::info!(
+                            "Agent pane {} produced {} commands",
+                            agent_pane.id(),
+                            commands.len()
+                        );
+                    }
+                    all_commands.extend(commands);
+                }
+            }
+        }
+
+        // Execute all collected commands
+        if !all_commands.is_empty() {
+            log::info!("Executing {} agent commands", all_commands.len());
+            self.handle_agent_commands(all_commands, ctx);
+        }
+    }
+
+    /// Parse a time range preset string into the enum.
+    fn parse_time_preset(
+        preset: &str,
+    ) -> Option<crate::components::widget::time_range::TimeRangePreset> {
+        use crate::components::widget::time_range::TimeRangePreset;
+        match preset.to_lowercase().as_str() {
+            "5m" | "5min" | "5 minutes" => Some(TimeRangePreset::Last5Minutes),
+            "15m" | "15min" | "15 minutes" => Some(TimeRangePreset::Last15Minutes),
+            "30m" | "30min" | "30 minutes" => Some(TimeRangePreset::Last30Minutes),
+            "1h" | "1hour" | "1 hour" => Some(TimeRangePreset::Last1Hour),
+            "6h" | "6hour" | "6 hours" => Some(TimeRangePreset::Last6Hours),
+            "24h" | "1d" | "1day" | "1 day" => Some(TimeRangePreset::Last24Hours),
+            "7d" | "7day" | "7 days" | "1 week" | "1w" => Some(TimeRangePreset::Last7Days),
+            _ => None,
         }
     }
 

@@ -130,6 +130,11 @@ impl MetricsFinder {
         self.finder.close();
     }
 
+    /// Sets the search query text.
+    pub fn set_query(&mut self, query: &str) {
+        self.finder.set_query(query);
+    }
+
     /// Sets the metrics to search through.
     pub fn set_items(&mut self, items: Vec<MetricItem>) {
         self.finder.set_items(items);

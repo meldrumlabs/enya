@@ -125,9 +125,35 @@ impl AcpClient {
         working_dir: Option<PathBuf>,
         model: Option<&str>,
     ) -> Receiver<AgentEvent> {
+        self.prompt_with_context(prompt, working_dir, model, None)
+    }
+
+    /// Send a prompt to the agent with a system context.
+    ///
+    /// The system context is prepended to the prompt to provide additional
+    /// information to the agent (e.g., available metrics, connection status).
+    ///
+    /// # Arguments
+    ///
+    /// * `prompt` - The user's message to send to the agent
+    /// * `working_dir` - Optional working directory for the agent
+    /// * `model` - Optional model ID (e.g., "claude-sonnet-4-5-20250514")
+    /// * `system_context` - Optional system context to prepend to the prompt
+    ///
+    /// # Returns
+    ///
+    /// A receiver that yields `AgentEvent`s as the agent responds.
+    pub fn prompt_with_context(
+        &self,
+        prompt: impl Into<String>,
+        working_dir: Option<PathBuf>,
+        model: Option<&str>,
+        system_context: Option<&str>,
+    ) -> Receiver<AgentEvent> {
         let (tx, rx) = mpsc::sync_channel(256);
         let prompt = prompt.into();
         let model = model.map(String::from);
+        let system_context = system_context.map(String::from);
 
         let config = if let Some(dir) = working_dir {
             self.config.clone().with_working_dir(dir)
@@ -138,7 +164,15 @@ impl AcpClient {
         // Spawn a tokio task to handle the async ACP connection
         // Use the provided runtime handle if available, otherwise use current context
         let future = async move {
-            if let Err(e) = run_acp_session(&config, &prompt, model.as_deref(), tx.clone()).await {
+            if let Err(e) = run_acp_session(
+                &config,
+                &prompt,
+                model.as_deref(),
+                system_context.as_deref(),
+                tx.clone(),
+            )
+            .await
+            {
                 let _ = tx.send(AgentEvent::Error(e));
             }
         };
@@ -221,6 +255,7 @@ async fn run_acp_session(
     config: &AgentConfig,
     prompt: &str,
     model: Option<&str>,
+    system_context: Option<&str>,
     tx: SyncSender<AgentEvent>,
 ) -> Result<(), AgentError> {
     let model_id = model.unwrap_or(DEFAULT_MODEL);
@@ -293,13 +328,20 @@ async fn run_acp_session(
 
     // Send prompt
     // Note: prompt must be an array at params.prompt, not params.content
+    // If system context is provided, prepend it to the prompt
+    let full_prompt = if let Some(ctx) = system_context {
+        format!("{ctx}\n\n---\n\n{prompt}")
+    } else {
+        prompt.to_string()
+    };
+
     let prompt_msg = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 3,
         "method": "session/prompt",
         "params": {
             "sessionId": session_id,
-            "prompt": [{"type": "text", "text": prompt}]
+            "prompt": [{"type": "text", "text": full_prompt}]
         }
     });
     send_message(&mut writer, &prompt_msg).await?;

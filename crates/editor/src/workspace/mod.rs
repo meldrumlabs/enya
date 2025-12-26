@@ -7,12 +7,12 @@ use crate::app::AppState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::CodebaseManager;
 use crate::components::{
-    AgentPanel, AgentPanelResult, Buffer, BufferEditor, BufferEditorResult, CommandPalette,
-    CommandResult, Component, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction,
-    MetricsFinder, MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult,
-    QueryExecutor, QueryPane, QueryState, SourcePreviewOverlay, SourcePreviewResult,
-    TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceFinder,
+    AgentCommand, AgentPanel, AgentPanelResult, Buffer, BufferEditor, BufferEditorResult,
+    CommandPalette, CommandResult, Component, DiagnosticsPane, InfoOverlay, LandingPage,
+    LandingPageAction, MetricsFinder, MultiBufferMode, MultiBufferState, MultiEditOverlay,
+    MultiEditResult, QueryExecutor, QueryPane, QueryState, SourcePreviewOverlay,
+    SourcePreviewResult, TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult,
+    WhichKey, WorkspaceFinder,
 };
 use crate::theme::AppTheme;
 
@@ -588,10 +588,15 @@ impl Workspace {
         }
 
         // Show agent panel (Claude Code integration)
+        // Update context before showing so the agent has awareness of editor state
+        self.update_agent_context();
         self.agent_panel.set_theme(app_state.theme);
         match self.agent_panel.show(ctx) {
             AgentPanelResult::Closed => {
                 log::debug!("Agent panel closed");
+            }
+            AgentPanelResult::Commands(commands) => {
+                self.handle_agent_commands(commands, ctx);
             }
             AgentPanelResult::None => {}
         }
@@ -599,6 +604,9 @@ impl Workspace {
         // Poll codebase manager for async operations (native only)
         #[cfg(not(target_arch = "wasm32"))]
         self.codebase_manager.poll(ctx);
+
+        // Poll agent panes for pending commands
+        self.poll_agent_pane_commands(ctx);
 
         // Show viewport filter overlay and handle results
         self.viewport_filter.set_theme(app_state.theme);
@@ -1389,6 +1397,59 @@ impl Workspace {
             .open_error(metric_name, "Go to alert is not available in browser");
     }
 
+    /// Open the source preview for an alert rule by its name.
+    ///
+    /// Looks up the alert by name in the codebase index and shows the
+    /// source file context around the alert definition.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_alert_definition(&mut self, alert_name: &str) {
+        use crate::codebase::CodebaseStatus;
+
+        // Check if codebase is ready
+        if !self.codebase_manager.status().is_ready() {
+            let status_msg = match self.codebase_manager.status() {
+                CodebaseStatus::None => "No codebase configured",
+                CodebaseStatus::Cloning { .. } => "Codebase is being cloned...",
+                CodebaseStatus::Fetching { .. } => "Fetching updates...",
+                CodebaseStatus::Indexing { .. } => "Indexing codebase...",
+                CodebaseStatus::Ready { .. } => unreachable!(),
+                CodebaseStatus::Error { message, .. } => message,
+            };
+            self.source_preview.open_error(alert_name, status_msg);
+            return;
+        }
+
+        // Look up alert in the index by name
+        let Some(index) = self.codebase_manager.index() else {
+            self.source_preview
+                .open_error(alert_name, "Codebase index not available");
+            return;
+        };
+
+        let Some(alert) = index.find_alert_by_name(alert_name) else {
+            self.source_preview.open_error(
+                alert_name,
+                &format!("Alert '{alert_name}' not found in codebase"),
+            );
+            return;
+        };
+
+        self.source_preview.open_alert(alert, &index.repo_path);
+        log::debug!(
+            "Opening alert preview for '{}' at {}:{}",
+            alert.name,
+            alert.file.display(),
+            alert.line
+        );
+    }
+
+    /// WASM stub for open_alert_definition - shows not available message.
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_alert_definition(&mut self, alert_name: &str) {
+        self.source_preview
+            .open_error(alert_name, "Go to alert is not available in browser");
+    }
+
     /// Get the metric name from the currently focused pane (if it's a QueryPane).
     ///
     /// Parses the saved PromQL query to extract the primary metric name.
@@ -1447,6 +1508,270 @@ impl Workspace {
     #[cfg(target_arch = "wasm32")]
     pub fn codebase_status_text(&self) -> Option<String> {
         None
+    }
+
+    // =========================================================================
+    // Agent Panel Context Building
+    // =========================================================================
+
+    /// Build and update the EditorContext for the agent panel.
+    ///
+    /// This provides the AI agent with awareness of the current editor state,
+    /// including connection info, available metrics, codebase status, and
+    /// dashboard configuration.
+    fn update_agent_context(&mut self) {
+        use crate::components::overlay::agent_context::{
+            CodebaseContext, ConnectionContext, DashboardContext, EditorContext,
+        };
+        use crate::components::util::query_executor::ConnectionHealth;
+
+        // Build connection context
+        let connection = {
+            let backend_str = match self.query_executor.backend() {
+                crate::components::util::query_executor::Backend::Demo => "demo".to_string(),
+                crate::components::util::query_executor::Backend::Prometheus(url) => {
+                    format!("prometheus:{url}")
+                }
+            };
+
+            let (is_online, version) = match self.query_executor.connection_health() {
+                ConnectionHealth::Online { version } => (true, Some(version.clone())),
+                _ => (false, None),
+            };
+
+            let endpoint = match self.query_executor.backend() {
+                crate::components::util::query_executor::Backend::Prometheus(url) => {
+                    Some(url.clone())
+                }
+                _ => None,
+            };
+
+            ConnectionContext {
+                backend: backend_str,
+                endpoint,
+                is_online,
+                version,
+            }
+        };
+
+        // Get available metrics (limited to top 50 in EditorContext)
+        let metrics: Vec<String> = self.query_executor.metric_names().to_vec();
+
+        // Build codebase context (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        let codebase = {
+            use crate::codebase::CodebaseStatus;
+            match self.codebase_manager.status() {
+                CodebaseStatus::Ready { .. } => {
+                    let metric_count = self.codebase_manager.all_metrics().len();
+                    let file_count = self
+                        .codebase_manager
+                        .index()
+                        .map(|idx| idx.metrics.len())
+                        .unwrap_or(0);
+
+                    // Get recent commits if available
+                    let recent_commits = self
+                        .codebase_manager
+                        .index()
+                        .and_then(|_idx| {
+                            // Use cached commits for the summary
+                            let time_range = self.time_range_toolbar.time_range();
+                            self.codebase_manager
+                                .get_commits(time_range.start, time_range.end)
+                                .map(|commits| {
+                                    commits
+                                        .iter()
+                                        .take(5)
+                                        .map(|c| {
+                                            crate::components::overlay::agent_context::CommitSummary {
+                                                hash: c.short_hash().to_string(),
+                                                message: c.message.clone(),
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                        })
+                        .unwrap_or_default();
+
+                    Some(CodebaseContext {
+                        repo_url: self
+                            .codebase_manager
+                            .index()
+                            .map(|idx| idx.repo_path.display().to_string())
+                            .unwrap_or_default(),
+                        metric_count,
+                        file_count,
+                        recent_commits,
+                    })
+                }
+                _ => None,
+            }
+        };
+        #[cfg(target_arch = "wasm32")]
+        let _codebase: Option<CodebaseContext> = None;
+
+        // Build dashboard context
+        let dashboard = {
+            let time_range = self.time_range_toolbar.time_range();
+            let time_range_str = time_range.preset.label().to_string();
+
+            let pane_count = self.get_pane_tile_ids().len();
+
+            // Collect queries from open panes
+            let queries: Vec<String> = self
+                .get_pane_tile_ids()
+                .iter()
+                .filter_map(|&tile_id| {
+                    if let Some(egui_tiles::Tile::Pane(component)) =
+                        self.viewport_tree.tiles.get(tile_id)
+                    {
+                        if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                            return Some(query_pane.saved_query().to_string());
+                        }
+                    }
+                    None
+                })
+                .collect();
+
+            DashboardContext {
+                time_range: time_range_str,
+                pane_count,
+                queries,
+            }
+        };
+
+        // Build the full context
+        let context = EditorContext::new()
+            .with_connection(connection)
+            .with_metrics(metrics)
+            .with_dashboard(dashboard);
+
+        // Add codebase context if available
+        #[cfg(not(target_arch = "wasm32"))]
+        let context = if let Some(cb) = codebase {
+            context.with_codebase(cb)
+        } else {
+            context
+        };
+
+        // Update the agent panel's context
+        self.agent_panel.set_context(context);
+    }
+
+    /// Build the editor context for AI agents.
+    ///
+    /// This can be used to provide context to agent panes as well as the panel.
+    fn build_editor_context(&self) -> Option<crate::components::EditorContext> {
+        use crate::components::overlay::agent_context::{
+            CodebaseContext, ConnectionContext, DashboardContext, EditorContext,
+        };
+        use crate::components::util::query_executor::ConnectionHealth;
+
+        // Build connection context
+        let connection = {
+            let backend_str = match self.query_executor.backend() {
+                crate::components::util::query_executor::Backend::Demo => "demo".to_string(),
+                crate::components::util::query_executor::Backend::Prometheus(url) => {
+                    format!("prometheus:{url}")
+                }
+            };
+
+            let (is_online, version) = match self.query_executor.connection_health() {
+                ConnectionHealth::Online { version } => (true, Some(version.clone())),
+                _ => (false, None),
+            };
+
+            let endpoint = match self.query_executor.backend() {
+                crate::components::util::query_executor::Backend::Prometheus(url) => {
+                    Some(url.clone())
+                }
+                _ => None,
+            };
+
+            ConnectionContext {
+                backend: backend_str,
+                endpoint,
+                is_online,
+                version,
+            }
+        };
+
+        // Get available metrics
+        let metrics: Vec<String> = self.query_executor.metric_names().to_vec();
+
+        // Build codebase context (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        let codebase = {
+            use crate::codebase::CodebaseStatus;
+            match self.codebase_manager.status() {
+                CodebaseStatus::Ready { .. } => {
+                    let metric_count = self.codebase_manager.all_metrics().len();
+                    let file_count = self
+                        .codebase_manager
+                        .index()
+                        .map(|idx| idx.metrics.len())
+                        .unwrap_or(0);
+
+                    Some(CodebaseContext {
+                        repo_url: self
+                            .codebase_manager
+                            .index()
+                            .map(|idx| idx.repo_path.display().to_string())
+                            .unwrap_or_default(),
+                        metric_count,
+                        file_count,
+                        recent_commits: Vec::new(), // Skip commits for now (requires mutable borrow)
+                    })
+                }
+                _ => None,
+            }
+        };
+        #[cfg(target_arch = "wasm32")]
+        let _codebase: Option<CodebaseContext> = None;
+
+        // Build dashboard context
+        let dashboard = {
+            let time_range = self.time_range_toolbar.time_range();
+            let time_range_str = time_range.preset.label().to_string();
+            let pane_count = self.get_pane_tile_ids().len();
+
+            let queries: Vec<String> = self
+                .get_pane_tile_ids()
+                .iter()
+                .filter_map(|&tile_id| {
+                    if let Some(egui_tiles::Tile::Pane(component)) =
+                        self.viewport_tree.tiles.get(tile_id)
+                    {
+                        if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                            return Some(query_pane.saved_query().to_string());
+                        }
+                    }
+                    None
+                })
+                .collect();
+
+            DashboardContext {
+                time_range: time_range_str,
+                pane_count,
+                queries,
+            }
+        };
+
+        // Build the full context
+        let context = EditorContext::new()
+            .with_connection(connection)
+            .with_metrics(metrics)
+            .with_dashboard(dashboard);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let context = if let Some(cb) = codebase {
+            context.with_codebase(cb)
+        } else {
+            context
+        };
+
+        Some(context)
     }
 
     /// Sync git commit history to all time-series panes.

@@ -211,6 +211,12 @@ impl QueryExecutor {
         !matches!(self.backend, Backend::Demo)
     }
 
+    /// Get the tokio runtime handle (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn runtime_handle(&self) -> tokio::runtime::Handle {
+        self.async_runtime.handle().clone()
+    }
+
     /// Check if the connection is validated and online.
     pub fn is_online(&self) -> bool {
         self.connection_health.is_online()

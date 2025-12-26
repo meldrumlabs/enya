@@ -1,11 +1,13 @@
 //! Pane components - tile content types that implement the Component trait.
 
+pub mod agent_pane;
 pub mod flamegraph;
 pub mod heatmap;
 pub mod query_pane;
 pub mod time_series_chart;
 pub mod visualization;
 
+pub use agent_pane::{AgentPane, AgentPaneAction, AiProvider as AgentAiProvider};
 pub use flamegraph::{FlameFrame, FlamegraphViz, ProfileType};
 pub use heatmap::{HeatmapCell, HeatmapLabels, HeatmapViz};
 pub use query_pane::{QueryPane, QueryPaneAction};

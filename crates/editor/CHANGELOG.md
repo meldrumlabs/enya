@@ -4,6 +4,24 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Agent Pane - first-class AI chat in viewport**: The AI agent is now a first-class pane in the viewport (not a side panel). Features include:
+  - Press `Space+a` to create or focus an Agent pane
+  - Runs in parallel with query/chart panes in the tile layout
+  - Supports multiple concurrent agent conversations
+  - Agent can execute editor commands (create panes, set time range, search metrics)
+  - Implements the Component trait for full integration with the tile system
+
+- **Agent Panel tool integration**: The AI agent can now execute editor commands to help build dashboards. Features include:
+  - Agent receives context about the current editor state (connection, metrics, codebase, dashboard)
+  - Agent can output `enya-command` blocks to create visualization panes with PromQL queries
+  - Agent can set the time range (e.g., "1h", "6h", "24h", "7d")
+  - Agent can open the metrics search with a pattern
+  - Agent can show source code for metric definitions (`show_metric_source`)
+  - Agent can show source code for alert rules (`show_alert_source`)
+  - Commands are automatically parsed from agent responses and executed in the workspace
+
 ### Fixed
 
 - **Read tool file path in Agent Panel**: Fixed the Agent Panel not showing file paths for Read tool activities. Added `path` field lookup in addition to `file_path` for tool summary extraction.

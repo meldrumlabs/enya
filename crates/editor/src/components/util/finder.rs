@@ -402,6 +402,12 @@ impl<T: FinderItem> Finder<T> {
         self.needs_refresh = true;
     }
 
+    /// Sets the query text programmatically.
+    pub fn set_query(&mut self, query: &str) {
+        self.query = query.to_string();
+        self.needs_refresh = true;
+    }
+
     /// Returns a reference to the current items.
     pub fn items(&self) -> &[T] {
         &self.items
