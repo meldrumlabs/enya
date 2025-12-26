@@ -20,6 +20,7 @@ _features := if features == "all" {
 # Installs required dev tools
 install:
     cargo install --locked cargo-machete cargo-nextest cargo-deny
+    cd website && npm install
 
 # Cleans everything through cargo clean
 clean:
@@ -48,6 +49,14 @@ clippy:
 check-wasm:
     cargo check -p enya-editor --target wasm32-unknown-unknown --profile ci
 
+# Build the website (validates links and content)
+website-build:
+    cd website && npm run build
+
+# Run the website dev server
+website-dev:
+    cd website && npm run dev
+
 # Run all lints
 lint: check-fmt clippy
 
@@ -58,4 +67,4 @@ test:
 # Runs a local CI check
 # Note: We don't use --all-features because puffin and tracy profiling backends are mutually exclusive
 ci:
-    just lint machete test check-wasm
+    just lint machete test check-wasm website-build
