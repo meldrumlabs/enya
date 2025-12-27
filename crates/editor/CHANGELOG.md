@@ -6,6 +6,23 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Premium Obsidian Glass theme refinements**: Enhanced the dark theme with a more luxurious, high-end feel:
+  - Refined background colors with subtle cool undertones for better depth perception
+  - Richer emerald accent colors with added glow effects on interactive elements
+  - Improved text hierarchy with warmer whites and refined secondary/tertiary tones
+  - Enhanced syntax highlighting with more vibrant, harmonious colors
+  - Premium shadow system with layered depth for popups and floating elements
+  - Increased corner radius (4px → 6px) for a more refined look
+  - Thicker cursor (2.5px) with slower, more elegant blink animation
+  - Updated HTML background with subtle emerald radial gradient overlay
+  - Improved query completion popup with triple-layer shadows and refined styling
+  - **Glass overlay system enhancements**:
+    - New `PremiumGlass` overlay variant with deeper shadows and inner glow
+    - Frosted glass overlays now feature inner top-edge highlight for glass reflection effect
+    - Enhanced backdrop with subtle vignette effect at screen edges
+    - New `draw_premium_backdrop()` with centered emerald glow for branded modals
+  - **Premium keyboard badges**: Key hints now feature subtle drop shadow and 3D top-edge highlight
+
 - **Moved heatmap into visualization module**: The `heatmap.rs` module is now located at `components/pane/visualization/heatmap.rs` alongside other visualization types for consistency.
 - **Moved theme into ui module**: The `theme.rs` module is now located at `ui/theme.rs` alongside other UI primitives (colors, typography, icons, etc.).
 - **Moved workspace_tabs into workspace module**: The `workspace_tabs.rs` module is now located at `workspace/tabs.rs` alongside other workspace-related code.

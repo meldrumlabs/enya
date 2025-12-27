@@ -678,29 +678,22 @@ impl BufferEditor {
                     AppTheme::Dark => Color32::from_rgb(13, 148, 103), // Darker emerald (~0.8x PRIMARY)
                 };
 
-                overlay_style.frame().show(ui, |ui| {
+                let frame_response = overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
 
-                    // Header with mode indicator and buffer name
-                    ui.add_space(12.0);
+                    // Header with buffer name and edit icon
+                    ui.add_space(14.0);
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(20.0);
 
-                        // INSERT mode badge (muted emerald)
-                        egui::Frame::new()
-                            .fill(accent_color)
-                            .corner_radius(3.0)
-                            .inner_margin(egui::vec2(8.0, 3.0))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new("INSERT")
-                                        .color(Color32::WHITE)
-                                        .size(typography::SM)
-                                        .strong(),
-                                );
-                            });
+                        // Edit icon with subtle accent tint
+                        ui.label(
+                            RichText::new(semantic_icons::action::EDIT)
+                                .color(accent_color)
+                                .size(typography::LG),
+                        );
 
-                        ui.add_space(12.0);
+                        ui.add_space(10.0);
 
                         // Buffer name
                         ui.label(
@@ -846,10 +839,14 @@ impl BufferEditor {
 
                         let editor_width = popup_width - 32.0;
 
-                        // Editor background color based on theme
+                        // Premium editor styling
                         let editor_bg = match self.theme {
                             AppTheme::Light => palette::light_bg::ELEVATED,
-                            AppTheme::Dark => palette::bg::ELEVATED,
+                            AppTheme::Dark => Color32::from_rgb(14, 14, 17), // Slightly darker for contrast
+                        };
+                        let editor_border = match self.theme {
+                            AppTheme::Light => palette::light_border::SUBTLE,
+                            AppTheme::Dark => palette::border::SUBTLE,
                         };
 
                         // Create layouter closure for syntax highlighting
@@ -865,21 +862,34 @@ impl BufferEditor {
                                 ui.fonts_mut(|f| f.layout_job(job))
                             };
 
-                        // Use a Frame for the editor background
+                        // Premium editor frame with subtle inset shadow effect
                         let output = egui::Frame::new()
                             .fill(editor_bg)
-                            .corner_radius(4.0)
-                            .inner_margin(egui::vec2(12.0, 10.0))
+                            .corner_radius(8.0) // More rounded
+                            .inner_margin(egui::vec2(14.0, 12.0))
+                            .stroke(egui::Stroke::new(1.0, editor_border))
                             .show(ui, |ui| {
+                                // Draw subtle inner shadow at top for inset effect
+                                let inner_rect = ui.available_rect_before_wrap();
+                                let inset_shadow = egui::Rect::from_min_size(
+                                    inner_rect.left_top(),
+                                    egui::vec2(inner_rect.width(), 2.0),
+                                );
+                                ui.painter().rect_filled(
+                                    inset_shadow,
+                                    0.0,
+                                    Color32::from_rgba_unmultiplied(0, 0, 0, 15),
+                                );
+
                                 egui::TextEdit::multiline(&mut self.query)
                                     .id(text_edit_id)
                                     .font(typography::code_lg())
                                     .hint_text(
                                         RichText::new("e.g., rate(http_requests_total[5m])")
                                             .font(typography::code_lg())
-                                            .color(text_color(self.theme).gamma_multiply(0.4)),
+                                            .color(text_color(self.theme).gamma_multiply(0.35)),
                                     )
-                                    .desired_width(editor_width - 24.0)
+                                    .desired_width(editor_width - 28.0)
                                     .desired_rows(6)
                                     .frame(false) // Remove default frame
                                     .layouter(&mut layouter)
@@ -1059,50 +1069,101 @@ impl BufferEditor {
 
                     // Footer with keyboard hints and save button
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(20.0);
 
-                        let hint_color = text_color(self.theme).gamma_multiply(0.4);
+                        let hint_color = text_color(self.theme).gamma_multiply(0.35);
+                        let key_bg = match self.theme {
+                            AppTheme::Light => palette::light_bg::ELEVATED,
+                            AppTheme::Dark => palette::bg::ELEVATED,
+                        };
 
-                        // Keyboard hints
-                        ui.label(RichText::new("⌘↵").color(hint_color).size(typography::SM));
+                        // Premium keyboard hints with key badges
+                        crate::components::util::finder_utils::render_key_badge(
+                            ui, "⌘↵", key_bg, hint_color,
+                        );
+                        ui.add_space(4.0);
                         ui.label(RichText::new("save").color(hint_color).size(typography::SM));
                         ui.add_space(16.0);
-                        ui.label(RichText::new("esc").color(hint_color).size(typography::SM));
+                        crate::components::util::finder_utils::render_key_badge(
+                            ui, "Esc", key_bg, hint_color,
+                        );
+                        ui.add_space(4.0);
                         ui.label(
                             RichText::new("cancel")
                                 .color(hint_color)
                                 .size(typography::SM),
                         );
 
-                        // Right side - save button
+                        // Right side - save and cancel buttons
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(16.0);
+                            ui.add_space(20.0);
 
+                            // Premium save button with hover glow
                             let save_btn = egui::Button::new(
                                 RichText::new(format!("{} Save", semantic_icons::action::SAVE))
-                                    .size(typography::MD),
+                                    .size(typography::MD)
+                                    .color(Color32::WHITE)
+                                    .strong(),
                             )
-                            .fill(accent_color);
+                            .fill(accent_color)
+                            .corner_radius(6.0)
+                            .min_size(egui::vec2(80.0, 32.0));
 
-                            if ui.add(save_btn).clicked() {
+                            let save_response = ui.add(save_btn);
+
+                            // Draw glow behind save button on hover
+                            if save_response.hovered() {
+                                let glow_rect = save_response.rect.expand(3.0);
+                                ui.painter().rect_filled(
+                                    glow_rect,
+                                    8.0,
+                                    accent_color.gamma_multiply(0.25),
+                                );
+                                // Redraw button fill on top
+                                ui.painter().rect_filled(
+                                    save_response.rect,
+                                    6.0,
+                                    palette::accent::HOVER,
+                                );
+                            }
+
+                            if save_response.clicked() {
                                 should_save = true;
                             }
 
-                            // Cancel button
+                            ui.add_space(10.0);
+
+                            // Cancel button with refined ghost styling
+                            let cancel_bg = match self.theme {
+                                AppTheme::Light => palette::light_bg::HOVER,
+                                AppTheme::Dark => palette::bg::ELEVATED,
+                            };
+                            let cancel_border = match self.theme {
+                                AppTheme::Light => palette::light_border::SUBTLE,
+                                AppTheme::Dark => palette::border::SUBTLE,
+                            };
                             let cancel_btn = egui::Button::new(
                                 RichText::new("Cancel")
                                     .size(typography::MD)
-                                    .color(text_color(self.theme)),
-                            );
+                                    .color(text_color(self.theme).gamma_multiply(0.7)),
+                            )
+                            .fill(cancel_bg)
+                            .stroke(egui::Stroke::new(1.0, cancel_border))
+                            .corner_radius(6.0)
+                            .min_size(egui::vec2(72.0, 32.0));
 
-                            if ui.add(cancel_btn).clicked() {
+                            let cancel_response = ui.add(cancel_btn);
+                            if cancel_response.clicked() {
                                 should_close = true;
                             }
                         });
                     });
 
-                    ui.add_space(12.0);
+                    ui.add_space(14.0);
                 });
+
+                // Draw inner highlight on the frame for glass effect
+                overlay_style.draw_inner_highlight(ui, frame_response.response.rect);
             });
 
         // Show completion popup if open (rendered in a separate area on top)

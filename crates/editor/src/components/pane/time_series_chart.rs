@@ -801,8 +801,8 @@ impl TimeSeriesChart {
             ui.add_space(vertical_padding);
         }
 
-        // Apply softer grid lines by overriding the style
-        let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.4);
+        // Apply very soft grid lines for premium look - barely visible structure
+        let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.25);
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
         // Legend above the chart (only show if multiple series)

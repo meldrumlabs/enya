@@ -26,6 +26,8 @@ pub enum OverlayStyleVariant {
     MinimalFlat,
     /// Subtle neon: solid background with glowing accent border
     SubtleNeon,
+    /// Premium glass: enhanced transparency with inner glow
+    PremiumGlass,
 }
 
 /// Styling configuration for overlay/modal components
@@ -40,6 +42,8 @@ pub struct OverlayStyle {
     pub shadow: egui::epaint::Shadow,
     /// Border stroke width
     pub stroke_width: f32,
+    /// Inner highlight color (top edge glow for glass effect)
+    pub inner_highlight: Option<Color32>,
 }
 
 impl OverlayStyle {
@@ -49,33 +53,38 @@ impl OverlayStyle {
             OverlayStyleVariant::FrostedGlass => Self::frosted_glass(theme),
             OverlayStyleVariant::MinimalFlat => Self::minimal_flat(theme),
             OverlayStyleVariant::SubtleNeon => Self::subtle_neon(theme),
+            OverlayStyleVariant::PremiumGlass => Self::premium_glass(theme),
         }
     }
 
     /// Frosted glass style: semi-transparent background with soft edges
+    /// Now enhanced with inner highlight for premium feel
     pub fn frosted_glass(theme: AppTheme) -> Self {
-        let (bg, border) = match theme {
+        let (bg, border, inner_highlight) = match theme {
             AppTheme::Light => (
-                Color32::from_rgba_unmultiplied(255, 255, 255, 240), // ~94% opacity
-                Color32::from_rgba_unmultiplied(220, 220, 220, 200),
+                Color32::from_rgba_unmultiplied(252, 252, 250, 245), // Warm white, 96% opacity
+                Color32::from_rgba_unmultiplied(210, 210, 205, 180),
+                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 60)), // Subtle top highlight
             ),
             AppTheme::Dark => (
-                Color32::from_rgba_unmultiplied(20, 20, 20, 240), // ~94% opacity
-                Color32::from_rgba_unmultiplied(60, 60, 60, 180),
+                Color32::from_rgba_unmultiplied(14, 14, 16, 245), // Neutral obsidian, 96% opacity
+                Color32::from_rgba_unmultiplied(45, 45, 48, 160), // Neutral border
+                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 12)), // Subtle top highlight
             ),
         };
 
         Self {
             bg,
             border,
-            corner_radius: 12.0,
+            corner_radius: 14.0, // Slightly more rounded for premium feel
             stroke_width: 1.0,
             shadow: egui::epaint::Shadow {
-                offset: [0, 4],
-                blur: 24,
+                offset: [0, 8],
+                blur: 32,
                 spread: 0,
-                color: Color32::from_black_alpha(60),
+                color: Color32::from_black_alpha(80), // Deeper shadow for more lift
             },
+            inner_highlight,
         }
     }
 
@@ -89,9 +98,10 @@ impl OverlayStyle {
         Self {
             bg,
             border,
-            corner_radius: 4.0,
+            corner_radius: 6.0, // Match the premium 6px radius
             stroke_width: 1.0,
             shadow: egui::epaint::Shadow::NONE,
+            inner_highlight: None,
         }
     }
 
@@ -106,14 +116,45 @@ impl OverlayStyle {
         Self {
             bg,
             border: glow_color,
-            corner_radius: 4.0,
+            corner_radius: 6.0,
             stroke_width: 1.5,
             shadow: egui::epaint::Shadow {
                 offset: [0, 0],
-                blur: 16,
-                spread: 2,
-                color: glow_color.gamma_multiply(0.4),
+                blur: 20,
+                spread: 3,
+                color: glow_color.gamma_multiply(0.5),
             },
+            inner_highlight: None,
+        }
+    }
+
+    /// Premium glass style: enhanced transparency with inner glow and deep shadows
+    pub fn premium_glass(theme: AppTheme) -> Self {
+        let (bg, border, inner_highlight) = match theme {
+            AppTheme::Light => (
+                Color32::from_rgba_unmultiplied(250, 250, 248, 235), // Warm white transparent
+                Color32::from_rgba_unmultiplied(200, 200, 195, 150),
+                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 80)), // Stronger top highlight
+            ),
+            AppTheme::Dark => (
+                Color32::from_rgba_unmultiplied(12, 12, 14, 235), // Neutral deep obsidian
+                Color32::from_rgba_unmultiplied(40, 40, 44, 140), // Neutral border
+                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 18)), // Top edge glow
+            ),
+        };
+
+        Self {
+            bg,
+            border,
+            corner_radius: 16.0, // More rounded for premium
+            stroke_width: 1.0,
+            shadow: egui::epaint::Shadow {
+                offset: [0, 12],
+                blur: 48,
+                spread: 4,
+                color: Color32::from_black_alpha(100), // Deep ambient shadow
+            },
+            inner_highlight,
         }
     }
 
@@ -129,6 +170,25 @@ impl OverlayStyle {
     /// Create a new styled egui Frame
     pub fn frame(&self) -> egui::Frame {
         self.apply_to_frame(egui::Frame::new().inner_margin(0.0))
+    }
+
+    /// Get the inner highlight color if available
+    pub fn inner_highlight(&self) -> Option<Color32> {
+        self.inner_highlight
+    }
+
+    /// Draw inner highlight effect on top of the frame
+    /// Call this after the frame content is rendered to add the glass edge effect
+    pub fn draw_inner_highlight(&self, ui: &mut egui::Ui, rect: egui::Rect) {
+        if let Some(highlight_color) = self.inner_highlight {
+            // Draw a subtle gradient line at the top edge for the glass reflection effect
+            let highlight_rect = egui::Rect::from_min_size(
+                rect.left_top() + egui::vec2(1.0, 1.0),
+                egui::vec2(rect.width() - 2.0, 1.5),
+            );
+            ui.painter()
+                .rect_filled(highlight_rect, self.corner_radius - 1.0, highlight_color);
+        }
     }
 }
 
@@ -405,21 +465,42 @@ pub fn draw_separator_colored(ui: &mut egui::Ui, color: Color32) {
 ///
 /// This renders a styled badge with the key text, commonly used
 /// in tutorials, which-key popups, and keyboard hints.
+/// Enhanced with premium styling including subtle gradient and refined borders.
 pub fn render_key_badge(ui: &mut egui::Ui, key: &str, bg_color: Color32, text_color: Color32) {
     let font = typography::monospace(typography::MD);
     let text = RichText::new(key).color(text_color).font(font);
 
-    egui::Frame::new()
+    // Premium key badge with subtle depth
+    let response = egui::Frame::new()
         .fill(bg_color)
-        .corner_radius(4.0)
-        .inner_margin(egui::Margin::symmetric(6, 2))
-        .stroke(Stroke::new(1.0, text_color.gamma_multiply(0.2)))
+        .corner_radius(5.0) // Slightly more rounded
+        .inner_margin(egui::Margin::symmetric(7, 3))
+        .stroke(Stroke::new(1.0, text_color.gamma_multiply(0.15)))
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 1],
+            blur: 2,
+            spread: 0,
+            color: Color32::from_black_alpha(20),
+        })
         .show(ui, |ui| {
             ui.label(text);
         });
+
+    // Draw subtle top highlight for 3D effect
+    let rect = response.response.rect;
+    let highlight_rect = egui::Rect::from_min_size(
+        rect.left_top() + egui::vec2(1.0, 1.0),
+        egui::vec2(rect.width() - 2.0, 1.0),
+    );
+    ui.painter().rect_filled(
+        highlight_rect,
+        4.0,
+        Color32::from_rgba_unmultiplied(255, 255, 255, 15),
+    );
 }
 
 /// Render a keyboard key badge with larger padding (for tutorials).
+/// Enhanced with premium styling.
 pub fn render_key_badge_large(
     ui: &mut egui::Ui,
     key: &str,
@@ -429,20 +510,39 @@ pub fn render_key_badge_large(
     let font = typography::monospace(typography::MD);
     let text = RichText::new(key).color(text_color).font(font);
 
-    egui::Frame::new()
+    let response = egui::Frame::new()
         .fill(bg_color)
-        .corner_radius(4.0)
-        .inner_margin(egui::Margin::symmetric(8, 4))
-        .stroke(Stroke::new(1.0, text_color.gamma_multiply(0.2)))
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(10, 5))
+        .stroke(Stroke::new(1.0, text_color.gamma_multiply(0.15)))
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 2],
+            blur: 4,
+            spread: 0,
+            color: Color32::from_black_alpha(25),
+        })
         .show(ui, |ui| {
             ui.label(text);
         });
+
+    // Draw subtle top highlight for 3D effect
+    let rect = response.response.rect;
+    let highlight_rect = egui::Rect::from_min_size(
+        rect.left_top() + egui::vec2(1.0, 1.0),
+        egui::vec2(rect.width() - 2.0, 1.0),
+    );
+    ui.painter().rect_filled(
+        highlight_rect,
+        5.0,
+        Color32::from_rgba_unmultiplied(255, 255, 255, 20),
+    );
 }
 
 /// Draw a semi-transparent backdrop overlay covering the entire screen.
 ///
 /// This is used by modals like the buffer editor and multi-edit overlay
-/// to dim the background content.
+/// to dim the background content. Enhanced with subtle radial gradient
+/// for a premium depth effect.
 #[allow(deprecated)]
 pub fn draw_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
     let screen_rect = ctx.screen_rect();
@@ -450,10 +550,56 @@ pub fn draw_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
         .fixed_pos(screen_rect.min)
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
+            // Premium backdrop with slight vignette effect
             let backdrop_color = match theme {
-                AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 120),
-                AppTheme::Dark => Color32::from_rgba_unmultiplied(0, 0, 0, 180),
+                AppTheme::Light => Color32::from_rgba_unmultiplied(245, 245, 250, 140),
+                AppTheme::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 200), // Deeper, richer backdrop
             };
             ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
+
+            // Add subtle vignette at edges for depth (dark theme only)
+            if theme == AppTheme::Dark {
+                let vignette_color = Color32::from_rgba_unmultiplied(0, 0, 0, 40);
+                // Top edge vignette
+                let top_rect = egui::Rect::from_min_size(
+                    screen_rect.min,
+                    egui::vec2(screen_rect.width(), 80.0),
+                );
+                ui.painter().rect_filled(top_rect, 0.0, vignette_color);
+                // Bottom edge vignette
+                let bottom_rect = egui::Rect::from_min_size(
+                    egui::pos2(screen_rect.min.x, screen_rect.max.y - 80.0),
+                    egui::vec2(screen_rect.width(), 80.0),
+                );
+                ui.painter().rect_filled(bottom_rect, 0.0, vignette_color);
+            }
+        });
+}
+
+/// Draw a premium backdrop with emerald accent glow
+///
+/// Similar to draw_backdrop but with a subtle emerald glow in the center
+/// for a more branded, luxurious feel.
+#[allow(deprecated)]
+pub fn draw_premium_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
+    let screen_rect = ctx.screen_rect();
+    egui::Area::new(egui::Id::new(format!("{id_suffix}_premium_backdrop")))
+        .fixed_pos(screen_rect.min)
+        .order(egui::Order::Middle)
+        .show(ctx, |ui| {
+            // Base backdrop
+            let backdrop_color = match theme {
+                AppTheme::Light => Color32::from_rgba_unmultiplied(245, 245, 250, 150),
+                AppTheme::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 210),
+            };
+            ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
+
+            // Subtle emerald glow in the center (where modal will appear)
+            if theme == AppTheme::Dark {
+                let center = screen_rect.center();
+                let glow_rect = egui::Rect::from_center_size(center, egui::vec2(400.0, 300.0));
+                let glow_color = Color32::from_rgba_unmultiplied(16, 185, 129, 8); // Very subtle emerald
+                ui.painter().rect_filled(glow_rect, 100.0, glow_color);
+            }
         });
 }

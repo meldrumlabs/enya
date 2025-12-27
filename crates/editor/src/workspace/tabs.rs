@@ -375,8 +375,16 @@ impl WorkspaceTabBar {
             };
             painter.rect_filled(rect, 0.0, bg);
 
-            // Active indicator bar at bottom
+            // Active indicator bar at bottom - premium emerald accent
             if is_active {
+                // Subtle glow layer
+                let glow_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.min.x, rect.max.y - 3.0),
+                    egui::vec2(rect.width(), 3.0),
+                );
+                painter.rect_filled(glow_rect, 0.0, palette::accent::GLOW);
+
+                // Main accent bar
                 let bar_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.min.x, rect.max.y - 2.0),
                     egui::vec2(rect.width(), 2.0),
