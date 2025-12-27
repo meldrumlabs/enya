@@ -4,7 +4,7 @@
 //! visualization type based on Prometheus result type and data shape.
 
 use super::VisualizationType;
-use enya_common::{QueryResponse, ResultType};
+use enya_client::{QueryResponse, ResultType};
 
 /// Result characteristics used for visualization suggestion.
 #[derive(Debug, Clone)]
@@ -124,7 +124,7 @@ fn check_percentage_range(response: &QueryResponse) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use enya_common::{MetricsBucket, MetricsGroup};
+    use enya_client::{MetricsBucket, MetricsGroup};
 
     fn make_response(
         result_type: ResultType,

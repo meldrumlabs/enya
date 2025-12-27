@@ -15,8 +15,39 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
-// Re-export CommitMarker from common crate
-pub use enya_common::CommitMarker;
+/// A marker representing a git commit at a specific point in time.
+///
+/// Used to annotate time-series charts with commit information,
+/// allowing correlation between metric changes and code changes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommitMarker {
+    /// Git commit hash (full or abbreviated)
+    pub hash: String,
+    /// Timestamp of the commit in seconds (Unix epoch)
+    pub timestamp: f64,
+    /// Commit message (first line / subject)
+    pub message: String,
+}
+
+impl CommitMarker {
+    pub fn new(hash: impl Into<String>, timestamp: f64, message: impl Into<String>) -> Self {
+        Self {
+            hash: hash.into(),
+            timestamp,
+            message: message.into(),
+        }
+    }
+
+    /// Get abbreviated hash (first 7 characters)
+    #[must_use]
+    pub fn short_hash(&self) -> &str {
+        if self.hash.len() > 7 {
+            &self.hash[..7]
+        } else {
+            &self.hash
+        }
+    }
+}
 
 /// Zoom factor for keyboard-based zoom controls
 const ZOOM_FACTOR: f64 = 1.25;

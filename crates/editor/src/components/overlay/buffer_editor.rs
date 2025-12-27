@@ -4,7 +4,7 @@ use egui::{Color32, FontId, Key, RichText, TextFormat};
 use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticLevel};
 use crate::components::util::query_completion::{CompletionResult, QueryCompletion};
 use crate::components::util::query_state::QueryState;
-use crate::components::util::query_validation::{QueryValidator, ValidationResult};
+use crate::components::util::query_validation::{ValidationResult, validate_query};
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
@@ -329,8 +329,6 @@ pub struct BufferEditor {
     text_edit_rect: Option<egui::Rect>,
     /// Pending cursor position to set after completion (if Some, will be applied next frame)
     pending_cursor: Option<usize>,
-    /// Query validator for inline validation
-    validator: QueryValidator,
     /// Cached validation result
     validation_result: Option<ValidationResult>,
     /// Whether inline diagnostics are shown
@@ -360,7 +358,6 @@ impl BufferEditor {
             cursor_position: 0,
             text_edit_rect: None,
             pending_cursor: None,
-            validator: QueryValidator::new(),
             validation_result: None,
             show_inline_diagnostics: true,
             original_metric_name: None,
@@ -593,8 +590,8 @@ impl BufferEditor {
     }
 
     /// Validate the current query and cache the result
-    fn validate_query(&mut self) {
-        self.validation_result = Some(self.validator.validate(&self.query));
+    fn run_validation(&mut self) {
+        self.validation_result = Some(validate_query(&self.query));
     }
 
     /// Get the current validation result
@@ -948,7 +945,7 @@ impl BufferEditor {
 
                     // Validate query when text changes
                     if output.response.changed() {
-                        self.validate_query();
+                        self.run_validation();
                     }
 
                     // Show tiny-inline-diagnostic style virtual text

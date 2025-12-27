@@ -1,6 +1,6 @@
 //! Query request types.
 
-use enya_common::api::Timestamp;
+use crate::types::Timestamp;
 
 /// A metrics query request.
 #[derive(Debug, Clone)]
@@ -8,8 +8,7 @@ pub struct QueryRequest {
     /// The metric name (e.g., "cpu_usage", "http_requests_total").
     pub metric: String,
 
-    /// The enya-lang query string (e.g., "sum(env:prod) by (region)").
-    /// This will be translated to the backend's native query language.
+    /// The PromQL query string (e.g., "sum(cpu_usage{env=\"prod\"}) by (region)").
     pub query: String,
 
     /// Start of the query time range (nanoseconds since epoch).

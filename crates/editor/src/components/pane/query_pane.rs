@@ -433,7 +433,7 @@ impl QueryPane {
     }
 
     /// Set commit markers on the visualization (only for time series)
-    pub fn set_commits(&mut self, commits: Vec<enya_common::CommitMarker>) {
+    pub fn set_commits(&mut self, commits: Vec<super::time_series_chart::CommitMarker>) {
         self.visualization.set_commits(commits);
     }
 
