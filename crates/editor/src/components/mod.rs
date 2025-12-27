@@ -35,8 +35,8 @@ pub use util::{
     Backend, CompletionItem, CompletionKind, CompletionResult, ExecuteParams, Finder, FinderColors,
     FinderConfig, FinderItem, FinderKeyboardInput, FinderResult, Granularity, MultiBufferMode,
     MultiBufferState, OverlayColors, OverlayStyle, OverlayStyleVariant, QueryCompletion,
-    QueryExecutor, QueryPollResult, QueryState, QueryValidator, Selection, ValidationResult,
-    draw_backdrop, draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
+    QueryExecutor, QueryPollResult, QueryState, Selection, ValidationResult, draw_backdrop,
+    draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
     render_key_badge, render_key_badge_large, validate_query,
 };
 

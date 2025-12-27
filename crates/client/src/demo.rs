@@ -10,11 +10,11 @@ use crate::error::ClientError;
 use crate::now_unix_secs;
 use crate::prometheus::response::MetricLabels;
 use crate::request::QueryRequest;
+use crate::types::{MetricsBucket, MetricsGroup, ResultType};
 use crate::{
     BackendInfo, HealthCheckResult, LabelsResult, MetricLabelsResult, MetricsClient, QueryResponse,
     QueryResult,
 };
-use enya_common::{MetricsBucket, MetricsGroup, ResultType};
 
 /// A demo metric definition with its labels.
 #[derive(Debug, Clone)]
