@@ -13,6 +13,10 @@ Discovers metrics defined in source code using tree-sitter parsing:
 | Language | Library | Patterns |
 |----------|---------|----------|
 | Rust | [metrics-rs](https://docs.rs/metrics) | `counter!()`, `gauge!()`, `histogram!()` |
+| Python | [prometheus_client](https://github.com/prometheus/client_python) | `Counter('name', 'help')`, `Gauge(...)`, `Histogram(...)` |
+| Go | [client_golang](https://github.com/prometheus/client_golang) | `prometheus.NewCounter(CounterOpts{...})`, `promauto.NewGauge(...)` |
+| JavaScript | [prom-client](https://github.com/siimon/prom-client) | `new client.Counter({name: '...'})`, `new Gauge({...})` |
+| TypeScript | [prom-client](https://github.com/siimon/prom-client) | Same as JavaScript, supports `.ts` and `.tsx` files |
 
 For each metric, the scanner extracts:
 - Metric name (e.g., `http_requests_total`)
@@ -20,6 +24,24 @@ For each metric, the scanner extracts:
 - Label keys (e.g., `["method", "status"]`)
 - File location (path, line, column)
 - Function context (containing function and impl type)
+
+### Metric Usage Tracking
+
+Beyond definitions, the scanner also tracks where metrics are used ("hot paths"):
+
+| Language | Usage Patterns |
+|----------|----------------|
+| Python | `counter.inc()`, `gauge.set(value)`, `histogram.observe(value)`, `gauge.dec()` |
+| Go | `counter.Inc()`, `counter.Add(n)`, `gauge.Set(value)`, `histogram.Observe(value)` |
+| JavaScript | `counter.inc()`, `gauge.set(value)`, `histogram.observe(value)`, `histogram.startTimer()` |
+| TypeScript | Same as JavaScript |
+
+For each usage, the scanner extracts:
+- Usage kind (increment, set, add, sub, observe, time, etc.)
+- Variable name holding the metric
+- Label values (if statically determinable)
+- File location (path, line, column)
+- Function context (containing function and class/impl type)
 
 ### Alert Scanning
 
@@ -63,6 +85,10 @@ crates/index/
 │   └── scanner/
 │       ├── mod.rs      # Scanner trait and registry
 │       ├── rust.rs     # Rust metrics-rs scanner
+│       ├── python.rs   # Python prometheus_client scanner
+│       ├── go.rs       # Go client_golang scanner
+│       ├── javascript.rs # JavaScript prom-client scanner
+│       ├── typescript.rs # TypeScript prom-client scanner
 │       └── yaml.rs     # YAML alert rule scanner
 ```
 
@@ -75,8 +101,14 @@ pub trait Scanner: Send + Sync {
     /// File extensions this scanner handles (e.g., `["rs"]`).
     fn extensions(&self) -> &[&str];
 
-    /// Scan a source file for metric instrumentation points.
+    /// Scan a source file for metric instrumentation points (definitions).
     fn scan_file(&self, path: &Path) -> Result<Vec<MetricInstrumentation>, ParseError>;
+
+    /// Scan a source file for metric usage points (where metrics are recorded).
+    /// Default implementation returns empty vec for backward compatibility.
+    fn scan_usages(&self, path: &Path) -> Result<Vec<MetricUsage>, ParseError> {
+        Ok(Vec::new())
+    }
 }
 ```
 
