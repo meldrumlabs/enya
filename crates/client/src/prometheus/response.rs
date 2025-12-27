@@ -12,7 +12,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::Deserialize;
 
 use crate::error::ClientError;
-use enya_common::{MetricsBucket, MetricsGroup, QueryResponse, ResultType};
+use crate::types::{MetricsBucket, MetricsGroup, QueryResponse, ResultType};
 
 /// Prometheus API response wrapper for query endpoints.
 #[derive(Debug, Deserialize)]
