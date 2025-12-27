@@ -922,50 +922,78 @@ impl QueryCompletion {
         let visible_items = self.items.len().min(max_visible_items);
         let popup_height = visible_items as f32 * item_height + 8.0;
 
-        // Obsidian glass theme colors
+        // Premium Obsidian Glass theme colors - darker, more distinct popup
         let bg_color = match self.theme {
             AppTheme::Light => palette::light_bg::SURFACE,
-            AppTheme::Dark => palette::bg::SURFACE,
+            AppTheme::Dark => Color32::from_rgb(16, 16, 20), // Darker obsidian for distinction
         };
         let border_color = match self.theme {
             AppTheme::Light => palette::light_border::DEFAULT,
-            AppTheme::Dark => palette::border::SUBTLE,
+            AppTheme::Dark => Color32::from_rgb(50, 55, 52), // Subtle emerald-tinted border
         };
         let selected_bg = match self.theme {
             AppTheme::Light => palette::light_bg::SELECTED,
-            AppTheme::Dark => palette::accent::MUTED, // Emerald-tinted selection
+            AppTheme::Dark => Color32::from_rgb(24, 50, 40), // Richer emerald selection
         };
         let hover_bg = match self.theme {
             AppTheme::Light => palette::light_bg::HOVER,
-            AppTheme::Dark => palette::bg::HOVER,
+            AppTheme::Dark => Color32::from_rgb(28, 28, 34), // Subtle hover lift
         };
         let text_col = palette::text_primary(self.theme);
         let text_secondary = palette::text_secondary(self.theme);
         let text_tertiary = palette::text_tertiary(self.theme);
         let accent_color = match self.theme {
             AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::HOVER, // Bright emerald
+            AppTheme::Dark => palette::accent::HOVER, // Luminous emerald
         };
 
         let popup_rect =
             egui::Rect::from_min_size(popup_pos, egui::vec2(popup_width, popup_height));
 
-        // Draw layered shadows for obsidian glass depth effect
-        let shadow_offset = egui::vec2(0.0, 4.0);
-        let shadow_rect = popup_rect.translate(shadow_offset).expand(4.0);
+        // Premium layered shadows for depth perception - deeper shadows
+        // Outer ambient shadow
+        let shadow_rect = popup_rect.translate(egui::vec2(0.0, 10.0)).expand(12.0);
         ui.painter()
-            .rect_filled(shadow_rect, 12.0, Color32::from_black_alpha(40));
-        let shadow_rect2 = popup_rect.translate(egui::vec2(0.0, 2.0)).expand(2.0);
+            .rect_filled(shadow_rect, 16.0, Color32::from_black_alpha(80));
+        // Mid shadow
+        let shadow_rect2 = popup_rect.translate(egui::vec2(0.0, 5.0)).expand(6.0);
         ui.painter()
-            .rect_filled(shadow_rect2, 10.0, Color32::from_black_alpha(30));
+            .rect_filled(shadow_rect2, 14.0, Color32::from_black_alpha(60));
+        // Inner contact shadow
+        let shadow_rect3 = popup_rect.translate(egui::vec2(0.0, 2.0)).expand(2.0);
+        ui.painter()
+            .rect_filled(shadow_rect3, 12.0, Color32::from_black_alpha(40));
 
-        // Draw popup background with rounded corners
+        // Draw popup background with premium rounded corners
         ui.painter().rect(
             popup_rect,
-            8.0,
+            12.0, // More rounded for premium feel
             bg_color,
             egui::Stroke::new(1.0, border_color),
             egui::StrokeKind::Inside,
+        );
+
+        // Inner top highlight for glass effect - more visible
+        let highlight_rect = egui::Rect::from_min_size(
+            popup_rect.left_top() + egui::vec2(1.0, 1.0),
+            egui::vec2(popup_rect.width() - 2.0, 1.5),
+        );
+        let highlight_color = match self.theme {
+            AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 80),
+            AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 255, 255, 20), // Stronger highlight
+        };
+        ui.painter()
+            .rect_filled(highlight_rect, 10.0, highlight_color);
+
+        // Subtle inner glow at top for depth
+        let glow_rect = egui::Rect::from_min_size(
+            popup_rect.left_top() + egui::vec2(2.0, 3.0),
+            egui::vec2(popup_rect.width() - 4.0, 8.0),
+        );
+        ui.painter().rect_filled(
+            glow_rect,
+            8.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 4),
         );
 
         // Draw items
@@ -983,7 +1011,7 @@ impl QueryCompletion {
             let response = ui.allocate_rect(item_rect, egui::Sense::click());
             let is_hovered = response.hovered();
 
-            // Item background
+            // Item background with premium styling
             let item_bg = if is_selected {
                 selected_bg
             } else if is_hovered {
@@ -992,30 +1020,80 @@ impl QueryCompletion {
                 Color32::TRANSPARENT
             };
 
-            if item_bg != Color32::TRANSPARENT {
-                ui.painter().rect_filled(item_rect, 4.0, item_bg);
-            }
-
-            // Selection indicator (emerald accent bar on left)
             if is_selected {
-                let indicator_rect =
-                    egui::Rect::from_min_size(item_rect.min, egui::vec2(3.0, item_height));
-                ui.painter().rect_filled(indicator_rect, 2.0, accent_color);
+                // Draw more visible glow behind selected item
+                let glow_rect = item_rect.expand(2.0);
+                ui.painter()
+                    .rect_filled(glow_rect, 8.0, accent_color.gamma_multiply(0.12));
             }
 
-            // Icon
+            if item_bg != Color32::TRANSPARENT {
+                ui.painter().rect_filled(item_rect, 6.0, item_bg);
+
+                // Add subtle top highlight on selected/hovered items for depth
+                if is_selected || is_hovered {
+                    let item_highlight = egui::Rect::from_min_size(
+                        item_rect.left_top() + egui::vec2(1.0, 1.0),
+                        egui::vec2(item_rect.width() - 2.0, 1.0),
+                    );
+                    ui.painter().rect_filled(
+                        item_highlight,
+                        4.0,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 8),
+                    );
+                }
+            }
+
+            // Selection indicator - elegant emerald accent bar with glow
+            if is_selected {
+                // Glow behind indicator - more visible
+                let glow_rect = egui::Rect::from_min_size(
+                    item_rect.min - egui::vec2(2.0, 0.0),
+                    egui::vec2(7.0, item_height),
+                );
+                ui.painter()
+                    .rect_filled(glow_rect, 4.0, accent_color.gamma_multiply(0.4));
+                // Main indicator - slightly thicker
+                let indicator_rect =
+                    egui::Rect::from_min_size(item_rect.min, egui::vec2(3.5, item_height));
+                ui.painter().rect_filled(indicator_rect, 3.0, accent_color);
+            }
+
+            // Icon - use accent color for selected, secondary for others
+            let icon_color = if is_selected {
+                accent_color
+            } else {
+                text_secondary
+            };
             let icon_pos = egui::pos2(item_rect.left() + 12.0, item_rect.center().y);
             ui.painter().text(
                 icon_pos,
                 egui::Align2::LEFT_CENTER,
                 item.icon,
                 typography::proportional(typography::XL),
-                text_secondary,
+                icon_color,
             );
 
-            // Kind badge
+            // Kind badge with subtle background pill
             let kind_label = item.kind.label();
             let kind_pos = egui::pos2(item_rect.right() - 12.0, item_rect.center().y);
+
+            // Measure kind text for background pill
+            let kind_galley = ui.painter().layout_no_wrap(
+                kind_label.to_string(),
+                typography::proportional(typography::XS),
+                text_tertiary,
+            );
+            let badge_rect = egui::Rect::from_center_size(
+                kind_pos - egui::vec2(kind_galley.size().x / 2.0, 0.0),
+                kind_galley.size() + egui::vec2(10.0, 6.0),
+            );
+            let badge_bg = match self.theme {
+                AppTheme::Light => palette::light_bg::ELEVATED,
+                AppTheme::Dark => palette::bg::HOVER.gamma_multiply(0.6),
+            };
+            ui.painter().rect_filled(badge_rect, 4.0, badge_bg);
+
             ui.painter().text(
                 kind_pos,
                 egui::Align2::RIGHT_CENTER,
@@ -1035,12 +1113,19 @@ impl QueryCompletion {
                 item.label.clone()
             };
 
+            // Brighter text for selected item
+            let label_color = if is_selected {
+                palette::text::PRIMARY
+            } else {
+                text_col
+            };
+
             ui.painter().text(
                 label_pos,
                 egui::Align2::LEFT_CENTER,
                 &display_label,
                 typography::monospace(typography::LG),
-                text_col,
+                label_color,
             );
 
             // Handle click
@@ -1054,11 +1139,27 @@ impl QueryCompletion {
         // Show scroll indicator if there are more items
         if self.items.len() > max_visible_items {
             let more_count = self.items.len() - max_visible_items;
-            let indicator_pos = egui::pos2(content_rect.center().x, content_rect.bottom() - 4.0);
+
+            // Draw indicator with subtle background
+            let indicator_text = format!("↓ +{more_count} more");
+            let indicator_pos = egui::pos2(content_rect.center().x, content_rect.bottom() - 2.0);
+
+            let indicator_galley = ui.painter().layout_no_wrap(
+                indicator_text.clone(),
+                typography::proportional(typography::XS),
+                text_tertiary,
+            );
+            let indicator_bg_rect = egui::Rect::from_center_size(
+                indicator_pos - egui::vec2(0.0, indicator_galley.size().y / 2.0),
+                indicator_galley.size() + egui::vec2(12.0, 4.0),
+            );
+            ui.painter()
+                .rect_filled(indicator_bg_rect, 4.0, bg_color.gamma_multiply(0.9));
+
             ui.painter().text(
                 indicator_pos,
                 egui::Align2::CENTER_BOTTOM,
-                format!("... +{more_count} more"),
+                indicator_text,
                 typography::proportional(typography::XS),
                 text_tertiary,
             );
