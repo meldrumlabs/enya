@@ -440,6 +440,26 @@ impl Workspace {
         pane_ids
     }
 
+    /// Collect PromQL queries from all open QueryPane components.
+    ///
+    /// Used by AI context builders to provide agents with awareness of
+    /// currently active queries in the dashboard.
+    pub(super) fn collect_pane_queries(&self) -> Vec<String> {
+        self.get_pane_tile_ids()
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        return Some(query_pane.saved_query().to_string());
+                    }
+                }
+                None
+            })
+            .collect()
+    }
+
     /// Recursively collect all pane tile IDs
     fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>) {
         if let Some(tile) = self.viewport_tree.tiles.get(tile_id) {

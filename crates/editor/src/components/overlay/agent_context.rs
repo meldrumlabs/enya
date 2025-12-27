@@ -334,6 +334,115 @@ pub fn strip_command_blocks(text: &str) -> String {
     result.trim().to_string()
 }
 
+// ============================================================================
+// Context Builder Helpers
+// ============================================================================
+//
+// These helper functions consolidate context-building logic that was previously
+// duplicated between `Workspace::update_agent_context` and
+// `Workspace::build_editor_context`. By extracting these into reusable functions,
+// we ensure consistent context generation across all AI agent integrations.
+//
+// Usage:
+// - `build_connection_context`: Creates connection context from a QueryExecutor
+// - `build_dashboard_context`: Creates dashboard context from workspace state
+// - `build_codebase_context` (native only): Creates codebase context from CodebaseManager
+//
+// These are intentionally placed in the agent_context module (rather than a
+// separate util module) because they are tightly coupled to the context types
+// defined here and are only used for AI agent context building.
+// ============================================================================
+
+use crate::components::util::query_executor::{Backend, ConnectionHealth, QueryExecutor};
+
+/// Build connection context from a query executor.
+///
+/// Extracts backend type, endpoint, connection status, and version information
+/// from the query executor to create a `ConnectionContext` for AI agents.
+///
+/// # Arguments
+/// * `executor` - Reference to the query executor
+///
+/// # Returns
+/// A `ConnectionContext` populated with the current connection state.
+pub fn build_connection_context(executor: &QueryExecutor) -> ConnectionContext {
+    let backend_str = match executor.backend() {
+        Backend::Demo => "demo".to_string(),
+        Backend::Prometheus(url) => format!("prometheus:{url}"),
+    };
+
+    let (is_online, version) = match executor.connection_health() {
+        ConnectionHealth::Online { version } => (true, Some(version.clone())),
+        _ => (false, None),
+    };
+
+    let endpoint = match executor.backend() {
+        Backend::Prometheus(url) => Some(url.clone()),
+        _ => None,
+    };
+
+    ConnectionContext {
+        backend: backend_str,
+        endpoint,
+        is_online,
+        version,
+    }
+}
+
+/// Build dashboard context from workspace state.
+///
+/// Creates a `DashboardContext` containing the current time range, pane count,
+/// and list of active queries. This gives AI agents awareness of what the user
+/// is currently viewing.
+///
+/// # Arguments
+/// * `time_range_label` - The display label for the current time range (e.g., "15 minutes")
+/// * `pane_count` - Number of panes currently open in the viewport
+/// * `queries` - List of PromQL queries from open query panes
+///
+/// # Returns
+/// A `DashboardContext` populated with the dashboard state.
+pub fn build_dashboard_context(
+    time_range_label: String,
+    pane_count: usize,
+    queries: Vec<String>,
+) -> DashboardContext {
+    DashboardContext {
+        time_range: time_range_label,
+        pane_count,
+        queries,
+    }
+}
+
+/// Build codebase context from the codebase manager (native only).
+///
+/// Creates a `CodebaseContext` containing repository information, indexed metric
+/// and file counts, and optionally recent commits. This helps AI agents understand
+/// the codebase structure and recent changes.
+///
+/// # Arguments
+/// * `repo_path` - Path to the repository root
+/// * `metric_count` - Number of metrics discovered in the codebase
+/// * `file_count` - Number of files scanned/indexed
+/// * `recent_commits` - Optional list of recent commits (typically last 5)
+///
+/// # Returns
+/// A `CodebaseContext` populated with codebase information.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn build_codebase_context(
+    repo_path: String,
+    metric_count: usize,
+    file_count: usize,
+    recent_commits: Vec<CommitSummary>,
+) -> CodebaseContext {
+    CodebaseContext {
+        repo_url: repo_path,
+        metric_count,
+        file_count,
+        recent_commits,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

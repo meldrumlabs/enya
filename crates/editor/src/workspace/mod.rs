@@ -969,7 +969,7 @@ impl Workspace {
                 WorkspaceAction::None
             }
             CommandResult::SetProvider(provider_name) => {
-                use crate::components::overlay::agent_panel::AiProvider;
+                use crate::components::util::AiProvider;
                 if let Some(provider) = AiProvider::parse(&provider_name) {
                     self.agent_panel.set_provider(provider);
                     log::info!("Set AI provider to: {}", provider.display_name());
@@ -1519,50 +1519,33 @@ impl Workspace {
     /// This provides the AI agent with awareness of the current editor state,
     /// including connection info, available metrics, codebase status, and
     /// dashboard configuration.
+    ///
+    /// Uses helper functions from `agent_context` module to build individual
+    /// context pieces, ensuring consistency with `build_editor_context`.
     fn update_agent_context(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        use crate::components::overlay::agent_context::{CommitSummary, build_codebase_context};
         use crate::components::overlay::agent_context::{
-            CodebaseContext, ConnectionContext, DashboardContext, EditorContext,
+            EditorContext, build_connection_context, build_dashboard_context,
         };
-        use crate::components::util::query_executor::ConnectionHealth;
 
-        // Build connection context
-        let connection = {
-            let backend_str = match self.query_executor.backend() {
-                crate::components::util::query_executor::Backend::Demo => "demo".to_string(),
-                crate::components::util::query_executor::Backend::Prometheus(url) => {
-                    format!("prometheus:{url}")
-                }
-            };
-
-            let (is_online, version) = match self.query_executor.connection_health() {
-                ConnectionHealth::Online { version } => (true, Some(version.clone())),
-                _ => (false, None),
-            };
-
-            let endpoint = match self.query_executor.backend() {
-                crate::components::util::query_executor::Backend::Prometheus(url) => {
-                    Some(url.clone())
-                }
-                _ => None,
-            };
-
-            ConnectionContext {
-                backend: backend_str,
-                endpoint,
-                is_online,
-                version,
-            }
-        };
+        // Build connection context using shared helper
+        let connection = build_connection_context(&self.query_executor);
 
         // Get available metrics (limited to top 50 in EditorContext)
         let metrics: Vec<String> = self.query_executor.metric_names().to_vec();
 
-        // Build codebase context (native only)
+        // Build codebase context (native only) - includes recent commits
         #[cfg(not(target_arch = "wasm32"))]
         let codebase = {
             use crate::codebase::CodebaseStatus;
             match self.codebase_manager.status() {
                 CodebaseStatus::Ready { .. } => {
+                    let repo_path = self
+                        .codebase_manager
+                        .index()
+                        .map(|idx| idx.repo_path.display().to_string())
+                        .unwrap_or_default();
                     let metric_count = self.codebase_manager.all_metrics().len();
                     let file_count = self
                         .codebase_manager
@@ -1575,7 +1558,6 @@ impl Workspace {
                         .codebase_manager
                         .index()
                         .and_then(|_idx| {
-                            // Use cached commits for the summary
                             let time_range = self.time_range_toolbar.time_range();
                             self.codebase_manager
                                 .get_commits(time_range.start, time_range.end)
@@ -1583,62 +1565,33 @@ impl Workspace {
                                     commits
                                         .iter()
                                         .take(5)
-                                        .map(|c| {
-                                            crate::components::overlay::agent_context::CommitSummary {
-                                                hash: c.short_hash().to_string(),
-                                                message: c.message.clone(),
-                                            }
+                                        .map(|c| CommitSummary {
+                                            hash: c.short_hash().to_string(),
+                                            message: c.message.clone(),
                                         })
                                         .collect::<Vec<_>>()
                                 })
                         })
                         .unwrap_or_default();
 
-                    Some(CodebaseContext {
-                        repo_url: self
-                            .codebase_manager
-                            .index()
-                            .map(|idx| idx.repo_path.display().to_string())
-                            .unwrap_or_default(),
+                    Some(build_codebase_context(
+                        repo_path,
                         metric_count,
                         file_count,
                         recent_commits,
-                    })
+                    ))
                 }
                 _ => None,
             }
         };
-        #[cfg(target_arch = "wasm32")]
-        let _codebase: Option<CodebaseContext> = None;
 
-        // Build dashboard context
+        // Build dashboard context using shared helper
         let dashboard = {
             let time_range = self.time_range_toolbar.time_range();
-            let time_range_str = time_range.preset.label().to_string();
-
             let pane_count = self.get_pane_tile_ids().len();
+            let queries = self.collect_pane_queries();
 
-            // Collect queries from open panes
-            let queries: Vec<String> = self
-                .get_pane_tile_ids()
-                .iter()
-                .filter_map(|&tile_id| {
-                    if let Some(egui_tiles::Tile::Pane(component)) =
-                        self.viewport_tree.tiles.get(tile_id)
-                    {
-                        if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                            return Some(query_pane.saved_query().to_string());
-                        }
-                    }
-                    None
-                })
-                .collect();
-
-            DashboardContext {
-                time_range: time_range_str,
-                pane_count,
-                queries,
-            }
+            build_dashboard_context(time_range.preset.label().to_string(), pane_count, queries)
         };
 
         // Build the full context
@@ -1662,50 +1615,35 @@ impl Workspace {
     /// Build the editor context for AI agents.
     ///
     /// This can be used to provide context to agent panes as well as the panel.
+    /// Unlike `update_agent_context`, this version does not fetch recent commits
+    /// (which would require a mutable borrow of the codebase manager).
+    ///
+    /// Uses helper functions from `agent_context` module to build individual
+    /// context pieces, ensuring consistency with `update_agent_context`.
     fn build_editor_context(&self) -> Option<crate::components::EditorContext> {
+        #[cfg(not(target_arch = "wasm32"))]
+        use crate::components::overlay::agent_context::build_codebase_context;
         use crate::components::overlay::agent_context::{
-            CodebaseContext, ConnectionContext, DashboardContext, EditorContext,
+            EditorContext, build_connection_context, build_dashboard_context,
         };
-        use crate::components::util::query_executor::ConnectionHealth;
 
-        // Build connection context
-        let connection = {
-            let backend_str = match self.query_executor.backend() {
-                crate::components::util::query_executor::Backend::Demo => "demo".to_string(),
-                crate::components::util::query_executor::Backend::Prometheus(url) => {
-                    format!("prometheus:{url}")
-                }
-            };
-
-            let (is_online, version) = match self.query_executor.connection_health() {
-                ConnectionHealth::Online { version } => (true, Some(version.clone())),
-                _ => (false, None),
-            };
-
-            let endpoint = match self.query_executor.backend() {
-                crate::components::util::query_executor::Backend::Prometheus(url) => {
-                    Some(url.clone())
-                }
-                _ => None,
-            };
-
-            ConnectionContext {
-                backend: backend_str,
-                endpoint,
-                is_online,
-                version,
-            }
-        };
+        // Build connection context using shared helper
+        let connection = build_connection_context(&self.query_executor);
 
         // Get available metrics
         let metrics: Vec<String> = self.query_executor.metric_names().to_vec();
 
-        // Build codebase context (native only)
+        // Build codebase context (native only) - skips commits (requires mutable borrow)
         #[cfg(not(target_arch = "wasm32"))]
         let codebase = {
             use crate::codebase::CodebaseStatus;
             match self.codebase_manager.status() {
                 CodebaseStatus::Ready { .. } => {
+                    let repo_path = self
+                        .codebase_manager
+                        .index()
+                        .map(|idx| idx.repo_path.display().to_string())
+                        .unwrap_or_default();
                     let metric_count = self.codebase_manager.all_metrics().len();
                     let file_count = self
                         .codebase_manager
@@ -1713,49 +1651,25 @@ impl Workspace {
                         .map(|idx| idx.metrics.len())
                         .unwrap_or(0);
 
-                    Some(CodebaseContext {
-                        repo_url: self
-                            .codebase_manager
-                            .index()
-                            .map(|idx| idx.repo_path.display().to_string())
-                            .unwrap_or_default(),
+                    // Note: We skip commits here since get_commits requires &mut self
+                    Some(build_codebase_context(
+                        repo_path,
                         metric_count,
                         file_count,
-                        recent_commits: Vec::new(), // Skip commits for now (requires mutable borrow)
-                    })
+                        Vec::new(),
+                    ))
                 }
                 _ => None,
             }
         };
-        #[cfg(target_arch = "wasm32")]
-        let _codebase: Option<CodebaseContext> = None;
 
-        // Build dashboard context
+        // Build dashboard context using shared helper
         let dashboard = {
             let time_range = self.time_range_toolbar.time_range();
-            let time_range_str = time_range.preset.label().to_string();
             let pane_count = self.get_pane_tile_ids().len();
+            let queries = self.collect_pane_queries();
 
-            let queries: Vec<String> = self
-                .get_pane_tile_ids()
-                .iter()
-                .filter_map(|&tile_id| {
-                    if let Some(egui_tiles::Tile::Pane(component)) =
-                        self.viewport_tree.tiles.get(tile_id)
-                    {
-                        if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                            return Some(query_pane.saved_query().to_string());
-                        }
-                    }
-                    None
-                })
-                .collect();
-
-            DashboardContext {
-                time_range: time_range_str,
-                pane_count,
-                queries,
-            }
+            build_dashboard_context(time_range.preset.label().to_string(), pane_count, queries)
         };
 
         // Build the full context

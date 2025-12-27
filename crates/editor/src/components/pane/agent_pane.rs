@@ -13,6 +13,11 @@ use std::sync::mpsc::Receiver;
 use crate::components::overlay::agent_context::{self, AgentCommand, EditorContext};
 use crate::components::util::finder_utils::OverlayColors;
 use crate::components::util::id_generator::next_id_usize;
+use crate::components::util::{
+    ActivityItem, ActivityType, AiModel, AiProvider, MessageRole, ResponseStatus, normalize_unicode,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::{truncate_first_line, truncate_path_suffix};
 use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::typography;
@@ -61,7 +66,10 @@ pub struct InlineSource {
     pub highlight_data: crate::components::util::SyntaxHighlightData,
 }
 
-/// A message in the chat history
+/// A message in the chat history.
+///
+/// Note: This struct differs from `agent_panel::ChatMessage` by including
+/// `inline_blocks` for inline visualizations and source previews.
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
     /// Who sent the message
@@ -74,36 +82,6 @@ pub struct ChatMessage {
     pub inline_blocks: Vec<InlineContent>,
 }
 
-/// Role of the message sender
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MessageRole {
-    User,
-    Assistant,
-    System,
-}
-
-/// Type of activity in the agent log
-#[derive(Debug, Clone, PartialEq)]
-pub enum ActivityType {
-    /// Claude is thinking (with optional thinking text)
-    Thinking(String),
-    /// Tool usage (tool name, summary)
-    ToolUse { tool: String, summary: String },
-    /// Error message
-    Error(String),
-    /// Final text response
-    Response(String),
-}
-
-/// An activity item in the agent log
-#[derive(Debug, Clone)]
-pub struct ActivityItem {
-    /// The type of activity
-    pub activity_type: ActivityType,
-    /// Whether this activity is still in progress
-    pub in_progress: bool,
-}
-
 /// Actions that can result from agent pane interaction
 #[derive(Debug, Clone)]
 pub enum AgentPaneAction {
@@ -111,97 +89,6 @@ pub enum AgentPaneAction {
     None,
     /// Commands parsed from agent response
     Commands(Vec<AgentCommand>),
-}
-
-/// Status of the response
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-#[allow(dead_code)] // Variants used for tracking internal state
-enum ResponseStatus {
-    #[default]
-    Waiting,
-    Thinking,
-    Responding,
-    Complete,
-}
-
-/// Available AI providers
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AiProvider {
-    /// Claude Code (Anthropic) - default
-    #[default]
-    Claude,
-    /// Codex (OpenAI)
-    Codex,
-}
-
-impl AiProvider {
-    /// Get the display name for this provider
-    pub fn display_name(self) -> &'static str {
-        match self {
-            Self::Claude => "Claude",
-            Self::Codex => "Codex",
-        }
-    }
-}
-
-/// Available models (varies by provider)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AiModel {
-    // Claude models
-    ClaudeSonnet45,
-    ClaudeOpus45,
-    ClaudeHaiku45,
-    // OpenAI models (GPT-5.2 series)
-    Gpt52,
-    Gpt52Pro,
-    Gpt52Codex,
-}
-
-impl AiModel {
-    /// Get the display name for this model
-    fn display_name(self) -> &'static str {
-        match self {
-            Self::ClaudeSonnet45 => "Sonnet 4.5",
-            Self::ClaudeOpus45 => "Opus 4.5",
-            Self::ClaudeHaiku45 => "Haiku 4.5",
-            Self::Gpt52 => "GPT-5.2",
-            Self::Gpt52Pro => "GPT-5.2 Pro",
-            Self::Gpt52Codex => "GPT-5.2 Codex",
-        }
-    }
-
-    /// Get the API model ID
-    #[allow(dead_code)] // Used when sending requests to AcpClient
-    fn model_id(self) -> &'static str {
-        match self {
-            Self::ClaudeSonnet45 => "claude-sonnet-4-5-20250514",
-            Self::ClaudeOpus45 => "claude-opus-4-5-20250514",
-            Self::ClaudeHaiku45 => "claude-haiku-4-5-20250514",
-            Self::Gpt52 => "gpt-5.2-2025-12-11",
-            Self::Gpt52Pro => "gpt-5.2-pro-2025-12-11",
-            Self::Gpt52Codex => "gpt-5.2-codex",
-        }
-    }
-
-    /// Get models available for a provider
-    fn for_provider(provider: AiProvider) -> &'static [Self] {
-        match provider {
-            AiProvider::Claude => &[
-                Self::ClaudeSonnet45,
-                Self::ClaudeOpus45,
-                Self::ClaudeHaiku45,
-            ],
-            AiProvider::Codex => &[Self::Gpt52Codex, Self::Gpt52, Self::Gpt52Pro],
-        }
-    }
-
-    /// Get the default model for a provider
-    fn default_for(provider: AiProvider) -> Self {
-        match provider {
-            AiProvider::Claude => Self::ClaudeSonnet45,
-            AiProvider::Codex => Self::Gpt52Codex,
-        }
-    }
 }
 
 /// An Agent pane for AI-assisted chat in the viewport.
@@ -600,7 +487,7 @@ impl AgentPane {
             };
 
             if !display_content.is_empty() {
-                let normalized = Self::normalize_text(&display_content);
+                let normalized = normalize_unicode(&display_content);
                 ui.label(
                     RichText::new(normalized)
                         .color(colors.text)
@@ -1093,64 +980,6 @@ impl AgentPane {
         log::info!("Agent request stopped by user");
     }
 
-    /// Normalize unicode characters that may not render correctly.
-    fn normalize_text(text: &str) -> String {
-        text.chars()
-            .map(|c| match c {
-                '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' => '-',
-                '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
-                '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
-                '\u{2026}' => c,
-                '\u{00A0}' => ' ',
-                _ => c,
-            })
-            .collect()
-    }
-
-    /// Truncate text for display.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn truncate_text(text: &str, max_len: usize) -> String {
-        let first_line = text.lines().next().unwrap_or(text);
-        if first_line.len() > max_len {
-            format!("{}...", &first_line[..max_len - 3])
-        } else {
-            first_line.to_string()
-        }
-    }
-
-    /// Truncate a file path to show the suffix.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn truncate_path(path: &str, max_len: usize) -> String {
-        if path.len() <= max_len {
-            return path.to_string();
-        }
-
-        let parts: Vec<&str> = path.split('/').collect();
-        if parts.len() <= 1 {
-            return format!("...{}", &path[path.len().saturating_sub(max_len - 3)..]);
-        }
-
-        let mut result = String::new();
-        for part in parts.iter().rev() {
-            let candidate = if result.is_empty() {
-                part.to_string()
-            } else {
-                format!("{part}/{result}")
-            };
-
-            if candidate.len() + 4 > max_len {
-                break;
-            }
-            result = candidate;
-        }
-
-        if result.len() < path.len() {
-            format!(".../{result}")
-        } else {
-            result
-        }
-    }
-
     /// Poll the event receiver and update UI state.
     #[cfg(not(target_arch = "wasm32"))]
     fn poll_streaming_response(&mut self) {
@@ -1177,7 +1006,7 @@ impl AgentPane {
                             }
                         } else {
                             self.current_activities.push(ActivityItem {
-                                activity_type: ActivityType::Thinking(Self::truncate_text(
+                                activity_type: ActivityType::Thinking(truncate_first_line(
                                     &text, 60,
                                 )),
                                 in_progress: true,
@@ -1185,7 +1014,7 @@ impl AgentPane {
                         }
                     } else {
                         self.current_activities.push(ActivityItem {
-                            activity_type: ActivityType::Thinking(Self::truncate_text(&text, 60)),
+                            activity_type: ActivityType::Thinking(truncate_first_line(&text, 60)),
                             in_progress: true,
                         });
                     }
@@ -1205,14 +1034,14 @@ impl AgentPane {
                                 .or_else(|| v.get("path"))
                                 .and_then(|s| s.as_str())
                             {
-                                return Some(Self::truncate_path(path, 50));
+                                return Some(truncate_path_suffix(path, 50));
                             }
                             v.get("pattern")
                                 .or_else(|| v.get("command"))
                                 .or_else(|| v.get("description"))
                                 .or_else(|| v.get("prompt"))
                                 .and_then(|s| s.as_str())
-                                .map(|s| Self::truncate_text(s, 50))
+                                .map(|s| truncate_first_line(s, 50))
                         })
                         .unwrap_or_default();
 

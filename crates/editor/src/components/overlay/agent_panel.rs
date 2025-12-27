@@ -11,6 +11,11 @@ use enya_ai::{AcpClient, AgentEvent};
 use std::sync::mpsc::Receiver;
 
 use crate::components::util::finder_utils::OverlayColors;
+use crate::components::util::{
+    ActivityItem, ActivityType, AiModel, AiProvider, MessageRole, ResponseStatus, normalize_unicode,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::{truncate_first_line, truncate_path_suffix};
 use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::typography;
@@ -26,36 +31,6 @@ pub struct ChatMessage {
     pub is_streaming: bool,
 }
 
-/// Role of the message sender
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MessageRole {
-    User,
-    Assistant,
-    System,
-}
-
-/// Type of activity in the agent log
-#[derive(Debug, Clone, PartialEq)]
-pub enum ActivityType {
-    /// Claude is thinking (with optional thinking text)
-    Thinking(String),
-    /// Tool usage (tool name, summary)
-    ToolUse { tool: String, summary: String },
-    /// Error message
-    Error(String),
-    /// Final text response
-    Response(String),
-}
-
-/// An activity item in the agent log
-#[derive(Debug, Clone)]
-pub struct ActivityItem {
-    /// The type of activity
-    pub activity_type: ActivityType,
-    /// Whether this activity is still in progress
-    pub in_progress: bool,
-}
-
 /// Result of showing the agent panel
 #[derive(Debug, Clone)]
 pub enum AgentPanelResult {
@@ -65,111 +40,6 @@ pub enum AgentPanelResult {
     Closed,
     /// Commands parsed from agent response
     Commands(Vec<super::agent_context::AgentCommand>),
-}
-
-/// Status of the Claude response
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-#[allow(dead_code)] // Variants used for tracking internal state
-enum ResponseStatus {
-    #[default]
-    Waiting,
-    Thinking,
-    Responding,
-    Complete,
-}
-
-/// Available AI providers
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AiProvider {
-    /// Claude Code (Anthropic) - default
-    #[default]
-    Claude,
-    /// Codex (OpenAI)
-    Codex,
-}
-
-impl AiProvider {
-    /// Get the display name for this provider
-    pub fn display_name(self) -> &'static str {
-        match self {
-            Self::Claude => "Claude",
-            Self::Codex => "Codex",
-        }
-    }
-
-    /// Parse a provider from string name
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "claude" | "anthropic" => Some(Self::Claude),
-            "codex" | "openai" => Some(Self::Codex),
-            _ => None,
-        }
-    }
-
-    /// List all available providers
-    pub fn all() -> &'static [Self] {
-        &[Self::Claude, Self::Codex]
-    }
-}
-
-/// Available models (varies by provider)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AiModel {
-    // Claude models
-    ClaudeSonnet45,
-    ClaudeOpus45,
-    ClaudeHaiku45,
-    // OpenAI models (GPT-5.2 series)
-    Gpt52,
-    Gpt52Pro,
-    Gpt52Codex,
-}
-
-impl AiModel {
-    /// Get the display name for this model
-    fn display_name(self) -> &'static str {
-        match self {
-            Self::ClaudeSonnet45 => "Sonnet 4.5",
-            Self::ClaudeOpus45 => "Opus 4.5",
-            Self::ClaudeHaiku45 => "Haiku 4.5",
-            Self::Gpt52 => "GPT-5.2",
-            Self::Gpt52Pro => "GPT-5.2 Pro",
-            Self::Gpt52Codex => "GPT-5.2 Codex",
-        }
-    }
-
-    /// Get the API model ID
-    #[allow(dead_code)] // Used when sending requests to AcpClient
-    fn model_id(self) -> &'static str {
-        match self {
-            Self::ClaudeSonnet45 => "claude-sonnet-4-5-20250514",
-            Self::ClaudeOpus45 => "claude-opus-4-5-20250514",
-            Self::ClaudeHaiku45 => "claude-haiku-4-5-20250514",
-            Self::Gpt52 => "gpt-5.2-2025-12-11",
-            Self::Gpt52Pro => "gpt-5.2-pro-2025-12-11",
-            Self::Gpt52Codex => "gpt-5.2-codex",
-        }
-    }
-
-    /// Get models available for a provider
-    fn for_provider(provider: AiProvider) -> &'static [Self] {
-        match provider {
-            AiProvider::Claude => &[
-                Self::ClaudeSonnet45,
-                Self::ClaudeOpus45,
-                Self::ClaudeHaiku45,
-            ],
-            AiProvider::Codex => &[Self::Gpt52Codex, Self::Gpt52, Self::Gpt52Pro],
-        }
-    }
-
-    /// Get the default model for a provider
-    fn default_for(provider: AiProvider) -> Self {
-        match provider {
-            AiProvider::Claude => Self::ClaudeSonnet45,
-            AiProvider::Codex => Self::Gpt52Codex,
-        }
-    }
 }
 
 /// The agent panel component for AI-assisted chat
@@ -699,7 +569,7 @@ impl AgentPanel {
 
             if !display_content.is_empty() {
                 // Normalize unicode characters that may not render in our font
-                let normalized = Self::normalize_text(&display_content);
+                let normalized = normalize_unicode(&display_content);
                 ui.label(
                     RichText::new(normalized)
                         .color(colors.text)
@@ -882,76 +752,6 @@ impl AgentPanel {
         self.scroll_to_bottom = true;
     }
 
-    /// Truncate text for display
-    #[cfg(not(target_arch = "wasm32"))]
-    fn truncate_text(text: &str, max_len: usize) -> String {
-        // Take first line only, and truncate
-        let first_line = text.lines().next().unwrap_or(text);
-        if first_line.len() > max_len {
-            format!("{}...", &first_line[..max_len - 3])
-        } else {
-            first_line.to_string()
-        }
-    }
-
-    /// Normalize unicode characters that may not render correctly in our font.
-    /// Replaces special dashes, quotes, and other symbols with ASCII equivalents.
-    fn normalize_text(text: &str) -> String {
-        text.chars()
-            .map(|c| match c {
-                // Various dash types → regular hyphen
-                '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' => '-',
-                // Curly quotes → straight quotes
-                '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
-                '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
-                // Ellipsis → three dots (we keep it as is since it's a single char)
-                '\u{2026}' => c,
-                // Non-breaking space → regular space
-                '\u{00A0}' => ' ',
-                // Everything else unchanged
-                _ => c,
-            })
-            .collect()
-    }
-
-    /// Truncate a file path to show the suffix (filename with some parent context)
-    #[cfg(not(target_arch = "wasm32"))]
-    fn truncate_path(path: &str, max_len: usize) -> String {
-        if path.len() <= max_len {
-            return path.to_string();
-        }
-
-        // Try to show as much of the path suffix as possible
-        // e.g., ".../components/overlay/agent_panel.rs"
-        let parts: Vec<&str> = path.split('/').collect();
-        if parts.len() <= 1 {
-            // No slashes, just truncate normally
-            return format!("...{}", &path[path.len().saturating_sub(max_len - 3)..]);
-        }
-
-        // Start from the filename and add parent directories until we hit the limit
-        let mut result = String::new();
-        for part in parts.iter().rev() {
-            let candidate = if result.is_empty() {
-                part.to_string()
-            } else {
-                format!("{part}/{result}")
-            };
-
-            if candidate.len() + 4 > max_len {
-                // Adding this part would exceed the limit
-                break;
-            }
-            result = candidate;
-        }
-
-        if result.len() < path.len() {
-            format!(".../{result}")
-        } else {
-            result
-        }
-    }
-
     /// Poll the event receiver and update UI state
     #[cfg(not(target_arch = "wasm32"))]
     fn poll_streaming_response(&mut self) {
@@ -980,7 +780,7 @@ impl AgentPanel {
                             }
                         } else {
                             self.current_activities.push(ActivityItem {
-                                activity_type: ActivityType::Thinking(Self::truncate_text(
+                                activity_type: ActivityType::Thinking(truncate_first_line(
                                     &text, 60,
                                 )),
                                 in_progress: true,
@@ -988,7 +788,7 @@ impl AgentPanel {
                         }
                     } else {
                         self.current_activities.push(ActivityItem {
-                            activity_type: ActivityType::Thinking(Self::truncate_text(&text, 60)),
+                            activity_type: ActivityType::Thinking(truncate_first_line(&text, 60)),
                             in_progress: true,
                         });
                     }
@@ -1011,7 +811,7 @@ impl AgentPanel {
                                 .or_else(|| v.get("path"))
                                 .and_then(|s| s.as_str())
                             {
-                                return Some(Self::truncate_path(path, 50));
+                                return Some(truncate_path_suffix(path, 50));
                             }
                             // Other fields use regular text truncation
                             v.get("pattern")
@@ -1019,7 +819,7 @@ impl AgentPanel {
                                 .or_else(|| v.get("description"))
                                 .or_else(|| v.get("prompt"))
                                 .and_then(|s| s.as_str())
-                                .map(|s| Self::truncate_text(s, 50))
+                                .map(|s| truncate_first_line(s, 50))
                         })
                         .unwrap_or_default();
 

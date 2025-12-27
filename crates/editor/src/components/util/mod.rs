@@ -1,5 +1,7 @@
 //! Utility modules - non-UI helpers for components.
 
+pub mod ai_provider;
+pub mod chat_types;
 pub mod finder;
 pub mod finder_utils;
 pub mod id_generator;
@@ -9,7 +11,10 @@ pub mod query_executor;
 pub mod query_state;
 pub mod query_validation;
 pub mod syntax_highlight;
+pub mod text_formatting;
 
+pub use ai_provider::{AiModel, AiProvider};
+pub use chat_types::{ActivityItem, ActivityType, MessageRole, ResponseStatus};
 pub use finder::{Finder, FinderConfig, FinderItem, FinderResult};
 pub use finder_utils::{
     FinderColors, FinderKeyboardInput, OverlayColors, OverlayStyle, OverlayStyleVariant,
@@ -23,3 +28,6 @@ pub use query_executor::{Backend, ExecuteParams, QueryExecutor, QueryPollResult}
 pub use query_state::{Granularity, QueryState};
 pub use query_validation::{QueryValidator, ValidationResult, is_valid_query, validate_query};
 pub use syntax_highlight::SyntaxHighlightData;
+pub use text_formatting::normalize_unicode;
+#[cfg(not(target_arch = "wasm32"))]
+pub use text_formatting::{truncate_first_line, truncate_path_suffix};
