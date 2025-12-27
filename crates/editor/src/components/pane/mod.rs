@@ -7,7 +7,10 @@ pub mod query_pane;
 pub mod time_series_chart;
 pub mod visualization;
 
-pub use agent_pane::{AgentPane, AgentPaneAction, AiProvider as AgentAiProvider};
+pub use agent_pane::{
+    AgentPane, AgentPaneAction, AiProvider as AgentAiProvider, InlineChart, InlineContent,
+    InlineSource,
+};
 pub use flamegraph::{FlameFrame, FlamegraphViz, ProfileType};
 pub use heatmap::{HeatmapCell, HeatmapLabels, HeatmapViz};
 pub use query_pane::{QueryPane, QueryPaneAction};

@@ -6,6 +6,13 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Inline content in Agent Pane**: Agent responses can now include rich inline content:
+  - Inline time series charts using the `TimeSeriesChart` component for consistent styling with dashboard charts
+  - Inline source code previews with full tree-sitter syntax highlighting (Rust, Go, Python, JavaScript/TypeScript)
+  - New agent commands: `show_inline_chart` and `show_inline_source`
+  - Compact chart rendering with series colors matching the main dashboard palette
+  - Source previews show file path, language badge, and highlight the target line
+
 - **Agent Pane - first-class AI chat in viewport**: The AI agent is now a first-class pane in the viewport (not a side panel). Features include:
   - Press `Space+a` to create or focus an Agent pane
   - Runs in parallel with query/chart panes in the tile layout

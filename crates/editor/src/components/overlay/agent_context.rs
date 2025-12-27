@@ -190,11 +190,32 @@ impl EditorContext {
         );
         parts.push("  - Required: `pattern` (search string)\n".to_string());
         parts.push(
-            "- `show_metric_source`: Show source code where a metric is defined\n".to_string(),
+            "- `show_inline_chart`: Show a time series chart inline in your response (PREFERRED)\n"
+                .to_string(),
+        );
+        parts.push("  - Required: `query` (PromQL expression)\n".to_string());
+        parts.push(
+            "  - Optional: `title`, `time_range` (e.g., \"1h\"), `height` (pixels)\n".to_string(),
+        );
+        parts.push(
+            "- `show_inline_source`: Show source code inline in your response (PREFERRED)\n"
+                .to_string(),
+        );
+        parts.push("  - Required: `metric` (metric name to look up)\n".to_string());
+        parts.push(
+            "  - Optional: `context_lines` (number of lines to show, default: 5)\n".to_string(),
+        );
+        parts.push(
+            "- `show_metric_source`: Open modal overlay for source code (use only when user says \"open\" or \"go to\")\n".to_string(),
         );
         parts.push("  - Required: `metric` (metric name)\n".to_string());
-        parts.push("- `show_alert_source`: Show source code for an alert rule\n".to_string());
+        parts.push("- `show_alert_source`: Open modal overlay for alert rule (use only when user says \"open\" or \"go to\")\n".to_string());
         parts.push("  - Required: `alert` (alert name)\n".to_string());
+        parts.push("\n**Preference**: When showing source code or charts, prefer `show_inline_source` and `show_inline_chart` \n".to_string());
+        parts.push("to keep content in the conversation flow. Only use `show_metric_source` or `show_alert_source` when the user \n".to_string());
+        parts.push(
+            "explicitly asks to \"open\", \"go to\", or \"navigate to\" the source.\n".to_string(),
+        );
 
         parts.join("")
     }
@@ -231,6 +252,28 @@ pub enum AgentCommand {
     ShowAlertSource {
         /// Alert name to look up
         alert: String,
+    },
+    /// Show an inline time series chart in the agent response
+    ShowInlineChart {
+        /// PromQL query to execute
+        query: String,
+        /// Chart title
+        #[serde(default)]
+        title: Option<String>,
+        /// Time range (e.g., "1h", "6h", "24h") - defaults to current dashboard range
+        #[serde(default)]
+        time_range: Option<String>,
+        /// Chart height in pixels
+        #[serde(default)]
+        height: Option<f32>,
+    },
+    /// Show an inline source code preview in the agent response
+    ShowInlineSource {
+        /// Metric name to look up source for
+        metric: String,
+        /// Number of context lines to show (default: 5)
+        #[serde(default)]
+        context_lines: Option<usize>,
     },
 }
 

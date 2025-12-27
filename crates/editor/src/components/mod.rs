@@ -10,9 +10,9 @@ pub mod widget;
 // Re-export from pane
 pub use pane::{
     AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, DataPoint, FlameFrame,
-    FlamegraphViz, GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, ProfileType, QueryPane,
-    QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart, Visualization,
-    VisualizationType,
+    FlamegraphViz, GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent,
+    InlineSource, ProfileType, QueryPane, QueryPaneAction, Series, SparklineViz, StatChart,
+    Threshold, TimeSeriesChart, Visualization, VisualizationType,
 };
 
 // Re-export from overlay

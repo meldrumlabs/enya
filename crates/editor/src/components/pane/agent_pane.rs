@@ -17,6 +17,50 @@ use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::typography;
 
+/// Inline content block that can be embedded in chat messages.
+///
+/// These are rendered inline within the message, allowing the agent to
+/// show visualizations and source code directly in the conversation.
+#[derive(Debug, Clone)]
+pub enum InlineContent {
+    /// An inline time series chart with data
+    Chart(InlineChart),
+    /// An inline source code preview
+    Source(InlineSource),
+}
+
+/// Inline time series chart data.
+///
+/// Contains the data needed to render a compact chart within a message.
+#[derive(Debug, Clone)]
+pub struct InlineChart {
+    /// Chart title (e.g., metric name)
+    pub title: String,
+    /// Data series to plot
+    pub series: Vec<super::time_series_chart::Series>,
+    /// Optional height override (default: 120px)
+    pub height: Option<f32>,
+}
+
+/// Inline source code preview.
+///
+/// Contains the data needed to render a syntax-highlighted code snippet.
+#[derive(Debug, Clone)]
+pub struct InlineSource {
+    /// File path (relative)
+    pub file_path: String,
+    /// Target line number (1-indexed)
+    pub line: usize,
+    /// Source lines to display
+    pub lines: Vec<String>,
+    /// Start line number (1-indexed)
+    pub start_line: usize,
+    /// Language for syntax highlighting (e.g., "rust", "go")
+    pub language: String,
+    /// Pre-computed tree-sitter syntax highlighting data
+    pub highlight_data: crate::components::util::SyntaxHighlightData,
+}
+
 /// A message in the chat history
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
@@ -26,6 +70,8 @@ pub struct ChatMessage {
     pub content: String,
     /// Whether this message is still being streamed
     pub is_streaming: bool,
+    /// Inline content blocks (charts, source previews)
+    pub inline_blocks: Vec<InlineContent>,
 }
 
 /// Role of the message sender
@@ -307,6 +353,25 @@ impl AgentPane {
         std::mem::take(&mut self.pending_commands)
     }
 
+    /// Add inline content to the last assistant message.
+    ///
+    /// This is used by the workspace to inject chart data or source previews
+    /// into the agent's response after parsing commands.
+    pub fn add_inline_content(&mut self, content: InlineContent) {
+        // Find the last assistant message and add the inline content
+        if let Some(msg) = self
+            .messages
+            .iter_mut()
+            .rev()
+            .find(|m| m.role == MessageRole::Assistant)
+        {
+            msg.inline_blocks.push(content);
+            log::debug!("Added inline content to assistant message");
+        } else {
+            log::warn!("No assistant message found to add inline content");
+        }
+    }
+
     /// Render the agent pane.
     ///
     /// Note: Commands are NOT drained here. Use `poll_pending_commands()` to
@@ -448,13 +513,17 @@ impl AgentPane {
                 .find(|(_, m)| m.role == MessageRole::User)
                 .map(|(i, _)| i);
 
-            for (i, message) in self.messages.iter().enumerate() {
+            // Clone messages for iteration to allow mutable access during rendering
+            let messages = self.messages.to_vec();
+            let activities = self.current_activities.to_vec();
+
+            for (i, message) in messages.iter().enumerate() {
                 self.render_message(ui, message, colors);
                 ui.add_space(4.0);
 
                 // Show activities after the last user message
-                if Some(i) == last_user_idx && !self.current_activities.is_empty() {
-                    for activity in &self.current_activities {
+                if Some(i) == last_user_idx && !activities.is_empty() {
+                    for activity in &activities {
                         self.render_activity(ui, activity, colors);
                         ui.add_space(2.0);
                     }
@@ -463,7 +532,7 @@ impl AgentPane {
         }
     }
 
-    fn render_message(&self, ui: &mut egui::Ui, message: &ChatMessage, colors: &OverlayColors) {
+    fn render_message(&mut self, ui: &mut egui::Ui, message: &ChatMessage, colors: &OverlayColors) {
         let (role_label, role_color, msg_bg) = match message.role {
             MessageRole::User => (
                 "You",
@@ -517,7 +586,7 @@ impl AgentPane {
     }
 
     fn render_message_content(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         message: &ChatMessage,
         colors: &OverlayColors,
@@ -537,6 +606,19 @@ impl AgentPane {
                         .color(colors.text)
                         .size(typography::MD),
                 );
+            }
+        }
+
+        // Render inline content blocks
+        for block in &message.inline_blocks {
+            ui.add_space(8.0);
+            match block {
+                InlineContent::Chart(chart) => {
+                    self.render_inline_chart(ui, chart, colors);
+                }
+                InlineContent::Source(source) => {
+                    self.render_inline_source(ui, source, colors);
+                }
             }
         }
 
@@ -624,6 +706,174 @@ impl AgentPane {
                 );
             }
         });
+    }
+
+    /// Render an inline time series chart within a message.
+    ///
+    /// Uses the TimeSeriesChart component for consistent styling with dashboard charts.
+    fn render_inline_chart(
+        &mut self,
+        ui: &mut egui::Ui,
+        chart: &InlineChart,
+        colors: &OverlayColors,
+    ) {
+        use super::time_series_chart::TimeSeriesChart;
+
+        let chart_height = chart.height.unwrap_or(150.0);
+
+        // Chart container with border
+        egui::Frame::new()
+            .fill(colors.elevated_bg)
+            .corner_radius(6.0)
+            .stroke(egui::Stroke::new(1.0, colors.separator))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                // Title header
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(egui_nerdfonts::regular::CHART_LINE)
+                            .color(colors.accent)
+                            .size(12.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(&chart.title)
+                            .color(colors.text)
+                            .size(typography::SM)
+                            .strong(),
+                    );
+                });
+
+                ui.add_space(4.0);
+
+                if chart.series.is_empty() {
+                    ui.label(
+                        RichText::new("No data")
+                            .color(colors.faint_text)
+                            .size(typography::SM),
+                    );
+                } else {
+                    // Create a TimeSeriesChart for consistent styling
+                    let mut ts_chart = TimeSeriesChart::new(&chart.title);
+                    ts_chart.set_theme(self.theme);
+                    ts_chart.set_show_legend(false); // Compact mode - no legend
+
+                    // Add all series from the inline chart
+                    for series in &chart.series {
+                        ts_chart.add_series(series.clone());
+                    }
+
+                    // Render within constrained height
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), chart_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ts_chart.show(ui);
+                        },
+                    );
+                }
+            });
+    }
+
+    /// Render an inline source code preview within a message.
+    ///
+    /// Shows syntax-highlighted source with line numbers using tree-sitter.
+    fn render_inline_source(
+        &self,
+        ui: &mut egui::Ui,
+        source: &InlineSource,
+        colors: &OverlayColors,
+    ) {
+        // Source container with border
+        egui::Frame::new()
+            .fill(colors.elevated_bg)
+            .corner_radius(6.0)
+            .stroke(egui::Stroke::new(1.0, colors.separator))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                // Header with file path and line number
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(egui_nerdfonts::regular::FILE_CODE)
+                            .color(colors.accent)
+                            .size(12.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!("{}:{}", source.file_path, source.line))
+                            .color(colors.accent)
+                            .size(typography::SM)
+                            .strong(),
+                    );
+
+                    // Language badge
+                    if !source.language.is_empty() {
+                        ui.add_space(8.0);
+                        egui::Frame::new()
+                            .fill(colors.badge_bg)
+                            .corner_radius(3.0)
+                            .inner_margin(egui::Margin::symmetric(4, 1))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(&source.language)
+                                        .color(colors.muted_text)
+                                        .size(typography::XS),
+                                );
+                            });
+                    }
+                });
+
+                ui.add_space(6.0);
+
+                // Line number width
+                let max_line = source.start_line + source.lines.len();
+                let line_num_width = format!("{max_line}").len();
+
+                // Source lines with line numbers and tree-sitter syntax highlighting
+                for (i, line) in source.lines.iter().enumerate() {
+                    let line_num = source.start_line + i;
+                    let is_target = line_num == source.line;
+
+                    let (line_color, bg_color) = if is_target {
+                        (
+                            palette::semantic::WARNING,
+                            match self.theme {
+                                AppTheme::Light => Color32::from_rgba_unmultiplied(255, 220, 0, 40),
+                                AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 220, 0, 25),
+                            },
+                        )
+                    } else {
+                        (colors.faint_text, Color32::TRANSPARENT)
+                    };
+
+                    let response = ui.horizontal(|ui| {
+                        // Line number
+                        let prefix = if is_target {
+                            format!("{line_num:>line_num_width$} →")
+                        } else {
+                            format!("{line_num:>line_num_width$}  ")
+                        };
+                        ui.label(
+                            RichText::new(prefix)
+                                .color(line_color)
+                                .font(typography::monospace(typography::SM)),
+                        );
+                        ui.add_space(4.0);
+
+                        // Code line with tree-sitter syntax highlighting
+                        let job = source
+                            .highlight_data
+                            .highlight_line(line_num, line, self.theme);
+                        ui.label(job);
+                    });
+
+                    // Draw background for target line
+                    if is_target {
+                        let rect = response.response.rect.expand2(egui::vec2(2.0, 1.0));
+                        ui.painter().rect_filled(rect, 2.0, bg_color);
+                    }
+                }
+            });
     }
 
     fn render_input(&mut self, ui: &mut egui::Ui, colors: &OverlayColors, ctx: &egui::Context) {
@@ -739,6 +989,7 @@ impl AgentPane {
             role: MessageRole::User,
             content: prompt.clone(),
             is_streaming: false,
+            inline_blocks: Vec::new(),
         });
 
         // Add placeholder for assistant response
@@ -746,6 +997,7 @@ impl AgentPane {
             role: MessageRole::Assistant,
             content: String::new(),
             is_streaming: true,
+            inline_blocks: Vec::new(),
         });
 
         // Clear input and reset state
@@ -792,12 +1044,14 @@ impl AgentPane {
             role: MessageRole::User,
             content: self.input_text.trim().to_string(),
             is_streaming: false,
+            inline_blocks: Vec::new(),
         });
 
         self.messages.push(ChatMessage {
             role: MessageRole::System,
             content: "AI agents are not available in the browser.".to_string(),
             is_streaming: false,
+            inline_blocks: Vec::new(),
         });
 
         self.input_text.clear();

@@ -8,6 +8,7 @@ pub mod query_completion;
 pub mod query_executor;
 pub mod query_state;
 pub mod query_validation;
+pub mod syntax_highlight;
 
 pub use finder::{Finder, FinderConfig, FinderItem, FinderResult};
 pub use finder_utils::{
@@ -21,3 +22,4 @@ pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, Que
 pub use query_executor::{Backend, ExecuteParams, QueryExecutor, QueryPollResult};
 pub use query_state::{Granularity, QueryState};
 pub use query_validation::{QueryValidator, ValidationResult, is_valid_query, validate_query};
+pub use syntax_highlight::SyntaxHighlightData;

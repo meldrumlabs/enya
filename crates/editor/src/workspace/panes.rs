@@ -7,7 +7,10 @@
 use egui_tiles::{Tile, TileId};
 
 use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
-use crate::components::{AgentPane, Buffer, Component, QueryPane};
+use crate::components::pane::time_series_chart::{DataPoint, Series};
+use crate::components::{
+    AgentPane, Buffer, Component, InlineChart, InlineContent, InlineSource, QueryPane,
+};
 
 impl Workspace {
     // ==================== Pane Adding ====================
@@ -197,6 +200,33 @@ impl Workspace {
                     #[cfg(target_arch = "wasm32")]
                     {
                         log::warn!("ShowAlertSource not available on WASM: {alert}");
+                    }
+                }
+                AgentCommand::ShowInlineChart {
+                    query,
+                    title,
+                    time_range: _,
+                    height,
+                } => {
+                    // Generate inline chart data
+                    let chart_title = title.unwrap_or_else(|| query.clone());
+                    let chart = self.generate_inline_chart(&query, &chart_title, height);
+
+                    // Find the first agent pane and inject the chart
+                    self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
+                    log::info!("Injected inline chart for query: {query}");
+                }
+                AgentCommand::ShowInlineSource {
+                    metric,
+                    context_lines,
+                } => {
+                    // Look up metric source and generate inline source preview
+                    let lines = context_lines.unwrap_or(5);
+                    if let Some(source) = self.generate_inline_source(&metric, lines) {
+                        self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
+                        log::info!("Injected inline source for metric: {metric}");
+                    } else {
+                        log::warn!("Could not find source for metric: {metric}");
                     }
                 }
             }
@@ -502,5 +532,173 @@ impl Workspace {
             }
         }
         false
+    }
+
+    // ==================== Inline Content Generation ====================
+
+    /// Generate an inline chart with sample data based on the current time range.
+    ///
+    /// This uses the demo client to generate realistic-looking data for the chart.
+    fn generate_inline_chart(&self, query: &str, title: &str, height: Option<f32>) -> InlineChart {
+        // Get current time range
+        let time_range = self.time_range_toolbar.time_range();
+        let now = time_range.end;
+        let start = time_range.start;
+        let duration_secs = now - start;
+
+        // Generate sample data points (about 60 points for the chart)
+        let num_points = 60;
+        let step = duration_secs / num_points as f64;
+
+        // Create a series with generated data
+        let mut points = Vec::with_capacity(num_points);
+
+        // Use a simple sine wave with some noise for demo purposes
+        // In a real implementation, this would use actual query results
+        let base_value = 50.0;
+        let amplitude = 20.0;
+
+        for i in 0..num_points {
+            let t = start + (i as f64 * step);
+            // Simple pattern based on time
+            let phase = (i as f64 / num_points as f64) * std::f64::consts::PI * 4.0;
+            let noise = ((t as i64 % 17) as f64 - 8.0) / 8.0 * 5.0;
+            let value = base_value + amplitude * phase.sin() + noise;
+
+            points.push(DataPoint {
+                timestamp: t,
+                value: value.max(0.0),
+            });
+        }
+
+        // Extract metric name from query for series name
+        let series_name = Self::extract_metric_from_query(query);
+
+        let series = Series::new(&series_name).with_points(points);
+
+        InlineChart {
+            title: title.to_string(),
+            series: vec![series],
+            height,
+        }
+    }
+
+    /// Extract the metric name from a PromQL query.
+    fn extract_metric_from_query(query: &str) -> String {
+        // Try to find metric name - look for word before { or (
+        let query = query.trim();
+
+        // Handle rate(metric_name[...]) pattern
+        if let Some(paren_idx) = query.find('(') {
+            let after = &query[paren_idx + 1..];
+            if let Some(end) = after.find(|c: char| !c.is_alphanumeric() && c != '_') {
+                let metric = &after[..end];
+                if !metric.is_empty() {
+                    return metric.to_string();
+                }
+            }
+        }
+
+        // Handle metric_name{...} pattern
+        if let Some(brace_idx) = query.find('{') {
+            return query[..brace_idx].trim().to_string();
+        }
+
+        // Just return the query as-is (it might be just a metric name)
+        query.to_string()
+    }
+
+    /// Generate inline source preview for a metric.
+    ///
+    /// Looks up the metric in the codebase index and returns source lines
+    /// with pre-computed tree-sitter syntax highlighting.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn generate_inline_source(&self, metric: &str, context_lines: usize) -> Option<InlineSource> {
+        use crate::components::util::SyntaxHighlightData;
+
+        // Check if codebase is ready
+        if !self.codebase_manager.status().is_ready() {
+            return None;
+        }
+
+        // Search for the metric - take exact match or first partial match
+        let metrics = self.codebase_manager.search_metrics(metric);
+        let metric_info = metrics
+            .iter()
+            .find(|m| m.name == metric)
+            .or_else(|| metrics.first())
+            .copied()?;
+
+        // Get repo path from index
+        let index = self.codebase_manager.index()?;
+        let file_path = index.repo_path.join(&metric_info.file);
+
+        // Read the source file
+        let content = std::fs::read_to_string(&file_path).ok()?;
+        let all_lines: Vec<&str> = content.lines().collect();
+
+        // Calculate line range (0-indexed internally, 1-indexed for display)
+        let target_line = metric_info.line;
+        let start_line = target_line.saturating_sub(context_lines);
+        let end_line = (target_line + context_lines).min(all_lines.len());
+
+        // Extract the lines
+        let lines: Vec<String> = all_lines
+            .get(start_line..end_line)?
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+
+        // Determine language from file extension
+        let language = metric_info
+            .file
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| match ext {
+                "rs" => "rust",
+                "go" => "go",
+                "py" => "python",
+                "js" | "ts" => "javascript",
+                "java" => "java",
+                "rb" => "ruby",
+                _ => ext,
+            })
+            .unwrap_or("")
+            .to_string();
+
+        // Pre-compute tree-sitter syntax highlighting for the full file content
+        // This allows efficient per-line highlighting during rendering
+        let highlight_data = SyntaxHighlightData::new(&content, &language);
+
+        Some(InlineSource {
+            file_path: metric_info.file.display().to_string(),
+            line: target_line,
+            lines,
+            start_line: start_line + 1, // Convert to 1-indexed
+            language,
+            highlight_data,
+        })
+    }
+
+    /// WASM stub for generate_inline_source.
+    #[cfg(target_arch = "wasm32")]
+    fn generate_inline_source(&self, _metric: &str, _context_lines: usize) -> Option<InlineSource> {
+        None
+    }
+
+    /// Inject inline content into the first agent pane's last assistant message.
+    fn inject_inline_content_to_agent_pane(&mut self, content: InlineContent) {
+        let pane_ids = self.get_pane_tile_ids();
+
+        for tile_id in pane_ids {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(agent_pane) = component.as_any_mut().downcast_mut::<AgentPane>() {
+                    agent_pane.add_inline_content(content);
+                    return;
+                }
+            }
+        }
+
+        log::warn!("No agent pane found to inject inline content");
     }
 }
