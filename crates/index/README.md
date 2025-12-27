@@ -25,6 +25,24 @@ For each metric, the scanner extracts:
 - File location (path, line, column)
 - Function context (containing function and impl type)
 
+### Metric Usage Tracking
+
+Beyond definitions, the scanner also tracks where metrics are used ("hot paths"):
+
+| Language | Usage Patterns |
+|----------|----------------|
+| Python | `counter.inc()`, `gauge.set(value)`, `histogram.observe(value)`, `gauge.dec()` |
+| Go | `counter.Inc()`, `counter.Add(n)`, `gauge.Set(value)`, `histogram.Observe(value)` |
+| JavaScript | `counter.inc()`, `gauge.set(value)`, `histogram.observe(value)`, `histogram.startTimer()` |
+| TypeScript | Same as JavaScript |
+
+For each usage, the scanner extracts:
+- Usage kind (increment, set, add, sub, observe, time, etc.)
+- Variable name holding the metric
+- Label values (if statically determinable)
+- File location (path, line, column)
+- Function context (containing function and class/impl type)
+
 ### Alert Scanning
 
 Discovers Prometheus alerting rules in YAML files:
@@ -83,8 +101,14 @@ pub trait Scanner: Send + Sync {
     /// File extensions this scanner handles (e.g., `["rs"]`).
     fn extensions(&self) -> &[&str];
 
-    /// Scan a source file for metric instrumentation points.
+    /// Scan a source file for metric instrumentation points (definitions).
     fn scan_file(&self, path: &Path) -> Result<Vec<MetricInstrumentation>, ParseError>;
+
+    /// Scan a source file for metric usage points (where metrics are recorded).
+    /// Default implementation returns empty vec for backward compatibility.
+    fn scan_usages(&self, path: &Path) -> Result<Vec<MetricUsage>, ParseError> {
+        Ok(Vec::new())
+    }
 }
 ```
 

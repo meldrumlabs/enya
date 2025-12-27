@@ -4,7 +4,7 @@
 //! `github.com/prometheus/client_golang/prometheus` and
 //! `github.com/prometheus/client_golang/prometheus/promauto`.
 //!
-//! # Supported Patterns
+//! # Supported Definition Patterns
 //!
 //! ```go
 //! import "github.com/prometheus/client_golang/prometheus"
@@ -21,13 +21,35 @@
 //! // Promauto (auto-registration)
 //! counter := promauto.NewCounter(prometheus.CounterOpts{Name: "requests_total"})
 //! ```
+//!
+//! # Supported Usage Patterns
+//!
+//! ```go
+//! // Counter usage
+//! counter.Inc()
+//! counter.Add(5)
+//!
+//! // Gauge usage
+//! gauge.Set(42)
+//! gauge.Inc()
+//! gauge.Dec()
+//! gauge.Add(10)
+//! gauge.Sub(5)
+//! gauge.SetToCurrentTime()
+//!
+//! // Histogram/Summary usage
+//! histogram.Observe(0.5)
+//!
+//! // Vector usage
+//! counterVec.WithLabelValues("GET").Inc()
+//! ```
 
 use std::path::Path;
 
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor, Tree};
 
-use super::{MetricInstrumentation, MetricKind, Scanner};
+use super::{MetricInstrumentation, MetricKind, MetricUsage, Scanner, UsageKind};
 use crate::parser::ParseError;
 
 /// Tree-sitter query for finding prometheus metric constructor calls.
@@ -39,6 +61,21 @@ const GO_METRICS_QUERY: &str = r"
 (call_expression
   function: (selector_expression
     operand: (identifier) @package
+    field: (field_identifier) @method)
+  arguments: (argument_list) @args)
+";
+
+/// Tree-sitter query for finding metric usage patterns.
+///
+/// This query matches method calls like:
+/// - `counter.Inc()` / `counter.Add(5)`
+/// - `gauge.Set(42)` / `gauge.Inc()` / `gauge.Dec()`
+/// - `histogram.Observe(0.5)`
+/// - `counterVec.WithLabelValues("GET").Inc()`
+const GO_USAGE_QUERY: &str = r"
+(call_expression
+  function: (selector_expression
+    operand: (_) @object
     field: (field_identifier) @method)
   arguments: (argument_list) @args)
 ";
@@ -143,6 +180,14 @@ impl Scanner for GoPrometheusScanner {
 
         scan_tree(&source, &tree, &query, path)
     }
+
+    fn scan_usages(&self, path: &Path) -> Result<Vec<MetricUsage>, ParseError> {
+        let mut parser = GoParser::new()?;
+        let (source, tree) = parser.parse_file(path)?;
+        let query = parser.create_query(GO_USAGE_QUERY)?;
+
+        scan_usages_tree(&source, &tree, &query, path)
+    }
 }
 
 /// Parses a metric kind from a Go Prometheus method name.
@@ -161,6 +206,19 @@ fn metric_kind_from_method_name(name: &str) -> Option<MetricKind> {
 /// Checks if the package name is a Prometheus-related package.
 fn is_prometheus_package(name: &str) -> bool {
     matches!(name, "prometheus" | "promauto")
+}
+
+/// Parses a usage kind from a Go Prometheus method name.
+fn usage_kind_from_method_name(name: &str) -> Option<UsageKind> {
+    match name {
+        "Inc" => Some(UsageKind::Increment),
+        "Dec" | "Sub" => Some(UsageKind::Sub),
+        "Add" => Some(UsageKind::Add),
+        "Set" => Some(UsageKind::Set),
+        "Observe" => Some(UsageKind::Observe),
+        "SetToCurrentTime" => Some(UsageKind::SetToCurrentTime),
+        _ => None,
+    }
 }
 
 /// Scans a parsed syntax tree for Prometheus metrics.
@@ -239,6 +297,147 @@ fn scan_tree(
     }
 
     Ok(results)
+}
+
+/// Scans a parsed syntax tree for Prometheus metric usages.
+fn scan_usages_tree(
+    source: &str,
+    tree: &Tree,
+    query: &Query,
+    file_path: &Path,
+) -> Result<Vec<MetricUsage>, ParseError> {
+    let mut cursor = QueryCursor::new();
+    let mut results = Vec::new();
+
+    let object_idx = query
+        .capture_index_for_name("object")
+        .ok_or_else(|| ParseError("Query missing object capture".to_string()))?;
+    let method_idx = query
+        .capture_index_for_name("method")
+        .ok_or_else(|| ParseError("Query missing method capture".to_string()))?;
+
+    let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+    while let Some(match_) = matches.next() {
+        let mut object_node = None;
+        let mut method_node = None;
+
+        for capture in match_.captures {
+            if capture.index == object_idx {
+                object_node = Some(capture.node);
+            } else if capture.index == method_idx {
+                method_node = Some(capture.node);
+            }
+        }
+
+        let (Some(obj_node), Some(meth_node)) = (object_node, method_node) else {
+            continue;
+        };
+
+        let method_name = meth_node.utf8_text(source.as_bytes()).unwrap_or_default();
+
+        // Check if this is a metric usage method
+        let Some(usage_kind) = usage_kind_from_method_name(method_name) else {
+            continue;
+        };
+
+        // Extract the variable name (handles chained calls)
+        let variable_name = extract_go_root_variable(&obj_node, source);
+
+        if !variable_name.is_empty() {
+            let start = obj_node.start_position();
+
+            // Find the containing function and type
+            let (function_name, impl_type) = find_function_context(obj_node, source);
+
+            // Try to extract label values from WithLabelValues() calls
+            let label_values = extract_go_label_values(&obj_node, source);
+
+            results.push(MetricUsage {
+                usage_kind,
+                variable_name,
+                label_values,
+                file: file_path.to_path_buf(),
+                line: start.row + 1,
+                column: start.column,
+                function_name,
+                impl_type,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+/// Extracts the root variable name from a potentially chained Go expression.
+///
+/// For `counterVec.WithLabelValues("GET").Inc()`, this returns `"counterVec"`.
+/// For `s.counter.Inc()`, this returns `"s.counter"`.
+fn extract_go_root_variable(node: &Node<'_>, source: &str) -> String {
+    match node.kind() {
+        "identifier" => node
+            .utf8_text(source.as_bytes())
+            .unwrap_or_default()
+            .to_string(),
+        "selector_expression" => {
+            // For s.counter, return the full expression
+            node.utf8_text(source.as_bytes())
+                .unwrap_or_default()
+                .to_string()
+        }
+        "call_expression" => {
+            // This is a chained call like counterVec.WithLabelValues(...).Inc()
+            if let Some(func) = node.child_by_field_name("function") {
+                if func.kind() == "selector_expression" {
+                    if let Some(obj) = func.child_by_field_name("operand") {
+                        return extract_go_root_variable(&obj, source);
+                    }
+                }
+            }
+            String::new()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Extracts label values from a `WithLabelValues(...)` call in a method chain.
+///
+/// For `counterVec.WithLabelValues("GET", "200").Inc()`, this returns `["GET", "200"]`.
+fn extract_go_label_values(node: &Node<'_>, source: &str) -> Vec<String> {
+    // Check if this is a call expression with WithLabelValues
+    if node.kind() == "call_expression" {
+        if let Some(func) = node.child_by_field_name("function") {
+            if func.kind() == "selector_expression" {
+                if let Some(field) = func.child_by_field_name("field") {
+                    let field_name = field.utf8_text(source.as_bytes()).unwrap_or_default();
+                    if field_name == "WithLabelValues" || field_name == "With" {
+                        // Extract string arguments
+                        if let Some(args) = node.child_by_field_name("arguments") {
+                            return extract_go_string_args(&args, source);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// Extracts string values from argument list.
+fn extract_go_string_args(args_node: &Node<'_>, source: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut cursor = args_node.walk();
+
+    for child in args_node.children(&mut cursor) {
+        if child.kind() == "interpreted_string_literal" || child.kind() == "raw_string_literal" {
+            let text = child.utf8_text(source.as_bytes()).unwrap_or_default();
+            let content = text.trim_matches('"').trim_matches('`').to_string();
+            if !content.is_empty() {
+                values.push(content);
+            }
+        }
+    }
+
+    values
 }
 
 /// Finds the containing function and type for a node by walking up the AST.
@@ -602,5 +801,171 @@ var counter = prometheus.NewCounter(prometheus.CounterOpts{Name: "startup_count"
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0].function_name, None);
         assert_eq!(metrics[0].impl_type, None);
+    }
+
+    // Usage tracking tests
+
+    fn parse_and_scan_usages(source: &str) -> Vec<MetricUsage> {
+        let mut parser = GoParser::new().expect("Failed to create parser");
+        let tree = parser.parse(source).expect("Failed to parse");
+        let query = parser
+            .create_query(GO_USAGE_QUERY)
+            .expect("Failed to create query");
+        scan_usages_tree(source, &tree, &query, Path::new("test.go")).expect("Failed to scan")
+    }
+
+    #[test]
+    fn test_counter_inc() {
+        let source = r#"
+package main
+
+func main() {
+    counter.Inc()
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Increment);
+        assert_eq!(usages[0].variable_name, "counter");
+    }
+
+    #[test]
+    fn test_counter_add() {
+        let source = r#"
+package main
+
+func main() {
+    counter.Add(5)
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Add);
+        assert_eq!(usages[0].variable_name, "counter");
+    }
+
+    #[test]
+    fn test_gauge_set() {
+        let source = r#"
+package main
+
+func main() {
+    gauge.Set(42.0)
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Set);
+        assert_eq!(usages[0].variable_name, "gauge");
+    }
+
+    #[test]
+    fn test_gauge_dec() {
+        let source = r#"
+package main
+
+func main() {
+    gauge.Dec()
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Sub);
+        assert_eq!(usages[0].variable_name, "gauge");
+    }
+
+    #[test]
+    fn test_histogram_observe() {
+        let source = r#"
+package main
+
+func main() {
+    histogram.Observe(0.5)
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Observe);
+        assert_eq!(usages[0].variable_name, "histogram");
+    }
+
+    #[test]
+    fn test_usage_in_function() {
+        let source = r#"
+package main
+
+func handleRequest() {
+    counter.Inc()
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].function_name, Some("handleRequest".to_string()));
+    }
+
+    #[test]
+    fn test_usage_in_method() {
+        let source = r#"
+package main
+
+type Handler struct{}
+
+func (h *Handler) Process() {
+    h.counter.Inc()
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].function_name, Some("Process".to_string()));
+        assert_eq!(usages[0].impl_type, Some("Handler".to_string()));
+        assert_eq!(usages[0].variable_name, "h.counter");
+    }
+
+    #[test]
+    fn test_multiple_usages() {
+        let source = r#"
+package main
+
+func main() {
+    counter.Inc()
+    gauge.Set(10)
+    histogram.Observe(0.5)
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 3);
+        assert_eq!(usages[0].usage_kind, UsageKind::Increment);
+        assert_eq!(usages[1].usage_kind, UsageKind::Set);
+        assert_eq!(usages[2].usage_kind, UsageKind::Observe);
+    }
+
+    #[test]
+    fn test_ignores_non_metric_methods() {
+        let source = r#"
+package main
+
+func main() {
+    obj.OtherMethod()
+    something.DoStuff()
+    counter.Inc()
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].variable_name, "counter");
+    }
+
+    #[test]
+    fn test_set_to_current_time() {
+        let source = r#"
+package main
+
+func main() {
+    gauge.SetToCurrentTime()
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::SetToCurrentTime);
     }
 }

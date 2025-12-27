@@ -33,7 +33,7 @@ use std::path::Path;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor, Tree};
 
-use super::{MetricInstrumentation, MetricKind, Scanner};
+use super::{MetricInstrumentation, MetricKind, MetricUsage, Scanner, UsageKind};
 use crate::parser::ParseError;
 
 /// Tree-sitter query for finding `prom-client` metric instantiations in TypeScript.
@@ -53,6 +53,15 @@ const TS_METRICS_QUERY: &str = r"
     constructor: (identifier) @constructor
     arguments: (arguments) @args)
 ]
+";
+
+/// Tree-sitter query for finding metric usage (method calls like `counter.inc()`).
+const TS_USAGE_QUERY: &str = r"
+(call_expression
+  function: (member_expression
+    object: (_) @object
+    property: (property_identifier) @method)
+  arguments: (arguments) @args)
 ";
 
 /// A wrapper around tree-sitter for parsing TypeScript source code.
@@ -176,6 +185,21 @@ impl Scanner for TypeScriptPromClientScanner {
         let query = parser.create_query(TS_METRICS_QUERY)?;
 
         scan_tree(&source, &tree, &query, path)
+    }
+
+    fn scan_usages(&self, path: &Path) -> Result<Vec<MetricUsage>, ParseError> {
+        let is_tsx = path.extension().is_some_and(|ext| ext == "tsx");
+
+        let mut parser = if is_tsx {
+            TypeScriptParser::new_tsx()?
+        } else {
+            TypeScriptParser::new()?
+        };
+
+        let (source, tree) = parser.parse_file(path)?;
+        let query = parser.create_query(TS_USAGE_QUERY)?;
+
+        scan_usages_tree(&source, &tree, &query, path)
     }
 }
 
@@ -413,10 +437,196 @@ fn extract_array_strings(node: &Node<'_>, source: &str) -> Vec<String> {
     strings
 }
 
+/// Maps TypeScript/prom-client method names to usage kinds.
+fn usage_kind_from_method_name(name: &str) -> Option<UsageKind> {
+    match name {
+        "inc" => Some(UsageKind::Increment),
+        "dec" => Some(UsageKind::Sub),
+        "set" => Some(UsageKind::Set),
+        "observe" => Some(UsageKind::Observe),
+        "startTimer" => Some(UsageKind::Time),
+        "setToCurrentTime" => Some(UsageKind::SetToCurrentTime),
+        _ => None,
+    }
+}
+
+/// Scans a parsed syntax tree for metric usages.
+fn scan_usages_tree(
+    source: &str,
+    tree: &Tree,
+    query: &Query,
+    file_path: &Path,
+) -> Result<Vec<MetricUsage>, ParseError> {
+    let mut cursor = QueryCursor::new();
+    let mut results = Vec::new();
+
+    let object_idx = query
+        .capture_index_for_name("object")
+        .ok_or_else(|| ParseError("Query missing object capture".to_string()))?;
+    let method_idx = query
+        .capture_index_for_name("method")
+        .ok_or_else(|| ParseError("Query missing method capture".to_string()))?;
+    let args_idx = query
+        .capture_index_for_name("args")
+        .ok_or_else(|| ParseError("Query missing args capture".to_string()))?;
+
+    let mut matches = cursor.matches(query, tree.root_node(), source.as_bytes());
+    while let Some(match_) = matches.next() {
+        let mut object_node = None;
+        let mut method_node = None;
+        let mut args_node = None;
+
+        for capture in match_.captures {
+            if capture.index == object_idx {
+                object_node = Some(capture.node);
+            } else if capture.index == method_idx {
+                method_node = Some(capture.node);
+            } else if capture.index == args_idx {
+                args_node = Some(capture.node);
+            }
+        }
+
+        let (Some(obj), Some(method), Some(args)) = (object_node, method_node, args_node) else {
+            continue;
+        };
+
+        let method_name = method.utf8_text(source.as_bytes()).unwrap_or_default();
+        let Some(usage_kind) = usage_kind_from_method_name(method_name) else {
+            continue;
+        };
+
+        // Extract the root variable name from potentially chained calls
+        let variable_name = extract_ts_root_variable(&obj, source);
+        if variable_name.is_empty() {
+            continue;
+        }
+
+        // Extract label values from arguments (for labeled metrics)
+        let label_values = extract_ts_label_values(&args, source);
+
+        let start = obj.start_position();
+        let (function_name, impl_type) = find_function_context(obj, source);
+
+        results.push(MetricUsage {
+            usage_kind,
+            variable_name,
+            label_values,
+            file: file_path.to_path_buf(),
+            line: start.row + 1,
+            column: start.column,
+            function_name,
+            impl_type,
+        });
+    }
+
+    Ok(results)
+}
+
+/// Extracts the root variable name from a potentially chained member expression.
+///
+/// For `counter.labels({...}).inc()`, this returns "counter".
+/// For `this.metrics.counter.inc()`, this returns "counter".
+fn extract_ts_root_variable(node: &Node<'_>, source: &str) -> String {
+    match node.kind() {
+        "identifier" => node
+            .utf8_text(source.as_bytes())
+            .unwrap_or_default()
+            .to_string(),
+        "member_expression" => {
+            // For chained calls like counter.labels(...).inc(), we want the base object
+            if let Some(property) = node.child_by_field_name("property") {
+                let prop_text = property.utf8_text(source.as_bytes()).unwrap_or_default();
+                // If the property is "labels", get the parent object
+                if prop_text == "labels" {
+                    if let Some(obj) = node.child_by_field_name("object") {
+                        return extract_ts_root_variable(&obj, source);
+                    }
+                }
+            }
+            // Otherwise, get the deepest property name
+            if let Some(property) = node.child_by_field_name("property") {
+                property
+                    .utf8_text(source.as_bytes())
+                    .unwrap_or_default()
+                    .to_string()
+            } else {
+                String::new()
+            }
+        }
+        "call_expression" => {
+            // For counter.labels({...}) where the result is used
+            if let Some(func) = node.child_by_field_name("function") {
+                if func.kind() == "member_expression" {
+                    if let Some(obj) = func.child_by_field_name("object") {
+                        return extract_ts_root_variable(&obj, source);
+                    }
+                }
+            }
+            String::new()
+        }
+        _ => String::new(),
+    }
+}
+
+/// Extracts label values from arguments for labeled metric calls.
+///
+/// For `counter.labels({ method: 'GET', status: '200' }).inc()`, extracts `["GET", "200"]`.
+fn extract_ts_label_values(args: &Node<'_>, source: &str) -> Vec<String> {
+    let mut values = Vec::new();
+
+    let mut cursor = args.walk();
+    for child in args.children(&mut cursor) {
+        match child.kind() {
+            "object" => {
+                // Extract values from object like { method: 'GET', status: '200' }
+                let mut obj_cursor = child.walk();
+                for pair in child.children(&mut obj_cursor) {
+                    if pair.kind() == "pair" {
+                        if let Some(value) = pair.child_by_field_name("value") {
+                            let val = extract_string_value(&value, source);
+                            if !val.is_empty() {
+                                values.push(val);
+                            }
+                        }
+                    }
+                }
+            }
+            "string" => {
+                // Direct string argument
+                let val = extract_string_value(&child, source);
+                if !val.is_empty() {
+                    values.push(val);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    values
+}
+
 #[cfg(test)]
 #[allow(clippy::needless_raw_string_hashes)]
 mod tests {
     use super::*;
+
+    fn parse_and_scan_usages(source: &str) -> Vec<MetricUsage> {
+        let mut parser = TypeScriptParser::new().expect("Failed to create parser");
+        let tree = parser.parse(source).expect("Failed to parse");
+        let query = parser
+            .create_query(TS_USAGE_QUERY)
+            .expect("Failed to create query");
+        scan_usages_tree(source, &tree, &query, Path::new("test.ts")).expect("Failed to scan")
+    }
+
+    fn parse_and_scan_usages_tsx(source: &str) -> Vec<MetricUsage> {
+        let mut parser = TypeScriptParser::new_tsx().expect("Failed to create parser");
+        let tree = parser.parse(source).expect("Failed to parse");
+        let query = parser
+            .create_query(TS_USAGE_QUERY)
+            .expect("Failed to create query");
+        scan_usages_tree(source, &tree, &query, Path::new("test.tsx")).expect("Failed to scan")
+    }
 
     fn parse_and_scan(source: &str) -> Vec<MetricInstrumentation> {
         let mut parser = TypeScriptParser::new().expect("Failed to create parser");
@@ -641,5 +851,176 @@ const counter = new client.Counter({ name: 'typed_counter', help: 'Help' });
         let metrics = parse_and_scan(source);
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0].name, "typed_counter");
+    }
+
+    // Usage tracking tests
+
+    #[test]
+    fn test_counter_inc() {
+        let source = r#"
+counter.inc();
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Increment);
+        assert_eq!(usages[0].variable_name, "counter");
+    }
+
+    #[test]
+    fn test_gauge_set() {
+        let source = r#"
+gauge.set(42);
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Set);
+        assert_eq!(usages[0].variable_name, "gauge");
+    }
+
+    #[test]
+    fn test_gauge_dec() {
+        let source = r#"
+gauge.dec();
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Sub);
+        assert_eq!(usages[0].variable_name, "gauge");
+    }
+
+    #[test]
+    fn test_histogram_observe() {
+        let source = r#"
+histogram.observe(0.5);
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Observe);
+        assert_eq!(usages[0].variable_name, "histogram");
+    }
+
+    #[test]
+    fn test_start_timer() {
+        let source = r#"
+const end = histogram.startTimer();
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Time);
+        assert_eq!(usages[0].variable_name, "histogram");
+    }
+
+    #[test]
+    fn test_set_to_current_time() {
+        let source = r#"
+gauge.setToCurrentTime();
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::SetToCurrentTime);
+        assert_eq!(usages[0].variable_name, "gauge");
+    }
+
+    #[test]
+    fn test_usage_with_labels() {
+        let source = r#"
+counter.labels({ method: 'GET', status: '200' }).inc();
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Increment);
+        assert_eq!(usages[0].variable_name, "counter");
+    }
+
+    #[test]
+    fn test_multiple_usages() {
+        let source = r#"
+counter.inc();
+gauge.set(10);
+histogram.observe(0.1);
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 3);
+        assert_eq!(usages[0].usage_kind, UsageKind::Increment);
+        assert_eq!(usages[1].usage_kind, UsageKind::Set);
+        assert_eq!(usages[2].usage_kind, UsageKind::Observe);
+    }
+
+    #[test]
+    fn test_usage_in_function() {
+        let source = r#"
+function handleRequest(): void {
+    counter.inc();
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].function_name, Some("handleRequest".to_string()));
+    }
+
+    #[test]
+    fn test_usage_in_class_method() {
+        let source = r#"
+class Handler {
+    process(): void {
+        counter.inc();
+    }
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].function_name, Some("process".to_string()));
+        assert_eq!(usages[0].impl_type, Some("Handler".to_string()));
+    }
+
+    #[test]
+    fn test_usage_in_async_function() {
+        let source = r#"
+async function fetchData(): Promise<void> {
+    counter.inc();
+}
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].function_name, Some("fetchData".to_string()));
+    }
+
+    #[test]
+    fn test_ignores_non_metric_methods() {
+        let source = r#"
+console.log('hello');
+array.push(1);
+object.toString();
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 0);
+    }
+
+    #[test]
+    fn test_usage_line_numbers() {
+        let source = r#"counter.inc();
+gauge.set(10);
+"#;
+        let usages = parse_and_scan_usages(source);
+        assert_eq!(usages.len(), 2);
+        assert_eq!(usages[0].line, 1);
+        assert_eq!(usages[1].line, 2);
+    }
+
+    #[test]
+    fn test_tsx_usage() {
+        let source = r#"
+function MetricsComponent(): JSX.Element {
+    counter.inc();
+    return <div>Metrics</div>;
+}
+"#;
+        let usages = parse_and_scan_usages_tsx(source);
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].usage_kind, UsageKind::Increment);
+        assert_eq!(
+            usages[0].function_name,
+            Some("MetricsComponent".to_string())
+        );
     }
 }
