@@ -13,6 +13,10 @@ Discovers metrics defined in source code using tree-sitter parsing:
 | Language | Library | Patterns |
 |----------|---------|----------|
 | Rust | [metrics-rs](https://docs.rs/metrics) | `counter!()`, `gauge!()`, `histogram!()` |
+| Python | [prometheus_client](https://github.com/prometheus/client_python) | `Counter('name', 'help')`, `Gauge(...)`, `Histogram(...)` |
+| Go | [client_golang](https://github.com/prometheus/client_golang) | `prometheus.NewCounter(CounterOpts{...})`, `promauto.NewGauge(...)` |
+| JavaScript | [prom-client](https://github.com/siimon/prom-client) | `new client.Counter({name: '...'})`, `new Gauge({...})` |
+| TypeScript | [prom-client](https://github.com/siimon/prom-client) | Same as JavaScript, supports `.ts` and `.tsx` files |
 
 For each metric, the scanner extracts:
 - Metric name (e.g., `http_requests_total`)
@@ -63,6 +67,10 @@ crates/index/
 │   └── scanner/
 │       ├── mod.rs      # Scanner trait and registry
 │       ├── rust.rs     # Rust metrics-rs scanner
+│       ├── python.rs   # Python prometheus_client scanner
+│       ├── go.rs       # Go client_golang scanner
+│       ├── javascript.rs # JavaScript prom-client scanner
+│       ├── typescript.rs # TypeScript prom-client scanner
 │       └── yaml.rs     # YAML alert rule scanner
 ```
 

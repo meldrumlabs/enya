@@ -12,10 +12,18 @@
 //! - [`MetricKind`] - Counter, Gauge, or Histogram
 //! - [`AlertRule`] - Prometheus alert rule definition
 
+mod go;
+mod javascript;
+mod python;
 mod rust;
+mod typescript;
 mod yaml;
 
+pub use go::GoPrometheusScanner;
+pub use javascript::JavaScriptPromClientScanner;
+pub use python::PythonPrometheusScanner;
 pub use rust::RustMetricsScanner;
+pub use typescript::TypeScriptPromClientScanner;
 pub use yaml::YamlAlertScanner;
 
 use std::path::{Path, PathBuf};
@@ -183,6 +191,10 @@ impl Default for ScannerRegistry {
     fn default() -> Self {
         let mut registry = Self::new();
         registry.register(Box::new(RustMetricsScanner::new()));
+        registry.register(Box::new(PythonPrometheusScanner::new()));
+        registry.register(Box::new(GoPrometheusScanner::new()));
+        registry.register(Box::new(JavaScriptPromClientScanner::new()));
+        registry.register(Box::new(TypeScriptPromClientScanner::new()));
         registry
     }
 }
