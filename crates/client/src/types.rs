@@ -1,9 +1,8 @@
-//! Shared API types for agent-editor communication.
+//! Shared API types for metrics query responses.
 //!
 //! These types support both JSON (serde) and bitcode serialization for
 //! high-performance binary encoding between Rust applications.
 
-use bitcode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 /// Nanosecond timestamp (same as metrics-store Timestamp)
@@ -13,7 +12,7 @@ pub type Timestamp = u128;
 ///
 /// Indicates the shape of data returned by a Prometheus query.
 /// See: <https://prometheus.io/docs/prometheus/latest/querying/api/>
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ResultType {
     /// Range vector - time series data with multiple data points per series.
@@ -29,11 +28,8 @@ pub enum ResultType {
     String,
 }
 
-/// MIME type for bitcode binary format
-pub const BITCODE_MIME: &str = "application/x-bitcode";
-
 /// A single time bucket in a metrics query response.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsBucket {
     /// Start timestamp (nanoseconds)
     pub start: Timestamp,
@@ -46,7 +42,7 @@ pub struct MetricsBucket {
 }
 
 /// A group of time buckets, typically representing a unique tag combination.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsGroup {
     /// Group identifier (e.g., "host:server1,env:prod")
     pub group: String,
@@ -54,8 +50,8 @@ pub struct MetricsGroup {
     pub buckets: Vec<MetricsBucket>,
 }
 
-/// Response from the `/api/metrics/query` endpoint.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+/// Response from a metrics query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResponse {
     /// The metric name that was queried
     pub metric: String,
