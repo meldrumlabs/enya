@@ -384,6 +384,13 @@ impl EnyaApp {
                 self.workspace_tabs.close_tab(idx);
             }
             TabBarAction::NewTab => {
+                // On native: open the workspace creator overlay
+                // On WASM: directly create a new tab (overlay not supported)
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                    tab.workspace.open_workspace_creator();
+                }
+                #[cfg(target_arch = "wasm32")]
                 self.workspace_tabs.new_tab();
             }
         }
@@ -469,6 +476,13 @@ impl EnyaApp {
             }
             WorkspaceAction::PrevWorkspaceTab => {
                 self.workspace_tabs.prev_tab();
+            }
+            WorkspaceAction::RenameCurrentWorkspace(name) => {
+                self.workspace_tabs.rename_active_tab(name);
+            }
+            WorkspaceAction::RenameAndSaveWorkspace(name) => {
+                self.workspace_tabs.rename_active_tab(name.clone());
+                self.save_workspace(Some(&name));
             }
         }
     }

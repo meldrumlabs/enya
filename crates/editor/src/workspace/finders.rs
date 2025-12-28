@@ -274,4 +274,11 @@ impl Workspace {
         self.workspace_finder.set_workspaces(workspaces);
         self.workspace_finder.open();
     }
+
+    // ==================== Workspace Creator ====================
+
+    /// Open the workspace creator overlay
+    pub fn open_workspace_creator(&mut self) {
+        self.workspace_creator.open();
+    }
 }

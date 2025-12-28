@@ -12,6 +12,7 @@ pub mod source_preview;
 pub mod tutorial;
 pub mod viewport_filter;
 pub mod which_key;
+pub mod workspace_creator;
 pub mod workspace_finder;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -36,4 +37,5 @@ pub use source_preview::{SourcePreviewOverlay, SourcePreviewResult};
 pub use tutorial::TutorialOverlay;
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
 pub use which_key::WhichKey;
+pub use workspace_creator::{WorkspaceCreator, WorkspaceCreatorResult};
 pub use workspace_finder::{WorkspaceFinder, WorkspaceItem};
