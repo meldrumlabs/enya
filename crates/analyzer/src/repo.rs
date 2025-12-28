@@ -36,7 +36,7 @@ pub fn repos_dir() -> Option<PathBuf> {
 /// # Examples
 ///
 /// ```
-/// use enya_index::repo::repo_name_from_url;
+/// use enya_analyzer::repo::repo_name_from_url;
 ///
 /// assert_eq!(repo_name_from_url("https://github.com/org/repo.git"), "repo");
 /// assert_eq!(repo_name_from_url("git@github.com:org/repo.git"), "repo");

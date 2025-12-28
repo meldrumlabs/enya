@@ -15,7 +15,7 @@ repository = "https://github.com/meldrumlabs/enya"
 resolver = "3"
 members = [
   "crates/editor",
-  "crates/index",
+  "crates/analyzer",
   "crates/promql",
   "crates/client",
   "crates/build-info",
@@ -28,7 +28,7 @@ enya-promql = { path = "crates/promql", version = "0.1.0" }
 enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 enya-client = { path = "crates/client", version = "0.1.0" }
-enya-index = { path = "crates/index", version = "0.1.0" }
+enya-analyzer = { path = "crates/analyzer", version = "0.1.0" }
 
 egui = "0.33.2"
 eframe = { version = "0.33.2", default-features = false, features = [

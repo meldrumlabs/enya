@@ -1338,6 +1338,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "enya-analyzer"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "enya-promql",
+ "log",
+ "rustc-hash 2.1.1",
+ "streaming-iterator",
+ "tree-sitter",
+ "tree-sitter-go",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+ "tree-sitter-yaml",
+ "walkdir",
+]
+
+[[package]]
 name = "enya-build-info"
 version = "0.1.0"
 dependencies = [
@@ -1381,10 +1400,10 @@ dependencies = [
  "egui_tiles",
  "ehttp",
  "env_logger",
+ "enya-analyzer",
  "enya-build-info",
  "enya-build-tools",
  "enya-client",
- "enya-index",
  "enya-promql",
  "ewebsock",
  "gloo-timers",
@@ -1414,25 +1433,6 @@ dependencies = [
  "web-sys",
  "web-time",
  "wgpu",
-]
-
-[[package]]
-name = "enya-index"
-version = "0.1.0"
-dependencies = [
- "dirs",
- "enya-promql",
- "log",
- "rustc-hash 2.1.1",
- "streaming-iterator",
- "tree-sitter",
- "tree-sitter-go",
- "tree-sitter-javascript",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
- "tree-sitter-yaml",
- "walkdir",
 ]
 
 [[package]]

@@ -1,14 +1,14 @@
 //! Codebase integration for the Enya editor.
 //!
-//! Provides egui integration for the enya-index crate.
+//! Provides egui integration for the enya-analyzer crate.
 
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
-// Re-export from enya-index
-pub use enya_index::{
+// Re-export from enya-analyzer
+pub use enya_analyzer::{
     AlertRule, CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind,
     Scanner, ScannerRegistry, build_index_with_progress, fetch_commit_history,
 };
@@ -161,7 +161,7 @@ impl CodebaseManager {
         let url_clone = url.clone();
 
         std::thread::spawn(move || {
-            let result = match enya_index::repo::clone_repo(&url_clone) {
+            let result = match enya_analyzer::repo::clone_repo(&url_clone) {
                 Ok(path) => CodebaseResult::CloneComplete {
                     url: url_clone,
                     path,
@@ -191,7 +191,7 @@ impl CodebaseManager {
         let ctx = ctx.clone();
 
         std::thread::spawn(move || {
-            let result = match enya_index::repo::fetch_updates(&path) {
+            let result = match enya_analyzer::repo::fetch_updates(&path) {
                 Ok(has_changes) => CodebaseResult::FetchComplete {
                     url,
                     path,
