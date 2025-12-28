@@ -23,7 +23,7 @@ pub use overlay::{
     DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext, InfoOverlay, MessageRole,
     MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
     SourcePreviewResult, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceFinder, WorkspaceItem,
+    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceItem,
 };
 
 // Re-export from widget
