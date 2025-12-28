@@ -14,6 +14,10 @@
 
 #![warn(clippy::all, rust_2018_idioms)]
 
+/// Async runtime abstraction for cross-platform async execution.
+mod async_runtime;
+pub use async_runtime::AsyncRuntime;
+
 /// Codebase integration: git repo management and metrics-rs instrumentation discovery.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod codebase;

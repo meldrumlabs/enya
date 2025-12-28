@@ -1,6 +1,6 @@
 [package]
-name = "enya-index"
-description = "Metrics instrumentation indexer for source code"
+name = "enya-analyzer"
+description = "Metrics instrumentation analyzer for source code"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

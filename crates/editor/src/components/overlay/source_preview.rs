@@ -599,7 +599,7 @@ impl HttpHandler {
             ui.add_space(8.0);
 
             // File path and line number, with optional function context
-            #[allow(unused_mut)]
+            #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
             let mut path_text = if self.target_line > 0 {
                 format!("{}:{}", self.relative_path, self.target_line)
             } else {

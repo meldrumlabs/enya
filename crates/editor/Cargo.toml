@@ -36,7 +36,7 @@ lz4_flex = "0.11"
 postcard = { version = "1.1", features = ["alloc"] }
 enya-build-info = { path = "../build-info" }
 nucleo-matcher = { workspace = true }
-ehttp = { workspace = true }
+reqwest = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 # nohash-hasher comes transitively from egui, pin to same version
@@ -54,10 +54,17 @@ rustls = { workspace = true, features = ["ring"] }
 # Enable metal backend for wgpu on macOS
 wgpu = { workspace = true, features = ["metal", "vulkan"] }
 # Codebase integration
-enya-index = { workspace = true }
+enya-analyzer = { workspace = true }
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
+tree-sitter-go = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-javascript = "0.23"
 tree-sitter-highlight = "0.25"
+# Async runtime for AI agent and background tasks
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+# AI agent integration via ACP
+enya-ai = { workspace = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

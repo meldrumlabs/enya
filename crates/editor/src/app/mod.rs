@@ -17,6 +17,7 @@ pub use state::{AppState, UIState};
 
 use egui::Theme;
 
+use crate::AsyncRuntime;
 use crate::command::{CommandReceiver, CommandSender, UICommand, UICommandSender, command_channel};
 use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
@@ -51,6 +52,10 @@ pub struct EnyaApp {
     // Internal editor metrics (frame times, etc.)
     editor_metrics: EditorMetrics,
 
+    // Async runtime for spawning background tasks (AI agent, etc.)
+    #[allow(dead_code)] // Will be used by AI agent integration
+    async_runtime: AsyncRuntime,
+
     // Pending screenshot path (used when screenshot event arrives)
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) pending_screenshot_path: Option<String>,
@@ -64,18 +69,51 @@ pub struct EnyaApp {
     checked_url_workspace: bool,
 }
 
-impl Default for EnyaApp {
-    fn default() -> Self {
+impl EnyaApp {
+    pub fn new(cc: &eframe::CreationContext<'_>, async_runtime: AsyncRuntime) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
+
+        // Set up fonts with both DepartureMono and Phosphor icons
+        fonts::setup_fonts(&cc.egui_ctx);
+
         let (command_sender, command_receiver) = command_channel();
+
+        // Load previous app state (if any).
+        // Note that you must enable the `persistence` feature for this to work.
+        let mut state: AppState = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
+            .unwrap_or_default();
+
+        // Always start with Dashboard (ignore persisted ui_state)
+        state.ui_state = UIState::Dashboard;
+
+        // Ensure the default example workspace exists on first run
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::ensure_default_workspace();
+
+        // Ensure demo workspace is in recent workspaces (for new users)
+        state.settings.ensure_demo_workspace();
+
+        match cc.egui_ctx.theme() {
+            Theme::Light => state.theme = AppTheme::Light,
+            Theme::Dark => state.theme = AppTheme::Dark,
+        }
+
+        // Initialize workspace tabs with async runtime
+        let mut workspace_tabs = WorkspaceTabBar::new(async_runtime.clone());
+        workspace_tabs.set_theme(state.theme);
+
         Self {
-            workspace_tabs: WorkspaceTabBar::default(),
+            state,
+            workspace_tabs,
             command_sender,
             command_receiver,
-            state: AppState::default(),
-            connection: ConnectionManager::new(),
+            connection: ConnectionManager::new(async_runtime.clone()),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
             editor_metrics: EditorMetrics::default(),
+            async_runtime,
             #[cfg(not(target_arch = "wasm32"))]
             pending_screenshot_path: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -83,45 +121,6 @@ impl Default for EnyaApp {
             #[cfg(target_arch = "wasm32")]
             checked_url_workspace: false,
         }
-    }
-}
-
-impl EnyaApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        egui_extras::install_image_loaders(&cc.egui_ctx);
-
-        // Set up fonts with both DepartureMono and Phosphor icons
-        fonts::setup_fonts(&cc.egui_ctx);
-
-        let mut app = Self::default();
-
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
-        if let Some(storage) = cc.storage {
-            let state: AppState = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-            app.state = state;
-        }
-
-        // Always start with Dashboard (ignore persisted ui_state)
-        app.state.ui_state = UIState::Dashboard;
-
-        // Ensure the default example workspace exists on first run
-        #[cfg(not(target_arch = "wasm32"))]
-        Self::ensure_default_workspace();
-
-        // Ensure demo workspace is in recent workspaces (for new users)
-        app.state.settings.ensure_demo_workspace();
-
-        match cc.egui_ctx.theme() {
-            Theme::Light => app.state.theme = AppTheme::Light,
-            Theme::Dark => app.state.theme = AppTheme::Dark,
-        }
-
-        // Initialize workspace tabs with API key
-        app.workspace_tabs = WorkspaceTabBar::new(app.state.settings.api_key.clone());
-        app.workspace_tabs.set_theme(app.state.theme);
-
-        app
     }
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
