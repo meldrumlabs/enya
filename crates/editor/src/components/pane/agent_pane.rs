@@ -18,8 +18,8 @@ use crate::components::util::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::{truncate_first_line, truncate_path_suffix};
-use crate::theme::AppTheme;
 use crate::ui::palette;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 /// Inline content block that can be embedded in chat messages.

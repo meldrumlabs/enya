@@ -4,6 +4,46 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Premium Obsidian Glass theme refinements**: Enhanced the dark theme with a more luxurious, high-end feel:
+  - Refined background colors with subtle cool undertones for better depth perception
+  - Richer emerald accent colors with added glow effects on interactive elements
+  - Improved text hierarchy with warmer whites and refined secondary/tertiary tones
+  - Enhanced syntax highlighting with more vibrant, harmonious colors
+  - Premium shadow system with layered depth for popups and floating elements
+  - Increased corner radius (4px → 6px) for a more refined look
+  - Thicker cursor (2.5px) with slower, more elegant blink animation
+  - Updated HTML background with subtle emerald radial gradient overlay
+  - Improved query completion popup with triple-layer shadows and refined styling
+  - **Glass overlay system enhancements**:
+    - New `PremiumGlass` overlay variant with deeper shadows and inner glow
+    - Frosted glass overlays now feature inner top-edge highlight for glass reflection effect
+    - Enhanced backdrop with subtle vignette effect at screen edges
+    - New `draw_premium_backdrop()` with centered emerald glow for branded modals
+  - **Premium keyboard badges**: Key hints now feature subtle drop shadow and 3D top-edge highlight
+
+- **Moved heatmap into visualization module**: The `heatmap.rs` module is now located at `components/pane/visualization/heatmap.rs` alongside other visualization types for consistency.
+- **Moved theme into ui module**: The `theme.rs` module is now located at `ui/theme.rs` alongside other UI primitives (colors, typography, icons, etc.).
+- **Moved workspace_tabs into workspace module**: The `workspace_tabs.rs` module is now located at `workspace/tabs.rs` alongside other workspace-related code.
+- **Alpha-nvim inspired landing page**: Redesigned the landing page with a minimal, centered layout inspired by alpha-nvim. Changes include:
+  - Clean vertical menu with six actions: Find workspace (`w`), Create workspace (`n`), Tutorial (`t`), Docs (`d`), Shortcuts (`?`), and About (`i`)
+  - Docs option opens the documentation website at enya.build/docs
+  - Shortcuts option opens the which-key overlay with all keyboard shortcuts
+  - About option opens the info overlay with version and build information
+  - Menu items display icon, label, and keyboard shortcut in a single row
+  - Vim-style navigation with `j`/`k` (or arrows) to move through menu items
+  - Press `Enter` to activate the selected item, or use direct shortcuts
+  - Keyboard hints footer showing available navigation keys
+  - Content is vertically centered in the viewport
+  - Large centered logo and Enya branding
+  - Status line is hidden on the landing page (only shows in workspaces)
+
+### Removed
+
+- **Flamegraph visualization**: Removed the `FlamegraphViz` visualization type which was used for CPU/memory profiling visualization. This simplifies the visualization options to focus on time-series metrics.
+- **wgpu GPU rendering module**: Removed the GPU-accelerated rendering module (`crate::wgpu`) that was used for heatmap rendering. Heatmaps now use CPU rendering exclusively.
+
 ### Added
 
 - **Inline content in Agent Pane**: Agent responses can now include rich inline content:
@@ -214,7 +254,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Centralized ID generation**: Replaced 8+ scattered `AtomicUsize`/`AtomicU64` static counters throughout the codebase with a single centralized `id_generator` module. This ensures unique IDs across all component types and eliminates duplicate ID generation patterns. The new module provides `next_id()` and `next_id_usize()` functions.
 
 - **Reorganized components into categorized subdirectories**: Split the flat 27-file `components/` directory into four focused subdirectories:
-  - `components/pane/` - Tile content types (query_pane, flamegraph, heatmap, time_series_chart, visualization)
+  - `components/pane/` - Tile content types (query_pane, heatmap, time_series_chart, visualization)
   - `components/overlay/` - Modal UI (command_palette, metrics_finder, diagnostics, buffer_editor, info, multi_edit, tutorial, viewport_filter, which_key, workspace_finder)
   - `components/widget/` - Reusable UI elements (buffer, landing_page, notifications, status_line, time_range)
   - `components/util/` - Non-UI helpers (finder_utils, id_generator, multi_buffer, query_completion, query_executor, query_state, query_validation)
@@ -277,11 +317,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Interactive tutorial overlay**: Added a new `:tutorial` command that opens a step-by-step walkthrough of the editor's features. The tutorial covers navigation, editing, splits, visual multi-select, metrics finder, time range controls, workspaces, and more. Navigate with arrow keys or h/l, press number keys (1-9) to jump to specific steps.
 
-- **PromQL as default query language**: The editor now defaults to PromQL for query input, with full context-aware autocompletion for PromQL syntax including functions, aggregations, label selectors, duration literals, and modifiers.
+- **PromQL as the query language**: The editor uses PromQL for query input, with full context-aware autocompletion for PromQL syntax including functions, aggregations, label selectors, duration literals, and modifiers.
 
-- **Dual-language support**: Added `QueryLanguage` enum supporting both PromQL (default) and EnyaLang modes. Language can be toggled via the `set_language()` method on `QueryCompletion`.
-
-- **PromQL validation for inline diagnostics**: `QueryValidator` now supports dual-language validation. PromQL queries are validated using `enya-promql::validate()` which wraps the `promql-parser` crate. Syntax errors are displayed as inline diagnostics in the query editor.
+- **PromQL validation for inline diagnostics**: PromQL queries are validated using `enya-promql::validate()` which wraps the `promql-parser` crate. Syntax errors are displayed as inline diagnostics in the query editor.
 
 - **New enya-promql crate**: Created a dedicated crate for PromQL parsing and autocompletion with:
   - Context-aware completion analysis (`analyze()`)

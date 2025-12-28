@@ -1,0 +1,77 @@
+---
+import bookHeartIcon from '@hackernoon/pixel-icon-library/icons/SVG/regular/book-heart.svg?raw';
+import githubIcon from '@hackernoon/pixel-icon-library/icons/SVG/brands/github.svg?raw';
+import discordIcon from '@hackernoon/pixel-icon-library/icons/SVG/brands/discord.svg?raw';
+
+const links: Array<{
+    label: string;
+    href: string;
+    icon: string;
+}> = [
+    {
+        label: 'GitHub',
+        href: 'https://github.com/meldrumlabs/enya',
+        icon: githubIcon,
+    },
+]
+---
+
+{
+	links.length > 0 && (
+		<>
+			{links.map(({ label, href, icon }) => (
+				<a {href} rel="me" class="sl-flex">
+					<span class="sr-only">{label}</span>
+					<span class="social-icon" set:html={icon} />
+				</a>
+			))}
+		</>
+	)
+}
+
+<style>
+	a {
+		color: var(--sl-social-icon-color);
+		padding: 0.5em;
+		margin: -0.5em;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+	}
+
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		padding: 0;
+		margin: -1px;
+		overflow: hidden;
+		clip: rect(0, 0, 0, 0);
+		clip-path: inset(50%);
+		white-space: nowrap;
+		border-width: 0;
+		z-index: -1;
+		left: 0;
+		top: 0;
+	}
+
+	.social-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: var(--sl-social-icon-size, 1.5rem);
+		height: var(--sl-social-icon-size, 1.5rem);
+		flex-shrink: 0;
+	}
+
+	.social-icon svg {
+		width: 100%;
+		height: 100%;
+		fill: currentColor;
+	}
+
+	a:hover .social-icon svg {
+		fill: var(--sl-social-icon-hover-color);
+	}
+</style>

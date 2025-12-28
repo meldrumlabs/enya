@@ -8,8 +8,6 @@ license.workspace = true
 description = "Client abstraction supporting multiple metrics backends (Prometheus, Enya)"
 
 [dependencies]
-enya-common = { workspace = true }
-enya-lang = { workspace = true }
 egui = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

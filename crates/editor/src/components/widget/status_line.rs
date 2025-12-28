@@ -7,9 +7,9 @@ use std::collections::VecDeque;
 
 use egui::{Color32, Layout, Ui};
 
-use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 /// Unicode block characters for sparkline rendering (1/8 to 8/8 height)
@@ -423,13 +423,35 @@ impl StatusLine {
 
     /// Render the status line
     pub fn show(&self, ui: &mut Ui) {
-        let height = 24.0;
-        let padding = 6.0;
+        let height = 26.0; // Slightly taller for breathing room
+        let padding = 8.0; // More generous padding
+
+        // Premium status line styling
+        let status_bg = match self.theme {
+            AppTheme::Light => palette::light_bg::SURFACE,
+            AppTheme::Dark => palette::bg::SURFACE,
+        };
+
+        // Draw subtle top border for separation
+        let top_border_color = match self.theme {
+            AppTheme::Light => palette::light_border::SUBTLE,
+            AppTheme::Dark => palette::border::SUBTLE,
+        };
+
+        let full_rect = ui.available_rect_before_wrap();
+        let top_line_rect =
+            egui::Rect::from_min_size(full_rect.min, egui::vec2(full_rect.width(), 1.0));
+        ui.painter()
+            .rect_filled(top_line_rect, 0.0, top_border_color);
 
         // Use a horizontal layout that spans the full width
         ui.horizontal(|ui| {
             ui.set_height(height);
             ui.spacing_mut().item_spacing.x = 0.0;
+
+            // Fill background
+            let bar_rect = ui.available_rect_before_wrap();
+            ui.painter().rect_filled(bar_rect, 0.0, status_bg);
 
             // === LEFT SECTION ===
             self.render_left_section(ui, height, padding);
@@ -510,18 +532,18 @@ impl StatusLine {
 
     /// Render a subtle separator between segments (left-to-right)
     fn render_separator(&self, ui: &mut Ui, height: f32) {
-        let separator_width = 16.0;
+        let separator_width = 20.0; // Slightly wider for breathing room
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
-            let sep_color = self.segment_fg().gamma_multiply(0.3);
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                semantic_icons::statusline::SEPARATOR,
-                egui::FontId::proportional(semantic_icons::SIZE_INLINE),
-                sep_color,
+            // Premium: use a thin vertical line instead of chevron for cleaner look
+            let line_color = self.segment_fg().gamma_multiply(0.15);
+            let center_x = rect.center().x;
+            ui.painter().vline(
+                center_x,
+                egui::Rangef::new(rect.min.y + 6.0, rect.max.y - 6.0),
+                egui::Stroke::new(1.0, line_color),
             );
         }
     }
@@ -699,18 +721,18 @@ impl StatusLine {
 
     /// Render a subtle separator between segments (right-to-left)
     fn render_separator_rtl(&self, ui: &mut Ui, height: f32) {
-        let separator_width = 16.0;
+        let separator_width = 20.0; // Slightly wider for breathing room
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
-            let sep_color = self.segment_fg().gamma_multiply(0.3);
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                semantic_icons::statusline::SEPARATOR,
-                egui::FontId::proportional(semantic_icons::SIZE_INLINE),
-                sep_color,
+            // Premium: use a thin vertical line instead of chevron for cleaner look
+            let line_color = self.segment_fg().gamma_multiply(0.15);
+            let center_x = rect.center().x;
+            ui.painter().vline(
+                center_x,
+                egui::Rangef::new(rect.min.y + 6.0, rect.max.y - 6.0),
+                egui::Stroke::new(1.0, line_color),
             );
         }
     }
@@ -726,7 +748,7 @@ impl StatusLine {
         fg_color: Color32,
         height: f32,
         padding: f32,
-        _bold: bool,
+        is_primary: bool,
     ) {
         let content = if let Some(icon) = icon {
             format!("{icon} {text}")
@@ -747,7 +769,34 @@ impl StatusLine {
             ui.allocate_exact_size(egui::vec2(text_width, height), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
-            ui.painter().rect_filled(rect, 0.0, bg_color);
+            if is_primary {
+                // Premium primary segment with rounded right edge and subtle inner glow
+                let corner_radius = egui::CornerRadius {
+                    nw: 0,
+                    ne: 4,
+                    sw: 0,
+                    se: 4,
+                };
+                // Subtle glow behind
+                let glow_rect = rect.expand(1.0);
+                ui.painter()
+                    .rect_filled(glow_rect, corner_radius, bg_color.gamma_multiply(0.3));
+                ui.painter().rect_filled(rect, corner_radius, bg_color);
+
+                // Inner top highlight for 3D effect
+                let highlight_rect = egui::Rect::from_min_size(
+                    rect.left_top() + egui::vec2(0.0, 1.0),
+                    egui::vec2(rect.width(), 1.0),
+                );
+                ui.painter().rect_filled(
+                    highlight_rect,
+                    0.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 20),
+                );
+            } else {
+                ui.painter().rect_filled(rect, 0.0, bg_color);
+            }
+
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -787,7 +836,7 @@ impl StatusLine {
         fg_color: Color32,
         height: f32,
         padding: f32,
-        _bold: bool,
+        is_primary: bool,
     ) -> egui::Response {
         let content = if let Some(icon) = icon {
             format!("{icon} {text}")
@@ -808,7 +857,34 @@ impl StatusLine {
             ui.allocate_exact_size(egui::vec2(text_width, height), egui::Sense::click());
 
         if ui.is_rect_visible(rect) {
-            ui.painter().rect_filled(rect, 0.0, bg_color);
+            if is_primary {
+                // Premium primary segment with rounded left edge and subtle inner glow
+                let corner_radius = egui::CornerRadius {
+                    nw: 4,
+                    ne: 0,
+                    sw: 4,
+                    se: 0,
+                };
+                // Subtle glow behind
+                let glow_rect = rect.expand(1.0);
+                ui.painter()
+                    .rect_filled(glow_rect, corner_radius, bg_color.gamma_multiply(0.3));
+                ui.painter().rect_filled(rect, corner_radius, bg_color);
+
+                // Inner top highlight for 3D effect
+                let highlight_rect = egui::Rect::from_min_size(
+                    rect.left_top() + egui::vec2(0.0, 1.0),
+                    egui::vec2(rect.width(), 1.0),
+                );
+                ui.painter().rect_filled(
+                    highlight_rect,
+                    0.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 20),
+                );
+            } else {
+                ui.painter().rect_filled(rect, 0.0, bg_color);
+            }
+
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,

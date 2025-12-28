@@ -1,32 +1,14 @@
-//! Inline completion popup for PromQL and enya-lang queries.
+//! Inline completion popup for PromQL queries.
 //!
-//! Provides context-aware suggestions while typing queries in either language mode.
+//! Provides context-aware suggestions while typing queries.
 
 use egui::{Color32, Key};
-use enya_lang::completion as enya_completion;
 use enya_promql::completion as promql_completion;
 
-use crate::theme::AppTheme;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
-
-/// The query language mode for completion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum QueryLanguage {
-    /// PromQL mode (default) - full Prometheus query language
-    #[default]
-    PromQL,
-    /// EnyaLang mode - simplified filter syntax
-    EnyaLang,
-}
-
-/// Internal context enum that wraps both language contexts.
-#[derive(Debug, Clone)]
-enum CompletionContext {
-    PromQL(promql_completion::Context),
-    EnyaLang(enya_completion::Context),
-}
 
 /// A suggestion item for the completion popup
 #[derive(Debug, Clone)]
@@ -114,9 +96,7 @@ pub struct QueryCompletion {
     /// Known metric names (for suggesting inside functions)
     known_metrics: Vec<String>,
     /// Current completion context
-    current_context: Option<CompletionContext>,
-    /// Current query language mode
-    language: QueryLanguage,
+    current_context: Option<promql_completion::Context>,
 }
 
 impl Default for QueryCompletion {
@@ -136,21 +116,7 @@ impl QueryCompletion {
             known_tag_values: rustc_hash::FxHashMap::default(),
             known_metrics: Vec::new(),
             current_context: None,
-            language: QueryLanguage::default(),
         }
-    }
-
-    /// Get the current query language mode.
-    pub fn language(&self) -> QueryLanguage {
-        self.language
-    }
-
-    /// Set the query language mode.
-    pub fn set_language(&mut self, language: QueryLanguage) {
-        self.language = language;
-        // Clear context when switching languages
-        self.current_context = None;
-        self.close();
     }
 
     /// Set the theme
@@ -198,10 +164,7 @@ impl QueryCompletion {
         self.items.clear();
         self.selected_index = 0;
 
-        match self.language {
-            QueryLanguage::PromQL => self.update_promql(input, cursor),
-            QueryLanguage::EnyaLang => self.update_enya_lang(input, cursor),
-        }
+        self.update_promql(input, cursor);
 
         // Show popup if we have items
         self.is_open = !self.items.is_empty();
@@ -212,7 +175,7 @@ impl QueryCompletion {
         use promql_completion::Context;
 
         let ctx = promql_completion::analyze(input, cursor);
-        self.current_context = Some(CompletionContext::PromQL(ctx.clone()));
+        self.current_context = Some(ctx.clone());
 
         // Get syntax suggestions from promql
         let suggestions = promql_completion::syntax_suggestions(&ctx);
@@ -438,218 +401,6 @@ impl QueryCompletion {
         }
     }
 
-    /// Update completion for EnyaLang mode
-    fn update_enya_lang(&mut self, input: &str, cursor: usize) {
-        use enya_completion::Context;
-
-        let ctx = enya_completion::analyze(input, cursor);
-        self.current_context = Some(CompletionContext::EnyaLang(ctx.clone()));
-
-        match &ctx {
-            Context::ExpectQueryStart => {
-                // At start, suggest aggregation functions and tag keys
-                let suggestions = enya_completion::syntax_suggestions(&ctx);
-                for s in suggestions {
-                    let kind = if enya_completion::ALL_FUNCTIONS.contains(&s) {
-                        CompletionKind::Function
-                    } else {
-                        CompletionKind::Operator
-                    };
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: kind.icon(),
-                        kind,
-                    });
-                }
-                // Also suggest known tag keys
-                for key in &self.known_tag_keys {
-                    self.items.push(CompletionItem {
-                        text: format!("{key}:"),
-                        label: key.clone(),
-                        icon: CompletionKind::TagKey.icon(),
-                        kind: CompletionKind::TagKey,
-                    });
-                }
-            }
-            Context::ExpectExpr | Context::ExpectOperator => {
-                // Add syntax suggestions
-                let suggestions = enya_completion::syntax_suggestions(&ctx);
-                for s in suggestions {
-                    let kind = if matches!(s, "AND" | "OR") {
-                        CompletionKind::Keyword
-                    } else {
-                        CompletionKind::Operator
-                    };
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: kind.icon(),
-                        kind,
-                    });
-                }
-
-                // For ExpectExpr, also suggest known tag keys
-                if matches!(ctx, Context::ExpectExpr) {
-                    for key in &self.known_tag_keys {
-                        self.items.push(CompletionItem {
-                            text: format!("{key}:"),
-                            label: key.clone(),
-                            icon: CompletionKind::TagKey.icon(),
-                            kind: CompletionKind::TagKey,
-                        });
-                    }
-                }
-            }
-            Context::ExpectAggregationOpen(_) => {
-                // After aggregation function, suggest opening delimiter
-                let suggestions = enya_completion::syntax_suggestions(&ctx);
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Operator.icon(),
-                        kind: CompletionKind::Operator,
-                    });
-                }
-            }
-            Context::ExpectTimeRangeOrGrouping(_) => {
-                // After aggregation close, suggest time range or by/without
-                let suggestions = enya_completion::syntax_suggestions(&ctx);
-                for s in suggestions {
-                    let kind = if s == "[" {
-                        CompletionKind::Operator
-                    } else {
-                        CompletionKind::Keyword
-                    };
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: kind.icon(),
-                        kind,
-                    });
-                }
-            }
-            Context::ExpectGroupingOrEnd => {
-                // After aggregation close or time range, suggest by/without
-                let suggestions = enya_completion::syntax_suggestions(&ctx);
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Keyword.icon(),
-                        kind: CompletionKind::Keyword,
-                    });
-                }
-            }
-            Context::ExpectGroupingOpen | Context::ExpectLabelListContinue => {
-                // Suggest opening paren or comma/close
-                let suggestions = enya_completion::syntax_suggestions(&ctx);
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Operator.icon(),
-                        kind: CompletionKind::Operator,
-                    });
-                }
-            }
-            Context::InLabelList => {
-                // Inside label list, suggest known tag keys as labels
-                for key in &self.known_tag_keys {
-                    self.items.push(CompletionItem {
-                        text: key.clone(),
-                        label: key.clone(),
-                        icon: CompletionKind::TagKey.icon(),
-                        kind: CompletionKind::TagKey,
-                    });
-                }
-            }
-            Context::InAggregationFunc(partial) => {
-                // Filter aggregation functions by partial match
-                let suggestions = enya_completion::syntax_suggestions(&ctx);
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Function.icon(),
-                        kind: CompletionKind::Function,
-                    });
-                }
-                // Also check if partial matches tag keys
-                let partial_lower = partial.to_lowercase();
-                for key in &self.known_tag_keys {
-                    if key.to_lowercase().starts_with(&partial_lower) {
-                        self.items.push(CompletionItem {
-                            text: format!("{key}:"),
-                            label: key.clone(),
-                            icon: CompletionKind::TagKey.icon(),
-                            kind: CompletionKind::TagKey,
-                        });
-                    }
-                }
-            }
-            Context::InLabelName(partial) => {
-                // Filter tag keys by partial match for label names
-                let partial_lower = partial.to_lowercase();
-                for key in &self.known_tag_keys {
-                    if key.to_lowercase().starts_with(&partial_lower) {
-                        self.items.push(CompletionItem {
-                            text: key.clone(),
-                            label: key.clone(),
-                            icon: CompletionKind::TagKey.icon(),
-                            kind: CompletionKind::TagKey,
-                        });
-                    }
-                }
-            }
-            Context::InTagKey(partial) => {
-                // Filter tag keys by partial match
-                let partial_lower = partial.to_lowercase();
-                for key in &self.known_tag_keys {
-                    if key.to_lowercase().starts_with(&partial_lower) {
-                        self.items.push(CompletionItem {
-                            text: format!("{key}:"),
-                            label: key.clone(),
-                            icon: CompletionKind::TagKey.icon(),
-                            kind: CompletionKind::TagKey,
-                        });
-                    }
-                }
-            }
-            Context::InTagValue { key, partial_value } => {
-                // Filter tag values by partial match
-                if let Some(values) = self.known_tag_values.get(key) {
-                    let partial_lower = partial_value.to_lowercase();
-                    for value in values {
-                        if partial_value.is_empty()
-                            || value.to_lowercase().starts_with(&partial_lower)
-                        {
-                            self.items.push(CompletionItem {
-                                text: value.clone(),
-                                label: value.clone(),
-                                icon: CompletionKind::TagValue.icon(),
-                                kind: CompletionKind::TagValue,
-                            });
-                        }
-                    }
-                }
-            }
-            Context::ExpectDuration | Context::InDuration(_) => {
-                // Suggest common durations
-                let suggestions = enya_completion::syntax_suggestions(&ctx);
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Duration.icon(),
-                        kind: CompletionKind::Duration,
-                    });
-                }
-            }
-        }
-    }
-
     /// Navigate selection up
     pub fn select_prev(&mut self) {
         if self.selected_index > 0 {
@@ -675,14 +426,7 @@ impl QueryCompletion {
         let item = self.selected_item()?;
         let ctx = self.current_context.as_ref()?;
 
-        match ctx {
-            CompletionContext::PromQL(ctx) => {
-                self.apply_promql_completion(input, cursor, item, ctx)
-            }
-            CompletionContext::EnyaLang(ctx) => {
-                self.apply_enya_lang_completion(input, cursor, item, ctx)
-            }
-        }
+        self.apply_promql_completion(input, cursor, item, ctx)
     }
 
     /// Apply completion for PromQL context
@@ -789,122 +533,6 @@ impl QueryCompletion {
         Some((new_input, new_cursor))
     }
 
-    /// Apply completion for EnyaLang context
-    fn apply_enya_lang_completion(
-        &self,
-        input: &str,
-        cursor: usize,
-        item: &CompletionItem,
-        ctx: &enya_completion::Context,
-    ) -> Option<(String, usize)> {
-        use enya_completion::Context;
-
-        let (new_input, new_cursor) = match ctx {
-            Context::ExpectQueryStart
-            | Context::ExpectExpr
-            | Context::ExpectOperator
-            | Context::ExpectAggregationOpen(_)
-            | Context::ExpectTimeRangeOrGrouping(_)
-            | Context::ExpectGroupingOrEnd
-            | Context::ExpectGroupingOpen
-            | Context::ExpectLabelListContinue
-            | Context::ExpectDuration => {
-                // Insert at cursor, possibly with space before
-                let before = &input[..cursor];
-                let after = &input[cursor..];
-
-                let needs_space = !before.is_empty()
-                    && !before.ends_with(char::is_whitespace)
-                    && !before.ends_with('(')
-                    && !before.ends_with('{');
-                let prefix = if needs_space { " " } else { "" };
-
-                // Add trailing space after keywords and functions, but not after delimiters
-                let needs_suffix = matches!(
-                    item.kind,
-                    CompletionKind::Keyword | CompletionKind::Function
-                ) && !item.text.ends_with(':')
-                    && !item.text.ends_with(')')
-                    && !item.text.ends_with('}')
-                    && !after.starts_with(char::is_whitespace);
-                let suffix = if needs_suffix { " " } else { "" };
-
-                let new_input = format!("{before}{prefix}{}{suffix}{after}", item.text);
-                let new_cursor = cursor + prefix.len() + item.text.len() + suffix.len();
-                (new_input, new_cursor)
-            }
-            Context::InLabelList => {
-                // Insert label at cursor
-                let before = &input[..cursor];
-                let after = &input[cursor..];
-                let new_input = format!("{before}{}{after}", item.text);
-                let new_cursor = cursor + item.text.len();
-                (new_input, new_cursor)
-            }
-            Context::InAggregationFunc(partial) | Context::InTagKey(partial) => {
-                // Replace the partial with the full text
-                let word_start = find_word_start_enya(input, cursor, partial);
-                let before = &input[..word_start];
-                let after = &input[cursor..];
-                let new_input = format!("{before}{}{after}", item.text);
-                let new_cursor = word_start + item.text.len();
-                (new_input, new_cursor)
-            }
-            Context::InLabelName(partial) => {
-                // Replace the partial label name with the full label
-                let word_start = find_label_name_start(input, cursor, partial);
-                let before = &input[..word_start];
-                let after = &input[cursor..];
-                let new_input = format!("{before}{}{after}", item.text);
-                let new_cursor = word_start + item.text.len();
-                (new_input, new_cursor)
-            }
-            Context::InTagValue { key, .. } => {
-                // Find where the value starts (after the colon)
-                let before_cursor = &input[..cursor];
-                if let Some(colon_pos) = before_cursor.rfind(':') {
-                    let before_colon = &input[..=colon_pos];
-                    let after = &input[cursor..];
-                    let new_input = format!("{before_colon}{}{after}", item.text);
-                    let new_cursor = colon_pos + 1 + item.text.len();
-                    (new_input, new_cursor)
-                } else {
-                    // Fallback: just insert the value at cursor
-                    let new_input = format!(
-                        "{}{}:{}{}",
-                        &input[..cursor],
-                        key,
-                        item.text,
-                        &input[cursor..]
-                    );
-                    let new_cursor = cursor + key.len() + 1 + item.text.len();
-                    (new_input, new_cursor)
-                }
-            }
-            Context::InDuration(_partial) => {
-                // Replace the partial duration with the full duration
-                // Find the opening bracket
-                let before_cursor = &input[..cursor];
-                if let Some(bracket_pos) = before_cursor.rfind('[') {
-                    let before_bracket = &input[..=bracket_pos];
-                    let after = &input[cursor..];
-                    let new_input = format!("{before_bracket}{}{after}", item.text);
-                    let new_cursor = bracket_pos + 1 + item.text.len();
-                    (new_input, new_cursor)
-                } else {
-                    // Fallback: insert at cursor
-                    let before = &input[..cursor];
-                    let after = &input[cursor..];
-                    let new_input = format!("{before}{}{after}", item.text);
-                    let new_cursor = cursor + item.text.len();
-                    (new_input, new_cursor)
-                }
-            }
-        };
-
-        Some((new_input, new_cursor))
-    }
-
     /// Show the completion popup near the text input.
     /// Returns the result of user interaction.
     pub fn show(&mut self, ui: &mut egui::Ui, text_edit_rect: egui::Rect) -> CompletionResult {
@@ -922,50 +550,78 @@ impl QueryCompletion {
         let visible_items = self.items.len().min(max_visible_items);
         let popup_height = visible_items as f32 * item_height + 8.0;
 
-        // Obsidian glass theme colors
+        // Premium Obsidian Glass theme colors - darker, more distinct popup
         let bg_color = match self.theme {
             AppTheme::Light => palette::light_bg::SURFACE,
-            AppTheme::Dark => palette::bg::SURFACE,
+            AppTheme::Dark => Color32::from_rgb(16, 16, 20), // Darker obsidian for distinction
         };
         let border_color = match self.theme {
             AppTheme::Light => palette::light_border::DEFAULT,
-            AppTheme::Dark => palette::border::SUBTLE,
+            AppTheme::Dark => Color32::from_rgb(50, 55, 52), // Subtle emerald-tinted border
         };
         let selected_bg = match self.theme {
             AppTheme::Light => palette::light_bg::SELECTED,
-            AppTheme::Dark => palette::accent::MUTED, // Emerald-tinted selection
+            AppTheme::Dark => Color32::from_rgb(24, 50, 40), // Richer emerald selection
         };
         let hover_bg = match self.theme {
             AppTheme::Light => palette::light_bg::HOVER,
-            AppTheme::Dark => palette::bg::HOVER,
+            AppTheme::Dark => Color32::from_rgb(28, 28, 34), // Subtle hover lift
         };
         let text_col = palette::text_primary(self.theme);
         let text_secondary = palette::text_secondary(self.theme);
         let text_tertiary = palette::text_tertiary(self.theme);
         let accent_color = match self.theme {
             AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::HOVER, // Bright emerald
+            AppTheme::Dark => palette::accent::HOVER, // Luminous emerald
         };
 
         let popup_rect =
             egui::Rect::from_min_size(popup_pos, egui::vec2(popup_width, popup_height));
 
-        // Draw layered shadows for obsidian glass depth effect
-        let shadow_offset = egui::vec2(0.0, 4.0);
-        let shadow_rect = popup_rect.translate(shadow_offset).expand(4.0);
+        // Premium layered shadows for depth perception - deeper shadows
+        // Outer ambient shadow
+        let shadow_rect = popup_rect.translate(egui::vec2(0.0, 10.0)).expand(12.0);
         ui.painter()
-            .rect_filled(shadow_rect, 12.0, Color32::from_black_alpha(40));
-        let shadow_rect2 = popup_rect.translate(egui::vec2(0.0, 2.0)).expand(2.0);
+            .rect_filled(shadow_rect, 16.0, Color32::from_black_alpha(80));
+        // Mid shadow
+        let shadow_rect2 = popup_rect.translate(egui::vec2(0.0, 5.0)).expand(6.0);
         ui.painter()
-            .rect_filled(shadow_rect2, 10.0, Color32::from_black_alpha(30));
+            .rect_filled(shadow_rect2, 14.0, Color32::from_black_alpha(60));
+        // Inner contact shadow
+        let shadow_rect3 = popup_rect.translate(egui::vec2(0.0, 2.0)).expand(2.0);
+        ui.painter()
+            .rect_filled(shadow_rect3, 12.0, Color32::from_black_alpha(40));
 
-        // Draw popup background with rounded corners
+        // Draw popup background with premium rounded corners
         ui.painter().rect(
             popup_rect,
-            8.0,
+            12.0, // More rounded for premium feel
             bg_color,
             egui::Stroke::new(1.0, border_color),
             egui::StrokeKind::Inside,
+        );
+
+        // Inner top highlight for glass effect - more visible
+        let highlight_rect = egui::Rect::from_min_size(
+            popup_rect.left_top() + egui::vec2(1.0, 1.0),
+            egui::vec2(popup_rect.width() - 2.0, 1.5),
+        );
+        let highlight_color = match self.theme {
+            AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 80),
+            AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 255, 255, 20), // Stronger highlight
+        };
+        ui.painter()
+            .rect_filled(highlight_rect, 10.0, highlight_color);
+
+        // Subtle inner glow at top for depth
+        let glow_rect = egui::Rect::from_min_size(
+            popup_rect.left_top() + egui::vec2(2.0, 3.0),
+            egui::vec2(popup_rect.width() - 4.0, 8.0),
+        );
+        ui.painter().rect_filled(
+            glow_rect,
+            8.0,
+            Color32::from_rgba_unmultiplied(255, 255, 255, 4),
         );
 
         // Draw items
@@ -983,7 +639,7 @@ impl QueryCompletion {
             let response = ui.allocate_rect(item_rect, egui::Sense::click());
             let is_hovered = response.hovered();
 
-            // Item background
+            // Item background with premium styling
             let item_bg = if is_selected {
                 selected_bg
             } else if is_hovered {
@@ -992,30 +648,80 @@ impl QueryCompletion {
                 Color32::TRANSPARENT
             };
 
-            if item_bg != Color32::TRANSPARENT {
-                ui.painter().rect_filled(item_rect, 4.0, item_bg);
-            }
-
-            // Selection indicator (emerald accent bar on left)
             if is_selected {
-                let indicator_rect =
-                    egui::Rect::from_min_size(item_rect.min, egui::vec2(3.0, item_height));
-                ui.painter().rect_filled(indicator_rect, 2.0, accent_color);
+                // Draw more visible glow behind selected item
+                let glow_rect = item_rect.expand(2.0);
+                ui.painter()
+                    .rect_filled(glow_rect, 8.0, accent_color.gamma_multiply(0.12));
             }
 
-            // Icon
+            if item_bg != Color32::TRANSPARENT {
+                ui.painter().rect_filled(item_rect, 6.0, item_bg);
+
+                // Add subtle top highlight on selected/hovered items for depth
+                if is_selected || is_hovered {
+                    let item_highlight = egui::Rect::from_min_size(
+                        item_rect.left_top() + egui::vec2(1.0, 1.0),
+                        egui::vec2(item_rect.width() - 2.0, 1.0),
+                    );
+                    ui.painter().rect_filled(
+                        item_highlight,
+                        4.0,
+                        Color32::from_rgba_unmultiplied(255, 255, 255, 8),
+                    );
+                }
+            }
+
+            // Selection indicator - elegant emerald accent bar with glow
+            if is_selected {
+                // Glow behind indicator - more visible
+                let glow_rect = egui::Rect::from_min_size(
+                    item_rect.min - egui::vec2(2.0, 0.0),
+                    egui::vec2(7.0, item_height),
+                );
+                ui.painter()
+                    .rect_filled(glow_rect, 4.0, accent_color.gamma_multiply(0.4));
+                // Main indicator - slightly thicker
+                let indicator_rect =
+                    egui::Rect::from_min_size(item_rect.min, egui::vec2(3.5, item_height));
+                ui.painter().rect_filled(indicator_rect, 3.0, accent_color);
+            }
+
+            // Icon - use accent color for selected, secondary for others
+            let icon_color = if is_selected {
+                accent_color
+            } else {
+                text_secondary
+            };
             let icon_pos = egui::pos2(item_rect.left() + 12.0, item_rect.center().y);
             ui.painter().text(
                 icon_pos,
                 egui::Align2::LEFT_CENTER,
                 item.icon,
                 typography::proportional(typography::XL),
-                text_secondary,
+                icon_color,
             );
 
-            // Kind badge
+            // Kind badge with subtle background pill
             let kind_label = item.kind.label();
             let kind_pos = egui::pos2(item_rect.right() - 12.0, item_rect.center().y);
+
+            // Measure kind text for background pill
+            let kind_galley = ui.painter().layout_no_wrap(
+                kind_label.to_string(),
+                typography::proportional(typography::XS),
+                text_tertiary,
+            );
+            let badge_rect = egui::Rect::from_center_size(
+                kind_pos - egui::vec2(kind_galley.size().x / 2.0, 0.0),
+                kind_galley.size() + egui::vec2(10.0, 6.0),
+            );
+            let badge_bg = match self.theme {
+                AppTheme::Light => palette::light_bg::ELEVATED,
+                AppTheme::Dark => palette::bg::HOVER.gamma_multiply(0.6),
+            };
+            ui.painter().rect_filled(badge_rect, 4.0, badge_bg);
+
             ui.painter().text(
                 kind_pos,
                 egui::Align2::RIGHT_CENTER,
@@ -1035,12 +741,19 @@ impl QueryCompletion {
                 item.label.clone()
             };
 
+            // Brighter text for selected item
+            let label_color = if is_selected {
+                palette::text::PRIMARY
+            } else {
+                text_col
+            };
+
             ui.painter().text(
                 label_pos,
                 egui::Align2::LEFT_CENTER,
                 &display_label,
                 typography::monospace(typography::LG),
-                text_col,
+                label_color,
             );
 
             // Handle click
@@ -1054,11 +767,27 @@ impl QueryCompletion {
         // Show scroll indicator if there are more items
         if self.items.len() > max_visible_items {
             let more_count = self.items.len() - max_visible_items;
-            let indicator_pos = egui::pos2(content_rect.center().x, content_rect.bottom() - 4.0);
+
+            // Draw indicator with subtle background
+            let indicator_text = format!("↓ +{more_count} more");
+            let indicator_pos = egui::pos2(content_rect.center().x, content_rect.bottom() - 2.0);
+
+            let indicator_galley = ui.painter().layout_no_wrap(
+                indicator_text.clone(),
+                typography::proportional(typography::XS),
+                text_tertiary,
+            );
+            let indicator_bg_rect = egui::Rect::from_center_size(
+                indicator_pos - egui::vec2(0.0, indicator_galley.size().y / 2.0),
+                indicator_galley.size() + egui::vec2(12.0, 4.0),
+            );
+            ui.painter()
+                .rect_filled(indicator_bg_rect, 4.0, bg_color.gamma_multiply(0.9));
+
             ui.painter().text(
                 indicator_pos,
                 egui::Align2::CENTER_BOTTOM,
-                format!("... +{more_count} more"),
+                indicator_text,
                 typography::proportional(typography::XS),
                 text_tertiary,
             );
@@ -1152,24 +881,6 @@ fn find_word_start(input: &str, cursor: usize, partial: &str) -> usize {
         .unwrap_or(cursor.saturating_sub(partial.len()))
 }
 
-/// Find the start of a word for EnyaLang completion (partial replacement)
-fn find_word_start_enya(input: &str, cursor: usize, partial: &str) -> usize {
-    let before = &input[..cursor];
-    before
-        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == '{' || c == '}')
-        .map(|i| i + 1)
-        .unwrap_or(cursor.saturating_sub(partial.len()))
-}
-
-/// Find the start of a label name for EnyaLang completion
-fn find_label_name_start(input: &str, cursor: usize, partial: &str) -> usize {
-    let before = &input[..cursor];
-    before
-        .rfind(|c: char| c.is_whitespace() || c == '(' || c == ',')
-        .map(|i| i + 1)
-        .unwrap_or(cursor.saturating_sub(partial.len()))
-}
-
 /// Collect unique tag keys from a list of tag strings (format: "key:value")
 pub fn extract_tag_keys(tags: &[String]) -> Vec<String> {
     let mut keys: Vec<String> = tags
@@ -1224,124 +935,10 @@ mod tests {
         assert_eq!(values, vec!["dev", "prod", "staging"]);
     }
 
-    // Tests for EnyaLang mode
-    #[test]
-    fn test_completion_update_expect_expr_enya() {
-        let mut completion = QueryCompletion::new();
-        completion.set_language(QueryLanguage::EnyaLang);
-        completion.set_tag_keys(vec!["env".to_string(), "service".to_string()]);
-
-        completion.update("", 0);
-        assert!(completion.is_open());
-        assert!(!completion.items.is_empty());
-
-        // Should have operators and tag keys
-        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"!"));
-        assert!(labels.contains(&"("));
-        assert!(labels.contains(&"env"));
-        assert!(labels.contains(&"service"));
-    }
-
-    #[test]
-    fn test_completion_update_expect_operator_enya() {
-        let mut completion = QueryCompletion::new();
-        completion.set_language(QueryLanguage::EnyaLang);
-        completion.update("env:prod", 8);
-        assert!(completion.is_open());
-
-        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"AND"));
-        assert!(labels.contains(&"OR"));
-    }
-
-    #[test]
-    fn test_completion_update_in_tag_key_enya() {
-        let mut completion = QueryCompletion::new();
-        completion.set_language(QueryLanguage::EnyaLang);
-        completion.set_tag_keys(vec![
-            "env".to_string(),
-            "environment".to_string(),
-            "service".to_string(),
-        ]);
-
-        completion.update("en", 2);
-        assert!(completion.is_open());
-
-        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"env"));
-        assert!(labels.contains(&"environment"));
-        assert!(!labels.contains(&"service"));
-    }
-
-    #[test]
-    fn test_completion_update_in_tag_value_enya() {
-        let mut completion = QueryCompletion::new();
-        completion.set_language(QueryLanguage::EnyaLang);
-        completion.set_tag_keys(vec!["env".to_string()]);
-        completion.set_tag_values(
-            "env",
-            vec!["prod".to_string(), "staging".to_string(), "dev".to_string()],
-        );
-
-        completion.update("env:", 4);
-        assert!(completion.is_open());
-
-        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"prod"));
-        assert!(labels.contains(&"staging"));
-        assert!(labels.contains(&"dev"));
-    }
-
-    #[test]
-    fn test_completion_apply_expect_expr_enya() {
-        let mut completion = QueryCompletion::new();
-        completion.set_language(QueryLanguage::EnyaLang);
-        completion.set_tag_keys(vec!["env".to_string()]);
-        completion.update("", 0);
-
-        // Select "env:" item
-        for (i, item) in completion.items.iter().enumerate() {
-            if item.label == "env" {
-                completion.selected_index = i;
-                break;
-            }
-        }
-
-        let result = completion.apply_completion("", 0);
-        assert!(result.is_some());
-        let (new_input, new_cursor) = result.unwrap();
-        assert_eq!(new_input, "env:");
-        assert_eq!(new_cursor, 4);
-    }
-
-    #[test]
-    fn test_completion_apply_after_and_enya() {
-        let mut completion = QueryCompletion::new();
-        completion.set_language(QueryLanguage::EnyaLang);
-        completion.set_tag_keys(vec!["service".to_string()]);
-        completion.update("env:prod AND ", 13);
-
-        // Select "service:" item
-        for (i, item) in completion.items.iter().enumerate() {
-            if item.label == "service" {
-                completion.selected_index = i;
-                break;
-            }
-        }
-
-        let result = completion.apply_completion("env:prod AND ", 13);
-        assert!(result.is_some());
-        let (new_input, new_cursor) = result.unwrap();
-        assert_eq!(new_input, "env:prod AND service:");
-        assert_eq!(new_cursor, 21);
-    }
-
     // Tests for PromQL mode
     #[test]
     fn test_completion_update_promql_empty() {
         let mut completion = QueryCompletion::new();
-        // PromQL is default
         completion.update("", 0);
         assert!(completion.is_open());
 

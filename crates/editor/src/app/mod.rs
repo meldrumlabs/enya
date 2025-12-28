@@ -23,10 +23,9 @@ use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
 };
 use crate::connection::ConnectionManager;
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
-use crate::workspace::WorkspaceAction;
-use crate::workspace_tabs::{TabBarAction, WorkspaceTabBar};
+use crate::workspace::{TabBarAction, WorkspaceAction, WorkspaceTabBar};
 
 use state::EditorMetrics;
 
@@ -105,11 +104,6 @@ impl EnyaApp {
         let mut workspace_tabs = WorkspaceTabBar::new(async_runtime.clone());
         workspace_tabs.set_theme(state.theme);
 
-        // Initialize GPU resources for heatmaps (flamegraphs use CPU rendering)
-        if let Some(render_state) = cc.wgpu_render_state.as_ref() {
-            crate::wgpu::init_heatmap_resources(render_state);
-        }
-
         Self {
             state,
             workspace_tabs,
@@ -171,6 +165,13 @@ impl EnyaApp {
 
     // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
+        // Hide status line on landing page - it's part of the workspace UI, not the landing page
+        if let Some(tab) = self.workspace_tabs.active_tab() {
+            if tab.workspace.is_landing_page() {
+                return;
+            }
+        }
+
         // Update status line state
         self.status_line.set_theme(self.state.theme);
 

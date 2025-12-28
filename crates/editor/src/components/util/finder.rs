@@ -89,8 +89,8 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use super::finder_utils::{

@@ -14,7 +14,7 @@ use super::{
     WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 
 impl Workspace {
     // =========================================================================

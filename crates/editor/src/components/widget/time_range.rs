@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use egui::RichText;
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 
 /// Predefined time range presets
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

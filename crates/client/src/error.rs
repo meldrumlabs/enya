@@ -5,7 +5,7 @@ use std::fmt;
 /// Errors that can occur when executing metrics queries.
 #[derive(Debug, Clone)]
 pub enum ClientError {
-    /// The enya-lang query could not be translated to the backend's query language.
+    /// The query could not be translated to the backend's query language.
     TranslationError(String),
     /// Network error during request.
     NetworkError(String),

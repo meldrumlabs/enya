@@ -14,7 +14,7 @@ use crate::components::{
     SourcePreviewResult, TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult,
     WhichKey, WorkspaceFinder,
 };
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 
 // Workspace configuration module (serialization)
 pub mod config;
@@ -50,6 +50,10 @@ mod panes;
 
 // UI rendering (filtered view, scrollbar, scroll-to-focus)
 mod rendering;
+
+// Workspace tab bar (barbar.nvim style workspace switching)
+mod tabs;
+pub use tabs::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
 
 // Re-export config types for convenience
 pub use config::{
@@ -693,41 +697,21 @@ impl Workspace {
         // Show the landing page in the central panel
         let mut landing_action = LandingPageAction::None;
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            landing_action = self.landing_page.show(
-                ui,
-                ctx,
-                &app_state.settings.recent_plots,
-                &app_state.settings.recent_workspaces,
-            );
+            landing_action = self.landing_page.show(ui, ctx);
         });
 
         // Handle landing page actions
         match landing_action {
-            LandingPageAction::OpenPlot {
-                metric_name,
-                is_query: _,
-            } => {
-                self.show_landing = false;
-                // Open the metric directly (queries are now handled via fuzzy finder)
-                self.pending_chart = Some(metric_name);
-            }
-            LandingPageAction::OpenWorkspace { name } => {
-                return WorkspaceAction::LoadWorkspace(name);
-            }
-            LandingPageAction::OpenFuzzyFinder => {
-                self.open_metrics_finder();
-            }
             LandingPageAction::OpenWorkspaceFinder => {
                 self.open_workspace_finder(
                     app_state,
                     crate::app::EnyaApp::list_available_workspaces(),
                 );
             }
-            LandingPageAction::ShowHelp => {
-                self.which_key.open();
-            }
-            LandingPageAction::OpenConnect => {
-                self.open_command_palette_with_text("connect ");
+            LandingPageAction::CreateWorkspace => {
+                // Hide landing page and start fresh workspace
+                self.show_landing = false;
+                ctx.request_repaint();
             }
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and add demo panes for the tutorial
@@ -755,6 +739,15 @@ impl Workspace {
                 }
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
+            }
+            LandingPageAction::ShowAbout => {
+                self.info_overlay.open();
+            }
+            LandingPageAction::ShowShortcuts => {
+                self.which_key.open();
+            }
+            LandingPageAction::OpenDocs => {
+                ctx.open_url(egui::OpenUrl::new_tab("https://enya.build/docs"));
             }
             LandingPageAction::None => {}
         }

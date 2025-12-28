@@ -20,8 +20,8 @@
 //! }
 //! ```
 
-use crate::theme::AppTheme;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 
 use crate::components::util::finder::{Finder, FinderConfig, FinderItem};
 

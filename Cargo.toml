@@ -17,9 +17,7 @@ members = [
   "crates/ai",
   "crates/editor",
   "crates/index",
-  "crates/lang",
   "crates/promql",
-  "crates/common",
   "crates/client",
   "crates/build-info",
   "crates/build-tools",
@@ -36,19 +34,12 @@ members = [
 # - examples/*
 
 [workspace.dependencies]
-enya = { path = "crates/enya", version = "0.1.0" }
-enya-agent = { path = "crates/agent", version = "0.1.0" }
-enya-common = { path = "crates/common", version = "0.1.0" }
-enya-metrics-store = { path = "crates/metrics-store", version = "0.1.0" }
-enya-macros = { path = "crates/macros", version = "0.1.0" }
-enya-lang = { path = "crates/lang", version = "0.1.0" }
 enya-promql = { path = "crates/promql", version = "0.1.0" }
 enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 enya-client = { path = "crates/client", version = "0.1.0" }
 enya-index = { path = "crates/index", version = "0.1.0" }
 enya-ai = { path = "crates/ai", version = "0.1.0" }
-tokio-metrics = "0.4"
 
 egui = "0.33.2"
 eframe = { version = "0.33.2", default-features = false, features = [

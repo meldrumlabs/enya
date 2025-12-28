@@ -26,7 +26,7 @@ pub use multi_buffer::{MultiBufferMode, MultiBufferState, Selection};
 pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, QueryCompletion};
 pub use query_executor::{Backend, ExecuteParams, QueryExecutor, QueryPollResult};
 pub use query_state::{Granularity, QueryState};
-pub use query_validation::{QueryValidator, ValidationResult, is_valid_query, validate_query};
+pub use query_validation::{ValidationResult, is_valid_query, validate_query};
 pub use syntax_highlight::SyntaxHighlightData;
 pub use text_formatting::normalize_unicode;
 #[cfg(not(target_arch = "wasm32"))]

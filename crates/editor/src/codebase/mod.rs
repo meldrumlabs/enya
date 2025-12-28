@@ -7,12 +7,14 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
-pub use enya_common::CommitMarker;
 // Re-export from enya-index
 pub use enya_index::{
     AlertRule, CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind,
     Scanner, ScannerRegistry, build_index_with_progress, fetch_commit_history,
 };
+
+// Re-export CommitMarker from the chart module
+pub use crate::components::pane::time_series_chart::CommitMarker;
 
 /// Status of codebase operations.
 #[derive(Debug, Clone, PartialEq, Eq)]

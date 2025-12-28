@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::theme::AppTheme;
+use crate::ui::theme::AppTheme;
 
 pub mod overlay;
 pub mod pane;
@@ -9,10 +9,10 @@ pub mod widget;
 
 // Re-export from pane
 pub use pane::{
-    AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, DataPoint, FlameFrame,
-    FlamegraphViz, GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent,
-    InlineSource, ProfileType, QueryPane, QueryPaneAction, Series, SparklineViz, StatChart,
-    Threshold, TimeSeriesChart, Visualization, VisualizationType,
+    AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, CommitMarker, DataPoint,
+    GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSource,
+    QueryPane, QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart,
+    Visualization, VisualizationType,
 };
 
 // Re-export from overlay
@@ -38,8 +38,8 @@ pub use util::{
     Backend, CompletionItem, CompletionKind, CompletionResult, ExecuteParams, Finder, FinderColors,
     FinderConfig, FinderItem, FinderKeyboardInput, FinderResult, Granularity, MultiBufferMode,
     MultiBufferState, OverlayColors, OverlayStyle, OverlayStyleVariant, QueryCompletion,
-    QueryExecutor, QueryPollResult, QueryState, QueryValidator, Selection, ValidationResult,
-    draw_backdrop, draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
+    QueryExecutor, QueryPollResult, QueryState, Selection, ValidationResult, draw_backdrop,
+    draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
     render_key_badge, render_key_badge_large, validate_query,
 };
 

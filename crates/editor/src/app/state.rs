@@ -6,10 +6,10 @@
 
 use egui::Visuals;
 
-use crate::theme::AppTheme;
-use crate::theme::light;
 use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
+use crate::ui::theme::AppTheme;
+use crate::ui::theme::light;
 use crate::util::Instant;
 
 /// Tracks internal editor metrics for the status line sparkline

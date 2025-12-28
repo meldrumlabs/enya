@@ -8,8 +8,8 @@ use std::ops::Range;
 
 use egui::{Color32, text::LayoutJob};
 
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
+use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 #[cfg(not(target_arch = "wasm32"))]

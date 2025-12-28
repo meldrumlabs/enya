@@ -16,9 +16,8 @@ use super::gauge::GaugeChart;
 use super::sparkline::SparklineViz;
 use super::stat::StatChart;
 
-// Import heatmap and flamegraph demo functions from their modules
-use super::super::flamegraph::populate_flamegraph_demo;
-use super::super::heatmap::populate_heatmap_demo;
+// Import heatmap demo function from its module
+use super::heatmap::populate_heatmap_demo;
 
 /// Populate demo data for a visualization based on its type
 pub fn populate_demo_data(viz: &mut Visualization, query: &str) {
@@ -40,9 +39,6 @@ pub fn populate_demo_data(viz: &mut Visualization, query: &str) {
         }
         Visualization::Heatmap(heatmap) => {
             populate_heatmap_demo(heatmap, query);
-        }
-        Visualization::Flamegraph(fg) => {
-            populate_flamegraph_demo(fg, query);
         }
     }
 }

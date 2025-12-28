@@ -6,10 +6,10 @@ use crate::components::pane::visualization::{
 use crate::components::util::id_generator::next_id_usize;
 use crate::components::util::query_state::QueryState;
 use crate::components::widget::buffer::{Buffer, BufferAction, BufferMode};
-use crate::theme::AppTheme;
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
 
 /// Render a skeleton loading state with shimmer effect
 fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
@@ -495,7 +495,7 @@ impl QueryPane {
     }
 
     /// Set commit markers on the visualization (only for time series)
-    pub fn set_commits(&mut self, commits: Vec<enya_common::CommitMarker>) {
+    pub fn set_commits(&mut self, commits: Vec<super::time_series_chart::CommitMarker>) {
         self.visualization.set_commits(commits);
     }
 

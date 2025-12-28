@@ -1,7 +1,7 @@
 //! Metrics client abstraction supporting multiple backends.
 //!
 //! This crate provides a unified interface for querying metrics from different
-//! backends (Prometheus, Enya, etc.) using enya-lang as the query language.
+//! backends (Prometheus, Enya, etc.) using PromQL as the query language.
 //!
 //! # Architecture
 //!
@@ -20,7 +20,7 @@
 //! let client = PrometheusClient::new("http://localhost:9090");
 //!
 //! // Fire off a query - returns a promise
-//! let request = QueryRequest::new("cpu_usage", "sum(env:prod) by (host)");
+//! let request = QueryRequest::new("cpu_usage", r#"sum(cpu_usage{env="prod"}) by (host)"#);
 //! let promise = client.query(request, &ctx);
 //!
 //! // In your update loop, poll for results
@@ -37,20 +37,17 @@ pub mod error;
 pub mod prometheus;
 pub mod promise;
 pub mod request;
+pub mod types;
+
 pub use demo::DemoMetricsClient;
 pub use error::ClientError;
 pub use poll_promise::Promise;
 pub use promise::promise_channel;
 pub use request::QueryRequest;
-
-// Re-export response types from enya-common
-pub use enya_common::{MetricsBucket, MetricsGroup, QueryResponse};
+pub use types::{MetricsBucket, MetricsGroup, QueryResponse, ResultType, Timestamp};
 
 // Re-export MetricLabels for per-metric label data
 pub use prometheus::response::MetricLabels;
-
-/// Nanosecond timestamp type.
-pub type Timestamp = enya_common::api::Timestamp;
 
 /// Get the current Unix timestamp in seconds.
 /// Works on both native and WASM platforms.
@@ -96,8 +93,7 @@ pub struct BackendInfo {
 
 /// Metrics client trait - promise-based async interface.
 ///
-/// Implementations translate enya-lang queries to their native format
-/// and handle the HTTP communication with the backend. All async methods
+/// Implementations handle the HTTP communication with the backend. All async methods
 /// return [`Promise`] objects that can be polled each frame.
 pub trait MetricsClient {
     /// Execute a query request (non-blocking).

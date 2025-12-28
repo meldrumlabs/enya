@@ -575,27 +575,28 @@ pub fn gruvbox_theme() -> Visuals {
 // }
 
 pub fn black_theme() -> Visuals {
-    // --- Obsidian Glass Design System ---
-    // A cohesive dark theme inspired by Linear, Vercel, and Raycast.
-    // Premium feel with subtle depth and emerald accents.
+    // --- Premium Obsidian Glass Design System ---
+    // A luxurious dark theme with refined depth and emerald accents.
+    // Designed for Departure Mono typography and high-end developer experience.
     use super::palette::{accent, bg, border, highlight, semantic, text};
 
-    // Subtle corner radius for modern feel (not too rounded, not harsh)
-    let corner_radius = CornerRadius::same(4);
+    // Premium corner radius - subtle but refined (not too rounded, not harsh)
+    let corner_radius = CornerRadius::same(6);
 
-    // Soft shadow for elevated elements
+    // Layered shadow system for premium depth perception
+    // Primary shadow provides the main elevation effect
     let soft_shadow = egui::epaint::Shadow {
-        offset: [0, 4],
-        blur: 16,
+        offset: [0, 6],
+        blur: 20,
         spread: 0,
-        color: Color32::from_black_alpha(80),
+        color: Color32::from_black_alpha(100), // Slightly stronger for depth
     };
 
     Visuals {
         dark_mode: true,
         override_text_color: None,
 
-        // --- Widget Visuals ---
+        // --- Premium Widget Visuals ---
         widgets: Widgets {
             noninteractive: WidgetVisuals {
                 bg_fill: bg::SURFACE,
@@ -616,33 +617,33 @@ pub fn black_theme() -> Visuals {
             hovered: WidgetVisuals {
                 bg_fill: bg::HOVER,
                 weak_bg_fill: bg::HOVER,
-                bg_stroke: Stroke::new(1.0, border::DEFAULT),
+                bg_stroke: Stroke::new(1.0, border::FOCUS), // More prominent on hover
                 corner_radius,
                 fg_stroke: Stroke::new(1.0, text::PRIMARY),
-                expansion: 1.0,
+                expansion: 1.5, // Slightly more expansion for premium feel
             },
             active: WidgetVisuals {
                 bg_fill: accent::PRIMARY,
                 weak_bg_fill: accent::PRIMARY,
-                bg_stroke: Stroke::new(1.0, accent::PRIMARY),
+                bg_stroke: Stroke::new(1.5, accent::HOVER), // Glow effect on active
                 corner_radius,
-                fg_stroke: Stroke::new(1.0, bg::BASE), // Dark text on accent
-                expansion: 0.0,
+                fg_stroke: Stroke::new(1.5, bg::BASE), // Dark text on accent
+                expansion: 0.5,
             },
             open: WidgetVisuals {
                 bg_fill: bg::ELEVATED,
                 weak_bg_fill: bg::ELEVATED,
-                bg_stroke: Stroke::new(1.0, accent::PRIMARY),
+                bg_stroke: Stroke::new(1.5, accent::PRIMARY), // Stronger accent border
                 corner_radius,
-                fg_stroke: Stroke::new(1.0, accent::PRIMARY),
+                fg_stroke: Stroke::new(1.0, accent::HOVER), // Brighter accent text
                 expansion: 1.0,
             },
         },
 
-        // --- Selection ---
+        // --- Premium Selection ---
         selection: Selection {
             bg_fill: highlight::SELECTION,
-            stroke: Stroke::new(1.0, accent::PRIMARY),
+            stroke: Stroke::new(1.5, accent::PRIMARY), // Slightly stronger selection border
         },
 
         // --- Window & Panel ---
@@ -652,21 +653,21 @@ pub fn black_theme() -> Visuals {
         faint_bg_color: bg::SURFACE,
         extreme_bg_color: bg::BASE,
 
-        // --- Shadows ---
+        // --- Premium Shadows ---
         popup_shadow: soft_shadow,
         window_shadow: soft_shadow,
 
         // --- Semantic colors ---
         error_fg_color: semantic::ERROR,
         warn_fg_color: semantic::WARNING,
-        hyperlink_color: accent::PRIMARY,
+        hyperlink_color: accent::HOVER, // Brighter for better visibility
 
-        // --- Text cursor ---
+        // --- Premium Text Cursor ---
         text_cursor: TextCursorStyle {
-            stroke: Stroke::new(2.0, accent::PRIMARY),
+            stroke: Stroke::new(2.5, accent::PRIMARY), // Slightly thicker for premium feel
             blink: true,
-            on_duration: 0.5,
-            off_duration: 0.5,
+            on_duration: 0.6, // Slightly slower blink for elegance
+            off_duration: 0.4,
             ..Default::default()
         },
 
