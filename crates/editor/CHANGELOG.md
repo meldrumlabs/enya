@@ -46,6 +46,50 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Inline content in Agent Pane**: Agent responses can now include rich inline content:
+  - Inline time series charts using the `TimeSeriesChart` component for consistent styling with dashboard charts
+  - Inline source code previews with full tree-sitter syntax highlighting (Rust, Go, Python, JavaScript/TypeScript)
+  - New agent commands: `show_inline_chart` and `show_inline_source`
+  - Compact chart rendering with series colors matching the main dashboard palette
+  - Source previews show file path, language badge, and highlight the target line
+
+- **Agent Pane - first-class AI chat in viewport**: The AI agent is now a first-class pane in the viewport (not a side panel). Features include:
+  - Press `Space+a` to create or focus an Agent pane
+  - Runs in parallel with query/chart panes in the tile layout
+  - Supports multiple concurrent agent conversations
+  - Agent can execute editor commands (create panes, set time range, search metrics)
+  - Implements the Component trait for full integration with the tile system
+
+- **Agent Panel tool integration**: The AI agent can now execute editor commands to help build dashboards. Features include:
+  - Agent receives context about the current editor state (connection, metrics, codebase, dashboard)
+  - Agent can output `enya-command` blocks to create visualization panes with PromQL queries
+  - Agent can set the time range (e.g., "1h", "6h", "24h", "7d")
+  - Agent can open the metrics search with a pattern
+  - Agent can show source code for metric definitions (`show_metric_source`)
+  - Agent can show source code for alert rules (`show_alert_source`)
+  - Commands are automatically parsed from agent responses and executed in the workspace
+
+### Fixed
+
+- **Read tool file path in Agent Panel**: Fixed the Agent Panel not showing file paths for Read tool activities. Added `path` field lookup in addition to `file_path` for tool summary extraction.
+
+### Changed
+
+- **Agent Panel uses ACP protocol**: The Agent Panel now uses the Agent Client Protocol (ACP) via the `@zed-industries/claude-code-acp` npm package instead of the legacy CLI output format. This change:
+  - Uses JSON-RPC 2.0 over stdio for agent communication
+  - Implements the standard ACP session lifecycle (initialize → session/new → session/prompt)
+  - Enables future support for other ACP-compatible agents
+  - Streaming responses now use `session/update` notifications
+  - Authentication is inherited from Claude CLI - Claude Max subscription works if you've run `claude /login`
+
+### Added
+
+- **Agent Panel (Claude Code integration)**: Press `Space+a` to toggle the agent panel, a side panel for chatting with Claude Code. Features include:
+  - Real-time streaming responses from Claude Code CLI
+  - Chat history with user/assistant messages
+  - Enter to send, Escape to close
+  - Native-only feature (CLI not available in WASM)
+
 - **Query timeout handling**: Panes no longer get stuck in a perpetual loading state when the Prometheus backend is unreachable. Features include:
   - Default 30-second timeout for query requests
   - Automatic timeout detection with clear error messages ("query timed out after 30s")

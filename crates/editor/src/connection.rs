@@ -6,6 +6,8 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use std::sync::Arc;
 
+use crate::AsyncRuntime;
+
 /// Health response from the agent's `/api/health` endpoint.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentHealth {
@@ -83,20 +85,21 @@ pub struct ConnectionManager {
     pending_result: Arc<Mutex<Option<(String, HealthCheckResult)>>>,
     /// Last successfully connected endpoint (for reconnection).
     last_endpoint: Option<String>,
-}
-
-impl Default for ConnectionManager {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// HTTP client for making requests.
+    http_client: reqwest::Client,
+    /// Async runtime for spawning background tasks.
+    async_runtime: AsyncRuntime,
 }
 
 impl ConnectionManager {
-    pub fn new() -> Self {
+    /// Create a new connection manager with the given async runtime.
+    pub fn new(async_runtime: AsyncRuntime) -> Self {
         Self {
             status: ConnectionStatus::Disconnected,
             pending_result: Arc::new(Mutex::new(None)),
             last_endpoint: None,
+            http_client: reqwest::Client::new(),
+            async_runtime,
         }
     }
 
@@ -145,20 +148,31 @@ impl ConnectionManager {
         let pending = Arc::clone(&self.pending_result);
         let endpoint_clone = endpoint.clone();
         let ctx = ctx.clone();
+        let client = self.http_client.clone();
 
-        ehttp::fetch(ehttp::Request::get(&url), move |response| {
-            let result = match response {
+        let fetch_health = async move {
+            let result = match client.get(&url).send().await {
                 Ok(response) => {
-                    if response.ok {
-                        match serde_json::from_slice::<AgentHealth>(&response.bytes) {
-                            Ok(health) => Ok(health),
+                    let status = response.status();
+                    if status.is_success() {
+                        match response.bytes().await {
+                            Ok(bytes) => match serde_json::from_slice::<AgentHealth>(&bytes) {
+                                Ok(health) => Ok(health),
+                                Err(e) => Err(ConnectionError {
+                                    message: format!("Invalid response: {e}"),
+                                }),
+                            },
                             Err(e) => Err(ConnectionError {
-                                message: format!("Invalid response: {e}"),
+                                message: format!("Failed to read response: {e}"),
                             }),
                         }
                     } else {
                         Err(ConnectionError {
-                            message: format!("HTTP {}: {}", response.status, response.status_text),
+                            message: format!(
+                                "HTTP {}: {}",
+                                status.as_u16(),
+                                status.canonical_reason().unwrap_or("Unknown")
+                            ),
                         })
                     }
                 }
@@ -169,7 +183,9 @@ impl ConnectionManager {
 
             *pending.lock() = Some((endpoint_clone, result));
             ctx.request_repaint();
-        });
+        };
+
+        self.async_runtime.spawn(fetch_health);
     }
 
     /// Poll for completion of pending health check.

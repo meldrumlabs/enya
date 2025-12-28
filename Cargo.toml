@@ -6,7 +6,7 @@ authors = ["Meldrum Labs"]
 categories = ["observability", "metrics"]
 keywords = ["observability", "metrics", "logging", "timeseries"]
 description = "Data Systems Observability"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 homepage = "https://meldrumlabs.com"
 readme = "README.md"
 repository = "https://github.com/meldrumlabs/enya"
@@ -14,6 +14,7 @@ repository = "https://github.com/meldrumlabs/enya"
 [workspace]
 resolver = "3"
 members = [
+  "crates/ai",
   "crates/editor",
   "crates/analyzer",
   "crates/promql",
@@ -22,6 +23,15 @@ members = [
   "crates/build-tools",
   "crates/egui_nerdfonts",
 ]
+# Excluded for faster compilation (editor-focused development):
+# - crates/datafusion-enya (heavy DataFusion dependency)
+# - crates/enya (main server)
+# - crates/agent
+# - crates/metrics-store
+# - crates/log-store
+# - crates/macros
+# - crates/integration-tests
+# - examples/*
 
 [workspace.dependencies]
 enya-promql = { path = "crates/promql", version = "0.1.0" }
@@ -29,6 +39,7 @@ enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 enya-client = { path = "crates/client", version = "0.1.0" }
 enya-analyzer = { path = "crates/analyzer", version = "0.1.0" }
+enya-ai = { path = "crates/ai", version = "0.1.0" }
 
 egui = "0.33.2"
 eframe = { version = "0.33.2", default-features = false, features = [
@@ -38,6 +49,7 @@ eframe = { version = "0.33.2", default-features = false, features = [
   "x11",           # Linux X11 support
   "wayland",       # Linux Wayland support
 ] }
+# wgpu with explicit backend support
 wgpu = { version = "27.0", default-features = false, features = [
   "metal",   # macOS Metal backend
   "vulkan",  # Linux/Windows Vulkan backend
@@ -47,7 +59,6 @@ wgpu = { version = "27.0", default-features = false, features = [
 egui_plot = "0.34.0"
 egui_extras = { version = "0.33.2", features = ["image", "svg"] }
 egui_nerdfonts = { path = "crates/egui_nerdfonts" }
-ehttp = { version = "0.5.0" }
 egui_tiles = { version = "0.14.0", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["wasmbind"] }
 itertools = "0.14.0"
@@ -55,9 +66,12 @@ poll-promise = "0.3"
 smallvec = "1.13.2"
 nucleo-matcher = "0.3.1"
 
-image = { version = "0.25", features = ["png"] }
+image = { version = "0.25", features = [
+  "png",
+] } # Add the types you want support for
 log = "0.4"
 fastrand = "1.2.0"
+# You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
@@ -76,7 +90,32 @@ web-sys = "0.3.70"
 web-time = "1.1"
 gloo-timers = { version = "0.3.0", features = ["futures"] }
 
+
+# metrics-store
+byteorder = "1.5.0"
+logos = "0.14.0"
 rustc-hash = "2.0.0"
+foyer = "0.18"
+
+# enya
+axum = { version = "0.8", default-features = false, features = [
+  "tokio",
+  "http2",
+] }
+jemalloc_pprof = "0.8.1"
+pprof = { version = "0.15", default-features = false, features = [
+  "prost-codec",
+] }
+tokio = "1.48"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+tracing = "0.1"
+tracing-subscriber = "0.3"
+metrics = "0.24"
+
+
+uwheel = { git = "https://github.com/uwheel/uwheel.git", features = ["bloom"] }
+sketches-ddsketch = "0.3.0"
 criterion = { version = "0.5", default-features = false }
 
 # getrandom needs wasm_js feature for WASM builds

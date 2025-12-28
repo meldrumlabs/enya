@@ -103,6 +103,8 @@ pub enum CommandResult {
     PrevWorkspaceTab,
     /// Open the interactive tutorial
     OpenTutorial,
+    /// Set AI provider (claude, codex)
+    SetProvider(String),
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -248,6 +250,12 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &[],
         description: "Start the interactive tutorial",
         kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "provider",
+        aliases: &["ai"],
+        description: "Set AI provider (claude, codex)",
+        kind: CommandKind::SingleArg,
     },
 ];
 
@@ -562,6 +570,14 @@ impl CommandPalette {
                 }
             }
             "tutorial" => CommandResult::OpenTutorial,
+            "provider" | "ai" => {
+                // :provider <name> - set AI provider
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :provider <claude|codex>".to_string())
+                } else {
+                    CommandResult::SetProvider(args[0].to_lowercase())
+                }
+            }
             _ => CommandResult::None,
         }
     }

@@ -1,7 +1,5 @@
 //! Prometheus HTTP client implementation.
 
-use poll_promise::Promise;
-
 use crate::error::ClientError;
 use crate::now_unix_secs;
 use crate::promise::promise_channel;
@@ -9,6 +7,7 @@ use crate::request::QueryRequest;
 use crate::{
     BackendInfo, HealthCheckResult, LabelsResult, MetricLabelsResult, MetricsClient, QueryResult,
 };
+use poll_promise::Promise;
 
 use super::response::{
     parse_buildinfo_response, parse_labels_response, parse_response, parse_series_response,
@@ -16,8 +15,9 @@ use super::response::{
 
 /// Client for querying Prometheus via its HTTP API.
 ///
-/// Executes PromQL queries directly against
-/// the `/api/v1/query_range` endpoint.
+/// Executes PromQL queries directly against the `/api/v1/query_range` endpoint.
+/// Uses `reqwest` for HTTP requests on both native (with tokio) and WASM (with
+/// wasm-bindgen-futures).
 ///
 /// # Example
 ///
@@ -33,6 +33,9 @@ use super::response::{
 /// ```
 pub struct PrometheusClient {
     base_url: String,
+    http_client: reqwest::Client,
+    #[cfg(not(target_arch = "wasm32"))]
+    runtime_handle: tokio::runtime::Handle,
 }
 
 impl PrometheusClient {
@@ -43,6 +46,10 @@ impl PrometheusClient {
     /// * `base_url` - The base URL of the Prometheus server (e.g., "http://localhost:9090")
     ///
     /// If no protocol is specified, `http://` is assumed (Prometheus default).
+    ///
+    /// # Panics
+    ///
+    /// On native, panics if called outside a tokio runtime context.
     #[must_use]
     pub fn new(base_url: impl Into<String>) -> Self {
         let mut url = base_url.into();
@@ -56,7 +63,54 @@ impl PrometheusClient {
         if url.ends_with('/') {
             url.pop();
         }
-        Self { base_url: url }
+
+        Self {
+            base_url: url,
+            http_client: reqwest::Client::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            runtime_handle: tokio::runtime::Handle::current(),
+        }
+    }
+
+    /// Create a new Prometheus client with an explicit runtime handle.
+    ///
+    /// Use this when creating the client outside a tokio runtime context.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn with_runtime(base_url: impl Into<String>, handle: tokio::runtime::Handle) -> Self {
+        let mut url = base_url.into();
+
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            url = format!("http://{url}");
+        }
+
+        if url.ends_with('/') {
+            url.pop();
+        }
+
+        Self {
+            base_url: url,
+            http_client: reqwest::Client::new(),
+            runtime_handle: handle,
+        }
+    }
+
+    /// Spawn an async task on the runtime.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn spawn<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.runtime_handle.spawn(future);
+    }
+
+    /// Spawn an async task using wasm-bindgen-futures.
+    #[cfg(target_arch = "wasm32")]
+    fn spawn<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + 'static,
+    {
+        wasm_bindgen_futures::spawn_local(future);
     }
 
     /// Build the query_range URL for a request.
@@ -100,27 +154,30 @@ impl MetricsClient for PrometheusClient {
         let query = request.query.clone();
         let granularity_ns = (request.step_secs as u128) * 1_000_000_000;
 
-        let ctx = ctx.clone();
-
         log::debug!("Prometheus query: {url}");
 
         let (sender, promise) = promise_channel();
+        let ctx = ctx.clone();
+        let client = self.http_client.clone();
 
-        ehttp::fetch(ehttp::Request::get(&url), move |response| {
-            let result = match response {
+        self.spawn(async move {
+            let result = match client.get(&url).send().await {
                 Ok(response) => {
-                    if response.ok {
-                        parse_response(&response.bytes, &metric, &query, granularity_ns)
+                    let status = response.status();
+                    if status.is_success() {
+                        match response.bytes().await {
+                            Ok(bytes) => parse_response(&bytes, &metric, &query, granularity_ns),
+                            Err(e) => Err(ClientError::NetworkError(e.to_string())),
+                        }
                     } else {
                         Err(ClientError::BackendError {
-                            status: response.status,
-                            message: response.status_text,
+                            status: status.as_u16(),
+                            message: status.canonical_reason().unwrap_or("Unknown").to_string(),
                         })
                     }
                 }
-                Err(e) => Err(ClientError::NetworkError(e)),
+                Err(e) => Err(ClientError::NetworkError(e.to_string())),
             };
-
             sender.send(result);
             ctx.request_repaint();
         });
@@ -130,27 +187,31 @@ impl MetricsClient for PrometheusClient {
 
     fn fetch_label_names(&self, ctx: &egui::Context) -> Promise<LabelsResult> {
         let url = format!("{}/api/v1/labels", self.base_url);
-        let ctx = ctx.clone();
 
         log::debug!("Prometheus fetch labels: {url}");
 
         let (sender, promise) = promise_channel();
+        let ctx = ctx.clone();
+        let client = self.http_client.clone();
 
-        ehttp::fetch(ehttp::Request::get(&url), move |response| {
-            let result = match response {
+        self.spawn(async move {
+            let result = match client.get(&url).send().await {
                 Ok(response) => {
-                    if response.ok {
-                        parse_labels_response(&response.bytes)
+                    let status = response.status();
+                    if status.is_success() {
+                        match response.bytes().await {
+                            Ok(bytes) => parse_labels_response(&bytes),
+                            Err(e) => Err(ClientError::NetworkError(e.to_string())),
+                        }
                     } else {
                         Err(ClientError::BackendError {
-                            status: response.status,
-                            message: response.status_text,
+                            status: status.as_u16(),
+                            message: status.canonical_reason().unwrap_or("Unknown").to_string(),
                         })
                     }
                 }
-                Err(e) => Err(ClientError::NetworkError(e)),
+                Err(e) => Err(ClientError::NetworkError(e.to_string())),
             };
-
             sender.send(result);
             ctx.request_repaint();
         });
@@ -160,27 +221,31 @@ impl MetricsClient for PrometheusClient {
 
     fn fetch_label_values(&self, label: &str, ctx: &egui::Context) -> Promise<LabelsResult> {
         let url = format!("{}/api/v1/label/{}/values", self.base_url, label);
-        let ctx = ctx.clone();
 
         log::debug!("Prometheus fetch label values for '{label}': {url}");
 
         let (sender, promise) = promise_channel();
+        let ctx = ctx.clone();
+        let client = self.http_client.clone();
 
-        ehttp::fetch(ehttp::Request::get(&url), move |response| {
-            let result = match response {
+        self.spawn(async move {
+            let result = match client.get(&url).send().await {
                 Ok(response) => {
-                    if response.ok {
-                        parse_labels_response(&response.bytes)
+                    let status = response.status();
+                    if status.is_success() {
+                        match response.bytes().await {
+                            Ok(bytes) => parse_labels_response(&bytes),
+                            Err(e) => Err(ClientError::NetworkError(e.to_string())),
+                        }
                     } else {
                         Err(ClientError::BackendError {
-                            status: response.status,
-                            message: response.status_text,
+                            status: status.as_u16(),
+                            message: status.canonical_reason().unwrap_or("Unknown").to_string(),
                         })
                     }
                 }
-                Err(e) => Err(ClientError::NetworkError(e)),
+                Err(e) => Err(ClientError::NetworkError(e.to_string())),
             };
-
             sender.send(result);
             ctx.request_repaint();
         });
@@ -207,27 +272,30 @@ impl MetricsClient for PrometheusClient {
             self.base_url, encoded_selector
         );
 
-        let ctx = ctx.clone();
-
         log::debug!("Prometheus fetch metric labels for '{metric}': {url}");
 
         let (sender, promise) = promise_channel();
+        let ctx = ctx.clone();
+        let client = self.http_client.clone();
 
-        ehttp::fetch(ehttp::Request::get(&url), move |response| {
-            let result = match response {
+        self.spawn(async move {
+            let result = match client.get(&url).send().await {
                 Ok(response) => {
-                    if response.ok {
-                        parse_series_response(&response.bytes)
+                    let status = response.status();
+                    if status.is_success() {
+                        match response.bytes().await {
+                            Ok(bytes) => parse_series_response(&bytes),
+                            Err(e) => Err(ClientError::NetworkError(e.to_string())),
+                        }
                     } else {
                         Err(ClientError::BackendError {
-                            status: response.status,
-                            message: response.status_text,
+                            status: status.as_u16(),
+                            message: status.canonical_reason().unwrap_or("Unknown").to_string(),
                         })
                     }
                 }
-                Err(e) => Err(ClientError::NetworkError(e)),
+                Err(e) => Err(ClientError::NetworkError(e.to_string())),
             };
-
             sender.send(result);
             ctx.request_repaint();
         });
@@ -241,30 +309,34 @@ impl MetricsClient for PrometheusClient {
 
     fn health_check(&self, ctx: &egui::Context) -> Promise<HealthCheckResult> {
         let url = format!("{}/api/v1/status/buildinfo", self.base_url);
-        let ctx = ctx.clone();
 
         log::debug!("Prometheus health check: {url}");
 
         let (sender, promise) = promise_channel();
+        let ctx = ctx.clone();
+        let client = self.http_client.clone();
 
-        ehttp::fetch(ehttp::Request::get(&url), move |response| {
-            let result = match response {
+        self.spawn(async move {
+            let result = match client.get(&url).send().await {
                 Ok(response) => {
-                    if response.ok {
-                        parse_buildinfo_response(&response.bytes).map(|info| BackendInfo {
-                            backend_type: "prometheus".to_string(),
-                            version: info.version,
-                        })
+                    let status = response.status();
+                    if status.is_success() {
+                        match response.bytes().await {
+                            Ok(bytes) => parse_buildinfo_response(&bytes).map(|info| BackendInfo {
+                                backend_type: "prometheus".to_string(),
+                                version: info.version,
+                            }),
+                            Err(e) => Err(ClientError::NetworkError(e.to_string())),
+                        }
                     } else {
                         Err(ClientError::BackendError {
-                            status: response.status,
-                            message: response.status_text,
+                            status: status.as_u16(),
+                            message: status.canonical_reason().unwrap_or("Unknown").to_string(),
                         })
                     }
                 }
-                Err(e) => Err(ClientError::NetworkError(e)),
+                Err(e) => Err(ClientError::NetworkError(e.to_string())),
             };
-
             sender.send(result);
             ctx.request_repaint();
         });
@@ -301,33 +373,48 @@ fn url_encode(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Helper to create a tokio runtime for tests
+    fn with_runtime<F: FnOnce()>(f: F) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let _guard = rt.enter();
+        f();
+    }
+
     #[test]
     fn test_new_removes_trailing_slash() {
-        let client = PrometheusClient::new("http://localhost:9090/");
-        assert_eq!(client.base_url, "http://localhost:9090");
+        with_runtime(|| {
+            let client = PrometheusClient::new("http://localhost:9090/");
+            assert_eq!(client.base_url, "http://localhost:9090");
+        });
     }
 
     #[test]
     fn test_new_adds_http_protocol() {
-        let client = PrometheusClient::new("localhost:9090");
-        assert_eq!(client.base_url, "http://localhost:9090");
+        with_runtime(|| {
+            let client = PrometheusClient::new("localhost:9090");
+            assert_eq!(client.base_url, "http://localhost:9090");
+        });
     }
 
     #[test]
     fn test_new_preserves_https() {
-        let client = PrometheusClient::new("https://prometheus.example.com");
-        assert_eq!(client.base_url, "https://prometheus.example.com");
+        with_runtime(|| {
+            let client = PrometheusClient::new("https://prometheus.example.com");
+            assert_eq!(client.base_url, "https://prometheus.example.com");
+        });
     }
 
     #[test]
     fn test_build_url() {
-        let client = PrometheusClient::new("http://localhost:9090");
-        let request = QueryRequest::new("cpu", "*").with_step(60);
+        with_runtime(|| {
+            let client = PrometheusClient::new("http://localhost:9090");
+            let request = QueryRequest::new("cpu", "*").with_step(60);
 
-        let url = client.build_url("cpu", &request);
-        assert!(url.starts_with("http://localhost:9090/api/v1/query_range?"));
-        assert!(url.contains("query=cpu"));
-        assert!(url.contains("step=60"));
+            let url = client.build_url("cpu", &request);
+            assert!(url.starts_with("http://localhost:9090/api/v1/query_range?"));
+            assert!(url.contains("query=cpu"));
+            assert!(url.contains("step=60"));
+        });
     }
 
     #[test]
@@ -342,7 +429,9 @@ mod tests {
 
     #[test]
     fn test_backend_type() {
-        let client = PrometheusClient::new("http://localhost:9090");
-        assert_eq!(client.backend_type(), "prometheus");
+        with_runtime(|| {
+            let client = PrometheusClient::new("http://localhost:9090");
+            assert_eq!(client.backend_type(), "prometheus");
+        });
     }
 }

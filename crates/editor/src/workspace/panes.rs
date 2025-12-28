@@ -6,8 +6,11 @@
 
 use egui_tiles::{Tile, TileId};
 
-use super::{NavDirection, Workspace, WorkspaceAction};
-use crate::components::{Buffer, Component, QueryPane};
+use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
+use crate::components::pane::time_series_chart::{DataPoint, Series};
+use crate::components::{
+    AgentPane, Buffer, Component, InlineChart, InlineContent, InlineSource, QueryPane,
+};
 
 impl Workspace {
     // ==================== Pane Adding ====================
@@ -65,6 +68,226 @@ impl Workspace {
             self.open_charts.insert(query.to_string());
             self.behavior.set_focused_tile(Some(pane_tile));
             log::debug!("Added demo query pane: {name}");
+        }
+    }
+
+    /// Add a query pane with a PromQL query and optional title.
+    ///
+    /// This is used by the agent to create panes programmatically.
+    pub(super) fn add_query_pane(&mut self, query: &str, title: Option<&str>) {
+        let query_number = self.next_query_number;
+        self.next_query_number += 1;
+
+        // Create the pane with the given query
+        let name = title.unwrap_or(query);
+        let pane: Box<dyn Component> = if self.query_executor.is_connected() {
+            Box::new(QueryPane::with_query_named(query, name, query_number))
+        } else {
+            Box::new(QueryPane::with_demo_query_named(query, name, query_number))
+        };
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.open_charts.insert(query.to_string());
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Agent created query pane: {}", title.unwrap_or(query));
+        }
+    }
+
+    /// Add an agent pane to the viewport.
+    ///
+    /// Creates a new AI chat pane that can run in parallel with query panes.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn add_agent_pane(&mut self) -> Option<TileId> {
+        let runtime_handle = self.query_executor.runtime_handle();
+        let mut agent_pane = AgentPane::new(runtime_handle);
+
+        // Set editor context for the agent
+        self.update_agent_context();
+        if let Some(context) = self.build_editor_context() {
+            agent_pane.set_context(context);
+        }
+
+        let pane: Box<dyn Component> = Box::new(agent_pane);
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Added agent pane");
+            Some(pane_tile)
+        } else {
+            None
+        }
+    }
+
+    /// Add an agent pane (WASM stub - agents not supported in browser).
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn add_agent_pane(&mut self) -> Option<TileId> {
+        log::warn!("Agent panes are not available in the browser");
+        None
+    }
+
+    /// Find or create an agent pane. Returns the tile ID.
+    ///
+    /// If an agent pane already exists, focuses it. Otherwise creates a new one.
+    pub(super) fn focus_or_create_agent_pane(&mut self) -> Option<TileId> {
+        // Check if we already have an agent pane
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if component.as_any().downcast_ref::<AgentPane>().is_some() {
+                    // Found an existing agent pane, focus it
+                    self.behavior.set_focused_tile(Some(tile_id));
+                    return Some(tile_id);
+                }
+            }
+        }
+
+        // No agent pane found, create a new one
+        self.add_agent_pane()
+    }
+
+    /// Handle commands from the AI agent.
+    ///
+    /// These commands are parsed from the agent's response and executed
+    /// to manipulate the workspace (create panes, change time range, etc.)
+    #[allow(unused_variables)] // ctx is used conditionally
+    pub(super) fn handle_agent_commands(
+        &mut self,
+        commands: Vec<AgentCommand>,
+        ctx: &egui::Context,
+    ) {
+        for command in commands {
+            match command {
+                AgentCommand::CreatePane { query, title } => {
+                    self.add_query_pane(&query, title.as_deref());
+                }
+                AgentCommand::SetTimeRange { preset } => {
+                    // Parse preset string into a TimeRangePreset
+                    if let Some(preset_enum) = Self::parse_time_preset(&preset) {
+                        self.time_range_toolbar.set_preset(preset_enum);
+                        log::info!("Agent set time range to: {preset}");
+                    } else {
+                        log::warn!("Agent requested unknown time preset: {preset}");
+                    }
+                }
+                AgentCommand::SearchMetrics { pattern } => {
+                    // Open the metrics finder with the pattern
+                    self.metrics_finder.open();
+                    self.metrics_finder.set_query(&pattern);
+                    log::info!("Agent opened metrics search: {pattern}");
+                }
+                AgentCommand::ShowMetricSource { metric } => {
+                    // Open the source preview for the metric definition
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.open_metric_definition(&metric);
+                        log::info!("Agent opened metric source: {metric}");
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("ShowMetricSource not available on WASM: {metric}");
+                    }
+                }
+                AgentCommand::ShowAlertSource { alert } => {
+                    // Open the source preview for the alert rule
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.open_alert_definition(&alert);
+                        log::info!("Agent opened alert source: {alert}");
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("ShowAlertSource not available on WASM: {alert}");
+                    }
+                }
+                AgentCommand::ShowInlineChart {
+                    query,
+                    title,
+                    time_range: _,
+                    height,
+                } => {
+                    // Generate inline chart data
+                    let chart_title = title.unwrap_or_else(|| query.clone());
+                    let chart = self.generate_inline_chart(&query, &chart_title, height);
+
+                    // Find the first agent pane and inject the chart
+                    self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
+                    log::info!("Injected inline chart for query: {query}");
+                }
+                AgentCommand::ShowInlineSource {
+                    metric,
+                    context_lines,
+                } => {
+                    // Look up metric source and generate inline source preview
+                    let lines = context_lines.unwrap_or(5);
+                    if let Some(source) = self.generate_inline_source(&metric, lines) {
+                        self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
+                        log::info!("Injected inline source for metric: {metric}");
+                    } else {
+                        log::warn!("Could not find source for metric: {metric}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Poll all agent panes for pending commands and execute them.
+    ///
+    /// This should be called during the workspace's show() method to ensure
+    /// commands from agent panes are processed.
+    pub(super) fn poll_agent_pane_commands(&mut self, ctx: &egui::Context) {
+        // Build context once before iterating (avoids borrow issues)
+        let context = self.build_editor_context();
+
+        let mut all_commands = Vec::new();
+        let pane_ids = self.get_pane_tile_ids();
+
+        // Iterate through all panes and collect commands from agent panes
+        for tile_id in pane_ids {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(agent_pane) = component.as_any_mut().downcast_mut::<AgentPane>() {
+                    // Update context for the agent
+                    if let Some(ref ctx) = context {
+                        agent_pane.set_context(ctx.clone());
+                    }
+
+                    // Poll for pending commands from this agent pane
+                    let commands = agent_pane.poll_pending_commands();
+                    if !commands.is_empty() {
+                        log::info!(
+                            "Agent pane {} produced {} commands",
+                            agent_pane.id(),
+                            commands.len()
+                        );
+                    }
+                    all_commands.extend(commands);
+                }
+            }
+        }
+
+        // Execute all collected commands
+        if !all_commands.is_empty() {
+            log::info!("Executing {} agent commands", all_commands.len());
+            self.handle_agent_commands(all_commands, ctx);
+        }
+    }
+
+    /// Parse a time range preset string into the enum.
+    fn parse_time_preset(
+        preset: &str,
+    ) -> Option<crate::components::widget::time_range::TimeRangePreset> {
+        use crate::components::widget::time_range::TimeRangePreset;
+        match preset.to_lowercase().as_str() {
+            "5m" | "5min" | "5 minutes" => Some(TimeRangePreset::Last5Minutes),
+            "15m" | "15min" | "15 minutes" => Some(TimeRangePreset::Last15Minutes),
+            "30m" | "30min" | "30 minutes" => Some(TimeRangePreset::Last30Minutes),
+            "1h" | "1hour" | "1 hour" => Some(TimeRangePreset::Last1Hour),
+            "6h" | "6hour" | "6 hours" => Some(TimeRangePreset::Last6Hours),
+            "24h" | "1d" | "1day" | "1 day" => Some(TimeRangePreset::Last24Hours),
+            "7d" | "7day" | "7 days" | "1 week" | "1w" => Some(TimeRangePreset::Last7Days),
+            _ => None,
         }
     }
 
@@ -217,6 +440,26 @@ impl Workspace {
         pane_ids
     }
 
+    /// Collect PromQL queries from all open QueryPane components.
+    ///
+    /// Used by AI context builders to provide agents with awareness of
+    /// currently active queries in the dashboard.
+    pub(super) fn collect_pane_queries(&self) -> Vec<String> {
+        self.get_pane_tile_ids()
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        return Some(query_pane.saved_query().to_string());
+                    }
+                }
+                None
+            })
+            .collect()
+    }
+
     /// Recursively collect all pane tile IDs
     fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>) {
         if let Some(tile) = self.viewport_tree.tiles.get(tile_id) {
@@ -309,5 +552,173 @@ impl Workspace {
             }
         }
         false
+    }
+
+    // ==================== Inline Content Generation ====================
+
+    /// Generate an inline chart with sample data based on the current time range.
+    ///
+    /// This uses the demo client to generate realistic-looking data for the chart.
+    fn generate_inline_chart(&self, query: &str, title: &str, height: Option<f32>) -> InlineChart {
+        // Get current time range
+        let time_range = self.time_range_toolbar.time_range();
+        let now = time_range.end;
+        let start = time_range.start;
+        let duration_secs = now - start;
+
+        // Generate sample data points (about 60 points for the chart)
+        let num_points = 60;
+        let step = duration_secs / num_points as f64;
+
+        // Create a series with generated data
+        let mut points = Vec::with_capacity(num_points);
+
+        // Use a simple sine wave with some noise for demo purposes
+        // In a real implementation, this would use actual query results
+        let base_value = 50.0;
+        let amplitude = 20.0;
+
+        for i in 0..num_points {
+            let t = start + (i as f64 * step);
+            // Simple pattern based on time
+            let phase = (i as f64 / num_points as f64) * std::f64::consts::PI * 4.0;
+            let noise = ((t as i64 % 17) as f64 - 8.0) / 8.0 * 5.0;
+            let value = base_value + amplitude * phase.sin() + noise;
+
+            points.push(DataPoint {
+                timestamp: t,
+                value: value.max(0.0),
+            });
+        }
+
+        // Extract metric name from query for series name
+        let series_name = Self::extract_metric_from_query(query);
+
+        let series = Series::new(&series_name).with_points(points);
+
+        InlineChart {
+            title: title.to_string(),
+            series: vec![series],
+            height,
+        }
+    }
+
+    /// Extract the metric name from a PromQL query.
+    fn extract_metric_from_query(query: &str) -> String {
+        // Try to find metric name - look for word before { or (
+        let query = query.trim();
+
+        // Handle rate(metric_name[...]) pattern
+        if let Some(paren_idx) = query.find('(') {
+            let after = &query[paren_idx + 1..];
+            if let Some(end) = after.find(|c: char| !c.is_alphanumeric() && c != '_') {
+                let metric = &after[..end];
+                if !metric.is_empty() {
+                    return metric.to_string();
+                }
+            }
+        }
+
+        // Handle metric_name{...} pattern
+        if let Some(brace_idx) = query.find('{') {
+            return query[..brace_idx].trim().to_string();
+        }
+
+        // Just return the query as-is (it might be just a metric name)
+        query.to_string()
+    }
+
+    /// Generate inline source preview for a metric.
+    ///
+    /// Looks up the metric in the codebase index and returns source lines
+    /// with pre-computed tree-sitter syntax highlighting.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn generate_inline_source(&self, metric: &str, context_lines: usize) -> Option<InlineSource> {
+        use crate::components::util::SyntaxHighlightData;
+
+        // Check if codebase is ready
+        if !self.codebase_manager.status().is_ready() {
+            return None;
+        }
+
+        // Search for the metric - take exact match or first partial match
+        let metrics = self.codebase_manager.search_metrics(metric);
+        let metric_info = metrics
+            .iter()
+            .find(|m| m.name == metric)
+            .or_else(|| metrics.first())
+            .copied()?;
+
+        // Get repo path from index
+        let index = self.codebase_manager.index()?;
+        let file_path = index.repo_path.join(&metric_info.file);
+
+        // Read the source file
+        let content = std::fs::read_to_string(&file_path).ok()?;
+        let all_lines: Vec<&str> = content.lines().collect();
+
+        // Calculate line range (0-indexed internally, 1-indexed for display)
+        let target_line = metric_info.line;
+        let start_line = target_line.saturating_sub(context_lines);
+        let end_line = (target_line + context_lines).min(all_lines.len());
+
+        // Extract the lines
+        let lines: Vec<String> = all_lines
+            .get(start_line..end_line)?
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+
+        // Determine language from file extension
+        let language = metric_info
+            .file
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| match ext {
+                "rs" => "rust",
+                "go" => "go",
+                "py" => "python",
+                "js" | "ts" => "javascript",
+                "java" => "java",
+                "rb" => "ruby",
+                _ => ext,
+            })
+            .unwrap_or("")
+            .to_string();
+
+        // Pre-compute tree-sitter syntax highlighting for the full file content
+        // This allows efficient per-line highlighting during rendering
+        let highlight_data = SyntaxHighlightData::new(&content, &language);
+
+        Some(InlineSource {
+            file_path: metric_info.file.display().to_string(),
+            line: target_line,
+            lines,
+            start_line: start_line + 1, // Convert to 1-indexed
+            language,
+            highlight_data,
+        })
+    }
+
+    /// WASM stub for generate_inline_source.
+    #[cfg(target_arch = "wasm32")]
+    fn generate_inline_source(&self, _metric: &str, _context_lines: usize) -> Option<InlineSource> {
+        None
+    }
+
+    /// Inject inline content into the first agent pane's last assistant message.
+    fn inject_inline_content_to_agent_pane(&mut self, content: InlineContent) {
+        let pane_ids = self.get_pane_tile_ids();
+
+        for tile_id in pane_ids {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(agent_pane) = component.as_any_mut().downcast_mut::<AgentPane>() {
+                    agent_pane.add_inline_content(content);
+                    return;
+                }
+            }
+        }
+
+        log::warn!("No agent pane found to inject inline content");
     }
 }

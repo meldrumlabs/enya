@@ -11,6 +11,14 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn main() -> eframe::Result {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
+    // Create tokio runtime for async operations (AI agent, background tasks)
+    // This runs on background threads, keeping the UI thread responsive
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create tokio runtime");
+    let async_runtime = enya_editor::AsyncRuntime::new(tokio_runtime.handle().clone());
+
     // Initialize puffin profiler server when puffin feature is enabled
     // Connect with puffin_viewer to see profiling data
     #[cfg(feature = "puffin")]
@@ -44,11 +52,17 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    eframe::run_native(
+    // Keep the tokio runtime alive for the duration of the app.
+    // Move ownership into the closure so it's dropped when eframe exits.
+    let result = eframe::run_native(
         "",
         native_options,
-        Box::new(|cc| Ok(Box::new(enya_editor::EnyaApp::new(cc)))),
-    )
+        Box::new(move |cc| Ok(Box::new(enya_editor::EnyaApp::new(cc, async_runtime)))),
+    );
+
+    drop(tokio_runtime);
+
+    result
 }
 
 // When compiling to web using trunk:
@@ -61,7 +75,10 @@ fn main() {
 
     let web_options = eframe::WebOptions::default();
 
-    wasm_bindgen_futures::spawn_local(async {
+    // On WASM, AsyncRuntime uses wasm-bindgen-futures (no external runtime needed)
+    let async_runtime = enya_editor::AsyncRuntime::new();
+
+    wasm_bindgen_futures::spawn_local(async move {
         let document = web_sys::window()
             .expect("No window")
             .document()
@@ -77,9 +94,9 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(|cc| {
+                Box::new(move |cc| {
                     egui_extras::install_image_loaders(&cc.egui_ctx);
-                    Ok(Box::new(enya_editor::EnyaApp::new(cc)))
+                    Ok(Box::new(enya_editor::EnyaApp::new(cc, async_runtime)))
                 }),
             )
             .await;

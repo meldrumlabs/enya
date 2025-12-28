@@ -9,18 +9,21 @@ pub mod widget;
 
 // Re-export from pane
 pub use pane::{
-    Bar, BarChartViz, DataPoint, GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, QueryPane,
-    QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart, Visualization,
-    VisualizationType,
+    AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, CommitMarker, DataPoint,
+    GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSource,
+    QueryPane, QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart,
+    Visualization, VisualizationType,
 };
 
 // Re-export from overlay
 pub use overlay::{
-    BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Diagnostic, DiagnosticLevel,
-    DiagnosticSource, DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt,
-    InfoOverlay, MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult,
-    SourcePreviewOverlay, SourcePreviewResult, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceFinder, WorkspaceItem,
+    AgentCommand, AgentPanel, AgentPanelResult, AiProvider, BufferEditor, BufferEditorResult,
+    ChatMessage, CodebaseContext, CommandPalette, CommandResult, ConnectionContext,
+    DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
+    DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext, InfoOverlay, MessageRole,
+    MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
+    SourcePreviewResult, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
+    WorkspaceFinder, WorkspaceItem,
 };
 
 // Re-export from widget
