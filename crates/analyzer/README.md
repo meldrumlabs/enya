@@ -1,4 +1,4 @@
-# enya-index
+# enya-analyzer
 
 Metrics instrumentation indexer for source code repositories.
 
@@ -76,7 +76,7 @@ For each alert, the scanner extracts:
 ## Architecture
 
 ```
-crates/index/
+crates/analyzer/
 ├── src/
 │   ├── lib.rs          # Public API exports
 │   ├── index.rs        # CodebaseIndex - builds and queries the index
@@ -115,7 +115,7 @@ pub trait Scanner: Send + Sync {
 ## Usage
 
 ```rust
-use enya_index::{CodebaseIndex, build_index_with_progress, IndexProgress};
+use enya_analyzer::{CodebaseIndex, build_index_with_progress, IndexProgress};
 use std::path::Path;
 
 // Build an index from a local repository
