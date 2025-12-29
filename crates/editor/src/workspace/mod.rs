@@ -1894,33 +1894,78 @@ impl Workspace {
 
     /// Get the current codebase status for StatusLine display.
     ///
-    /// Returns None if no codebase operation is active, or a status string
-    /// like "Cloning repo...", "Indexing [5/42]...", "Codebase ready", or "Error: ...".
+    /// Returns None if no codebase operation is active, or a `CodebaseStatusInfo`
+    /// with details about the current operation (cloning, indexing, ready, error).
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn codebase_status_text(&self) -> Option<String> {
+    pub fn codebase_status_info(
+        &self,
+    ) -> Option<crate::components::widget::status_line::CodebaseStatusInfo> {
         use crate::codebase::CodebaseStatus;
+        use crate::components::widget::status_line::CodebaseStatusInfo;
+
         match self.codebase_manager.status() {
             CodebaseStatus::None => None,
-            CodebaseStatus::Cloning { .. } => Some("Cloning repo...".to_string()),
-            CodebaseStatus::Fetching { .. } => Some("Fetching...".to_string()),
-            CodebaseStatus::Indexing { current, total, .. } => {
-                if *total > 0 {
-                    Some(format!("Indexing [{current}/{total}]..."))
+            CodebaseStatus::Cloning { .. } => Some(CodebaseStatusInfo {
+                message: "Cloning repo...".to_string(),
+                is_loading: true,
+                ..Default::default()
+            }),
+            CodebaseStatus::Fetching { .. } => Some(CodebaseStatusInfo {
+                message: "Fetching...".to_string(),
+                is_loading: true,
+                ..Default::default()
+            }),
+            CodebaseStatus::Indexing {
+                current,
+                total,
+                current_file,
+                language,
+                ..
+            } => {
+                let message = if *total > 0 {
+                    let remaining = total.saturating_sub(*current);
+                    match (current_file, remaining) {
+                        (Some(file), 0) => format!("Indexing {file}"),
+                        (Some(file), n) => format!("Indexing {file} + {n} more"),
+                        (None, _) => format!("Indexing [{current}/{total}]..."),
+                    }
                 } else {
-                    Some("Indexing...".to_string())
-                }
+                    "Indexing...".to_string()
+                };
+                Some(CodebaseStatusInfo {
+                    message,
+                    language: language.clone(),
+                    is_loading: true,
+                    ..Default::default()
+                })
             }
-            CodebaseStatus::Ready { .. } => {
-                let count = self.codebase_manager.all_metrics().len();
-                Some(format!("{count} metrics indexed"))
-            }
-            CodebaseStatus::Error { message, .. } => Some(format!("Error: {message}")),
+            CodebaseStatus::Ready {
+                repo_name,
+                metrics_count,
+                language,
+                ..
+            } => Some(CodebaseStatusInfo {
+                message: format!("{metrics_count} metrics"),
+                repo_name: Some(repo_name.clone()),
+                metrics_count: Some(*metrics_count),
+                language: language.clone(),
+                is_loading: false,
+                is_error: false,
+            }),
+            CodebaseStatus::Error { message, .. } => Some(CodebaseStatusInfo {
+                message: format!("Error: {message}"),
+                is_loading: false,
+                is_error: true,
+                ..Default::default()
+            }),
         }
     }
 
     /// Get the current codebase status for StatusLine display (WASM stub).
     #[cfg(target_arch = "wasm32")]
-    pub fn codebase_status_text(&self) -> Option<String> {
+    pub fn codebase_status_info(
+        &self,
+    ) -> Option<crate::components::widget::status_line::CodebaseStatusInfo> {
         None
     }
 

@@ -234,7 +234,7 @@ impl EnyaApp {
                 self.status_line.set_codebase_status(None);
             } else {
                 self.status_line
-                    .set_codebase_status(workspace.codebase_status_text());
+                    .set_codebase_status(workspace.codebase_status_info());
             }
         } else {
             // No active tab - show offline

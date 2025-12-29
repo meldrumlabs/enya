@@ -243,6 +243,23 @@ impl StatusMode {
     }
 }
 
+/// Codebase status information for status line display
+#[derive(Debug, Clone, Default)]
+pub struct CodebaseStatusInfo {
+    /// Status message (e.g., "Cloning...", "Indexing main.rs + 5 more", "42 metrics")
+    pub message: String,
+    /// Repository name (when ready)
+    pub repo_name: Option<String>,
+    /// Number of metrics discovered (when ready)
+    pub metrics_count: Option<usize>,
+    /// Language being used for scanning
+    pub language: Option<String>,
+    /// Whether an operation is in progress
+    pub is_loading: bool,
+    /// Whether there's an error
+    pub is_error: bool,
+}
+
 /// Configuration for a status line segment
 #[derive(Debug, Clone)]
 pub struct StatusSegment {
@@ -298,8 +315,8 @@ pub struct StatusLine {
     last_refresh: Option<std::time::Instant>,
     /// Diagnostics counts (errors, warnings, infos)
     diagnostics_count: (usize, usize, usize),
-    /// Codebase operation status (Cloning..., Indexing..., Ready)
-    codebase_status: Option<String>,
+    /// Codebase operation status
+    codebase_status: Option<CodebaseStatusInfo>,
 }
 
 impl Default for StatusLine {
@@ -377,8 +394,8 @@ impl StatusLine {
         self.diagnostics_count = (errors, warnings, infos);
     }
 
-    /// Set codebase status (e.g., "Cloning repo...", "Indexing...", "Codebase ready")
-    pub fn set_codebase_status(&mut self, status: Option<String>) {
+    /// Set codebase status info
+    pub fn set_codebase_status(&mut self, status: Option<CodebaseStatusInfo>) {
         self.codebase_status = status;
     }
 
@@ -570,6 +587,34 @@ impl StatusLine {
                         .family(egui::FontFamily::Monospace),
                 );
             }
+
+            // Codebase indexing status (shown in center to avoid layout jumping from varying file names)
+            if let Some(ref status) = self.codebase_status {
+                if status.is_loading && !status.is_error {
+                    ui.add_space(16.0);
+
+                    // Language icon (if available) or loading spinner
+                    let icon = status
+                        .language
+                        .as_ref()
+                        .and_then(|lang| semantic_icons::language::from_name(lang))
+                        .unwrap_or(semantic_icons::status::LOADING);
+
+                    ui.label(
+                        egui::RichText::new(icon)
+                            .color(palette::accent::PRIMARY)
+                            .size(typography::MD),
+                    );
+                    ui.add_space(4.0);
+                    // Status text in emerald accent
+                    ui.label(
+                        egui::RichText::new(&status.message)
+                            .color(palette::accent::PRIMARY)
+                            .size(typography::MD),
+                    );
+                }
+            }
+
             ui.add_space(ui.available_width());
         });
     }
@@ -674,39 +719,87 @@ impl StatusLine {
                 self.render_separator_rtl(ui, height);
             }
 
-            // Codebase status (Cloning..., Indexing [5/42]..., Codebase ready)
+            // Codebase status (Cloning..., Ready, Error - but NOT Indexing which is in center)
             if let Some(ref status) = self.codebase_status {
-                // Use loading icon for in-progress, code icon for ready
-                let (icon, color) = if status.contains("...") {
-                    (semantic_icons::status::LOADING, self.segment_fg()) // muted for loading
-                } else if status.starts_with("Error") {
-                    (semantic_icons::diagnostic::ERROR, palette::semantic::ERROR)
-                } else {
-                    (semantic_icons::file::CODE, palette::accent::PRIMARY) // emerald for ready
-                };
+                // Skip loading status here - it's shown in center section to avoid layout jumping
+                if !status.is_loading {
+                    if status.is_error {
+                        // Error state
+                        self.render_segment_rtl(
+                            ui,
+                            &status.message,
+                            Some(semantic_icons::diagnostic::ERROR),
+                            self.segment_bg(),
+                            palette::semantic::ERROR,
+                            height,
+                            padding,
+                            false,
+                        );
+                    } else if let Some(ref repo_name) = status.repo_name {
+                        // Ready state - show repo name and metrics count with language icon
+                        let metrics_text = status
+                            .metrics_count
+                            .map(|c| format!("{c} metrics"))
+                            .unwrap_or_default();
 
-                self.render_segment_rtl(
-                    ui,
-                    status,
-                    Some(icon),
-                    self.segment_bg(),
-                    color,
-                    height,
-                    padding,
-                    false,
-                );
+                        // Get language icon if available
+                        let icon = status
+                            .language
+                            .as_ref()
+                            .and_then(|lang| semantic_icons::language::from_name(lang))
+                            .unwrap_or(semantic_icons::file::CODE);
 
-                // Separator
-                self.render_separator_rtl(ui, height);
+                        // Render metrics count segment first (RTL order)
+                        if !metrics_text.is_empty() {
+                            self.render_segment_rtl(
+                                ui,
+                                &metrics_text,
+                                Some(semantic_icons::file::METRIC),
+                                Color32::TRANSPARENT,
+                                palette::text::SECONDARY,
+                                height,
+                                padding,
+                                false,
+                            );
+                            self.render_separator_rtl(ui, height);
+                        }
+
+                        // Render repo name with language icon
+                        self.render_segment_rtl(
+                            ui,
+                            repo_name,
+                            Some(icon),
+                            Color32::TRANSPARENT,
+                            palette::text::SECONDARY,
+                            height,
+                            padding,
+                            false,
+                        );
+                    } else {
+                        // Fallback - just show message
+                        self.render_segment_rtl(
+                            ui,
+                            &status.message,
+                            Some(semantic_icons::file::CODE),
+                            Color32::TRANSPARENT,
+                            palette::text::SECONDARY,
+                            height,
+                            padding,
+                            false,
+                        );
+                    }
+
+                    // Separator
+                    self.render_separator_rtl(ui, height);
+                }
             }
 
-            // Connection status
-            // Online: bright emerald (positive), Offline: muted gray (neutral, not alarming)
+            // Connection status - refined text colors matching theme
             let (conn_icon, conn_text, conn_color) = if self.is_connected {
                 (
                     semantic_icons::status::CONNECTED,
                     "ONLINE",
-                    palette::accent::HOVER, // Bright emerald - positive state
+                    palette::text::SECONDARY, // Muted - no need for bright color when connected
                 )
             } else {
                 (
@@ -719,7 +812,7 @@ impl StatusLine {
                 ui,
                 conn_text,
                 Some(conn_icon),
-                self.segment_bg_secondary(),
+                Color32::TRANSPARENT,
                 conn_color,
                 height,
                 padding,

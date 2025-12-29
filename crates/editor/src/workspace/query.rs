@@ -20,7 +20,7 @@ impl Workspace {
                 } = self.query_executor.connection_health().clone()
                 {
                     log::info!("Connected to Prometheus v{version}");
-                    // Add success diagnostic
+                    // Add success diagnostic (no toast - status bar shows connection state)
                     let diagnostic = crate::components::overlay::diagnostics::Diagnostic::info(
                         format!("Connected to Prometheus v{version}"),
                     )
@@ -28,11 +28,6 @@ impl Workspace {
                         crate::components::overlay::diagnostics::DiagnosticSource::DataConnection,
                     );
                     self.diagnostics_pane.add(diagnostic);
-                    // Show success notification
-                    notification_action = WorkspaceAction::Notify {
-                        level: "success".to_string(),
-                        message: format!("Connected to Prometheus v{version}"),
-                    };
                 }
             } else if let crate::components::util::query_executor::ConnectionHealth::Failed {
                 ref error,

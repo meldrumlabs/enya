@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use parking_lot::RwLock;
 use rustc_hash::FxHashSet;
 use walkdir::{DirEntry, WalkDir};
 
@@ -14,7 +15,16 @@ use crate::parser::ParseError;
 use crate::scanner::{AlertRule, MetricInstrumentation, ScannerRegistry, YamlAlertScanner};
 
 /// Directories to exclude from scanning.
-const EXCLUDED_DIRS: [&str; 4] = ["target", ".git", "vendor", "node_modules"];
+const EXCLUDED_DIRS: [&str; 8] = [
+    "target",
+    ".git",
+    "vendor",
+    "node_modules",
+    "dist",
+    "build",
+    "public",
+    "assets",
+];
 
 /// Discover files in a directory that match the given extensions.
 ///
@@ -44,7 +54,14 @@ fn discover_files<'a>(
                     .is_some_and(|s| EXCLUDED_DIRS.contains(&s))
             });
 
-            has_matching_ext && !in_excluded_dir
+            // Skip minified files (*.min.js, *.min.css, etc.)
+            let is_minified = entry
+                .path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|name| name.contains(".min."));
+
+            has_matching_ext && !in_excluded_dir && !is_minified
         })
 }
 
@@ -55,6 +72,8 @@ pub struct IndexProgress {
     pub current: Arc<AtomicUsize>,
     /// Total number of files to process
     pub total: Arc<AtomicUsize>,
+    /// Name of the current file being indexed
+    current_file: Arc<RwLock<Option<String>>>,
 }
 
 impl IndexProgress {
@@ -64,6 +83,7 @@ impl IndexProgress {
         Self {
             current: Arc::new(AtomicUsize::new(0)),
             total: Arc::new(AtomicUsize::new(0)),
+            current_file: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -74,6 +94,17 @@ impl IndexProgress {
             self.current.load(Ordering::Relaxed),
             self.total.load(Ordering::Relaxed),
         )
+    }
+
+    /// Set the current file being indexed.
+    pub fn set_current_file(&self, file_name: Option<String>) {
+        *self.current_file.write() = file_name;
+    }
+
+    /// Get the current file name being indexed.
+    #[must_use]
+    pub fn current_file(&self) -> Option<String> {
+        self.current_file.read().clone()
     }
 }
 
@@ -237,6 +268,11 @@ pub fn build_index_with_progress(
         progress.current.store(i + 1, Ordering::SeqCst);
 
         let path = entry.path();
+
+        // Update the current file name for status display
+        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+            progress.set_current_file(Some(file_name.to_string()));
+        }
 
         // Find the appropriate scanner for this file
         let Some(scanner) = registry.scanner_for(path) else {
