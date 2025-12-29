@@ -48,6 +48,16 @@ All notable changes to the Enya editor will be documented in this file.
     - Metrics are sourced from the connected Prometheus instance
     - Wide popup (520px) to accommodate long metric names
 
+- **Workspace creation overlay** (native only): New three-step wizard for creating workspaces, matching the Tutorial overlay's frosted glass styling. Features include:
+  - Step 1: Enter workspace name (prefilled with "my-workspace")
+  - Step 2: Enter connection endpoint (prefilled with "http://localhost:9090")
+  - Step 3: Optional git repository path for commit annotations
+  - Progress dots showing current step
+  - Keyboard navigation: `Enter` to proceed, `Escape` to cancel
+  - Workspace tab is automatically renamed to the entered name
+  - Workspace is automatically saved to disk after creation, making it discoverable in the workspace finder
+  - On WASM, clicking "Create workspace" or the + button creates a workspace directly (overlay not available)
+
 ### Fixed
 
 - **Agent-created panes now execute queries reliably**: Fixed a bug where panes created by AI would fail to load data because the query tracking used volatile TileIds that could change when egui_tiles restructured the tree during `ui()` calls. Now uses stable pane component IDs for tracking pending queries.
@@ -70,6 +80,12 @@ All notable changes to the Enya editor will be documented in this file.
     - Enhanced backdrop with subtle vignette effect at screen edges
     - New `draw_premium_backdrop()` with centered emerald glow for branded modals
   - **Premium keyboard badges**: Key hints now feature subtle drop shadow and 3D top-edge highlight
+
+- **Notification styling**: Updated notifications to use the obsidian glass emerald theme:
+  - Frosted glass background matching other overlays
+  - Uses semantic colors from the palette (emerald for success)
+  - Improved shadow and border styling
+  - Consistent with the overall design system
 
 - **Moved heatmap into visualization module**: The `heatmap.rs` module is now located at `components/pane/visualization/heatmap.rs` alongside other visualization types for consistency.
 - **Moved theme into ui module**: The `theme.rs` module is now located at `ui/theme.rs` alongside other UI primitives (colors, typography, icons, etc.).

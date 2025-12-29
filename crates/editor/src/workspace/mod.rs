@@ -12,7 +12,8 @@ use crate::components::{
     DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MetricsFinder, MultiBufferMode,
     MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
     QuickCommand, SourcePreviewOverlay, SourcePreviewResult, TimeRangeToolbar, TutorialOverlay,
-    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder,
+    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
+    WorkspaceFinder,
 };
 use crate::ui::theme::AppTheme;
 
@@ -104,6 +105,10 @@ pub enum WorkspaceAction {
     NextWorkspaceTab,
     /// Go to previous workspace tab
     PrevWorkspaceTab,
+    /// Rename/set the current workspace tab name
+    RenameCurrentWorkspace(String),
+    /// Rename and save the current workspace (used after workspace creation)
+    RenameAndSaveWorkspace(String),
 }
 
 /// The main viewport layout with a flexible tile tree for views/charts.
@@ -151,6 +156,8 @@ pub struct Workspace {
     which_key: WhichKey,
     /// Tutorial overlay (interactive walkthrough)
     tutorial_overlay: TutorialOverlay,
+    /// Workspace creator overlay (new workspace wizard)
+    workspace_creator: WorkspaceCreator,
     /// Current scroll offset for smooth scrolling (0.0 to 1.0, percentage)
     viewport_scroll_offset: f32,
     /// Target scroll offset for smooth animation
@@ -198,6 +205,9 @@ pub struct Workspace {
     pending_codebase_config: Option<String>,
     /// Pending connection endpoint to apply (set during load, executed in show())
     pending_connection_endpoint: Option<String>,
+    /// Pending git repo path to configure (set from workspace creator)
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_git_repo: Option<String>,
 }
 
 impl Workspace {
@@ -236,6 +246,7 @@ impl Workspace {
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             tutorial_overlay: TutorialOverlay::new(),
+            workspace_creator: WorkspaceCreator::new(),
             viewport_scroll_offset: 0.0,
             viewport_scroll_target: 0.0,
             viewport_content_height: 0.0,
@@ -266,6 +277,8 @@ impl Workspace {
             #[cfg(not(target_arch = "wasm32"))]
             pending_codebase_config: None,
             pending_connection_endpoint: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_git_repo: None,
         }
     }
 
@@ -618,6 +631,31 @@ impl Workspace {
         self.tutorial_overlay.set_theme(app_state.theme);
         self.tutorial_overlay.show(ctx);
 
+        // Show workspace creator overlay modal
+        self.workspace_creator.set_theme(app_state.theme);
+        match self.workspace_creator.show(ctx) {
+            WorkspaceCreatorResult::Created {
+                name,
+                endpoint,
+                git_repo,
+            } => {
+                // Set pending connection endpoint to apply
+                self.pending_connection_endpoint = Some(endpoint);
+                // Store git repo path for codebase integration (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.pending_git_repo = git_repo;
+                }
+                #[cfg(target_arch = "wasm32")]
+                let _ = git_repo; // Silence unused warning on WASM
+                self.show_landing = false;
+                ctx.request_repaint();
+                // Return action to rename and save the workspace
+                return WorkspaceAction::RenameAndSaveWorkspace(name);
+            }
+            WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
+        }
+
         // Show diagnostics overlay modal
         self.diagnostics_pane.set_theme(app_state.theme);
         self.diagnostics_pane.show_overlay(ctx);
@@ -757,9 +795,14 @@ impl Workspace {
                 );
             }
             LandingPageAction::CreateWorkspace => {
-                // Hide landing page and start fresh workspace
-                self.show_landing = false;
-                ctx.request_repaint();
+                // On native: open the workspace creator overlay
+                // On WASM: just hide the landing page (no overlay support)
+                #[cfg(not(target_arch = "wasm32"))]
+                self.workspace_creator.open();
+                #[cfg(target_arch = "wasm32")]
+                {
+                    self.show_landing = false;
+                }
             }
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and add demo panes for the tutorial
@@ -827,6 +870,31 @@ impl Workspace {
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(app_state.theme);
         self.tutorial_overlay.show(ctx);
+
+        // Show workspace creator overlay modal
+        self.workspace_creator.set_theme(app_state.theme);
+        match self.workspace_creator.show(ctx) {
+            WorkspaceCreatorResult::Created {
+                name,
+                endpoint,
+                git_repo,
+            } => {
+                // Set pending connection endpoint to apply
+                self.pending_connection_endpoint = Some(endpoint);
+                // Store git repo path for codebase integration (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.pending_git_repo = git_repo;
+                }
+                #[cfg(target_arch = "wasm32")]
+                let _ = git_repo; // Silence unused warning on WASM
+                self.show_landing = false;
+                ctx.request_repaint();
+                // Return action to rename and save the workspace
+                return WorkspaceAction::RenameAndSaveWorkspace(name);
+            }
+            WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
+        }
 
         // Show diagnostics overlay modal
         self.diagnostics_pane.set_theme(app_state.theme);

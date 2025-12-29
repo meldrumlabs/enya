@@ -23,7 +23,7 @@ pub enum TabBarAction {
     SwitchToTab(usize),
     /// Close a specific tab by index
     CloseTab(usize),
-    /// Create a new workspace tab
+    /// Create a new workspace tab (opens the workspace creator overlay)
     NewTab,
 }
 
@@ -140,6 +140,13 @@ impl WorkspaceTabBar {
     /// Get the currently active tab mutably
     pub fn active_tab_mut(&mut self) -> Option<&mut WorkspaceTab> {
         self.tabs.get_mut(self.active_tab_index)
+    }
+
+    /// Rename the currently active tab
+    pub fn rename_active_tab(&mut self, name: String) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+            tab.name = name;
+        }
     }
 
     /// Get the active tab index
