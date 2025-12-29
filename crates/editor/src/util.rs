@@ -1,7 +1,3 @@
-pub use egui::SizeHint;
-use egui::epaint;
-pub use egui_extras::image::{load_svg_bytes, load_svg_bytes_with_size};
-
 // Re-export web-time's Instant for WASM, std::time::Instant for native
 // web-time is a drop-in replacement that works in browsers (used by egui/eframe/rerun)
 #[cfg(not(target_arch = "wasm32"))]
@@ -30,23 +26,6 @@ pub fn now_unix_secs() -> i64 {
     }
 }
 
-pub fn color_image_to_icon_data(image: epaint::ColorImage) -> egui::IconData {
-    egui::IconData {
-        width: image.size[0] as u32,
-        height: image.size[1] as u32,
-        rgba: image.as_raw().to_vec(),
-    }
-}
-
-pub fn svg_to_icon_data(svg_bytes: &[u8], size_hint: Option<SizeHint>) -> egui::IconData {
-    let size = size_hint.unwrap_or(SizeHint::Size {
-        width: 256,
-        height: 256,
-        maintain_aspect_ratio: true,
-    });
-    let image = load_svg_bytes_with_size(svg_bytes, size, &Default::default()).unwrap();
-    color_image_to_icon_data(image)
-}
 pub fn png_to_icon_data(png_bytes: &[u8]) -> egui::IconData {
     let image = image::load_from_memory(png_bytes).unwrap();
     let size = [image.width() as usize, image.height() as usize];
