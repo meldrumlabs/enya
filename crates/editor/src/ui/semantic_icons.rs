@@ -303,6 +303,10 @@ pub mod action {
     pub const PAUSE: &str = regular::PAUSE;
     pub const STOP: &str = regular::STOP;
     pub const CLOSE: &str = regular::CLOSE;
+
+    // AI/Agent operations
+    pub const ROBOT: &str = regular::ROBOT;
+    pub const TOOL: &str = regular::WRENCH;
 }
 
 // ============================================================================

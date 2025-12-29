@@ -4,6 +4,54 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Vim-style Agent mode**: New modal agent mode for AI-assisted interactions, inspired by Neovim's modal editing:
+  - Press `a` from Normal or Visual mode to enter Agent mode
+  - Agent Input Bar appears above the status line for lightweight interaction
+  - Status line shows "AGENT" mode indicator in amber
+  - Quick command keys: `w` (what's wrong?), `y` (why?), `c` (compare), `r` (related), `e` (explain), `f` (fix), `s` (summarize), `h` (history)
+  - **Agent operator pattern**: Vim-style operators like `aw`, `ae`, `ay`, `ac`, `ar`, `af`, `as`, `ah` for quick agent commands directly from Normal mode
+    - `aw` - What's wrong? (triage current pane)
+    - `ae` - Explain (describe the focused metric)
+    - `ay` - Why? (root cause analysis)
+    - `ac` - Compare (to baseline)
+    - `ar` - Related (show correlated metrics)
+    - `af` - Fix (remediation suggestions)
+    - `as` - Summarize (incident summary)
+    - `ah` - History (past similar incidents)
+    - `aa` - Enter agent mode without sending a command
+  - Natural language input for custom queries
+  - Visual mode integration: selected panes automatically become context for the agent
+  - Press `+`/`-` to add/remove focused pane from context, `Ctrl+C` to clear context
+  - Press `Escape` to exit Agent mode
+- **AgentInputBar component**: Standalone AI input component for Agent mode:
+  - Four states: Ready, Typing, Processing, Response
+  - Premium Obsidian Glass styling with frosted glass background and subtle inner highlight
+  - Shows current AI provider (Claude/Codex) in an amber-accented badge
+  - Context panes displayed in a subtle badge with pane icon
+  - Direct AI integration via Claude Code CLI (no side panel dependency)
+  - Streaming response support with live activity display
+  - Processing state shows status message with tool use tracking
+  - Response state can expand for longer responses
+  - Activity display shows only the most recent activity for a compact UI
+  - **Enya command support**: AI responses can now execute Enya commands (create_pane, set_time_range, search_metrics, etc.) just like the Agent Panel
+  - **Immediate query execution for agent-created panes**: Panes created by AI commands now automatically load data from Prometheus without requiring a manual refresh
+  - **Auto-exit agent mode**: Agent mode automatically closes after successful command execution, returning to Normal mode for seamless vim-style navigation
+
+- **@ mention support for metrics**: Type `@` in the input to trigger a fuzzy finder popup for metrics:
+    - Premium Obsidian Glass styling with frosted glass background, emerald accents, and inner highlight
+    - Fuzzy search through all available metrics with emerald-highlighted match characters
+    - Keyboard navigation with arrow keys (↑/↓) or Ctrl+K/J/N/P
+    - Select with Enter or Tab to insert the metric name
+    - Press Escape to dismiss the popup
+    - Metrics are sourced from the connected Prometheus instance
+    - Wide popup (520px) to accommodate long metric names
+
+### Fixed
+
+- **Agent-created panes now execute queries reliably**: Fixed a bug where panes created by AI would fail to load data because the query tracking used volatile TileIds that could change when egui_tiles restructured the tree during `ui()` calls. Now uses stable pane component IDs for tracking pending queries.
+
 ### Changed
 
 - **Premium Obsidian Glass theme refinements**: Enhanced the dark theme with a more luxurious, high-end feel:
@@ -71,6 +119,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Keyboard shortcuts not firing in Agent mode**: Fixed an issue where typing `/` or `?` in the Agent Input Bar would incorrectly trigger the viewport filter or which-key overlay. These overlay handlers now check for `agent_mode_active` before consuming key events.
+- **@ mention popup loses focus**: Fixed an issue where after selecting a metric from the @ mention popup, focus would not return to the text input. The input field now receives focus automatically after a selection is made, with the cursor positioned at the end of the text.
+- **Agent-created panes not loading data**: Fixed an issue where panes created by the AI agent (via `create_pane` command) would not automatically load data from Prometheus. The `handle_agent_commands` function now requests a repaint after creating panes, ensuring query execution runs on the next frame.
 - **Read tool file path in Agent Panel**: Fixed the Agent Panel not showing file paths for Read tool activities. Added `path` field lookup in addition to `file_path` for tool summary extraction.
 
 ### Changed

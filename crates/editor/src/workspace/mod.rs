@@ -7,12 +7,12 @@ use crate::app::AppState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::CodebaseManager;
 use crate::components::{
-    AgentCommand, AgentPanel, AgentPanelResult, Buffer, BufferEditor, BufferEditorResult,
-    CommandPalette, CommandResult, Component, DiagnosticsPane, InfoOverlay, LandingPage,
-    LandingPageAction, MetricsFinder, MultiBufferMode, MultiBufferState, MultiEditOverlay,
-    MultiEditResult, QueryExecutor, QueryPane, QueryState, SourcePreviewOverlay,
-    SourcePreviewResult, TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult,
-    WhichKey, WorkspaceFinder,
+    AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult, Buffer,
+    BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
+    DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MetricsFinder, MultiBufferMode,
+    MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
+    QuickCommand, SourcePreviewOverlay, SourcePreviewResult, TimeRangeToolbar, TutorialOverlay,
+    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceFinder,
 };
 use crate::ui::theme::AppTheme;
 
@@ -173,8 +173,9 @@ pub struct Workspace {
     pending_open_workspace_finder: bool,
     /// Query executor for running queries against backends (Prometheus, Enya)
     query_executor: QueryExecutor,
-    /// Track which pane is waiting for a query result
-    pending_query_tile: Option<TileId>,
+    /// Track which pane is waiting for a query result (by stable pane component ID, not TileId)
+    /// We use the pane's internal ID because TileIds can change when egui_tiles restructures the tree
+    pending_query_pane_id: Option<usize>,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
     next_query_number: usize,
     /// Workspace filter for filtering visible panes by query content
@@ -183,6 +184,12 @@ pub struct Workspace {
     source_preview: SourcePreviewOverlay,
     /// Agent panel for Claude Code integration
     agent_panel: AgentPanel,
+    /// Agent input bar for lightweight agent mode interactions
+    agent_input_bar: AgentInputBar,
+    /// Whether agent mode is active (vim-style modal interaction)
+    agent_mode_active: bool,
+    /// Panes in agent context (from visual mode selection or manual +/-)
+    agent_context_panes: FxHashSet<TileId>,
     /// Codebase manager for git repo and metrics discovery (native only)
     #[cfg(not(target_arch = "wasm32"))]
     codebase_manager: CodebaseManager,
@@ -240,7 +247,7 @@ impl Workspace {
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
             query_executor: QueryExecutor::new(async_runtime.clone()),
-            pending_query_tile: None,
+            pending_query_pane_id: None,
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
             source_preview: SourcePreviewOverlay::new(),
@@ -248,6 +255,12 @@ impl Workspace {
             agent_panel: AgentPanel::new(async_runtime.handle().clone()),
             #[cfg(target_arch = "wasm32")]
             agent_panel: AgentPanel::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            agent_input_bar: AgentInputBar::new_with_runtime(async_runtime.handle().clone()),
+            #[cfg(target_arch = "wasm32")]
+            agent_input_bar: AgentInputBar::new(),
+            agent_mode_active: false,
+            agent_context_panes: FxHashSet::default(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -266,6 +279,29 @@ impl Workspace {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
+
+        // Poll and process agent input bar commands BEFORE query execution
+        // This ensures panes created by AI are available for immediate query execution
+        if self.agent_mode_active {
+            self.agent_input_bar.poll(ctx);
+            let commands = self.agent_input_bar.take_pending_commands();
+            if !commands.is_empty() {
+                log::info!(
+                    "Processing {} agent command(s) before query execution",
+                    commands.len()
+                );
+                for cmd in &commands {
+                    log::info!("Executing agent command: {cmd:?}");
+                }
+                let executed = self.handle_agent_commands(commands, ctx);
+                // Auto-exit agent mode after successful command execution
+                // This allows the user to immediately navigate panes with vim keys
+                if executed {
+                    log::info!("Agent command executed successfully, exiting agent mode");
+                    self.exit_agent_mode();
+                }
+            }
+        }
 
         // Process query execution: poll for results and execute pending queries
         let query_action = self.process_query_execution(ctx);
@@ -483,6 +519,7 @@ impl Workspace {
                                 }
 
                                 // Create ScrollArea with controlled offset
+                                let tiles_before_ui = self.viewport_tree.tiles.len();
                                 let scroll_output = egui::ScrollArea::vertical()
                                     .id_salt("viewport_scroll")
                                     .scroll_bar_visibility(
@@ -493,6 +530,12 @@ impl Workspace {
                                     .show(ui, |ui| {
                                         self.viewport_tree.ui(&mut self.behavior, ui);
                                     });
+                                let tiles_after_ui = self.viewport_tree.tiles.len();
+                                if tiles_before_ui != tiles_after_ui {
+                                    log::warn!(
+                                        "viewport_tree.ui() changed tile count: {tiles_before_ui} -> {tiles_after_ui} (GC may have removed tiles)"
+                                    );
+                                }
 
                                 // Update scroll state from ScrollArea output
                                 self.viewport_content_height = scroll_output.content_size.y;
@@ -605,6 +648,9 @@ impl Workspace {
             AgentPanelResult::None => {}
         }
 
+        // Note: agent_input_bar.poll() is now called at the start of show()
+        // to ensure agent-created panes are available for immediate query execution
+
         // Poll codebase manager for async operations (native only)
         #[cfg(not(target_arch = "wasm32"))]
         self.codebase_manager.poll(ctx);
@@ -635,6 +681,7 @@ impl Workspace {
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
             && !self.is_any_buffer_in_insert_mode()
+            && !self.agent_mode_active
         {
             ctx.input_mut(|input| {
                 // Check for '/' character in text input (works across keyboard layouts)
@@ -658,6 +705,7 @@ impl Workspace {
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
+            && !self.agent_mode_active
         {
             ctx.input_mut(|input| {
                 // Check for '?' character in text input (works across keyboard layouts)
@@ -1272,6 +1320,311 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    // =========================================================================
+    // Agent Mode (AI-Assisted Interaction)
+    // =========================================================================
+
+    /// Check if agent mode is active
+    pub fn is_agent_mode(&self) -> bool {
+        self.agent_mode_active
+    }
+
+    /// Enter agent mode, optionally with panes from visual selection.
+    /// Shows quick command hints in the input bar.
+    pub fn enter_agent_mode(&mut self) {
+        self.enter_agent_mode_impl(false);
+    }
+
+    /// Enter agent mode and go directly to typing mode (no quick command hints).
+    /// Used when entering via `aa` for freeform input.
+    pub fn enter_agent_mode_typing(&mut self) {
+        self.enter_agent_mode_impl(true);
+    }
+
+    /// Internal implementation of enter_agent_mode
+    fn enter_agent_mode_impl(&mut self, start_typing: bool) {
+        // Transfer visual selection to agent context if in visual mode
+        if let Some(visual_state) = &self.visual_multi_state {
+            self.agent_context_panes = visual_state.selected_tile_ids.clone();
+        }
+
+        // Exit visual mode if active
+        self.visual_multi_state = None;
+
+        // Enter agent mode
+        self.agent_mode_active = true;
+        if start_typing {
+            self.agent_input_bar.reset_to_typing();
+        } else {
+            self.agent_input_bar.reset();
+        }
+
+        // Build context pane info
+        self.sync_agent_context_panes();
+
+        log::debug!(
+            "Entered agent mode with {} context panes (typing={})",
+            self.agent_context_panes.len(),
+            start_typing
+        );
+    }
+
+    /// Enter agent mode and immediately execute a quick command.
+    /// This is used for vim-style operator patterns like `aw`, `ae`, etc.
+    pub fn enter_agent_mode_with_command(&mut self, command: QuickCommand) {
+        // Enter agent mode first
+        self.enter_agent_mode();
+
+        // Build context from selected panes (or focused pane if none selected)
+        if self.agent_context_panes.is_empty() {
+            if let Some(tile_id) = self.behavior.focused_tile() {
+                self.agent_context_panes.insert(tile_id);
+                self.sync_agent_context_panes();
+            }
+        }
+
+        // Build context info for the query
+        let context_info: Vec<String> = self
+            .agent_context_panes
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        let name = query_pane.name();
+                        let query_text = query_pane.query();
+                        return Some(format!("Pane '{name}': {query_text}"));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        let context = if context_info.is_empty() {
+            None
+        } else {
+            Some(format!("Context panes:\n{}", context_info.join("\n")))
+        };
+
+        // Send the quick command query
+        self.agent_input_bar
+            .send_query(command.prompt(), context.as_deref());
+
+        log::debug!(
+            "Agent operator command: {:?} with {} context panes",
+            command,
+            self.agent_context_panes.len()
+        );
+    }
+
+    /// Exit agent mode
+    pub fn exit_agent_mode(&mut self) {
+        self.agent_mode_active = false;
+        self.agent_context_panes.clear();
+        log::debug!("Exited agent mode");
+    }
+
+    /// Sync agent context panes with the input bar display
+    fn sync_agent_context_panes(&mut self) {
+        let context_panes: Vec<ContextPane> = self
+            .agent_context_panes
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        return Some(ContextPane {
+                            tile_id,
+                            name: query_pane.name().to_string(),
+                        });
+                    }
+                }
+                None
+            })
+            .collect();
+
+        self.agent_input_bar.set_context_panes(context_panes);
+    }
+
+    /// Add the focused pane to agent context
+    pub fn add_focused_to_agent_context(&mut self) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            self.agent_context_panes.insert(tile_id);
+            self.sync_agent_context_panes();
+        }
+    }
+
+    /// Remove the focused pane from agent context
+    pub fn remove_focused_from_agent_context(&mut self) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            self.agent_context_panes.remove(&tile_id);
+            self.sync_agent_context_panes();
+        }
+    }
+
+    /// Clear all agent context panes
+    pub fn clear_agent_context(&mut self) {
+        self.agent_context_panes.clear();
+        self.agent_input_bar.clear_context();
+    }
+
+    /// Get the number of panes in agent context
+    pub fn agent_context_count(&self) -> usize {
+        self.agent_context_panes.len()
+    }
+
+    /// Show the agent input bar and handle its results.
+    /// Called from the app's bottom panel to render above the status line.
+    pub fn show_agent_input_bar(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        theme: AppTheme,
+    ) {
+        if !self.agent_mode_active {
+            return;
+        }
+
+        self.agent_input_bar.set_theme(theme);
+        self.agent_input_bar
+            .set_provider_name(self.agent_panel.provider().display_name());
+
+        // Provide available metrics for @ mention autocomplete
+        let metric_names = self.query_executor.metric_names().to_vec();
+        self.agent_input_bar.set_available_metrics(metric_names);
+
+        let result = self.agent_input_bar.show(ui);
+        self.handle_agent_input_result(result, ctx);
+    }
+
+    /// Handle results from the agent input bar
+    fn handle_agent_input_result(&mut self, result: AgentInputBarResult, ctx: &egui::Context) {
+        // Handle exit request (Escape key)
+        if result.exit_requested {
+            self.exit_agent_mode();
+            ctx.request_repaint();
+            return;
+        }
+
+        // Handle context operations
+        if result.add_pane_to_context {
+            self.add_focused_to_agent_context();
+        }
+        if result.remove_pane_from_context {
+            self.remove_focused_from_agent_context();
+        }
+        if result.clear_context {
+            self.clear_agent_context();
+        }
+
+        // Handle undo - for now just log, will implement with agent commands
+        if result.undo_requested {
+            log::debug!("Agent undo requested");
+        }
+
+        // Handle quick commands
+        if let Some(quick_cmd) = result.quick_command {
+            log::debug!("Agent quick command: {quick_cmd:?}");
+            self.send_agent_query_with_context(quick_cmd.prompt(), ctx);
+        }
+
+        // Handle natural language query
+        if let Some(query) = result.query {
+            log::debug!("Agent query: {query}");
+            self.send_agent_query_with_context(&query, ctx);
+        }
+
+        // Handle Enya commands from AI response (e.g., create_pane, set_time_range)
+        // Convert inline commands to create_pane since Agent Input Bar doesn't support inline rendering
+        if !result.commands.is_empty() {
+            use crate::components::AgentCommand;
+
+            let converted_commands: Vec<AgentCommand> = result
+                .commands
+                .into_iter()
+                .map(|cmd| match cmd {
+                    // Convert ShowInlineChart to CreatePane (Agent Input Bar doesn't render inline)
+                    AgentCommand::ShowInlineChart {
+                        query,
+                        title,
+                        time_range: _,
+                        height: _,
+                    } => {
+                        log::debug!("Converting ShowInlineChart to CreatePane for Agent Input Bar");
+                        AgentCommand::CreatePane { query, title }
+                    }
+                    // Pass through all other commands unchanged
+                    other => other,
+                })
+                .collect();
+
+            log::debug!(
+                "Executing {} enya command(s) from agent input bar",
+                converted_commands.len()
+            );
+            let executed = self.handle_agent_commands(converted_commands, ctx);
+            // Auto-exit agent mode after successful command execution
+            if executed {
+                log::info!("Agent command executed successfully, exiting agent mode");
+                self.exit_agent_mode();
+            }
+        }
+    }
+
+    /// Send a query to the agent with current context panes
+    fn send_agent_query_with_context(&mut self, query: &str, ctx: &egui::Context) {
+        // Build full editor context (includes available commands documentation)
+        let editor_context = self.build_editor_context();
+        let editor_context_block = editor_context
+            .as_ref()
+            .map(|c| c.to_prompt_block())
+            .unwrap_or_default();
+
+        // Build context from selected panes
+        let context_info: Vec<String> = self
+            .agent_context_panes
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        // Get pane details for context
+                        let name = query_pane.name();
+                        let query_text = query_pane.query();
+                        return Some(format!("Pane '{name}': {query_text}"));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        // Build full context string with editor context and pane context
+        let context = {
+            let mut parts = vec![editor_context_block];
+            if !context_info.is_empty() {
+                parts.push(format!("\n## Selected Panes\n{}", context_info.join("\n")));
+            }
+            Some(parts.join("\n"))
+        };
+
+        // Send query directly to input bar (it handles AI communication)
+        log::info!(
+            "Sending query to agent: '{}' with context ({} chars)",
+            query,
+            context.as_ref().map(|c| c.len()).unwrap_or(0)
+        );
+        self.agent_input_bar.send_query(query, context.as_deref());
+
+        ctx.request_repaint();
+        log::debug!(
+            "Sent query to agent with {} context panes",
+            self.agent_context_panes.len()
+        );
     }
 
     // =========================================================================

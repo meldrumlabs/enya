@@ -152,22 +152,27 @@ impl Workspace {
     ///
     /// These commands are parsed from the agent's response and executed
     /// to manipulate the workspace (create panes, change time range, etc.)
-    #[allow(unused_variables)] // ctx is used conditionally
+    /// Handle agent commands and return true if any command was executed successfully.
+    /// When commands are executed, the caller should typically exit agent mode.
     pub(super) fn handle_agent_commands(
         &mut self,
         commands: Vec<AgentCommand>,
         ctx: &egui::Context,
-    ) {
+    ) -> bool {
+        let mut executed_any = false;
+
         for command in commands {
             match command {
                 AgentCommand::CreatePane { query, title } => {
                     self.add_query_pane(&query, title.as_deref());
+                    executed_any = true;
                 }
                 AgentCommand::SetTimeRange { preset } => {
                     // Parse preset string into a TimeRangePreset
                     if let Some(preset_enum) = Self::parse_time_preset(&preset) {
                         self.time_range_toolbar.set_preset(preset_enum);
                         log::info!("Agent set time range to: {preset}");
+                        executed_any = true;
                     } else {
                         log::warn!("Agent requested unknown time preset: {preset}");
                     }
@@ -177,6 +182,7 @@ impl Workspace {
                     self.metrics_finder.open();
                     self.metrics_finder.set_query(&pattern);
                     log::info!("Agent opened metrics search: {pattern}");
+                    executed_any = true;
                 }
                 AgentCommand::ShowMetricSource { metric } => {
                     // Open the source preview for the metric definition
@@ -184,6 +190,7 @@ impl Workspace {
                     {
                         self.open_metric_definition(&metric);
                         log::info!("Agent opened metric source: {metric}");
+                        executed_any = true;
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -196,6 +203,7 @@ impl Workspace {
                     {
                         self.open_alert_definition(&alert);
                         log::info!("Agent opened alert source: {alert}");
+                        executed_any = true;
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -215,6 +223,7 @@ impl Workspace {
                     // Find the first agent pane and inject the chart
                     self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
                     log::info!("Injected inline chart for query: {query}");
+                    executed_any = true;
                 }
                 AgentCommand::ShowInlineSource {
                     metric,
@@ -225,12 +234,20 @@ impl Workspace {
                     if let Some(source) = self.generate_inline_source(&metric, lines) {
                         self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
                         log::info!("Injected inline source for metric: {metric}");
+                        executed_any = true;
                     } else {
                         log::warn!("Could not find source for metric: {metric}");
                     }
                 }
             }
         }
+
+        // Request repaint to ensure query execution runs on next frame
+        if executed_any {
+            ctx.request_repaint();
+        }
+
+        executed_any
     }
 
     /// Poll all agent panes for pending commands and execute them.
@@ -294,12 +311,19 @@ impl Workspace {
     /// Add a tile to the viewport, handling different container types
     /// Returns true if the tile was successfully added
     pub(super) fn add_tile_to_viewport(&mut self, tile_id: TileId) -> bool {
+        let tiles_before = self.viewport_tree.tiles.len();
         let Some(root_id) = self.viewport_tree.root() else {
             // No root exists (all panes were closed), create a new tabs container
+            log::warn!(
+                "add_tile_to_viewport: No root exists! Creating new tabs container. tiles_before={tiles_before}"
+            );
             let new_root = self.viewport_tree.tiles.insert_tab_tile(vec![tile_id]);
             self.viewport_tree.root = Some(new_root);
             return true;
         };
+        log::debug!(
+            "add_tile_to_viewport: Adding tile {tile_id:?} to root {root_id:?}. tiles_before={tiles_before}"
+        );
 
         match self.viewport_tree.tiles.get_mut(root_id) {
             Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs))) => {
