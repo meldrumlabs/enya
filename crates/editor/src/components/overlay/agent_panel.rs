@@ -83,6 +83,8 @@ pub struct AgentPanel {
     editor_context: Option<super::agent_context::EditorContext>,
     /// Commands parsed from completed responses (drained on next show())
     pending_commands: Vec<super::agent_context::AgentCommand>,
+    /// Whether to auto-submit the input on next show() call
+    pending_submit: bool,
 }
 
 impl AgentPanel {
@@ -109,6 +111,7 @@ impl AgentPanel {
             runtime_handle: Some(runtime_handle),
             editor_context: None,
             pending_commands: Vec::new(),
+            pending_submit: false,
         }
     }
 
@@ -133,6 +136,7 @@ impl AgentPanel {
             request_start_time: None,
             editor_context: None,
             pending_commands: Vec::new(),
+            pending_submit: false,
         }
     }
 
@@ -174,6 +178,18 @@ impl AgentPanel {
         self.focus_input = true;
     }
 
+    /// Submit a query programmatically (e.g., from Agent Input Bar)
+    ///
+    /// Opens the panel if not already open and queues the message for sending.
+    pub fn submit_query(&mut self, query: &str) {
+        if query.trim().is_empty() {
+            return;
+        }
+        self.input_text = query.to_string();
+        self.is_open = true;
+        self.pending_submit = true;
+    }
+
     /// Close the panel
     pub fn close(&mut self) {
         self.is_open = false;
@@ -193,6 +209,35 @@ impl AgentPanel {
         self.is_open
     }
 
+    /// Check if the panel is currently waiting for a response
+    pub fn is_waiting(&self) -> bool {
+        self.is_waiting
+    }
+
+    /// Get the current response status
+    pub fn response_status(&self) -> ResponseStatus {
+        self.current_status
+    }
+
+    /// Get the current response text (may be partial during streaming)
+    pub fn response_text(&self) -> &str {
+        &self.response_text
+    }
+
+    /// Get the current activities (tool uses, thinking, etc.)
+    pub fn activities(&self) -> &[ActivityItem] {
+        &self.current_activities
+    }
+
+    /// Get the last completed response text (from messages, not streaming)
+    pub fn last_response(&self) -> Option<&str> {
+        self.messages
+            .iter()
+            .rev()
+            .find(|m| m.role == MessageRole::Assistant && !m.is_streaming)
+            .map(|m| m.content.as_str())
+    }
+
     /// Show the panel as a side panel. Returns the result.
     pub fn show(&mut self, ctx: &egui::Context) -> AgentPanelResult {
         if !self.is_open {
@@ -206,6 +251,12 @@ impl AgentPanel {
 
         // Poll streaming state
         self.poll_streaming_response();
+
+        // Handle pending submit from external submit_query() call
+        if self.pending_submit && !self.is_waiting {
+            self.pending_submit = false;
+            self.send_message(ctx);
+        }
 
         // Request repaint while timer is running (to update elapsed time)
         if self.request_start_time.is_some() {

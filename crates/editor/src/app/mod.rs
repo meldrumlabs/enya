@@ -187,6 +187,8 @@ impl EnyaApp {
                         StatusMode::Search
                     } else if workspace.is_viewport_filter_open() {
                         StatusMode::Filter
+                    } else if workspace.is_agent_mode() {
+                        StatusMode::Agent
                     } else if workspace.is_visual_multi_mode() {
                         StatusMode::VisualMulti
                     } else if workspace.is_fullscreen() {
@@ -251,9 +253,16 @@ impl EnyaApp {
             self.status_line.set_sparkline(Some(sparkline));
         }
 
+        let theme = self.state.theme;
         egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(false)
             .show(ctx, |ui| {
+                // Show agent input bar above status line (if in agent mode)
+                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                    tab.workspace.show_agent_input_bar(ui, ctx, theme);
+                }
+
+                // Status line at the bottom
                 self.status_line.show(ui);
             });
     }
