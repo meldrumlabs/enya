@@ -69,7 +69,7 @@ enya-ai = { workspace = true }
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ewebsock = { workspace = true }
-parking_lot = { workspace = true, features = ["wasm-bindgen", "serde"] }
+parking_lot = { workspace = true, features = ["serde"] }
 wasm-bindgen-futures = { workspace = true }
 wasm-bindgen = { workspace = true }
 js-sys = { workspace = true }
