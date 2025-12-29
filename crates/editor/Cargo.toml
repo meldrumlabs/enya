@@ -21,7 +21,7 @@ eframe = { workspace = true, default-features = false, features = [
   "wgpu",
   "persistence",
 ] }
-egui_extras = { workspace = true, features = ["image", "svg"] }
+egui_extras = { workspace = true, features = ["image"] }
 egui_nerdfonts = { workspace = true }
 egui_tiles = { workspace = true, features = ["serde"] }
 egui_plot = { workspace = true }
@@ -42,13 +42,13 @@ rustc-hash = { workspace = true }
 # nohash-hasher comes transitively from egui, pin to same version
 nohash-hasher = "0.2"
 # Zero-cost profiling abstraction - macros compile to nothing without a backend
-profiling = { version = "1.0", default-features = false }
+profiling = "1.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 parking_lot = { workspace = true, features = ["serde"] }
 ewebsock = { workspace = true, features = ["tls"] }
-env_logger = { workspace = true }
+simple_logger = { workspace = true }
 mimalloc = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
 # Enable metal backend for wgpu on macOS

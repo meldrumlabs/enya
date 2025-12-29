@@ -57,7 +57,7 @@ wgpu = { version = "27.0", default-features = false, features = [
   "wgsl",    # WGSL shader support
 ] }
 egui_plot = "0.34.0"
-egui_extras = { version = "0.33.2", features = ["image", "svg"] }
+egui_extras = { version = "0.33.2", default-features = false, features = ["image"] }
 egui_nerdfonts = { path = "crates/egui_nerdfonts" }
 egui_tiles = { version = "0.14.0", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["wasmbind"] }
@@ -66,9 +66,7 @@ poll-promise = "0.3"
 smallvec = "1.13.2"
 nucleo-matcher = "0.3.1"
 
-image = { version = "0.25", features = [
-  "png",
-] } # Add the types you want support for
+image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 fastrand = "1.2.0"
 # You only need serde if you want app persistence:
@@ -78,6 +76,7 @@ toml = "0.8"
 base64 = "0.22"
 
 parking_lot = { version = "0.11", features = ["serde"] }
+simple_logger = { version = "5.1", default-features = false }
 env_logger = "0.11"
 mimalloc = "0.1.43"
 rustls = { version = "0.23.22", features = ["ring"] }

@@ -9,7 +9,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    simple_logger::init_with_env().unwrap(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     // Create tokio runtime for async operations (AI agent, background tasks)
     // This runs on background threads, keeping the UI thread responsive
