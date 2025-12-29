@@ -288,3 +288,36 @@ impl Default for ScannerRegistry {
         registry
     }
 }
+
+impl ScannerRegistry {
+    /// Creates a registry with only the scanner for a specific language.
+    ///
+    /// Supported languages: "rust", "python", "go", "javascript", "typescript"
+    /// If the language is not recognized or empty, returns a registry with all scanners.
+    #[must_use]
+    pub fn for_language(language: &str) -> Self {
+        let mut registry = Self::new();
+        match language.to_lowercase().as_str() {
+            "rust" | "rs" => {
+                registry.register(Box::new(RustMetricsScanner::new()));
+            }
+            "python" | "py" => {
+                registry.register(Box::new(PythonPrometheusScanner::new()));
+            }
+            "go" | "golang" => {
+                registry.register(Box::new(GoPrometheusScanner::new()));
+            }
+            "javascript" | "js" => {
+                registry.register(Box::new(JavaScriptPromClientScanner::new()));
+            }
+            "typescript" | "ts" => {
+                registry.register(Box::new(TypeScriptPromClientScanner::new()));
+            }
+            _ => {
+                // Unknown or empty language, use all scanners
+                return Self::default();
+            }
+        }
+        registry
+    }
+}

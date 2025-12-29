@@ -475,6 +475,34 @@ pub mod statusline {
     pub const REFRESH: &str = regular::SYNC;
 }
 
+// ============================================================================
+// Language Icons - icons for programming languages
+// ============================================================================
+
+pub mod language {
+    use egui_nerdfonts::regular;
+
+    // Language icons from MDI (Material Design Icons) - the LANGUAGE_* variants
+    // include the actual language logos (Rust gear, Go gopher, Python snake, etc.)
+    pub const RUST: &str = regular::LANGUAGE_RUST;
+    pub const GO: &str = regular::LANGUAGE_GO;
+    pub const PYTHON: &str = regular::LANGUAGE_PYTHON;
+    pub const JAVASCRIPT: &str = regular::LANGUAGE_JAVASCRIPT;
+    pub const TYPESCRIPT: &str = regular::LANGUAGE_TYPESCRIPT;
+
+    /// Get language icon from language name
+    pub fn from_name(name: &str) -> Option<&'static str> {
+        match name.to_lowercase().as_str() {
+            "rust" | "rs" => Some(RUST),
+            "go" | "golang" => Some(GO),
+            "python" | "py" => Some(PYTHON),
+            "javascript" | "js" => Some(JAVASCRIPT),
+            "typescript" | "ts" => Some(TYPESCRIPT),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -243,10 +243,6 @@ impl EnyaApp {
                         );
 
                         log::info!("Workspace loaded: {name}");
-                        self.notifications.notify(Notification::new(
-                            format!("Workspace loaded: {name}"),
-                            NotificationLevel::Success,
-                        ));
                     } else {
                         self.notifications.notify(Notification::new(
                             "No active workspace tab".to_string(),
@@ -311,11 +307,6 @@ impl EnyaApp {
                             workspace_config.workspace.name.clone(),
                             workspace_config.workspace.description.clone(),
                         );
-
-                        self.notifications.notify(Notification::new(
-                            format!("Workspace loaded: {}", workspace_config.workspace.name),
-                            NotificationLevel::Success,
-                        ));
                     } else {
                         self.notifications.notify(Notification::new(
                             "No active workspace tab".to_string(),

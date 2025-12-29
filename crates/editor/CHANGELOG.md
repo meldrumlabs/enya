@@ -4,6 +4,19 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Language icons now render correctly**: Fixed language icons (Rust, Go, Python, etc.) in the status bar not rendering. Updated the bundled Nerd Font (Symbols Nerd Font) to the latest version which includes the MDI `LANGUAGE_*` icons with actual language logos.
+
+### Changed
+
+- **Enhanced indexing status**: The status line now shows the current file being indexed with a Zed-like format (e.g., "Indexing main.rs + 42 more") instead of just "Indexing [5/42]...". This provides better visibility into what files are being processed during codebase indexing.
+- **Language configuration for codebase scanning**: Workspaces can now specify a `language` field in the `[codebase]` config section to limit metric scanning to a specific language. Supported values: `rust`, `go`, `python`, `javascript`, `typescript`. If not specified, all language scanners are used. This avoids indexing irrelevant files (e.g., Python `__init__.py` in a Rust codebase).
+- **Improved file filtering**: The indexer now excludes more common static asset directories (`dist`, `build`, `public`, `assets`) and skips minified files (`*.min.*`).
+- **Enhanced codebase status display**: The status bar now shows richer information when a codebase is configured:
+  - During indexing: Shows language icon (Rust gear, Go gopher, Python logo, etc.) with the current file being indexed
+  - When ready: Shows repo name with language icon and metrics count (e.g., " rust-app-atlas | 42 metrics")
+
 ### Added
 
 - **Vim-style Agent mode**: New modal agent mode for AI-assisted interactions, inspired by Neovim's modal editing:
