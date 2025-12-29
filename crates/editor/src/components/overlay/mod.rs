@@ -19,7 +19,7 @@ pub mod workspace_finder;
 pub use agent_context::build_codebase_context;
 pub use agent_context::{
     AgentCommand, CodebaseContext, ConnectionContext, DashboardContext, EditorContext,
-    build_connection_context, build_dashboard_context,
+    build_connection_context, build_dashboard_context, parse_commands, strip_command_blocks,
 };
 pub use agent_panel::{AgentPanel, AgentPanelResult, ChatMessage};
 // Re-export shared types from util for backwards compatibility

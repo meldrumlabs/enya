@@ -7,7 +7,9 @@
 use egui_tiles::{Tile, TileId};
 
 use super::{NavDirection, Workspace, WorkspaceAction};
-use crate::components::{Buffer, BufferMode, EditExcerpt, QueryPane, TimeRangePreset};
+use crate::components::{
+    Buffer, BufferMode, EditExcerpt, QueryPane, QuickCommand, TimeRangePreset,
+};
 
 impl Workspace {
     /// Handle vim-style keyboard navigation for the viewport.
@@ -31,6 +33,12 @@ impl Workspace {
             || self.source_preview.is_open()
             || self.agent_panel.is_open()
         {
+            return None;
+        }
+
+        // Handle agent mode - keyboard is handled by AgentInputBar
+        if self.agent_mode_active {
+            // Agent input bar handles its own keyboard in show()
             return None;
         }
 
@@ -67,6 +75,9 @@ impl Workspace {
         let mut should_go_to_alert = false;
         let mut should_show_definition_demo = false;
         let mut should_toggle_agent_panel = false;
+        let mut should_enter_agent_mode = false;
+        let mut should_enter_agent_mode_typing = false;
+        let mut agent_quick_command: Option<QuickCommand> = None;
         let mut new_tile_id: Option<TileId> = None;
         let mut time_range_preset: Option<TimeRangePreset> = None;
 
@@ -265,6 +276,82 @@ impl Workspace {
                 }
             }
 
+            // Agent operator shortcuts (must follow 'a' within timeout)
+            // Check these BEFORE other single-key shortcuts to prevent e/f/h/etc from being consumed
+            if self.leader_keys.is_a_active() {
+                // aw - What's wrong? (triage)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                    agent_quick_command = Some(QuickCommand::WhatsWrong);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ae - Explain (focused element)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
+                    agent_quick_command = Some(QuickCommand::Explain);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ay - Why? (root cause)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Y) {
+                    agent_quick_command = Some(QuickCommand::Why);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ac - Compare (to baseline)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
+                    agent_quick_command = Some(QuickCommand::Compare);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ar - Related (correlated metrics)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::R) {
+                    agent_quick_command = Some(QuickCommand::Related);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // af - Fix (remediation suggestions)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+                    agent_quick_command = Some(QuickCommand::Fix);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // as - Summarize (incident summary)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::S) {
+                    agent_quick_command = Some(QuickCommand::Summarize);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ah - History (past similar incidents)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
+                    agent_quick_command = Some(QuickCommand::History);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // aa - just enter agent mode in typing mode (double tap)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                    should_enter_agent_mode_typing = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+            }
+
             // e - enter edit mode on focused pane (vim-style)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
                 should_edit_buffer = true;
@@ -281,6 +368,14 @@ impl Workspace {
             // F - toggle fullscreen for focused pane
             if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
                 should_toggle_fullscreen = true;
+                consumed = true;
+                return;
+            }
+
+            // a - agent operator (aw, ae, ay, ac, ar, af, as, ah) or just enter agent mode
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                // Record 'a' press time for agent operator detection
+                self.leader_keys.press_a();
                 consumed = true;
                 return;
             }
@@ -426,6 +521,20 @@ impl Workspace {
             ctx.request_repaint();
         }
 
+        if should_enter_agent_mode {
+            if let Some(command) = agent_quick_command {
+                self.enter_agent_mode_with_command(command);
+            } else {
+                self.enter_agent_mode();
+            }
+            ctx.request_repaint();
+        }
+
+        if should_enter_agent_mode_typing {
+            self.enter_agent_mode_typing();
+            ctx.request_repaint();
+        }
+
         if should_open_which_key {
             self.which_key.open();
         } else if should_enter_visual_multi {
@@ -502,6 +611,7 @@ impl Workspace {
         let mut should_open_multi_edit = false;
         let mut should_close_selected = false;
         let mut should_refresh_selected = false;
+        let mut should_enter_agent_mode = false;
         let mut new_cursor_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -540,8 +650,15 @@ impl Workspace {
                 return;
             }
 
-            // a - select all panes
+            // a - enter agent mode with selected panes as context
             if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                should_enter_agent_mode = true;
+                consumed = true;
+                return;
+            }
+
+            // A (Shift+A) - select all panes
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::A) {
                 should_select_all = true;
                 consumed = true;
                 return;
@@ -610,6 +727,10 @@ impl Workspace {
         if should_exit {
             self.exit_visual_multi_mode();
             self.multi_buffer_state.reset();
+        } else if should_enter_agent_mode {
+            // Enter agent mode with selected panes as context
+            // enter_agent_mode() will transfer the visual selection
+            self.enter_agent_mode();
         } else if should_close_selected {
             self.close_selected_panes();
         } else if should_refresh_selected {

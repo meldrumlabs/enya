@@ -150,6 +150,8 @@ pub enum StatusMode {
     Diff,
     /// Visual multi-select mode (selecting multiple panes)
     VisualMulti,
+    /// Agent mode (AI-assisted interaction)
+    Agent,
 }
 
 impl StatusMode {
@@ -165,6 +167,7 @@ impl StatusMode {
             Self::Fullscreen => "FULLSCREEN",
             Self::Diff => "DIFF",
             Self::VisualMulti => "V-MULTI",
+            Self::Agent => "AGENT",
         }
     }
 
@@ -173,12 +176,12 @@ impl StatusMode {
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
             Self::Normal => match theme {
-                AppTheme::Light => palette::accent::LIGHT,
-                AppTheme::Dark => palette::accent::PRIMARY,
+                AppTheme::Light => palette::accent::LIGHT, // Emerald - brand color
+                AppTheme::Dark => palette::accent::PRIMARY, // Emerald
             },
             Self::Home => match theme {
-                AppTheme::Light => palette::accent::LIGHT,
-                AppTheme::Dark => palette::accent::PRIMARY,
+                AppTheme::Light => palette::accent::LIGHT, // Emerald - brand color
+                AppTheme::Dark => palette::accent::PRIMARY, // Emerald
             },
             Self::Command => match theme {
                 AppTheme::Light => palette::accent::LIGHT,
@@ -208,6 +211,10 @@ impl StatusMode {
                 AppTheme::Light => palette::accent::LIGHT, // Emerald - matches brand
                 AppTheme::Dark => palette::accent::HOVER,  // Bright emerald
             },
+            Self::Agent => match theme {
+                AppTheme::Light => Color32::from_rgb(245, 158, 11), // Amber
+                AppTheme::Dark => Color32::from_rgb(251, 191, 36),  // Bright amber
+            },
         }
     }
 
@@ -219,6 +226,8 @@ impl StatusMode {
             Self::Normal | Self::Home | Self::Command | Self::VisualMulti => {
                 Color32::from_rgb(10, 10, 10)
             }
+            // Amber backgrounds - use dark text for contrast
+            Self::Agent => Color32::from_rgb(40, 44, 52),
             // Gray backgrounds in light theme need light text, dark theme need dark text
             Self::Search => match theme {
                 AppTheme::Light => Color32::from_rgb(248, 248, 242),

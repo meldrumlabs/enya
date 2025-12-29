@@ -23,13 +23,15 @@ pub use overlay::{
     DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext, InfoOverlay, MessageRole,
     MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
     SourcePreviewResult, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceItem,
+    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceItem, parse_commands,
+    strip_command_blocks,
 };
 
 // Re-export from widget
 pub use widget::{
-    Buffer, BufferAction, BufferMode, LandingPage, LandingPageAction, Notification,
-    NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode, TimeRange,
+    AgentInputBar, AgentInputBarResult, AgentInputState, Buffer, BufferAction, BufferMode,
+    ContextPane, LandingPage, LandingPageAction, Notification, NotificationLevel,
+    NotificationManager, QuickCommand, Sparkline, StatusLine, StatusMode, TimeRange,
     TimeRangePreset, TimeRangeToolbar,
 };
 
