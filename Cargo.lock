@@ -1217,7 +1217,7 @@ dependencies = [
  "dirs",
  "enya-promql",
  "log",
- "parking_lot 0.11.2",
+ "parking_lot",
  "rustc-hash 2.1.1",
  "streaming-iterator",
  "tree-sitter",
