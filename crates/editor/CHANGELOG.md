@@ -6,6 +6,16 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Slash commands for Agent mode**: Type `/` in the agent input bar to trigger command suggestions, similar to how `@` works for metric mentions. Core commands:
+  - `/investigate` - Deep-dive analysis with correlations and anomalies
+  - `/diff` - Compare metric states between two time ranges
+  - `/query` - Generate PromQL from natural language
+  - `/explain` - Explain what the current query or chart shows
+  - Fuzzy search through commands with highlighted matches
+  - Keyboard navigation (↑/↓ or Ctrl+J/K) and Tab/Enter to select
+  - Commands are inserted into the input (e.g., `/investigate `) so you can continue typing
+  - Combine with `@` mentions: `/investigate @http_requests_total why is it spiking?`
+
 - **Configurable editor font**: Use `:font <name>` to switch between fonts. Available options: `maple` (Maple Mono), `departure` (Departure Mono), `jetbrains` (JetBrains Mono), `iosevka` (Iosevka). The preference is persisted across sessions. Departure Mono is the default.
 
 ### Changed
@@ -27,6 +37,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Popup positioned above cursor**: Both `/` slash command and `@` mention popups now appear directly above the trigger character position instead of centered, matching code editor autocomplete behavior. Popups are clamped to stay on screen.
 - **Language icons now render correctly**: Fixed language icons (Rust, Go, Python, etc.) in the status bar not rendering. Updated the bundled Nerd Font (Symbols Nerd Font) to the latest version which includes the MDI `LANGUAGE_*` icons with actual language logos.
 - **Time series x-axis visible in split panes**: Fixed an issue where the x-axis (time labels) was clipped when splitting panes horizontally (stacked). The chart now uses the actual remaining height after legend rendering to ensure the x-axis labels are always visible. Also improved height calculation for portrait-oriented panes (vsplit) to use a compact 20% max height.
 

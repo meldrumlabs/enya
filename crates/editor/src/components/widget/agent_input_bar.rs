@@ -26,6 +26,7 @@ use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::overlay::AgentCommand;
+use crate::components::overlay::SlashCommandPopup;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::overlay::{parse_commands, strip_command_blocks};
 use crate::components::util::ActivityItem;
@@ -285,10 +286,14 @@ pub struct AgentInputBar {
     pending_commands: Vec<AgentCommand>,
     /// @ mention popup state for metric selection
     mention_popup: MentionPopup,
+    /// / slash command popup state
+    slash_command_popup: SlashCommandPopup,
     /// Previous input text (for detecting @ insertion)
     prev_input: String,
     /// Whether to move cursor to end of input on next frame
     cursor_to_end: bool,
+    /// Last text edit rect (for positioning popups above cursor)
+    text_edit_rect: Option<egui::Rect>,
     /// Event receiver for streaming AI responses (native only)
     #[cfg(not(target_arch = "wasm32"))]
     event_receiver: Option<Receiver<AgentEvent>>,
@@ -322,8 +327,10 @@ impl AgentInputBar {
             can_undo: false,
             pending_commands: Vec::new(),
             mention_popup: MentionPopup::new(),
+            slash_command_popup: SlashCommandPopup::new(),
             prev_input: String::new(),
             cursor_to_end: false,
+            text_edit_rect: None,
             #[cfg(not(target_arch = "wasm32"))]
             event_receiver: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -350,8 +357,10 @@ impl AgentInputBar {
             can_undo: false,
             pending_commands: Vec::new(),
             mention_popup: MentionPopup::new(),
+            slash_command_popup: SlashCommandPopup::new(),
             prev_input: String::new(),
             cursor_to_end: false,
+            text_edit_rect: None,
             event_receiver: None,
             runtime_handle: Some(runtime_handle),
         }
@@ -360,6 +369,7 @@ impl AgentInputBar {
     /// Set the current theme
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
+        self.slash_command_popup.set_theme(theme);
     }
 
     /// Set the current AI provider name (e.g., "Claude", "Codex")
@@ -369,7 +379,18 @@ impl AgentInputBar {
 
     /// Set available metrics for @ mention autocomplete
     pub fn set_available_metrics(&mut self, metrics: Vec<String>) {
-        self.mention_popup.set_metrics(metrics);
+        self.mention_popup.set_metrics(metrics.clone());
+        self.slash_command_popup.set_available_metrics(metrics);
+    }
+
+    /// Open the slash command popup
+    pub fn open_slash_commands(&mut self) {
+        self.slash_command_popup.open();
+    }
+
+    /// Check if the slash command popup is open
+    pub fn is_slash_commands_open(&self) -> bool {
+        self.slash_command_popup.is_open()
     }
 
     /// Set the context panes (from visual mode selection)
@@ -407,6 +428,13 @@ impl AgentInputBar {
         std::mem::take(&mut self.pending_commands)
     }
 
+    /// Get the display text (response with command blocks stripped).
+    ///
+    /// Used to check if the agent sent explanatory text along with commands.
+    pub fn display_text(&self) -> &str {
+        &self.display_text
+    }
+
     /// Reset to ready state (for entering agent mode)
     pub fn reset(&mut self) {
         self.state = AgentInputState::Ready;
@@ -422,6 +450,7 @@ impl AgentInputBar {
         self.can_undo = false;
         self.pending_commands.clear();
         self.mention_popup.close();
+        self.slash_command_popup.close();
     }
 
     /// Reset and start in typing mode (for direct entry via `aa`)
@@ -493,7 +522,14 @@ impl AgentInputBar {
         };
         let height = match self.state {
             AgentInputState::Ready => base_height,
-            AgentInputState::Typing => base_height + 80.0, // Room for suggestions
+            AgentInputState::Typing => {
+                // Only add extra height for suggestions when there's input
+                if self.input.is_empty() {
+                    base_height
+                } else {
+                    base_height + 80.0
+                }
+            }
             AgentInputState::Processing => base_height + 24.0,
             AgentInputState::Response => {
                 if self.response_text.len() > 100 || self.response_text.contains('\n') {
@@ -691,12 +727,20 @@ impl AgentInputBar {
             ui.painter().rect_filled(highlight_rect, 10.0, inner_glow);
         }
 
-        // Check for @ mention trigger
-        self.check_mention_trigger();
+        // Check for / and @ triggers (order matters - slash first, then mention, then update prev_input)
+        self.check_input_triggers();
 
-        // Show mention popup if active
+        // Calculate cursor position for popup alignment
+        let cursor_x = self.calculate_cursor_x(ui);
+
+        // Show mention popup if active (positioned above cursor)
         if self.mention_popup.active {
-            self.show_mention_popup(ui, &colors, rect);
+            self.show_mention_popup(ui, &colors, rect, cursor_x);
+        }
+
+        // Show slash command popup if active (positioned above cursor)
+        if self.slash_command_popup.active {
+            self.slash_command_popup.show(ui, rect, cursor_x);
         }
 
         // Handle keyboard input
@@ -710,43 +754,113 @@ impl AgentInputBar {
         result
     }
 
-    /// Check if user typed @ to trigger mention popup
-    fn check_mention_trigger(&mut self) {
-        // Find if a new @ was just typed
+    /// Check for / and @ triggers in the input text.
+    /// Both use prev_input to detect changes, so we check both before updating prev_input.
+    fn check_input_triggers(&mut self) {
         let input_len = self.input.len();
         let prev_len = self.prev_input.len();
 
         if input_len > prev_len {
             // Character(s) were added
             let new_chars = &self.input[prev_len..];
-            if new_chars.contains('@') {
-                // Find position of the new @
-                if let Some(at_pos) = self.input.rfind('@') {
-                    self.mention_popup.start(at_pos);
+
+            // Check for / slash command trigger (only if mention popup is not active)
+            if !self.mention_popup.active {
+                if new_chars.contains('/') && !self.slash_command_popup.active {
+                    // Only trigger if / is at the start or after a space
+                    if let Some(slash_pos) = self.input.rfind('/') {
+                        let is_at_start = slash_pos == 0;
+                        let is_after_space =
+                            slash_pos > 0 && self.input.chars().nth(slash_pos - 1) == Some(' ');
+
+                        if is_at_start || is_after_space {
+                            self.slash_command_popup.start(slash_pos);
+                        }
+                    }
+                } else if self.slash_command_popup.active {
+                    // Update query: extract text after /
+                    let slash_pos = self.slash_command_popup.get_slash_position();
+                    if slash_pos < self.input.len() {
+                        let query = &self.input[slash_pos + 1..];
+                        // Close if there's a space (command was completed) or newline
+                        if query.contains(' ') || query.contains('\n') {
+                            self.slash_command_popup.close();
+                        } else {
+                            self.slash_command_popup.set_query(query);
+                        }
+                    }
                 }
-            } else if self.mention_popup.active {
-                // Update query: extract text after @
-                let query = &self.input[self.mention_popup.at_position + 1..];
-                // Close if there's a space or the @ was deleted
-                if query.contains(' ') || query.contains('\n') {
+            }
+
+            // Check for @ mention trigger (only if slash popup is not active)
+            if !self.slash_command_popup.active {
+                if new_chars.contains('@') {
+                    // Find position of the new @
+                    if let Some(at_pos) = self.input.rfind('@') {
+                        self.mention_popup.start(at_pos);
+                    }
+                } else if self.mention_popup.active {
+                    // Update query: extract text after @
+                    let query = &self.input[self.mention_popup.at_position + 1..];
+                    // Close if there's a space or the @ was deleted
+                    if query.contains(' ') || query.contains('\n') {
+                        self.mention_popup.close();
+                    } else {
+                        self.mention_popup.set_query(query);
+                    }
+                }
+            }
+        } else if input_len < prev_len {
+            // Character(s) were deleted
+            if self.slash_command_popup.active {
+                let slash_pos = self.slash_command_popup.get_slash_position();
+                if self.input.len() <= slash_pos {
+                    // The / was deleted
+                    self.slash_command_popup.close();
+                } else {
+                    // Update query
+                    let query = &self.input[slash_pos + 1..];
+                    self.slash_command_popup.set_query(query);
+                }
+            }
+
+            if self.mention_popup.active {
+                if self.input.len() <= self.mention_popup.at_position {
+                    // The @ was deleted
                     self.mention_popup.close();
                 } else {
+                    // Update query
+                    let query = &self.input[self.mention_popup.at_position + 1..];
                     self.mention_popup.set_query(query);
                 }
             }
-        } else if input_len < prev_len && self.mention_popup.active {
-            // Character(s) were deleted
-            if self.input.len() <= self.mention_popup.at_position {
-                // The @ was deleted
-                self.mention_popup.close();
-            } else {
-                // Update query
-                let query = &self.input[self.mention_popup.at_position + 1..];
-                self.mention_popup.set_query(query);
-            }
         }
 
+        // Update prev_input AFTER both checks
         self.prev_input = self.input.clone();
+    }
+
+    /// Calculate approximate cursor X position based on trigger character position
+    fn calculate_cursor_x(&self, _ui: &egui::Ui) -> Option<f32> {
+        let text_edit_rect = self.text_edit_rect?;
+
+        // Determine which trigger position to use
+        let char_pos = if self.slash_command_popup.active {
+            self.slash_command_popup.get_slash_position()
+        } else if self.mention_popup.active {
+            self.mention_popup.at_position
+        } else {
+            return None;
+        };
+
+        // Approximate character width for proportional font at MD size (~14px)
+        // This is an estimate; actual width varies per character
+        let char_width = 8.5;
+
+        // Calculate X position: text_edit left + (char_pos * char_width)
+        let cursor_x = text_edit_rect.left() + (char_pos as f32 * char_width);
+
+        Some(cursor_x)
     }
 
     /// Show the mention popup for selecting metrics
@@ -755,6 +869,7 @@ impl AgentInputBar {
         ui: &mut egui::Ui,
         _colors: &OverlayColors,
         input_rect: egui::Rect,
+        cursor_x: Option<f32>,
     ) {
         use crate::ui::palette;
 
@@ -763,18 +878,26 @@ impl AgentInputBar {
         }
 
         let text_col = text_color(self.theme);
-        let popup_width = 520.0; // Wider to accommodate long metric names
+        let popup_width = 480.0; // Same width as slash command popup
         let row_height = 32.0;
         let header_height = 32.0;
         let footer_height = 28.0;
         let results_height = self.mention_popup.results.len() as f32 * row_height;
         let popup_height = header_height + results_height.min(320.0) + footer_height;
 
-        // Position popup above the input bar, centered horizontally
-        let popup_pos = egui::pos2(
-            input_rect.center().x - popup_width / 2.0,
-            input_rect.top() - popup_height - 8.0,
-        );
+        // Position popup above cursor if available, otherwise center above input
+        let popup_x = if let Some(cx) = cursor_x {
+            // Align popup left edge with cursor, but clamp to screen
+            cx.max(8.0).min(input_rect.right() - popup_width)
+        } else {
+            (input_rect.center().x - popup_width / 2.0).max(8.0)
+        };
+
+        // Position popup well above the input bar (24px gap) so it doesn't obscure text
+        let ideal_y = input_rect.top() - popup_height - 24.0;
+        let popup_y = ideal_y.max(8.0);
+
+        let popup_pos = egui::pos2(popup_x, popup_y);
 
         // Premium Obsidian Glass styling
         let style = OverlayStyle::frosted_glass(self.theme);
@@ -839,103 +962,116 @@ impl AgentInputBar {
                             ui.cursor().top(),
                             egui::Stroke::new(1.0, separator_color),
                         );
-                        ui.add_space(6.0);
+                        ui.add_space(2.0);
 
-                        // Results
-                        for (i, (metric, _score, match_positions)) in
-                            self.mention_popup.results.iter().enumerate()
-                        {
-                            let is_selected = i == self.mention_popup.selected_index;
+                        // Results list (wrapped in ScrollArea like slash commands)
+                        let max_results_height = results_height.min(320.0);
+                        ScrollArea::vertical()
+                            .max_height(max_results_height)
+                            .auto_shrink([false, true])
+                            .show(ui, |ui| {
+                                for (i, (metric, _score, match_positions)) in
+                                    self.mention_popup.results.iter().enumerate()
+                                {
+                                    let is_selected = i == self.mention_popup.selected_index;
 
-                            // Allocate row space
-                            let (row_rect, response) = ui.allocate_exact_size(
-                                egui::vec2(popup_width, row_height),
-                                egui::Sense::hover(),
-                            );
-                            let is_hovered = response.hovered();
-
-                            // Background - use subtle hover style like landing page
-                            let bg_color = if is_selected {
-                                accent_col.gamma_multiply(0.12)
-                            } else if is_hovered {
-                                text_col.gamma_multiply(0.05)
-                            } else {
-                                Color32::TRANSPARENT
-                            };
-
-                            if bg_color != Color32::TRANSPARENT {
-                                ui.painter().rect_filled(row_rect, 6.0, bg_color);
-                            }
-
-                            // Emerald selection indicator bar
-                            if is_selected {
-                                let indicator_rect = egui::Rect::from_min_size(
-                                    row_rect.left_top(),
-                                    egui::vec2(3.0, row_height),
-                                );
-                                ui.painter().rect_filled(indicator_rect, 2.0, accent_col);
-                            }
-
-                            // Metric icon - use accent color on hover/select like landing page
-                            let icon_pos = row_rect.left_center() + egui::vec2(18.0, 0.0);
-                            let icon_color = if is_selected || is_hovered {
-                                accent_col
-                            } else {
-                                text_col.gamma_multiply(0.6)
-                            };
-                            ui.painter().text(
-                                icon_pos,
-                                egui::Align2::LEFT_CENTER,
-                                semantic_icons::metric_type_icon(metric),
-                                typography::proportional(typography::MD),
-                                icon_color,
-                            );
-
-                            // Metric name - use LayoutJob for highlighted text
-                            let text_pos = row_rect.left_center() + egui::vec2(44.0, 0.0);
-                            if match_positions.is_empty() {
-                                let text_color = if is_selected {
-                                    text_col
-                                } else {
-                                    text_col.gamma_multiply(0.9)
-                                };
-                                ui.painter().text(
-                                    text_pos,
-                                    egui::Align2::LEFT_CENTER,
-                                    metric,
-                                    typography::proportional(typography::MD),
-                                    text_color,
-                                );
-                            } else {
-                                // Build a LayoutJob with emerald-highlighted characters
-                                let mut job = egui::text::LayoutJob::default();
-                                for (idx, c) in metric.chars().enumerate() {
-                                    let is_match = match_positions.contains(&idx);
-                                    let color = if is_match {
-                                        emerald_accent
-                                    } else if is_selected {
-                                        text_col
-                                    } else {
-                                        text_col.gamma_multiply(0.9)
-                                    };
-                                    job.append(
-                                        &c.to_string(),
-                                        0.0,
-                                        egui::TextFormat {
-                                            font_id: typography::proportional(typography::MD),
-                                            color,
-                                            ..Default::default()
-                                        },
+                                    // Allocate row space
+                                    let (row_rect, response) = ui.allocate_exact_size(
+                                        egui::vec2(popup_width, row_height),
+                                        egui::Sense::hover(),
                                     );
+                                    let is_hovered = response.hovered();
+
+                                    // Background - use subtle hover style like landing page
+                                    let bg_color = if is_selected {
+                                        accent_col.gamma_multiply(0.12)
+                                    } else if is_hovered {
+                                        text_col.gamma_multiply(0.05)
+                                    } else {
+                                        Color32::TRANSPARENT
+                                    };
+
+                                    if bg_color != Color32::TRANSPARENT {
+                                        ui.painter().rect_filled(row_rect, 6.0, bg_color);
+                                    }
+
+                                    // Emerald selection indicator bar
+                                    if is_selected {
+                                        let indicator_rect = egui::Rect::from_min_size(
+                                            row_rect.left_top(),
+                                            egui::vec2(3.0, row_height),
+                                        );
+                                        ui.painter().rect_filled(indicator_rect, 2.0, accent_col);
+                                    }
+
+                                    // Metric icon - use accent color on hover/select like landing page
+                                    let icon_pos = row_rect.left_center() + egui::vec2(18.0, 0.0);
+                                    let icon_color = if is_selected || is_hovered {
+                                        accent_col
+                                    } else {
+                                        text_col.gamma_multiply(0.6)
+                                    };
+                                    ui.painter().text(
+                                        icon_pos,
+                                        egui::Align2::LEFT_CENTER,
+                                        semantic_icons::metric_type_icon(metric),
+                                        typography::proportional(typography::MD),
+                                        icon_color,
+                                    );
+
+                                    // Metric name - use LayoutJob for highlighted text
+                                    let text_pos = row_rect.left_center() + egui::vec2(44.0, 0.0);
+                                    if match_positions.is_empty() {
+                                        let text_color = if is_selected {
+                                            text_col
+                                        } else {
+                                            text_col.gamma_multiply(0.9)
+                                        };
+                                        ui.painter().text(
+                                            text_pos,
+                                            egui::Align2::LEFT_CENTER,
+                                            metric,
+                                            typography::proportional(typography::MD),
+                                            text_color,
+                                        );
+                                    } else {
+                                        // Build a LayoutJob with emerald-highlighted characters
+                                        let mut job = egui::text::LayoutJob::default();
+                                        for (idx, c) in metric.chars().enumerate() {
+                                            let is_match = match_positions.contains(&idx);
+                                            let color = if is_match {
+                                                emerald_accent
+                                            } else if is_selected {
+                                                text_col
+                                            } else {
+                                                text_col.gamma_multiply(0.9)
+                                            };
+                                            job.append(
+                                                &c.to_string(),
+                                                0.0,
+                                                egui::TextFormat {
+                                                    font_id: typography::proportional(typography::MD),
+                                                    color,
+                                                    ..Default::default()
+                                                },
+                                            );
+                                        }
+                                        let galley = ui.fonts_mut(|f| f.layout_job(job));
+                                        ui.painter().galley(
+                                            egui::pos2(text_pos.x, text_pos.y - galley.size().y / 2.0),
+                                            galley,
+                                            text_col,
+                                        );
+                                    }
+
+                                    // Scroll selected into view
+                                    if is_selected {
+                                        response.scroll_to_me(Some(egui::Align::Center));
+                                    }
                                 }
-                                let galley = ui.fonts_mut(|f| f.layout_job(job));
-                                ui.painter().galley(
-                                    egui::pos2(text_pos.x, text_pos.y - galley.size().y / 2.0),
-                                    galley,
-                                    text_col,
-                                );
-                            }
-                        }
+                            });
+
+                        ui.add_space(2.0);
 
                         // Footer separator
                         ui.add_space(6.0);
@@ -1007,7 +1143,7 @@ impl AgentInputBar {
         _result: &mut AgentInputBarResult,
     ) {
         // Placeholder with quick key hints
-        let hint_text = "w: what's wrong  y: why  c: compare  e: explain  ?: help";
+        let hint_text = "Ask a question...  /commands  @metrics";
 
         // Text input that looks like placeholder
         let response = ui.add(
@@ -1018,6 +1154,9 @@ impl AgentInputBar {
                 .text_color(colors.text)
                 .frame(false),
         );
+
+        // Store the text edit rect for popup positioning
+        self.text_edit_rect = Some(response.rect);
 
         if self.focus_input {
             response.request_focus();
@@ -1036,15 +1175,20 @@ impl AgentInputBar {
         colors: &OverlayColors,
         _result: &mut AgentInputBarResult,
     ) {
+        let hint_text = "Ask a question...  /commands  @metrics";
         let text_edit_id = ui.make_persistent_id("agent_input_typing");
         let response = ui.add(
             TextEdit::singleline(&mut self.input)
                 .id(text_edit_id)
+                .hint_text(hint_text)
                 .desired_width(ui.available_width() - 60.0)
                 .font(typography::proportional(typography::MD))
                 .text_color(colors.text)
                 .frame(false),
         );
+
+        // Store the text edit rect for popup positioning
+        self.text_edit_rect = Some(response.rect);
 
         if self.focus_input {
             response.request_focus();
@@ -1160,25 +1304,22 @@ impl AgentInputBar {
     }
 
     fn show_suggestions(&mut self, ui: &mut egui::Ui, colors: &OverlayColors) {
-        // TODO: Implement real-time AI suggestions based on input
-        // For now, show static suggestions based on common patterns
-
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new("Suggestions:")
+                RichText::new("Try:")
                     .color(colors.muted_text)
                     .size(typography::SM),
             );
         });
 
-        // Placeholder suggestions
+        // Example commands showing slash commands and @ mentions
         let suggestions = [
-            "Analyze selected metrics",
-            "Compare to yesterday",
-            "Show error rate trend",
+            "/investigate @metric_name why is it spiking?",
+            "/query show me p99 latency by endpoint",
+            "/diff @cpu_usage compare last hour to yesterday",
         ];
 
-        for suggestion in suggestions.iter().take(3) {
+        for suggestion in suggestions.iter() {
             ui.horizontal(|ui| {
                 ui.add_space(16.0);
                 ui.label(
@@ -1250,7 +1391,59 @@ impl AgentInputBar {
     }
 
     fn handle_keyboard(&mut self, ctx: &egui::Context, result: &mut AgentInputBarResult) {
-        // Handle mention popup keyboard input first
+        // Handle slash command popup keyboard input first (like @ mentions)
+        if self.slash_command_popup.active {
+            let mut handled = false;
+            ctx.input_mut(|input| {
+                // Navigate up
+                if input.consume_key(egui::Modifiers::NONE, Key::ArrowUp)
+                    || input.consume_key(egui::Modifiers::CTRL, Key::P)
+                    || input.consume_key(egui::Modifiers::CTRL, Key::K)
+                {
+                    self.slash_command_popup.select_prev();
+                    handled = true;
+                }
+                // Navigate down
+                else if input.consume_key(egui::Modifiers::NONE, Key::ArrowDown)
+                    || input.consume_key(egui::Modifiers::CTRL, Key::N)
+                    || input.consume_key(egui::Modifiers::CTRL, Key::J)
+                {
+                    self.slash_command_popup.select_next();
+                    handled = true;
+                }
+                // Select with Enter or Tab
+                else if input.consume_key(egui::Modifiers::NONE, Key::Enter)
+                    || input.consume_key(egui::Modifiers::NONE, Key::Tab)
+                {
+                    if let Some(cmd) = self.slash_command_popup.selected() {
+                        // Replace /query with the selected command + space
+                        let slash_pos = self.slash_command_popup.get_slash_position();
+                        let cmd_name = cmd.name;
+
+                        // Build new input: text before / + /command + space
+                        let prefix = &self.input[..slash_pos];
+                        self.input = format!("{prefix}/{cmd_name} ");
+                        self.prev_input = self.input.clone();
+                    }
+                    self.slash_command_popup.close();
+                    // Re-focus the input field after selection and move cursor to end
+                    self.focus_input = true;
+                    self.cursor_to_end = true;
+                    handled = true;
+                }
+                // Cancel with Escape
+                else if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                    self.slash_command_popup.close();
+                    handled = true;
+                }
+            });
+
+            if handled {
+                return;
+            }
+        }
+
+        // Handle mention popup keyboard input
         if self.mention_popup.active {
             let mut handled = false;
             ctx.input_mut(|input| {
@@ -1685,5 +1878,76 @@ fn extract_tool_summary(tool: &str, input: &str) -> String {
         "...".to_string()
     } else {
         truncate_text(input, 30)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_slash_trigger_at_start() {
+        let mut bar = AgentInputBar::new();
+        bar.input = "/".to_string();
+        bar.prev_input = String::new();
+
+        bar.check_input_triggers();
+
+        assert!(
+            bar.slash_command_popup.active,
+            "Slash popup should be active after typing / at start"
+        );
+        assert_eq!(
+            bar.slash_command_popup.get_slash_position(),
+            0,
+            "Slash position should be 0"
+        );
+    }
+
+    #[test]
+    fn test_slash_trigger_after_space() {
+        let mut bar = AgentInputBar::new();
+        bar.input = "hello /".to_string();
+        bar.prev_input = "hello ".to_string();
+
+        bar.check_input_triggers();
+
+        assert!(
+            bar.slash_command_popup.active,
+            "Slash popup should be active after typing / after space"
+        );
+        assert_eq!(
+            bar.slash_command_popup.get_slash_position(),
+            6,
+            "Slash position should be 6"
+        );
+    }
+
+    #[test]
+    fn test_slash_no_trigger_mid_word() {
+        let mut bar = AgentInputBar::new();
+        bar.input = "hello/".to_string();
+        bar.prev_input = "hello".to_string();
+
+        bar.check_input_triggers();
+
+        assert!(
+            !bar.slash_command_popup.active,
+            "Slash popup should NOT be active when / is in middle of word"
+        );
+    }
+
+    #[test]
+    fn test_mention_trigger() {
+        let mut bar = AgentInputBar::new();
+        bar.input = "@".to_string();
+        bar.prev_input = String::new();
+
+        bar.check_input_triggers();
+
+        assert!(
+            bar.mention_popup.active,
+            "Mention popup should be active after typing @"
+        );
     }
 }
