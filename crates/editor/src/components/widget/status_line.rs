@@ -140,8 +140,6 @@ pub enum StatusMode {
     Command,
     /// Search mode (when fuzzy finder is open)
     Search,
-    /// Filter mode (when viewport filter input is open)
-    Filter,
     /// Zen mode (distraction-free view)
     Zen,
     /// Fullscreen mode (single pane maximized)
@@ -162,7 +160,6 @@ impl StatusMode {
             Self::Home => "HOME",
             Self::Command => "COMMAND",
             Self::Search => "SEARCH",
-            Self::Filter => "FILTER",
             Self::Zen => "ZEN",
             Self::Fullscreen => "FULLSCREEN",
             Self::Diff => "DIFF",
@@ -190,10 +187,6 @@ impl StatusMode {
             Self::Search => match theme {
                 AppTheme::Light => Color32::from_rgb(140, 140, 150), // Muted gray
                 AppTheme::Dark => Color32::from_rgb(180, 180, 190),  // Light gray
-            },
-            Self::Filter => match theme {
-                AppTheme::Light => Color32::from_rgb(220, 140, 60), // Orange
-                AppTheme::Dark => Color32::from_rgb(245, 158, 66),  // Bright orange
             },
             Self::Zen => match theme {
                 AppTheme::Light => Color32::from_rgb(120, 100, 160), // Soft purple
@@ -233,8 +226,6 @@ impl StatusMode {
                 AppTheme::Light => Color32::from_rgb(248, 248, 242),
                 AppTheme::Dark => Color32::from_rgb(40, 44, 52),
             },
-            // Orange backgrounds - use dark text for contrast
-            Self::Filter => Color32::from_rgb(40, 44, 52),
             // Cyan backgrounds - use dark text for contrast
             Self::Zen | Self::Fullscreen => Color32::from_rgb(40, 44, 52),
             // Blue backgrounds - use white text

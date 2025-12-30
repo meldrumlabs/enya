@@ -17,7 +17,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Distinct tab vs pane focus colors**: Active tabs now use sky blue (#6EBEF8) for their outline, while pane focus uses emerald. This creates a clear visual hierarchy between tab selection and pane focus.
 - **Consolidated chart colors**: Time series charts and demo visualizations now use the centralized `palette::chart::PALETTE` instead of hardcoded colors, ensuring consistent theming across all visualizations.
 - **Premium query overlay styling**: The query overlay shown at the bottom of selected panes in visual-multi mode now features Obsidian Glass styling with an emerald accent bar on the left edge and a subtle top border line. Uses palette colors for consistent theming.
-- **Premium viewport filter styling**: The `/` search filter overlay now features emerald accent colors for the search icon and slash indicator, keyboard badges for hints (Enter, Esc), a separator line, and proper palette color hierarchy.
+- **Viewport filter as bottom bar**: The `/` search filter now renders as a vim-style command line bar above the status line (like Agent mode) instead of a centered overlay. This is less intrusive and more consistent with vim's search behavior. Only available in Normal mode.
 
 ### Fixed
 

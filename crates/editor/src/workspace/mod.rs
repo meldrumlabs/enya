@@ -696,23 +696,14 @@ impl Workspace {
         // Poll agent panes for pending commands
         self.poll_agent_pane_commands(ctx);
 
-        // Show viewport filter overlay and handle results
+        // Update viewport filter state (rendering happens in bottom panel)
         self.viewport_filter.set_theme(app_state.theme);
-        // Update filter counts before showing
         let (match_count, total_count) = self.count_filtered_panes();
         self.viewport_filter.update_counts(match_count, total_count);
-        match self.viewport_filter.show(ctx) {
-            ViewportFilterResult::Applied(pattern) => {
-                log::debug!("Workspace filter applied: {pattern}");
-            }
-            ViewportFilterResult::Cleared => {
-                log::debug!("Workspace filter cleared");
-            }
-            ViewportFilterResult::None => {}
-        }
 
         // Handle / key for viewport filter (vim-style search)
         // NOTE: Must run BEFORE the ? handler since both use the Slash key
+        // Only available in Normal mode (not Visual, Insert, or Agent mode)
         if !self.which_key.is_open()
             && !self.metrics_finder.is_open()
             && !self.command_palette.is_open()
@@ -720,6 +711,7 @@ impl Workspace {
             && !self.viewport_filter.is_open()
             && !self.is_any_buffer_in_insert_mode()
             && !self.agent_mode_active
+            && !self.is_visual_multi_mode()
         {
             ctx.input_mut(|input| {
                 // Check for '/' character in text input (works across keyboard layouts)
@@ -1567,6 +1559,20 @@ impl Workspace {
 
         let result = self.agent_input_bar.show(ui);
         self.handle_agent_input_result(result, ctx);
+    }
+
+    /// Show the viewport filter bar and handle its results.
+    /// Called from the app's bottom panel to render above the status line.
+    pub fn show_viewport_filter_bar(&mut self, ui: &mut egui::Ui) {
+        match self.viewport_filter.show(ui) {
+            ViewportFilterResult::Applied(pattern) => {
+                log::debug!("Workspace filter applied: {pattern}");
+            }
+            ViewportFilterResult::Cleared => {
+                log::debug!("Workspace filter cleared");
+            }
+            ViewportFilterResult::None => {}
+        }
     }
 
     /// Handle results from the agent input bar

@@ -185,8 +185,6 @@ impl EnyaApp {
                         StatusMode::Command
                     } else if workspace.is_metrics_finder_open() {
                         StatusMode::Search
-                    } else if workspace.is_viewport_filter_open() {
-                        StatusMode::Filter
                     } else if workspace.is_agent_mode() {
                         StatusMode::Agent
                     } else if workspace.is_visual_multi_mode() {
@@ -260,6 +258,11 @@ impl EnyaApp {
                 // Show agent input bar above status line (if in agent mode)
                 if let Some(tab) = self.workspace_tabs.active_tab_mut() {
                     tab.workspace.show_agent_input_bar(ui, ctx, theme);
+                }
+
+                // Show viewport filter bar above status line (if filter is open)
+                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                    tab.workspace.show_viewport_filter_bar(ui);
                 }
 
                 // Status line at the bottom
