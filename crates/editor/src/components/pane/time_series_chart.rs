@@ -781,14 +781,21 @@ impl TimeSeriesChart {
         let available_width = ui.available_width();
         let available_height = ui.available_height();
         let aspect_height = available_width * DEFAULT_ASPECT_RATIO;
-        // Use the smaller of available height or aspect-based height, but respect minimum
-        let optimal_height = available_height.min(aspect_height).max(MIN_CHART_HEIGHT);
 
-        // Center the plot vertically if there's extra space
-        let vertical_padding = (available_height - optimal_height).max(0.0) / 2.0;
-        if vertical_padding > 1.0 {
-            ui.add_space(vertical_padding);
-        }
+        // When available height is constrained (split panes), use available height directly
+        // to ensure the x-axis labels remain visible and don't get clipped.
+        // Only use aspect ratio when we have ample vertical space.
+        let use_available_height = available_height < MIN_CHART_HEIGHT * 1.5;
+        let optimal_height = if use_available_height {
+            // Constrained: use available height (allows plot to shrink and show axis)
+            available_height
+        } else {
+            // Ample space: use aspect ratio for aesthetic proportions
+            aspect_height.max(MIN_CHART_HEIGHT).min(available_height)
+        };
+
+        // Note: We align the chart to the top of the pane (no vertical centering).
+        // This looks cleaner in vsplit layouts where panes are tall and narrow.
 
         // Apply very soft grid lines for premium look - barely visible structure
         let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.25);
@@ -910,12 +917,37 @@ impl TimeSeriesChart {
 
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         // Note: We use our own custom legend above the chart, so no egui_plot legend
+        // Use the ACTUAL remaining height after legend, but cap it for good aspect ratio
+        let remaining_height = ui.available_height();
+        let remaining_width = ui.available_width();
+
+        // Calculate a reasonable plot height:
+        // - When height is constrained (stacked panes): use all remaining height
+        // - When pane is tall & narrow (vsplit): use aspect ratio to avoid stretching
+        // - Otherwise: use the pre-calculated optimal height
+        //
+        // Detect vsplit by checking if pane is portrait-oriented (height > width * 1.2)
+        let is_portrait = remaining_height > remaining_width * 1.2;
+        let plot_height = if remaining_height < MIN_CHART_HEIGHT * 1.5 {
+            // Height constrained (horizontal split) - use all remaining height
+            remaining_height
+        } else if is_portrait {
+            // Portrait pane (vsplit) - use standard aspect ratio
+            // and cap to 20% of pane height for compact dashboard appearance
+            let aspect_height = remaining_width * DEFAULT_ASPECT_RATIO;
+            let max_height = remaining_height * 0.20; // Cap to 20% of pane
+            aspect_height.max(MIN_CHART_HEIGHT).min(max_height)
+        } else {
+            // Ample space - use optimal height but don't exceed remaining
+            optimal_height.min(remaining_height)
+        };
+
         let plot = Plot::new(format!("plot_{}", self.id))
-            .min_size(egui::vec2(100.0, MIN_CHART_HEIGHT))
-            .height(optimal_height)
+            .min_size(egui::vec2(100.0, 80.0)) // Reduced min height to allow smaller panes
+            .height(plot_height)
+            .show_axes([true, true])
             .custom_x_axes(vec![x_axis])
             .custom_y_axes(vec![y_axis])
-            .show_axes(true)
             .show_grid(true)
             .allow_zoom(true)
             .allow_drag(true)
