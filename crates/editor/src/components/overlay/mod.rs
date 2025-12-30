@@ -8,6 +8,7 @@ pub mod diagnostics;
 pub mod info;
 pub mod metrics_finder;
 pub mod multi_edit;
+pub mod slash_commands;
 pub mod source_preview;
 pub mod tutorial;
 pub mod viewport_filter;
@@ -33,6 +34,9 @@ pub use diagnostics::{
 pub use info::InfoOverlay;
 pub use metrics_finder::{MetricItem, MetricsFinder};
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
+pub use slash_commands::{
+    SLASH_COMMANDS, SlashCommand, SlashCommandCategory, SlashCommandPopup, SlashCommandResult,
+};
 pub use source_preview::{SourcePreviewOverlay, SourcePreviewResult};
 pub use tutorial::TutorialOverlay;
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};

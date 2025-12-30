@@ -308,10 +308,11 @@ impl Workspace {
                     log::info!("Executing agent command: {cmd:?}");
                 }
                 let executed = self.handle_agent_commands(commands, ctx);
-                // Auto-exit agent mode after successful command execution
-                // This allows the user to immediately navigate panes with vim keys
-                if executed {
-                    log::info!("Agent command executed successfully, exiting agent mode");
+                // Only auto-exit if commands were executed AND there's no response text
+                // This allows conversational flows where the agent explains what it's doing
+                let has_response_text = !self.agent_input_bar.display_text().is_empty();
+                if executed && !has_response_text {
+                    log::info!("Agent command executed (no response text), exiting agent mode");
                     self.exit_agent_mode();
                 }
             }
@@ -1503,9 +1504,10 @@ impl Workspace {
                 converted_commands.len()
             );
             let executed = self.handle_agent_commands(converted_commands, ctx);
-            // Auto-exit agent mode after successful command execution
-            if executed {
-                log::info!("Agent command executed successfully, exiting agent mode");
+            // Only auto-exit if commands were executed AND there's no response text
+            let has_response_text = !self.agent_input_bar.display_text().is_empty();
+            if executed && !has_response_text {
+                log::info!("Agent command executed (no response text), exiting agent mode");
                 self.exit_agent_mode();
             }
         }

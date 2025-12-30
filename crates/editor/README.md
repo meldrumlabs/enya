@@ -119,6 +119,53 @@ Select and edit multiple panes simultaneously (`Ctrl+V`).
 | `r` | Refresh selected panes |
 | `Escape` | Exit visual-block mode |
 
+### Agent Mode
+
+Press `aa` to enter Agent mode for AI-powered observability assistance. The agent can analyze metrics, generate PromQL queries, and help investigate incidents.
+
+#### Quick Commands (single key, when input is empty)
+
+| Key | Action |
+|-----|--------|
+| `w` | What's wrong? (triage) |
+| `y` | Why? (root cause) |
+| `c` | Compare (to baseline) |
+| `e` | Explain (focused element) |
+| `f` | Fix (remediation) |
+| `s` | Summarize (incident) |
+| `h` | History (past incidents) |
+
+#### Slash Commands
+
+Type `/` to trigger command suggestions:
+
+| Command | Aliases | Description |
+|---------|---------|-------------|
+| `/investigate` | `inv`, `dig` | Deep-dive analysis with correlations and anomalies |
+| `/diff` | `compare`, `cmp` | Compare metric states between two time ranges |
+| `/query` | `q`, `promql` | Generate PromQL from natural language |
+| `/explain` | `exp`, `what` | Explain what the current query or chart shows |
+
+#### Metric Mentions
+
+Type `@` to autocomplete metric names. Combine with slash commands:
+
+```
+/investigate @http_requests_total why is it spiking?
+/query show me error rate for @api_latency_seconds
+/diff @cpu_usage compare last hour to yesterday
+```
+
+#### Agent Mode Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` | Navigate popup suggestions |
+| `Tab`/`Enter` | Select suggestion |
+| `Esc` | Close popup or exit agent mode |
+| `+` | Add focused pane to context |
+| `-` | Remove focused pane from context |
+
 ### URL Sharing
 
 Share your workspace or individual panes via URL:

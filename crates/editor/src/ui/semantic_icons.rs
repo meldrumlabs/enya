@@ -253,6 +253,7 @@ pub mod nav {
     pub const TABS: &str = regular::TAB;
     pub const FULLSCREEN: &str = regular::FULLSCREEN;
     pub const EXIT_FULLSCREEN: &str = regular::FULLSCREEN_EXIT;
+    pub const TREE: &str = regular::SITEMAP;
 
     // Navigation targets
     pub const HOME: &str = regular::HOME;
@@ -289,6 +290,11 @@ pub mod action {
     pub const ZOOM_IN: &str = regular::MAGNIFY_PLUS;
     pub const ZOOM_OUT: &str = regular::MAGNIFY_MINUS;
     pub const SWAP: &str = regular::SWAP_HORIZONTAL;
+    pub const EXPLORE: &str = regular::COMPASS;
+    pub const TAG: &str = regular::TAG;
+    pub const SPLIT: &str = regular::ARROW_SPLIT_HORIZONTAL;
+    pub const HELP: &str = regular::HELP_CIRCLE;
+    pub const HISTORY: &str = regular::HISTORY;
 
     // Chart/Data operations
     pub const CHART: &str = regular::CHART_LINE;
@@ -335,6 +341,7 @@ pub mod file {
     pub const TAG: &str = regular::TAG;
     pub const LABEL: &str = regular::HASH;
     pub const TREE: &str = regular::SITEMAP;
+    pub const GIT: &str = regular::GIT;
 }
 
 // ============================================================================
