@@ -15,6 +15,7 @@ use crate::components::{
     ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
     WorkspaceFinder,
 };
+use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
 
 // Workspace configuration module (serialization)
@@ -73,6 +74,8 @@ pub enum WorkspaceAction {
     ToggleTheme,
     /// Set a specific theme
     SetTheme(AppTheme),
+    /// Set the editor font
+    SetFont(EditorFont),
     /// Show help
     ShowHelp,
     /// Show a notification
@@ -938,6 +941,7 @@ impl Workspace {
         match result {
             CommandResult::ToggleTheme => WorkspaceAction::ToggleTheme,
             CommandResult::SetTheme(theme) => WorkspaceAction::SetTheme(theme),
+            CommandResult::SetFont(font) => WorkspaceAction::SetFont(font),
             CommandResult::OpenSearch => {
                 self.open_metrics_finder();
                 WorkspaceAction::None

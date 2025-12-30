@@ -1,11 +1,11 @@
 //! Typography constants for the Enya editor.
 //!
-//! Departure Mono is optimized for 11px rendering.
-//! This module provides a consistent type scale based on that recommendation.
+//! Maple Mono is used for all text rendering.
+//! This module provides a consistent type scale.
 
 use egui::FontId;
 
-/// Base font size - Departure Mono's recommended size for optimal rendering
+/// Base font size for optimal rendering
 pub const BASE: f32 = 11.0;
 
 /// Extra small text (tags, badges, hints)
