@@ -4,6 +4,17 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Premium agent input bar styling**: Enhanced the agent input bar to match the Obsidian Glass emerald theme:
+  - Agent mode badge now uses signature emerald accent instead of amber for visual consistency
+  - Added subtle emerald-tinted inner glow on the top edge for glass reflection effect
+  - Added soft emerald bottom edge glow in dark mode for depth
+  - Increased corner radius to 14px for a more premium feel
+  - Enhanced shadow depth for better elevation
+  - Suggestion pills are now clickable with emerald-highlighted commands and hover effects
+  - Pills insert the command prefix when clicked for faster command entry
+
 ### Added
 
 - **Slash commands for Agent mode**: Type `/` in the agent input bar to trigger command suggestions, similar to how `@` works for metric mentions. Core commands:

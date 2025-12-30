@@ -21,6 +21,7 @@ use enya_ai::{AcpClient, AgentEvent};
 use std::sync::mpsc::Receiver;
 
 use crate::ui::colors::text_color;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -540,23 +541,35 @@ impl AgentInputBar {
             }
         };
 
-        // Amber accent for Agent mode
+        // Emerald accent for Agent mode (matching obsidian glass theme)
         let accent = match self.theme {
-            AppTheme::Light => Color32::from_rgb(245, 158, 11), // Amber
-            AppTheme::Dark => Color32::from_rgb(251, 191, 36),  // Bright amber
+            AppTheme::Light => palette::accent::LIGHT,  // Deep emerald
+            AppTheme::Dark => palette::accent::PRIMARY, // Signature emerald #10B981
         };
 
-        // Inner glow color for glass effect
+        // Inner glow color for premium glass effect (emerald-tinted)
         let inner_glow = match self.theme {
-            AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 40),
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 255, 255, 8),
+            AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 50),
+            AppTheme::Dark => Color32::from_rgba_unmultiplied(16, 185, 129, 8), // Subtle emerald tint
+        };
+
+        // Subtle bottom shadow glow (emerald accent)
+        let bottom_glow = match self.theme {
+            AppTheme::Light => Color32::TRANSPARENT,
+            AppTheme::Dark => Color32::from_rgba_unmultiplied(16, 185, 129, 4), // Very subtle emerald
         };
 
         // Create frame with premium glass styling
         let frame = style
             .frame()
             .inner_margin(egui::Margin::symmetric(16, 10))
-            .corner_radius(12.0);
+            .corner_radius(14.0) // Slightly more rounded for premium feel
+            .shadow(egui::epaint::Shadow {
+                offset: [0, 6],
+                blur: 24,
+                spread: 0,
+                color: Color32::from_black_alpha(60), // Subtle shadow for depth
+            });
 
         let frame_response = frame.show(ui, |ui| {
             ui.set_min_height(height);
@@ -717,14 +730,24 @@ impl AgentInputBar {
             });
         });
 
-        // Draw inner highlight for glass effect
+        // Draw premium glass effects
         let rect = frame_response.response.rect;
         if style.inner_highlight().is_some() {
+            // Top edge highlight for glass reflection
             let highlight_rect = egui::Rect::from_min_size(
                 rect.left_top() + egui::vec2(1.0, 1.0),
-                egui::vec2(rect.width() - 2.0, 1.0),
+                egui::vec2(rect.width() - 2.0, 1.5),
             );
-            ui.painter().rect_filled(highlight_rect, 10.0, inner_glow);
+            ui.painter().rect_filled(highlight_rect, 12.0, inner_glow);
+
+            // Subtle bottom edge glow (emerald accent in dark mode)
+            if bottom_glow != Color32::TRANSPARENT {
+                let bottom_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.left() + 1.0, rect.bottom() - 2.0),
+                    egui::vec2(rect.width() - 2.0, 1.0),
+                );
+                ui.painter().rect_filled(bottom_rect, 12.0, bottom_glow);
+            }
         }
 
         // Check for / and @ triggers (order matters - slash first, then mention, then update prev_input)
@@ -1050,7 +1073,9 @@ impl AgentInputBar {
                                                 &c.to_string(),
                                                 0.0,
                                                 egui::TextFormat {
-                                                    font_id: typography::proportional(typography::MD),
+                                                    font_id: typography::proportional(
+                                                        typography::MD,
+                                                    ),
                                                     color,
                                                     ..Default::default()
                                                 },
@@ -1058,7 +1083,10 @@ impl AgentInputBar {
                                         }
                                         let galley = ui.fonts_mut(|f| f.layout_job(job));
                                         ui.painter().galley(
-                                            egui::pos2(text_pos.x, text_pos.y - galley.size().y / 2.0),
+                                            egui::pos2(
+                                                text_pos.x,
+                                                text_pos.y - galley.size().y / 2.0,
+                                            ),
                                             galley,
                                             text_col,
                                         );
@@ -1304,31 +1332,109 @@ impl AgentInputBar {
     }
 
     fn show_suggestions(&mut self, ui: &mut egui::Ui, colors: &OverlayColors) {
-        ui.horizontal(|ui| {
+        // Premium suggestion pills with hover effects
+        let suggestions = [
+            ("/investigate", "@metric why is it spiking?"),
+            ("/query", "show me p99 latency"),
+            ("/diff", "@cpu compare to yesterday"),
+        ];
+
+        // Emerald accent for pill highlights
+        let pill_accent = match self.theme {
+            AppTheme::Light => palette::accent::LIGHT,
+            AppTheme::Dark => palette::accent::PRIMARY,
+        };
+
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+
             ui.label(
                 RichText::new("Try:")
                     .color(colors.muted_text)
                     .size(typography::SM),
             );
-        });
 
-        // Example commands showing slash commands and @ mentions
-        let suggestions = [
-            "/investigate @metric_name why is it spiking?",
-            "/query show me p99 latency by endpoint",
-            "/diff @cpu_usage compare last hour to yesterday",
-        ];
+            for (cmd, rest) in suggestions.iter() {
+                // Calculate text width for pill sizing
+                let text = format!("{cmd} {rest}");
+                let font = typography::proportional(typography::SM);
+                let galley =
+                    ui.painter()
+                        .layout_no_wrap(text.clone(), font.clone(), colors.faint_text);
+                let pill_width = galley.size().x + 16.0;
 
-        for suggestion in suggestions.iter() {
-            ui.horizontal(|ui| {
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new(format!("{}  {suggestion}", semantic_icons::nav::RIGHT))
-                        .color(colors.faint_text)
-                        .size(typography::SM),
+                let (pill_rect, pill_response) =
+                    ui.allocate_exact_size(egui::vec2(pill_width, 22.0), egui::Sense::click());
+
+                let is_hovered = pill_response.hovered();
+
+                // Background pill with subtle hover effect
+                let bg_color = if is_hovered {
+                    pill_accent.gamma_multiply(0.12)
+                } else {
+                    colors.elevated_bg.gamma_multiply(0.6)
+                };
+
+                let border_color = if is_hovered {
+                    pill_accent.gamma_multiply(0.3)
+                } else {
+                    colors.separator.gamma_multiply(0.5)
+                };
+
+                ui.painter().rect_filled(pill_rect, 6.0, bg_color);
+                ui.painter().rect_stroke(
+                    pill_rect,
+                    6.0,
+                    egui::Stroke::new(1.0, border_color),
+                    egui::StrokeKind::Inside,
                 );
-            });
-        }
+
+                // Draw text with syntax highlighting
+                let text_start = pill_rect.left_center() + egui::vec2(8.0, 0.0);
+                let cmd_color = if is_hovered {
+                    pill_accent
+                } else {
+                    pill_accent.gamma_multiply(0.7)
+                };
+                let rest_color = if is_hovered {
+                    colors.text.gamma_multiply(0.8)
+                } else {
+                    colors.faint_text
+                };
+
+                // Draw command part
+                let cmd_galley =
+                    ui.painter()
+                        .layout_no_wrap(cmd.to_string(), font.clone(), cmd_color);
+                ui.painter().galley(
+                    egui::pos2(text_start.x, text_start.y - cmd_galley.size().y / 2.0),
+                    cmd_galley.clone(),
+                    cmd_color,
+                );
+
+                // Draw rest part
+                let rest_galley =
+                    ui.painter()
+                        .layout_no_wrap(format!(" {rest}"), font.clone(), rest_color);
+                ui.painter().galley(
+                    egui::pos2(
+                        text_start.x + cmd_galley.size().x,
+                        text_start.y - rest_galley.size().y / 2.0,
+                    ),
+                    rest_galley,
+                    rest_color,
+                );
+
+                // Click to insert suggestion
+                if pill_response.clicked() {
+                    self.input = format!("{cmd} ");
+                    self.focus_input = true;
+                }
+
+                // Hover tooltip
+                pill_response.on_hover_text("Click to use this command");
+            }
+        });
     }
 
     fn show_activities(&mut self, ui: &mut egui::Ui, colors: &OverlayColors) {
