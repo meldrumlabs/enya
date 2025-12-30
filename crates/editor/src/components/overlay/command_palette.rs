@@ -46,64 +46,22 @@ pub enum CommandResult {
     ToggleTheme,
     /// Set specific theme
     SetTheme(AppTheme),
-    /// Open the fuzzy finder
-    OpenSearch,
     /// Show info overlay with build info
     ShowInfo,
-    /// Show help
-    ShowHelp,
     /// Horizontal split
     SplitHorizontal,
     /// Vertical split
     SplitVertical,
-    /// Close current tab
-    CloseTab,
-    /// Quit the application
-    QuitApp,
-    /// Toggle zen mode (distraction-free view)
-    ToggleZenMode,
-    /// Toggle fullscreen for focused pane
-    ToggleFullscreen,
-    /// Show the landing page (home screen)
-    ShowLandingPage,
+    /// Quit the workspace
+    QuitWorkspace,
+    /// Write/save the current workspace
+    WriteWorkspace,
     /// Take a screenshot of the window (optionally with a custom path)
     TakeScreenshot(Option<String>),
-    /// Save workspace (:mksession [name])
-    SaveWorkspace(Option<String>),
     /// Load workspace (:source <name>)
     LoadWorkspace(String),
-    /// List available workspaces (:workspaces)
-    ListWorkspaces,
     /// Share workspace as URL (:share)
     ShareWorkspace,
-    /// Toggle commit markers visibility on charts
-    ToggleCommits,
-    /// Connect to Prometheus endpoint
-    Connect(String),
-    /// Disconnect from Prometheus (return to demo mode)
-    Disconnect,
-    /// Toggle diagnostics pane
-    ToggleDiagnostics,
-    /// Show diagnostics pane
-    ShowDiagnostics,
-    /// Hide diagnostics pane
-    HideDiagnostics,
-    /// Clear all diagnostics
-    ClearDiagnostics,
-    /// Jump to next diagnostic
-    NextDiagnostic,
-    /// Jump to previous diagnostic
-    PrevDiagnostic,
-    /// Create a new workspace tab
-    NewWorkspaceTab(Option<String>),
-    /// Close current workspace tab
-    CloseWorkspaceTab,
-    /// Go to next workspace tab
-    NextWorkspaceTab,
-    /// Go to previous workspace tab
-    PrevWorkspaceTab,
-    /// Open the interactive tutorial
-    OpenTutorial,
     /// Set AI provider (claude, codex)
     SetProvider(String),
     /// Set editor font (maple/departure/jetbrains/iosevka)
@@ -123,21 +81,9 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "search",
-        aliases: &["s"],
-        description: "Open fuzzy finder search",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "info",
         aliases: &["version"],
         description: "Show version and build info",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "help",
-        aliases: &["h"],
-        description: "Show help and available commands",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -153,33 +99,15 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "close",
+        name: "quit",
         aliases: &["q"],
-        description: "Close current tab",
+        description: "Quit workspace",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
-        name: "exit",
-        aliases: &[],
-        description: "Quit application",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "zen",
-        aliases: &["z"],
-        description: "Toggle zen mode",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "fullscreen",
-        aliases: &["full"],
-        description: "Toggle fullscreen for focused chart",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "home",
-        aliases: &[],
-        description: "Show the landing page",
+        name: "write",
+        aliases: &["w"],
+        description: "Save workspace",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -189,69 +117,15 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "mksession",
-        aliases: &["mks"],
-        description: "Save workspace",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
         name: "source",
         aliases: &["so"],
         description: "Load workspace",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "workspaces",
-        aliases: &["ws"],
-        description: "List available workspaces",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "share",
         aliases: &[],
         description: "Share workspace as URL",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "commits",
-        aliases: &["git"],
-        description: "Toggle git commit markers",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "connect",
-        aliases: &["c"],
-        description: "Connect to Prometheus compatible endpoint (or 'disconnect')",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "diagnostics",
-        aliases: &["diag"],
-        description: "Toggle/show/hide/clear diagnostics",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "tabnew",
-        aliases: &[],
-        description: "Create new workspace tab",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "tabclose",
-        aliases: &[],
-        description: "Close current workspace tab",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
-        name: "prometheus",
-        aliases: &["prom"],
-        description: "Connect to Prometheus endpoint (or 'disconnect')",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "tutorial",
-        aliases: &[],
-        description: "Start the interactive tutorial",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -473,9 +347,7 @@ impl CommandPalette {
                     }
                 }
             }
-            "search" => CommandResult::OpenSearch,
             "info" => CommandResult::ShowInfo,
-            "help" => CommandResult::ShowHelp,
             "split" => {
                 if args.is_empty() {
                     CommandResult::SplitHorizontal
@@ -491,11 +363,8 @@ impl CommandPalette {
                 }
             }
             "vsplit" => CommandResult::SplitVertical,
-            "close" => CommandResult::CloseTab,
-            "exit" => CommandResult::QuitApp,
-            "zen" => CommandResult::ToggleZenMode,
-            "fullscreen" => CommandResult::ToggleFullscreen,
-            "home" => CommandResult::ShowLandingPage,
+            "quit" => CommandResult::QuitWorkspace,
+            "write" => CommandResult::WriteWorkspace,
             "screenshot" => {
                 // Join all args as the path (handles paths with spaces)
                 let path = if args.is_empty() {
@@ -505,15 +374,6 @@ impl CommandPalette {
                 };
                 CommandResult::TakeScreenshot(path)
             }
-            "mksession" => {
-                // :mksession or :mksession name - save workspace with optional name
-                let name = if args.is_empty() {
-                    None
-                } else {
-                    Some(args.join(" "))
-                };
-                CommandResult::SaveWorkspace(name)
-            }
             "source" => {
                 // :source name - load workspace by name
                 if args.is_empty() {
@@ -522,63 +382,7 @@ impl CommandPalette {
                     CommandResult::LoadWorkspace(args.join(" "))
                 }
             }
-            "workspaces" => CommandResult::ListWorkspaces,
             "share" => CommandResult::ShareWorkspace,
-            "commits" => CommandResult::ToggleCommits,
-            "connect" => {
-                // :connect <url> - connect to Prometheus
-                // :connect disconnect - return to demo mode
-                if args.is_empty() {
-                    CommandResult::Error("Usage: :connect <url> or :connect disconnect".to_string())
-                } else if args[0].to_lowercase() == "disconnect" {
-                    CommandResult::Disconnect
-                } else {
-                    CommandResult::Connect(args.join(" "))
-                }
-            }
-            "diagnostics" => {
-                if args.is_empty() {
-                    // :diag with no args - toggle
-                    CommandResult::ToggleDiagnostics
-                } else {
-                    match args[0].to_lowercase().as_str() {
-                        "show" | "open" => CommandResult::ShowDiagnostics,
-                        "hide" | "close" => CommandResult::HideDiagnostics,
-                        "clear" | "reset" => CommandResult::ClearDiagnostics,
-                        "toggle" | "t" => CommandResult::ToggleDiagnostics,
-                        "next" | "n" => CommandResult::NextDiagnostic,
-                        "prev" | "previous" | "p" => CommandResult::PrevDiagnostic,
-                        _ => CommandResult::Error(format!(
-                            "Unknown diagnostics subcommand: {}. Use show/hide/clear/toggle/next/prev",
-                            args[0]
-                        )),
-                    }
-                }
-            }
-            "tabnew" => {
-                // :tabnew or :tabnew name - create new workspace tab with optional name
-                let name = if args.is_empty() {
-                    None
-                } else {
-                    Some(args.join(" "))
-                };
-                CommandResult::NewWorkspaceTab(name)
-            }
-            "tabclose" => CommandResult::CloseWorkspaceTab,
-            "prometheus" => {
-                // :prometheus <url> - connect to Prometheus
-                // :prometheus disconnect - return to demo mode
-                if args.is_empty() {
-                    CommandResult::Error(
-                        "Usage: :prometheus <url> or :prometheus disconnect".to_string(),
-                    )
-                } else if args[0].to_lowercase() == "disconnect" {
-                    CommandResult::Disconnect
-                } else {
-                    CommandResult::Connect(args.join(" "))
-                }
-            }
-            "tutorial" => CommandResult::OpenTutorial,
             "provider" | "ai" => {
                 // :provider <name> - set AI provider
                 if args.is_empty() {

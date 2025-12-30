@@ -10,6 +10,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Minimal vim-like command palette**: Reduced from 24 to 11 commands. Added `:q`/`:quit` to close workspace and `:w`/`:write` to save workspace. Removed commands with keyboard shortcuts (`:zen` → `Z`, `:fullscreen` → `F`, `:home` → `Space+h`, `:diagnostics` → `Space+d`, `:help` → `?`) and non-vim-like commands (`:search`, `:connect`, `:prometheus`, `:close`, `:exit`, `:commits`, `:tabnew`, `:tabclose`, `:workspaces`, `:tutorial`, `:mksession`).
 - **Unified hover styling across UI components**: All interactive list/menu components now use the same subtle hover styling as the landing page - a light 5% text color background with emerald accent color for icons on hover/select. Updated components include:
   - Workspace finder
   - Command palette
