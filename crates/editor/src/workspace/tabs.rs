@@ -500,10 +500,9 @@ impl WorkspaceTabBar {
     }
 
     fn hover_bg_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Dark => palette::bg::HOVER,
-            AppTheme::Light => palette::light_bg::HOVER,
-        }
+        // Use subtle hover like landing page - 5% of text color
+        let text_col = self.text_color(false);
+        text_col.gamma_multiply(0.05)
     }
 
     fn text_color(&self, is_active: bool) -> Color32 {

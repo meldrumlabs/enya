@@ -2,15 +2,15 @@
 //!
 //! This component provides a ripgrep-style filter that shows only panes whose queries
 //! contain the search term. Similar to vim's `/` search but for filtering visible panes.
+//! Renders as a bottom bar above the status line (like vim's command line).
 
 use egui::{FontId, Key, RichText};
 
-use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
-use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::{OverlayStyle, render_key_badge};
 
 /// Result of viewport filter interaction
 #[derive(Debug, Clone, PartialEq)]
@@ -114,8 +114,8 @@ impl ViewportFilter {
         query.to_lowercase().contains(&pattern.to_lowercase())
     }
 
-    /// Show the filter input overlay
-    pub fn show(&mut self, ctx: &egui::Context) -> ViewportFilterResult {
+    /// Show the filter input bar (renders above status line in bottom panel)
+    pub fn show(&mut self, ui: &mut egui::Ui) -> ViewportFilterResult {
         if !self.is_open {
             return ViewportFilterResult::None;
         }
@@ -126,7 +126,7 @@ impl ViewportFilter {
         let mut should_clear = false;
 
         // Handle keyboard shortcuts
-        ctx.input(|input| {
+        ui.ctx().input(|input| {
             // Escape - close without applying (if pattern is empty, also clear filter)
             if input.key_pressed(Key::Escape) {
                 if self.pattern.is_empty() && !self.applied_pattern.is_empty() {
@@ -141,113 +141,95 @@ impl ViewportFilter {
             }
         });
 
-        // Get available rect for sizing
-        let available_rect = ctx.available_rect();
+        // Get theme-aware colors
+        let text_primary = palette::text_primary(self.theme);
+        let text_secondary = palette::text_secondary(self.theme);
+        let text_tertiary = palette::text_tertiary(self.theme);
+        let badge_bg = palette::bg_elevated(self.theme);
 
-        // Position at center of screen
-        let popup_width = (available_rect.width() * 0.5).clamp(300.0, 600.0);
+        let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
-        egui::Area::new(egui::Id::new("viewport_filter_area"))
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                let overlay_style = OverlayStyle::frosted_glass(self.theme);
+        // Render as a horizontal bar with glass styling
+        let frame = overlay_style
+            .frame()
+            .inner_margin(egui::Margin::symmetric(16, 8))
+            .corner_radius(0.0); // No rounded corners for bottom bar
 
-                overlay_style.frame().show(ui, |ui| {
-                    ui.set_width(popup_width);
-                    ui.add_space(8.0);
+        frame.show(ui, |ui| {
+            ui.set_width(ui.available_width());
 
-                    ui.horizontal(|ui| {
-                        ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                // Slash indicator (vim-style)
+                ui.label(
+                    RichText::new("/")
+                        .color(text_secondary)
+                        .size(14.0)
+                        .family(egui::FontFamily::Monospace),
+                );
 
-                        // Search icon and slash indicator
-                        ui.label(
-                            RichText::new(format!("{} /", semantic_icons::action::SEARCH))
-                                .color(text_color(self.theme).gamma_multiply(0.7))
-                                .size(14.0)
-                                .family(egui::FontFamily::Monospace),
-                        );
+                ui.add_space(8.0);
 
-                        ui.add_space(4.0);
+                // Search input - takes most of the width
+                let input_id = egui::Id::new("viewport_filter_input");
+                let available_width = ui.available_width() - 200.0; // Reserve space for count and hints
+                let response = ui.add(
+                    egui::TextEdit::singleline(&mut self.pattern)
+                        .id(input_id)
+                        .desired_width(available_width.max(100.0))
+                        .font(FontId::monospace(14.0))
+                        .frame(false)
+                        .text_color(text_primary)
+                        .hint_text(RichText::new("filter panes...").color(text_tertiary)),
+                );
 
-                        // Search input
-                        let input_id = egui::Id::new("viewport_filter_input");
-                        let response = ui.add(
-                            egui::TextEdit::singleline(&mut self.pattern)
-                                .id(input_id)
-                                .desired_width(popup_width - 180.0)
-                                .font(FontId::monospace(14.0))
-                                .frame(false)
-                                .text_color(text_color(self.theme))
-                                .hint_text(
-                                    RichText::new("filter panes...")
-                                        .color(text_color(self.theme).gamma_multiply(0.4)),
-                                ),
-                        );
+                // Auto-focus
+                if self.needs_focus {
+                    response.request_focus();
+                    self.needs_focus = false;
+                }
 
-                        // Auto-focus
-                        if self.needs_focus {
-                            response.request_focus();
-                            self.needs_focus = false;
-                        }
-
-                        ui.add_space(8.0);
-
-                        // Match count indicator
-                        let count_text =
-                            if self.pattern.is_empty() && self.applied_pattern.is_empty() {
-                                format!("{} panes", self.total_count)
-                            } else {
-                                format!("{}/{}", self.match_count, self.total_count)
-                            };
-
-                        let count_color = if self.match_count == 0 && !self.pattern.is_empty() {
-                            palette::semantic::WARNING
-                        } else {
-                            text_color(self.theme).gamma_multiply(0.5)
-                        };
-
-                        ui.label(
-                            RichText::new(count_text)
-                                .color(count_color)
-                                .size(12.0)
-                                .family(egui::FontFamily::Monospace),
-                        );
-
-                        ui.add_space(12.0);
-                    });
-
-                    ui.add_space(4.0);
-
-                    // Hint text
-                    ui.horizontal(|ui| {
-                        ui.add_space(12.0);
-                        let hint_color = text_color(self.theme).gamma_multiply(0.4);
-                        ui.label(RichText::new("Enter").color(hint_color).size(10.0));
-                        ui.label(RichText::new("apply").color(hint_color).size(10.0));
-                        ui.add_space(8.0);
-                        ui.label(RichText::new("Esc").color(hint_color).size(10.0));
-                        ui.label(RichText::new("close").color(hint_color).size(10.0));
-
-                        if self.is_active() {
-                            ui.add_space(8.0);
-                            ui.label(RichText::new("Esc×2").color(hint_color).size(10.0));
-                            ui.label(RichText::new("clear").color(hint_color).size(10.0));
-                        }
-                    });
+                // Right side: count and hints
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Keyboard hints
+                    render_key_badge(ui, "Esc", badge_bg, text_tertiary);
 
                     ui.add_space(8.0);
+
+                    render_key_badge(ui, "Enter", badge_bg, text_tertiary);
+
+                    ui.add_space(16.0);
+
+                    // Match count indicator
+                    let count_text = if self.pattern.is_empty() && self.applied_pattern.is_empty() {
+                        format!("{} panes", self.total_count)
+                    } else {
+                        format!("{}/{}", self.match_count, self.total_count)
+                    };
+
+                    let count_color = if self.match_count == 0 && !self.pattern.is_empty() {
+                        palette::semantic::WARNING
+                    } else {
+                        text_secondary
+                    };
+
+                    ui.label(
+                        RichText::new(count_text)
+                            .color(count_color)
+                            .size(12.0)
+                            .family(egui::FontFamily::Monospace),
+                    );
                 });
             });
+        });
 
         // Handle actions - surrender focus when closing
         let input_id = egui::Id::new("viewport_filter_input");
         if should_clear {
-            ctx.memory_mut(|mem| mem.surrender_focus(input_id));
+            ui.ctx().memory_mut(|mem| mem.surrender_focus(input_id));
             self.clear();
             result = ViewportFilterResult::Cleared;
         } else if should_apply {
-            ctx.memory_mut(|mem| mem.surrender_focus(input_id));
+            ui.ctx().memory_mut(|mem| mem.surrender_focus(input_id));
             self.applied_pattern = self.pattern.clone();
             self.is_open = false;
             self.pattern.clear();
@@ -257,7 +239,7 @@ impl ViewportFilter {
                 result = ViewportFilterResult::Applied(self.applied_pattern.clone());
             }
         } else if should_close {
-            ctx.memory_mut(|mem| mem.surrender_focus(input_id));
+            ui.ctx().memory_mut(|mem| mem.surrender_focus(input_id));
             self.close();
         }
 

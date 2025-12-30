@@ -401,7 +401,7 @@ impl TimeSeriesChart {
             Series::new(name.clone())
                 .with_tag("host", "server1")
                 .with_points(points1)
-                .with_color(Color32::from_rgb(99, 179, 237)), // Soft sky blue
+                .with_color(palette::chart::PALETTE[0]), // Sky blue
         );
 
         // Series 2: Higher values
@@ -421,7 +421,7 @@ impl TimeSeriesChart {
             Series::new(name)
                 .with_tag("host", "server2")
                 .with_points(points2)
-                .with_color(Color32::from_rgb(94, 234, 212)), // Soft teal
+                .with_color(palette::chart::PALETTE[2]), // Teal
         );
 
         // Add some demo commit markers spread across the time range
@@ -681,20 +681,9 @@ impl TimeSeriesChart {
     }
 
     /// Get a default color for series index
-    /// Uses a modern, muted palette with teals, purples, and soft accent colors
+    /// Uses the centralized chart palette from the design system
     fn series_color(&self, index: usize) -> Color32 {
-        // A modern, muted palette - teals, purples, and soft accent colors
-        const PALETTE: &[Color32] = &[
-            Color32::from_rgb(99, 179, 237),  // Soft sky blue
-            Color32::from_rgb(129, 140, 248), // Soft indigo
-            Color32::from_rgb(94, 234, 212),  // Soft teal
-            Color32::from_rgb(192, 132, 252), // Soft purple
-            Color32::from_rgb(251, 191, 36),  // Soft amber
-            Color32::from_rgb(244, 114, 182), // Soft pink
-            Color32::from_rgb(52, 211, 153),  // Soft emerald
-            Color32::from_rgb(248, 113, 113), // Soft coral
-        ];
-        PALETTE[index % PALETTE.len()]
+        palette::chart::PALETTE[index % palette::chart::PALETTE.len()]
     }
 
     /// Render the chart

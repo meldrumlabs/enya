@@ -129,6 +129,7 @@ impl Sparkline {
 }
 
 /// Mode indicator for the status line (similar to vim modes)
+/// Note: Zen and Fullscreen are display preferences, not modes - they stay in Normal mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StatusMode {
     /// Normal dashboard mode
@@ -140,12 +141,6 @@ pub enum StatusMode {
     Command,
     /// Search mode (when fuzzy finder is open)
     Search,
-    /// Filter mode (when viewport filter input is open)
-    Filter,
-    /// Zen mode (distraction-free view)
-    Zen,
-    /// Fullscreen mode (single pane maximized)
-    Fullscreen,
     /// Diff mode (comparing time periods)
     Diff,
     /// Visual multi-select mode (selecting multiple panes)
@@ -162,9 +157,6 @@ impl StatusMode {
             Self::Home => "HOME",
             Self::Command => "COMMAND",
             Self::Search => "SEARCH",
-            Self::Filter => "FILTER",
-            Self::Zen => "ZEN",
-            Self::Fullscreen => "FULLSCREEN",
             Self::Diff => "DIFF",
             Self::VisualMulti => "V-MULTI",
             Self::Agent => "AGENT",
@@ -190,18 +182,6 @@ impl StatusMode {
             Self::Search => match theme {
                 AppTheme::Light => Color32::from_rgb(140, 140, 150), // Muted gray
                 AppTheme::Dark => Color32::from_rgb(180, 180, 190),  // Light gray
-            },
-            Self::Filter => match theme {
-                AppTheme::Light => Color32::from_rgb(220, 140, 60), // Orange
-                AppTheme::Dark => Color32::from_rgb(245, 158, 66),  // Bright orange
-            },
-            Self::Zen => match theme {
-                AppTheme::Light => Color32::from_rgb(120, 100, 160), // Soft purple
-                AppTheme::Dark => Color32::from_rgb(180, 150, 220),  // Light purple
-            },
-            Self::Fullscreen => match theme {
-                AppTheme::Light => Color32::from_rgb(80, 140, 160), // Teal
-                AppTheme::Dark => Color32::from_rgb(120, 200, 220), // Bright cyan
             },
             Self::Diff => match theme {
                 AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue
@@ -233,10 +213,6 @@ impl StatusMode {
                 AppTheme::Light => Color32::from_rgb(248, 248, 242),
                 AppTheme::Dark => Color32::from_rgb(40, 44, 52),
             },
-            // Orange backgrounds - use dark text for contrast
-            Self::Filter => Color32::from_rgb(40, 44, 52),
-            // Cyan backgrounds - use dark text for contrast
-            Self::Zen | Self::Fullscreen => Color32::from_rgb(40, 44, 52),
             // Blue backgrounds - use white text
             Self::Diff => Color32::from_rgb(255, 255, 255),
         }
@@ -317,6 +293,10 @@ pub struct StatusLine {
     diagnostics_count: (usize, usize, usize),
     /// Codebase operation status
     codebase_status: Option<CodebaseStatusInfo>,
+    /// Whether zen mode is active (display preference badge)
+    is_zen_mode: bool,
+    /// Whether fullscreen mode is active (display preference badge)
+    is_fullscreen: bool,
 }
 
 impl Default for StatusLine {
@@ -334,6 +314,8 @@ impl Default for StatusLine {
             last_refresh: None,
             diagnostics_count: (0, 0, 0),
             codebase_status: None,
+            is_zen_mode: false,
+            is_fullscreen: false,
         }
     }
 }
@@ -397,6 +379,16 @@ impl StatusLine {
     /// Set codebase status info
     pub fn set_codebase_status(&mut self, status: Option<CodebaseStatusInfo>) {
         self.codebase_status = status;
+    }
+
+    /// Set zen mode state (for display preference badge)
+    pub fn set_zen_mode(&mut self, is_zen: bool) {
+        self.is_zen_mode = is_zen;
+    }
+
+    /// Set fullscreen state (for display preference badge)
+    pub fn set_fullscreen(&mut self, is_fullscreen: bool) {
+        self.is_fullscreen = is_fullscreen;
     }
 
     /// Mark the last refresh time (call when data is updated)
@@ -506,6 +498,37 @@ impl StatusLine {
             padding,
             true,
         );
+
+        // Display preference badges (zen/fullscreen) - use distinct colors
+        if self.is_zen_mode {
+            let (bg, fg) = match self.theme {
+                AppTheme::Light => (
+                    Color32::from_rgb(120, 100, 160), // Soft purple
+                    Color32::from_rgb(40, 44, 52),
+                ),
+                AppTheme::Dark => (
+                    Color32::from_rgb(180, 150, 220), // Light purple
+                    Color32::from_rgb(40, 44, 52),
+                ),
+            };
+            ui.add_space(4.0);
+            self.render_segment(ui, "ZEN", None, bg, fg, height, padding, false);
+        }
+
+        if self.is_fullscreen {
+            let (bg, fg) = match self.theme {
+                AppTheme::Light => (
+                    Color32::from_rgb(80, 140, 160), // Teal
+                    Color32::from_rgb(40, 44, 52),
+                ),
+                AppTheme::Dark => (
+                    Color32::from_rgb(120, 200, 220), // Bright cyan
+                    Color32::from_rgb(40, 44, 52),
+                ),
+            };
+            ui.add_space(4.0);
+            self.render_segment(ui, "FULLSCREEN", None, bg, fg, height, padding, false);
+        }
 
         // Git branch / project info (if available)
         if let Some(ref branch) = self.branch_info {
