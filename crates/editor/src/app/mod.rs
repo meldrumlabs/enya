@@ -431,12 +431,6 @@ impl EnyaApp {
                     NotificationLevel::Success,
                 ));
             }
-            WorkspaceAction::ShowHelp => {
-                ctx.open_url(egui::output::OpenUrl {
-                    url: "https://enya.dev/contact".to_owned(),
-                    new_tab: true,
-                });
-            }
             WorkspaceAction::Notify { level, message } => {
                 let notification_level = match level.to_lowercase().as_str() {
                     "success" | "ok" => NotificationLevel::Success,

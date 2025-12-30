@@ -530,18 +530,6 @@ impl Workspace {
         (matching, total)
     }
 
-    /// Find a tile by the pane's component ID
-    pub(super) fn find_tile_by_pane_id(&self, pane_id: usize) -> Option<TileId> {
-        for tile_id in self.get_pane_tile_ids() {
-            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                if component.id() == pane_id {
-                    return Some(tile_id);
-                }
-            }
-        }
-        None
-    }
-
     // ==================== Tile Activation ====================
 
     /// Activate a tile (make it the active tab in its parent container)

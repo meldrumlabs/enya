@@ -76,8 +76,6 @@ pub enum WorkspaceAction {
     SetTheme(AppTheme),
     /// Set the editor font
     SetFont(EditorFont),
-    /// Show help
-    ShowHelp,
     /// Show a notification
     Notify { level: String, message: String },
     /// Track a recently opened plot
@@ -766,7 +764,7 @@ impl Workspace {
             }
         }
 
-        self.handle_command_result(cmd_result, ctx)
+        self.handle_command_result(cmd_result)
     }
 
     /// Show the landing page and handle its actions
@@ -922,36 +920,19 @@ impl Workspace {
             });
         }
 
-        self.handle_command_result(cmd_result, ctx)
+        self.handle_command_result(cmd_result)
     }
 
     /// Handle a command result from the command palette
-    fn handle_command_result(
-        &mut self,
-        result: CommandResult,
-        ctx: &egui::Context,
-    ) -> WorkspaceAction {
+    fn handle_command_result(&mut self, result: CommandResult) -> WorkspaceAction {
         match result {
             CommandResult::ToggleTheme => WorkspaceAction::ToggleTheme,
             CommandResult::SetTheme(theme) => WorkspaceAction::SetTheme(theme),
             CommandResult::SetFont(font) => WorkspaceAction::SetFont(font),
-            CommandResult::OpenSearch => {
-                self.open_metrics_finder();
-                WorkspaceAction::None
-            }
             CommandResult::ShowInfo => {
                 self.info_overlay.open();
                 WorkspaceAction::None
             }
-            CommandResult::ShowHelp => WorkspaceAction::ShowHelp,
-            CommandResult::CloseTab => {
-                // Close the focused tile
-                if let Some(tile_id) = self.behavior.focused_tile() {
-                    self.close_tile(tile_id);
-                }
-                WorkspaceAction::None
-            }
-            CommandResult::QuitApp => WorkspaceAction::QuitApp,
             CommandResult::SplitHorizontal => {
                 self.split_panes_horizontal();
                 WorkspaceAction::None
@@ -960,120 +941,11 @@ impl Workspace {
                 self.split_panes_vertical();
                 WorkspaceAction::None
             }
-            CommandResult::ToggleZenMode => {
-                self.toggle_zen_mode();
-                WorkspaceAction::None
-            }
-            CommandResult::ToggleFullscreen => {
-                self.toggle_fullscreen();
-                WorkspaceAction::None
-            }
-            CommandResult::ShowLandingPage => {
-                self.show_landing = true;
-                // Close all charts to trigger landing page display
-                self.close_all_charts();
-                WorkspaceAction::None
-            }
+            CommandResult::QuitWorkspace => WorkspaceAction::CloseWorkspaceTab,
+            CommandResult::WriteWorkspace => WorkspaceAction::SaveWorkspace(None),
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
-            CommandResult::SaveWorkspace(name) => WorkspaceAction::SaveWorkspace(name),
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
-            CommandResult::ListWorkspaces => WorkspaceAction::ListWorkspaces,
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
-            CommandResult::ToggleCommits => {
-                self.toggle_commits_on_focused();
-                WorkspaceAction::None
-            }
-            CommandResult::Connect(endpoint) => {
-                self.query_executor.connect_prometheus(&endpoint, ctx);
-                // Immediately start fetching metric names and label names
-                self.query_executor.fetch_metric_names(ctx);
-                self.query_executor.fetch_label_names(ctx);
-                // No notification here - health check result will show success/failure
-                WorkspaceAction::None
-            }
-            CommandResult::Disconnect => {
-                self.query_executor.disconnect();
-                WorkspaceAction::Notify {
-                    level: "info".to_string(),
-                    message: "Disconnected from Prometheus, using demo data".to_string(),
-                }
-            }
-            CommandResult::ToggleDiagnostics => {
-                self.toggle_diagnostics();
-                WorkspaceAction::None
-            }
-            CommandResult::ShowDiagnostics => {
-                self.show_diagnostics();
-                WorkspaceAction::None
-            }
-            CommandResult::HideDiagnostics => {
-                self.hide_diagnostics();
-                WorkspaceAction::None
-            }
-            CommandResult::ClearDiagnostics => {
-                self.clear_diagnostics();
-                WorkspaceAction::Notify {
-                    level: "info".to_string(),
-                    message: "Cleared all diagnostics".to_string(),
-                }
-            }
-            CommandResult::NextDiagnostic => {
-                self.diagnostics_pane.select_next();
-                // Show notification with current diagnostic
-                if let Some(pane_id) = self.diagnostics_pane.selected_pane_id() {
-                    // Focus the pane associated with the diagnostic
-                    if let Some(tile_id) = self.find_tile_by_pane_id(pane_id) {
-                        self.behavior.set_focused_tile(Some(tile_id));
-                    }
-                }
-                WorkspaceAction::None
-            }
-            CommandResult::PrevDiagnostic => {
-                self.diagnostics_pane.select_prev();
-                // Focus the pane associated with the diagnostic
-                if let Some(pane_id) = self.diagnostics_pane.selected_pane_id() {
-                    if let Some(tile_id) = self.find_tile_by_pane_id(pane_id) {
-                        self.behavior.set_focused_tile(Some(tile_id));
-                    }
-                }
-                WorkspaceAction::None
-            }
-            CommandResult::NewWorkspaceTab(name) => WorkspaceAction::NewWorkspaceTab(name),
-            CommandResult::CloseWorkspaceTab => WorkspaceAction::CloseWorkspaceTab,
-            CommandResult::NextWorkspaceTab => WorkspaceAction::NextWorkspaceTab,
-            CommandResult::PrevWorkspaceTab => WorkspaceAction::PrevWorkspaceTab,
-            CommandResult::OpenTutorial => {
-                // Hide landing page and add multiple demo panes so users have something to interact with
-                if self.show_landing || self.open_charts.is_empty() {
-                    self.show_landing = false;
-                    // Add multiple demo query panes with PromQL label selectors
-                    // These use env="prod" so users can practice multi-edit to change to "staging"
-                    let demo_queries = [
-                        (
-                            "http_requests_total{env=\"prod\", service=\"api\"}",
-                            "HTTP Requests",
-                            "",
-                        ),
-                        ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
-                        (
-                            "memory_used_bytes{env=\"prod\", service=\"api\"}",
-                            "Memory Used",
-                            "MB",
-                        ),
-                        (
-                            "sum(rate(http_requests_total[5m])) by_endpoint",
-                            "Requests by Endpoint",
-                            "req/s",
-                        ),
-                    ];
-                    for (query, name, unit) in demo_queries {
-                        self.add_demo_query_pane(query, name, unit);
-                    }
-                }
-                self.tutorial_overlay.open();
-                ctx.request_repaint();
-                WorkspaceAction::None
-            }
             CommandResult::SetProvider(provider_name) => {
                 use crate::components::util::AiProvider;
                 if let Some(provider) = AiProvider::parse(&provider_name) {
@@ -1086,20 +958,6 @@ impl Workspace {
             }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
-            }
-        }
-    }
-
-    /// Toggle commit markers on the focused chart
-    fn toggle_commits_on_focused(&mut self) {
-        if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) =
-                self.viewport_tree.tiles.get_mut(tile_id)
-            {
-                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                    query_pane.toggle_commits();
-                    log::debug!("Toggled commit markers");
-                }
             }
         }
     }
