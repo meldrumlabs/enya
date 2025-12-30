@@ -111,7 +111,7 @@ fn bench_status_line(c: &mut Criterion) {
         StatusMode::Normal,
         StatusMode::Command,
         StatusMode::Search,
-        StatusMode::Zen,
+        StatusMode::Agent,
     ] {
         group.bench_with_input(BenchmarkId::new("mode", mode.label()), &mode, |b, &mode| {
             let mut status_line = StatusLine::new();

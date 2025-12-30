@@ -176,9 +176,9 @@ impl EnyaApp {
         self.status_line.set_theme(self.state.theme);
 
         // Set mode based on current UI state
+        // Note: Zen/Fullscreen are display preferences, not modes - user stays in Normal mode
         let mode = match self.state.ui_state {
             UIState::Dashboard => {
-                // Check if command palette or fuzzy finder is open, or zen/fullscreen mode is active
                 if let Some(tab) = self.workspace_tabs.active_tab() {
                     let workspace = &tab.workspace;
                     if workspace.is_command_palette_open() {
@@ -189,10 +189,6 @@ impl EnyaApp {
                         StatusMode::Agent
                     } else if workspace.is_visual_multi_mode() {
                         StatusMode::VisualMulti
-                    } else if workspace.is_fullscreen() {
-                        StatusMode::Fullscreen
-                    } else if workspace.is_zen_mode() {
-                        StatusMode::Zen
                     } else {
                         StatusMode::Normal
                     }
@@ -226,6 +222,9 @@ impl EnyaApp {
                 .set_diagnostics_count(errors, warnings, infos);
             // Set connection status based on Prometheus health check
             self.status_line.set_connected(workspace.is_online());
+            // Set display preference badges
+            self.status_line.set_zen_mode(workspace.is_zen_mode());
+            self.status_line.set_fullscreen(workspace.is_fullscreen());
             // Set codebase status (Cloning..., Indexing..., Ready, Error)
             // Only show when not on landing page - user expects status after entering workspace
             if workspace.is_landing_page() {
@@ -362,12 +361,16 @@ impl EnyaApp {
         // Update workspace tabs theme
         self.workspace_tabs.set_theme(self.state.theme);
 
-        // Render workspace tab bar (hide only when single tab on landing page)
-        let should_hide_tabs = self.workspace_tabs.tab_count() == 1
+        // Render workspace tab bar (hide when single tab on landing page, or in zen mode)
+        let should_hide_tabs = (self.workspace_tabs.tab_count() == 1
             && self
                 .workspace_tabs
                 .active_tab()
-                .is_some_and(|tab| tab.workspace.is_landing_page());
+                .is_some_and(|tab| tab.workspace.is_landing_page()))
+            || self
+                .workspace_tabs
+                .active_tab()
+                .is_some_and(|tab| tab.workspace.is_zen_mode());
         if !should_hide_tabs {
             let tab_action = self.workspace_tabs.show(ctx);
             self.handle_tab_bar_action(tab_action);
