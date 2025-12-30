@@ -73,17 +73,17 @@ impl EnyaApp {
     pub fn new(cc: &eframe::CreationContext<'_>, async_runtime: AsyncRuntime) -> Self {
         egui_extras::install_image_loaders(&cc.egui_ctx);
 
-        // Set up fonts with both DepartureMono and Phosphor icons
-        fonts::setup_fonts(&cc.egui_ctx);
-
         let (command_sender, command_receiver) = command_channel();
 
-        // Load previous app state (if any).
+        // Load previous app state FIRST (before font setup).
         // Note that you must enable the `persistence` feature for this to work.
         let mut state: AppState = cc
             .storage
             .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
             .unwrap_or_default();
+
+        // Set up fonts with user's preferred font from saved settings
+        fonts::setup_fonts(&cc.egui_ctx, state.settings.font);
 
         // Always start with Dashboard (ignore persisted ui_state)
         state.ui_state = UIState::Dashboard;
@@ -419,6 +419,17 @@ impl EnyaApp {
             }
             WorkspaceAction::SetTheme(theme) => {
                 self.command_sender.send_ui(UICommand::Theme(theme));
+            }
+            WorkspaceAction::SetFont(font) => {
+                // Update the setting (will be persisted automatically via save())
+                self.state.settings.font = font;
+                // Apply the font change immediately
+                fonts::setup_fonts(ctx, font);
+                // Notify user
+                self.notifications.notify(Notification::new(
+                    format!("Font changed to {}", font.name()),
+                    NotificationLevel::Success,
+                ));
             }
             WorkspaceAction::ShowHelp => {
                 ctx.open_url(egui::output::OpenUrl {

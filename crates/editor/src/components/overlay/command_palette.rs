@@ -7,6 +7,7 @@ use nucleo_matcher::{
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
+use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -105,6 +106,8 @@ pub enum CommandResult {
     OpenTutorial,
     /// Set AI provider (claude, codex)
     SetProvider(String),
+    /// Set editor font (maple/departure/jetbrains/iosevka)
+    SetFont(EditorFont),
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -255,6 +258,12 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "provider",
         aliases: &["ai"],
         description: "Set AI provider (claude, codex)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "font",
+        aliases: &[],
+        description: "Set editor font (maple/departure/jetbrains/iosevka)",
         kind: CommandKind::SingleArg,
     },
 ];
@@ -576,6 +585,25 @@ impl CommandPalette {
                     CommandResult::Error("Usage: :provider <claude|codex>".to_string())
                 } else {
                     CommandResult::SetProvider(args[0].to_lowercase())
+                }
+            }
+            "font" => {
+                // :font <name> - set editor font
+                if args.is_empty() {
+                    CommandResult::Error(
+                        "Usage: :font <maple|departure|jetbrains|iosevka>".to_string(),
+                    )
+                } else {
+                    match args[0].to_lowercase().as_str() {
+                        "maple" => CommandResult::SetFont(EditorFont::MapleMono),
+                        "departure" => CommandResult::SetFont(EditorFont::DepartureMono),
+                        "jetbrains" => CommandResult::SetFont(EditorFont::JetBrainsMono),
+                        "iosevka" => CommandResult::SetFont(EditorFont::Iosevka),
+                        _ => CommandResult::Error(format!(
+                            "Unknown font: {}. Use 'maple', 'departure', 'jetbrains', or 'iosevka'",
+                            args[0]
+                        )),
+                    }
                 }
             }
             _ => CommandResult::None,

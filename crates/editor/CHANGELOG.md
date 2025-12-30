@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Configurable editor font**: Use `:font <name>` to switch between fonts. Available options: `maple` (Maple Mono), `departure` (Departure Mono), `jetbrains` (JetBrains Mono), `iosevka` (Iosevka). The preference is persisted across sessions. Departure Mono is the default.
+
 ### Changed
 
 - **Unified hover styling across UI components**: All interactive list/menu components now use the same subtle hover styling as the landing page - a light 5% text color background with emerald accent color for icons on hover/select. Updated components include:

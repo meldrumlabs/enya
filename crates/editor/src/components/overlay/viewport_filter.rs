@@ -10,7 +10,7 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
-use crate::components::util::finder_utils::{render_key_badge, OverlayStyle};
+use crate::components::util::finder_utils::{OverlayStyle, render_key_badge};
 
 /// Result of viewport filter interaction
 #[derive(Debug, Clone, PartialEq)]
@@ -179,10 +179,7 @@ impl ViewportFilter {
                         .font(FontId::monospace(14.0))
                         .frame(false)
                         .text_color(text_primary)
-                        .hint_text(
-                            RichText::new("filter panes...")
-                                .color(text_tertiary),
-                        ),
+                        .hint_text(RichText::new("filter panes...").color(text_tertiary)),
                 );
 
                 // Auto-focus
