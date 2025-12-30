@@ -4,6 +4,21 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Unified hover styling across UI components**: All interactive list/menu components now use the same subtle hover styling as the landing page - a light 5% text color background with emerald accent color for icons on hover/select. Updated components include:
+  - Workspace finder
+  - Command palette
+  - Query completion popup
+  - Agent input bar mentions popup
+  - Workspace tabs
+  - Time range widget buttons
+- **Premium layered pane focus border**: Pane focus now features a premium glass effect with three layered emerald borders - an outer subtle glow, mid glow, and crisp inner border. This creates depth and matches the Obsidian Glass theme. Uses brighter emerald in visual-multi mode to distinguish the cursor pane from selected panes.
+- **Distinct tab vs pane focus colors**: Active tabs now use sky blue (#6EBEF8) for their outline, while pane focus uses emerald. This creates a clear visual hierarchy between tab selection and pane focus.
+- **Consolidated chart colors**: Time series charts and demo visualizations now use the centralized `palette::chart::PALETTE` instead of hardcoded colors, ensuring consistent theming across all visualizations.
+- **Premium query overlay styling**: The query overlay shown at the bottom of selected panes in visual-multi mode now features Obsidian Glass styling with an emerald accent bar on the left edge and a subtle top border line. Uses palette colors for consistent theming.
+- **Premium viewport filter styling**: The `/` search filter overlay now features emerald accent colors for the search icon and slash indicator, keyboard badges for hints (Enter, Esc), a separator line, and proper palette color hierarchy.
+
 ### Fixed
 
 - **Language icons now render correctly**: Fixed language icons (Rust, Go, Python, etc.) in the status bar not rendering. Updated the bundled Nerd Font (Symbols Nerd Font) to the latest version which includes the MDI `LANGUAGE_*` icons with actual language logos.

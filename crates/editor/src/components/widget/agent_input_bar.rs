@@ -786,10 +786,10 @@ impl AgentInputBar {
         };
         let emerald_primary = palette::accent::PRIMARY;
 
-        // Selection background with emerald tint
-        let selected_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::SELECTED,
-            AppTheme::Dark => palette::bg::SELECTED,
+        // Accent color for hover/selection
+        let accent_col = match self.theme {
+            AppTheme::Light => palette::accent::LIGHT,
+            AppTheme::Dark => palette::accent::PRIMARY,
         };
 
         // Separator color
@@ -848,30 +848,40 @@ impl AgentInputBar {
                             let is_selected = i == self.mention_popup.selected_index;
 
                             // Allocate row space
-                            let (row_rect, _response) = ui.allocate_exact_size(
+                            let (row_rect, response) = ui.allocate_exact_size(
                                 egui::vec2(popup_width, row_height),
                                 egui::Sense::hover(),
                             );
+                            let is_hovered = response.hovered();
 
-                            // Selection background with emerald tint
+                            // Background - use subtle hover style like landing page
+                            let bg_color = if is_selected {
+                                accent_col.gamma_multiply(0.12)
+                            } else if is_hovered {
+                                text_col.gamma_multiply(0.05)
+                            } else {
+                                Color32::TRANSPARENT
+                            };
+
+                            if bg_color != Color32::TRANSPARENT {
+                                ui.painter().rect_filled(row_rect, 6.0, bg_color);
+                            }
+
+                            // Emerald selection indicator bar
                             if is_selected {
-                                ui.painter().rect_filled(row_rect, 6.0, selected_bg);
-
-                                // Emerald selection indicator bar
                                 let indicator_rect = egui::Rect::from_min_size(
                                     row_rect.left_top(),
                                     egui::vec2(3.0, row_height),
                                 );
-                                ui.painter()
-                                    .rect_filled(indicator_rect, 2.0, emerald_primary);
+                                ui.painter().rect_filled(indicator_rect, 2.0, accent_col);
                             }
 
-                            // Metric icon
+                            // Metric icon - use accent color on hover/select like landing page
                             let icon_pos = row_rect.left_center() + egui::vec2(18.0, 0.0);
-                            let icon_color = if is_selected {
-                                emerald_accent
+                            let icon_color = if is_selected || is_hovered {
+                                accent_col
                             } else {
-                                text_col.gamma_multiply(0.5)
+                                text_col.gamma_multiply(0.6)
                             };
                             ui.painter().text(
                                 icon_pos,

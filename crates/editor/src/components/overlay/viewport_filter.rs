@@ -5,12 +5,11 @@
 
 use egui::{FontId, Key, RichText};
 
-use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
-use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::{render_key_badge, OverlayStyle};
 
 /// Result of viewport filter interaction
 #[derive(Debug, Clone, PartialEq)]
@@ -153,35 +152,51 @@ impl ViewportFilter {
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
+                // Get theme-aware colors
+                let text_primary = palette::text_primary(self.theme);
+                let text_secondary = palette::text_secondary(self.theme);
+                let text_tertiary = palette::text_tertiary(self.theme);
+                let accent_color = palette::accent::PRIMARY;
+                let badge_bg = palette::bg_elevated(self.theme);
+
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
-                    ui.add_space(8.0);
+                    ui.add_space(12.0);
 
                     ui.horizontal(|ui| {
-                        ui.add_space(12.0);
+                        ui.add_space(16.0);
 
-                        // Search icon and slash indicator
+                        // Search icon with emerald accent
                         ui.label(
-                            RichText::new(format!("{} /", semantic_icons::action::SEARCH))
-                                .color(text_color(self.theme).gamma_multiply(0.7))
-                                .size(14.0)
+                            RichText::new(semantic_icons::action::SEARCH)
+                                .color(accent_color)
+                                .size(16.0),
+                        );
+
+                        ui.add_space(8.0);
+
+                        // Slash indicator with accent
+                        ui.label(
+                            RichText::new("/")
+                                .color(accent_color)
+                                .size(16.0)
                                 .family(egui::FontFamily::Monospace),
                         );
 
-                        ui.add_space(4.0);
+                        ui.add_space(8.0);
 
                         // Search input
                         let input_id = egui::Id::new("viewport_filter_input");
                         let response = ui.add(
                             egui::TextEdit::singleline(&mut self.pattern)
                                 .id(input_id)
-                                .desired_width(popup_width - 180.0)
+                                .desired_width(popup_width - 200.0)
                                 .font(FontId::monospace(14.0))
                                 .frame(false)
-                                .text_color(text_color(self.theme))
+                                .text_color(text_primary)
                                 .hint_text(
                                     RichText::new("filter panes...")
-                                        .color(text_color(self.theme).gamma_multiply(0.4)),
+                                        .color(text_tertiary),
                                 ),
                         );
 
@@ -191,52 +206,68 @@ impl ViewportFilter {
                             self.needs_focus = false;
                         }
 
-                        ui.add_space(8.0);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(16.0);
 
-                        // Match count indicator
-                        let count_text =
-                            if self.pattern.is_empty() && self.applied_pattern.is_empty() {
-                                format!("{} panes", self.total_count)
+                            // Match count indicator
+                            let count_text =
+                                if self.pattern.is_empty() && self.applied_pattern.is_empty() {
+                                    format!("{} panes", self.total_count)
+                                } else {
+                                    format!("{}/{}", self.match_count, self.total_count)
+                                };
+
+                            let count_color = if self.match_count == 0 && !self.pattern.is_empty() {
+                                palette::semantic::WARNING
                             } else {
-                                format!("{}/{}", self.match_count, self.total_count)
+                                text_secondary
                             };
 
-                        let count_color = if self.match_count == 0 && !self.pattern.is_empty() {
-                            palette::semantic::WARNING
-                        } else {
-                            text_color(self.theme).gamma_multiply(0.5)
-                        };
-
-                        ui.label(
-                            RichText::new(count_text)
-                                .color(count_color)
-                                .size(12.0)
-                                .family(egui::FontFamily::Monospace),
-                        );
-
-                        ui.add_space(12.0);
-                    });
-
-                    ui.add_space(4.0);
-
-                    // Hint text
-                    ui.horizontal(|ui| {
-                        ui.add_space(12.0);
-                        let hint_color = text_color(self.theme).gamma_multiply(0.4);
-                        ui.label(RichText::new("Enter").color(hint_color).size(10.0));
-                        ui.label(RichText::new("apply").color(hint_color).size(10.0));
-                        ui.add_space(8.0);
-                        ui.label(RichText::new("Esc").color(hint_color).size(10.0));
-                        ui.label(RichText::new("close").color(hint_color).size(10.0));
-
-                        if self.is_active() {
-                            ui.add_space(8.0);
-                            ui.label(RichText::new("Esc×2").color(hint_color).size(10.0));
-                            ui.label(RichText::new("clear").color(hint_color).size(10.0));
-                        }
+                            ui.label(
+                                RichText::new(count_text)
+                                    .color(count_color)
+                                    .size(12.0)
+                                    .family(egui::FontFamily::Monospace),
+                            );
+                        });
                     });
 
                     ui.add_space(8.0);
+
+                    // Separator line with emerald tint
+                    let separator_color = palette::border_subtle(self.theme);
+                    let rect = ui.available_rect_before_wrap();
+                    ui.painter().hline(
+                        rect.left() + 16.0..=rect.right() - 16.0,
+                        rect.top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+
+                    ui.add_space(8.0);
+
+                    // Hint text with keyboard badges
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+
+                        render_key_badge(ui, "Enter", badge_bg, text_secondary);
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("apply").color(text_tertiary).size(11.0));
+
+                        ui.add_space(12.0);
+
+                        render_key_badge(ui, "Esc", badge_bg, text_secondary);
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("close").color(text_tertiary).size(11.0));
+
+                        if self.is_active() {
+                            ui.add_space(12.0);
+                            render_key_badge(ui, "Esc×2", badge_bg, text_secondary);
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("clear filter").color(text_tertiary).size(11.0));
+                        }
+                    });
+
+                    ui.add_space(12.0);
                 });
             });
 

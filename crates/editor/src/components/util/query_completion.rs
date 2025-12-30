@@ -559,16 +559,7 @@ impl QueryCompletion {
             AppTheme::Light => palette::light_border::DEFAULT,
             AppTheme::Dark => Color32::from_rgb(50, 55, 52), // Subtle emerald-tinted border
         };
-        let selected_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::SELECTED,
-            AppTheme::Dark => Color32::from_rgb(24, 50, 40), // Richer emerald selection
-        };
-        let hover_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::HOVER,
-            AppTheme::Dark => Color32::from_rgb(28, 28, 34), // Subtle hover lift
-        };
         let text_col = palette::text_primary(self.theme);
-        let text_secondary = palette::text_secondary(self.theme);
         let text_tertiary = palette::text_tertiary(self.theme);
         let accent_color = match self.theme {
             AppTheme::Light => palette::accent::LIGHT,
@@ -639,37 +630,17 @@ impl QueryCompletion {
             let response = ui.allocate_rect(item_rect, egui::Sense::click());
             let is_hovered = response.hovered();
 
-            // Item background with premium styling
+            // Item background - use subtle hover style like landing page
             let item_bg = if is_selected {
-                selected_bg
+                accent_color.gamma_multiply(0.12)
             } else if is_hovered {
-                hover_bg
+                text_col.gamma_multiply(0.05)
             } else {
                 Color32::TRANSPARENT
             };
 
-            if is_selected {
-                // Draw more visible glow behind selected item
-                let glow_rect = item_rect.expand(2.0);
-                ui.painter()
-                    .rect_filled(glow_rect, 8.0, accent_color.gamma_multiply(0.12));
-            }
-
             if item_bg != Color32::TRANSPARENT {
                 ui.painter().rect_filled(item_rect, 6.0, item_bg);
-
-                // Add subtle top highlight on selected/hovered items for depth
-                if is_selected || is_hovered {
-                    let item_highlight = egui::Rect::from_min_size(
-                        item_rect.left_top() + egui::vec2(1.0, 1.0),
-                        egui::vec2(item_rect.width() - 2.0, 1.0),
-                    );
-                    ui.painter().rect_filled(
-                        item_highlight,
-                        4.0,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 8),
-                    );
-                }
             }
 
             // Selection indicator - elegant emerald accent bar with glow
@@ -687,11 +658,11 @@ impl QueryCompletion {
                 ui.painter().rect_filled(indicator_rect, 3.0, accent_color);
             }
 
-            // Icon - use accent color for selected, secondary for others
-            let icon_color = if is_selected {
+            // Icon - use accent color for selected/hover like landing page
+            let icon_color = if is_selected || is_hovered {
                 accent_color
             } else {
-                text_secondary
+                text_col.gamma_multiply(0.6)
             };
             let icon_pos = egui::pos2(item_rect.left() + 12.0, item_rect.center().y);
             ui.painter().text(

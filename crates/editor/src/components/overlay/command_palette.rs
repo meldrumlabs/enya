@@ -811,17 +811,9 @@ impl CommandPalette {
     ) {
         let text_col = text_color(self.theme);
         // Use emerald accent for highlights to match brand
-        let highlight_color = match self.theme {
+        let accent_col = match self.theme {
             AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::HOVER, // Bright emerald
-        };
-        let selected_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::ELEVATED,
-            AppTheme::Dark => palette::accent::MUTED, // Emerald-tinted selection
-        };
-        let hover_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::HOVER,
-            AppTheme::Dark => palette::bg::HOVER,
+            AppTheme::Dark => palette::accent::PRIMARY,
         };
 
         let row_height = 32.0;
@@ -830,11 +822,13 @@ impl CommandPalette {
             egui::Sense::click(),
         );
 
-        // Background
+        let is_hovered = response.hovered();
+
+        // Background - use subtle hover style like landing page
         let bg_color = if is_selected {
-            selected_bg
-        } else if response.hovered() {
-            hover_bg
+            accent_col.gamma_multiply(0.12)
+        } else if is_hovered {
+            text_col.gamma_multiply(0.05)
         } else {
             Color32::TRANSPARENT
         };
@@ -846,8 +840,7 @@ impl CommandPalette {
         // Selection indicator
         if is_selected {
             let indicator_rect = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height));
-            ui.painter()
-                .rect_filled(indicator_rect, 0.0, highlight_color);
+            ui.painter().rect_filled(indicator_rect, 0.0, accent_col);
         }
 
         // Content
@@ -860,7 +853,7 @@ impl CommandPalette {
             suggestion.command.name,
             &suggestion.match_positions,
             text_col,
-            highlight_color,
+            accent_col,
         );
         ui.painter().galley(
             egui::pos2(
