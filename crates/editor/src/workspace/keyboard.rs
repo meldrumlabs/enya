@@ -80,6 +80,14 @@ impl Workspace {
         let mut agent_quick_command: Option<QuickCommand> = None;
         let mut new_tile_id: Option<TileId> = None;
         let mut time_range_preset: Option<TimeRangePreset> = None;
+        let mut should_move_pane_left = false;
+        let mut should_move_pane_right = false;
+        let mut should_move_pane_up = false;
+        let mut should_move_pane_down = false;
+        let mut should_tab_pane_left = false;
+        let mut should_tab_pane_right = false;
+        let mut should_tab_pane_up = false;
+        let mut should_tab_pane_down = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -380,6 +388,116 @@ impl Workspace {
                 return;
             }
 
+            // Ctrl+W - window management leader key (vim-style Ctrl+W h/j/k/l)
+            if input.consume_key(egui::Modifiers::CTRL, egui::Key::W) {
+                self.leader_keys.press_ctrl_w();
+                consumed = true;
+                return;
+            }
+
+            // Ctrl+W sequences (must follow Ctrl+W within timeout)
+            // Note: We accept keys with Ctrl still held since users often keep Ctrl pressed
+            // throughout the sequence (especially on macOS).
+            if self.leader_keys.is_ctrl_w_active() {
+                let ctrl_only = egui::Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                };
+
+                // Ctrl+W t - enter tab mode (merge focused pane into tab with neighbor)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::T)
+                    || input.consume_key(ctrl_only, egui::Key::T)
+                {
+                    self.leader_keys.press_ctrl_w_t();
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+
+                // Ctrl+W h - move pane to far left
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                    || input.consume_key(ctrl_only, egui::Key::H)
+                {
+                    should_move_pane_left = true;
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W l - move pane to far right
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                    || input.consume_key(ctrl_only, egui::Key::L)
+                {
+                    should_move_pane_right = true;
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W k - move pane to top
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                    || input.consume_key(ctrl_only, egui::Key::K)
+                {
+                    should_move_pane_up = true;
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W j - move pane to bottom
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                    || input.consume_key(ctrl_only, egui::Key::J)
+                {
+                    should_move_pane_down = true;
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+            }
+
+            // Ctrl+W t sequences - merge focused pane into tab with neighbor in direction
+            // Accept direction keys with no modifiers OR with Ctrl still held (common on macOS)
+            if self.leader_keys.is_ctrl_w_t_active() {
+                let ctrl_only = egui::Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                };
+
+                // Ctrl+W t h - merge with pane to the left
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                    || input.consume_key(ctrl_only, egui::Key::H)
+                {
+                    should_tab_pane_left = true;
+                    self.leader_keys.clear_ctrl_w_t();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W t l - merge with pane to the right
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                    || input.consume_key(ctrl_only, egui::Key::L)
+                {
+                    should_tab_pane_right = true;
+                    self.leader_keys.clear_ctrl_w_t();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W t k - merge with pane above
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                    || input.consume_key(ctrl_only, egui::Key::K)
+                {
+                    should_tab_pane_up = true;
+                    self.leader_keys.clear_ctrl_w_t();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W t j - merge with pane below
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                    || input.consume_key(ctrl_only, egui::Key::J)
+                {
+                    should_tab_pane_down = true;
+                    self.leader_keys.clear_ctrl_w_t();
+                    consumed = true;
+                    return;
+                }
+            }
+
             // Ctrl+V - enter visual-block (multi-select) mode
             // If no pane is focused, auto-focus the first (topmost) pane
             if input.consume_key(egui::Modifiers::CTRL, egui::Key::V) {
@@ -532,6 +650,36 @@ impl Workspace {
 
         if should_enter_agent_mode_typing {
             self.enter_agent_mode_typing();
+            ctx.request_repaint();
+        }
+
+        // Handle pane movement (Ctrl+W h/j/k/l)
+        if should_move_pane_left {
+            self.move_pane_to_far_left();
+            ctx.request_repaint();
+        } else if should_move_pane_right {
+            self.move_pane_to_far_right();
+            ctx.request_repaint();
+        } else if should_move_pane_up {
+            self.move_pane_to_top();
+            ctx.request_repaint();
+        } else if should_move_pane_down {
+            self.move_pane_to_bottom();
+            ctx.request_repaint();
+        }
+
+        // Handle pane tabbing (Ctrl+W t h/j/k/l)
+        if should_tab_pane_left {
+            self.move_pane_to_tab_with(NavDirection::Left);
+            ctx.request_repaint();
+        } else if should_tab_pane_right {
+            self.move_pane_to_tab_with(NavDirection::Right);
+            ctx.request_repaint();
+        } else if should_tab_pane_up {
+            self.move_pane_to_tab_with(NavDirection::Up);
+            ctx.request_repaint();
+        } else if should_tab_pane_down {
+            self.move_pane_to_tab_with(NavDirection::Down);
             ctx.request_repaint();
         }
 

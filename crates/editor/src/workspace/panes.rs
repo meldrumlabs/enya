@@ -451,6 +451,327 @@ impl Workspace {
         log::debug!("Split panes vertically (horizontal layout)");
     }
 
+    // ==================== Pane Movement (Ctrl+W H/J/K/L) ====================
+
+    /// Move the focused pane to the far left (becomes leftmost vertical split).
+    /// This is vim's Ctrl+W H behavior.
+    pub(super) fn move_pane_to_far_left(&mut self) {
+        self.move_pane_to_edge(super::NavDirection::Left);
+    }
+
+    /// Move the focused pane to the far right (becomes rightmost vertical split).
+    /// This is vim's Ctrl+W L behavior.
+    pub(super) fn move_pane_to_far_right(&mut self) {
+        self.move_pane_to_edge(super::NavDirection::Right);
+    }
+
+    /// Move the focused pane to the very top (becomes top horizontal split).
+    /// This is vim's Ctrl+W K behavior.
+    pub(super) fn move_pane_to_top(&mut self) {
+        self.move_pane_to_edge(super::NavDirection::Up);
+    }
+
+    /// Move the focused pane to the very bottom (becomes bottom horizontal split).
+    /// This is vim's Ctrl+W J behavior.
+    pub(super) fn move_pane_to_bottom(&mut self) {
+        self.move_pane_to_edge(super::NavDirection::Down);
+    }
+
+    /// Move the focused pane to the edge of the viewport in the given direction.
+    ///
+    /// This extracts the pane from its current position and creates a new split
+    /// at the edge of the viewport. For Left/Right, it creates a horizontal layout
+    /// with the pane on the specified side. For Up/Down, it creates a vertical layout.
+    fn move_pane_to_edge(&mut self, direction: super::NavDirection) {
+        let Some(focused_id) = self.behavior.focused_tile() else {
+            log::debug!("No focused pane to move");
+            return;
+        };
+
+        // Verify it's actually a pane before removing
+        if !matches!(
+            self.viewport_tree.tiles.get(focused_id),
+            Some(Tile::Pane(_))
+        ) {
+            log::debug!("Focused tile is not a pane");
+            return;
+        }
+
+        // Extract the pane
+        let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.remove(focused_id) else {
+            log::debug!("Focused tile not found");
+            return;
+        };
+
+        // Re-insert the pane to get a fresh TileId
+        let new_pane_id = self.viewport_tree.tiles.insert_pane(pane);
+
+        // Get current root after removal (tree may have auto-simplified)
+        let Some(current_root) = self.viewport_tree.root() else {
+            // Tree is empty, just set the pane as root
+            self.viewport_tree.root = Some(new_pane_id);
+            self.behavior.set_focused_tile(Some(new_pane_id));
+            log::debug!("Tree was empty, pane is now root");
+            return;
+        };
+
+        // If the root is now just the pane we're moving (only pane case),
+        // nothing more to do
+        if current_root == new_pane_id {
+            self.behavior.set_focused_tile(Some(new_pane_id));
+            log::debug!("Only one pane, nothing to move");
+            return;
+        }
+
+        // Create new container with the pane at the edge
+        let new_root = match direction {
+            super::NavDirection::Left => {
+                // Pane on left, rest on right (horizontal split)
+                self.viewport_tree
+                    .tiles
+                    .insert_horizontal_tile(vec![new_pane_id, current_root])
+            }
+            super::NavDirection::Right => {
+                // Rest on left, pane on right (horizontal split)
+                self.viewport_tree
+                    .tiles
+                    .insert_horizontal_tile(vec![current_root, new_pane_id])
+            }
+            super::NavDirection::Up => {
+                // Pane on top, rest on bottom (vertical split)
+                self.viewport_tree
+                    .tiles
+                    .insert_vertical_tile(vec![new_pane_id, current_root])
+            }
+            super::NavDirection::Down => {
+                // Rest on top, pane on bottom (vertical split)
+                self.viewport_tree
+                    .tiles
+                    .insert_vertical_tile(vec![current_root, new_pane_id])
+            }
+        };
+
+        self.viewport_tree.root = Some(new_root);
+
+        // Maintain focus on the moved pane
+        self.behavior.set_focused_tile(Some(new_pane_id));
+
+        log::debug!("Moved pane to {direction:?} edge, new id {new_pane_id:?}");
+    }
+
+    // ==================== Pane Tabbing (Ctrl+W t) ====================
+
+    /// Move the focused pane into a tab container with the pane in the given direction.
+    /// If the target is already in a tab container, add to that container.
+    /// Otherwise, create a new tab container with both panes.
+    pub(super) fn move_pane_to_tab_with(&mut self, direction: super::NavDirection) {
+        let Some(focused_id) = self.behavior.focused_tile() else {
+            log::debug!("No focused pane to move to tab");
+            return;
+        };
+
+        // Find the target pane in the given direction
+        let Some(target_id) = self.find_sibling_in_direction(focused_id, direction) else {
+            log::debug!("No sibling pane found in direction {direction:?}");
+            return;
+        };
+
+        // Don't tab with ourselves
+        if target_id == focused_id {
+            log::debug!("Cannot tab pane with itself");
+            return;
+        }
+
+        // Verify both are panes
+        if !matches!(
+            self.viewport_tree.tiles.get(focused_id),
+            Some(Tile::Pane(_))
+        ) {
+            log::debug!("Focused tile is not a pane");
+            return;
+        }
+
+        // Check if target is already in a tab container
+        if let Some(parent_tab_id) = self.find_parent_tab_container(target_id) {
+            // Add focused pane to the existing tab container
+            self.add_pane_to_tab_container(focused_id, parent_tab_id);
+        } else {
+            // Create a new tab container with both panes
+            self.create_tab_container_with_panes(focused_id, target_id);
+        }
+    }
+
+    /// Find the parent tab container of a tile, if any.
+    fn find_parent_tab_container(&self, target_id: TileId) -> Option<TileId> {
+        let root_id = self.viewport_tree.root()?;
+        self.find_parent_tab_recursive(root_id, target_id)
+    }
+
+    fn find_parent_tab_recursive(&self, container_id: TileId, target_id: TileId) -> Option<TileId> {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+
+            // Check if target is a direct child of this container
+            if children.contains(&target_id) {
+                // Only return if this is a tabs container
+                if matches!(container.kind(), egui_tiles::ContainerKind::Tabs) {
+                    return Some(container_id);
+                }
+                // Not a tabs container, target is a direct child but not in tabs
+                return None;
+            }
+
+            // Recursively search nested containers
+            for child_id in children {
+                if let Some(parent) = self.find_parent_tab_recursive(child_id, target_id) {
+                    return Some(parent);
+                }
+            }
+        }
+        None
+    }
+
+    /// Add a pane to an existing tab container.
+    fn add_pane_to_tab_container(&mut self, pane_id: TileId, tab_container_id: TileId) {
+        // Extract the pane first
+        let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.remove(pane_id) else {
+            log::debug!("Could not extract pane {pane_id:?}");
+            return;
+        };
+
+        // Re-insert to get a fresh ID
+        let new_pane_id = self.viewport_tree.tiles.insert_pane(pane);
+
+        // Add to the tab container
+        if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+            self.viewport_tree.tiles.get_mut(tab_container_id)
+        {
+            tabs.add_child(new_pane_id);
+            tabs.set_active(new_pane_id);
+            self.behavior.set_focused_tile(Some(new_pane_id));
+            log::debug!("Added pane to existing tab container {tab_container_id:?}");
+        } else {
+            log::warn!("Tab container {tab_container_id:?} not found or not a tabs container");
+        }
+    }
+
+    /// Create a new tab container with both panes, replacing the target's position.
+    fn create_tab_container_with_panes(&mut self, pane_id: TileId, target_id: TileId) {
+        // Find the parent container of the target to know where to insert the new tabs
+        let parent_info = self.find_parent_container_info(target_id);
+
+        // Extract the focused pane
+        let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.remove(pane_id) else {
+            log::debug!("Could not extract focused pane {pane_id:?}");
+            return;
+        };
+
+        // Re-insert to get a fresh ID
+        let new_pane_id = self.viewport_tree.tiles.insert_pane(pane);
+
+        // Create a new tab container with both the target and the moved pane
+        // Target goes first (it was there first), moved pane second (and becomes active)
+        let tab_container_id = self
+            .viewport_tree
+            .tiles
+            .insert_tab_tile(vec![target_id, new_pane_id]);
+
+        // Replace the target in its parent with the new tab container
+        if let Some((parent_id, child_index)) = parent_info {
+            // Replace the target in the parent container with the tab container
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get_mut(parent_id) {
+                match container {
+                    egui_tiles::Container::Linear(linear) => {
+                        // Remove target and insert tab container at the same position
+                        let children: Vec<TileId> = linear.children.to_vec();
+                        linear.children.clear();
+                        for (i, child) in children.into_iter().enumerate() {
+                            if i == child_index {
+                                linear.children.push(tab_container_id);
+                            } else if child != target_id {
+                                linear.children.push(child);
+                            } else {
+                                // Skip the target, it's now inside the tab container
+                            }
+                        }
+                        // If target was at the position, we already inserted tab_container
+                        // If not found at index, just push
+                        if !linear.children.contains(&tab_container_id) {
+                            linear.children.push(tab_container_id);
+                        }
+                    }
+                    egui_tiles::Container::Tabs(tabs) => {
+                        // Replace target with tab container in the tabs
+                        // This creates nested tabs, which might be unusual but valid
+                        let children: Vec<TileId> = tabs.children.to_vec();
+                        tabs.children.clear();
+                        for child in children {
+                            if child == target_id {
+                                tabs.children.push(tab_container_id);
+                            } else {
+                                tabs.children.push(child);
+                            }
+                        }
+                        tabs.set_active(tab_container_id);
+                    }
+                    egui_tiles::Container::Grid(_) => {
+                        // Grid containers are not commonly used in this editor.
+                        // For now, log a warning - this case is rare.
+                        log::warn!(
+                            "Cannot replace child in grid container - grid not supported for tab merging"
+                        );
+                    }
+                }
+            }
+        } else {
+            // Target was the root, or no parent found - make tab container the new root
+            self.viewport_tree.root = Some(tab_container_id);
+        }
+
+        // Set the moved pane as active in the new tab container
+        if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+            self.viewport_tree.tiles.get_mut(tab_container_id)
+        {
+            tabs.set_active(new_pane_id);
+        }
+
+        self.behavior.set_focused_tile(Some(new_pane_id));
+        log::debug!(
+            "Created new tab container with target {target_id:?} and moved pane {new_pane_id:?}"
+        );
+    }
+
+    /// Find the parent container and the index of a child within it.
+    fn find_parent_container_info(&self, target_id: TileId) -> Option<(TileId, usize)> {
+        let root_id = self.viewport_tree.root()?;
+        self.find_parent_info_recursive(root_id, target_id)
+    }
+
+    fn find_parent_info_recursive(
+        &self,
+        container_id: TileId,
+        target_id: TileId,
+    ) -> Option<(TileId, usize)> {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+
+            // Check if target is a direct child
+            for (index, &child) in children.iter().enumerate() {
+                if child == target_id {
+                    return Some((container_id, index));
+                }
+            }
+
+            // Recursively search nested containers
+            for child_id in children {
+                if let Some(info) = self.find_parent_info_recursive(child_id, target_id) {
+                    return Some(info);
+                }
+            }
+        }
+        None
+    }
+
     // ==================== Pane Queries ====================
 
     /// Get all pane tile IDs in the viewport (for navigation)
