@@ -101,6 +101,32 @@ impl WhichKey {
                 ],
             },
             KeybindingGroup {
+                name: "Window Movement",
+                icon: semantic_icons::nav::EXPAND_ALL,
+                bindings: vec![
+                    Keybinding {
+                        key: "Ctrl+W h",
+                        description: "Move pane to far left",
+                    },
+                    Keybinding {
+                        key: "Ctrl+W j",
+                        description: "Move pane to bottom",
+                    },
+                    Keybinding {
+                        key: "Ctrl+W k",
+                        description: "Move pane to top",
+                    },
+                    Keybinding {
+                        key: "Ctrl+W l",
+                        description: "Move pane to far right",
+                    },
+                    Keybinding {
+                        key: "Ctrl+W t h/j/k/l",
+                        description: "Merge into tab with neighbor",
+                    },
+                ],
+            },
+            KeybindingGroup {
                 name: "Editor",
                 icon: semantic_icons::action::EDIT,
                 bindings: vec![

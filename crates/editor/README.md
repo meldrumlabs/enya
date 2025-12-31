@@ -64,6 +64,19 @@ Press `Space+m` to open the metrics finder for quick metric search.
 | `Z` | Toggle zen mode |
 | `F` | Toggle fullscreen for focused pane |
 
+#### Window Movement (vim-style Ctrl+W)
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+W h` | Move pane to far left |
+| `Ctrl+W j` | Move pane to bottom |
+| `Ctrl+W k` | Move pane to top |
+| `Ctrl+W l` | Move pane to far right |
+| `Ctrl+W t h` | Merge pane into tab with left neighbor |
+| `Ctrl+W t j` | Merge pane into tab with neighbor below |
+| `Ctrl+W t k` | Merge pane into tab with neighbor above |
+| `Ctrl+W t l` | Merge pane into tab with right neighbor |
+
 #### Chart Zoom Controls
 
 | Key | Action |

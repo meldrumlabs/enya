@@ -4,6 +4,23 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Vim-style window movement (Ctrl+W h/j/k/l)**: Move the focused pane to the edge of the viewport in the specified direction, matching Neovim's window movement behavior:
+  - `Ctrl+W h` - Move pane to far left (becomes leftmost vertical split)
+  - `Ctrl+W j` - Move pane to bottom (becomes bottom horizontal split)
+  - `Ctrl+W k` - Move pane to top (becomes top horizontal split)
+  - `Ctrl+W l` - Move pane to far right (becomes rightmost vertical split)
+  - New "Window Movement" section added to the which-key overlay (`?`)
+
+- **Merge panes into tabs (Ctrl+W t h/j/k/l)**: Merge the focused pane into a tab container with the pane in the specified direction:
+  - `Ctrl+W t h` - Merge with pane to the left into a tab group
+  - `Ctrl+W t j` - Merge with pane below into a tab group
+  - `Ctrl+W t k` - Merge with pane above into a tab group
+  - `Ctrl+W t l` - Merge with pane to the right into a tab group
+  - If the target pane is already in a tab container, the focused pane is added to that container
+  - Otherwise, a new tab container is created with both panes
+
 ### Changed
 
 - **Premium agent input bar styling**: Enhanced the agent input bar to match the Obsidian Glass emerald theme:
