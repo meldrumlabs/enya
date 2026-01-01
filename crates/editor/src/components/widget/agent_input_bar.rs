@@ -578,7 +578,7 @@ impl AgentInputBar {
             ui.vertical(|ui| {
                 // Top row: Provider badge + Context + Input
                 ui.horizontal(|ui| {
-                    // Provider badge with emerald accent
+                    // Provider badge with emerald accent and logo
                     let badge_bg = match self.theme {
                         AppTheme::Light => accent.gamma_multiply(0.15),
                         AppTheme::Dark => accent.gamma_multiply(0.2),
@@ -589,12 +589,38 @@ impl AgentInputBar {
                         .corner_radius(4.0)
                         .inner_margin(egui::Margin::symmetric(8, 3))
                         .show(ui, |ui| {
-                            ui.label(
-                                RichText::new(&self.provider_name)
-                                    .color(accent)
-                                    .size(typography::SM)
-                                    .strong(),
-                            );
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 4.0;
+                                // Show provider logo based on name
+                                let logo_size = typography::SM + 2.0;
+                                let provider_lower = self.provider_name.to_lowercase();
+                                if provider_lower.contains("claude") {
+                                    ui.add(
+                                        egui::Image::new(egui::include_image!(
+                                            "../../../assets/claude.png"
+                                        ))
+                                        .tint(accent)
+                                        .max_size(egui::vec2(logo_size, logo_size)),
+                                    );
+                                } else if provider_lower.contains("openai")
+                                    || provider_lower.contains("codex")
+                                    || provider_lower.contains("gpt")
+                                {
+                                    ui.add(
+                                        egui::Image::new(egui::include_image!(
+                                            "../../../assets/openai.png"
+                                        ))
+                                        .tint(accent)
+                                        .max_size(egui::vec2(logo_size, logo_size)),
+                                    );
+                                }
+                                ui.label(
+                                    RichText::new(&self.provider_name)
+                                        .color(accent)
+                                        .size(typography::SM)
+                                        .strong(),
+                                );
+                            });
                         });
 
                     ui.add_space(12.0);
