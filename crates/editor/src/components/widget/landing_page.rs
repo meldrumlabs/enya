@@ -41,6 +41,8 @@ pub struct LandingPage {
     theme: AppTheme,
     /// Currently selected menu item index
     selected_index: usize,
+    /// Disable keyboard handling (when an overlay is open)
+    keyboard_disabled: bool,
 }
 
 impl Default for LandingPage {
@@ -54,7 +56,13 @@ impl LandingPage {
         Self {
             theme: AppTheme::default(),
             selected_index: 0,
+            keyboard_disabled: false,
         }
+    }
+
+    /// Disable keyboard handling (call when an overlay is open over the landing page)
+    pub fn set_keyboard_disabled(&mut self, disabled: bool) {
+        self.keyboard_disabled = disabled;
     }
 
     pub fn set_theme(&mut self, theme: AppTheme) {
@@ -292,6 +300,11 @@ impl LandingPage {
 
     /// Handle keyboard navigation
     fn handle_keyboard(&mut self, ctx: &egui::Context) -> LandingPageAction {
+        // Don't handle keys if keyboard is disabled (overlay is open)
+        if self.keyboard_disabled {
+            return LandingPageAction::None;
+        }
+
         // Don't handle keys if a text field has focus
         if ctx.memory(|mem| mem.focused().is_some()) {
             return LandingPageAction::None;

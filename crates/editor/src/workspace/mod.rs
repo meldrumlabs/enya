@@ -6,6 +6,8 @@ use crate::AsyncRuntime;
 use crate::app::AppState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::CodebaseManager;
+#[cfg(target_arch = "wasm32")]
+use crate::components::NativePromoOverlay;
 use crate::components::{
     AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult, Buffer,
     BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
@@ -209,6 +211,9 @@ pub struct Workspace {
     /// Pending git repo path to configure (set from workspace creator)
     #[cfg(not(target_arch = "wasm32"))]
     pending_git_repo: Option<String>,
+    /// Native app promo overlay (WASM only)
+    #[cfg(target_arch = "wasm32")]
+    native_promo_overlay: NativePromoOverlay,
 }
 
 impl Workspace {
@@ -280,6 +285,8 @@ impl Workspace {
             pending_connection_endpoint: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_git_repo: None,
+            #[cfg(target_arch = "wasm32")]
+            native_promo_overlay: NativePromoOverlay::new(),
         }
     }
 
@@ -774,6 +781,21 @@ impl Workspace {
         ctx: &egui::Context,
         app_state: &AppState,
     ) -> WorkspaceAction {
+        // On WASM, show native app promo overlay (if not already dismissed)
+        // Process overlay FIRST so it can consume keyboard input before landing page
+        #[cfg(target_arch = "wasm32")]
+        let native_promo_open = {
+            self.native_promo_overlay.open();
+            self.native_promo_overlay.set_theme(app_state.theme);
+            self.native_promo_overlay.show(ctx);
+            self.native_promo_overlay.is_open()
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let native_promo_open = false;
+
+        // Disable landing page keyboard when native promo overlay is open
+        self.landing_page.set_keyboard_disabled(native_promo_open);
+
         // Show the landing page in the central panel
         let mut landing_action = LandingPageAction::None;
         egui::CentralPanel::default().show_inside(ui, |ui| {
