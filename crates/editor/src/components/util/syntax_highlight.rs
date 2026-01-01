@@ -209,6 +209,7 @@ impl SyntaxHighlightData {
     ///
     /// `line_num` is 1-indexed. Returns a `LayoutJob` ready for egui rendering.
     #[cfg(not(target_arch = "wasm32"))]
+    #[profiling::function]
     pub fn highlight_line(&self, line_num: usize, line: &str, theme: AppTheme) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::SM);
@@ -298,6 +299,7 @@ impl SyntaxHighlightData {
 
     /// WASM fallback - no syntax highlighting, just plain text.
     #[cfg(target_arch = "wasm32")]
+    #[profiling::function]
     pub fn highlight_line(&self, _line_num: usize, line: &str, theme: AppTheme) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::SM);

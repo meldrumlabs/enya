@@ -160,6 +160,7 @@ impl QueryCompletion {
     }
 
     /// Update completion suggestions based on current input and cursor position
+    #[profiling::function]
     pub fn update(&mut self, input: &str, cursor: usize) {
         self.items.clear();
         self.selected_index = 0;
@@ -535,6 +536,7 @@ impl QueryCompletion {
 
     /// Show the completion popup near the text input.
     /// Returns the result of user interaction.
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui, text_edit_rect: egui::Rect) -> CompletionResult {
         if !self.is_open || self.items.is_empty() {
             return CompletionResult::None;

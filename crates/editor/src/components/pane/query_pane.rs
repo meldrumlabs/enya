@@ -640,6 +640,7 @@ impl QueryPane {
     }
 
     /// Render the query pane
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
         let mut action = QueryPaneAction::None;
         let text_col = text_color(self.theme);

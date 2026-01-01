@@ -509,6 +509,7 @@ impl AgentInputBar {
     }
 
     /// Show the agent input bar
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> AgentInputBarResult {
         let mut result = AgentInputBarResult::default();
         let colors = OverlayColors::new(self.theme);

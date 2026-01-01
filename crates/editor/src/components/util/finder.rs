@@ -466,6 +466,7 @@ impl<T: FinderItem> Finder<T> {
     /// Refreshes the filtered results based on the current query.
     ///
     /// This is called automatically by `show()` when `needs_refresh` is true.
+    #[profiling::function]
     fn refresh_results(&mut self) {
         self.results.clear();
 
@@ -530,6 +531,7 @@ impl<T: FinderItem> Finder<T> {
     ///     println!("Selected: {}", selected.search_text());
     /// }
     /// ```
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> Option<T> {
         self.show_with_preview(ctx, |_, _, _| {})
     }
@@ -555,6 +557,7 @@ impl<T: FinderItem> Finder<T> {
     ///     ui.label(&result.item.description);
     /// });
     /// ```
+    #[profiling::function]
     pub fn show_with_preview<F>(&mut self, ctx: &egui::Context, render_preview: F) -> Option<T>
     where
         F: FnOnce(&mut egui::Ui, &FinderResult<T>, &FinderColors),

@@ -264,6 +264,7 @@ impl AgentPane {
     /// Note: Commands are NOT drained here. Use `poll_pending_commands()` to
     /// retrieve pending commands after the pane has been rendered by the tile tree.
     /// This is necessary because the Component trait's show() doesn't return a value.
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         // Poll streaming state (this may populate pending_commands)
         self.poll_streaming_response();

@@ -251,6 +251,7 @@ impl TimeRangeToolbar {
     }
 
     /// Render the toolbar
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         self.changed = false;
         let text_color = text_color(self.theme);

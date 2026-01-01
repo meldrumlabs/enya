@@ -203,6 +203,7 @@ impl NotificationManager {
     }
 
     /// Render notifications in the top-right corner
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) {
         self.cleanup();
 
