@@ -16,6 +16,8 @@ pub use pane::{
 };
 
 // Re-export from overlay
+#[cfg(target_arch = "wasm32")]
+pub use overlay::NativePromoOverlay;
 pub use overlay::{
     AgentCommand, AgentPanel, AgentPanelResult, AiProvider, BufferEditor, BufferEditorResult,
     ChatMessage, CodebaseContext, CommandPalette, CommandResult, ConnectionContext,
