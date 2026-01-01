@@ -636,6 +636,7 @@ impl BufferEditor {
     }
 
     /// Show the buffer editor modal. Returns the result of the interaction.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> BufferEditorResult {
         if !self.is_open {
             return BufferEditorResult::None;

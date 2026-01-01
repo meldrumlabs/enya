@@ -239,6 +239,7 @@ impl AgentPanel {
     }
 
     /// Show the panel as a side panel. Returns the result.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> AgentPanelResult {
         if !self.is_open {
             // Even when closed, check for pending commands

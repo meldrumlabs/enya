@@ -129,6 +129,7 @@ impl SparklineViz {
     }
 
     /// Render the sparkline chart
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
         let line_color = self.line_color();

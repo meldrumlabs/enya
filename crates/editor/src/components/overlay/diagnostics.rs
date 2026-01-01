@@ -1107,6 +1107,7 @@ impl DiagnosticsPane {
 }
 
 impl Component for DiagnosticsPane {
+    #[profiling::function]
     fn show(&mut self, ui: &mut Ui) {
         // Ignore action in Component::show - use show_with_action for action handling
         self.show_with_action(ui);

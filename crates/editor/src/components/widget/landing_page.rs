@@ -70,6 +70,7 @@ impl LandingPage {
     }
 
     /// Show the landing page UI
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> LandingPageAction {
         // Handle keyboard navigation
         let action = self.handle_keyboard(ctx);

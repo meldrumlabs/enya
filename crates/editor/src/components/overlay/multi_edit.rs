@@ -158,6 +158,7 @@ impl MultiEditOverlay {
     }
 
     /// Show the multi-edit overlay. Returns the result of the interaction.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> MultiEditResult {
         if !self.is_open {
             return MultiEditResult::None;
