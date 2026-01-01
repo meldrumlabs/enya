@@ -43,6 +43,8 @@ pub struct LandingPage {
     selected_index: usize,
     /// Disable keyboard handling (when an overlay is open)
     keyboard_disabled: bool,
+    /// Last known mouse position (to detect actual mouse movement)
+    last_mouse_pos: Option<egui::Pos2>,
 }
 
 impl Default for LandingPage {
@@ -57,6 +59,7 @@ impl LandingPage {
             theme: AppTheme::default(),
             selected_index: 0,
             keyboard_disabled: false,
+            last_mouse_pos: None,
         }
     }
 
@@ -77,6 +80,15 @@ impl LandingPage {
             return action;
         }
         let mut action = LandingPageAction::None;
+
+        // Detect if mouse actually moved (to avoid hover overriding keyboard navigation)
+        let current_mouse_pos = ctx.input(|i| i.pointer.hover_pos());
+        let mouse_moved = match (self.last_mouse_pos, current_mouse_pos) {
+            (Some(last), Some(current)) => (last - current).length() > 1.0,
+            (None, Some(_)) => true, // First frame with mouse position
+            _ => false,
+        };
+        self.last_mouse_pos = current_mouse_pos;
 
         let text_col = text_color(self.theme);
         let accent_color = self.accent_color();
@@ -101,7 +113,7 @@ impl LandingPage {
                 ui.add_space(48.0);
 
                 // === MENU BUTTONS (Vertical list) ===
-                action = self.show_menu(ui, text_col, accent_color);
+                action = self.show_menu(ui, text_col, accent_color, mouse_moved);
 
                 ui.add_space(24.0);
 
@@ -141,6 +153,7 @@ impl LandingPage {
         ui: &mut egui::Ui,
         text_col: Color32,
         accent_color: Color32,
+        mouse_moved: bool,
     ) -> LandingPageAction {
         let mut action = LandingPageAction::None;
 
@@ -189,7 +202,9 @@ impl LandingPage {
                 action = action_fn();
             }
 
-            if response.hovered() && !is_selected {
+            // Only update selection on hover if mouse actually moved
+            // This prevents stationary mouse from overriding keyboard navigation
+            if response.hovered() && !is_selected && mouse_moved {
                 self.selected_index = idx;
             }
 
