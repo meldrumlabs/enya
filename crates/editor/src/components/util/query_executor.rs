@@ -44,6 +44,8 @@ pub enum QueryPollResult {
         point_count: usize,
         /// Suggested visualization type based on result characteristics
         suggested_viz: VisualizationType,
+        /// The query response data (boxed to reduce enum size)
+        response: Box<QueryResponse>,
     },
     /// Query failed with an error
     Error(String),
@@ -108,7 +110,7 @@ pub struct QueryExecutor {
     demo_client: DemoMetricsClient,
     /// Prometheus client (if connected)
     prometheus_client: Option<PrometheusClient>,
-    /// Query manager for tracking in-flight queries
+    /// Query manager for tracking multiple in-flight queries by pane ID
     query_manager: QueryManager,
     /// Labels manager for fetching metric names
     labels_manager: LabelsManager,
@@ -196,7 +198,7 @@ impl QueryExecutor {
         self.prometheus_client = None;
         self.backend = Backend::Demo;
         self.connection_health = ConnectionHealth::Offline;
-        self.query_manager.cancel();
+        self.query_manager.cancel_all();
         self.labels_manager.cancel();
         self.label_names_manager.cancel();
         self.metric_labels_manager.cancel();
@@ -273,17 +275,32 @@ impl QueryExecutor {
         &self.backend
     }
 
-    /// Check if a query is currently in flight.
+    /// Check if any queries are currently in flight.
     pub fn is_querying(&self) -> bool {
         self.query_manager.is_querying()
     }
 
-    /// Cancel any pending query.
+    /// Check if a specific pane has a query in flight.
+    pub fn is_querying_pane(&self, pane_id: usize) -> bool {
+        self.query_manager.is_querying_id(pane_id)
+    }
+
+    /// Get the number of queries currently in flight.
+    pub fn pending_query_count(&self) -> usize {
+        self.query_manager.pending_count()
+    }
+
+    /// Cancel a specific pane's query.
     ///
     /// Note: This doesn't actually cancel the HTTP request (ehttp doesn't support that),
     /// but it will ignore the result when it arrives.
-    pub fn cancel_query(&mut self) {
-        self.query_manager.cancel();
+    pub fn cancel_query(&mut self, pane_id: usize) {
+        self.query_manager.cancel(pane_id);
+    }
+
+    /// Cancel all pending queries.
+    pub fn cancel_all_queries(&mut self) {
+        self.query_manager.cancel_all();
     }
 
     /// Fetch metric names from the backend.
@@ -456,15 +473,17 @@ impl QueryExecutor {
         self.metric_labels_cache.contains_key(metric)
     }
 
-    /// Execute a query.
+    /// Execute a query for a specific pane.
     ///
     /// For demo mode, uses the DemoMetricsClient to generate realistic data.
     /// For real backends, this fires off an async request.
-    /// Poll with `poll()` to receive results.
-    pub fn execute(
+    /// Poll with `poll_all()` to receive results.
+    ///
+    /// Multiple queries can be in flight simultaneously - each is tracked by pane_id.
+    pub fn execute_for_pane(
         &mut self,
+        pane_id: usize,
         params: &ExecuteParams<'_>,
-        _visualization: &mut Visualization,
         ctx: &egui::Context,
     ) {
         // Build request
@@ -478,65 +497,71 @@ impl QueryExecutor {
             Backend::Demo => {
                 // Demo mode - use demo client for realistic data generation
                 log::debug!(
-                    "Executing DEMO query for metric '{}': {}",
+                    "Executing DEMO query for pane {}: metric '{}': {}",
+                    pane_id,
                     params.metric,
                     params.query
                 );
-                self.query_manager.execute(&self.demo_client, request, ctx);
+                self.query_manager
+                    .execute(pane_id, &self.demo_client, request, ctx);
             }
             Backend::Prometheus(endpoint) => {
                 if let Some(client) = &self.prometheus_client {
                     log::info!(
-                        "Executing Prometheus query for metric '{}': {} (endpoint: {})",
+                        "Executing Prometheus query for pane {}: metric '{}': {} (endpoint: {})",
+                        pane_id,
                         params.metric,
                         params.query,
                         endpoint
                     );
-                    self.query_manager.execute(client, request, ctx);
+                    self.query_manager.execute(pane_id, client, request, ctx);
                 }
             }
         }
     }
 
-    /// Poll for query completion and update visualization if ready.
+    /// Poll for all completed query results.
     ///
-    /// Returns the poll result indicating pending, complete, or error.
-    /// The result includes a suggested visualization type based on the query results.
-    pub fn poll(&mut self, visualization: &mut Visualization) -> QueryPollResult {
-        if let Some(result) = self.query_manager.poll() {
-            match result {
-                Ok(response) => {
-                    let backend_name = match &self.backend {
-                        Backend::Demo => "Demo",
-                        Backend::Prometheus(_) => "Prometheus",
-                    };
-                    let series_count = response.groups.len();
-                    let point_count: usize = response.groups.iter().map(|g| g.buckets.len()).sum();
+    /// Returns a vector of `(pane_id, poll_result)` pairs for queries that completed.
+    /// Each result includes a suggested visualization type based on the query characteristics.
+    pub fn poll_all(&mut self) -> Vec<(usize, QueryPollResult)> {
+        let backend_name = match &self.backend {
+            Backend::Demo => "Demo",
+            Backend::Prometheus(_) => "Prometheus",
+        };
 
-                    // Compute visualization suggestion based on result characteristics
-                    let chars = ResultCharacteristics::from_response(&response);
-                    let suggested_viz = suggest_visualization(&chars);
-                    log::info!(
-                        "{backend_name} query completed: {series_count} groups, {point_count} total points (suggested: {suggested_viz:?})"
-                    );
+        self.query_manager
+            .poll_all()
+            .into_iter()
+            .map(|(pane_id, result)| {
+                let poll_result = match result {
+                    Ok(response) => {
+                        let series_count = response.groups.len();
+                        let point_count: usize =
+                            response.groups.iter().map(|g| g.buckets.len()).sum();
 
-                    visualization.clear();
-                    visualization.set_metric_name(&response.metric);
-                    populate_from_response(visualization, &response);
-                    QueryPollResult::Complete {
-                        series_count,
-                        point_count,
-                        suggested_viz,
+                        // Compute visualization suggestion based on result characteristics
+                        let chars = ResultCharacteristics::from_response(&response);
+                        let suggested_viz = suggest_visualization(&chars);
+                        log::info!(
+                            "{backend_name} query completed for pane {pane_id}: {series_count} groups, {point_count} total points (suggested: {suggested_viz:?})"
+                        );
+
+                        QueryPollResult::Complete {
+                            series_count,
+                            point_count,
+                            suggested_viz,
+                            response: Box::new(response),
+                        }
                     }
-                }
-                Err(e) => {
-                    log::error!("Query failed: {e}");
-                    QueryPollResult::Error(e.to_string())
-                }
-            }
-        } else {
-            QueryPollResult::Pending
-        }
+                    Err(e) => {
+                        log::error!("Query failed for pane {pane_id}: {e}");
+                        QueryPollResult::Error(e.to_string())
+                    }
+                };
+                (pane_id, poll_result)
+            })
+            .collect()
     }
 }
 

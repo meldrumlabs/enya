@@ -4,6 +4,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Parallel query execution (Grafana-style refresh)**: Query execution now runs in parallel instead of sequentially. When refreshing the time range or triggering a manual refresh:
+  - All panes fire their queries simultaneously using async promises
+  - All panes show the loading skeleton animation at once
+  - Each pane completes and displays data as soon as its query returns
+  - Time range changes (via toolbar, keyboard shortcuts, or agent commands) now trigger automatic refresh of all panes
+  - This significantly improves perceived performance with multiple panels
+
 ### Fixed
 
 - **Landing page j/k navigation with mouse hover**: Fixed an issue where pressing j/k to navigate the landing page menu would be immediately overridden by a stationary mouse cursor hovering over a different item. Now mouse hover only updates the selection when the mouse actually moves, allowing keyboard and mouse navigation to coexist without conflict.

@@ -138,10 +138,19 @@ pub trait MetricsClient {
 /// If a query doesn't complete within this time, it will be cancelled with a timeout error.
 pub const DEFAULT_QUERY_TIMEOUT_SECS: u64 = 30;
 
-/// Manages in-flight queries using promises.
+/// Tracks a single in-flight query with its metadata.
+struct PendingQuery {
+    /// The promise for this query.
+    promise: Promise<QueryResult>,
+    /// When the query started (Unix timestamp in seconds).
+    started_at: u64,
+}
+
+/// Manages multiple in-flight queries in parallel using promises.
 ///
-/// This provides state management for query operations, tracking whether
-/// a query is in flight and providing a polling interface for results.
+/// Tracks queries by unique ID (typically a pane ID), enabling Grafana-style
+/// parallel refresh where all panels query simultaneously.
+///
 /// Includes timeout detection to prevent queries from hanging indefinitely.
 ///
 /// # Example
@@ -149,19 +158,18 @@ pub const DEFAULT_QUERY_TIMEOUT_SECS: u64 = 30;
 /// ```ignore
 /// let mut manager = QueryManager::new();
 ///
-/// // Start a query
-/// manager.execute(&client, request, &ctx);
+/// // Fire multiple queries in parallel
+/// manager.execute(pane_id_1, &client, request1, &ctx);
+/// manager.execute(pane_id_2, &client, request2, &ctx);
 ///
-/// // In update loop
-/// if let Some(result) = manager.poll() {
-///     // Handle result (including timeout errors)
+/// // In update loop, poll for all completed results
+/// for (id, result) in manager.poll_all() {
+///     // Handle result for pane with this id
 /// }
 /// ```
 pub struct QueryManager {
-    /// The pending promise, if any.
-    promise: Option<Promise<QueryResult>>,
-    /// When the current query started (Unix timestamp in seconds, for timeout detection).
-    started_at: Option<u64>,
+    /// Pending queries keyed by their unique ID.
+    pending: rustc_hash::FxHashMap<usize, PendingQuery>,
     /// Timeout duration in seconds.
     timeout_secs: u64,
 }
@@ -177,8 +185,7 @@ impl QueryManager {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            promise: None,
-            started_at: None,
+            pending: rustc_hash::FxHashMap::default(),
             timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
         }
     }
@@ -187,83 +194,104 @@ impl QueryManager {
     #[must_use]
     pub fn with_timeout(timeout_secs: u64) -> Self {
         Self {
-            promise: None,
-            started_at: None,
+            pending: rustc_hash::FxHashMap::default(),
             timeout_secs,
         }
     }
 
-    /// Check if a query is currently in flight.
+    /// Check if any queries are currently in flight.
     #[must_use]
     pub fn is_querying(&self) -> bool {
-        self.promise.is_some()
+        !self.pending.is_empty()
     }
 
-    /// Execute a query using the given client.
+    /// Check if a specific query is in flight.
+    #[must_use]
+    pub fn is_querying_id(&self, id: usize) -> bool {
+        self.pending.contains_key(&id)
+    }
+
+    /// Get the number of queries currently in flight.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Execute a query for the given ID using the given client.
     ///
-    /// If a query is already in flight, this does nothing.
-    /// Call `poll()` each frame to check for the result.
+    /// If a query for this ID is already in flight, it is cancelled and replaced.
+    /// Call `poll_all()` each frame to check for results.
     pub fn execute<C: MetricsClient + ?Sized>(
         &mut self,
+        id: usize,
         client: &C,
         request: QueryRequest,
         ctx: &egui::Context,
     ) {
-        if self.promise.is_some() {
-            log::warn!("Query already in flight, ignoring new request");
-            return;
-        }
-
-        self.promise = Some(client.query(request, ctx));
-        self.started_at = Some(now_unix_secs());
+        let promise = client.query(request, ctx);
+        self.pending.insert(
+            id,
+            PendingQuery {
+                promise,
+                started_at: now_unix_secs(),
+            },
+        );
     }
 
-    /// Poll for the query result.
+    /// Poll for all completed query results.
     ///
-    /// Returns `Some(result)` if a query just completed or timed out, `None` otherwise.
-    /// After returning a result, `is_querying()` will return `false`.
-    ///
-    /// If the query has been pending longer than the timeout duration, this returns
-    /// a timeout error and cancels the pending query.
-    pub fn poll(&mut self) -> Option<QueryResult> {
-        let promise = self.promise.as_ref()?;
+    /// Returns a vector of `(id, result)` pairs for queries that completed or timed out.
+    /// Completed queries are removed from the pending set.
+    pub fn poll_all(&mut self) -> Vec<(usize, QueryResult)> {
+        let now = now_unix_secs();
+        let mut completed = Vec::new();
+        let mut to_remove = Vec::new();
 
-        // Check if the query has completed
-        if let Some(result) = promise.ready() {
-            let result = result.clone();
-            self.promise = None;
-            self.started_at = None;
-            return Some(result);
-        }
+        for (&id, pending) in &self.pending {
+            // Check if completed
+            if let Some(result) = pending.promise.ready() {
+                completed.push((id, result.clone()));
+                to_remove.push(id);
+                continue;
+            }
 
-        // Check for timeout
-        if let Some(started_at) = self.started_at {
-            let elapsed = now_unix_secs().saturating_sub(started_at);
+            // Check for timeout
+            let elapsed = now.saturating_sub(pending.started_at);
             if elapsed >= self.timeout_secs {
                 log::warn!(
-                    "Query timed out after {} seconds (timeout: {}s)",
-                    elapsed,
+                    "Query {id} timed out after {elapsed} seconds (timeout: {}s)",
                     self.timeout_secs
                 );
-                self.promise = None;
-                self.started_at = None;
-                return Some(Err(ClientError::Timeout {
-                    elapsed_secs: elapsed,
-                    timeout_secs: self.timeout_secs,
-                }));
+                completed.push((
+                    id,
+                    Err(ClientError::Timeout {
+                        elapsed_secs: elapsed,
+                        timeout_secs: self.timeout_secs,
+                    }),
+                ));
+                to_remove.push(id);
             }
         }
 
-        None
+        // Remove completed/timed-out queries
+        for id in to_remove {
+            self.pending.remove(&id);
+        }
+
+        completed
     }
 
-    /// Cancel any pending query.
+    /// Cancel a specific query by ID.
     ///
-    /// Note: This doesn't actually cancel the HTTP request (ehttp doesn't support that),
-    /// but it will ignore the result when it arrives.
-    pub fn cancel(&mut self) {
-        self.promise = None;
-        self.started_at = None;
+    /// Note: This doesn't actually cancel the HTTP request, but it will ignore
+    /// the result when it arrives.
+    pub fn cancel(&mut self, id: usize) {
+        self.pending.remove(&id);
+    }
+
+    /// Cancel all pending queries.
+    pub fn cancel_all(&mut self) {
+        self.pending.clear();
     }
 }
 
