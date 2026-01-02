@@ -1,0 +1,94 @@
+---
+title: Keyboard Reference
+description: Complete keyboard shortcut reference for Enya
+---
+
+Enya uses vim-style keybindings. This page provides a complete reference of all available shortcuts.
+
+## Navigation
+
+| Key | Action |
+|-----|--------|
+| `h/j/k/l` | Move between panes |
+| `Ctrl+w h/j/k/l` | Move focus to split |
+| `g` | Go to first pane |
+| `G` | Go to last pane |
+| `Tab` | Next pane |
+| `Shift+Tab` | Previous pane |
+
+## Pane Management
+
+| Key | Action |
+|-----|--------|
+| `s` | Horizontal split |
+| `v` | Vertical split |
+| `q` | Close pane |
+| `o` | Maximize/restore pane |
+| `=` | Equalize pane sizes |
+
+## Queries
+
+| Key | Action |
+|-----|--------|
+| `i` | Edit query (insert mode) |
+| `Escape` | Exit insert mode |
+| `Enter` | Execute query |
+| `/` | Search metrics |
+| `Ctrl+p` | Fuzzy finder |
+
+## Time Range
+
+| Key | Action |
+|-----|--------|
+| `.` | Zoom in (time) |
+| `,` | Zoom out (time) |
+| `+` | Zoom in (Y-axis) |
+| `-` | Zoom out (Y-axis) |
+| `Left/Right` | Pan time range |
+
+## Git Integration
+
+| Key | Action |
+|-----|--------|
+| `gd` | Go to definition |
+| `ga` | Go to alert |
+| `]c` | Next commit marker |
+| `[c` | Previous commit marker |
+
+## Visual Mode
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+v` | Enter visual-multi mode |
+| `Escape` | Exit visual mode |
+| `j/k` | Extend selection |
+| `d` | Delete selected |
+| `y` | Yank (copy) selected |
+
+## Command Palette
+
+Press `:` to open the command palette.
+
+| Command | Action |
+|---------|--------|
+| `:connect <url>` | Connect to Prometheus |
+| `:cv <type>` | Change visualization |
+| `:mksession <name>` | Save workspace |
+| `:source <name>` | Load workspace |
+| `:set <option>` | Set option |
+| `:q` | Quit |
+| `:w` | Save |
+| `:wq` | Save and quit |
+
+## Visualization Types
+
+Use `:cv <type>` to change visualization:
+
+| Type | Description |
+|------|-------------|
+| `ts` | Time series |
+| `stat` | Single stat |
+| `gauge` | Gauge |
+| `bar` | Bar chart |
+| `spark` | Sparkline |
+| `heat` | Heatmap |

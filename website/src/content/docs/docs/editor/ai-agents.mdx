@@ -1,0 +1,140 @@
+---
+title: AI Agents
+description: Using AI agents with Enya for intelligent observability
+sidebar:
+  order: 3
+  label: AI Agents
+---
+
+# AI Agents
+
+Enya is designed from the ground up to work with AI coding agents like Claude and Codex. The editor exposes your Prometheus metrics and codebase context to AI agents, enabling intelligent observability workflows.
+
+## What AI Agents Can Access
+
+When an AI agent works with Enya, it has access to:
+
+### Prometheus Metrics
+- All metric names from your connected Prometheus instance
+- Label names and values for each metric
+- Query results and time-series data
+- PromQL syntax and functions
+
+### Codebase Context
+- Source code where metrics are instrumented
+- Alert rule definitions in YAML files
+- Git commit history correlated with metric changes
+- Function and file context around metric definitions
+
+## Example Workflows
+
+### Incident Investigation
+
+Ask an AI agent to help investigate a metric spike:
+
+> "The `http_requests_total` metric spiked at 3:00 AM. What commits were deployed around that time and which code paths generate this metric?"
+
+The agent can:
+1. Query the metric data around that time
+2. Find git commits in the time range
+3. Locate where `http_requests_total` is instrumented in your code
+4. Correlate the spike with specific code changes
+
+### Understanding Metrics
+
+> "What does the `db_connections_active` metric measure and where is it generated in the codebase?"
+
+The agent can:
+1. Find the metric instrumentation via tree-sitter analysis
+2. Show the surrounding code context
+3. Identify the function and file where it's recorded
+4. Explain what the metric represents based on the code
+
+### Query Assistance
+
+> "Write a PromQL query to show the 99th percentile latency grouped by endpoint"
+
+The agent can:
+1. Know your available metrics and labels
+2. Construct a valid PromQL expression
+3. Suggest appropriate aggregations and functions
+
+### Alert Analysis
+
+> "What alerts reference the `error_rate` metric and what are their thresholds?"
+
+The agent can:
+1. Scan alert rule YAML files in your codebase
+2. Find alerts that query `error_rate`
+3. Show severity levels and thresholds
+4. Explain the alerting logic
+
+## Parallel Agent Support
+
+Enya supports multiple AI agents working in parallel on different aspects of your observability stack:
+
+- One agent investigating a latency issue
+- Another agent analyzing error patterns
+- A third agent exploring capacity metrics
+
+Each agent has full access to the same metric and codebase context.
+
+## Configuring for AI Agents
+
+For the best AI agent experience, ensure:
+
+### 1. Connect to Prometheus
+
+```
+:connect http://localhost:9090
+```
+
+This gives agents access to metric names, labels, and query execution.
+
+### 2. Configure Codebase
+
+In your workspace TOML:
+
+```toml
+[codebase]
+url = "https://github.com/your-org/your-repo"
+branch = "main"
+```
+
+This enables:
+- Go-to-definition (`gd`) for metrics
+- Git commit markers on charts
+- Alert rule discovery (`ga`)
+
+### 3. Index Your Codebase
+
+When you load a workspace with codebase config, Enya automatically:
+- Clones the repository
+- Parses source files with tree-sitter
+- Indexes metric instrumentation points
+- Scans for alert rule definitions
+
+## Best Practices
+
+### Be Specific
+Instead of "why is this slow?", ask "what code paths contribute to the `request_duration_seconds` histogram and what changed in the last week?"
+
+### Reference Metrics by Name
+Agents work best when you reference specific metric names they can look up.
+
+### Use Workspace Context
+Load a workspace with both Prometheus and codebase configured so agents have full context.
+
+## Supported AI Agents
+
+Enya is designed to work with any AI coding agent that can:
+- Read workspace configuration
+- Execute PromQL queries
+- Navigate to file locations
+- Understand code context
+
+Popular options include:
+- **Claude** (Anthropic)
+- **Codex** (OpenAI)
+- **GitHub Copilot**
+- **Cursor**

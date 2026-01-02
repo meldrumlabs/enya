@@ -69,27 +69,19 @@ export default defineConfig({
 					],
 				},
 				{
-					label: 'Agent',
-					collapsed: false,
-					items: [
-						{ label: 'Overview', slug: 'docs/agent' },
-					],
-				},
-				{
 					label: 'Editor',
 					collapsed: false,
 					items: [
 						{ label: 'Overview', slug: 'docs/editor' },
+						{ label: 'Workspaces', slug: 'docs/editor/workspaces' },
+						{ label: 'Visualizations', slug: 'docs/editor/visualizations' },
+						{ label: 'Git Integration', slug: 'docs/editor/git-integration' },
+						{ label: 'AI Agents', slug: 'docs/editor/ai-agents' },
+						{ label: 'Customization', slug: 'docs/editor/customization' },
+						{ label: 'Keyboard Reference', slug: 'docs/editor/keyboard-reference' },
 					],
 				},
-				{
-					label: 'Integrations',
-					collapsed: false,
-					items: [
-						{ label: 'Overview', slug: 'docs/integrations' },
-						{ label: 'Apache DataFusion', slug: 'docs/integrations/datafusion' },
-					],
-				},
+				{ label: 'FAQ', slug: 'docs/faq' },
 			],
 		}),
 	],

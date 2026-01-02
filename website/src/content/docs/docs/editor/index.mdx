@@ -8,101 +8,179 @@ sidebar:
 
 # Enya Editor
 
-The Enya editor is a neovim-inspired interface for creating and browsing observability metrics. Built with keyboard-driven workflows in mind, it provides a powerful and efficient way to interact with your data systems.
+The Enya editor is a neovim-inspired interface for visualizing and exploring Prometheus metrics. Built with keyboard-driven workflows in mind, it provides a powerful and efficient way to work with your observability data.
 
 ## Overview
 
-The editor combines the familiar modal editing paradigm of vim/neovim with observability-specific features, allowing you to:
+The editor combines familiar vim-style navigation with metrics-specific features:
 
-- Browse metrics and traces with keyboard navigation
-- Create and edit observability configurations
-- Query data systems in real-time
-- Visualize data flows and lineage
-- Profile performance bottlenecks
+- Browse and query metrics with keyboard navigation
+- Create dashboards with multiple visualization types
+- Query Prometheus with PromQL in real-time
+- Navigate to metric source code and alert definitions
+- Visualize git commits alongside metric data
 
 ## Key Features
 
-### Modal Editing
+### Vim-Style Navigation
 
-Like neovim, the editor supports multiple modes:
+Navigate panes and execute commands using familiar vim keybindings:
 
-- **Normal mode**: Navigate and browse metrics
-- **Insert mode**: Edit configurations and queries
-- **Visual mode**: Select and manipulate data
-- **Command mode**: Execute editor commands
+- `H`/`J`/`K`/`L` — Move focus between panes
+- `:` — Open command palette
+- `Space+m` — Open metrics fuzzy finder
+- `Space+w` — Open workspace finder
+- `?` — Show all keyboard shortcuts
 
-### Keyboard-Driven Workflows
+### Visual Multi-Select
 
-Designed for efficiency, the editor emphasizes keyboard shortcuts and commands:
+Select and edit multiple panes simultaneously (`Ctrl+V`):
 
-- Navigate metrics trees with `j/k`
-- Jump to specific metrics with `/` search
-- Open metric details with `Enter`
-- Switch between views with leader key combinations
+- `j`/`k`/`h`/`l` — Navigate and select panes
+- `Space` — Toggle selection
+- `a` — Select all panes
+- `e` — Edit selected panes
+- `x` — Close selected panes
 
-### Real-Time Data Exploration
+### Visualizations
 
-- Live metric updates as data flows through your systems
-- Interactive query execution with instant feedback
-- Data lineage visualization
-- Performance profiling views
+The editor supports multiple visualization types, automatically selected based on query results:
+
+- **Time Series** — Line charts for metrics over time
+- **Stat** — Big number display with sparkline
+- **Gauge** — Circular percentage/utilization display
+- **Bar Chart** — Horizontal bars for comparing values
+- **Sparkline** — Compact inline trend charts
+- **Heatmap** — 2D data grids
+
+Change visualization with the `cv` command or let the editor auto-select based on query results.
+
+### Context-Aware Query Completion
+
+The editor provides inline autocomplete for PromQL queries:
+
+- Function and aggregation suggestions
+- Metric name completion from your Prometheus instance
+- Label name and value suggestions fetched dynamically
+- No configuration required
+
+### Codebase Integration
+
+Connect the editor to your git repository to enable powerful code navigation:
+
+- **Go to Definition (`gd`)** — View metric instrumentation source code with syntax highlighting
+- **Go to Alert (`ga`)** — View alert rules that reference a metric
+- **Git Commit Markers** — Visualize commits on time-series charts to correlate code changes with metric behavior
+
+Configure codebase integration in your workspace:
+
+```toml
+[codebase]
+url = "https://github.com/your-org/your-repo"
+branch = "main"
+```
+
+### Time Range Shortcuts
+
+Quickly change the time range with vim-style leader keys:
+
+| Key | Range |
+|-----|-------|
+| `t5` | Last 5 minutes |
+| `t1` | Last 15 minutes |
+| `t3` | Last 30 minutes |
+| `th` | Last 1 hour |
+| `t6` | Last 6 hours |
+| `td` | Last 24 hours |
+| `tw` | Last 7 days |
 
 ## Getting Started
 
-The editor is available both as a web application and as a native desktop application using egui.
+The editor is available as a web application and native desktop application.
 
 ### Web Editor
 
-Access the web editor at `/editor` on your Enya deployment, or click "Open Editor" from the homepage.
+Access the web editor at `/editor` on your Enya deployment, or click "Try in Browser" from the homepage.
 
 ### Native Application
 
-Download and run the native editor for a more integrated experience:
+Download and run the native editor for the full experience including codebase integration:
 
 ```sh
-# Install from crates.io (coming soon)
-cargo install enya-editor
+# Download from releases or build from source
+cargo build -p enya-editor --release
 
 # Run the editor
-enya-editor
+./target/release/enya-editor
 ```
 
-## Basic Usage
+## Command Palette
 
-### Opening the Editor
+Press `:` to open the command palette. Key commands:
 
-1. Click "Open Editor" from the Enya homepage
-2. Or navigate directly to `/editor`
-3. Or run `enya-editor` for the native application
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `:connect <endpoint>` | | Connect to Prometheus |
+| `:search` | `s` | Open fuzzy finder |
+| `:split h/v` | `sp` | Split pane |
+| `:close` | `q` | Close current pane |
+| `:zen` | `z` | Toggle zen mode |
+| `:fullscreen` | `full` | Toggle fullscreen |
+| `:mksession [name]` | `mks` | Save workspace |
+| `:source [name]` | `so` | Load workspace |
+| `:workspaces` | `ws` | List workspaces |
+| `:share` | | Share workspace as URL |
+| `:commits` | `git` | Toggle git commit markers |
+| `:tutorial` | | Interactive tutorial |
+| `:help` | `h` | Show help |
 
-### Navigation
+## Workspaces
 
-Use vim-style navigation:
+Workspaces are TOML files that define your dashboard layout and queries. They're stored in `~/.enya/workspaces/`.
 
-- `j` / `k` - Move down/up through metrics
-- `h` / `l` - Collapse/expand metric groups
-- `gg` / `G` - Jump to top/bottom
-- `/` - Search for metrics
-- `:` - Enter command mode
+### Basic Structure
 
-### Creating Configurations
+```toml
+[workspace]
+name = "my-dashboard"
+description = "Production monitoring"
 
-1. Press `i` to enter insert mode
-2. Edit your observability configuration
-3. Press `Esc` to return to normal mode
-4. Save with `:w`
+[connection]
+endpoint = "http://localhost:9090"
 
-### Querying Data
+[time]
+preset = "1h"
 
-1. Open the query panel with `:query`
-2. Write your query in the editor
-3. Execute with `:run` or `Ctrl+Enter`
-4. View results in the output panel
+[[panes]]
+query = "sum(rate(http_requests_total[5m])) by (method)"
+name = "Request Rate"
+visualization = "timeseries"
 
-## Next Steps
+[[panes]]
+query = "histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))"
+name = "P99 Latency"
+visualization = "stat"
+```
 
-- Explore the [Editor Commands](/docs/editor/commands) reference
-- Learn about [Keyboard Shortcuts](/docs/editor/shortcuts)
-- Read the [Configuration Guide](/docs/editor/configuration)
+### Layout Configuration
 
-The editor is designed to make observability workflows fast and efficient. With practice, you'll be navigating and querying your data systems at the speed of thought.
+Define i3-style tiling layouts:
+
+```toml
+[layout]
+type = "horizontal"
+shares = [2.0, 1.0]
+children = [
+    0,
+    { type = "vertical", children = [1, 2] }
+]
+```
+
+## URL Sharing
+
+Share your workspace or individual panes via URL:
+
+- **Full workspace**: Use `:share` command
+- **Single pane**: Use `yy` (vim-style yank) on a focused pane
+
+URLs use compact binary encoding and can be opened at `enya.build/editor`.

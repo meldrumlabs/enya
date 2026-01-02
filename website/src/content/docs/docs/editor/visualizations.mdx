@@ -1,0 +1,211 @@
+---
+title: Visualizations
+description: Chart types and visualization options in Enya
+sidebar:
+  order: 3
+  label: Visualizations
+---
+
+# Visualizations
+
+Enya supports six visualization types, each optimized for different kinds of metric data. The editor automatically selects an appropriate visualization based on your query results, but you can override this manually.
+
+## Changing Visualization Type
+
+Use the `cv` command (change visualization) to switch types:
+
+```
+:cv timeseries
+:cv stat
+:cv gauge
+:cv bar
+:cv sparkline
+:cv heatmap
+```
+
+Or set it in your workspace TOML:
+
+```toml
+[[panes]]
+query = "up"
+visualization = "stat"
+```
+
+## Visualization Types
+
+### Time Series
+
+The default visualization for most queries. Displays metric values over time as line charts.
+
+**Best for:**
+- Trends over time
+- Multiple series comparison
+- Rate and counter metrics
+- Any `range` query returning a matrix
+
+**Features:**
+- Multiple series with color-coded legend
+- Y-axis auto-scaling with K/M/B suffixes
+- Git commit markers (when codebase is configured)
+- Navigate commits with `]c` / `[c`
+- Zoom with `+`/`-` (Y-axis) and `.`/`,` (X-axis)
+
+**Example queries:**
+```promql
+rate(http_requests_total[5m])
+sum(rate(http_requests_total[5m])) by (method)
+histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+```
+
+### Stat
+
+Big number display with optional sparkline and change indicator. Shows the latest value prominently.
+
+**Best for:**
+- Current values at a glance
+- Single important metrics
+- KPIs and dashboards
+- Scalar query results
+
+**Features:**
+- Large, readable value display
+- Sparkline showing recent trend
+- Change indicator (up/down)
+- Custom unit suffix support
+
+**Example queries:**
+```promql
+sum(up)
+avg(process_cpu_seconds_total)
+count(node_cpu_seconds_total)
+```
+
+### Gauge
+
+Circular gauge showing a percentage or ratio. Ideal for utilization metrics.
+
+**Best for:**
+- Percentage values (0-100%)
+- Utilization metrics
+- Capacity indicators
+- Saturation levels
+
+**Features:**
+- Circular progress indicator
+- Color coding (green/yellow/red based on thresholds)
+- Percentage display
+- Min/max range support
+
+**Example queries:**
+```promql
+(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
+sum(container_memory_usage_bytes) / sum(container_spec_memory_limit_bytes) * 100
+```
+
+### Bar Chart
+
+Horizontal bar chart for comparing values across labels or series.
+
+**Best for:**
+- Comparing values across categories
+- Top-N queries
+- Label breakdown
+- Vector results with multiple series
+
+**Features:**
+- Horizontal bars for easy label reading
+- Sorted by value
+- Label truncation for long names
+- Value display on bars
+
+**Example queries:**
+```promql
+topk(10, sum(rate(http_requests_total[5m])) by (endpoint))
+sum(container_memory_usage_bytes) by (container_name)
+count(up) by (job)
+```
+
+### Sparkline
+
+Compact inline chart showing trend without axes or labels. Minimal footprint.
+
+**Best for:**
+- Dashboard overviews
+- Embedding in tight spaces
+- Quick trend indication
+- Secondary metrics
+
+**Features:**
+- Minimal design
+- No axes or labels
+- Pure trend visualization
+- Compact height
+
+**Example queries:**
+```promql
+rate(http_requests_total[5m])
+process_resident_memory_bytes
+```
+
+### Heatmap
+
+2D grid visualization for distribution data, typically histogram buckets over time.
+
+**Best for:**
+- Histogram data
+- Distribution analysis
+- Latency percentiles
+- Pattern detection
+
+**Features:**
+- Color-coded intensity
+- Time on X-axis, buckets on Y-axis
+- Bucket boundary display
+
+**Example queries:**
+```promql
+sum(rate(http_request_duration_seconds_bucket[5m])) by (le)
+histogram_quantile(0.5, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+```
+
+## Auto-Selection Logic
+
+Enya automatically suggests visualization types based on query results:
+
+| Result Type | Suggested Visualization |
+|-------------|------------------------|
+| Scalar/String | Stat |
+| Vector (1 series) | Stat or Gauge (if 0-100 range) |
+| Vector (multiple series) | Bar Chart |
+| Matrix (1 series, few points) | Stat/Sparkline |
+| Matrix (many points/series) | Time Series |
+
+Once you manually change the visualization type, auto-selection is disabled for that pane.
+
+## Custom Units
+
+Add unit suffixes to values for better readability:
+
+```toml
+[[panes]]
+query = "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))"
+name = "P99 Latency"
+visualization = "stat"
+unit = "ms"
+```
+
+Common units:
+- `ms` — milliseconds
+- `s` — seconds
+- `%` — percentage
+- `req/s` — requests per second
+- `MB` — megabytes
+- `MB/s` — megabytes per second
+
+## Responsive Scaling
+
+All visualizations scale dynamically based on panel size:
+- Text sizes adjust proportionally
+- Line widths scale with chart size
+- Legend elements adapt to available space
+- Charts look appropriate from small tiles to fullscreen

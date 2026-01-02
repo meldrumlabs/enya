@@ -51,9 +51,8 @@ async fn main() -> Result<()> {
 			<main class="main">
                 <div class="hero-section">
                     <img src="/img/enya.png" alt="Enya" class="hero-logo" />
-                    <h1 class="hero-title">Enya</h1>
-                    <p class="hero-tagline">A Builder's Best Friend</p>
-                    <p class="hero-headline">Observability Meets Editor</p>
+                    <h1 class="hero-tagline">Metrics at editor speed</h1>
+                    <p class="hero-headline">A keyboard-first observability editor that connects metrics, code, and AI.</p>
                     <div class="hero-buttons">
                         <a href="#" class="hero-button-primary" id="download-button">
                             <svg class="download-icon-btn" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -72,7 +71,7 @@ async fn main() -> Result<()> {
 				<div class="feature-section">
 					<div class="feature-content">
 						<h2 class="feature-heading">Find Metrics Instantly</h2>
-						<p class="feature-text">Fuzzy finder (telescope-style) to search through thousands of metrics with minimal keystrokes. Navigate your entire observability stack at the speed of thought.</p>
+						<p class="feature-text">Fuzzy finder (telescope-style) to search through thousands of metrics with minimal keystrokes. Live chart previews show data as you navigate, letting you explore your entire observability stack at the speed of thought.</p>
 					</div>
 					<div class="feature-media">
 						<video autoplay loop muted playsinline>
@@ -84,26 +83,22 @@ async fn main() -> Result<()> {
 			<section class="feature-showcase feature-showcase-alt">
 				<div class="feature-section">
 					<div class="feature-content">
-						<h2 class="feature-heading">Everything is a Buffer</h2>
-						<p class="feature-text">Edit and replace labels across multiple plots simultaneously. Make coordinated changes to N plots at once—update metrics, rename series, or modify configurations across your entire dashboard in real-time.</p>
+						<h2 class="feature-heading">Visual Multi-Select</h2>
+						<p class="feature-text">Select and edit multiple panes simultaneously with <code>Ctrl+V</code>. Make coordinated changes across your entire dashboard—update queries, refresh data, or close panes in bulk with vim-style navigation.</p>
 					</div>
 					<div class="feature-media">
-						<video autoplay loop muted playsinline>
-							<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
-						</video>
+						<img src="/img/demos/enya_hero.png" alt="Visual multi-select mode" />
 					</div>
 				</div>
 			</section>
 			<section class="feature-showcase">
 				<div class="feature-section">
 					<div class="feature-content">
-						<h2 class="feature-heading">Automatic Inline LSP</h2>
-						<p class="feature-text">Built-in Language Server Protocol support provides real-time autocomplete, syntax validation, and intelligent suggestions as you type. No configuration required.</p>
+						<h2 class="feature-heading">Context-Aware Completion</h2>
+						<p class="feature-text">Inline autocomplete provides real-time suggestions for PromQL queries—functions, aggregations, metric names, and label selectors—all without configuration. Labels are fetched dynamically from your Prometheus backend.</p>
 					</div>
 					<div class="feature-media">
-						<video autoplay loop muted playsinline>
-							<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
-						</video>
+						<img src="/img/demos/enya_hero.png" alt="Query autocompletion" />
 					</div>
 				</div>
 			</section>
@@ -111,30 +106,26 @@ async fn main() -> Result<()> {
 				<div class="features-content">
 					<h2 class="features-title">Core Features</h2>
 					<div class="features-grid">
-						<a href="/docs/agent" class="feature-card">
-							<h3 class="feature-title">Embeddable</h3>
-							<p class="feature-description">Fully embeddable directly in your application and observable through the Enya editor</p>
+						<div class="feature-card">
+							<h3 class="feature-title">AI Native</h3>
+							<p class="feature-description">AI agents with access to both your Prometheus metrics and application codebase for intelligent observability workflows</p>
+						</div>
+						<div class="feature-card">
+							<h3 class="feature-title">Prometheus Compatible</h3>
+							<p class="feature-description">Works with any Prometheus compatible endpoint with full PromQL support, including completion and inline hints</p>
+						</div>
+						<a href="/docs/editor" class="feature-card">
+							<h3 class="feature-title">Codebase-Aware</h3>
+							<p class="feature-description">Integrates with your codebase and analyzes your code allowing you to quickly jump between metric graphs and where in the code it is generated from</p>
 						</a>
 						<a href="/docs/editor" class="feature-card">
-							<h3 class="feature-title">Editor</h3>
-							<p class="feature-description">Neovim-inspired editor for creating and browsing metrics with keyboard-driven workflows and modal editing</p>
+							<h3 class="feature-title">Keyboard-Driven</h3>
+							<p class="feature-description">Neovim-inspired workflows with h/j/k/l navigation, command palette, splits, and visual-multi mode</p>
 						</a>
-						<div class="feature-card">
-							<h3 class="feature-title">Object Storage</h3>
-							<p class="feature-description">Built on top of SlateDB, enabling bottomless storage on S3, GCP, or Azure</p>
-						</div>
-						<a href="/docs/integrations/datafusion" class="feature-card">
-							<h3 class="feature-title">Apache DataFusion</h3>
-							<p class="feature-description">Built-in observability for Apache DataFusion that helps teams track changes in performance and metadata over time and <strong>commits</strong></p>
+						<a href="/docs/editor" class="feature-card">
+							<h3 class="feature-title">i3-Style Layouts</h3>
+							<p class="feature-description">Flexible tiling workspaces with horizontal/vertical splits, tabs, and custom proportions—all defined in TOML</p>
 						</a>
-						<div class="feature-card">
-							<h3 class="feature-title">Tokio Observability</h3>
-							<p class="feature-description">Native support for profiling tokio async tasks</p>
-						</div>
-						<div class="feature-card">
-							<h3 class="feature-title">CPU Profiling</h3>
-							<p class="feature-description">Built-in profiling tools to identify and optimize performance bottlenecks</p>
-						</div>
 					</div>
 				</div>
 			</section>
@@ -452,29 +443,6 @@ async fn main() -> Result<()> {
 		width: 100%;
 	}
 
-	.main h1 {
-        font-family: monospace;
-		font-size: 2rem;
-		margin: 0;
-	}
-
-	.hero-title {
-		font-family: 'Departure Mono', monospace;
-		font-size: 4rem;
-		font-weight: bold;
-		color: #10B981;
-		margin: -3rem 0 0 0;
-		letter-spacing: 0.15em;
-		text-transform: uppercase;
-		text-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
-	}
-
-	@media (max-width: 768px) {
-		.hero-title {
-			font-size: 2.5rem;
-		}
-	}
-
 	.hero-logo {
 		max-width: 350px;
 		width: 100%;
@@ -485,37 +453,38 @@ async fn main() -> Result<()> {
 		background-color: transparent;
 	}
 
-	.hero-headline {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.75rem;
-		font-weight: bold;
-		color: #F5F5F5;
-		margin: 0.5rem 0 0.25rem 0;
-		text-align: center;
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
-	}
-
-	@media (max-width: 768px) {
-		.hero-headline {
-			font-size: 1.25rem;
-			padding: 0 1rem;
-		}
-	}
-
 	.hero-tagline {
 		font-family: 'Departure Mono', monospace;
-		font-size: 1.25rem;
-		font-weight: normal;
-		color: #A3A3A3;
-		margin: 0.5rem 0 0 0;
+		font-size: 2.5rem;
+		font-weight: bold;
+		color: #10B981;
+		margin: 0.5rem 0 0.5rem 0;
 		text-align: center;
-		max-width: 600px;
-		letter-spacing: 0.02em;
+		letter-spacing: 0.08em;
+		text-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
 	}
 
 	@media (max-width: 768px) {
 		.hero-tagline {
+			font-size: 1.5rem;
+			padding: 0 1rem;
+		}
+	}
+
+	.hero-headline {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.125rem;
+		font-weight: normal;
+		color: #F5F5F5;
+		margin: 0 0 0.25rem 0;
+		text-align: center;
+		letter-spacing: 0.02em;
+		max-width: 650px;
+		line-height: 1.6;
+	}
+
+	@media (max-width: 768px) {
+		.hero-headline {
 			font-size: 1rem;
 			padding: 0 1rem;
 		}

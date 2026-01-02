@@ -1,0 +1,88 @@
+---
+title: FAQ
+description: Frequently asked questions about Enya
+tableOfContents: false
+---
+
+## General
+
+### What is Enya?
+
+Enya is a keyboard-first observability editor that connects your Prometheus metrics to your codebase. It combines vim-style navigation, AI agents, and codebase analysis to help you debug faster.
+
+### Why not just use Grafana?
+
+Grafana is designed for broad audiences—dashboards that anyone in the organization can view and understand. Enya is built specifically for the builders: the engineers writing the code, instrumenting metrics, responding to pages, and debugging production issues at 2am.
+
+- **Keyboard-first** — Navigate metrics like code with a keyboard-driven workflow
+- **Codebase integration** — Jump from a metric directly to the code that generates it
+- **AI-native** — AI agents that understand both your metrics and your code
+- **Local-first** — Runs on your machine, works offline, no server required
+
+Use Grafana for team-wide dashboards and stakeholder visibility. Use Enya when you're the one building, deploying, and on-call for the software.
+
+### Is Enya free?
+
+Yes. Enya is open source and licensed under MIT.
+
+## Compatibility
+
+### What data sources does Enya support?
+
+Enya works with any Prometheus-compatible endpoint:
+
+- Prometheus
+- Thanos
+- Cortex
+- Mimir
+- VictoriaMetrics
+- Any service exposing a Prometheus-compatible API
+
+### Does Enya support Loki, Tempo, or other logging/tracing backends?
+
+Not yet. Enya currently focuses on metrics with Prometheus. Logging and tracing support may be added in the future.
+
+### What platforms does Enya run on?
+
+- **macOS** — 10.15 (Catalina) or later
+- **Windows** — Windows 10 or later
+- **Linux** — AppImage, .deb, .rpm packages
+- **Web** — WASM build runs in modern browsers (no Git integration or AI agents)
+
+## Workflow
+
+### Do I need to know vim to use Enya?
+
+No, but it helps. Enya uses vim-style keybindings (`h/j/k/l` for navigation, `:` for commands), but you can also use arrow keys and the mouse. If you're comfortable with vim or Neovim, you'll feel right at home.
+
+### How does codebase integration work?
+
+Enya uses tree-sitter to parse your codebase and identify where metrics are defined. When you're viewing a metric, press `gd` (go to definition) to jump to the source code. This works with Rust, Go, Python, and other languages with tree-sitter support.
+
+### Can I use Enya with my existing Grafana dashboards?
+
+Enya doesn't import Grafana dashboards directly, but you can recreate your panels using Enya's workspace TOML format. The PromQL queries work the same way.
+
+### How do AI agents work?
+
+Enya adopts the ACP (Agent Communication Protocol) and supports any AI agent that implements it. Currently supported agents include:
+
+- **Claude Code** — Anthropic's coding agent
+- **Codex** — OpenAI's coding agent
+
+Agents have access to both your Prometheus metrics and your codebase, allowing them to answer questions like "Why is this metric spiking?" or "Show me where this counter is incremented."
+
+## Contributing
+
+### How can I contribute?
+
+Enya is open source. Visit the [GitHub repository](https://github.com/meldrumlabs/enya) to:
+
+- Report bugs
+- Suggest features
+- Submit pull requests
+
+### Where can I get help?
+
+- [GitHub Issues](https://github.com/meldrumlabs/enya/issues) — Bug reports and feature requests
+- [GitHub Discussions](https://github.com/meldrumlabs/enya/discussions) — Questions and community chat
