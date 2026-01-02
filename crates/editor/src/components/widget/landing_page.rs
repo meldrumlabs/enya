@@ -94,13 +94,13 @@ impl LandingPage {
         let accent_color = self.accent_color();
         let muted_color = text_col.gamma_multiply(0.5);
 
-        // Calculate vertical centering (slightly above center)
+        // Calculate vertical centering (shifted up to fit content)
         let available_height = ui.available_height();
-        let content_height = 620.0;
-        let top_padding = ((available_height - content_height) / 2.0 - 40.0).at_least(20.0);
+        let content_height = 520.0;
+        let top_padding = ((available_height - content_height) / 2.0 - 60.0).at_least(0.0);
 
         egui::Frame {
-            inner_margin: egui::Margin::same(20),
+            inner_margin: egui::Margin::same(16),
             ..Default::default()
         }
         .show(ui, |ui| {
@@ -110,12 +110,12 @@ impl LandingPage {
                 // === HEADER SECTION ===
                 self.show_header(ui, muted_color);
 
-                ui.add_space(48.0);
+                ui.add_space(32.0);
 
                 // === MENU BUTTONS (Vertical list) ===
                 action = self.show_menu(ui, text_col, accent_color, mouse_moved);
 
-                ui.add_space(24.0);
+                ui.add_space(16.0);
 
                 // === FOOTER ===
                 self.show_footer(ui, muted_color);
@@ -126,25 +126,16 @@ impl LandingPage {
     }
 
     /// Show the header with logo and title
-    fn show_header(&self, ui: &mut egui::Ui, muted_color: Color32) {
+    fn show_header(&self, ui: &mut egui::Ui, _muted_color: Color32) {
         // Logo
         let logo = egui::Image::new(egui::include_image!("../../../assets/logo.png"));
-        ui.add(logo.max_width(200.0).max_height(200.0));
+        ui.add(logo.max_width(160.0).max_height(160.0));
 
-        ui.add_space(16.0);
+        ui.add_space(12.0);
 
         // App name in Enya's brand color (emerald)
         let accent = self.accent_color();
-        ui.heading(RichText::new("ENYA").strong().size(48.0).color(accent));
-
-        ui.add_space(8.0);
-
-        // Tagline
-        ui.label(
-            RichText::new("A Builder's Best Friend")
-                .size(typography::XL)
-                .color(muted_color),
-        );
+        ui.heading(RichText::new("ENYA").strong().size(42.0).color(accent));
     }
 
     /// Show the vertical menu buttons (alpha-nvim style)

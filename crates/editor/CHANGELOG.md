@@ -8,6 +8,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Landing page j/k navigation with mouse hover**: Fixed an issue where pressing j/k to navigate the landing page menu would be immediately overridden by a stationary mouse cursor hovering over a different item. Now mouse hover only updates the selection when the mouse actually moves, allowing keyboard and mouse navigation to coexist without conflict.
 
+### Changed
+
+- **Compact landing page layout**: Reduced logo size, text size, and spacing to fit better on smaller viewports (especially WASM). Removed the tagline to save vertical space.
+
+- **Workspace creator on WASM**: The "Create workspace" option on the landing page now shows a two-step workspace creator overlay on WASM (name, then endpoint). On native, the full three-step wizard (name, endpoint, git repo) is still shown.
+
 ### Added
 
 - **Native app promo overlay (WASM only)**: When using the web version, a frosted glass overlay appears on the landing page highlighting features only available in the native desktop app:
