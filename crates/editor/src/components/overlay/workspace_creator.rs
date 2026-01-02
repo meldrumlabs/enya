@@ -1,9 +1,9 @@
 //! Workspace creation overlay component.
 //!
-//! A three-step wizard for creating new workspaces, guiding users through
-//! entering a workspace name, connection endpoint, and git repository.
+//! A wizard for creating new workspaces, guiding users through configuration.
+//! On native: three steps (name, endpoint, git repo).
+//! On WASM: single step (endpoint only, since no filesystem/git access).
 //! Styled similarly to the Tutorial overlay with a frosted glass appearance.
-//! Note: This overlay is only shown on native builds, not WASM.
 
 use egui::{Key, RichText};
 
@@ -21,8 +21,12 @@ const DEFAULT_WORKSPACE_NAME: &str = "my-workspace";
 /// Default connection endpoint
 const DEFAULT_ENDPOINT: &str = "http://localhost:9090";
 
-/// Total number of steps in the wizard
+/// Total number of steps in the wizard (native: 3, WASM: 2)
+#[cfg(not(target_arch = "wasm32"))]
 const TOTAL_STEPS: usize = 3;
+
+#[cfg(target_arch = "wasm32")]
+const TOTAL_STEPS: usize = 2;
 
 /// The current step in the workspace creation wizard
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -30,6 +34,7 @@ enum WorkspaceCreatorStep {
     #[default]
     Name,
     Endpoint,
+    #[cfg(not(target_arch = "wasm32"))]
     GitRepo,
 }
 
@@ -48,7 +53,9 @@ pub enum WorkspaceCreatorResult {
     },
 }
 
-/// A three-step wizard overlay for creating new workspaces
+/// Wizard overlay for creating new workspaces.
+/// On native: three steps (name, endpoint, git repo).
+/// On WASM: two steps (name, endpoint).
 pub struct WorkspaceCreator {
     /// Whether the overlay is open
     is_open: bool,
@@ -62,7 +69,8 @@ pub struct WorkspaceCreator {
     name: String,
     /// Connection endpoint input
     endpoint: String,
-    /// Git repository path input (optional)
+    /// Git repository path input (native only)
+    #[cfg(not(target_arch = "wasm32"))]
     git_repo: String,
 }
 
@@ -81,6 +89,7 @@ impl WorkspaceCreator {
             step: WorkspaceCreatorStep::Name,
             name: DEFAULT_WORKSPACE_NAME.to_string(),
             endpoint: DEFAULT_ENDPOINT.to_string(),
+            #[cfg(not(target_arch = "wasm32"))]
             git_repo: String::new(),
         }
     }
@@ -97,7 +106,10 @@ impl WorkspaceCreator {
         self.step = WorkspaceCreatorStep::Name;
         self.name = DEFAULT_WORKSPACE_NAME.to_string();
         self.endpoint = DEFAULT_ENDPOINT.to_string();
-        self.git_repo = String::new();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.git_repo = String::new();
+        }
     }
 
     /// Close the overlay
@@ -117,10 +129,22 @@ impl WorkspaceCreator {
                 self.step = WorkspaceCreatorStep::Endpoint;
                 None
             }
+            #[cfg(not(target_arch = "wasm32"))]
             WorkspaceCreatorStep::Endpoint => {
                 self.step = WorkspaceCreatorStep::GitRepo;
                 None
             }
+            #[cfg(target_arch = "wasm32")]
+            WorkspaceCreatorStep::Endpoint => {
+                // On WASM, endpoint is the last step
+                self.close();
+                Some(WorkspaceCreatorResult::Created {
+                    name: self.name.clone(),
+                    endpoint: self.endpoint.clone(),
+                    git_repo: None,
+                })
+            }
+            #[cfg(not(target_arch = "wasm32"))]
             WorkspaceCreatorStep::GitRepo => {
                 self.close();
                 let git_repo = if self.git_repo.trim().is_empty() {
@@ -197,11 +221,14 @@ impl WorkspaceCreator {
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
 
+                    // Determine step number and content based on current step
                     let step_number = match self.step {
                         WorkspaceCreatorStep::Name => 1,
                         WorkspaceCreatorStep::Endpoint => 2,
+                        #[cfg(not(target_arch = "wasm32"))]
                         WorkspaceCreatorStep::GitRepo => 3,
                     };
+
                     let (title, label, hint, current_value) = match self.step {
                         WorkspaceCreatorStep::Name => (
                             "Workspace Name",
@@ -212,9 +239,10 @@ impl WorkspaceCreator {
                         WorkspaceCreatorStep::Endpoint => (
                             "Connection Endpoint",
                             "Endpoint",
-                            "Prometheus compatible endpoint",
+                            "Prometheus compatible endpoint URL",
                             &mut self.endpoint,
                         ),
+                        #[cfg(not(target_arch = "wasm32"))]
                         WorkspaceCreatorStep::GitRepo => (
                             "Git Repository",
                             "Path",
@@ -358,9 +386,14 @@ impl WorkspaceCreator {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
 
-                        // Next/Create
+                        // Next/Create/Connect - depends on step and platform
                         let action_label = match self.step {
-                            WorkspaceCreatorStep::Name | WorkspaceCreatorStep::Endpoint => "next",
+                            WorkspaceCreatorStep::Name => "next",
+                            #[cfg(not(target_arch = "wasm32"))]
+                            WorkspaceCreatorStep::Endpoint => "next",
+                            #[cfg(target_arch = "wasm32")]
+                            WorkspaceCreatorStep::Endpoint => "connect",
+                            #[cfg(not(target_arch = "wasm32"))]
                             WorkspaceCreatorStep::GitRepo => "create",
                         };
                         render_key_badge_large(ui, "Enter", key_bg, text_color(self.theme));

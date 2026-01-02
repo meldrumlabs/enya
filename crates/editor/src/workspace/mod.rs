@@ -811,14 +811,9 @@ impl Workspace {
                 );
             }
             LandingPageAction::CreateWorkspace => {
-                // On native: open the workspace creator overlay
-                // On WASM: just hide the landing page (no overlay support)
-                #[cfg(not(target_arch = "wasm32"))]
+                // Open the workspace creator overlay (works on both native and WASM)
+                // On WASM, only the endpoint step is shown
                 self.workspace_creator.open();
-                #[cfg(target_arch = "wasm32")]
-                {
-                    self.show_landing = false;
-                }
             }
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and add demo panes for the tutorial
@@ -829,21 +824,23 @@ impl Workspace {
                         "HTTP Requests",
                         "",
                     ),
+                    (
+                        "sum(rate(http_requests_total[5m])) by_endpoint",
+                        "Requests by Endpoint",
+                        "req/s",
+                    ),
                     ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
                     (
                         "memory_used_bytes{env=\"prod\", service=\"api\"}",
                         "Memory Used",
                         "MB",
                     ),
-                    (
-                        "sum(rate(http_requests_total[5m])) by_endpoint",
-                        "Requests by Endpoint",
-                        "req/s",
-                    ),
                 ];
                 for (query, name, unit) in demo_queries {
                     self.add_demo_query_pane(query, name, unit);
                 }
+                // Stack panes vertically by default for tutorial
+                self.split_panes_horizontal();
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
             }
