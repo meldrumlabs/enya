@@ -65,6 +65,24 @@ Enya uses vim-style keybindings. This page provides a complete reference of all 
 | `d` | Delete selected |
 | `y` | Yank (copy) selected |
 
+## Agent Mode
+
+| Key | Action |
+|-----|--------|
+| `Space+a` | Open agent pane |
+| `@` | Mention metric (in agent input) |
+| `/` | Slash commands (in agent input) |
+
+## Window Movement
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+w h` | Move pane to far left |
+| `Ctrl+w j` | Move pane to bottom |
+| `Ctrl+w k` | Move pane to top |
+| `Ctrl+w l` | Move pane to far right |
+| `Ctrl+w t h/j/k/l` | Merge pane into tabs with neighbor |
+
 ## Command Palette
 
 Press `:` to open the command palette.
@@ -72,10 +90,11 @@ Press `:` to open the command palette.
 | Command | Action |
 |---------|--------|
 | `:connect <url>` | Connect to Prometheus |
+| `:agent` | Open agent pane |
 | `:cv <type>` | Change visualization |
+| `:font <name>` | Change editor font |
 | `:mksession <name>` | Save workspace |
 | `:source <name>` | Load workspace |
-| `:set <option>` | Set option |
 | `:q` | Quit |
 | `:w` | Save |
 | `:wq` | Save and quit |
