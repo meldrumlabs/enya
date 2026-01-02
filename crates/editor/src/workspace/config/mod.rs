@@ -210,6 +210,11 @@ pub struct CodebaseConfig {
     /// Branch to track (defaults to the repo's default branch if not specified)
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub branch: String,
+
+    /// Primary language for metric scanning (e.g., "rust", "go", "python", "typescript")
+    /// If not specified, all supported languages are scanned.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub language: String,
 }
 
 impl CodebaseConfig {
@@ -223,6 +228,7 @@ impl CodebaseConfig {
         Self {
             url: url.into(),
             branch: String::new(),
+            language: String::new(),
         }
     }
 
@@ -231,7 +237,14 @@ impl CodebaseConfig {
         Self {
             url: url.into(),
             branch: branch.into(),
+            language: String::new(),
         }
+    }
+
+    /// Set the language for this codebase config
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = language.into();
+        self
     }
 }
 

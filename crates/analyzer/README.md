@@ -1,0 +1,145 @@
+# enya-analyzer
+
+Metrics instrumentation indexer for source code repositories.
+
+This crate scans codebases to discover metric instrumentation points and alert rule definitions, building an in-memory index for fast lookups.
+
+## Features
+
+### Metric Scanning
+
+Discovers metrics defined in source code using tree-sitter parsing:
+
+| Language | Library | Patterns |
+|----------|---------|----------|
+| Rust | [metrics-rs](https://docs.rs/metrics) | `counter!()`, `gauge!()`, `histogram!()` |
+| Python | [prometheus_client](https://github.com/prometheus/client_python) | `Counter('name', 'help')`, `Gauge(...)`, `Histogram(...)` |
+| Go | [client_golang](https://github.com/prometheus/client_golang) | `prometheus.NewCounter(CounterOpts{...})`, `promauto.NewGauge(...)` |
+| JavaScript | [prom-client](https://github.com/siimon/prom-client) | `new client.Counter({name: '...'})`, `new Gauge({...})` |
+| TypeScript | [prom-client](https://github.com/siimon/prom-client) | Same as JavaScript, supports `.ts` and `.tsx` files |
+
+For each metric, the scanner extracts:
+- Metric name (e.g., `http_requests_total`)
+- Metric kind (counter, gauge, histogram)
+- Label keys (e.g., `["method", "status"]`)
+- File location (path, line, column)
+- Function context (containing function and impl type)
+
+### Metric Usage Tracking
+
+Beyond definitions, the scanner also tracks where metrics are used ("hot paths"):
+
+| Language | Usage Patterns |
+|----------|----------------|
+| Python | `counter.inc()`, `gauge.set(value)`, `histogram.observe(value)`, `gauge.dec()` |
+| Go | `counter.Inc()`, `counter.Add(n)`, `gauge.Set(value)`, `histogram.Observe(value)` |
+| JavaScript | `counter.inc()`, `gauge.set(value)`, `histogram.observe(value)`, `histogram.startTimer()` |
+| TypeScript | Same as JavaScript |
+
+For each usage, the scanner extracts:
+- Usage kind (increment, set, add, sub, observe, time, etc.)
+- Variable name holding the metric
+- Label values (if statically determinable)
+- File location (path, line, column)
+- Function context (containing function and class/impl type)
+
+### Alert Scanning
+
+Discovers Prometheus alerting rules in YAML files:
+
+```yaml
+groups:
+  - name: example
+    rules:
+      - alert: HighErrorRate
+        expr: rate(errors_total[5m]) > 0.1
+        labels:
+          severity: critical
+        annotations:
+          message: "Error rate is high"
+```
+
+For each alert, the scanner extracts:
+- Alert name
+- PromQL expression
+- Primary metric name (extracted from expression)
+- Severity and message
+- File location
+
+### Lookup Features
+
+- **Exact matching**: Find metrics by exact name
+- **Suffix matching**: Find `http_requests_total` when querying `myapp_http_requests_total` (handles runtime metric prefixes)
+- **Fuzzy search**: Case-insensitive substring matching
+- **Alert lookup**: Find alerts that reference a specific metric
+
+## Architecture
+
+```
+crates/analyzer/
+├── src/
+│   ├── lib.rs          # Public API exports
+│   ├── index.rs        # CodebaseIndex - builds and queries the index
+│   ├── parser.rs       # Tree-sitter parsing utilities
+│   ├── repo.rs         # Git operations (clone, fetch)
+│   └── scanner/
+│       ├── mod.rs      # Scanner trait and registry
+│       ├── rust.rs     # Rust metrics-rs scanner
+│       ├── python.rs   # Python prometheus_client scanner
+│       ├── go.rs       # Go client_golang scanner
+│       ├── javascript.rs # JavaScript prom-client scanner
+│       ├── typescript.rs # TypeScript prom-client scanner
+│       └── yaml.rs     # YAML alert rule scanner
+```
+
+### Scanner Trait
+
+Add support for new languages by implementing the `Scanner` trait:
+
+```rust
+pub trait Scanner: Send + Sync {
+    /// File extensions this scanner handles (e.g., `["rs"]`).
+    fn extensions(&self) -> &[&str];
+
+    /// Scan a source file for metric instrumentation points (definitions).
+    fn scan_file(&self, path: &Path) -> Result<Vec<MetricInstrumentation>, ParseError>;
+
+    /// Scan a source file for metric usage points (where metrics are recorded).
+    /// Default implementation returns empty vec for backward compatibility.
+    fn scan_usages(&self, path: &Path) -> Result<Vec<MetricUsage>, ParseError> {
+        Ok(Vec::new())
+    }
+}
+```
+
+## Usage
+
+```rust
+use enya_analyzer::{CodebaseIndex, build_index_with_progress, IndexProgress};
+use std::path::Path;
+
+// Build an index from a local repository
+let progress = IndexProgress::new();
+let index = build_index_with_progress(
+    "https://github.com/org/repo.git",
+    Path::new("/path/to/repo"),
+    &progress,
+)?;
+
+// Find metrics by name (supports suffix matching for prefixed metrics)
+let metrics = index.find_by_name("myapp_http_requests_total");
+
+// Search for metrics containing a substring
+let results = index.search("requests");
+
+// Find alerts referencing a metric
+let alerts = index.find_alerts_by_metric("http_requests_total");
+```
+
+## Excluded Directories
+
+The scanner automatically excludes:
+- `target/` (Rust build output)
+- `.git/`
+- `vendor/`
+- `node_modules/`

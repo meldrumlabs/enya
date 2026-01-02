@@ -21,13 +21,11 @@ eframe = { workspace = true, default-features = false, features = [
   "wgpu",
   "persistence",
 ] }
-egui_extras = { workspace = true, features = ["image", "svg"] }
+egui_extras = { workspace = true, features = ["image"] }
 egui_nerdfonts = { workspace = true }
 egui_tiles = { workspace = true, features = ["serde"] }
 egui_plot = { workspace = true }
-enya-lang = { workspace = true }
 enya-promql = { workspace = true }
-enya-common = { workspace = true }
 enya-client = { workspace = true }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
@@ -38,33 +36,40 @@ lz4_flex = "0.11"
 postcard = { version = "1.1", features = ["alloc"] }
 enya-build-info = { path = "../build-info" }
 nucleo-matcher = { workspace = true }
-ehttp = { workspace = true }
+reqwest = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 # nohash-hasher comes transitively from egui, pin to same version
 nohash-hasher = "0.2"
 # Zero-cost profiling abstraction - macros compile to nothing without a backend
-profiling = { version = "1.0", default-features = false }
+profiling = "1.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 parking_lot = { workspace = true, features = ["serde"] }
 ewebsock = { workspace = true, features = ["tls"] }
-env_logger = { workspace = true }
+simple_logger = { workspace = true }
 mimalloc = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
 # Enable metal backend for wgpu on macOS
 wgpu = { workspace = true, features = ["metal", "vulkan"] }
 # Codebase integration
-enya-index = { workspace = true }
+enya-analyzer = { workspace = true }
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
+tree-sitter-go = "0.23"
+tree-sitter-python = "0.23"
+tree-sitter-javascript = "0.23"
 tree-sitter-highlight = "0.25"
+# Async runtime for AI agent and background tasks
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+# AI agent integration via ACP
+enya-ai = { workspace = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ewebsock = { workspace = true }
-parking_lot = { workspace = true, features = ["wasm-bindgen", "serde"] }
+parking_lot = { workspace = true, features = ["serde"] }
 wasm-bindgen-futures = { workspace = true }
 wasm-bindgen = { workspace = true }
 js-sys = { workspace = true }

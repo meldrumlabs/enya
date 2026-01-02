@@ -1,3 +1,39 @@
+/// Available editor fonts
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum EditorFont {
+    /// Maple Mono - clean, modern monospace font
+    MapleMono,
+    /// Departure Mono - distinctive retro-style monospace font
+    #[default]
+    DepartureMono,
+    /// JetBrains Mono - designed by JetBrains for developers
+    JetBrainsMono,
+    /// Iosevka - narrow, highly customizable monospace font
+    Iosevka,
+}
+
+impl EditorFont {
+    /// Human-readable font name
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::MapleMono => "Maple Mono",
+            Self::DepartureMono => "Departure Mono",
+            Self::JetBrainsMono => "JetBrains Mono",
+            Self::Iosevka => "Iosevka",
+        }
+    }
+
+    /// Internal font family name used in egui
+    pub fn font_family_name(&self) -> &'static str {
+        match self {
+            Self::MapleMono => "maple_mono",
+            Self::DepartureMono => "departure_mono",
+            Self::JetBrainsMono => "jetbrains_mono",
+            Self::Iosevka => "iosevka",
+        }
+    }
+}
+
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {
     /// API key for backend services (kept for future use)
@@ -9,6 +45,9 @@ pub struct AppSettings {
     /// Recent workspaces that were accessed
     #[serde(default)]
     pub recent_workspaces: Vec<WorkspaceEntry>,
+    /// Currently selected editor font
+    #[serde(default)]
+    pub font: EditorFont,
 }
 
 /// Entry for a recently opened plot/chart

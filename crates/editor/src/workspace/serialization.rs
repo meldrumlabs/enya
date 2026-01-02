@@ -156,6 +156,9 @@ impl Workspace {
             self.pending_codebase_config = if config.codebase.is_empty() {
                 None
             } else {
+                // Set language filter if configured
+                self.codebase_manager
+                    .set_language(&config.codebase.language);
                 Some(config.codebase.url.clone())
             };
         }

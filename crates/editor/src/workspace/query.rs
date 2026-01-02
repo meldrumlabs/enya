@@ -20,7 +20,7 @@ impl Workspace {
                 } = self.query_executor.connection_health().clone()
                 {
                     log::info!("Connected to Prometheus v{version}");
-                    // Add success diagnostic
+                    // Add success diagnostic (no toast - status bar shows connection state)
                     let diagnostic = crate::components::overlay::diagnostics::Diagnostic::info(
                         format!("Connected to Prometheus v{version}"),
                     )
@@ -28,11 +28,6 @@ impl Workspace {
                         crate::components::overlay::diagnostics::DiagnosticSource::DataConnection,
                     );
                     self.diagnostics_pane.add(diagnostic);
-                    // Show success notification
-                    notification_action = WorkspaceAction::Notify {
-                        level: "success".to_string(),
-                        message: format!("Connected to Prometheus v{version}"),
-                    };
                 }
             } else if let crate::components::util::query_executor::ConnectionHealth::Failed {
                 ref error,
@@ -118,78 +113,89 @@ impl Workspace {
         }
 
         // 1. Poll for query results if there's a pending query
-        if let Some(tile_id) = self.pending_query_tile {
+        // We use the pane's component ID (not TileId) because TileIds can change when
+        // egui_tiles restructures the tree during ui() calls
+        if let Some(pending_pane_id) = self.pending_query_pane_id {
+            let tile_count = self.viewport_tree.tiles.len();
+            log::debug!(
+                "Polling pending query for pane ID {pending_pane_id}. Total tiles: {tile_count}"
+            );
+
+            // Find the pane by its component ID
             let mut pane_found = false;
-            if let Some(egui_tiles::Tile::Pane(component)) =
-                self.viewport_tree.tiles.get_mut(tile_id)
-            {
-                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                    pane_found = true;
-                    let pane_id = query_pane.id();
-                    let pane_name = query_pane.name().to_string();
+            for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
+                if let egui_tiles::Tile::Pane(component) = tile {
+                    if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                        if query_pane.id() == pending_pane_id {
+                            pane_found = true;
+                            let pane_id = query_pane.id();
+                            let pane_name = query_pane.name().to_string();
 
-                    match self.query_executor.poll(query_pane.visualization_mut()) {
-                        QueryPollResult::Complete {
-                            series_count,
-                            point_count,
-                            suggested_viz,
-                        } => {
-                            // Query completed
-                            self.pending_query_tile = None;
-                            query_pane.set_loading(false);
-                            // Clear any previous errors for this pane
-                            self.diagnostics_pane.clear_for_pane(pane_id);
+                            match self.query_executor.poll(query_pane.visualization_mut()) {
+                                QueryPollResult::Complete {
+                                    series_count,
+                                    point_count,
+                                    suggested_viz,
+                                } => {
+                                    // Query completed
+                                    self.pending_query_pane_id = None;
+                                    query_pane.set_loading(false);
+                                    // Clear any previous errors for this pane
+                                    self.diagnostics_pane.clear_for_pane(pane_id);
 
-                            // Apply suggested visualization if user hasn't manually overridden
-                            if !query_pane.has_user_override() {
-                                query_pane.set_visualization_type_auto(suggested_viz);
-                                log::debug!(
-                                    "Auto-selected visualization {suggested_viz:?} for pane '{pane_name}'"
-                                );
+                                    // Apply suggested visualization if user hasn't manually overridden
+                                    if !query_pane.has_user_override() {
+                                        query_pane.set_visualization_type_auto(suggested_viz);
+                                        log::debug!(
+                                            "Auto-selected visualization {suggested_viz:?} for pane '{pane_name}'"
+                                        );
+                                    }
+
+                                    if series_count == 0 || point_count == 0 {
+                                        // Query succeeded but returned no data - add info diagnostic
+                                        let diagnostic = Diagnostic::info(
+                                            "Query returned no data. Check the metric name and time range.",
+                                        )
+                                        .with_source(DiagnosticSource::DataConnection)
+                                        .with_pane(pane_id, &pane_name);
+                                        self.diagnostics_pane.add(diagnostic);
+                                        log::info!(
+                                            "Query for pane {pane_id} returned no data (0 series, 0 points)"
+                                        );
+                                    } else {
+                                        log::debug!(
+                                            "Query completed for pane {pane_id}: {series_count} series, {point_count} points"
+                                        );
+                                    }
+                                }
+                                QueryPollResult::Error(error) => {
+                                    // Query failed - add diagnostic
+                                    self.pending_query_pane_id = None;
+                                    query_pane.set_loading(false);
+                                    // Clear previous diagnostics for this pane and add the new error
+                                    self.diagnostics_pane.clear_for_pane(pane_id);
+                                    let diagnostic = Diagnostic::error(&error)
+                                        .with_source(DiagnosticSource::DataConnection)
+                                        .with_pane(pane_id, &pane_name);
+                                    self.diagnostics_pane.add(diagnostic);
+                                    log::error!("Query failed for pane {pane_id}: {error}");
+                                }
+                                QueryPollResult::Pending => {
+                                    // Still waiting for results
+                                }
                             }
-
-                            if series_count == 0 || point_count == 0 {
-                                // Query succeeded but returned no data - add info diagnostic
-                                let diagnostic = Diagnostic::info(
-                                    "Query returned no data. Check the metric name and time range.",
-                                )
-                                .with_source(DiagnosticSource::DataConnection)
-                                .with_pane(pane_id, &pane_name);
-                                self.diagnostics_pane.add(diagnostic);
-                                log::info!(
-                                    "Query for tile {tile_id:?} returned no data (0 series, 0 points)"
-                                );
-                            } else {
-                                log::debug!(
-                                    "Query completed for tile {tile_id:?}: {series_count} series, {point_count} points"
-                                );
-                            }
-                        }
-                        QueryPollResult::Error(error) => {
-                            // Query failed - add diagnostic
-                            self.pending_query_tile = None;
-                            query_pane.set_loading(false);
-                            // Clear previous diagnostics for this pane and add the new error
-                            self.diagnostics_pane.clear_for_pane(pane_id);
-                            let diagnostic = Diagnostic::error(&error)
-                                .with_source(DiagnosticSource::DataConnection)
-                                .with_pane(pane_id, &pane_name);
-                            self.diagnostics_pane.add(diagnostic);
-                            log::error!("Query failed for tile {tile_id:?}: {error}");
-                        }
-                        QueryPollResult::Pending => {
-                            // Still waiting for results
+                            break;
                         }
                     }
                 }
             }
 
-            // If we couldn't find the pane (it was removed or replaced), clean up
+            // If we couldn't find the pane (it was removed), clean up
             if !pane_found {
                 log::warn!(
-                    "Pending query tile {tile_id:?} no longer exists, clearing pending state"
+                    "Pending query pane ID {pending_pane_id} no longer exists, clearing pending state"
                 );
-                self.pending_query_tile = None;
+                self.pending_query_pane_id = None;
                 self.query_executor.cancel_query();
                 // Clear loading state on all panes to prevent stuck loading animations
                 for (_id, tile) in self.viewport_tree.tiles.iter_mut() {
@@ -227,59 +233,66 @@ impl Workspace {
 
         let can_execute = !self.query_executor.is_connected() || self.query_executor.is_online();
 
-        if self.pending_query_tile.is_none() && can_execute {
+        if self.pending_query_pane_id.is_none() && can_execute {
             let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
 
-            // Find the first pane that needs refresh
-            let pane_ids: Vec<egui_tiles::TileId> = self
-                .viewport_tree
-                .tiles
-                .iter()
-                .filter_map(|(id, tile)| {
-                    if let egui_tiles::Tile::Pane(component) = tile {
-                        if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                            if query_pane.needs_refresh() {
-                                log::debug!(
-                                    "Found pane {:?} that needs refresh: {}",
-                                    id,
-                                    query_pane.name()
-                                );
-                                return Some(*id);
-                            }
+            // Find the first pane that needs refresh and get its component ID
+            let mut pane_to_execute: Option<(usize, String, String, u64)> = None;
+            for (_tile_id, tile) in self.viewport_tree.tiles.iter() {
+                if let egui_tiles::Tile::Pane(component) = tile {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        if query_pane.needs_refresh() {
+                            log::debug!(
+                                "Found pane {} that needs refresh: {}",
+                                query_pane.id(),
+                                query_pane.name()
+                            );
+                            pane_to_execute = Some((
+                                query_pane.id(),
+                                query_pane.name().to_string(),
+                                query_pane.saved_query().to_string(),
+                                query_pane.query_state().granularity.seconds(),
+                            ));
+                            break;
                         }
                     }
-                    None
-                })
-                .collect();
+                }
+            }
 
-            // Execute query for the first pane that needs refresh
-            if let Some(tile_id) = pane_ids.first().copied() {
-                if let Some(egui_tiles::Tile::Pane(component)) =
-                    self.viewport_tree.tiles.get_mut(tile_id)
-                {
-                    if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                        // Get query parameters from the pane
-                        let metric = query_pane.name().to_string();
-                        let query = query_pane.saved_query().to_string();
-                        let step_secs = query_pane.query_state().granularity.seconds();
+            // Execute the query for the pane we found
+            if let Some((pane_id, metric, query, step_secs)) = pane_to_execute {
+                let tile_count = self.viewport_tree.tiles.len();
+                // Find the pane again to modify it (needed because we can't hold a reference across the iter)
+                for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
+                    if let egui_tiles::Tile::Pane(component) = tile {
+                        if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>()
+                        {
+                            if query_pane.id() == pane_id {
+                                // Clear the refresh flag
+                                query_pane.clear_refresh();
 
-                        // Clear the refresh flag
-                        query_pane.clear_refresh();
+                                // Execute the query
+                                let params = ExecuteParams {
+                                    metric: &metric,
+                                    query: &query,
+                                    step_secs,
+                                    start_ns: Some(start_ns),
+                                    end_ns: Some(end_ns),
+                                };
+                                self.query_executor.execute(
+                                    &params,
+                                    query_pane.visualization_mut(),
+                                    ctx,
+                                );
+                                self.pending_query_pane_id = Some(pane_id);
+                                query_pane.set_loading(true);
 
-                        // Execute the query
-                        let params = ExecuteParams {
-                            metric: &metric,
-                            query: &query,
-                            step_secs,
-                            start_ns: Some(start_ns),
-                            end_ns: Some(end_ns),
-                        };
-                        self.query_executor
-                            .execute(&params, query_pane.visualization_mut(), ctx);
-                        self.pending_query_tile = Some(tile_id);
-                        query_pane.set_loading(true);
-
-                        log::debug!("Executing query for tile {tile_id:?}: {query}");
+                                log::debug!(
+                                    "Executing query for pane {pane_id}: {query}. Total tiles: {tile_count}"
+                                );
+                                break;
+                            }
+                        }
                     }
                 }
             }

@@ -7,7 +7,9 @@
 use egui_tiles::{Tile, TileId};
 
 use super::{NavDirection, Workspace, WorkspaceAction};
-use crate::components::{Buffer, BufferMode, EditExcerpt, QueryPane, TimeRangePreset};
+use crate::components::{
+    Buffer, BufferMode, EditExcerpt, QueryPane, QuickCommand, TimeRangePreset,
+};
 
 impl Workspace {
     /// Handle vim-style keyboard navigation for the viewport.
@@ -29,7 +31,14 @@ impl Workspace {
             || self.viewport_filter.is_open()
             || self.tutorial_overlay.is_open()
             || self.source_preview.is_open()
+            || self.agent_panel.is_open()
         {
+            return None;
+        }
+
+        // Handle agent mode - keyboard is handled by AgentInputBar
+        if self.agent_mode_active {
+            // Agent input bar handles its own keyboard in show()
             return None;
         }
 
@@ -65,8 +74,20 @@ impl Workspace {
         let mut should_go_to_definition = false;
         let mut should_go_to_alert = false;
         let mut should_show_definition_demo = false;
+        let mut should_toggle_agent_panel = false;
+        let mut should_enter_agent_mode = false;
+        let mut should_enter_agent_mode_typing = false;
+        let mut agent_quick_command: Option<QuickCommand> = None;
         let mut new_tile_id: Option<TileId> = None;
         let mut time_range_preset: Option<TimeRangePreset> = None;
+        let mut should_move_pane_left = false;
+        let mut should_move_pane_right = false;
+        let mut should_move_pane_up = false;
+        let mut should_move_pane_down = false;
+        let mut should_tab_pane_left = false;
+        let mut should_tab_pane_right = false;
+        let mut should_tab_pane_up = false;
+        let mut should_tab_pane_down = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -152,6 +173,14 @@ impl Workspace {
                 // Space+d - toggle diagnostics overlay
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
                     should_toggle_diagnostics = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+a - open/focus agent pane (Claude Code)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                    should_toggle_agent_panel = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -255,6 +284,82 @@ impl Workspace {
                 }
             }
 
+            // Agent operator shortcuts (must follow 'a' within timeout)
+            // Check these BEFORE other single-key shortcuts to prevent e/f/h/etc from being consumed
+            if self.leader_keys.is_a_active() {
+                // aw - What's wrong? (triage)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
+                    agent_quick_command = Some(QuickCommand::WhatsWrong);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ae - Explain (focused element)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
+                    agent_quick_command = Some(QuickCommand::Explain);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ay - Why? (root cause)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Y) {
+                    agent_quick_command = Some(QuickCommand::Why);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ac - Compare (to baseline)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
+                    agent_quick_command = Some(QuickCommand::Compare);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ar - Related (correlated metrics)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::R) {
+                    agent_quick_command = Some(QuickCommand::Related);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // af - Fix (remediation suggestions)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+                    agent_quick_command = Some(QuickCommand::Fix);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // as - Summarize (incident summary)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::S) {
+                    agent_quick_command = Some(QuickCommand::Summarize);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // ah - History (past similar incidents)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H) {
+                    agent_quick_command = Some(QuickCommand::History);
+                    should_enter_agent_mode = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+                // aa - just enter agent mode in typing mode (double tap)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                    should_enter_agent_mode_typing = true;
+                    self.leader_keys.clear_a();
+                    consumed = true;
+                    return;
+                }
+            }
+
             // e - enter edit mode on focused pane (vim-style)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::E) && current_focus.is_some() {
                 should_edit_buffer = true;
@@ -273,6 +378,124 @@ impl Workspace {
                 should_toggle_fullscreen = true;
                 consumed = true;
                 return;
+            }
+
+            // a - agent operator (aw, ae, ay, ac, ar, af, as, ah) or just enter agent mode
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                // Record 'a' press time for agent operator detection
+                self.leader_keys.press_a();
+                consumed = true;
+                return;
+            }
+
+            // Ctrl+W - window management leader key (vim-style Ctrl+W h/j/k/l)
+            if input.consume_key(egui::Modifiers::CTRL, egui::Key::W) {
+                self.leader_keys.press_ctrl_w();
+                consumed = true;
+                return;
+            }
+
+            // Ctrl+W sequences (must follow Ctrl+W within timeout)
+            // Note: We accept keys with Ctrl still held since users often keep Ctrl pressed
+            // throughout the sequence (especially on macOS).
+            if self.leader_keys.is_ctrl_w_active() {
+                let ctrl_only = egui::Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                };
+
+                // Ctrl+W t - enter tab mode (merge focused pane into tab with neighbor)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::T)
+                    || input.consume_key(ctrl_only, egui::Key::T)
+                {
+                    self.leader_keys.press_ctrl_w_t();
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+
+                // Ctrl+W h - move pane to far left
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                    || input.consume_key(ctrl_only, egui::Key::H)
+                {
+                    should_move_pane_left = true;
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W l - move pane to far right
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                    || input.consume_key(ctrl_only, egui::Key::L)
+                {
+                    should_move_pane_right = true;
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W k - move pane to top
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                    || input.consume_key(ctrl_only, egui::Key::K)
+                {
+                    should_move_pane_up = true;
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W j - move pane to bottom
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                    || input.consume_key(ctrl_only, egui::Key::J)
+                {
+                    should_move_pane_down = true;
+                    self.leader_keys.clear_ctrl_w();
+                    consumed = true;
+                    return;
+                }
+            }
+
+            // Ctrl+W t sequences - merge focused pane into tab with neighbor in direction
+            // Accept direction keys with no modifiers OR with Ctrl still held (common on macOS)
+            if self.leader_keys.is_ctrl_w_t_active() {
+                let ctrl_only = egui::Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                };
+
+                // Ctrl+W t h - merge with pane to the left
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
+                    || input.consume_key(ctrl_only, egui::Key::H)
+                {
+                    should_tab_pane_left = true;
+                    self.leader_keys.clear_ctrl_w_t();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W t l - merge with pane to the right
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
+                    || input.consume_key(ctrl_only, egui::Key::L)
+                {
+                    should_tab_pane_right = true;
+                    self.leader_keys.clear_ctrl_w_t();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W t k - merge with pane above
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                    || input.consume_key(ctrl_only, egui::Key::K)
+                {
+                    should_tab_pane_up = true;
+                    self.leader_keys.clear_ctrl_w_t();
+                    consumed = true;
+                    return;
+                }
+                // Ctrl+W t j - merge with pane below
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                    || input.consume_key(ctrl_only, egui::Key::J)
+                {
+                    should_tab_pane_down = true;
+                    self.leader_keys.clear_ctrl_w_t();
+                    consumed = true;
+                    return;
+                }
             }
 
             // Ctrl+V - enter visual-block (multi-select) mode
@@ -410,6 +633,56 @@ impl Workspace {
             ctx.request_repaint();
         }
 
+        if should_toggle_agent_panel {
+            // Create or focus an agent pane instead of toggling the overlay
+            self.focus_or_create_agent_pane();
+            ctx.request_repaint();
+        }
+
+        if should_enter_agent_mode {
+            if let Some(command) = agent_quick_command {
+                self.enter_agent_mode_with_command(command);
+            } else {
+                self.enter_agent_mode();
+            }
+            ctx.request_repaint();
+        }
+
+        if should_enter_agent_mode_typing {
+            self.enter_agent_mode_typing();
+            ctx.request_repaint();
+        }
+
+        // Handle pane movement (Ctrl+W h/j/k/l)
+        if should_move_pane_left {
+            self.move_pane_to_far_left();
+            ctx.request_repaint();
+        } else if should_move_pane_right {
+            self.move_pane_to_far_right();
+            ctx.request_repaint();
+        } else if should_move_pane_up {
+            self.move_pane_to_top();
+            ctx.request_repaint();
+        } else if should_move_pane_down {
+            self.move_pane_to_bottom();
+            ctx.request_repaint();
+        }
+
+        // Handle pane tabbing (Ctrl+W t h/j/k/l)
+        if should_tab_pane_left {
+            self.move_pane_to_tab_with(NavDirection::Left);
+            ctx.request_repaint();
+        } else if should_tab_pane_right {
+            self.move_pane_to_tab_with(NavDirection::Right);
+            ctx.request_repaint();
+        } else if should_tab_pane_up {
+            self.move_pane_to_tab_with(NavDirection::Up);
+            ctx.request_repaint();
+        } else if should_tab_pane_down {
+            self.move_pane_to_tab_with(NavDirection::Down);
+            ctx.request_repaint();
+        }
+
         if should_open_which_key {
             self.which_key.open();
         } else if should_enter_visual_multi {
@@ -486,6 +759,7 @@ impl Workspace {
         let mut should_open_multi_edit = false;
         let mut should_close_selected = false;
         let mut should_refresh_selected = false;
+        let mut should_enter_agent_mode = false;
         let mut new_cursor_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
@@ -524,8 +798,15 @@ impl Workspace {
                 return;
             }
 
-            // a - select all panes
+            // a - enter agent mode with selected panes as context
             if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                should_enter_agent_mode = true;
+                consumed = true;
+                return;
+            }
+
+            // A (Shift+A) - select all panes
+            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::A) {
                 should_select_all = true;
                 consumed = true;
                 return;
@@ -594,6 +875,10 @@ impl Workspace {
         if should_exit {
             self.exit_visual_multi_mode();
             self.multi_buffer_state.reset();
+        } else if should_enter_agent_mode {
+            // Enter agent mode with selected panes as context
+            // enter_agent_mode() will transfer the visual selection
+            self.enter_agent_mode();
         } else if should_close_selected {
             self.close_selected_panes();
         } else if should_refresh_selected {

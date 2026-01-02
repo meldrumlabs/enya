@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use egui::{Color32, Sense, Ui};
 
+use crate::AsyncRuntime;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
@@ -22,7 +23,7 @@ pub enum TabBarAction {
     SwitchToTab(usize),
     /// Close a specific tab by index
     CloseTab(usize),
-    /// Create a new workspace tab
+    /// Create a new workspace tab (opens the workspace creator overlay)
     NewTab,
 }
 
@@ -42,24 +43,24 @@ pub struct WorkspaceTab {
 
 impl WorkspaceTab {
     /// Create a new workspace tab with a default workspace (shows landing page)
-    pub fn new(id: usize, name: String, api_key: String) -> Self {
+    pub fn new(id: usize, name: String, async_runtime: AsyncRuntime) -> Self {
         Self {
             id,
             name,
             file_path: None,
             is_modified: false,
-            workspace: Workspace::example(api_key),
+            workspace: Workspace::new(async_runtime),
         }
     }
 
     /// Create a new workspace tab with an empty workspace (no landing page)
-    pub fn new_empty(id: usize, name: String) -> Self {
+    pub fn new_empty(id: usize, name: String, async_runtime: AsyncRuntime) -> Self {
         Self {
             id,
             name,
             file_path: None,
             is_modified: false,
-            workspace: Workspace::new_empty(),
+            workspace: Workspace::new_empty(async_runtime),
         }
     }
 
@@ -85,31 +86,19 @@ pub struct WorkspaceTabBar {
     next_tab_id: usize,
     /// Current theme
     theme: AppTheme,
-    /// API key for new workspaces
-    api_key: String,
-}
-
-impl Default for WorkspaceTabBar {
-    fn default() -> Self {
-        Self {
-            tabs: Vec::new(),
-            active_tab_index: 0,
-            next_tab_id: 0,
-            theme: AppTheme::Dark,
-            api_key: String::new(),
-        }
-    }
+    /// Async runtime for creating new workspaces
+    async_runtime: AsyncRuntime,
 }
 
 impl WorkspaceTabBar {
     /// Create a new tab bar with an initial default workspace
-    pub fn new(api_key: String) -> Self {
+    pub fn new(async_runtime: AsyncRuntime) -> Self {
         let mut bar = Self {
             tabs: Vec::new(),
             active_tab_index: 0,
             next_tab_id: 0,
             theme: AppTheme::Dark,
-            api_key: api_key.clone(),
+            async_runtime,
         };
         // Create initial default workspace (shows landing page)
         bar.new_initial_tab("default".to_string());
@@ -119,11 +108,6 @@ impl WorkspaceTabBar {
     /// Set the current theme
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
-    }
-
-    /// Set the API key for new workspaces
-    pub fn set_api_key(&mut self, api_key: String) {
-        self.api_key = api_key;
     }
 
     /// Check if a workspace name already exists
@@ -158,6 +142,13 @@ impl WorkspaceTabBar {
         self.tabs.get_mut(self.active_tab_index)
     }
 
+    /// Rename the currently active tab
+    pub fn rename_active_tab(&mut self, name: String) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab_index) {
+            tab.name = name;
+        }
+    }
+
     /// Get the active tab index
     pub fn active_index(&self) -> usize {
         self.active_tab_index
@@ -174,7 +165,7 @@ impl WorkspaceTabBar {
         self.next_tab_id += 1;
         let name = self.unique_name("workspace");
 
-        let tab = WorkspaceTab::new_empty(id, name);
+        let tab = WorkspaceTab::new_empty(id, name, self.async_runtime.clone());
         self.tabs.push(tab);
         let new_idx = self.tabs.len() - 1;
         self.active_tab_index = new_idx;
@@ -188,7 +179,7 @@ impl WorkspaceTabBar {
         self.next_tab_id += 1;
         let unique_name = self.unique_name(&name);
 
-        let tab = WorkspaceTab::new_empty(id, unique_name);
+        let tab = WorkspaceTab::new_empty(id, unique_name, self.async_runtime.clone());
         self.tabs.push(tab);
         let new_idx = self.tabs.len() - 1;
         self.active_tab_index = new_idx;
@@ -201,7 +192,7 @@ impl WorkspaceTabBar {
         self.next_tab_id += 1;
         let unique_name = self.unique_name(&name);
 
-        let tab = WorkspaceTab::new(id, unique_name, self.api_key.clone());
+        let tab = WorkspaceTab::new(id, unique_name, self.async_runtime.clone());
         self.tabs.push(tab);
         let new_idx = self.tabs.len() - 1;
         self.active_tab_index = new_idx;
@@ -375,8 +366,16 @@ impl WorkspaceTabBar {
             };
             painter.rect_filled(rect, 0.0, bg);
 
-            // Active indicator bar at bottom
+            // Active indicator bar at bottom - premium emerald accent
             if is_active {
+                // Subtle glow layer
+                let glow_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.min.x, rect.max.y - 3.0),
+                    egui::vec2(rect.width(), 3.0),
+                );
+                painter.rect_filled(glow_rect, 0.0, palette::accent::GLOW);
+
+                // Main accent bar
                 let bar_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.min.x, rect.max.y - 2.0),
                     egui::vec2(rect.width(), 2.0),
@@ -501,10 +500,9 @@ impl WorkspaceTabBar {
     }
 
     fn hover_bg_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Dark => palette::bg::HOVER,
-            AppTheme::Light => palette::light_bg::HOVER,
-        }
+        // Use subtle hover like landing page - 5% of text color
+        let text_col = self.text_color(false);
+        text_col.gamma_multiply(0.05)
     }
 
     fn text_color(&self, is_active: bool) -> Color32 {

@@ -208,14 +208,47 @@ async fn main() -> Result<()> {
 		font-display: swap;
 	}
 
+	/* Obsidian Glass Design System - CSS Variables */
+	:root {
+		/* Core backgrounds */
+		--obsidian-base: #08080A;
+		--obsidian-surface: #121215;
+		--obsidian-elevated: #1A1A1E;
+		--obsidian-hover: #242428;
+		--obsidian-active: #2C2C32;
+		--obsidian-selected: #1C2A24;
+
+		/* Borders */
+		--obsidian-border-subtle: #26262C;
+		--obsidian-border-default: #34343C;
+		--obsidian-border-focus: #375048;
+
+		/* Text hierarchy */
+		--obsidian-text-primary: #F8F8FC;
+		--obsidian-text-secondary: #9E9EA8;
+		--obsidian-text-tertiary: #646470;
+
+		/* Accent - signature emerald */
+		--obsidian-accent: #10B981;
+		--obsidian-accent-hover: #34D399;
+		--obsidian-accent-muted: #142822;
+		--obsidian-accent-glow: rgba(16, 185, 129, 0.12);
+
+		/* 3-Color Typography System:
+		   1. ACCENT (emerald)  → Brand name, section titles, card titles, links
+		   2. PRIMARY (white)   → Main headlines, key content headings
+		   3. SECONDARY (gray)  → Taglines, descriptions, supporting text
+		*/
+	}
+
 	html,
 	body {
 		font-family: 'Departure Mono', monospace, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 		margin: 0;
 		padding: 0;
 		height: 100%;
-		background-color: #0A0A0A;
-		color: #F5F5F5;
+		background-color: var(--obsidian-base);
+		color: var(--obsidian-text-primary);
 	}
 
 	html {
@@ -252,7 +285,7 @@ async fn main() -> Result<()> {
 		width: 100%;
 		max-width: 100%;
 		padding: 1rem 1.5rem;
-		background-color: #0A0A0A;
+		background-color: var(--obsidian-base);
 		box-sizing: border-box;
 		overflow: visible;
 	}
@@ -305,29 +338,29 @@ async fn main() -> Result<()> {
 	.header-link {
 		font-size: 0.875rem;
 		font-family: monospace;
-		color: #F5F5F5;
+		color: var(--obsidian-text-primary);
 		text-decoration: none;
-		transition: color 0.2s ease;
+		transition: color 0.15s ease;
 	}
 
 	.header-link:hover {
-		color: #A3A3A3;
+		color: var(--obsidian-accent-hover);
 	}
 
 	.header-link .star-count {
 		display: inline-block;
-		color: #A3A3A3 !important;
+		color: var(--obsidian-text-secondary) !important;
 		font-weight: normal;
 		margin-left: 0.25rem;
 		transition: none !important;
 	}
 
 	.header-link:hover .star-count {
-		color: #A3A3A3 !important;
+		color: var(--obsidian-text-secondary) !important;
 	}
 
 	#github-link .star-count {
-		color: #A3A3A3 !important;
+		color: var(--obsidian-text-secondary) !important;
 	}
 
 	.mobile-menu-toggle {
@@ -342,7 +375,7 @@ async fn main() -> Result<()> {
 		position: relative;
 		width: 2rem;
 		height: 2rem;
-		color: #F5F5F5;
+		color: var(--obsidian-text-primary);
 	}
 
 	.menu-icon {
@@ -375,14 +408,14 @@ async fn main() -> Result<()> {
 		flex-direction: column;
 		gap: 1rem;
 		padding: 1rem 0;
-		border-top: 1px solid #404040;
-		background-color: #0A0A0A;
+		border-top: 1px solid var(--obsidian-border-default);
+		background-color: var(--obsidian-base);
 		position: absolute;
 		top: 100%;
 		left: -1.5rem;
 		right: -1.5rem;
 		z-index: 1000;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 		padding-left: 1.5rem;
 		padding-right: 1.5rem;
 	}
@@ -394,19 +427,19 @@ async fn main() -> Result<()> {
 	.mobile-menu-link {
 		font-size: 0.875rem;
 		font-family: monospace;
-		color: #F5F5F5;
+		color: var(--obsidian-text-primary);
 		text-decoration: none;
-		transition: color 0.2s ease;
+		transition: color 0.15s ease;
 		padding: 0.5rem 0;
 	}
 
 	.mobile-menu-link:hover {
-		color: #A3A3A3;
+		color: var(--obsidian-accent-hover);
 	}
 
 	.mobile-menu-link .star-count {
 		display: inline-block;
-		color: #A3A3A3 !important;
+		color: var(--obsidian-text-secondary) !important;
 		font-weight: normal;
 		margin-left: 0.25rem;
 		transition: none !important;
@@ -495,15 +528,15 @@ async fn main() -> Result<()> {
 		max-width: 1000px;
 		height: auto;
 		margin: 2rem 0 1rem 0;
-		border: 1px solid #404040;
+		border: 1px solid var(--obsidian-border-default);
 		border-radius: 0.5rem;
-		box-shadow: 0 4px 20px rgba(16, 185, 129, 0.15);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px var(--obsidian-accent-glow);
 		transition: transform 0.2s ease, box-shadow 0.2s ease;
 	}
 
 	.hero-demo:hover {
 		transform: translateY(-4px);
-		box-shadow: 0 8px 30px rgba(16, 185, 129, 0.25);
+		box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(16, 185, 129, 0.2);
 	}
 
 	@media (max-width: 768px) {
@@ -524,8 +557,8 @@ async fn main() -> Result<()> {
 	}
 
 	.code-example :global(pre) {
-		background-color: #141414 !important;
-		border: 1px solid #404040 !important;
+		background-color: var(--obsidian-surface) !important;
+		border: 1px solid var(--obsidian-border-default) !important;
 		border-radius: 0.5rem !important;
 		padding: 1.5rem !important;
 		margin: 0 !important;
@@ -533,6 +566,7 @@ async fn main() -> Result<()> {
 		font-family: 'Departure Mono', monospace !important;
 		font-size: 0.875rem !important;
 		line-height: 1.6 !important;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
 	}
 
 	.code-example :global(code) {
@@ -541,23 +575,24 @@ async fn main() -> Result<()> {
 	}
 
 	.code-example :global(.astro-code) {
-		background-color: #141414 !important;
-		border: 1px solid #404040 !important;
+		background-color: var(--obsidian-surface) !important;
+		border: 1px solid var(--obsidian-border-default) !important;
 		border-radius: 0.5rem !important;
 		padding: 1.5rem !important;
 	}
 
 	.install-command {
-		background-color: #141414;
-		border: 1px solid #404040;
+		background-color: var(--obsidian-surface);
+		border: 1px solid var(--obsidian-border-default);
 		border-radius: 0.5rem;
 		padding: 1rem 1.5rem;
 		text-align: center;
 		font-family: 'Departure Mono', monospace;
+		box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
 	}
 
 	.install-command code {
-		color: #10B981;
+		color: var(--obsidian-accent);
 		font-family: 'Departure Mono', monospace;
 		font-size: 1rem;
 	}
@@ -597,9 +632,9 @@ async fn main() -> Result<()> {
 		font-size: 1rem;
 		padding: 1rem 2rem;
 		text-decoration: none;
-		border: 2px solid #10B981;
-		color: #0A0A0A;
-		background-color: #10B981;
+		border: 2px solid var(--obsidian-accent);
+		color: var(--obsidian-base);
+		background: linear-gradient(180deg, var(--obsidian-accent) 0%, #059669 100%);
 		transition: all 0.2s ease;
 		letter-spacing: 0.05em;
 		text-transform: lowercase;
@@ -611,13 +646,21 @@ async fn main() -> Result<()> {
 		align-items: center;
 		justify-content: center;
 		gap: 0.5rem;
+		box-shadow:
+			0 2px 0 0 #047857,
+			0 4px 12px var(--obsidian-accent-glow),
+			inset 0 1px 0 rgba(255, 255, 255, 0.15);
+		text-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
 	}
 
 	.hero-button-primary:hover {
-		background-color: #34D399;
-		border-color: #34D399;
+		background: linear-gradient(180deg, var(--obsidian-accent-hover) 0%, var(--obsidian-accent) 100%);
+		border-color: var(--obsidian-accent-hover);
 		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+		box-shadow:
+			0 4px 0 0 #047857,
+			0 8px 24px rgba(16, 185, 129, 0.3),
+			inset 0 1px 0 rgba(255, 255, 255, 0.2);
 	}
 
 	.download-icon-btn {
@@ -629,36 +672,40 @@ async fn main() -> Result<()> {
 		font-size: 1rem;
 		padding: 1rem 2rem;
 		text-decoration: none;
-		border: 2px solid #404040;
-		color: #F5F5F5;
-		background-color: transparent;
+		border: 2px solid var(--obsidian-border-default);
+		color: var(--obsidian-text-primary);
+		background-color: var(--obsidian-surface);
 		transition: all 0.2s ease;
 		letter-spacing: 0.05em;
 		text-transform: lowercase;
 		min-width: 160px;
 		text-align: center;
 		border-radius: 0.375rem;
+		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 	}
 
 	.hero-button-secondary:hover {
-		border-color: #10B981;
-		color: #10B981;
+		border-color: var(--obsidian-accent);
+		color: var(--obsidian-accent);
+		background-color: var(--obsidian-hover);
+		box-shadow: 0 4px 12px var(--obsidian-accent-glow);
 	}
 
 	.hero-learn-more {
 		font-family: 'Departure Mono', monospace;
 		font-size: 0.875rem;
-		color: #A3A3A3;
+		color: var(--obsidian-text-secondary);
 		font-weight: 500;
 		text-decoration: none;
 		margin-top: 1rem;
 		display: inline-block;
-		transition: all 0.2s ease;
+		transition: all 0.15s ease;
 	}
 
 	.hero-learn-more:hover {
-		color: #10B981;
+		color: var(--obsidian-accent);
 		transform: translateX(4px);
+		text-shadow: 0 0 8px var(--obsidian-accent-glow);
 	}
 
 	@media (max-width: 768px) {
@@ -679,11 +726,11 @@ async fn main() -> Result<()> {
 	.feature-showcase {
 		width: 100%;
 		padding: 6rem 1.5rem;
-		background-color: #0A0A0A;
+		background-color: var(--obsidian-base);
 	}
 
 	.feature-showcase-alt {
-		background-color: #050505;
+		background-color: #050507;
 	}
 
 	.feature-section {
@@ -706,7 +753,7 @@ async fn main() -> Result<()> {
 		font-family: 'Departure Mono', monospace;
 		font-size: 2.5rem;
 		font-weight: bold;
-		color: #F5F5F5;
+		color: var(--obsidian-text-primary);
 		margin: 0;
 		line-height: 1.2;
 	}
@@ -714,7 +761,7 @@ async fn main() -> Result<()> {
 	.feature-text {
 		font-family: 'Departure Mono', monospace;
 		font-size: 1.125rem;
-		color: #A3A3A3;
+		color: var(--obsidian-text-secondary);
 		line-height: 1.8;
 		margin: 0;
 	}
@@ -727,8 +774,8 @@ async fn main() -> Result<()> {
 	.media-placeholder {
 		width: 100%;
 		aspect-ratio: 4 / 3;
-		background-color: #141414;
-		border: 2px dashed #404040;
+		background-color: var(--obsidian-surface);
+		border: 2px dashed var(--obsidian-border-default);
 		border-radius: 0.5rem;
 		display: flex;
 		flex-direction: column;
@@ -742,7 +789,7 @@ async fn main() -> Result<()> {
 	.placeholder-text {
 		font-family: 'Departure Mono', monospace;
 		font-size: 1.5rem;
-		color: #10B981;
+		color: var(--obsidian-accent);
 		margin: 0;
 		font-weight: bold;
 	}
@@ -750,7 +797,7 @@ async fn main() -> Result<()> {
 	.placeholder-hint {
 		font-family: 'Departure Mono', monospace;
 		font-size: 0.875rem;
-		color: #6B6B6B;
+		color: var(--obsidian-text-tertiary);
 		margin: 0;
 		text-align: center;
 	}
@@ -762,8 +809,8 @@ async fn main() -> Result<()> {
 		aspect-ratio: 16 / 9;
 		object-fit: cover;
 		border-radius: 0.5rem;
-		border: 1px solid #404040;
-		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+		border: 1px solid var(--obsidian-border-default);
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px var(--obsidian-accent-glow);
 	}
 
 	@media (max-width: 1024px) {
@@ -810,7 +857,7 @@ async fn main() -> Result<()> {
 	.downloads-section {
 		width: 100%;
 		padding: 6rem 1.5rem;
-		background-color: #050505;
+		background-color: #050507;
 	}
 
 	.downloads-content {
@@ -823,14 +870,15 @@ async fn main() -> Result<()> {
 		font-family: 'Departure Mono', monospace;
 		font-size: 2.5rem;
 		font-weight: bold;
-		color: #10B981;
+		color: var(--obsidian-accent);
 		margin: 0 0 1rem 0;
+		text-shadow: 0 0 20px var(--obsidian-accent-glow);
 	}
 
 	.downloads-subtitle {
 		font-family: 'Departure Mono', monospace;
 		font-size: 1.125rem;
-		color: #A3A3A3;
+		color: var(--obsidian-text-secondary);
 		margin: 0 0 3rem 0;
 	}
 
@@ -848,8 +896,8 @@ async fn main() -> Result<()> {
 	}
 
 	.download-card {
-		background-color: #141414;
-		border: 2px solid #404040;
+		background-color: var(--obsidian-surface);
+		border: 2px solid var(--obsidian-border-default);
 		border-radius: 0.5rem;
 		padding: 3rem 2rem;
 		transition: all 0.2s ease;
@@ -859,26 +907,28 @@ async fn main() -> Result<()> {
 		flex-direction: column;
 		align-items: center;
 		gap: 1rem;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 	}
 
 	.download-card:hover {
-		border-color: #10B981;
+		border-color: var(--obsidian-accent);
 		transform: translateY(-4px);
-		box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);
+		box-shadow: 0 8px 24px var(--obsidian-accent-glow), 0 4px 16px rgba(0, 0, 0, 0.3);
 	}
 
 	.download-card-featured {
-		border-color: #10B981;
-		background-color: rgba(16, 185, 129, 0.05);
+		border-color: var(--obsidian-accent);
+		background-color: var(--obsidian-accent-muted);
+		box-shadow: 0 0 20px var(--obsidian-accent-glow), 0 4px 12px rgba(0, 0, 0, 0.2);
 	}
 
 	.download-card-featured:hover {
-		background-color: rgba(16, 185, 129, 0.1);
-		box-shadow: 0 8px 30px rgba(16, 185, 129, 0.3);
+		background-color: rgba(16, 185, 129, 0.12);
+		box-shadow: 0 0 30px rgba(16, 185, 129, 0.2), 0 8px 24px rgba(0, 0, 0, 0.3);
 	}
 
 	.download-icon {
-		color: #10B981;
+		color: var(--obsidian-accent);
 		margin-bottom: 0.5rem;
 	}
 
@@ -886,14 +936,14 @@ async fn main() -> Result<()> {
 		font-family: 'Departure Mono', monospace;
 		font-size: 1.5rem;
 		font-weight: bold;
-		color: #F5F5F5;
+		color: var(--obsidian-text-primary);
 		margin: 0;
 	}
 
 	.download-detail {
 		font-family: 'Departure Mono', monospace;
 		font-size: 0.875rem;
-		color: #6B6B6B;
+		color: var(--obsidian-text-tertiary);
 		margin: 0;
 	}
 
@@ -923,8 +973,8 @@ async fn main() -> Result<()> {
 	.features {
 		width: 100%;
 		padding: 4rem 1.5rem;
-		background-color: #0A0A0A;
-		border-top: 1px solid #404040;
+		background-color: var(--obsidian-base);
+		border-top: 1px solid var(--obsidian-border-subtle);
 	}
 
 	.features-content {
@@ -936,11 +986,12 @@ async fn main() -> Result<()> {
 		font-family: 'Departure Mono', monospace;
 		font-size: 2rem;
 		font-weight: normal;
-		color: #10B981;
+		color: var(--obsidian-accent);
 		text-align: center;
 		margin: 0 0 3rem 0;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
+		text-shadow: 0 0 20px var(--obsidian-accent-glow);
 	}
 
 	.features-grid {
@@ -951,27 +1002,29 @@ async fn main() -> Result<()> {
 	}
 
 	.feature-card {
-		background-color: #141414;
-		border: 1px solid #404040;
+		background-color: var(--obsidian-surface);
+		border: 1px solid var(--obsidian-border-default);
 		border-radius: 0.5rem;
 		padding: 2rem;
-		transition: border-color 0.2s ease, transform 0.2s ease;
+		transition: all 0.2s ease;
 		text-decoration: none;
 		color: inherit;
 		display: block;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 	}
 
 	.feature-card:hover {
-		border-color: #10B981;
+		border-color: var(--obsidian-accent);
 		transform: translateY(-4px);
 		cursor: pointer;
+		box-shadow: 0 8px 24px var(--obsidian-accent-glow), 0 4px 12px rgba(0, 0, 0, 0.3);
 	}
 
 	.feature-title {
 		font-family: 'Departure Mono', monospace;
 		font-size: 1.25rem;
 		font-weight: normal;
-		color: #10B981;
+		color: var(--obsidian-accent);
 		margin: 0 0 1rem 0;
 		letter-spacing: 0.05em;
 	}
@@ -979,14 +1032,14 @@ async fn main() -> Result<()> {
 	.feature-description {
 		font-family: 'Departure Mono', monospace;
 		font-size: 0.875rem;
-		color: #A3A3A3;
+		color: var(--obsidian-text-secondary);
 		line-height: 1.6;
 		margin: 0;
 	}
 
 	.feature-description strong {
 		font-weight: 900;
-		color: #A3A3A3;
+		color: var(--obsidian-text-secondary);
 		text-shadow: 0.5px 0 0 currentColor, -0.5px 0 0 currentColor;
 	}
 
@@ -1013,8 +1066,8 @@ async fn main() -> Result<()> {
 	.open-source-section {
 		width: 100%;
 		padding: 4rem 1.5rem;
-		background-color: #0A0A0A;
-		border-top: 1px solid #404040;
+		background-color: var(--obsidian-base);
+		border-top: 1px solid var(--obsidian-border-subtle);
 	}
 
 	.open-source-content {
@@ -1027,14 +1080,15 @@ async fn main() -> Result<()> {
 		font-family: 'Departure Mono', monospace;
 		font-size: 1.75rem;
 		font-weight: bold;
-		color: #10B981;
+		color: var(--obsidian-accent);
 		margin: 0 0 1.5rem 0;
+		text-shadow: 0 0 20px var(--obsidian-accent-glow);
 	}
 
 	.open-source-text {
 		font-family: 'Departure Mono', monospace;
 		font-size: 1.125rem;
-		color: #F5F5F5;
+		color: var(--obsidian-text-primary);
 		margin: 0 0 1rem 0;
 		line-height: 1.6;
 	}
@@ -1042,19 +1096,20 @@ async fn main() -> Result<()> {
 	.open-source-team {
 		font-family: 'Departure Mono', monospace;
 		font-size: 1rem;
-		color: #A3A3A3;
+		color: var(--obsidian-text-secondary);
 		margin: 0;
 		line-height: 1.6;
 	}
 
 	.open-source-team a {
-		color: #10B981;
+		color: var(--obsidian-accent);
 		text-decoration: none;
-		transition: color 0.2s ease;
+		transition: color 0.15s ease;
 	}
 
 	.open-source-team a:hover {
-		color: #34D399;
+		color: var(--obsidian-accent-hover);
+		text-shadow: 0 0 8px var(--obsidian-accent-glow);
 	}
 
 	@media (max-width: 768px) {
@@ -1078,9 +1133,9 @@ async fn main() -> Result<()> {
 	.footer {
 		width: 100%;
 		max-width: 100%;
-		border-top: 1px solid #404040;
+		border-top: 1px solid var(--obsidian-border-subtle);
 		padding: 1rem 1.5rem;
-		background-color: #0A0A0A;
+		background-color: var(--obsidian-base);
 		margin-top: auto;
 		box-sizing: border-box;
 		overflow: hidden;
@@ -1101,24 +1156,24 @@ async fn main() -> Result<()> {
 		font-size: 0.875rem;
 		font-family: 'Departure Mono', monospace;
 		text-align: center;
-		color: #A3A3A3;
+		color: var(--obsidian-text-secondary);
 	}
 
 	.license-wrapper {
 		font-size: 0.75rem;
 		font-family: 'Departure Mono', monospace;
 		text-align: center;
-		color: #6B6B6B;
+		color: var(--obsidian-text-tertiary);
 	}
 
 	.license-wrapper a {
-		color: #A3A3A3;
+		color: var(--obsidian-text-secondary);
 		text-decoration: none;
-		transition: color 0.2s ease;
+		transition: color 0.15s ease;
 	}
 
 	.license-wrapper a:hover {
-		color: #F5F5F5;
+		color: var(--obsidian-text-primary);
 	}
 
 	@media (min-width: 50rem) {

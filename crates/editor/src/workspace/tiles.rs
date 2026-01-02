@@ -131,7 +131,8 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         egui::Stroke::new(1.0, palette::border_subtle(self.theme))
     }
 
-    /// Outline stroke around tabs (emerald for active, subtle for inactive)
+    /// Outline stroke around tabs (subtle sky blue for active, subtle for inactive)
+    /// Uses sky blue to differentiate from emerald pane focus
     fn tab_outline_stroke(
         &self,
         _visuals: &egui::Visuals,
@@ -140,7 +141,8 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         state: &egui_tiles::TabState,
     ) -> egui::Stroke {
         if state.active {
-            egui::Stroke::new(1.0, palette::accent::PRIMARY)
+            // Muted sky blue - visible but not distracting
+            egui::Stroke::new(1.0, palette::syntax::KEY.gamma_multiply(0.5))
         } else {
             egui::Stroke::new(1.0, palette::border_subtle(self.theme))
         }
@@ -169,6 +171,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         egui_tiles::UiResponse::None
     }
 
+    #[profiling::function]
     fn paint_on_top_of_tile(
         &self,
         painter: &egui::Painter,
@@ -230,46 +233,67 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         }
 
         // Draw focus border on top of the entire tile (including tab bar)
-        // This shows which pane has the cursor in visual-multi mode
+        // Premium glass effect with layered borders for depth
         if is_focused {
-            // White/gray focus color to match Enya's color scheme
-            // Use brighter color in visual-multi mode to distinguish cursor from selection
+            // Use emerald accent for focus border to match Obsidian Glass theme
+            // Brighter emerald in visual-multi mode to distinguish cursor from selection
             let focus_color = if self.is_visual_multi_mode {
                 match self.theme {
-                    AppTheme::Light => egui::Color32::from_rgb(100, 100, 110),
-                    AppTheme::Dark => egui::Color32::from_rgb(255, 255, 255),
+                    AppTheme::Light => palette::accent::LIGHT,
+                    AppTheme::Dark => palette::accent::HOVER, // Bright emerald #34D399
                 }
             } else {
                 match self.theme {
-                    AppTheme::Light => egui::Color32::from_rgb(120, 120, 130),
-                    AppTheme::Dark => egui::Color32::from_rgb(200, 200, 210),
+                    AppTheme::Light => palette::accent::LIGHT,
+                    AppTheme::Dark => palette::accent::PRIMARY, // Standard emerald #10B981
                 }
             };
 
-            // Shrink the rect inward so the border stroke is fully visible
-            let border_width = 3.0;
-            let inset_rect = rect.shrink(border_width / 2.0);
-
+            // Premium layered glow effect - thin layers to minimize content overlap
+            // Layer 1: Outer glow band (subtle, widest)
+            let glow_color = focus_color.gamma_multiply(0.10);
             painter.rect_stroke(
-                inset_rect,
+                rect,
                 4.0,
-                egui::Stroke::new(border_width, focus_color),
-                egui::StrokeKind::Outside,
+                egui::Stroke::new(3.0, glow_color),
+                egui::StrokeKind::Inside,
+            );
+
+            // Layer 2: Mid glow band (brighter, thinner)
+            let mid_glow_color = focus_color.gamma_multiply(0.25);
+            painter.rect_stroke(
+                rect,
+                4.0,
+                egui::Stroke::new(1.5, mid_glow_color),
+                egui::StrokeKind::Inside,
+            );
+
+            // Layer 3: Crisp edge border (full color, thin)
+            painter.rect_stroke(
+                rect,
+                4.0,
+                egui::Stroke::new(1.0, focus_color),
+                egui::StrokeKind::Inside,
             );
         }
 
         // In visual-multi mode, show query content at the bottom of each selected pane
         if is_selected {
             if let Some(query) = self.tile_queries.get(&tile_id) {
-                // Style for query overlay
+                // Premium glass styling for query overlay
                 let bg_color = match self.theme {
-                    AppTheme::Light => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 230),
-                    AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(30, 30, 35, 230),
+                    AppTheme::Light => palette::light_bg::SURFACE.gamma_multiply(0.95),
+                    AppTheme::Dark => palette::bg::SURFACE.gamma_multiply(0.92),
                 };
                 let text_color = match self.theme {
-                    AppTheme::Light => egui::Color32::from_rgb(50, 50, 60),
-                    AppTheme::Dark => egui::Color32::from_rgb(220, 220, 230),
+                    AppTheme::Light => palette::light_text::PRIMARY,
+                    AppTheme::Dark => palette::text::PRIMARY.gamma_multiply(0.9),
                 };
+                let accent_color = match self.theme {
+                    AppTheme::Light => palette::accent::LIGHT,
+                    AppTheme::Dark => palette::accent::PRIMARY,
+                };
+                let border_color = accent_color.gamma_multiply(0.3);
 
                 // Truncate query if too long
                 let display_query = if query.len() > 60 {
@@ -283,19 +307,34 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                 let galley = painter.layout_no_wrap(display_query, font_id, text_color);
 
                 // Position at bottom of tile with padding
-                let padding = 6.0;
-                let overlay_height = galley.rect.height() + padding * 2.0;
+                let padding_h = 10.0;
+                let padding_v = 6.0;
+                let overlay_height = galley.rect.height() + padding_v * 2.0;
                 let overlay_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.min.x, rect.max.y - overlay_height),
                     egui::vec2(rect.width(), overlay_height),
                 );
 
-                // Draw background
+                // Draw background with subtle top border
                 painter.rect_filled(overlay_rect, 0.0, bg_color);
+
+                // Top edge accent line
+                let top_line_rect = egui::Rect::from_min_size(
+                    overlay_rect.left_top(),
+                    egui::vec2(overlay_rect.width(), 1.0),
+                );
+                painter.rect_filled(top_line_rect, 0.0, border_color);
+
+                // Emerald accent bar on left
+                let accent_bar = egui::Rect::from_min_size(
+                    overlay_rect.left_top(),
+                    egui::vec2(3.0, overlay_height),
+                );
+                painter.rect_filled(accent_bar, 0.0, accent_color);
 
                 // Draw text centered vertically in the overlay
                 let text_pos = egui::pos2(
-                    overlay_rect.min.x + padding,
+                    overlay_rect.min.x + padding_h,
                     overlay_rect.center().y - galley.rect.height() / 2.0,
                 );
                 painter.galley(text_pos, galley, text_color);

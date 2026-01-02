@@ -1,0 +1,32 @@
+[package]
+name = "enya-analyzer"
+description = "Metrics instrumentation analyzer for source code"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["metrics", "instrumentation", "indexer", "tree-sitter"]
+categories = ["parsing", "development-tools"]
+
+[dependencies]
+tree-sitter = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-yaml = "0.7"
+tree-sitter-python = "0.25"
+tree-sitter-go = "0.25"
+tree-sitter-javascript = "0.25"
+tree-sitter-typescript = "0.23"
+streaming-iterator = "0.1"
+walkdir = "2"
+rustc-hash = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+dirs = "6"
+enya-promql = { workspace = true }
+
+[dev-dependencies]
+
+[lints]
+workspace = true

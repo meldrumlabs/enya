@@ -247,6 +247,7 @@ impl StatChart {
     }
 
     /// Render the stat chart
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
 

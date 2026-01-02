@@ -253,6 +253,7 @@ pub mod nav {
     pub const TABS: &str = regular::TAB;
     pub const FULLSCREEN: &str = regular::FULLSCREEN;
     pub const EXIT_FULLSCREEN: &str = regular::FULLSCREEN_EXIT;
+    pub const TREE: &str = regular::SITEMAP;
 
     // Navigation targets
     pub const HOME: &str = regular::HOME;
@@ -289,6 +290,11 @@ pub mod action {
     pub const ZOOM_IN: &str = regular::MAGNIFY_PLUS;
     pub const ZOOM_OUT: &str = regular::MAGNIFY_MINUS;
     pub const SWAP: &str = regular::SWAP_HORIZONTAL;
+    pub const EXPLORE: &str = regular::COMPASS;
+    pub const TAG: &str = regular::TAG;
+    pub const SPLIT: &str = regular::ARROW_SPLIT_HORIZONTAL;
+    pub const HELP: &str = regular::HELP_CIRCLE;
+    pub const HISTORY: &str = regular::HISTORY;
 
     // Chart/Data operations
     pub const CHART: &str = regular::CHART_LINE;
@@ -303,6 +309,11 @@ pub mod action {
     pub const PAUSE: &str = regular::PAUSE;
     pub const STOP: &str = regular::STOP;
     pub const CLOSE: &str = regular::CLOSE;
+
+    // AI/Agent operations
+    pub const ROBOT: &str = regular::ROBOT;
+    pub const BRAIN: &str = regular::BRAIN;
+    pub const TOOL: &str = regular::WRENCH;
 }
 
 // ============================================================================
@@ -331,6 +342,7 @@ pub mod file {
     pub const TAG: &str = regular::TAG;
     pub const LABEL: &str = regular::HASH;
     pub const TREE: &str = regular::SITEMAP;
+    pub const GIT: &str = regular::GIT;
 }
 
 // ============================================================================
@@ -469,6 +481,34 @@ pub mod statusline {
     pub const RECORDING: &str = regular::RECORD;
     pub const CLOCK: &str = regular::CLOCK_OUTLINE;
     pub const REFRESH: &str = regular::SYNC;
+}
+
+// ============================================================================
+// Language Icons - icons for programming languages
+// ============================================================================
+
+pub mod language {
+    use egui_nerdfonts::regular;
+
+    // Language icons from MDI (Material Design Icons) - the LANGUAGE_* variants
+    // include the actual language logos (Rust gear, Go gopher, Python snake, etc.)
+    pub const RUST: &str = regular::LANGUAGE_RUST;
+    pub const GO: &str = regular::LANGUAGE_GO;
+    pub const PYTHON: &str = regular::LANGUAGE_PYTHON;
+    pub const JAVASCRIPT: &str = regular::LANGUAGE_JAVASCRIPT;
+    pub const TYPESCRIPT: &str = regular::LANGUAGE_TYPESCRIPT;
+
+    /// Get language icon from language name
+    pub fn from_name(name: &str) -> Option<&'static str> {
+        match name.to_lowercase().as_str() {
+            "rust" | "rs" => Some(RUST),
+            "go" | "golang" => Some(GO),
+            "python" | "py" => Some(PYTHON),
+            "javascript" | "js" => Some(JAVASCRIPT),
+            "typescript" | "ts" => Some(TYPESCRIPT),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]

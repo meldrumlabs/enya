@@ -15,8 +15,39 @@ use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
-// Re-export CommitMarker from common crate
-pub use enya_common::CommitMarker;
+/// A marker representing a git commit at a specific point in time.
+///
+/// Used to annotate time-series charts with commit information,
+/// allowing correlation between metric changes and code changes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommitMarker {
+    /// Git commit hash (full or abbreviated)
+    pub hash: String,
+    /// Timestamp of the commit in seconds (Unix epoch)
+    pub timestamp: f64,
+    /// Commit message (first line / subject)
+    pub message: String,
+}
+
+impl CommitMarker {
+    pub fn new(hash: impl Into<String>, timestamp: f64, message: impl Into<String>) -> Self {
+        Self {
+            hash: hash.into(),
+            timestamp,
+            message: message.into(),
+        }
+    }
+
+    /// Get abbreviated hash (first 7 characters)
+    #[must_use]
+    pub fn short_hash(&self) -> &str {
+        if self.hash.len() > 7 {
+            &self.hash[..7]
+        } else {
+            &self.hash
+        }
+    }
+}
 
 /// Zoom factor for keyboard-based zoom controls
 const ZOOM_FACTOR: f64 = 1.25;
@@ -30,6 +61,7 @@ const DEFAULT_ASPECT_RATIO: f32 = 0.35;
 /// Format a Unix timestamp (in seconds) to a human-readable string.
 /// Adapts format based on the time range being displayed.
 /// Uses UTC time for simplicity and cross-platform compatibility.
+#[profiling::function]
 fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
     // Handle invalid timestamps
     if !timestamp.is_finite() || timestamp < 0.0 {
@@ -116,6 +148,7 @@ fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
 
 /// Format a numeric value with K, M, B suffixes and an optional unit suffix.
 /// Used for Y-axis labels and legend values.
+#[profiling::function]
 pub fn format_value_with_unit(value: f64, unit: &str) -> String {
     if !value.is_finite() {
         return String::new();
@@ -370,7 +403,7 @@ impl TimeSeriesChart {
             Series::new(name.clone())
                 .with_tag("host", "server1")
                 .with_points(points1)
-                .with_color(Color32::from_rgb(99, 179, 237)), // Soft sky blue
+                .with_color(palette::chart::PALETTE[0]), // Sky blue
         );
 
         // Series 2: Higher values
@@ -390,7 +423,7 @@ impl TimeSeriesChart {
             Series::new(name)
                 .with_tag("host", "server2")
                 .with_points(points2)
-                .with_color(Color32::from_rgb(94, 234, 212)), // Soft teal
+                .with_color(palette::chart::PALETTE[2]), // Teal
         );
 
         // Add some demo commit markers spread across the time range
@@ -650,20 +683,9 @@ impl TimeSeriesChart {
     }
 
     /// Get a default color for series index
-    /// Uses a modern, muted palette with teals, purples, and soft accent colors
+    /// Uses the centralized chart palette from the design system
     fn series_color(&self, index: usize) -> Color32 {
-        // A modern, muted palette - teals, purples, and soft accent colors
-        const PALETTE: &[Color32] = &[
-            Color32::from_rgb(99, 179, 237),  // Soft sky blue
-            Color32::from_rgb(129, 140, 248), // Soft indigo
-            Color32::from_rgb(94, 234, 212),  // Soft teal
-            Color32::from_rgb(192, 132, 252), // Soft purple
-            Color32::from_rgb(251, 191, 36),  // Soft amber
-            Color32::from_rgb(244, 114, 182), // Soft pink
-            Color32::from_rgb(52, 211, 153),  // Soft emerald
-            Color32::from_rgb(248, 113, 113), // Soft coral
-        ];
-        PALETTE[index % PALETTE.len()]
+        palette::chart::PALETTE[index % palette::chart::PALETTE.len()]
     }
 
     /// Render the chart
@@ -761,17 +783,24 @@ impl TimeSeriesChart {
         let available_width = ui.available_width();
         let available_height = ui.available_height();
         let aspect_height = available_width * DEFAULT_ASPECT_RATIO;
-        // Use the smaller of available height or aspect-based height, but respect minimum
-        let optimal_height = available_height.min(aspect_height).max(MIN_CHART_HEIGHT);
 
-        // Center the plot vertically if there's extra space
-        let vertical_padding = (available_height - optimal_height).max(0.0) / 2.0;
-        if vertical_padding > 1.0 {
-            ui.add_space(vertical_padding);
-        }
+        // When available height is constrained (split panes), use available height directly
+        // to ensure the x-axis labels remain visible and don't get clipped.
+        // Only use aspect ratio when we have ample vertical space.
+        let use_available_height = available_height < MIN_CHART_HEIGHT * 1.5;
+        let optimal_height = if use_available_height {
+            // Constrained: use available height (allows plot to shrink and show axis)
+            available_height
+        } else {
+            // Ample space: use aspect ratio for aesthetic proportions
+            aspect_height.max(MIN_CHART_HEIGHT).min(available_height)
+        };
 
-        // Apply softer grid lines by overriding the style
-        let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.4);
+        // Note: We align the chart to the top of the pane (no vertical centering).
+        // This looks cleaner in vsplit layouts where panes are tall and narrow.
+
+        // Apply very soft grid lines for premium look - barely visible structure
+        let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.25);
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
         // Legend above the chart (only show if multiple series)
@@ -890,12 +919,37 @@ impl TimeSeriesChart {
 
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         // Note: We use our own custom legend above the chart, so no egui_plot legend
+        // Use the ACTUAL remaining height after legend, but cap it for good aspect ratio
+        let remaining_height = ui.available_height();
+        let remaining_width = ui.available_width();
+
+        // Calculate a reasonable plot height:
+        // - When height is constrained (stacked panes): use all remaining height
+        // - When pane is tall & narrow (vsplit): use aspect ratio to avoid stretching
+        // - Otherwise: use the pre-calculated optimal height
+        //
+        // Detect vsplit by checking if pane is portrait-oriented (height > width * 1.2)
+        let is_portrait = remaining_height > remaining_width * 1.2;
+        let plot_height = if remaining_height < MIN_CHART_HEIGHT * 1.5 {
+            // Height constrained (horizontal split) - use all remaining height
+            remaining_height
+        } else if is_portrait {
+            // Portrait pane (vsplit) - use standard aspect ratio
+            // and cap to 20% of pane height for compact dashboard appearance
+            let aspect_height = remaining_width * DEFAULT_ASPECT_RATIO;
+            let max_height = remaining_height * 0.20; // Cap to 20% of pane
+            aspect_height.max(MIN_CHART_HEIGHT).min(max_height)
+        } else {
+            // Ample space - use optimal height but don't exceed remaining
+            optimal_height.min(remaining_height)
+        };
+
         let plot = Plot::new(format!("plot_{}", self.id))
-            .min_size(egui::vec2(100.0, MIN_CHART_HEIGHT))
-            .height(optimal_height)
+            .min_size(egui::vec2(100.0, 80.0)) // Reduced min height to allow smaller panes
+            .height(plot_height)
+            .show_axes([true, true])
             .custom_x_axes(vec![x_axis])
             .custom_y_axes(vec![y_axis])
-            .show_axes(true)
             .show_grid(true)
             .allow_zoom(true)
             .allow_drag(true)

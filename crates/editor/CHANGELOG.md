@@ -4,7 +4,181 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Landing page j/k navigation with mouse hover**: Fixed an issue where pressing j/k to navigate the landing page menu would be immediately overridden by a stationary mouse cursor hovering over a different item. Now mouse hover only updates the selection when the mouse actually moves, allowing keyboard and mouse navigation to coexist without conflict.
+
 ### Changed
+
+- **Compact landing page layout**: Reduced logo size, text size, and spacing to fit better on smaller viewports (especially WASM). Removed the tagline to save vertical space.
+
+- **Workspace creator on WASM**: The "Create workspace" option on the landing page now shows a two-step workspace creator overlay on WASM (name, then endpoint). On native, the full three-step wizard (name, endpoint, git repo) is still shown.
+
+### Added
+
+- **Native app promo overlay (WASM only)**: When using the web version, a frosted glass overlay appears on the landing page highlighting features only available in the native desktop app:
+  - Git integration for cloning repos and viewing diffs
+  - AI agents for intelligent metric analysis and query suggestions
+  - Local workspace persistence with full filesystem access
+  - Includes a "Download for macOS" link to the native app
+  - Press Enter or Escape to dismiss and continue to the web version
+  - Overlay only shows once per session (remembers dismissal)
+
+- **Vim-style window movement (Ctrl+W h/j/k/l)**: Move the focused pane to the edge of the viewport in the specified direction, matching Neovim's window movement behavior:
+  - `Ctrl+W h` - Move pane to far left (becomes leftmost vertical split)
+  - `Ctrl+W j` - Move pane to bottom (becomes bottom horizontal split)
+  - `Ctrl+W k` - Move pane to top (becomes top horizontal split)
+  - `Ctrl+W l` - Move pane to far right (becomes rightmost vertical split)
+  - New "Window Movement" section added to the which-key overlay (`?`)
+
+- **Merge panes into tabs (Ctrl+W t h/j/k/l)**: Merge the focused pane into a tab container with the pane in the specified direction:
+  - `Ctrl+W t h` - Merge with pane to the left into a tab group
+  - `Ctrl+W t j` - Merge with pane below into a tab group
+  - `Ctrl+W t k` - Merge with pane above into a tab group
+  - `Ctrl+W t l` - Merge with pane to the right into a tab group
+  - If the target pane is already in a tab container, the focused pane is added to that container
+  - Otherwise, a new tab container is created with both panes
+
+### Changed
+
+- **Premium agent input bar styling**: Enhanced the agent input bar to match the Obsidian Glass emerald theme:
+  - Agent mode badge now uses signature emerald accent instead of amber for visual consistency
+  - Added subtle emerald-tinted inner glow on the top edge for glass reflection effect
+  - Added soft emerald bottom edge glow in dark mode for depth
+  - Increased corner radius to 14px for a more premium feel
+  - Enhanced shadow depth for better elevation
+  - Suggestion pills are now clickable with emerald-highlighted commands and hover effects
+  - Pills insert the command prefix when clicked for faster command entry
+
+### Added
+
+- **Slash commands for Agent mode**: Type `/` in the agent input bar to trigger command suggestions, similar to how `@` works for metric mentions. Core commands:
+  - `/investigate` - Deep-dive analysis with correlations and anomalies
+  - `/diff` - Compare metric states between two time ranges
+  - `/query` - Generate PromQL from natural language
+  - `/explain` - Explain what the current query or chart shows
+  - Fuzzy search through commands with highlighted matches
+  - Keyboard navigation (↑/↓ or Ctrl+J/K) and Tab/Enter to select
+  - Commands are inserted into the input (e.g., `/investigate `) so you can continue typing
+  - Combine with `@` mentions: `/investigate @http_requests_total why is it spiking?`
+
+- **Configurable editor font**: Use `:font <name>` to switch between fonts. Available options: `maple` (Maple Mono), `departure` (Departure Mono), `jetbrains` (JetBrains Mono), `iosevka` (Iosevka). The preference is persisted across sessions. Departure Mono is the default.
+
+### Changed
+
+- **Minimal vim-like command palette**: Reduced from 24 to 11 commands. Added `:q`/`:quit` to close workspace and `:w`/`:write` to save workspace. Removed commands with keyboard shortcuts (`:zen` → `Z`, `:fullscreen` → `F`, `:home` → `Space+h`, `:diagnostics` → `Space+d`, `:help` → `?`) and non-vim-like commands (`:search`, `:connect`, `:prometheus`, `:close`, `:exit`, `:commits`, `:tabnew`, `:tabclose`, `:workspaces`, `:tutorial`, `:mksession`).
+- **Unified hover styling across UI components**: All interactive list/menu components now use the same subtle hover styling as the landing page - a light 5% text color background with emerald accent color for icons on hover/select. Updated components include:
+  - Workspace finder
+  - Command palette
+  - Query completion popup
+  - Agent input bar mentions popup
+  - Workspace tabs
+  - Time range widget buttons
+- **Premium layered pane focus border**: Pane focus now features a premium glass effect with three layered emerald borders - an outer subtle glow, mid glow, and crisp inner border. This creates depth and matches the Obsidian Glass theme. Uses brighter emerald in visual-multi mode to distinguish the cursor pane from selected panes.
+- **Distinct tab vs pane focus colors**: Active tabs now use sky blue (#6EBEF8) for their outline, while pane focus uses emerald. This creates a clear visual hierarchy between tab selection and pane focus.
+- **Consolidated chart colors**: Time series charts and demo visualizations now use the centralized `palette::chart::PALETTE` instead of hardcoded colors, ensuring consistent theming across all visualizations.
+- **Premium query overlay styling**: The query overlay shown at the bottom of selected panes in visual-multi mode now features Obsidian Glass styling with an emerald accent bar on the left edge and a subtle top border line. Uses palette colors for consistent theming.
+- **Viewport filter as bottom bar**: The `/` search filter now renders as a vim-style command line bar above the status line (like Agent mode) instead of a centered overlay. This is less intrusive and more consistent with vim's search behavior. Only available in Normal mode.
+- **Zen mode hides workspace tabs**: The workspace tab bar is now hidden when in Zen mode for a fully distraction-free experience.
+- **Simplified status modes**: Removed `StatusMode::Zen` and `StatusMode::Fullscreen` since these are display preferences, not modal states. The status line now stays in Normal mode with distinct secondary badges - purple "ZEN" and cyan "FULLSCREEN" - when these display preferences are active.
+
+### Fixed
+
+- **Popup positioned above cursor**: Both `/` slash command and `@` mention popups now appear directly above the trigger character position instead of centered, matching code editor autocomplete behavior. Popups are clamped to stay on screen.
+- **Language icons now render correctly**: Fixed language icons (Rust, Go, Python, etc.) in the status bar not rendering. Updated the bundled Nerd Font (Symbols Nerd Font) to the latest version which includes the MDI `LANGUAGE_*` icons with actual language logos.
+- **Time series x-axis visible in split panes**: Fixed an issue where the x-axis (time labels) was clipped when splitting panes horizontally (stacked). The chart now uses the actual remaining height after legend rendering to ensure the x-axis labels are always visible. Also improved height calculation for portrait-oriented panes (vsplit) to use a compact 20% max height.
+
+### Changed
+
+- **Enhanced indexing status**: The status line now shows the current file being indexed with a Zed-like format (e.g., "Indexing main.rs + 42 more") instead of just "Indexing [5/42]...". This provides better visibility into what files are being processed during codebase indexing.
+- **Language configuration for codebase scanning**: Workspaces can now specify a `language` field in the `[codebase]` config section to limit metric scanning to a specific language. Supported values: `rust`, `go`, `python`, `javascript`, `typescript`. If not specified, all language scanners are used. This avoids indexing irrelevant files (e.g., Python `__init__.py` in a Rust codebase).
+- **Improved file filtering**: The indexer now excludes more common static asset directories (`dist`, `build`, `public`, `assets`) and skips minified files (`*.min.*`).
+- **Enhanced codebase status display**: The status bar now shows richer information when a codebase is configured:
+  - During indexing: Shows language icon (Rust gear, Go gopher, Python logo, etc.) with the current file being indexed
+  - When ready: Shows repo name with language icon and metrics count (e.g., " rust-app-atlas | 42 metrics")
+
+### Added
+
+- **Vim-style Agent mode**: New modal agent mode for AI-assisted interactions, inspired by Neovim's modal editing:
+  - Press `a` from Normal or Visual mode to enter Agent mode
+  - Agent Input Bar appears above the status line for lightweight interaction
+  - Status line shows "AGENT" mode indicator in amber
+  - Quick command keys: `w` (what's wrong?), `y` (why?), `c` (compare), `r` (related), `e` (explain), `f` (fix), `s` (summarize), `h` (history)
+  - **Agent operator pattern**: Vim-style operators like `aw`, `ae`, `ay`, `ac`, `ar`, `af`, `as`, `ah` for quick agent commands directly from Normal mode
+    - `aw` - What's wrong? (triage current pane)
+    - `ae` - Explain (describe the focused metric)
+    - `ay` - Why? (root cause analysis)
+    - `ac` - Compare (to baseline)
+    - `ar` - Related (show correlated metrics)
+    - `af` - Fix (remediation suggestions)
+    - `as` - Summarize (incident summary)
+    - `ah` - History (past similar incidents)
+    - `aa` - Enter agent mode without sending a command
+  - Natural language input for custom queries
+  - Visual mode integration: selected panes automatically become context for the agent
+  - Press `+`/`-` to add/remove focused pane from context, `Ctrl+C` to clear context
+  - Press `Escape` to exit Agent mode
+- **AgentInputBar component**: Standalone AI input component for Agent mode:
+  - Four states: Ready, Typing, Processing, Response
+  - Premium Obsidian Glass styling with frosted glass background and subtle inner highlight
+  - Shows current AI provider (Claude/Codex) in an amber-accented badge
+  - Context panes displayed in a subtle badge with pane icon
+  - Direct AI integration via Claude Code CLI (no side panel dependency)
+  - Streaming response support with live activity display
+  - Processing state shows status message with tool use tracking
+  - Response state can expand for longer responses
+  - Activity display shows only the most recent activity for a compact UI
+  - **Enya command support**: AI responses can now execute Enya commands (create_pane, set_time_range, search_metrics, etc.) just like the Agent Panel
+  - **Immediate query execution for agent-created panes**: Panes created by AI commands now automatically load data from Prometheus without requiring a manual refresh
+  - **Auto-exit agent mode**: Agent mode automatically closes after successful command execution, returning to Normal mode for seamless vim-style navigation
+
+- **@ mention support for metrics**: Type `@` in the input to trigger a fuzzy finder popup for metrics:
+    - Premium Obsidian Glass styling with frosted glass background, emerald accents, and inner highlight
+    - Fuzzy search through all available metrics with emerald-highlighted match characters
+    - Keyboard navigation with arrow keys (↑/↓) or Ctrl+K/J/N/P
+    - Select with Enter or Tab to insert the metric name
+    - Press Escape to dismiss the popup
+    - Metrics are sourced from the connected Prometheus instance
+    - Wide popup (520px) to accommodate long metric names
+
+- **Workspace creation overlay** (native only): New three-step wizard for creating workspaces, matching the Tutorial overlay's frosted glass styling. Features include:
+  - Step 1: Enter workspace name (prefilled with "my-workspace")
+  - Step 2: Enter connection endpoint (prefilled with "http://localhost:9090")
+  - Step 3: Optional git repository path for commit annotations
+  - Progress dots showing current step
+  - Keyboard navigation: `Enter` to proceed, `Escape` to cancel
+  - Workspace tab is automatically renamed to the entered name
+  - Workspace is automatically saved to disk after creation, making it discoverable in the workspace finder
+  - On WASM, clicking "Create workspace" or the + button creates a workspace directly (overlay not available)
+
+### Fixed
+
+- **Agent-created panes now execute queries reliably**: Fixed a bug where panes created by AI would fail to load data because the query tracking used volatile TileIds that could change when egui_tiles restructured the tree during `ui()` calls. Now uses stable pane component IDs for tracking pending queries.
+
+### Changed
+
+- **Premium Obsidian Glass theme refinements**: Enhanced the dark theme with a more luxurious, high-end feel:
+  - Refined background colors with subtle cool undertones for better depth perception
+  - Richer emerald accent colors with added glow effects on interactive elements
+  - Improved text hierarchy with warmer whites and refined secondary/tertiary tones
+  - Enhanced syntax highlighting with more vibrant, harmonious colors
+  - Premium shadow system with layered depth for popups and floating elements
+  - Increased corner radius (4px → 6px) for a more refined look
+  - Thicker cursor (2.5px) with slower, more elegant blink animation
+  - Updated HTML background with subtle emerald radial gradient overlay
+  - Improved query completion popup with triple-layer shadows and refined styling
+  - **Glass overlay system enhancements**:
+    - New `PremiumGlass` overlay variant with deeper shadows and inner glow
+    - Frosted glass overlays now feature inner top-edge highlight for glass reflection effect
+    - Enhanced backdrop with subtle vignette effect at screen edges
+    - New `draw_premium_backdrop()` with centered emerald glow for branded modals
+  - **Premium keyboard badges**: Key hints now feature subtle drop shadow and 3D top-edge highlight
+
+- **Notification styling**: Updated notifications to use the obsidian glass emerald theme:
+  - Frosted glass background matching other overlays
+  - Uses semantic colors from the palette (emerald for success)
+  - Improved shadow and border styling
+  - Consistent with the overall design system
 
 - **Moved heatmap into visualization module**: The `heatmap.rs` module is now located at `components/pane/visualization/heatmap.rs` alongside other visualization types for consistency.
 - **Moved theme into ui module**: The `theme.rs` module is now located at `ui/theme.rs` alongside other UI primitives (colors, typography, icons, etc.).
@@ -28,6 +202,53 @@ All notable changes to the Enya editor will be documented in this file.
 - **wgpu GPU rendering module**: Removed the GPU-accelerated rendering module (`crate::wgpu`) that was used for heatmap rendering. Heatmaps now use CPU rendering exclusively.
 
 ### Added
+
+- **Inline content in Agent Pane**: Agent responses can now include rich inline content:
+  - Inline time series charts using the `TimeSeriesChart` component for consistent styling with dashboard charts
+  - Inline source code previews with full tree-sitter syntax highlighting (Rust, Go, Python, JavaScript/TypeScript)
+  - New agent commands: `show_inline_chart` and `show_inline_source`
+  - Compact chart rendering with series colors matching the main dashboard palette
+  - Source previews show file path, language badge, and highlight the target line
+
+- **Agent Pane - first-class AI chat in viewport**: The AI agent is now a first-class pane in the viewport (not a side panel). Features include:
+  - Press `Space+a` to create or focus an Agent pane
+  - Runs in parallel with query/chart panes in the tile layout
+  - Supports multiple concurrent agent conversations
+  - Agent can execute editor commands (create panes, set time range, search metrics)
+  - Implements the Component trait for full integration with the tile system
+
+- **Agent Panel tool integration**: The AI agent can now execute editor commands to help build dashboards. Features include:
+  - Agent receives context about the current editor state (connection, metrics, codebase, dashboard)
+  - Agent can output `enya-command` blocks to create visualization panes with PromQL queries
+  - Agent can set the time range (e.g., "1h", "6h", "24h", "7d")
+  - Agent can open the metrics search with a pattern
+  - Agent can show source code for metric definitions (`show_metric_source`)
+  - Agent can show source code for alert rules (`show_alert_source`)
+  - Commands are automatically parsed from agent responses and executed in the workspace
+
+### Fixed
+
+- **Keyboard shortcuts not firing in Agent mode**: Fixed an issue where typing `/` or `?` in the Agent Input Bar would incorrectly trigger the viewport filter or which-key overlay. These overlay handlers now check for `agent_mode_active` before consuming key events.
+- **@ mention popup loses focus**: Fixed an issue where after selecting a metric from the @ mention popup, focus would not return to the text input. The input field now receives focus automatically after a selection is made, with the cursor positioned at the end of the text.
+- **Agent-created panes not loading data**: Fixed an issue where panes created by the AI agent (via `create_pane` command) would not automatically load data from Prometheus. The `handle_agent_commands` function now requests a repaint after creating panes, ensuring query execution runs on the next frame.
+- **Read tool file path in Agent Panel**: Fixed the Agent Panel not showing file paths for Read tool activities. Added `path` field lookup in addition to `file_path` for tool summary extraction.
+
+### Changed
+
+- **Agent Panel uses ACP protocol**: The Agent Panel now uses the Agent Client Protocol (ACP) via the `@zed-industries/claude-code-acp` npm package instead of the legacy CLI output format. This change:
+  - Uses JSON-RPC 2.0 over stdio for agent communication
+  - Implements the standard ACP session lifecycle (initialize → session/new → session/prompt)
+  - Enables future support for other ACP-compatible agents
+  - Streaming responses now use `session/update` notifications
+  - Authentication is inherited from Claude CLI - Claude Max subscription works if you've run `claude /login`
+
+### Added
+
+- **Agent Panel (Claude Code integration)**: Press `Space+a` to toggle the agent panel, a side panel for chatting with Claude Code. Features include:
+  - Real-time streaming responses from Claude Code CLI
+  - Chat history with user/assistant messages
+  - Enter to send, Escape to close
+  - Native-only feature (CLI not available in WASM)
 
 - **Query timeout handling**: Panes no longer get stuck in a perpetual loading state when the Prometheus backend is unreachable. Features include:
   - Default 30-second timeout for query requests
@@ -256,11 +477,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Interactive tutorial overlay**: Added a new `:tutorial` command that opens a step-by-step walkthrough of the editor's features. The tutorial covers navigation, editing, splits, visual multi-select, metrics finder, time range controls, workspaces, and more. Navigate with arrow keys or h/l, press number keys (1-9) to jump to specific steps.
 
-- **PromQL as default query language**: The editor now defaults to PromQL for query input, with full context-aware autocompletion for PromQL syntax including functions, aggregations, label selectors, duration literals, and modifiers.
+- **PromQL as the query language**: The editor uses PromQL for query input, with full context-aware autocompletion for PromQL syntax including functions, aggregations, label selectors, duration literals, and modifiers.
 
-- **Dual-language support**: Added `QueryLanguage` enum supporting both PromQL (default) and EnyaLang modes. Language can be toggled via the `set_language()` method on `QueryCompletion`.
-
-- **PromQL validation for inline diagnostics**: `QueryValidator` now supports dual-language validation. PromQL queries are validated using `enya-promql::validate()` which wraps the `promql-parser` crate. Syntax errors are displayed as inline diagnostics in the query editor.
+- **PromQL validation for inline diagnostics**: PromQL queries are validated using `enya-promql::validate()` which wraps the `promql-parser` crate. Syntax errors are displayed as inline diagnostics in the query editor.
 
 - **New enya-promql crate**: Created a dedicated crate for PromQL parsing and autocompletion with:
   - Context-aware completion analysis (`analyze()`)

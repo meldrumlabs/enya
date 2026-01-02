@@ -2,12 +2,14 @@
 //!
 //! Displays toast-style notifications in the corner of the screen with different
 //! severity levels, icons, and auto-dismiss functionality.
+//! Styled to match the obsidian glass emerald theme.
 
 use std::time::Duration;
 
 use egui::{Color32, RichText, Ui};
 
 use crate::components::util::id_generator::next_id;
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::util::Instant;
@@ -37,45 +39,24 @@ impl NotificationLevel {
     }
 
     /// Get the accent color for this notification level
+    /// Uses the obsidian glass emerald theme semantic colors
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
             Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue
-                AppTheme::Dark => Color32::from_rgb(96, 165, 250),
+                AppTheme::Light => Color32::from_rgb(37, 99, 235), // Blue 600
+                AppTheme::Dark => palette::semantic::INFO,
             },
             Self::Success => match theme {
-                AppTheme::Light => Color32::from_rgb(34, 197, 94), // Green
-                AppTheme::Dark => Color32::from_rgb(74, 222, 128),
+                AppTheme::Light => palette::accent::LIGHT, // Emerald (brand color)
+                AppTheme::Dark => palette::accent::PRIMARY, // Emerald (brand color)
             },
             Self::Warn => match theme {
-                AppTheme::Light => Color32::from_rgb(234, 179, 8), // Yellow
-                AppTheme::Dark => Color32::from_rgb(250, 204, 21),
+                AppTheme::Light => Color32::from_rgb(217, 119, 6), // Amber 600
+                AppTheme::Dark => palette::semantic::WARNING,
             },
             Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(239, 68, 68), // Red
-                AppTheme::Dark => Color32::from_rgb(248, 113, 113),
-            },
-        }
-    }
-
-    /// Get the background color for this notification level
-    pub fn bg_color(&self, theme: AppTheme) -> Color32 {
-        match self {
-            Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(239, 246, 255),
-                AppTheme::Dark => Color32::from_rgb(30, 41, 59),
-            },
-            Self::Success => match theme {
-                AppTheme::Light => Color32::from_rgb(240, 253, 244),
-                AppTheme::Dark => Color32::from_rgb(20, 51, 36),
-            },
-            Self::Warn => match theme {
-                AppTheme::Light => Color32::from_rgb(254, 252, 232),
-                AppTheme::Dark => Color32::from_rgb(54, 47, 22),
-            },
-            Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(254, 242, 242),
-                AppTheme::Dark => Color32::from_rgb(51, 28, 28),
+                AppTheme::Light => Color32::from_rgb(220, 38, 38), // Red 600
+                AppTheme::Dark => palette::semantic::ERROR,
             },
         }
     }
@@ -222,6 +203,7 @@ impl NotificationManager {
     }
 
     /// Render notifications in the top-right corner
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) {
         self.cleanup();
 
@@ -264,21 +246,30 @@ impl NotificationManager {
     }
 
     /// Render a single notification, returns the height used
+    /// Styled with obsidian glass theme - frosted glass background with emerald accents
     fn render_notification(
         ui: &mut Ui,
         notification: &Notification,
         width: f32,
         theme: AppTheme,
     ) -> f32 {
-        let bg_color = notification.level.bg_color(theme);
         let accent_color = notification.level.color(theme);
-        let text_color = match theme {
-            AppTheme::Light => Color32::from_rgb(30, 30, 30),
-            AppTheme::Dark => Color32::from_rgb(230, 230, 230),
-        };
-        let muted_color = match theme {
-            AppTheme::Light => Color32::from_rgb(100, 100, 100),
-            AppTheme::Dark => Color32::from_rgb(160, 160, 160),
+
+        // Obsidian glass theme colors
+        let (bg_color, border_color, text_color, muted_color) = match theme {
+            AppTheme::Dark => (
+                // Frosted glass background - semi-transparent surface
+                palette::bg::SURFACE.gamma_multiply(0.95),
+                palette::border::SUBTLE,
+                palette::text::PRIMARY,
+                palette::text::SECONDARY,
+            ),
+            AppTheme::Light => (
+                palette::light_bg::SURFACE.gamma_multiply(0.98),
+                palette::light_border::SUBTLE,
+                palette::light_text::PRIMARY,
+                palette::light_text::SECONDARY,
+            ),
         };
 
         // Calculate opacity based on progress (fade out near the end)
@@ -297,35 +288,35 @@ impl NotificationManager {
 
         egui::Frame::new()
             .fill(bg_color.gamma_multiply(opacity))
-            .stroke(egui::Stroke::new(1.0, accent_color.gamma_multiply(opacity)))
-            .corner_radius(8.0)
-            .inner_margin(12.0)
+            .stroke(egui::Stroke::new(1.0, border_color.gamma_multiply(opacity)))
+            .corner_radius(10.0)
+            .inner_margin(egui::Margin::symmetric(14, 12))
             .shadow(egui::epaint::Shadow {
-                offset: [0, 2],
-                blur: 8,
+                offset: [0, 4],
+                blur: 16,
                 spread: 0,
-                color: Color32::from_black_alpha((40.0 * opacity) as u8),
+                color: Color32::from_black_alpha((60.0 * opacity) as u8),
             })
             .show(ui, |ui| {
                 ui.set_width(width);
 
                 // Header row: icon + title + close button
                 ui.horizontal(|ui| {
-                    // Accent bar on the left
-                    let bar_rect = ui.allocate_space(egui::vec2(3.0, 20.0)).1;
+                    // Accent bar on the left (thicker, rounded)
+                    let bar_rect = ui.allocate_space(egui::vec2(3.0, 22.0)).1;
                     ui.painter()
                         .rect_filled(bar_rect, 2.0, accent_color.gamma_multiply(opacity));
 
-                    ui.add_space(8.0);
+                    ui.add_space(10.0);
 
-                    // Icon
+                    // Icon with glow effect in dark mode
                     ui.label(
                         RichText::new(notification.level.icon())
                             .color(accent_color.gamma_multiply(opacity))
                             .size(18.0),
                     );
 
-                    ui.add_space(8.0);
+                    ui.add_space(10.0);
 
                     // Title
                     ui.label(

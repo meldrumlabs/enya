@@ -17,6 +17,7 @@ pub use state::{AppState, UIState};
 
 use egui::Theme;
 
+use crate::AsyncRuntime;
 use crate::command::{CommandReceiver, CommandSender, UICommand, UICommandSender, command_channel};
 use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
@@ -51,6 +52,10 @@ pub struct EnyaApp {
     // Internal editor metrics (frame times, etc.)
     editor_metrics: EditorMetrics,
 
+    // Async runtime for spawning background tasks (AI agent, etc.)
+    #[allow(dead_code)] // Will be used by AI agent integration
+    async_runtime: AsyncRuntime,
+
     // Pending screenshot path (used when screenshot event arrives)
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) pending_screenshot_path: Option<String>,
@@ -64,18 +69,51 @@ pub struct EnyaApp {
     checked_url_workspace: bool,
 }
 
-impl Default for EnyaApp {
-    fn default() -> Self {
+impl EnyaApp {
+    pub fn new(cc: &eframe::CreationContext<'_>, async_runtime: AsyncRuntime) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
+
         let (command_sender, command_receiver) = command_channel();
+
+        // Load previous app state FIRST (before font setup).
+        // Note that you must enable the `persistence` feature for this to work.
+        let mut state: AppState = cc
+            .storage
+            .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
+            .unwrap_or_default();
+
+        // Set up fonts with user's preferred font from saved settings
+        fonts::setup_fonts(&cc.egui_ctx, state.settings.font);
+
+        // Always start with Dashboard (ignore persisted ui_state)
+        state.ui_state = UIState::Dashboard;
+
+        // Ensure the default example workspace exists on first run
+        #[cfg(not(target_arch = "wasm32"))]
+        Self::ensure_default_workspace();
+
+        // Ensure demo workspace is in recent workspaces (for new users)
+        state.settings.ensure_demo_workspace();
+
+        match cc.egui_ctx.theme() {
+            Theme::Light => state.theme = AppTheme::Light,
+            Theme::Dark => state.theme = AppTheme::Dark,
+        }
+
+        // Initialize workspace tabs with async runtime
+        let mut workspace_tabs = WorkspaceTabBar::new(async_runtime.clone());
+        workspace_tabs.set_theme(state.theme);
+
         Self {
-            workspace_tabs: WorkspaceTabBar::default(),
+            state,
+            workspace_tabs,
             command_sender,
             command_receiver,
-            state: AppState::default(),
-            connection: ConnectionManager::new(),
+            connection: ConnectionManager::new(async_runtime.clone()),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
             editor_metrics: EditorMetrics::default(),
+            async_runtime,
             #[cfg(not(target_arch = "wasm32"))]
             pending_screenshot_path: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -83,45 +121,6 @@ impl Default for EnyaApp {
             #[cfg(target_arch = "wasm32")]
             checked_url_workspace: false,
         }
-    }
-}
-
-impl EnyaApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        egui_extras::install_image_loaders(&cc.egui_ctx);
-
-        // Set up fonts with both DepartureMono and Phosphor icons
-        fonts::setup_fonts(&cc.egui_ctx);
-
-        let mut app = Self::default();
-
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
-        if let Some(storage) = cc.storage {
-            let state: AppState = eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-            app.state = state;
-        }
-
-        // Always start with Dashboard (ignore persisted ui_state)
-        app.state.ui_state = UIState::Dashboard;
-
-        // Ensure the default example workspace exists on first run
-        #[cfg(not(target_arch = "wasm32"))]
-        Self::ensure_default_workspace();
-
-        // Ensure demo workspace is in recent workspaces (for new users)
-        app.state.settings.ensure_demo_workspace();
-
-        match cc.egui_ctx.theme() {
-            Theme::Light => app.state.theme = AppTheme::Light,
-            Theme::Dark => app.state.theme = AppTheme::Dark,
-        }
-
-        // Initialize workspace tabs with API key
-        app.workspace_tabs = WorkspaceTabBar::new(app.state.settings.api_key.clone());
-        app.workspace_tabs.set_theme(app.state.theme);
-
-        app
     }
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
@@ -177,23 +176,19 @@ impl EnyaApp {
         self.status_line.set_theme(self.state.theme);
 
         // Set mode based on current UI state
+        // Note: Zen/Fullscreen are display preferences, not modes - user stays in Normal mode
         let mode = match self.state.ui_state {
             UIState::Dashboard => {
-                // Check if command palette or fuzzy finder is open, or zen/fullscreen mode is active
                 if let Some(tab) = self.workspace_tabs.active_tab() {
                     let workspace = &tab.workspace;
                     if workspace.is_command_palette_open() {
                         StatusMode::Command
                     } else if workspace.is_metrics_finder_open() {
                         StatusMode::Search
-                    } else if workspace.is_viewport_filter_open() {
-                        StatusMode::Filter
+                    } else if workspace.is_agent_mode() {
+                        StatusMode::Agent
                     } else if workspace.is_visual_multi_mode() {
                         StatusMode::VisualMulti
-                    } else if workspace.is_fullscreen() {
-                        StatusMode::Fullscreen
-                    } else if workspace.is_zen_mode() {
-                        StatusMode::Zen
                     } else {
                         StatusMode::Normal
                     }
@@ -227,13 +222,16 @@ impl EnyaApp {
                 .set_diagnostics_count(errors, warnings, infos);
             // Set connection status based on Prometheus health check
             self.status_line.set_connected(workspace.is_online());
+            // Set display preference badges
+            self.status_line.set_zen_mode(workspace.is_zen_mode());
+            self.status_line.set_fullscreen(workspace.is_fullscreen());
             // Set codebase status (Cloning..., Indexing..., Ready, Error)
             // Only show when not on landing page - user expects status after entering workspace
             if workspace.is_landing_page() {
                 self.status_line.set_codebase_status(None);
             } else {
                 self.status_line
-                    .set_codebase_status(workspace.codebase_status_text());
+                    .set_codebase_status(workspace.codebase_status_info());
             }
         } else {
             // No active tab - show offline
@@ -252,9 +250,21 @@ impl EnyaApp {
             self.status_line.set_sparkline(Some(sparkline));
         }
 
+        let theme = self.state.theme;
         egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(false)
             .show(ctx, |ui| {
+                // Show agent input bar above status line (if in agent mode)
+                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                    tab.workspace.show_agent_input_bar(ui, ctx, theme);
+                }
+
+                // Show viewport filter bar above status line (if filter is open)
+                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                    tab.workspace.show_viewport_filter_bar(ui);
+                }
+
+                // Status line at the bottom
                 self.status_line.show(ui);
             });
     }
@@ -351,12 +361,16 @@ impl EnyaApp {
         // Update workspace tabs theme
         self.workspace_tabs.set_theme(self.state.theme);
 
-        // Render workspace tab bar (hide only when single tab on landing page)
-        let should_hide_tabs = self.workspace_tabs.tab_count() == 1
+        // Render workspace tab bar (hide when single tab on landing page, or in zen mode)
+        let should_hide_tabs = (self.workspace_tabs.tab_count() == 1
             && self
                 .workspace_tabs
                 .active_tab()
-                .is_some_and(|tab| tab.workspace.is_landing_page());
+                .is_some_and(|tab| tab.workspace.is_landing_page()))
+            || self
+                .workspace_tabs
+                .active_tab()
+                .is_some_and(|tab| tab.workspace.is_zen_mode());
         if !should_hide_tabs {
             let tab_action = self.workspace_tabs.show(ctx);
             self.handle_tab_bar_action(tab_action);
@@ -385,6 +399,13 @@ impl EnyaApp {
                 self.workspace_tabs.close_tab(idx);
             }
             TabBarAction::NewTab => {
+                // On native: open the workspace creator overlay
+                // On WASM: directly create a new tab (overlay not supported)
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                    tab.workspace.open_workspace_creator();
+                }
+                #[cfg(target_arch = "wasm32")]
                 self.workspace_tabs.new_tab();
             }
         }
@@ -399,11 +420,16 @@ impl EnyaApp {
             WorkspaceAction::SetTheme(theme) => {
                 self.command_sender.send_ui(UICommand::Theme(theme));
             }
-            WorkspaceAction::ShowHelp => {
-                ctx.open_url(egui::output::OpenUrl {
-                    url: "https://enya.dev/contact".to_owned(),
-                    new_tab: true,
-                });
+            WorkspaceAction::SetFont(font) => {
+                // Update the setting (will be persisted automatically via save())
+                self.state.settings.font = font;
+                // Apply the font change immediately
+                fonts::setup_fonts(ctx, font);
+                // Notify user
+                self.notifications.notify(Notification::new(
+                    format!("Font changed to {}", font.name()),
+                    NotificationLevel::Success,
+                ));
             }
             WorkspaceAction::Notify { level, message } => {
                 let notification_level = match level.to_lowercase().as_str() {
@@ -470,6 +496,13 @@ impl EnyaApp {
             }
             WorkspaceAction::PrevWorkspaceTab => {
                 self.workspace_tabs.prev_tab();
+            }
+            WorkspaceAction::RenameCurrentWorkspace(name) => {
+                self.workspace_tabs.rename_active_tab(name);
+            }
+            WorkspaceAction::RenameAndSaveWorkspace(name) => {
+                self.workspace_tabs.rename_active_tab(name.clone());
+                self.save_workspace(Some(&name));
             }
         }
     }

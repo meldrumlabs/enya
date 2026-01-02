@@ -271,9 +271,71 @@ impl QueryPane {
         }
     }
 
+    /// Create a query pane with a PromQL query and custom name, for real backends.
+    /// Triggers query on first frame.
+    pub fn with_query_named(
+        query: impl Into<String>,
+        name: impl Into<String>,
+        query_number: usize,
+    ) -> Self {
+        let query = query.into();
+        let pane_name = name.into();
+        let id = next_id_usize();
+
+        let buffer = Buffer::with_name(query.clone(), format!("Query {query_number}"));
+        let mut visualization = Visualization::new(VisualizationType::default(), &pane_name);
+        visualization.set_metric_name(&pane_name);
+
+        Self {
+            id,
+            buffer,
+            visualization,
+            theme: AppTheme::default(),
+            api_key: String::new(),
+            buffer_expanded: false,
+            query_state: QueryState::default(),
+            tag: String::new(),
+            needs_refresh: true, // Trigger query on first frame
+            is_loading: false,
+            has_user_override: false,
+            edit_requested: false,
+        }
+    }
+
+    /// Create a query pane with demo data and a custom name and query number.
+    pub fn with_demo_query_named(
+        query: impl Into<String>,
+        name: impl Into<String>,
+        query_number: usize,
+    ) -> Self {
+        let query = query.into();
+        let pane_name = name.into();
+        let id = next_id_usize();
+
+        let buffer = Buffer::with_name(query.clone(), format!("Query {query_number}"));
+        let mut visualization = Visualization::new(VisualizationType::default(), &pane_name);
+        visualization.set_metric_name(&pane_name);
+        populate_demo_data(&mut visualization, &query);
+
+        Self {
+            id,
+            buffer,
+            visualization,
+            theme: AppTheme::default(),
+            api_key: String::new(),
+            buffer_expanded: false,
+            query_state: QueryState::default(),
+            tag: String::new(),
+            needs_refresh: false,
+            is_loading: false,
+            has_user_override: false,
+            edit_requested: false,
+        }
+    }
+
     /// Create a query pane with a full PromQL query, custom name, and demo data
     /// Useful for tutorial where we want editable label selectors
-    pub fn with_demo_query_named(query: impl Into<String>, name: impl Into<String>) -> Self {
+    pub fn with_demo_query_tutorial(query: impl Into<String>, name: impl Into<String>) -> Self {
         Self::with_demo_query_named_unit(query, name, "")
     }
 
@@ -433,7 +495,7 @@ impl QueryPane {
     }
 
     /// Set commit markers on the visualization (only for time series)
-    pub fn set_commits(&mut self, commits: Vec<enya_common::CommitMarker>) {
+    pub fn set_commits(&mut self, commits: Vec<super::time_series_chart::CommitMarker>) {
         self.visualization.set_commits(commits);
     }
 
@@ -578,6 +640,7 @@ impl QueryPane {
     }
 
     /// Render the query pane
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
         let mut action = QueryPaneAction::None;
         let text_col = text_color(self.theme);

@@ -4,8 +4,9 @@ use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
+use crate::ui::typography;
 
-use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
+use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop, render_key_badge};
 
 /// An excerpt from a query pane shown in the multi-edit overlay
 #[derive(Debug, Clone)]
@@ -157,6 +158,7 @@ impl MultiEditOverlay {
     }
 
     /// Show the multi-edit overlay. Returns the result of the interaction.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> MultiEditResult {
         if !self.is_open {
             return MultiEditResult::None;
@@ -217,35 +219,28 @@ impl MultiEditOverlay {
                     AppTheme::Dark => Color32::from_rgb(13, 148, 103),
                 };
 
-                overlay_style.frame().show(ui, |ui| {
+                let frame_response = overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
 
-                    // Header with mode indicator
-                    ui.add_space(12.0);
+                    // Header with icon and pane count (premium styling)
+                    ui.add_space(14.0);
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(20.0);
 
-                        // MULTI-EDIT mode badge
-                        egui::Frame::new()
-                            .fill(accent_color)
-                            .corner_radius(3.0)
-                            .inner_margin(egui::vec2(8.0, 3.0))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new("MULTI-EDIT")
-                                        .color(Color32::WHITE)
-                                        .size(11.0)
-                                        .strong(),
-                                );
-                            });
-
-                        ui.add_space(12.0);
-
-                        // Pane count
+                        // Multi-edit icon with accent tint
                         ui.label(
-                            RichText::new(format!("{} panes", self.excerpts.len()))
+                            RichText::new(semantic_icons::mode::REPLACE)
+                                .color(accent_color)
+                                .size(typography::LG),
+                        );
+
+                        ui.add_space(10.0);
+
+                        // Title with pane count
+                        ui.label(
+                            RichText::new(format!("Edit {} Panes", self.excerpts.len()))
                                 .color(text_color(self.theme))
-                                .size(14.0),
+                                .size(typography::XL),
                         );
 
                         // Modified indicator
@@ -255,7 +250,7 @@ impl MultiEditOverlay {
                             ui.label(
                                 RichText::new(format!("[+{modified}]"))
                                     .color(palette::semantic::WARNING)
-                                    .size(12.0),
+                                    .size(typography::MD),
                             );
                         }
 
@@ -265,7 +260,7 @@ impl MultiEditOverlay {
                             ui.label(
                                 RichText::new("Esc to cancel")
                                     .color(text_color(self.theme).gamma_multiply(0.4))
-                                    .size(11.0),
+                                    .size(typography::SM),
                             );
                         });
                     });
@@ -287,17 +282,17 @@ impl MultiEditOverlay {
 
                     // Find/Replace section label
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(20.0);
                         ui.label(
                             RichText::new(semantic_icons::action::SEARCH)
                                 .color(text_color(self.theme).gamma_multiply(0.6))
-                                .size(14.0),
+                                .size(typography::XL),
                         );
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Find & Replace")
                                 .color(text_color(self.theme).gamma_multiply(0.7))
-                                .size(12.0),
+                                .size(typography::MD),
                         );
 
                         // Match count indicator
@@ -312,38 +307,44 @@ impl MultiEditOverlay {
                             ui.label(
                                 RichText::new(format!("{icon} {match_count} matches"))
                                     .color(color)
-                                    .size(11.0),
+                                    .size(typography::SM),
                             );
                         }
                     });
 
                     ui.add_space(8.0);
 
-                    // Find/Replace inputs with styled background
+                    // Find/Replace inputs with premium styled background
                     let editor_bg = match self.theme {
                         AppTheme::Light => palette::light_bg::ELEVATED,
-                        AppTheme::Dark => palette::bg::ELEVATED,
+                        AppTheme::Dark => Color32::from_rgb(14, 14, 17), // Darker for contrast
+                    };
+                    let editor_border = match self.theme {
+                        AppTheme::Light => palette::light_border::SUBTLE,
+                        AppTheme::Dark => palette::border::SUBTLE,
                     };
 
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(20.0);
 
-                        // Find field with background frame
-                        egui::Frame::new()
+                        // Find field with premium frame
+                        let find_frame_response = egui::Frame::new()
                             .fill(editor_bg)
-                            .corner_radius(4.0)
-                            .inner_margin(egui::vec2(8.0, 6.0))
+                            .corner_radius(6.0)
+                            .inner_margin(egui::vec2(10.0, 8.0))
+                            .stroke(egui::Stroke::new(1.0, editor_border))
                             .show(ui, |ui| {
                                 let find_id = egui::Id::new("multi_edit_find");
                                 let find_response = ui.add(
                                     egui::TextEdit::singleline(&mut self.find_pattern)
                                         .id(find_id)
-                                        .desired_width(180.0)
-                                        .font(FontId::monospace(13.0))
+                                        .desired_width(200.0)
+                                        .font(typography::code_lg())
                                         .frame(false)
                                         .hint_text(
                                             RichText::new("Find pattern...")
-                                                .color(text_color(self.theme).gamma_multiply(0.4)),
+                                                .font(typography::code_lg())
+                                                .color(text_color(self.theme).gamma_multiply(0.35)),
                                         ),
                                 );
 
@@ -354,56 +355,107 @@ impl MultiEditOverlay {
                                 }
                             });
 
-                        ui.add_space(8.0);
-
-                        // Arrow indicator
-                        ui.label(
-                            RichText::new("→")
-                                .color(text_color(self.theme).gamma_multiply(0.4))
-                                .size(14.0),
+                        // Draw inner shadow for depth
+                        let find_rect = find_frame_response.response.rect;
+                        let inset = egui::Rect::from_min_size(
+                            find_rect.left_top() + egui::vec2(1.0, 1.0),
+                            egui::vec2(find_rect.width() - 2.0, 2.0),
+                        );
+                        ui.painter().rect_filled(
+                            inset,
+                            4.0,
+                            Color32::from_rgba_unmultiplied(0, 0, 0, 10),
                         );
 
-                        ui.add_space(8.0);
+                        ui.add_space(12.0);
 
-                        // Replace field with background frame
-                        egui::Frame::new()
+                        // Arrow indicator with accent color
+                        ui.label(
+                            RichText::new("→")
+                                .color(accent_color.gamma_multiply(0.6))
+                                .size(typography::LG),
+                        );
+
+                        ui.add_space(12.0);
+
+                        // Replace field with premium frame
+                        let replace_frame_response = egui::Frame::new()
                             .fill(editor_bg)
-                            .corner_radius(4.0)
-                            .inner_margin(egui::vec2(8.0, 6.0))
+                            .corner_radius(6.0)
+                            .inner_margin(egui::vec2(10.0, 8.0))
+                            .stroke(egui::Stroke::new(1.0, editor_border))
                             .show(ui, |ui| {
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.replace_with)
-                                        .desired_width(180.0)
-                                        .font(FontId::monospace(13.0))
+                                        .desired_width(200.0)
+                                        .font(typography::code_lg())
                                         .frame(false)
                                         .hint_text(
                                             RichText::new("Replace with...")
-                                                .color(text_color(self.theme).gamma_multiply(0.4)),
+                                                .font(typography::code_lg())
+                                                .color(text_color(self.theme).gamma_multiply(0.35)),
                                         ),
                                 );
                             });
 
-                        ui.add_space(12.0);
+                        // Draw inner shadow for depth
+                        let replace_rect = replace_frame_response.response.rect;
+                        let inset2 = egui::Rect::from_min_size(
+                            replace_rect.left_top() + egui::vec2(1.0, 1.0),
+                            egui::vec2(replace_rect.width() - 2.0, 2.0),
+                        );
+                        ui.painter().rect_filled(
+                            inset2,
+                            4.0,
+                            Color32::from_rgba_unmultiplied(0, 0, 0, 10),
+                        );
 
-                        // Replace All button
+                        ui.add_space(16.0);
+
+                        // Replace All button with premium styling
                         let match_count = self.count_matches();
                         let button_enabled = !self.find_pattern.is_empty() && match_count > 0;
 
                         let replace_btn = egui::Button::new(
                             RichText::new(format!("{} Replace All", semantic_icons::mode::REPLACE))
-                                .size(12.0),
+                                .size(typography::MD)
+                                .color(if button_enabled {
+                                    Color32::WHITE
+                                } else {
+                                    text_color(self.theme).gamma_multiply(0.5)
+                                })
+                                .strong(),
                         )
                         .fill(if button_enabled {
                             accent_color
                         } else {
                             editor_bg
-                        });
+                        })
+                        .corner_radius(6.0)
+                        .min_size(egui::vec2(0.0, 32.0));
 
-                        if ui.add_enabled(button_enabled, replace_btn).clicked() {
+                        let replace_response = ui.add_enabled(button_enabled, replace_btn);
+
+                        // Draw glow on hover when enabled
+                        if button_enabled && replace_response.hovered() {
+                            let glow_rect = replace_response.rect.expand(3.0);
+                            ui.painter().rect_filled(
+                                glow_rect,
+                                8.0,
+                                accent_color.gamma_multiply(0.25),
+                            );
+                            ui.painter().rect_filled(
+                                replace_response.rect,
+                                6.0,
+                                palette::accent::HOVER,
+                            );
+                        }
+
+                        if replace_response.clicked() {
                             self.apply_replace_all();
                         }
 
-                        ui.add_space(16.0);
+                        ui.add_space(20.0);
                     });
 
                     ui.add_space(12.0);
@@ -458,42 +510,93 @@ impl MultiEditOverlay {
 
                     ui.add_space(8.0);
 
-                    // Footer with keyboard hints and buttons
+                    // Footer with premium keyboard hints and buttons
                     ui.horizontal(|ui| {
-                        ui.add_space(16.0);
+                        ui.add_space(20.0);
 
-                        let hint_color = text_color(self.theme).gamma_multiply(0.4);
+                        let hint_color = text_color(self.theme).gamma_multiply(0.35);
+                        let key_bg = match self.theme {
+                            AppTheme::Light => palette::light_bg::ELEVATED,
+                            AppTheme::Dark => palette::bg::ELEVATED,
+                        };
 
-                        // Keyboard hints
-                        ui.label(RichText::new("⌘↵").color(hint_color).size(11.0));
-                        ui.label(RichText::new("apply").color(hint_color).size(11.0));
+                        // Premium keyboard hints with key badges
+                        render_key_badge(ui, "⌘↵", key_bg, hint_color);
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("apply")
+                                .color(hint_color)
+                                .size(typography::SM),
+                        );
                         ui.add_space(16.0);
-                        ui.label(RichText::new("⌘⇧R").color(hint_color).size(11.0));
-                        ui.label(RichText::new("replace all").color(hint_color).size(11.0));
+                        render_key_badge(ui, "⌘⇧R", key_bg, hint_color);
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("replace all")
+                                .color(hint_color)
+                                .size(typography::SM),
+                        );
                         ui.add_space(16.0);
-                        ui.label(RichText::new("Tab").color(hint_color).size(11.0));
-                        ui.label(RichText::new("next").color(hint_color).size(11.0));
+                        render_key_badge(ui, "Tab", key_bg, hint_color);
+                        ui.add_space(4.0);
+                        ui.label(RichText::new("next").color(hint_color).size(typography::SM));
 
-                        // Right side - Apply and Cancel buttons
+                        // Right side - Apply and Cancel buttons with premium styling
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(16.0);
+                            ui.add_space(20.0);
 
+                            // Premium Apply button with hover glow
                             let apply_btn = egui::Button::new(
                                 RichText::new(format!("{} Apply", semantic_icons::action::SAVE))
-                                    .size(12.0),
+                                    .size(typography::MD)
+                                    .color(Color32::WHITE)
+                                    .strong(),
                             )
-                            .fill(accent_color);
+                            .fill(accent_color)
+                            .corner_radius(6.0)
+                            .min_size(egui::vec2(80.0, 32.0));
 
-                            if ui.add(apply_btn).clicked() {
+                            let apply_response = ui.add(apply_btn);
+
+                            // Draw glow behind apply button on hover
+                            if apply_response.hovered() {
+                                let glow_rect = apply_response.rect.expand(3.0);
+                                ui.painter().rect_filled(
+                                    glow_rect,
+                                    8.0,
+                                    accent_color.gamma_multiply(0.25),
+                                );
+                                ui.painter().rect_filled(
+                                    apply_response.rect,
+                                    6.0,
+                                    palette::accent::HOVER,
+                                );
+                            }
+
+                            if apply_response.clicked() {
                                 should_apply = true;
                             }
 
-                            // Cancel button
+                            ui.add_space(10.0);
+
+                            // Cancel button with refined ghost styling
+                            let cancel_bg = match self.theme {
+                                AppTheme::Light => palette::light_bg::HOVER,
+                                AppTheme::Dark => palette::bg::ELEVATED,
+                            };
+                            let cancel_border = match self.theme {
+                                AppTheme::Light => palette::light_border::SUBTLE,
+                                AppTheme::Dark => palette::border::SUBTLE,
+                            };
                             let cancel_btn = egui::Button::new(
                                 RichText::new("Cancel")
-                                    .size(12.0)
-                                    .color(text_color(self.theme)),
-                            );
+                                    .size(typography::MD)
+                                    .color(text_color(self.theme).gamma_multiply(0.7)),
+                            )
+                            .fill(cancel_bg)
+                            .stroke(egui::Stroke::new(1.0, cancel_border))
+                            .corner_radius(6.0)
+                            .min_size(egui::vec2(72.0, 32.0));
 
                             if ui.add(cancel_btn).clicked() {
                                 should_close = true;
@@ -501,8 +604,11 @@ impl MultiEditOverlay {
                         });
                     });
 
-                    ui.add_space(12.0);
+                    ui.add_space(14.0);
                 });
+
+                // Draw inner highlight on the frame for glass effect
+                overlay_style.draw_inner_highlight(ui, frame_response.response.rect);
             });
 
         // Handle close/apply actions
@@ -520,18 +626,19 @@ impl MultiEditOverlay {
 
     /// Render the excerpts section
     fn show_excerpts(&mut self, ui: &mut egui::Ui) {
+        // Premium excerpt card styling
         let excerpt_bg = match self.theme {
             AppTheme::Light => palette::light_bg::ELEVATED,
-            AppTheme::Dark => palette::bg::ELEVATED,
+            AppTheme::Dark => Color32::from_rgb(18, 18, 22), // Slightly darker for card effect
         };
         let excerpt_border = match self.theme {
             AppTheme::Light => palette::light_border::SUBTLE,
             AppTheme::Dark => palette::border::SUBTLE,
         };
-        let label_color = text_color(self.theme).gamma_multiply(0.6);
+        let label_color = text_color(self.theme).gamma_multiply(0.7);
         let highlight_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgb(187, 247, 208), // Light green
-            AppTheme::Dark => Color32::from_rgb(6, 78, 59),      // Dark green
+            AppTheme::Light => Color32::from_rgb(187, 247, 208), // Light emerald
+            AppTheme::Dark => Color32::from_rgb(16, 60, 48),     // Rich emerald tint
         };
         let text_col = text_color(self.theme);
         let accent_color = match self.theme {
@@ -546,34 +653,53 @@ impl MultiEditOverlay {
             let is_focused = self.focused_excerpt == idx as i32;
             let is_modified = excerpt.is_modified();
 
-            // Excerpt container with focus ring
+            // Excerpt container with focus ring and glow
             let frame_stroke = if is_focused {
                 egui::Stroke::new(2.0, accent_color)
             } else {
                 egui::Stroke::new(1.0, excerpt_border)
             };
 
-            egui::Frame::new()
+            // Draw glow behind focused card
+            if is_focused {
+                let glow_rect = ui.available_rect_before_wrap();
+                let glow_rect = egui::Rect::from_min_size(
+                    glow_rect.min,
+                    egui::vec2(glow_rect.width(), 80.0), // Approximate card height
+                )
+                .expand(2.0);
+                ui.painter()
+                    .rect_filled(glow_rect, 10.0, accent_color.gamma_multiply(0.1));
+            }
+
+            let frame_response = egui::Frame::new()
                 .fill(excerpt_bg)
                 .stroke(frame_stroke)
-                .corner_radius(4.0)
-                .inner_margin(8.0)
+                .corner_radius(8.0) // More rounded
+                .inner_margin(12.0) // More padding
+                .shadow(egui::epaint::Shadow {
+                    offset: [0, 2],
+                    blur: 8,
+                    spread: 0,
+                    color: Color32::from_black_alpha(30),
+                })
                 .show(ui, |ui| {
                     // Label header with match count
                     ui.horizontal(|ui| {
-                        // Modified indicator
+                        // Modified indicator with glow
                         if is_modified {
                             ui.label(
                                 RichText::new("●")
                                     .color(palette::semantic::WARNING)
-                                    .size(10.0),
+                                    .size(typography::SM),
                             );
+                            ui.add_space(4.0);
                         }
 
                         ui.label(
                             RichText::new(&excerpt.label)
                                 .color(label_color)
-                                .size(12.0)
+                                .size(typography::MD)
                                 .strong(),
                         );
 
@@ -581,16 +707,24 @@ impl MultiEditOverlay {
                         if !find_pattern.is_empty() {
                             let match_count = excerpt.content.matches(&find_pattern).count();
                             if match_count > 0 {
-                                ui.label(
-                                    RichText::new(format!("({match_count} matches)"))
-                                        .color(accent_color)
-                                        .size(11.0),
-                                );
+                                ui.add_space(8.0);
+                                // Match count badge
+                                egui::Frame::new()
+                                    .fill(accent_color.gamma_multiply(0.15))
+                                    .corner_radius(4.0)
+                                    .inner_margin(egui::vec2(6.0, 2.0))
+                                    .show(ui, |ui| {
+                                        ui.label(
+                                            RichText::new(format!("{match_count} matches"))
+                                                .color(accent_color)
+                                                .size(typography::XS),
+                                        );
+                                    });
                             }
                         }
                     });
 
-                    ui.add_space(4.0);
+                    ui.add_space(6.0);
 
                     // Render content with highlighted matches
                     if !find_pattern.is_empty() && excerpt.content.contains(&find_pattern) {
@@ -651,34 +785,60 @@ impl MultiEditOverlay {
                             egui::Sense::click(),
                         );
 
-                        // Draw background for the text area
+                        // Draw background for the text area with premium styling
                         let text_bg = match self.theme {
                             AppTheme::Light => palette::light_bg::SURFACE,
-                            AppTheme::Dark => palette::bg::SURFACE,
+                            AppTheme::Dark => Color32::from_rgb(12, 12, 15), // Darker inset
                         };
-                        painter.rect_filled(response.rect, 2.0, text_bg);
+                        painter.rect_filled(response.rect, 6.0, text_bg);
 
                         // Draw the highlighted text
-                        painter.galley(response.rect.min + egui::vec2(4.0, 4.0), galley, text_col);
+                        painter.galley(response.rect.min + egui::vec2(8.0, 6.0), galley, text_col);
 
                         // If clicked, switch to edit mode (clear find pattern)
                         if response.clicked() {
                             // User can clear find to edit directly
                         }
                     } else {
-                        // No matches or no search - show editable TextEdit
+                        // No matches or no search - show editable TextEdit with premium styling
                         let text_edit_id = egui::Id::new(format!("excerpt_{}", excerpt.source_id));
-                        ui.add(
-                            egui::TextEdit::multiline(&mut excerpt.content)
-                                .id(text_edit_id)
-                                .font(FontId::monospace(13.0))
-                                .desired_width(ui.available_width())
-                                .desired_rows(2),
-                        );
+
+                        // Premium editor background
+                        let editor_bg = match self.theme {
+                            AppTheme::Light => palette::light_bg::SURFACE,
+                            AppTheme::Dark => Color32::from_rgb(12, 12, 15),
+                        };
+
+                        egui::Frame::new()
+                            .fill(editor_bg)
+                            .corner_radius(6.0)
+                            .inner_margin(egui::vec2(8.0, 6.0))
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut excerpt.content)
+                                        .id(text_edit_id)
+                                        .font(typography::code_lg())
+                                        .desired_width(ui.available_width())
+                                        .desired_rows(2)
+                                        .frame(false),
+                                );
+                            });
                     }
                 });
 
-            ui.add_space(8.0);
+            // Draw top highlight on card for glass effect
+            let card_rect = frame_response.response.rect;
+            let highlight_rect = egui::Rect::from_min_size(
+                card_rect.left_top() + egui::vec2(1.0, 1.0),
+                egui::vec2(card_rect.width() - 2.0, 1.0),
+            );
+            ui.painter().rect_filled(
+                highlight_rect,
+                6.0,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 8),
+            );
+
+            ui.add_space(10.0);
         }
     }
 }

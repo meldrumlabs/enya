@@ -43,7 +43,7 @@ impl NavDirection {
     }
 }
 
-/// Tracks the state of leader key sequences (like `t5`, `Space+m`, `yy`, `cv`, `gd`).
+/// Tracks the state of leader key sequences (like `t5`, `Space+m`, `yy`, `cv`, `gd`, `aw`).
 ///
 /// Leader keys are keys that must be followed by another key within a timeout
 /// to trigger an action. This struct manages the timing and state for all
@@ -60,6 +60,12 @@ pub struct LeaderKeyState {
     pub last_t_press: Option<Instant>,
     /// Last time 'g' was pressed (for go-to shortcuts like gd)
     pub last_g_press: Option<Instant>,
+    /// Last time 'a' was pressed (for agent operator shortcuts like aw, ae, ay)
+    pub last_a_press: Option<Instant>,
+    /// Last time Ctrl+W was pressed (for vim-style window management like Ctrl+W H/J/K/L)
+    pub last_ctrl_w_press: Option<Instant>,
+    /// Last time Ctrl+W t was pressed (for moving pane into tab with neighbor)
+    pub last_ctrl_w_t_press: Option<Instant>,
 }
 
 impl LeaderKeyState {
@@ -93,6 +99,21 @@ impl LeaderKeyState {
         self.last_g_press = Some(Instant::now());
     }
 
+    /// Record that 'a' was pressed.
+    pub fn press_a(&mut self) {
+        self.last_a_press = Some(Instant::now());
+    }
+
+    /// Record that Ctrl+W was pressed.
+    pub fn press_ctrl_w(&mut self) {
+        self.last_ctrl_w_press = Some(Instant::now());
+    }
+
+    /// Record that Ctrl+W t was pressed (tab mode).
+    pub fn press_ctrl_w_t(&mut self) {
+        self.last_ctrl_w_t_press = Some(Instant::now());
+    }
+
     /// Clear the 'y' leader key state.
     pub fn clear_y(&mut self) {
         self.last_y_press = None;
@@ -118,6 +139,21 @@ impl LeaderKeyState {
         self.last_g_press = None;
     }
 
+    /// Clear the 'a' leader key state.
+    pub fn clear_a(&mut self) {
+        self.last_a_press = None;
+    }
+
+    /// Clear the Ctrl+W leader key state.
+    pub fn clear_ctrl_w(&mut self) {
+        self.last_ctrl_w_press = None;
+    }
+
+    /// Clear the Ctrl+W t leader key state.
+    pub fn clear_ctrl_w_t(&mut self) {
+        self.last_ctrl_w_t_press = None;
+    }
+
     /// Check if 'yy' sequence is active (second 'y' within timeout).
     pub fn is_yy_active(&self) -> bool {
         self.is_active(self.last_y_press)
@@ -141,6 +177,21 @@ impl LeaderKeyState {
     /// Check if 'g' leader key is active.
     pub fn is_g_active(&self) -> bool {
         self.is_active(self.last_g_press)
+    }
+
+    /// Check if 'a' leader key is active (for agent operators like aw, ae).
+    pub fn is_a_active(&self) -> bool {
+        self.is_active(self.last_a_press)
+    }
+
+    /// Check if Ctrl+W leader key is active (for window management like Ctrl+W H/J/K/L).
+    pub fn is_ctrl_w_active(&self) -> bool {
+        self.is_active(self.last_ctrl_w_press)
+    }
+
+    /// Check if Ctrl+W t leader key is active (for tab merging like Ctrl+W t h/j/k/l).
+    pub fn is_ctrl_w_t_active(&self) -> bool {
+        self.is_active(self.last_ctrl_w_t_press)
     }
 
     /// Check if a leader key press is still within the timeout window.

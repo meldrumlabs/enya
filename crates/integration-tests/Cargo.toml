@@ -1,24 +1,21 @@
 [package]
 name = "enya-integration-tests"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 publish = false
-build = "build.rs"
+license.workspace = true
+description = "Integration tests for enya crates"
 
 [dependencies]
-enya = { path = "../enya" }
-enya-build-info = { path = "../build-info" }
-enya-metrics-store = { path = "../metrics-store" }
-enya-client = { path = "../client" }
+enya-client = { workspace = true }
 
-axum-test = "17"
-serde_json.workspace = true
-tokio = { workspace = true, features = ["rt", "macros", "time"] }
-
-# Testcontainers for Prometheus integration tests
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
 testcontainers = "0.23"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+egui = { workspace = true }
 
-[build-dependencies]
-enya-build-tools.workspace = true
-chrono.workspace = true
+[lints]
+workspace = true

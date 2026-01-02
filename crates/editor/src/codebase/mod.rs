@@ -1,18 +1,20 @@
 //! Codebase integration for the Enya editor.
 //!
-//! Provides egui integration for the enya-index crate.
+//! Provides egui integration for the enya-analyzer crate.
 
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
 
-pub use enya_common::CommitMarker;
-// Re-export from enya-index
-pub use enya_index::{
+// Re-export from enya-analyzer
+pub use enya_analyzer::{
     AlertRule, CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind,
     Scanner, ScannerRegistry, build_index_with_progress, fetch_commit_history,
 };
+
+// Re-export CommitMarker from the chart module
+pub use crate::components::pane::time_series_chart::CommitMarker;
 
 /// Status of codebase operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,11 +32,35 @@ pub enum CodebaseStatus {
         current: usize,
         /// Total files to index
         total: usize,
+        /// Name of the current file being indexed
+        current_file: Option<String>,
+        /// Language being scanned (for icon display)
+        language: Option<String>,
     },
     /// Codebase is ready and indexed.
-    Ready { url: String },
+    Ready {
+        url: String,
+        /// Repository name extracted from URL
+        repo_name: String,
+        /// Number of metrics discovered
+        metrics_count: usize,
+        /// Language that was scanned
+        language: Option<String>,
+    },
     /// An error occurred.
     Error { url: String, message: String },
+}
+
+/// Extract repository name from a git URL.
+///
+/// Examples:
+/// - `git@github.com:org/repo.git` → `repo`
+/// - `https://github.com/org/repo.git` → `repo`
+/// - `https://github.com/org/repo` → `repo`
+fn extract_repo_name(url: &str) -> String {
+    // Handle both HTTPS (/) and SSH (:) separators
+    let name = url.rsplit(['/', ':']).next().unwrap_or(url);
+    name.trim_end_matches(".git").to_string()
 }
 
 impl CodebaseStatus {
@@ -58,8 +84,32 @@ impl CodebaseStatus {
             Self::Cloning { url }
             | Self::Fetching { url }
             | Self::Indexing { url, .. }
-            | Self::Ready { url }
+            | Self::Ready { url, .. }
             | Self::Error { url, .. } => Some(url),
+        }
+    }
+
+    /// Returns the language if one is configured.
+    pub fn language(&self) -> Option<&str> {
+        match self {
+            Self::Indexing { language, .. } | Self::Ready { language, .. } => language.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Returns the repository name if ready.
+    pub fn repo_name(&self) -> Option<&str> {
+        match self {
+            Self::Ready { repo_name, .. } => Some(repo_name),
+            _ => None,
+        }
+    }
+
+    /// Returns the metrics count if ready.
+    pub fn metrics_count(&self) -> Option<usize> {
+        match self {
+            Self::Ready { metrics_count, .. } => Some(*metrics_count),
+            _ => None,
         }
     }
 }
@@ -79,7 +129,11 @@ pub enum CodebaseResult {
         has_changes: bool,
     },
     /// Indexing completed.
-    IndexComplete { url: String, index: CodebaseIndex },
+    IndexComplete {
+        url: String,
+        index: CodebaseIndex,
+        language: Option<String>,
+    },
     /// Commit history fetch completed.
     HistoryComplete {
         start_secs: i64,
@@ -102,6 +156,9 @@ pub struct CodebaseManager {
     indexing_progress: Option<IndexProgress>,
     /// Registry of available scanners for different languages
     scanner_registry: ScannerRegistry,
+    /// Configured language for scanning (e.g., "rust", "go", "python")
+    /// If empty, all language scanners are used.
+    language: String,
     /// Cached commit history keyed by (start_secs, end_secs)
     commit_cache: FxHashMap<(i64, i64), Vec<CommitMarker>>,
     /// Time range currently being fetched (to avoid duplicate requests)
@@ -125,10 +182,19 @@ impl CodebaseManager {
             index: None,
             indexing_progress: None,
             scanner_registry: ScannerRegistry::default(),
+            language: String::new(),
             commit_cache: FxHashMap::default(),
             pending_history_range: None,
             commits_updated: false,
         }
+    }
+
+    /// Sets the language for metric scanning.
+    ///
+    /// When set, only scanners for the specified language will be used during indexing.
+    /// Supported values: "rust", "go", "python", "javascript", "typescript"
+    pub fn set_language(&mut self, language: impl Into<String>) {
+        self.language = language.into();
     }
 
     /// Returns a reference to the scanner registry.
@@ -159,7 +225,7 @@ impl CodebaseManager {
         let url_clone = url.clone();
 
         std::thread::spawn(move || {
-            let result = match enya_index::repo::clone_repo(&url_clone) {
+            let result = match enya_analyzer::repo::clone_repo(&url_clone) {
                 Ok(path) => CodebaseResult::CloneComplete {
                     url: url_clone,
                     path,
@@ -189,7 +255,7 @@ impl CodebaseManager {
         let ctx = ctx.clone();
 
         std::thread::spawn(move || {
-            let result = match enya_index::repo::fetch_updates(&path) {
+            let result = match enya_analyzer::repo::fetch_updates(&path) {
                 Ok(has_changes) => CodebaseResult::FetchComplete {
                     url,
                     path,
@@ -207,7 +273,16 @@ impl CodebaseManager {
     }
 
     /// Builds the codebase index from the given repository path.
-    fn start_indexing(&mut self, url: String, path: std::path::PathBuf, ctx: &egui::Context) {
+    ///
+    /// If `language` is provided, only scanners for that language will be used.
+    /// Otherwise, all language scanners are used.
+    fn start_indexing(
+        &mut self,
+        url: String,
+        path: std::path::PathBuf,
+        language: Option<String>,
+        ctx: &egui::Context,
+    ) {
         // Create shared progress tracker
         let progress = IndexProgress::new();
         self.indexing_progress = Some(progress.clone());
@@ -216,6 +291,8 @@ impl CodebaseManager {
             url: url.clone(),
             current: 0,
             total: 0,
+            current_file: None,
+            language: language.clone(),
         };
 
         let pending = Arc::clone(&self.pending_result);
@@ -223,10 +300,18 @@ impl CodebaseManager {
 
         std::thread::spawn(move || {
             // Create scanner registry for the indexing thread
-            let registry = ScannerRegistry::default();
+            // Use language-specific registry if configured, otherwise use all scanners
+            let registry = match language {
+                Some(ref lang) if !lang.is_empty() => ScannerRegistry::for_language(lang),
+                _ => ScannerRegistry::default(),
+            };
 
             let result = match build_index_with_progress(&url, &path, &progress, &registry) {
-                Ok(idx) => CodebaseResult::IndexComplete { url, index: idx },
+                Ok(idx) => CodebaseResult::IndexComplete {
+                    url,
+                    index: idx,
+                    language,
+                },
                 Err(e) => CodebaseResult::Error {
                     url,
                     message: e.to_string(),
@@ -248,11 +333,14 @@ impl CodebaseManager {
         // Update indexing progress from the shared atomics
         if let Some(ref progress) = self.indexing_progress {
             let (current, total) = progress.get();
-            if let CodebaseStatus::Indexing { url, .. } = &self.status {
+            let current_file = progress.current_file();
+            if let CodebaseStatus::Indexing { url, language, .. } = &self.status {
                 self.status = CodebaseStatus::Indexing {
                     url: url.clone(),
                     current,
                     total,
+                    current_file,
+                    language: language.clone(),
                 };
                 // Request repaint to show updated progress
                 if current > 0 {
@@ -270,7 +358,12 @@ impl CodebaseManager {
         match result {
             CodebaseResult::CloneComplete { url, path } => {
                 // Clone complete, start indexing
-                self.start_indexing(url, path, ctx);
+                let language = if self.language.is_empty() {
+                    None
+                } else {
+                    Some(self.language.clone())
+                };
+                self.start_indexing(url, path, language, ctx);
             }
             CodebaseResult::FetchComplete {
                 url,
@@ -279,15 +372,57 @@ impl CodebaseManager {
             } => {
                 if has_changes {
                     // Re-index if there were changes
-                    self.start_indexing(url, path, ctx);
+                    let language = if self.language.is_empty() {
+                        None
+                    } else {
+                        Some(self.language.clone())
+                    };
+                    self.start_indexing(url, path, language, ctx);
                 } else {
-                    // No changes, we're done
-                    self.status = CodebaseStatus::Ready { url };
+                    // No changes, preserve existing ready state info
+                    if let CodebaseStatus::Ready {
+                        repo_name,
+                        metrics_count,
+                        language,
+                        ..
+                    } = &self.status
+                    {
+                        self.status = CodebaseStatus::Ready {
+                            url,
+                            repo_name: repo_name.clone(),
+                            metrics_count: *metrics_count,
+                            language: language.clone(),
+                        };
+                    } else {
+                        // Fallback if we somehow weren't ready before
+                        let language = if self.language.is_empty() {
+                            None
+                        } else {
+                            Some(self.language.clone())
+                        };
+                        self.status = CodebaseStatus::Ready {
+                            repo_name: extract_repo_name(&url),
+                            metrics_count: self.index.as_ref().map_or(0, |i| i.metrics.len()),
+                            language,
+                            url,
+                        };
+                    }
                 }
             }
-            CodebaseResult::IndexComplete { url, index } => {
+            CodebaseResult::IndexComplete {
+                url,
+                index,
+                language,
+            } => {
+                let metrics_count = index.metrics.len();
+                let repo_name = extract_repo_name(&url);
                 self.index = Some(index);
-                self.status = CodebaseStatus::Ready { url };
+                self.status = CodebaseStatus::Ready {
+                    url,
+                    repo_name,
+                    metrics_count,
+                    language,
+                };
                 self.indexing_progress = None; // Clear progress tracker
             }
             CodebaseResult::HistoryComplete {

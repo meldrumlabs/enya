@@ -6,8 +6,11 @@
 
 use egui_tiles::{Tile, TileId};
 
-use super::{NavDirection, Workspace, WorkspaceAction};
-use crate::components::{Buffer, Component, QueryPane};
+use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
+use crate::components::pane::time_series_chart::{DataPoint, Series};
+use crate::components::{
+    AgentPane, Buffer, Component, InlineChart, InlineContent, InlineSource, QueryPane,
+};
 
 impl Workspace {
     // ==================== Pane Adding ====================
@@ -68,15 +71,259 @@ impl Workspace {
         }
     }
 
+    /// Add a query pane with a PromQL query and optional title.
+    ///
+    /// This is used by the agent to create panes programmatically.
+    pub(super) fn add_query_pane(&mut self, query: &str, title: Option<&str>) {
+        let query_number = self.next_query_number;
+        self.next_query_number += 1;
+
+        // Create the pane with the given query
+        let name = title.unwrap_or(query);
+        let pane: Box<dyn Component> = if self.query_executor.is_connected() {
+            Box::new(QueryPane::with_query_named(query, name, query_number))
+        } else {
+            Box::new(QueryPane::with_demo_query_named(query, name, query_number))
+        };
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.open_charts.insert(query.to_string());
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Agent created query pane: {}", title.unwrap_or(query));
+        }
+    }
+
+    /// Add an agent pane to the viewport.
+    ///
+    /// Creates a new AI chat pane that can run in parallel with query panes.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn add_agent_pane(&mut self) -> Option<TileId> {
+        let runtime_handle = self.query_executor.runtime_handle();
+        let mut agent_pane = AgentPane::new(runtime_handle);
+
+        // Set editor context for the agent
+        self.update_agent_context();
+        if let Some(context) = self.build_editor_context() {
+            agent_pane.set_context(context);
+        }
+
+        let pane: Box<dyn Component> = Box::new(agent_pane);
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Added agent pane");
+            Some(pane_tile)
+        } else {
+            None
+        }
+    }
+
+    /// Add an agent pane (WASM stub - agents not supported in browser).
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn add_agent_pane(&mut self) -> Option<TileId> {
+        log::warn!("Agent panes are not available in the browser");
+        None
+    }
+
+    /// Find or create an agent pane. Returns the tile ID.
+    ///
+    /// If an agent pane already exists, focuses it. Otherwise creates a new one.
+    pub(super) fn focus_or_create_agent_pane(&mut self) -> Option<TileId> {
+        // Check if we already have an agent pane
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if component.as_any().downcast_ref::<AgentPane>().is_some() {
+                    // Found an existing agent pane, focus it
+                    self.behavior.set_focused_tile(Some(tile_id));
+                    return Some(tile_id);
+                }
+            }
+        }
+
+        // No agent pane found, create a new one
+        self.add_agent_pane()
+    }
+
+    /// Handle commands from the AI agent.
+    ///
+    /// These commands are parsed from the agent's response and executed
+    /// to manipulate the workspace (create panes, change time range, etc.)
+    /// Handle agent commands and return true if any command was executed successfully.
+    /// When commands are executed, the caller should typically exit agent mode.
+    pub(super) fn handle_agent_commands(
+        &mut self,
+        commands: Vec<AgentCommand>,
+        ctx: &egui::Context,
+    ) -> bool {
+        let mut executed_any = false;
+
+        for command in commands {
+            match command {
+                AgentCommand::CreatePane { query, title } => {
+                    self.add_query_pane(&query, title.as_deref());
+                    executed_any = true;
+                }
+                AgentCommand::SetTimeRange { preset } => {
+                    // Parse preset string into a TimeRangePreset
+                    if let Some(preset_enum) = Self::parse_time_preset(&preset) {
+                        self.time_range_toolbar.set_preset(preset_enum);
+                        log::info!("Agent set time range to: {preset}");
+                        executed_any = true;
+                    } else {
+                        log::warn!("Agent requested unknown time preset: {preset}");
+                    }
+                }
+                AgentCommand::SearchMetrics { pattern } => {
+                    // Open the metrics finder with the pattern
+                    self.metrics_finder.open();
+                    self.metrics_finder.set_query(&pattern);
+                    log::info!("Agent opened metrics search: {pattern}");
+                    executed_any = true;
+                }
+                AgentCommand::ShowMetricSource { metric } => {
+                    // Open the source preview for the metric definition
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.open_metric_definition(&metric);
+                        log::info!("Agent opened metric source: {metric}");
+                        executed_any = true;
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("ShowMetricSource not available on WASM: {metric}");
+                    }
+                }
+                AgentCommand::ShowAlertSource { alert } => {
+                    // Open the source preview for the alert rule
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.open_alert_definition(&alert);
+                        log::info!("Agent opened alert source: {alert}");
+                        executed_any = true;
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("ShowAlertSource not available on WASM: {alert}");
+                    }
+                }
+                AgentCommand::ShowInlineChart {
+                    query,
+                    title,
+                    time_range: _,
+                    height,
+                } => {
+                    // Generate inline chart data
+                    let chart_title = title.unwrap_or_else(|| query.clone());
+                    let chart = self.generate_inline_chart(&query, &chart_title, height);
+
+                    // Find the first agent pane and inject the chart
+                    self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
+                    log::info!("Injected inline chart for query: {query}");
+                    executed_any = true;
+                }
+                AgentCommand::ShowInlineSource {
+                    metric,
+                    context_lines,
+                } => {
+                    // Look up metric source and generate inline source preview
+                    let lines = context_lines.unwrap_or(5);
+                    if let Some(source) = self.generate_inline_source(&metric, lines) {
+                        self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
+                        log::info!("Injected inline source for metric: {metric}");
+                        executed_any = true;
+                    } else {
+                        log::warn!("Could not find source for metric: {metric}");
+                    }
+                }
+            }
+        }
+
+        // Request repaint to ensure query execution runs on next frame
+        if executed_any {
+            ctx.request_repaint();
+        }
+
+        executed_any
+    }
+
+    /// Poll all agent panes for pending commands and execute them.
+    ///
+    /// This should be called during the workspace's show() method to ensure
+    /// commands from agent panes are processed.
+    pub(super) fn poll_agent_pane_commands(&mut self, ctx: &egui::Context) {
+        // Build context once before iterating (avoids borrow issues)
+        let context = self.build_editor_context();
+
+        let mut all_commands = Vec::new();
+        let pane_ids = self.get_pane_tile_ids();
+
+        // Iterate through all panes and collect commands from agent panes
+        for tile_id in pane_ids {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(agent_pane) = component.as_any_mut().downcast_mut::<AgentPane>() {
+                    // Update context for the agent
+                    if let Some(ref ctx) = context {
+                        agent_pane.set_context(ctx.clone());
+                    }
+
+                    // Poll for pending commands from this agent pane
+                    let commands = agent_pane.poll_pending_commands();
+                    if !commands.is_empty() {
+                        log::info!(
+                            "Agent pane {} produced {} commands",
+                            agent_pane.id(),
+                            commands.len()
+                        );
+                    }
+                    all_commands.extend(commands);
+                }
+            }
+        }
+
+        // Execute all collected commands
+        if !all_commands.is_empty() {
+            log::info!("Executing {} agent commands", all_commands.len());
+            self.handle_agent_commands(all_commands, ctx);
+        }
+    }
+
+    /// Parse a time range preset string into the enum.
+    fn parse_time_preset(
+        preset: &str,
+    ) -> Option<crate::components::widget::time_range::TimeRangePreset> {
+        use crate::components::widget::time_range::TimeRangePreset;
+        match preset.to_lowercase().as_str() {
+            "5m" | "5min" | "5 minutes" => Some(TimeRangePreset::Last5Minutes),
+            "15m" | "15min" | "15 minutes" => Some(TimeRangePreset::Last15Minutes),
+            "30m" | "30min" | "30 minutes" => Some(TimeRangePreset::Last30Minutes),
+            "1h" | "1hour" | "1 hour" => Some(TimeRangePreset::Last1Hour),
+            "6h" | "6hour" | "6 hours" => Some(TimeRangePreset::Last6Hours),
+            "24h" | "1d" | "1day" | "1 day" => Some(TimeRangePreset::Last24Hours),
+            "7d" | "7day" | "7 days" | "1 week" | "1w" => Some(TimeRangePreset::Last7Days),
+            _ => None,
+        }
+    }
+
     /// Add a tile to the viewport, handling different container types
     /// Returns true if the tile was successfully added
     pub(super) fn add_tile_to_viewport(&mut self, tile_id: TileId) -> bool {
+        let tiles_before = self.viewport_tree.tiles.len();
         let Some(root_id) = self.viewport_tree.root() else {
             // No root exists (all panes were closed), create a new tabs container
+            log::warn!(
+                "add_tile_to_viewport: No root exists! Creating new tabs container. tiles_before={tiles_before}"
+            );
             let new_root = self.viewport_tree.tiles.insert_tab_tile(vec![tile_id]);
             self.viewport_tree.root = Some(new_root);
             return true;
         };
+        log::debug!(
+            "add_tile_to_viewport: Adding tile {tile_id:?} to root {root_id:?}. tiles_before={tiles_before}"
+        );
 
         match self.viewport_tree.tiles.get_mut(root_id) {
             Some(egui_tiles::Tile::Container(egui_tiles::Container::Tabs(tabs))) => {
@@ -204,9 +451,331 @@ impl Workspace {
         log::debug!("Split panes vertically (horizontal layout)");
     }
 
+    // ==================== Pane Movement (Ctrl+W H/J/K/L) ====================
+
+    /// Move the focused pane to the far left (becomes leftmost vertical split).
+    /// This is vim's Ctrl+W H behavior.
+    pub(super) fn move_pane_to_far_left(&mut self) {
+        self.move_pane_to_edge(super::NavDirection::Left);
+    }
+
+    /// Move the focused pane to the far right (becomes rightmost vertical split).
+    /// This is vim's Ctrl+W L behavior.
+    pub(super) fn move_pane_to_far_right(&mut self) {
+        self.move_pane_to_edge(super::NavDirection::Right);
+    }
+
+    /// Move the focused pane to the very top (becomes top horizontal split).
+    /// This is vim's Ctrl+W K behavior.
+    pub(super) fn move_pane_to_top(&mut self) {
+        self.move_pane_to_edge(super::NavDirection::Up);
+    }
+
+    /// Move the focused pane to the very bottom (becomes bottom horizontal split).
+    /// This is vim's Ctrl+W J behavior.
+    pub(super) fn move_pane_to_bottom(&mut self) {
+        self.move_pane_to_edge(super::NavDirection::Down);
+    }
+
+    /// Move the focused pane to the edge of the viewport in the given direction.
+    ///
+    /// This extracts the pane from its current position and creates a new split
+    /// at the edge of the viewport. For Left/Right, it creates a horizontal layout
+    /// with the pane on the specified side. For Up/Down, it creates a vertical layout.
+    fn move_pane_to_edge(&mut self, direction: super::NavDirection) {
+        let Some(focused_id) = self.behavior.focused_tile() else {
+            log::debug!("No focused pane to move");
+            return;
+        };
+
+        // Verify it's actually a pane before removing
+        if !matches!(
+            self.viewport_tree.tiles.get(focused_id),
+            Some(Tile::Pane(_))
+        ) {
+            log::debug!("Focused tile is not a pane");
+            return;
+        }
+
+        // Extract the pane
+        let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.remove(focused_id) else {
+            log::debug!("Focused tile not found");
+            return;
+        };
+
+        // Re-insert the pane to get a fresh TileId
+        let new_pane_id = self.viewport_tree.tiles.insert_pane(pane);
+
+        // Get current root after removal (tree may have auto-simplified)
+        let Some(current_root) = self.viewport_tree.root() else {
+            // Tree is empty, just set the pane as root
+            self.viewport_tree.root = Some(new_pane_id);
+            self.behavior.set_focused_tile(Some(new_pane_id));
+            log::debug!("Tree was empty, pane is now root");
+            return;
+        };
+
+        // If the root is now just the pane we're moving (only pane case),
+        // nothing more to do
+        if current_root == new_pane_id {
+            self.behavior.set_focused_tile(Some(new_pane_id));
+            log::debug!("Only one pane, nothing to move");
+            return;
+        }
+
+        // Create new container with the pane at the edge
+        let new_root = match direction {
+            super::NavDirection::Left => {
+                // Pane on left, rest on right (horizontal split)
+                self.viewport_tree
+                    .tiles
+                    .insert_horizontal_tile(vec![new_pane_id, current_root])
+            }
+            super::NavDirection::Right => {
+                // Rest on left, pane on right (horizontal split)
+                self.viewport_tree
+                    .tiles
+                    .insert_horizontal_tile(vec![current_root, new_pane_id])
+            }
+            super::NavDirection::Up => {
+                // Pane on top, rest on bottom (vertical split)
+                self.viewport_tree
+                    .tiles
+                    .insert_vertical_tile(vec![new_pane_id, current_root])
+            }
+            super::NavDirection::Down => {
+                // Rest on top, pane on bottom (vertical split)
+                self.viewport_tree
+                    .tiles
+                    .insert_vertical_tile(vec![current_root, new_pane_id])
+            }
+        };
+
+        self.viewport_tree.root = Some(new_root);
+
+        // Maintain focus on the moved pane
+        self.behavior.set_focused_tile(Some(new_pane_id));
+
+        log::debug!("Moved pane to {direction:?} edge, new id {new_pane_id:?}");
+    }
+
+    // ==================== Pane Tabbing (Ctrl+W t) ====================
+
+    /// Move the focused pane into a tab container with the pane in the given direction.
+    /// If the target is already in a tab container, add to that container.
+    /// Otherwise, create a new tab container with both panes.
+    pub(super) fn move_pane_to_tab_with(&mut self, direction: super::NavDirection) {
+        let Some(focused_id) = self.behavior.focused_tile() else {
+            log::debug!("No focused pane to move to tab");
+            return;
+        };
+
+        // Find the target pane in the given direction
+        let Some(target_id) = self.find_sibling_in_direction(focused_id, direction) else {
+            log::debug!("No sibling pane found in direction {direction:?}");
+            return;
+        };
+
+        // Don't tab with ourselves
+        if target_id == focused_id {
+            log::debug!("Cannot tab pane with itself");
+            return;
+        }
+
+        // Verify both are panes
+        if !matches!(
+            self.viewport_tree.tiles.get(focused_id),
+            Some(Tile::Pane(_))
+        ) {
+            log::debug!("Focused tile is not a pane");
+            return;
+        }
+
+        // Check if target is already in a tab container
+        if let Some(parent_tab_id) = self.find_parent_tab_container(target_id) {
+            // Add focused pane to the existing tab container
+            self.add_pane_to_tab_container(focused_id, parent_tab_id);
+        } else {
+            // Create a new tab container with both panes
+            self.create_tab_container_with_panes(focused_id, target_id);
+        }
+    }
+
+    /// Find the parent tab container of a tile, if any.
+    fn find_parent_tab_container(&self, target_id: TileId) -> Option<TileId> {
+        let root_id = self.viewport_tree.root()?;
+        self.find_parent_tab_recursive(root_id, target_id)
+    }
+
+    fn find_parent_tab_recursive(&self, container_id: TileId, target_id: TileId) -> Option<TileId> {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+
+            // Check if target is a direct child of this container
+            if children.contains(&target_id) {
+                // Only return if this is a tabs container
+                if matches!(container.kind(), egui_tiles::ContainerKind::Tabs) {
+                    return Some(container_id);
+                }
+                // Not a tabs container, target is a direct child but not in tabs
+                return None;
+            }
+
+            // Recursively search nested containers
+            for child_id in children {
+                if let Some(parent) = self.find_parent_tab_recursive(child_id, target_id) {
+                    return Some(parent);
+                }
+            }
+        }
+        None
+    }
+
+    /// Add a pane to an existing tab container.
+    fn add_pane_to_tab_container(&mut self, pane_id: TileId, tab_container_id: TileId) {
+        // Extract the pane first
+        let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.remove(pane_id) else {
+            log::debug!("Could not extract pane {pane_id:?}");
+            return;
+        };
+
+        // Re-insert to get a fresh ID
+        let new_pane_id = self.viewport_tree.tiles.insert_pane(pane);
+
+        // Add to the tab container
+        if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+            self.viewport_tree.tiles.get_mut(tab_container_id)
+        {
+            tabs.add_child(new_pane_id);
+            tabs.set_active(new_pane_id);
+            self.behavior.set_focused_tile(Some(new_pane_id));
+            log::debug!("Added pane to existing tab container {tab_container_id:?}");
+        } else {
+            log::warn!("Tab container {tab_container_id:?} not found or not a tabs container");
+        }
+    }
+
+    /// Create a new tab container with both panes, replacing the target's position.
+    fn create_tab_container_with_panes(&mut self, pane_id: TileId, target_id: TileId) {
+        // Find the parent container of the target to know where to insert the new tabs
+        let parent_info = self.find_parent_container_info(target_id);
+
+        // Extract the focused pane
+        let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.remove(pane_id) else {
+            log::debug!("Could not extract focused pane {pane_id:?}");
+            return;
+        };
+
+        // Re-insert to get a fresh ID
+        let new_pane_id = self.viewport_tree.tiles.insert_pane(pane);
+
+        // Create a new tab container with both the target and the moved pane
+        // Target goes first (it was there first), moved pane second (and becomes active)
+        let tab_container_id = self
+            .viewport_tree
+            .tiles
+            .insert_tab_tile(vec![target_id, new_pane_id]);
+
+        // Replace the target in its parent with the new tab container
+        if let Some((parent_id, child_index)) = parent_info {
+            // Replace the target in the parent container with the tab container
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get_mut(parent_id) {
+                match container {
+                    egui_tiles::Container::Linear(linear) => {
+                        // Remove target and insert tab container at the same position
+                        let children: Vec<TileId> = linear.children.to_vec();
+                        linear.children.clear();
+                        for (i, child) in children.into_iter().enumerate() {
+                            if i == child_index {
+                                linear.children.push(tab_container_id);
+                            } else if child != target_id {
+                                linear.children.push(child);
+                            } else {
+                                // Skip the target, it's now inside the tab container
+                            }
+                        }
+                        // If target was at the position, we already inserted tab_container
+                        // If not found at index, just push
+                        if !linear.children.contains(&tab_container_id) {
+                            linear.children.push(tab_container_id);
+                        }
+                    }
+                    egui_tiles::Container::Tabs(tabs) => {
+                        // Replace target with tab container in the tabs
+                        // This creates nested tabs, which might be unusual but valid
+                        let children: Vec<TileId> = tabs.children.to_vec();
+                        tabs.children.clear();
+                        for child in children {
+                            if child == target_id {
+                                tabs.children.push(tab_container_id);
+                            } else {
+                                tabs.children.push(child);
+                            }
+                        }
+                        tabs.set_active(tab_container_id);
+                    }
+                    egui_tiles::Container::Grid(_) => {
+                        // Grid containers are not commonly used in this editor.
+                        // For now, log a warning - this case is rare.
+                        log::warn!(
+                            "Cannot replace child in grid container - grid not supported for tab merging"
+                        );
+                    }
+                }
+            }
+        } else {
+            // Target was the root, or no parent found - make tab container the new root
+            self.viewport_tree.root = Some(tab_container_id);
+        }
+
+        // Set the moved pane as active in the new tab container
+        if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+            self.viewport_tree.tiles.get_mut(tab_container_id)
+        {
+            tabs.set_active(new_pane_id);
+        }
+
+        self.behavior.set_focused_tile(Some(new_pane_id));
+        log::debug!(
+            "Created new tab container with target {target_id:?} and moved pane {new_pane_id:?}"
+        );
+    }
+
+    /// Find the parent container and the index of a child within it.
+    fn find_parent_container_info(&self, target_id: TileId) -> Option<(TileId, usize)> {
+        let root_id = self.viewport_tree.root()?;
+        self.find_parent_info_recursive(root_id, target_id)
+    }
+
+    fn find_parent_info_recursive(
+        &self,
+        container_id: TileId,
+        target_id: TileId,
+    ) -> Option<(TileId, usize)> {
+        if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
+            let children: Vec<TileId> = container.children().copied().collect();
+
+            // Check if target is a direct child
+            for (index, &child) in children.iter().enumerate() {
+                if child == target_id {
+                    return Some((container_id, index));
+                }
+            }
+
+            // Recursively search nested containers
+            for child_id in children {
+                if let Some(info) = self.find_parent_info_recursive(child_id, target_id) {
+                    return Some(info);
+                }
+            }
+        }
+        None
+    }
+
     // ==================== Pane Queries ====================
 
     /// Get all pane tile IDs in the viewport (for navigation)
+    #[profiling::function]
     pub(super) fn get_pane_tile_ids(&self) -> Vec<TileId> {
         let mut pane_ids = Vec::new();
 
@@ -215,6 +784,26 @@ impl Workspace {
         }
 
         pane_ids
+    }
+
+    /// Collect PromQL queries from all open QueryPane components.
+    ///
+    /// Used by AI context builders to provide agents with awareness of
+    /// currently active queries in the dashboard.
+    pub(super) fn collect_pane_queries(&self) -> Vec<String> {
+        self.get_pane_tile_ids()
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        return Some(query_pane.saved_query().to_string());
+                    }
+                }
+                None
+            })
+            .collect()
     }
 
     /// Recursively collect all pane tile IDs
@@ -234,6 +823,7 @@ impl Workspace {
     }
 
     /// Count how many panes match the current filter and total panes
+    #[profiling::function]
     pub(super) fn count_filtered_panes(&self) -> (usize, usize) {
         let pane_ids = self.get_pane_tile_ids();
         let total = pane_ids.len();
@@ -261,18 +851,6 @@ impl Workspace {
             .count();
 
         (matching, total)
-    }
-
-    /// Find a tile by the pane's component ID
-    pub(super) fn find_tile_by_pane_id(&self, pane_id: usize) -> Option<TileId> {
-        for tile_id in self.get_pane_tile_ids() {
-            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                if component.id() == pane_id {
-                    return Some(tile_id);
-                }
-            }
-        }
-        None
     }
 
     // ==================== Tile Activation ====================
@@ -309,5 +887,173 @@ impl Workspace {
             }
         }
         false
+    }
+
+    // ==================== Inline Content Generation ====================
+
+    /// Generate an inline chart with sample data based on the current time range.
+    ///
+    /// This uses the demo client to generate realistic-looking data for the chart.
+    fn generate_inline_chart(&self, query: &str, title: &str, height: Option<f32>) -> InlineChart {
+        // Get current time range
+        let time_range = self.time_range_toolbar.time_range();
+        let now = time_range.end;
+        let start = time_range.start;
+        let duration_secs = now - start;
+
+        // Generate sample data points (about 60 points for the chart)
+        let num_points = 60;
+        let step = duration_secs / num_points as f64;
+
+        // Create a series with generated data
+        let mut points = Vec::with_capacity(num_points);
+
+        // Use a simple sine wave with some noise for demo purposes
+        // In a real implementation, this would use actual query results
+        let base_value = 50.0;
+        let amplitude = 20.0;
+
+        for i in 0..num_points {
+            let t = start + (i as f64 * step);
+            // Simple pattern based on time
+            let phase = (i as f64 / num_points as f64) * std::f64::consts::PI * 4.0;
+            let noise = ((t as i64 % 17) as f64 - 8.0) / 8.0 * 5.0;
+            let value = base_value + amplitude * phase.sin() + noise;
+
+            points.push(DataPoint {
+                timestamp: t,
+                value: value.max(0.0),
+            });
+        }
+
+        // Extract metric name from query for series name
+        let series_name = Self::extract_metric_from_query(query);
+
+        let series = Series::new(&series_name).with_points(points);
+
+        InlineChart {
+            title: title.to_string(),
+            series: vec![series],
+            height,
+        }
+    }
+
+    /// Extract the metric name from a PromQL query.
+    fn extract_metric_from_query(query: &str) -> String {
+        // Try to find metric name - look for word before { or (
+        let query = query.trim();
+
+        // Handle rate(metric_name[...]) pattern
+        if let Some(paren_idx) = query.find('(') {
+            let after = &query[paren_idx + 1..];
+            if let Some(end) = after.find(|c: char| !c.is_alphanumeric() && c != '_') {
+                let metric = &after[..end];
+                if !metric.is_empty() {
+                    return metric.to_string();
+                }
+            }
+        }
+
+        // Handle metric_name{...} pattern
+        if let Some(brace_idx) = query.find('{') {
+            return query[..brace_idx].trim().to_string();
+        }
+
+        // Just return the query as-is (it might be just a metric name)
+        query.to_string()
+    }
+
+    /// Generate inline source preview for a metric.
+    ///
+    /// Looks up the metric in the codebase index and returns source lines
+    /// with pre-computed tree-sitter syntax highlighting.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn generate_inline_source(&self, metric: &str, context_lines: usize) -> Option<InlineSource> {
+        use crate::components::util::SyntaxHighlightData;
+
+        // Check if codebase is ready
+        if !self.codebase_manager.status().is_ready() {
+            return None;
+        }
+
+        // Search for the metric - take exact match or first partial match
+        let metrics = self.codebase_manager.search_metrics(metric);
+        let metric_info = metrics
+            .iter()
+            .find(|m| m.name == metric)
+            .or_else(|| metrics.first())
+            .copied()?;
+
+        // Get repo path from index
+        let index = self.codebase_manager.index()?;
+        let file_path = index.repo_path.join(&metric_info.file);
+
+        // Read the source file
+        let content = std::fs::read_to_string(&file_path).ok()?;
+        let all_lines: Vec<&str> = content.lines().collect();
+
+        // Calculate line range (0-indexed internally, 1-indexed for display)
+        let target_line = metric_info.line;
+        let start_line = target_line.saturating_sub(context_lines);
+        let end_line = (target_line + context_lines).min(all_lines.len());
+
+        // Extract the lines
+        let lines: Vec<String> = all_lines
+            .get(start_line..end_line)?
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+
+        // Determine language from file extension
+        let language = metric_info
+            .file
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| match ext {
+                "rs" => "rust",
+                "go" => "go",
+                "py" => "python",
+                "js" | "ts" => "javascript",
+                "java" => "java",
+                "rb" => "ruby",
+                _ => ext,
+            })
+            .unwrap_or("")
+            .to_string();
+
+        // Pre-compute tree-sitter syntax highlighting for the full file content
+        // This allows efficient per-line highlighting during rendering
+        let highlight_data = SyntaxHighlightData::new(&content, &language);
+
+        Some(InlineSource {
+            file_path: metric_info.file.display().to_string(),
+            line: target_line,
+            lines,
+            start_line: start_line + 1, // Convert to 1-indexed
+            language,
+            highlight_data,
+        })
+    }
+
+    /// WASM stub for generate_inline_source.
+    #[cfg(target_arch = "wasm32")]
+    fn generate_inline_source(&self, _metric: &str, _context_lines: usize) -> Option<InlineSource> {
+        None
+    }
+
+    /// Inject inline content into the first agent pane's last assistant message.
+    fn inject_inline_content_to_agent_pane(&mut self, content: InlineContent) {
+        let pane_ids = self.get_pane_tile_ids();
+
+        for tile_id in pane_ids {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(agent_pane) = component.as_any_mut().downcast_mut::<AgentPane>() {
+                    agent_pane.add_inline_content(content);
+                    return;
+                }
+            }
+        }
+
+        log::warn!("No agent pane found to inject inline content");
     }
 }

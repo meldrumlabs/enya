@@ -2,16 +2,22 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use egui_tiles::{Tile, TileId, Tiles};
 
+use crate::AsyncRuntime;
 use crate::app::AppState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::CodebaseManager;
+#[cfg(target_arch = "wasm32")]
+use crate::components::NativePromoOverlay;
 use crate::components::{
-    Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
+    AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult, Buffer,
+    BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
     DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MetricsFinder, MultiBufferMode,
     MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
-    SourcePreviewOverlay, SourcePreviewResult, TimeRangeToolbar, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceFinder,
+    QuickCommand, SourcePreviewOverlay, SourcePreviewResult, TimeRangeToolbar, TutorialOverlay,
+    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
+    WorkspaceFinder,
 };
+use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
 
 // Workspace configuration module (serialization)
@@ -70,8 +76,8 @@ pub enum WorkspaceAction {
     ToggleTheme,
     /// Set a specific theme
     SetTheme(AppTheme),
-    /// Show help
-    ShowHelp,
+    /// Set the editor font
+    SetFont(EditorFont),
     /// Show a notification
     Notify { level: String, message: String },
     /// Track a recently opened plot
@@ -102,6 +108,10 @@ pub enum WorkspaceAction {
     NextWorkspaceTab,
     /// Go to previous workspace tab
     PrevWorkspaceTab,
+    /// Rename/set the current workspace tab name
+    RenameCurrentWorkspace(String),
+    /// Rename and save the current workspace (used after workspace creation)
+    RenameAndSaveWorkspace(String),
 }
 
 /// The main viewport layout with a flexible tile tree for views/charts.
@@ -149,6 +159,8 @@ pub struct Workspace {
     which_key: WhichKey,
     /// Tutorial overlay (interactive walkthrough)
     tutorial_overlay: TutorialOverlay,
+    /// Workspace creator overlay (new workspace wizard)
+    workspace_creator: WorkspaceCreator,
     /// Current scroll offset for smooth scrolling (0.0 to 1.0, percentage)
     viewport_scroll_offset: f32,
     /// Target scroll offset for smooth animation
@@ -171,14 +183,23 @@ pub struct Workspace {
     pending_open_workspace_finder: bool,
     /// Query executor for running queries against backends (Prometheus, Enya)
     query_executor: QueryExecutor,
-    /// Track which pane is waiting for a query result
-    pending_query_tile: Option<TileId>,
+    /// Track which pane is waiting for a query result (by stable pane component ID, not TileId)
+    /// We use the pane's internal ID because TileIds can change when egui_tiles restructures the tree
+    pending_query_pane_id: Option<usize>,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
     next_query_number: usize,
     /// Workspace filter for filtering visible panes by query content
     viewport_filter: ViewportFilter,
     /// Source code preview overlay for "go to definition"
     source_preview: SourcePreviewOverlay,
+    /// Agent panel for Claude Code integration
+    agent_panel: AgentPanel,
+    /// Agent input bar for lightweight agent mode interactions
+    agent_input_bar: AgentInputBar,
+    /// Whether agent mode is active (vim-style modal interaction)
+    agent_mode_active: bool,
+    /// Panes in agent context (from visual mode selection or manual +/-)
+    agent_context_panes: FxHashSet<TileId>,
     /// Codebase manager for git repo and metrics discovery (native only)
     #[cfg(not(target_arch = "wasm32"))]
     codebase_manager: CodebaseManager,
@@ -187,67 +208,24 @@ pub struct Workspace {
     pending_codebase_config: Option<String>,
     /// Pending connection endpoint to apply (set during load, executed in show())
     pending_connection_endpoint: Option<String>,
-}
-
-impl Default for Workspace {
-    fn default() -> Self {
-        let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
-        let tabs = Vec::new();
-        let root = tiles.insert_tab_tile(tabs);
-
-        let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
-        Self {
-            viewport_tree,
-            behavior: TreeBehavior::default(),
-            open_charts: FxHashSet::default(),
-            pending_chart: None,
-            time_range_toolbar: TimeRangeToolbar::new(),
-            metrics_finder: MetricsFinder::new(),
-            workspace_finder: WorkspaceFinder::new(),
-            command_palette: CommandPalette::new(),
-            buffer_editor: BufferEditor::new(),
-            editing_tile_id: None,
-            zen_mode: false,
-            fullscreen_tile: None,
-            landing_page: LandingPage::new(),
-            show_landing: true,
-            leader_keys: LeaderKeyState::new(),
-            info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
-            which_key: WhichKey::new(),
-            tutorial_overlay: TutorialOverlay::new(),
-            viewport_scroll_offset: 0.0,
-            viewport_scroll_target: 0.0,
-            viewport_content_height: 0.0,
-            viewport_visible_height: 0.0,
-            visual_multi_state: None,
-            multi_buffer_state: MultiBufferState::new(),
-            multi_edit_overlay: MultiEditOverlay::new(),
-            diagnostics_pane: DiagnosticsPane::new(),
-            diagnostics_visible: false,
-            pending_open_workspace_finder: false,
-            query_executor: QueryExecutor::new(),
-            pending_query_tile: None,
-            next_query_number: 1,
-            viewport_filter: ViewportFilter::new(),
-            source_preview: SourcePreviewOverlay::new(),
-            #[cfg(not(target_arch = "wasm32"))]
-            codebase_manager: CodebaseManager::new(),
-            #[cfg(not(target_arch = "wasm32"))]
-            pending_codebase_config: None,
-            pending_connection_endpoint: None,
-        }
-    }
+    /// Pending git repo path to configure (set from workspace creator)
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_git_repo: Option<String>,
+    /// Native app promo overlay (WASM only)
+    #[cfg(target_arch = "wasm32")]
+    native_promo_overlay: NativePromoOverlay,
 }
 
 impl Workspace {
     /// Create a new empty dashboard (no landing page)
-    pub fn new_empty() -> Self {
-        let mut dashboard = Self::example(String::new());
+    pub fn new_empty(async_runtime: AsyncRuntime) -> Self {
+        let mut dashboard = Self::new(async_runtime);
         dashboard.show_landing = false;
         dashboard
     }
 
-    pub fn example(_api_key: String) -> Self {
+    /// Create a new workspace with the given async runtime.
+    pub fn new(async_runtime: AsyncRuntime) -> Self {
         let mut tiles: Tiles<Box<dyn Component>> = egui_tiles::Tiles::default();
 
         // Start with empty tabs - show landing page first
@@ -274,6 +252,7 @@ impl Workspace {
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
             tutorial_overlay: TutorialOverlay::new(),
+            workspace_creator: WorkspaceCreator::new(),
             viewport_scroll_offset: 0.0,
             viewport_scroll_target: 0.0,
             viewport_content_height: 0.0,
@@ -284,16 +263,30 @@ impl Workspace {
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
-            query_executor: QueryExecutor::new(),
-            pending_query_tile: None,
+            query_executor: QueryExecutor::new(async_runtime.clone()),
+            pending_query_pane_id: None,
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
             source_preview: SourcePreviewOverlay::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            agent_panel: AgentPanel::new(async_runtime.handle().clone()),
+            #[cfg(target_arch = "wasm32")]
+            agent_panel: AgentPanel::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            agent_input_bar: AgentInputBar::new_with_runtime(async_runtime.handle().clone()),
+            #[cfg(target_arch = "wasm32")]
+            agent_input_bar: AgentInputBar::new(),
+            agent_mode_active: false,
+            agent_context_panes: FxHashSet::default(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_codebase_config: None,
             pending_connection_endpoint: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_git_repo: None,
+            #[cfg(target_arch = "wasm32")]
+            native_promo_overlay: NativePromoOverlay::new(),
         }
     }
 
@@ -307,6 +300,30 @@ impl Workspace {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
+
+        // Poll and process agent input bar commands BEFORE query execution
+        // This ensures panes created by AI are available for immediate query execution
+        if self.agent_mode_active {
+            self.agent_input_bar.poll(ctx);
+            let commands = self.agent_input_bar.take_pending_commands();
+            if !commands.is_empty() {
+                log::info!(
+                    "Processing {} agent command(s) before query execution",
+                    commands.len()
+                );
+                for cmd in &commands {
+                    log::info!("Executing agent command: {cmd:?}");
+                }
+                let executed = self.handle_agent_commands(commands, ctx);
+                // Only auto-exit if commands were executed AND there's no response text
+                // This allows conversational flows where the agent explains what it's doing
+                let has_response_text = !self.agent_input_bar.display_text().is_empty();
+                if executed && !has_response_text {
+                    log::info!("Agent command executed (no response text), exiting agent mode");
+                    self.exit_agent_mode();
+                }
+            }
+        }
 
         // Process query execution: poll for results and execute pending queries
         let query_action = self.process_query_execution(ctx);
@@ -524,6 +541,7 @@ impl Workspace {
                                 }
 
                                 // Create ScrollArea with controlled offset
+                                let tiles_before_ui = self.viewport_tree.tiles.len();
                                 let scroll_output = egui::ScrollArea::vertical()
                                     .id_salt("viewport_scroll")
                                     .scroll_bar_visibility(
@@ -534,6 +552,12 @@ impl Workspace {
                                     .show(ui, |ui| {
                                         self.viewport_tree.ui(&mut self.behavior, ui);
                                     });
+                                let tiles_after_ui = self.viewport_tree.tiles.len();
+                                if tiles_before_ui != tiles_after_ui {
+                                    log::warn!(
+                                        "viewport_tree.ui() changed tile count: {tiles_before_ui} -> {tiles_after_ui} (GC may have removed tiles)"
+                                    );
+                                }
 
                                 // Update scroll state from ScrollArea output
                                 self.viewport_content_height = scroll_output.content_size.y;
@@ -616,6 +640,31 @@ impl Workspace {
         self.tutorial_overlay.set_theme(app_state.theme);
         self.tutorial_overlay.show(ctx);
 
+        // Show workspace creator overlay modal
+        self.workspace_creator.set_theme(app_state.theme);
+        match self.workspace_creator.show(ctx) {
+            WorkspaceCreatorResult::Created {
+                name,
+                endpoint,
+                git_repo,
+            } => {
+                // Set pending connection endpoint to apply
+                self.pending_connection_endpoint = Some(endpoint);
+                // Store git repo path for codebase integration (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.pending_git_repo = git_repo;
+                }
+                #[cfg(target_arch = "wasm32")]
+                let _ = git_repo; // Silence unused warning on WASM
+                self.show_landing = false;
+                ctx.request_repaint();
+                // Return action to rename and save the workspace
+                return WorkspaceAction::RenameAndSaveWorkspace(name);
+            }
+            WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
+        }
+
         // Show diagnostics overlay modal
         self.diagnostics_pane.set_theme(app_state.theme);
         self.diagnostics_pane.show_overlay(ctx);
@@ -632,33 +681,46 @@ impl Workspace {
             SourcePreviewResult::None => {}
         }
 
+        // Show agent panel (Claude Code integration)
+        // Update context before showing so the agent has awareness of editor state
+        self.update_agent_context();
+        self.agent_panel.set_theme(app_state.theme);
+        match self.agent_panel.show(ctx) {
+            AgentPanelResult::Closed => {
+                log::debug!("Agent panel closed");
+            }
+            AgentPanelResult::Commands(commands) => {
+                self.handle_agent_commands(commands, ctx);
+            }
+            AgentPanelResult::None => {}
+        }
+
+        // Note: agent_input_bar.poll() is now called at the start of show()
+        // to ensure agent-created panes are available for immediate query execution
+
         // Poll codebase manager for async operations (native only)
         #[cfg(not(target_arch = "wasm32"))]
         self.codebase_manager.poll(ctx);
 
-        // Show viewport filter overlay and handle results
+        // Poll agent panes for pending commands
+        self.poll_agent_pane_commands(ctx);
+
+        // Update viewport filter state (rendering happens in bottom panel)
         self.viewport_filter.set_theme(app_state.theme);
-        // Update filter counts before showing
         let (match_count, total_count) = self.count_filtered_panes();
         self.viewport_filter.update_counts(match_count, total_count);
-        match self.viewport_filter.show(ctx) {
-            ViewportFilterResult::Applied(pattern) => {
-                log::debug!("Workspace filter applied: {pattern}");
-            }
-            ViewportFilterResult::Cleared => {
-                log::debug!("Workspace filter cleared");
-            }
-            ViewportFilterResult::None => {}
-        }
 
         // Handle / key for viewport filter (vim-style search)
         // NOTE: Must run BEFORE the ? handler since both use the Slash key
+        // Only available in Normal mode (not Visual, Insert, or Agent mode)
         if !self.which_key.is_open()
             && !self.metrics_finder.is_open()
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
             && !self.is_any_buffer_in_insert_mode()
+            && !self.agent_mode_active
+            && !self.is_visual_multi_mode()
         {
             ctx.input_mut(|input| {
                 // Check for '/' character in text input (works across keyboard layouts)
@@ -682,6 +744,7 @@ impl Workspace {
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
+            && !self.agent_mode_active
         {
             ctx.input_mut(|input| {
                 // Check for '?' character in text input (works across keyboard layouts)
@@ -708,7 +771,7 @@ impl Workspace {
             }
         }
 
-        self.handle_command_result(cmd_result, ctx)
+        self.handle_command_result(cmd_result)
     }
 
     /// Show the landing page and handle its actions
@@ -718,6 +781,21 @@ impl Workspace {
         ctx: &egui::Context,
         app_state: &AppState,
     ) -> WorkspaceAction {
+        // On WASM, show native app promo overlay (if not already dismissed)
+        // Process overlay FIRST so it can consume keyboard input before landing page
+        #[cfg(target_arch = "wasm32")]
+        let native_promo_open = {
+            self.native_promo_overlay.open();
+            self.native_promo_overlay.set_theme(app_state.theme);
+            self.native_promo_overlay.show(ctx);
+            self.native_promo_overlay.is_open()
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let native_promo_open = false;
+
+        // Disable landing page keyboard when native promo overlay is open
+        self.landing_page.set_keyboard_disabled(native_promo_open);
+
         // Show the landing page in the central panel
         let mut landing_action = LandingPageAction::None;
         egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -733,9 +811,9 @@ impl Workspace {
                 );
             }
             LandingPageAction::CreateWorkspace => {
-                // Hide landing page and start fresh workspace
-                self.show_landing = false;
-                ctx.request_repaint();
+                // Open the workspace creator overlay (works on both native and WASM)
+                // On WASM, only the endpoint step is shown
+                self.workspace_creator.open();
             }
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and add demo panes for the tutorial
@@ -746,21 +824,23 @@ impl Workspace {
                         "HTTP Requests",
                         "",
                     ),
+                    (
+                        "sum(rate(http_requests_total[5m])) by_endpoint",
+                        "Requests by Endpoint",
+                        "req/s",
+                    ),
                     ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
                     (
                         "memory_used_bytes{env=\"prod\", service=\"api\"}",
                         "Memory Used",
                         "MB",
                     ),
-                    (
-                        "sum(rate(http_requests_total[5m])) by_endpoint",
-                        "Requests by Endpoint",
-                        "req/s",
-                    ),
                 ];
                 for (query, name, unit) in demo_queries {
                     self.add_demo_query_pane(query, name, unit);
                 }
+                // Stack panes vertically by default for tutorial
+                self.split_panes_horizontal();
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
             }
@@ -804,6 +884,31 @@ impl Workspace {
         self.tutorial_overlay.set_theme(app_state.theme);
         self.tutorial_overlay.show(ctx);
 
+        // Show workspace creator overlay modal
+        self.workspace_creator.set_theme(app_state.theme);
+        match self.workspace_creator.show(ctx) {
+            WorkspaceCreatorResult::Created {
+                name,
+                endpoint,
+                git_repo,
+            } => {
+                // Set pending connection endpoint to apply
+                self.pending_connection_endpoint = Some(endpoint);
+                // Store git repo path for codebase integration (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.pending_git_repo = git_repo;
+                }
+                #[cfg(target_arch = "wasm32")]
+                let _ = git_repo; // Silence unused warning on WASM
+                self.show_landing = false;
+                ctx.request_repaint();
+                // Return action to rename and save the workspace
+                return WorkspaceAction::RenameAndSaveWorkspace(name);
+            }
+            WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
+        }
+
         // Show diagnostics overlay modal
         self.diagnostics_pane.set_theme(app_state.theme);
         self.diagnostics_pane.show_overlay(ctx);
@@ -834,35 +939,19 @@ impl Workspace {
             });
         }
 
-        self.handle_command_result(cmd_result, ctx)
+        self.handle_command_result(cmd_result)
     }
 
     /// Handle a command result from the command palette
-    fn handle_command_result(
-        &mut self,
-        result: CommandResult,
-        ctx: &egui::Context,
-    ) -> WorkspaceAction {
+    fn handle_command_result(&mut self, result: CommandResult) -> WorkspaceAction {
         match result {
             CommandResult::ToggleTheme => WorkspaceAction::ToggleTheme,
             CommandResult::SetTheme(theme) => WorkspaceAction::SetTheme(theme),
-            CommandResult::OpenSearch => {
-                self.open_metrics_finder();
-                WorkspaceAction::None
-            }
+            CommandResult::SetFont(font) => WorkspaceAction::SetFont(font),
             CommandResult::ShowInfo => {
                 self.info_overlay.open();
                 WorkspaceAction::None
             }
-            CommandResult::ShowHelp => WorkspaceAction::ShowHelp,
-            CommandResult::CloseTab => {
-                // Close the focused tile
-                if let Some(tile_id) = self.behavior.focused_tile() {
-                    self.close_tile(tile_id);
-                }
-                WorkspaceAction::None
-            }
-            CommandResult::QuitApp => WorkspaceAction::QuitApp,
             CommandResult::SplitHorizontal => {
                 self.split_panes_horizontal();
                 WorkspaceAction::None
@@ -871,136 +960,23 @@ impl Workspace {
                 self.split_panes_vertical();
                 WorkspaceAction::None
             }
-            CommandResult::ToggleZenMode => {
-                self.toggle_zen_mode();
-                WorkspaceAction::None
-            }
-            CommandResult::ToggleFullscreen => {
-                self.toggle_fullscreen();
-                WorkspaceAction::None
-            }
-            CommandResult::ShowLandingPage => {
-                self.show_landing = true;
-                // Close all charts to trigger landing page display
-                self.close_all_charts();
-                WorkspaceAction::None
-            }
+            CommandResult::QuitWorkspace => WorkspaceAction::CloseWorkspaceTab,
+            CommandResult::WriteWorkspace => WorkspaceAction::SaveWorkspace(None),
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
-            CommandResult::SaveWorkspace(name) => WorkspaceAction::SaveWorkspace(name),
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
-            CommandResult::ListWorkspaces => WorkspaceAction::ListWorkspaces,
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
-            CommandResult::ToggleCommits => {
-                self.toggle_commits_on_focused();
-                WorkspaceAction::None
-            }
-            CommandResult::Connect(endpoint) => {
-                self.query_executor.connect_prometheus(&endpoint, ctx);
-                // Immediately start fetching metric names and label names
-                self.query_executor.fetch_metric_names(ctx);
-                self.query_executor.fetch_label_names(ctx);
-                // No notification here - health check result will show success/failure
-                WorkspaceAction::None
-            }
-            CommandResult::Disconnect => {
-                self.query_executor.disconnect();
-                WorkspaceAction::Notify {
-                    level: "info".to_string(),
-                    message: "Disconnected from Prometheus, using demo data".to_string(),
+            CommandResult::SetProvider(provider_name) => {
+                use crate::components::util::AiProvider;
+                if let Some(provider) = AiProvider::parse(&provider_name) {
+                    self.agent_panel.set_provider(provider);
+                    log::info!("Set AI provider to: {}", provider.display_name());
+                } else {
+                    log::warn!("Unknown AI provider: {provider_name}. Use 'claude' or 'codex'.");
                 }
-            }
-            CommandResult::ToggleDiagnostics => {
-                self.toggle_diagnostics();
-                WorkspaceAction::None
-            }
-            CommandResult::ShowDiagnostics => {
-                self.show_diagnostics();
-                WorkspaceAction::None
-            }
-            CommandResult::HideDiagnostics => {
-                self.hide_diagnostics();
-                WorkspaceAction::None
-            }
-            CommandResult::ClearDiagnostics => {
-                self.clear_diagnostics();
-                WorkspaceAction::Notify {
-                    level: "info".to_string(),
-                    message: "Cleared all diagnostics".to_string(),
-                }
-            }
-            CommandResult::NextDiagnostic => {
-                self.diagnostics_pane.select_next();
-                // Show notification with current diagnostic
-                if let Some(pane_id) = self.diagnostics_pane.selected_pane_id() {
-                    // Focus the pane associated with the diagnostic
-                    if let Some(tile_id) = self.find_tile_by_pane_id(pane_id) {
-                        self.behavior.set_focused_tile(Some(tile_id));
-                    }
-                }
-                WorkspaceAction::None
-            }
-            CommandResult::PrevDiagnostic => {
-                self.diagnostics_pane.select_prev();
-                // Focus the pane associated with the diagnostic
-                if let Some(pane_id) = self.diagnostics_pane.selected_pane_id() {
-                    if let Some(tile_id) = self.find_tile_by_pane_id(pane_id) {
-                        self.behavior.set_focused_tile(Some(tile_id));
-                    }
-                }
-                WorkspaceAction::None
-            }
-            CommandResult::NewWorkspaceTab(name) => WorkspaceAction::NewWorkspaceTab(name),
-            CommandResult::CloseWorkspaceTab => WorkspaceAction::CloseWorkspaceTab,
-            CommandResult::NextWorkspaceTab => WorkspaceAction::NextWorkspaceTab,
-            CommandResult::PrevWorkspaceTab => WorkspaceAction::PrevWorkspaceTab,
-            CommandResult::OpenTutorial => {
-                // Hide landing page and add multiple demo panes so users have something to interact with
-                if self.show_landing || self.open_charts.is_empty() {
-                    self.show_landing = false;
-                    // Add multiple demo query panes with PromQL label selectors
-                    // These use env="prod" so users can practice multi-edit to change to "staging"
-                    let demo_queries = [
-                        (
-                            "http_requests_total{env=\"prod\", service=\"api\"}",
-                            "HTTP Requests",
-                            "",
-                        ),
-                        ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
-                        (
-                            "memory_used_bytes{env=\"prod\", service=\"api\"}",
-                            "Memory Used",
-                            "MB",
-                        ),
-                        (
-                            "sum(rate(http_requests_total[5m])) by_endpoint",
-                            "Requests by Endpoint",
-                            "req/s",
-                        ),
-                    ];
-                    for (query, name, unit) in demo_queries {
-                        self.add_demo_query_pane(query, name, unit);
-                    }
-                }
-                self.tutorial_overlay.open();
-                ctx.request_repaint();
                 WorkspaceAction::None
             }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
-            }
-        }
-    }
-
-    /// Toggle commit markers on the focused chart
-    fn toggle_commits_on_focused(&mut self) {
-        if let Some(tile_id) = self.behavior.focused_tile() {
-            if let Some(egui_tiles::Tile::Pane(component)) =
-                self.viewport_tree.tiles.get_mut(tile_id)
-            {
-                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                    query_pane.toggle_commits();
-                    log::debug!("Toggled commit markers");
-                }
             }
         }
     }
@@ -1289,6 +1265,326 @@ impl Workspace {
     }
 
     // =========================================================================
+    // Agent Mode (AI-Assisted Interaction)
+    // =========================================================================
+
+    /// Check if agent mode is active
+    pub fn is_agent_mode(&self) -> bool {
+        self.agent_mode_active
+    }
+
+    /// Enter agent mode, optionally with panes from visual selection.
+    /// Shows quick command hints in the input bar.
+    pub fn enter_agent_mode(&mut self) {
+        self.enter_agent_mode_impl(false);
+    }
+
+    /// Enter agent mode and go directly to typing mode (no quick command hints).
+    /// Used when entering via `aa` for freeform input.
+    pub fn enter_agent_mode_typing(&mut self) {
+        self.enter_agent_mode_impl(true);
+    }
+
+    /// Internal implementation of enter_agent_mode
+    fn enter_agent_mode_impl(&mut self, start_typing: bool) {
+        // Transfer visual selection to agent context if in visual mode
+        if let Some(visual_state) = &self.visual_multi_state {
+            self.agent_context_panes = visual_state.selected_tile_ids.clone();
+        }
+
+        // Exit visual mode if active
+        self.visual_multi_state = None;
+
+        // Enter agent mode
+        self.agent_mode_active = true;
+        if start_typing {
+            self.agent_input_bar.reset_to_typing();
+        } else {
+            self.agent_input_bar.reset();
+        }
+
+        // Build context pane info
+        self.sync_agent_context_panes();
+
+        log::debug!(
+            "Entered agent mode with {} context panes (typing={})",
+            self.agent_context_panes.len(),
+            start_typing
+        );
+    }
+
+    /// Enter agent mode and immediately execute a quick command.
+    /// This is used for vim-style operator patterns like `aw`, `ae`, etc.
+    pub fn enter_agent_mode_with_command(&mut self, command: QuickCommand) {
+        // Enter agent mode first
+        self.enter_agent_mode();
+
+        // Build context from selected panes (or focused pane if none selected)
+        if self.agent_context_panes.is_empty() {
+            if let Some(tile_id) = self.behavior.focused_tile() {
+                self.agent_context_panes.insert(tile_id);
+                self.sync_agent_context_panes();
+            }
+        }
+
+        // Build context info for the query
+        let context_info: Vec<String> = self
+            .agent_context_panes
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        let name = query_pane.name();
+                        let query_text = query_pane.query();
+                        return Some(format!("Pane '{name}': {query_text}"));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        let context = if context_info.is_empty() {
+            None
+        } else {
+            Some(format!("Context panes:\n{}", context_info.join("\n")))
+        };
+
+        // Send the quick command query
+        self.agent_input_bar
+            .send_query(command.prompt(), context.as_deref());
+
+        log::debug!(
+            "Agent operator command: {:?} with {} context panes",
+            command,
+            self.agent_context_panes.len()
+        );
+    }
+
+    /// Exit agent mode
+    pub fn exit_agent_mode(&mut self) {
+        self.agent_mode_active = false;
+        self.agent_context_panes.clear();
+        log::debug!("Exited agent mode");
+    }
+
+    /// Sync agent context panes with the input bar display
+    fn sync_agent_context_panes(&mut self) {
+        let context_panes: Vec<ContextPane> = self
+            .agent_context_panes
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        return Some(ContextPane {
+                            tile_id,
+                            name: query_pane.name().to_string(),
+                        });
+                    }
+                }
+                None
+            })
+            .collect();
+
+        self.agent_input_bar.set_context_panes(context_panes);
+    }
+
+    /// Add the focused pane to agent context
+    pub fn add_focused_to_agent_context(&mut self) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            self.agent_context_panes.insert(tile_id);
+            self.sync_agent_context_panes();
+        }
+    }
+
+    /// Remove the focused pane from agent context
+    pub fn remove_focused_from_agent_context(&mut self) {
+        if let Some(tile_id) = self.behavior.focused_tile() {
+            self.agent_context_panes.remove(&tile_id);
+            self.sync_agent_context_panes();
+        }
+    }
+
+    /// Clear all agent context panes
+    pub fn clear_agent_context(&mut self) {
+        self.agent_context_panes.clear();
+        self.agent_input_bar.clear_context();
+    }
+
+    /// Get the number of panes in agent context
+    pub fn agent_context_count(&self) -> usize {
+        self.agent_context_panes.len()
+    }
+
+    /// Show the agent input bar and handle its results.
+    /// Called from the app's bottom panel to render above the status line.
+    pub fn show_agent_input_bar(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        theme: AppTheme,
+    ) {
+        if !self.agent_mode_active {
+            return;
+        }
+
+        self.agent_input_bar.set_theme(theme);
+        self.agent_input_bar
+            .set_provider_name(self.agent_panel.provider().display_name());
+
+        // Provide available metrics for @ mention autocomplete
+        let metric_names = self.query_executor.metric_names().to_vec();
+        self.agent_input_bar.set_available_metrics(metric_names);
+
+        let result = self.agent_input_bar.show(ui);
+        self.handle_agent_input_result(result, ctx);
+    }
+
+    /// Show the viewport filter bar and handle its results.
+    /// Called from the app's bottom panel to render above the status line.
+    pub fn show_viewport_filter_bar(&mut self, ui: &mut egui::Ui) {
+        match self.viewport_filter.show(ui) {
+            ViewportFilterResult::Applied(pattern) => {
+                log::debug!("Workspace filter applied: {pattern}");
+            }
+            ViewportFilterResult::Cleared => {
+                log::debug!("Workspace filter cleared");
+            }
+            ViewportFilterResult::None => {}
+        }
+    }
+
+    /// Handle results from the agent input bar
+    fn handle_agent_input_result(&mut self, result: AgentInputBarResult, ctx: &egui::Context) {
+        // Handle exit request (Escape key)
+        if result.exit_requested {
+            self.exit_agent_mode();
+            ctx.request_repaint();
+            return;
+        }
+
+        // Handle context operations
+        if result.add_pane_to_context {
+            self.add_focused_to_agent_context();
+        }
+        if result.remove_pane_from_context {
+            self.remove_focused_from_agent_context();
+        }
+        if result.clear_context {
+            self.clear_agent_context();
+        }
+
+        // Handle undo - for now just log, will implement with agent commands
+        if result.undo_requested {
+            log::debug!("Agent undo requested");
+        }
+
+        // Handle quick commands
+        if let Some(quick_cmd) = result.quick_command {
+            log::debug!("Agent quick command: {quick_cmd:?}");
+            self.send_agent_query_with_context(quick_cmd.prompt(), ctx);
+        }
+
+        // Handle natural language query
+        if let Some(query) = result.query {
+            log::debug!("Agent query: {query}");
+            self.send_agent_query_with_context(&query, ctx);
+        }
+
+        // Handle Enya commands from AI response (e.g., create_pane, set_time_range)
+        // Convert inline commands to create_pane since Agent Input Bar doesn't support inline rendering
+        if !result.commands.is_empty() {
+            use crate::components::AgentCommand;
+
+            let converted_commands: Vec<AgentCommand> = result
+                .commands
+                .into_iter()
+                .map(|cmd| match cmd {
+                    // Convert ShowInlineChart to CreatePane (Agent Input Bar doesn't render inline)
+                    AgentCommand::ShowInlineChart {
+                        query,
+                        title,
+                        time_range: _,
+                        height: _,
+                    } => {
+                        log::debug!("Converting ShowInlineChart to CreatePane for Agent Input Bar");
+                        AgentCommand::CreatePane { query, title }
+                    }
+                    // Pass through all other commands unchanged
+                    other => other,
+                })
+                .collect();
+
+            log::debug!(
+                "Executing {} enya command(s) from agent input bar",
+                converted_commands.len()
+            );
+            let executed = self.handle_agent_commands(converted_commands, ctx);
+            // Only auto-exit if commands were executed AND there's no response text
+            let has_response_text = !self.agent_input_bar.display_text().is_empty();
+            if executed && !has_response_text {
+                log::info!("Agent command executed (no response text), exiting agent mode");
+                self.exit_agent_mode();
+            }
+        }
+    }
+
+    /// Send a query to the agent with current context panes
+    fn send_agent_query_with_context(&mut self, query: &str, ctx: &egui::Context) {
+        // Build full editor context (includes available commands documentation)
+        let editor_context = self.build_editor_context();
+        let editor_context_block = editor_context
+            .as_ref()
+            .map(|c| c.to_prompt_block())
+            .unwrap_or_default();
+
+        // Build context from selected panes
+        let context_info: Vec<String> = self
+            .agent_context_panes
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        // Get pane details for context
+                        let name = query_pane.name();
+                        let query_text = query_pane.query();
+                        return Some(format!("Pane '{name}': {query_text}"));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        // Build full context string with editor context and pane context
+        let context = {
+            let mut parts = vec![editor_context_block];
+            if !context_info.is_empty() {
+                parts.push(format!("\n## Selected Panes\n{}", context_info.join("\n")));
+            }
+            Some(parts.join("\n"))
+        };
+
+        // Send query directly to input bar (it handles AI communication)
+        log::info!(
+            "Sending query to agent: '{}' with context ({} chars)",
+            query,
+            context.as_ref().map(|c| c.len()).unwrap_or(0)
+        );
+        self.agent_input_bar.send_query(query, context.as_deref());
+
+        ctx.request_repaint();
+        log::debug!(
+            "Sent query to agent with {} context panes",
+            self.agent_context_panes.len()
+        );
+    }
+
+    // =========================================================================
     // Codebase Integration (Go to Definition)
     // =========================================================================
 
@@ -1404,6 +1700,59 @@ impl Workspace {
             .open_error(metric_name, "Go to alert is not available in browser");
     }
 
+    /// Open the source preview for an alert rule by its name.
+    ///
+    /// Looks up the alert by name in the codebase index and shows the
+    /// source file context around the alert definition.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_alert_definition(&mut self, alert_name: &str) {
+        use crate::codebase::CodebaseStatus;
+
+        // Check if codebase is ready
+        if !self.codebase_manager.status().is_ready() {
+            let status_msg = match self.codebase_manager.status() {
+                CodebaseStatus::None => "No codebase configured",
+                CodebaseStatus::Cloning { .. } => "Codebase is being cloned...",
+                CodebaseStatus::Fetching { .. } => "Fetching updates...",
+                CodebaseStatus::Indexing { .. } => "Indexing codebase...",
+                CodebaseStatus::Ready { .. } => unreachable!(),
+                CodebaseStatus::Error { message, .. } => message,
+            };
+            self.source_preview.open_error(alert_name, status_msg);
+            return;
+        }
+
+        // Look up alert in the index by name
+        let Some(index) = self.codebase_manager.index() else {
+            self.source_preview
+                .open_error(alert_name, "Codebase index not available");
+            return;
+        };
+
+        let Some(alert) = index.find_alert_by_name(alert_name) else {
+            self.source_preview.open_error(
+                alert_name,
+                &format!("Alert '{alert_name}' not found in codebase"),
+            );
+            return;
+        };
+
+        self.source_preview.open_alert(alert, &index.repo_path);
+        log::debug!(
+            "Opening alert preview for '{}' at {}:{}",
+            alert.name,
+            alert.file.display(),
+            alert.line
+        );
+    }
+
+    /// WASM stub for open_alert_definition - shows not available message.
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_alert_definition(&mut self, alert_name: &str) {
+        self.source_preview
+            .open_error(alert_name, "Go to alert is not available in browser");
+    }
+
     /// Get the metric name from the currently focused pane (if it's a QueryPane).
     ///
     /// Parses the saved PromQL query to extract the primary metric name.
@@ -1434,34 +1783,257 @@ impl Workspace {
 
     /// Get the current codebase status for StatusLine display.
     ///
-    /// Returns None if no codebase operation is active, or a status string
-    /// like "Cloning repo...", "Indexing [5/42]...", "Codebase ready", or "Error: ...".
+    /// Returns None if no codebase operation is active, or a `CodebaseStatusInfo`
+    /// with details about the current operation (cloning, indexing, ready, error).
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn codebase_status_text(&self) -> Option<String> {
+    pub fn codebase_status_info(
+        &self,
+    ) -> Option<crate::components::widget::status_line::CodebaseStatusInfo> {
         use crate::codebase::CodebaseStatus;
+        use crate::components::widget::status_line::CodebaseStatusInfo;
+
         match self.codebase_manager.status() {
             CodebaseStatus::None => None,
-            CodebaseStatus::Cloning { .. } => Some("Cloning repo...".to_string()),
-            CodebaseStatus::Fetching { .. } => Some("Fetching...".to_string()),
-            CodebaseStatus::Indexing { current, total, .. } => {
-                if *total > 0 {
-                    Some(format!("Indexing [{current}/{total}]..."))
+            CodebaseStatus::Cloning { .. } => Some(CodebaseStatusInfo {
+                message: "Cloning repo...".to_string(),
+                is_loading: true,
+                ..Default::default()
+            }),
+            CodebaseStatus::Fetching { .. } => Some(CodebaseStatusInfo {
+                message: "Fetching...".to_string(),
+                is_loading: true,
+                ..Default::default()
+            }),
+            CodebaseStatus::Indexing {
+                current,
+                total,
+                current_file,
+                language,
+                ..
+            } => {
+                let message = if *total > 0 {
+                    let remaining = total.saturating_sub(*current);
+                    match (current_file, remaining) {
+                        (Some(file), 0) => format!("Indexing {file}"),
+                        (Some(file), n) => format!("Indexing {file} + {n} more"),
+                        (None, _) => format!("Indexing [{current}/{total}]..."),
+                    }
                 } else {
-                    Some("Indexing...".to_string())
-                }
+                    "Indexing...".to_string()
+                };
+                Some(CodebaseStatusInfo {
+                    message,
+                    language: language.clone(),
+                    is_loading: true,
+                    ..Default::default()
+                })
             }
-            CodebaseStatus::Ready { .. } => {
-                let count = self.codebase_manager.all_metrics().len();
-                Some(format!("{count} metrics indexed"))
-            }
-            CodebaseStatus::Error { message, .. } => Some(format!("Error: {message}")),
+            CodebaseStatus::Ready {
+                repo_name,
+                metrics_count,
+                language,
+                ..
+            } => Some(CodebaseStatusInfo {
+                message: format!("{metrics_count} metrics"),
+                repo_name: Some(repo_name.clone()),
+                metrics_count: Some(*metrics_count),
+                language: language.clone(),
+                is_loading: false,
+                is_error: false,
+            }),
+            CodebaseStatus::Error { message, .. } => Some(CodebaseStatusInfo {
+                message: format!("Error: {message}"),
+                is_loading: false,
+                is_error: true,
+                ..Default::default()
+            }),
         }
     }
 
     /// Get the current codebase status for StatusLine display (WASM stub).
     #[cfg(target_arch = "wasm32")]
-    pub fn codebase_status_text(&self) -> Option<String> {
+    pub fn codebase_status_info(
+        &self,
+    ) -> Option<crate::components::widget::status_line::CodebaseStatusInfo> {
         None
+    }
+
+    // =========================================================================
+    // Agent Panel Context Building
+    // =========================================================================
+
+    /// Build and update the EditorContext for the agent panel.
+    ///
+    /// This provides the AI agent with awareness of the current editor state,
+    /// including connection info, available metrics, codebase status, and
+    /// dashboard configuration.
+    ///
+    /// Uses helper functions from `agent_context` module to build individual
+    /// context pieces, ensuring consistency with `build_editor_context`.
+    fn update_agent_context(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        use crate::components::overlay::agent_context::{CommitSummary, build_codebase_context};
+        use crate::components::overlay::agent_context::{
+            EditorContext, build_connection_context, build_dashboard_context,
+        };
+
+        // Build connection context using shared helper
+        let connection = build_connection_context(&self.query_executor);
+
+        // Get available metrics (limited to top 50 in EditorContext)
+        let metrics: Vec<String> = self.query_executor.metric_names().to_vec();
+
+        // Build codebase context (native only) - includes recent commits
+        #[cfg(not(target_arch = "wasm32"))]
+        let codebase = {
+            use crate::codebase::CodebaseStatus;
+            match self.codebase_manager.status() {
+                CodebaseStatus::Ready { .. } => {
+                    let repo_path = self
+                        .codebase_manager
+                        .index()
+                        .map(|idx| idx.repo_path.display().to_string())
+                        .unwrap_or_default();
+                    let metric_count = self.codebase_manager.all_metrics().len();
+                    let file_count = self
+                        .codebase_manager
+                        .index()
+                        .map(|idx| idx.metrics.len())
+                        .unwrap_or(0);
+
+                    // Get recent commits if available
+                    let recent_commits = self
+                        .codebase_manager
+                        .index()
+                        .and_then(|_idx| {
+                            let time_range = self.time_range_toolbar.time_range();
+                            self.codebase_manager
+                                .get_commits(time_range.start, time_range.end)
+                                .map(|commits| {
+                                    commits
+                                        .iter()
+                                        .take(5)
+                                        .map(|c| CommitSummary {
+                                            hash: c.short_hash().to_string(),
+                                            message: c.message.clone(),
+                                        })
+                                        .collect::<Vec<_>>()
+                                })
+                        })
+                        .unwrap_or_default();
+
+                    Some(build_codebase_context(
+                        repo_path,
+                        metric_count,
+                        file_count,
+                        recent_commits,
+                    ))
+                }
+                _ => None,
+            }
+        };
+
+        // Build dashboard context using shared helper
+        let dashboard = {
+            let time_range = self.time_range_toolbar.time_range();
+            let pane_count = self.get_pane_tile_ids().len();
+            let queries = self.collect_pane_queries();
+
+            build_dashboard_context(time_range.preset.label().to_string(), pane_count, queries)
+        };
+
+        // Build the full context
+        let context = EditorContext::new()
+            .with_connection(connection)
+            .with_metrics(metrics)
+            .with_dashboard(dashboard);
+
+        // Add codebase context if available
+        #[cfg(not(target_arch = "wasm32"))]
+        let context = if let Some(cb) = codebase {
+            context.with_codebase(cb)
+        } else {
+            context
+        };
+
+        // Update the agent panel's context
+        self.agent_panel.set_context(context);
+    }
+
+    /// Build the editor context for AI agents.
+    ///
+    /// This can be used to provide context to agent panes as well as the panel.
+    /// Unlike `update_agent_context`, this version does not fetch recent commits
+    /// (which would require a mutable borrow of the codebase manager).
+    ///
+    /// Uses helper functions from `agent_context` module to build individual
+    /// context pieces, ensuring consistency with `update_agent_context`.
+    fn build_editor_context(&self) -> Option<crate::components::EditorContext> {
+        #[cfg(not(target_arch = "wasm32"))]
+        use crate::components::overlay::agent_context::build_codebase_context;
+        use crate::components::overlay::agent_context::{
+            EditorContext, build_connection_context, build_dashboard_context,
+        };
+
+        // Build connection context using shared helper
+        let connection = build_connection_context(&self.query_executor);
+
+        // Get available metrics
+        let metrics: Vec<String> = self.query_executor.metric_names().to_vec();
+
+        // Build codebase context (native only) - skips commits (requires mutable borrow)
+        #[cfg(not(target_arch = "wasm32"))]
+        let codebase = {
+            use crate::codebase::CodebaseStatus;
+            match self.codebase_manager.status() {
+                CodebaseStatus::Ready { .. } => {
+                    let repo_path = self
+                        .codebase_manager
+                        .index()
+                        .map(|idx| idx.repo_path.display().to_string())
+                        .unwrap_or_default();
+                    let metric_count = self.codebase_manager.all_metrics().len();
+                    let file_count = self
+                        .codebase_manager
+                        .index()
+                        .map(|idx| idx.metrics.len())
+                        .unwrap_or(0);
+
+                    // Note: We skip commits here since get_commits requires &mut self
+                    Some(build_codebase_context(
+                        repo_path,
+                        metric_count,
+                        file_count,
+                        Vec::new(),
+                    ))
+                }
+                _ => None,
+            }
+        };
+
+        // Build dashboard context using shared helper
+        let dashboard = {
+            let time_range = self.time_range_toolbar.time_range();
+            let pane_count = self.get_pane_tile_ids().len();
+            let queries = self.collect_pane_queries();
+
+            build_dashboard_context(time_range.preset.label().to_string(), pane_count, queries)
+        };
+
+        // Build the full context
+        let context = EditorContext::new()
+            .with_connection(connection)
+            .with_metrics(metrics)
+            .with_dashboard(dashboard);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let context = if let Some(cb) = codebase {
+            context.with_codebase(cb)
+        } else {
+            context
+        };
+
+        Some(context)
     }
 
     /// Sync git commit history to all time-series panes.

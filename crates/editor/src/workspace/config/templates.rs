@@ -156,6 +156,7 @@ endpoint = "http://localhost:9090"
 [codebase]
 url = "git@github.com:polygon-io/rust-app-atlas.git"
 branch = "main"
+language = "rust"
 
 [view]
 theme = "dark"

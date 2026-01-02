@@ -3,8 +3,6 @@
 //! This module provides functions to populate visualizations with
 //! demo data when not connected to a real data source.
 
-use egui::Color32;
-
 use crate::ui::palette;
 
 use super::super::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
@@ -82,7 +80,7 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         Series::new(query)
             .with_tag("host", "server1")
             .with_points(points1)
-            .with_color(Color32::from_rgb(59, 130, 246)),
+            .with_color(palette::chart::PALETTE[0]), // Sky blue
     );
 
     // Series 2
@@ -104,7 +102,7 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         Series::new(query)
             .with_tag("host", "server2")
             .with_points(points2)
-            .with_color(Color32::from_rgb(16, 185, 129)),
+            .with_color(palette::chart::PALETTE[6]), // Emerald
     );
 
     // Add demo commit markers
@@ -332,21 +330,8 @@ fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         "/api/notifications",
     ];
 
-    // Colors for each series
-    let colors = [
-        Color32::from_rgb(99, 179, 237),  // Sky blue
-        Color32::from_rgb(129, 140, 248), // Indigo
-        Color32::from_rgb(94, 234, 212),  // Teal
-        Color32::from_rgb(192, 132, 252), // Purple
-        Color32::from_rgb(251, 191, 36),  // Amber
-        Color32::from_rgb(244, 114, 182), // Pink
-        Color32::from_rgb(52, 211, 153),  // Emerald
-        Color32::from_rgb(248, 113, 113), // Coral
-        Color32::from_rgb(163, 230, 53),  // Lime
-        Color32::from_rgb(251, 146, 60),  // Orange
-        Color32::from_rgb(147, 197, 253), // Light blue
-        Color32::from_rgb(196, 181, 253), // Light purple
-    ];
+    // Use centralized chart palette from design system
+    let colors = palette::chart::PALETTE;
 
     for (i, endpoint) in endpoints.iter().enumerate() {
         let hash = endpoint

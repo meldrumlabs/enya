@@ -251,6 +251,7 @@ impl TimeRangeToolbar {
     }
 
     /// Render the toolbar
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         self.changed = false;
         let text_color = text_color(self.theme);
@@ -260,10 +261,8 @@ impl TimeRangeToolbar {
             AppTheme::Light => palette::accent::LIGHT,
             AppTheme::Dark => palette::accent::PRIMARY,
         };
-        let selected_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::ELEVATED,
-            AppTheme::Dark => palette::accent::MUTED,
-        };
+        // Use subtle selection background like landing page
+        let selected_bg = accent_color.gamma_multiply(0.12);
 
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;

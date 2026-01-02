@@ -129,6 +129,7 @@ impl Sparkline {
 }
 
 /// Mode indicator for the status line (similar to vim modes)
+/// Note: Zen and Fullscreen are display preferences, not modes - they stay in Normal mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StatusMode {
     /// Normal dashboard mode
@@ -140,16 +141,12 @@ pub enum StatusMode {
     Command,
     /// Search mode (when fuzzy finder is open)
     Search,
-    /// Filter mode (when viewport filter input is open)
-    Filter,
-    /// Zen mode (distraction-free view)
-    Zen,
-    /// Fullscreen mode (single pane maximized)
-    Fullscreen,
     /// Diff mode (comparing time periods)
     Diff,
     /// Visual multi-select mode (selecting multiple panes)
     VisualMulti,
+    /// Agent mode (AI-assisted interaction)
+    Agent,
 }
 
 impl StatusMode {
@@ -160,11 +157,9 @@ impl StatusMode {
             Self::Home => "HOME",
             Self::Command => "COMMAND",
             Self::Search => "SEARCH",
-            Self::Filter => "FILTER",
-            Self::Zen => "ZEN",
-            Self::Fullscreen => "FULLSCREEN",
             Self::Diff => "DIFF",
             Self::VisualMulti => "V-MULTI",
+            Self::Agent => "AGENT",
         }
     }
 
@@ -173,12 +168,12 @@ impl StatusMode {
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
             Self::Normal => match theme {
-                AppTheme::Light => palette::accent::LIGHT,
-                AppTheme::Dark => palette::accent::PRIMARY,
+                AppTheme::Light => palette::accent::LIGHT, // Emerald - brand color
+                AppTheme::Dark => palette::accent::PRIMARY, // Emerald
             },
             Self::Home => match theme {
-                AppTheme::Light => palette::accent::LIGHT,
-                AppTheme::Dark => palette::accent::PRIMARY,
+                AppTheme::Light => palette::accent::LIGHT, // Emerald - brand color
+                AppTheme::Dark => palette::accent::PRIMARY, // Emerald
             },
             Self::Command => match theme {
                 AppTheme::Light => palette::accent::LIGHT,
@@ -188,18 +183,6 @@ impl StatusMode {
                 AppTheme::Light => Color32::from_rgb(140, 140, 150), // Muted gray
                 AppTheme::Dark => Color32::from_rgb(180, 180, 190),  // Light gray
             },
-            Self::Filter => match theme {
-                AppTheme::Light => Color32::from_rgb(220, 140, 60), // Orange
-                AppTheme::Dark => Color32::from_rgb(245, 158, 66),  // Bright orange
-            },
-            Self::Zen => match theme {
-                AppTheme::Light => Color32::from_rgb(120, 100, 160), // Soft purple
-                AppTheme::Dark => Color32::from_rgb(180, 150, 220),  // Light purple
-            },
-            Self::Fullscreen => match theme {
-                AppTheme::Light => Color32::from_rgb(80, 140, 160), // Teal
-                AppTheme::Dark => Color32::from_rgb(120, 200, 220), // Bright cyan
-            },
             Self::Diff => match theme {
                 AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue
                 AppTheme::Dark => Color32::from_rgb(96, 165, 250),  // Bright blue
@@ -207,6 +190,10 @@ impl StatusMode {
             Self::VisualMulti => match theme {
                 AppTheme::Light => palette::accent::LIGHT, // Emerald - matches brand
                 AppTheme::Dark => palette::accent::HOVER,  // Bright emerald
+            },
+            Self::Agent => match theme {
+                AppTheme::Light => Color32::from_rgb(245, 158, 11), // Amber
+                AppTheme::Dark => Color32::from_rgb(251, 191, 36),  // Bright amber
             },
         }
     }
@@ -219,19 +206,34 @@ impl StatusMode {
             Self::Normal | Self::Home | Self::Command | Self::VisualMulti => {
                 Color32::from_rgb(10, 10, 10)
             }
+            // Amber backgrounds - use dark text for contrast
+            Self::Agent => Color32::from_rgb(40, 44, 52),
             // Gray backgrounds in light theme need light text, dark theme need dark text
             Self::Search => match theme {
                 AppTheme::Light => Color32::from_rgb(248, 248, 242),
                 AppTheme::Dark => Color32::from_rgb(40, 44, 52),
             },
-            // Orange backgrounds - use dark text for contrast
-            Self::Filter => Color32::from_rgb(40, 44, 52),
-            // Cyan backgrounds - use dark text for contrast
-            Self::Zen | Self::Fullscreen => Color32::from_rgb(40, 44, 52),
             // Blue backgrounds - use white text
             Self::Diff => Color32::from_rgb(255, 255, 255),
         }
     }
+}
+
+/// Codebase status information for status line display
+#[derive(Debug, Clone, Default)]
+pub struct CodebaseStatusInfo {
+    /// Status message (e.g., "Cloning...", "Indexing main.rs + 5 more", "42 metrics")
+    pub message: String,
+    /// Repository name (when ready)
+    pub repo_name: Option<String>,
+    /// Number of metrics discovered (when ready)
+    pub metrics_count: Option<usize>,
+    /// Language being used for scanning
+    pub language: Option<String>,
+    /// Whether an operation is in progress
+    pub is_loading: bool,
+    /// Whether there's an error
+    pub is_error: bool,
 }
 
 /// Configuration for a status line segment
@@ -289,8 +291,12 @@ pub struct StatusLine {
     last_refresh: Option<std::time::Instant>,
     /// Diagnostics counts (errors, warnings, infos)
     diagnostics_count: (usize, usize, usize),
-    /// Codebase operation status (Cloning..., Indexing..., Ready)
-    codebase_status: Option<String>,
+    /// Codebase operation status
+    codebase_status: Option<CodebaseStatusInfo>,
+    /// Whether zen mode is active (display preference badge)
+    is_zen_mode: bool,
+    /// Whether fullscreen mode is active (display preference badge)
+    is_fullscreen: bool,
 }
 
 impl Default for StatusLine {
@@ -308,6 +314,8 @@ impl Default for StatusLine {
             last_refresh: None,
             diagnostics_count: (0, 0, 0),
             codebase_status: None,
+            is_zen_mode: false,
+            is_fullscreen: false,
         }
     }
 }
@@ -368,9 +376,19 @@ impl StatusLine {
         self.diagnostics_count = (errors, warnings, infos);
     }
 
-    /// Set codebase status (e.g., "Cloning repo...", "Indexing...", "Codebase ready")
-    pub fn set_codebase_status(&mut self, status: Option<String>) {
+    /// Set codebase status info
+    pub fn set_codebase_status(&mut self, status: Option<CodebaseStatusInfo>) {
         self.codebase_status = status;
+    }
+
+    /// Set zen mode state (for display preference badge)
+    pub fn set_zen_mode(&mut self, is_zen: bool) {
+        self.is_zen_mode = is_zen;
+    }
+
+    /// Set fullscreen state (for display preference badge)
+    pub fn set_fullscreen(&mut self, is_fullscreen: bool) {
+        self.is_fullscreen = is_fullscreen;
     }
 
     /// Mark the last refresh time (call when data is updated)
@@ -422,14 +440,37 @@ impl StatusLine {
     }
 
     /// Render the status line
+    #[profiling::function]
     pub fn show(&self, ui: &mut Ui) {
-        let height = 24.0;
-        let padding = 6.0;
+        let height = 26.0; // Slightly taller for breathing room
+        let padding = 8.0; // More generous padding
+
+        // Premium status line styling
+        let status_bg = match self.theme {
+            AppTheme::Light => palette::light_bg::SURFACE,
+            AppTheme::Dark => palette::bg::SURFACE,
+        };
+
+        // Draw subtle top border for separation
+        let top_border_color = match self.theme {
+            AppTheme::Light => palette::light_border::SUBTLE,
+            AppTheme::Dark => palette::border::SUBTLE,
+        };
+
+        let full_rect = ui.available_rect_before_wrap();
+        let top_line_rect =
+            egui::Rect::from_min_size(full_rect.min, egui::vec2(full_rect.width(), 1.0));
+        ui.painter()
+            .rect_filled(top_line_rect, 0.0, top_border_color);
 
         // Use a horizontal layout that spans the full width
         ui.horizontal(|ui| {
             ui.set_height(height);
             ui.spacing_mut().item_spacing.x = 0.0;
+
+            // Fill background
+            let bar_rect = ui.available_rect_before_wrap();
+            ui.painter().rect_filled(bar_rect, 0.0, status_bg);
 
             // === LEFT SECTION ===
             self.render_left_section(ui, height, padding);
@@ -458,6 +499,37 @@ impl StatusLine {
             padding,
             true,
         );
+
+        // Display preference badges (zen/fullscreen) - use distinct colors
+        if self.is_zen_mode {
+            let (bg, fg) = match self.theme {
+                AppTheme::Light => (
+                    Color32::from_rgb(120, 100, 160), // Soft purple
+                    Color32::from_rgb(40, 44, 52),
+                ),
+                AppTheme::Dark => (
+                    Color32::from_rgb(180, 150, 220), // Light purple
+                    Color32::from_rgb(40, 44, 52),
+                ),
+            };
+            ui.add_space(4.0);
+            self.render_segment(ui, "ZEN", None, bg, fg, height, padding, false);
+        }
+
+        if self.is_fullscreen {
+            let (bg, fg) = match self.theme {
+                AppTheme::Light => (
+                    Color32::from_rgb(80, 140, 160), // Teal
+                    Color32::from_rgb(40, 44, 52),
+                ),
+                AppTheme::Dark => (
+                    Color32::from_rgb(120, 200, 220), // Bright cyan
+                    Color32::from_rgb(40, 44, 52),
+                ),
+            };
+            ui.add_space(4.0);
+            self.render_segment(ui, "FULLSCREEN", None, bg, fg, height, padding, false);
+        }
 
         // Git branch / project info (if available)
         if let Some(ref branch) = self.branch_info {
@@ -510,18 +582,18 @@ impl StatusLine {
 
     /// Render a subtle separator between segments (left-to-right)
     fn render_separator(&self, ui: &mut Ui, height: f32) {
-        let separator_width = 16.0;
+        let separator_width = 20.0; // Slightly wider for breathing room
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
-            let sep_color = self.segment_fg().gamma_multiply(0.3);
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                semantic_icons::statusline::SEPARATOR,
-                egui::FontId::proportional(semantic_icons::SIZE_INLINE),
-                sep_color,
+            // Premium: use a thin vertical line instead of chevron for cleaner look
+            let line_color = self.segment_fg().gamma_multiply(0.15);
+            let center_x = rect.center().x;
+            ui.painter().vline(
+                center_x,
+                egui::Rangef::new(rect.min.y + 6.0, rect.max.y - 6.0),
+                egui::Stroke::new(1.0, line_color),
             );
         }
     }
@@ -539,6 +611,34 @@ impl StatusLine {
                         .family(egui::FontFamily::Monospace),
                 );
             }
+
+            // Codebase indexing status (shown in center to avoid layout jumping from varying file names)
+            if let Some(ref status) = self.codebase_status {
+                if status.is_loading && !status.is_error {
+                    ui.add_space(16.0);
+
+                    // Language icon (if available) or loading spinner
+                    let icon = status
+                        .language
+                        .as_ref()
+                        .and_then(|lang| semantic_icons::language::from_name(lang))
+                        .unwrap_or(semantic_icons::status::LOADING);
+
+                    ui.label(
+                        egui::RichText::new(icon)
+                            .color(palette::accent::PRIMARY)
+                            .size(typography::MD),
+                    );
+                    ui.add_space(4.0);
+                    // Status text in emerald accent
+                    ui.label(
+                        egui::RichText::new(&status.message)
+                            .color(palette::accent::PRIMARY)
+                            .size(typography::MD),
+                    );
+                }
+            }
+
             ui.add_space(ui.available_width());
         });
     }
@@ -643,39 +743,87 @@ impl StatusLine {
                 self.render_separator_rtl(ui, height);
             }
 
-            // Codebase status (Cloning..., Indexing [5/42]..., Codebase ready)
+            // Codebase status (Cloning..., Ready, Error - but NOT Indexing which is in center)
             if let Some(ref status) = self.codebase_status {
-                // Use loading icon for in-progress, code icon for ready
-                let (icon, color) = if status.contains("...") {
-                    (semantic_icons::status::LOADING, self.segment_fg()) // muted for loading
-                } else if status.starts_with("Error") {
-                    (semantic_icons::diagnostic::ERROR, palette::semantic::ERROR)
-                } else {
-                    (semantic_icons::file::CODE, palette::accent::PRIMARY) // emerald for ready
-                };
+                // Skip loading status here - it's shown in center section to avoid layout jumping
+                if !status.is_loading {
+                    if status.is_error {
+                        // Error state
+                        self.render_segment_rtl(
+                            ui,
+                            &status.message,
+                            Some(semantic_icons::diagnostic::ERROR),
+                            self.segment_bg(),
+                            palette::semantic::ERROR,
+                            height,
+                            padding,
+                            false,
+                        );
+                    } else if let Some(ref repo_name) = status.repo_name {
+                        // Ready state - show repo name and metrics count with language icon
+                        let metrics_text = status
+                            .metrics_count
+                            .map(|c| format!("{c} metrics"))
+                            .unwrap_or_default();
 
-                self.render_segment_rtl(
-                    ui,
-                    status,
-                    Some(icon),
-                    self.segment_bg(),
-                    color,
-                    height,
-                    padding,
-                    false,
-                );
+                        // Get language icon if available
+                        let icon = status
+                            .language
+                            .as_ref()
+                            .and_then(|lang| semantic_icons::language::from_name(lang))
+                            .unwrap_or(semantic_icons::file::CODE);
 
-                // Separator
-                self.render_separator_rtl(ui, height);
+                        // Render metrics count segment first (RTL order)
+                        if !metrics_text.is_empty() {
+                            self.render_segment_rtl(
+                                ui,
+                                &metrics_text,
+                                Some(semantic_icons::file::METRIC),
+                                Color32::TRANSPARENT,
+                                palette::text::SECONDARY,
+                                height,
+                                padding,
+                                false,
+                            );
+                            self.render_separator_rtl(ui, height);
+                        }
+
+                        // Render repo name with language icon
+                        self.render_segment_rtl(
+                            ui,
+                            repo_name,
+                            Some(icon),
+                            Color32::TRANSPARENT,
+                            palette::text::SECONDARY,
+                            height,
+                            padding,
+                            false,
+                        );
+                    } else {
+                        // Fallback - just show message
+                        self.render_segment_rtl(
+                            ui,
+                            &status.message,
+                            Some(semantic_icons::file::CODE),
+                            Color32::TRANSPARENT,
+                            palette::text::SECONDARY,
+                            height,
+                            padding,
+                            false,
+                        );
+                    }
+
+                    // Separator
+                    self.render_separator_rtl(ui, height);
+                }
             }
 
-            // Connection status
-            // Online: bright emerald (positive), Offline: muted gray (neutral, not alarming)
+            // Connection status - refined text colors matching theme
             let (conn_icon, conn_text, conn_color) = if self.is_connected {
                 (
                     semantic_icons::status::CONNECTED,
                     "ONLINE",
-                    palette::accent::HOVER, // Bright emerald - positive state
+                    palette::text::SECONDARY, // Muted - no need for bright color when connected
                 )
             } else {
                 (
@@ -688,7 +836,7 @@ impl StatusLine {
                 ui,
                 conn_text,
                 Some(conn_icon),
-                self.segment_bg_secondary(),
+                Color32::TRANSPARENT,
                 conn_color,
                 height,
                 padding,
@@ -699,18 +847,18 @@ impl StatusLine {
 
     /// Render a subtle separator between segments (right-to-left)
     fn render_separator_rtl(&self, ui: &mut Ui, height: f32) {
-        let separator_width = 16.0;
+        let separator_width = 20.0; // Slightly wider for breathing room
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
-            let sep_color = self.segment_fg().gamma_multiply(0.3);
-            ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                semantic_icons::statusline::SEPARATOR,
-                egui::FontId::proportional(semantic_icons::SIZE_INLINE),
-                sep_color,
+            // Premium: use a thin vertical line instead of chevron for cleaner look
+            let line_color = self.segment_fg().gamma_multiply(0.15);
+            let center_x = rect.center().x;
+            ui.painter().vline(
+                center_x,
+                egui::Rangef::new(rect.min.y + 6.0, rect.max.y - 6.0),
+                egui::Stroke::new(1.0, line_color),
             );
         }
     }
@@ -726,7 +874,7 @@ impl StatusLine {
         fg_color: Color32,
         height: f32,
         padding: f32,
-        _bold: bool,
+        is_primary: bool,
     ) {
         let content = if let Some(icon) = icon {
             format!("{icon} {text}")
@@ -747,7 +895,34 @@ impl StatusLine {
             ui.allocate_exact_size(egui::vec2(text_width, height), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
-            ui.painter().rect_filled(rect, 0.0, bg_color);
+            if is_primary {
+                // Premium primary segment with rounded right edge and subtle inner glow
+                let corner_radius = egui::CornerRadius {
+                    nw: 0,
+                    ne: 4,
+                    sw: 0,
+                    se: 4,
+                };
+                // Subtle glow behind
+                let glow_rect = rect.expand(1.0);
+                ui.painter()
+                    .rect_filled(glow_rect, corner_radius, bg_color.gamma_multiply(0.3));
+                ui.painter().rect_filled(rect, corner_radius, bg_color);
+
+                // Inner top highlight for 3D effect
+                let highlight_rect = egui::Rect::from_min_size(
+                    rect.left_top() + egui::vec2(0.0, 1.0),
+                    egui::vec2(rect.width(), 1.0),
+                );
+                ui.painter().rect_filled(
+                    highlight_rect,
+                    0.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 20),
+                );
+            } else {
+                ui.painter().rect_filled(rect, 0.0, bg_color);
+            }
+
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -787,7 +962,7 @@ impl StatusLine {
         fg_color: Color32,
         height: f32,
         padding: f32,
-        _bold: bool,
+        is_primary: bool,
     ) -> egui::Response {
         let content = if let Some(icon) = icon {
             format!("{icon} {text}")
@@ -808,7 +983,34 @@ impl StatusLine {
             ui.allocate_exact_size(egui::vec2(text_width, height), egui::Sense::click());
 
         if ui.is_rect_visible(rect) {
-            ui.painter().rect_filled(rect, 0.0, bg_color);
+            if is_primary {
+                // Premium primary segment with rounded left edge and subtle inner glow
+                let corner_radius = egui::CornerRadius {
+                    nw: 4,
+                    ne: 0,
+                    sw: 4,
+                    se: 0,
+                };
+                // Subtle glow behind
+                let glow_rect = rect.expand(1.0);
+                ui.painter()
+                    .rect_filled(glow_rect, corner_radius, bg_color.gamma_multiply(0.3));
+                ui.painter().rect_filled(rect, corner_radius, bg_color);
+
+                // Inner top highlight for 3D effect
+                let highlight_rect = egui::Rect::from_min_size(
+                    rect.left_top() + egui::vec2(0.0, 1.0),
+                    egui::vec2(rect.width(), 1.0),
+                );
+                ui.painter().rect_filled(
+                    highlight_rect,
+                    0.0,
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 20),
+                );
+            } else {
+                ui.painter().rect_filled(rect, 0.0, bg_color);
+            }
+
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,

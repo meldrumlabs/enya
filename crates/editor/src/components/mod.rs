@@ -9,24 +9,31 @@ pub mod widget;
 
 // Re-export from pane
 pub use pane::{
-    Bar, BarChartViz, DataPoint, GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, QueryPane,
-    QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart, Visualization,
-    VisualizationType,
+    AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, CommitMarker, DataPoint,
+    GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSource,
+    QueryPane, QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart,
+    Visualization, VisualizationType,
 };
 
 // Re-export from overlay
+#[cfg(target_arch = "wasm32")]
+pub use overlay::NativePromoOverlay;
 pub use overlay::{
-    BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Diagnostic, DiagnosticLevel,
-    DiagnosticSource, DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt,
-    InfoOverlay, MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult,
-    SourcePreviewOverlay, SourcePreviewResult, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceFinder, WorkspaceItem,
+    AgentCommand, AgentPanel, AgentPanelResult, AiProvider, BufferEditor, BufferEditorResult,
+    ChatMessage, CodebaseContext, CommandPalette, CommandResult, ConnectionContext,
+    DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
+    DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext, InfoOverlay, MessageRole,
+    MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
+    SourcePreviewResult, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
+    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceItem, parse_commands,
+    strip_command_blocks,
 };
 
 // Re-export from widget
 pub use widget::{
-    Buffer, BufferAction, BufferMode, LandingPage, LandingPageAction, Notification,
-    NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode, TimeRange,
+    AgentInputBar, AgentInputBarResult, AgentInputState, Buffer, BufferAction, BufferMode,
+    ContextPane, LandingPage, LandingPageAction, Notification, NotificationLevel,
+    NotificationManager, QuickCommand, Sparkline, StatusLine, StatusMode, TimeRange,
     TimeRangePreset, TimeRangeToolbar,
 };
 
@@ -35,8 +42,8 @@ pub use util::{
     Backend, CompletionItem, CompletionKind, CompletionResult, ExecuteParams, Finder, FinderColors,
     FinderConfig, FinderItem, FinderKeyboardInput, FinderResult, Granularity, MultiBufferMode,
     MultiBufferState, OverlayColors, OverlayStyle, OverlayStyleVariant, QueryCompletion,
-    QueryExecutor, QueryPollResult, QueryState, QueryValidator, Selection, ValidationResult,
-    draw_backdrop, draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
+    QueryExecutor, QueryPollResult, QueryState, Selection, ValidationResult, draw_backdrop,
+    draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
     render_key_badge, render_key_badge_large, validate_query,
 };
 
