@@ -53,7 +53,7 @@ The editor supports multiple visualization types, automatically selected based o
 - **Sparkline** — Compact inline trend charts
 - **Heatmap** — 2D data grids
 
-Change visualization with the `cv` command or let the editor auto-select based on query results.
+The editor auto-selects visualization type based on query results.
 
 ### Context-Aware Query Completion
 
@@ -120,19 +120,16 @@ Press `:` to open the command palette. Key commands:
 
 | Command | Alias | Description |
 |---------|-------|-------------|
-| `:connect <endpoint>` | | Connect to Prometheus |
-| `:search` | `s` | Open fuzzy finder |
-| `:split h/v` | `sp` | Split pane |
-| `:close` | `q` | Close current pane |
-| `:zen` | `z` | Toggle zen mode |
-| `:fullscreen` | `full` | Toggle fullscreen |
-| `:mksession [name]` | `mks` | Save workspace |
-| `:source [name]` | `so` | Load workspace |
-| `:workspaces` | `ws` | List workspaces |
+| `:theme <dark/light>` | `t` | Toggle or set theme |
+| `:split <h/v>` | `sp` | Split view (horizontal/vertical) |
+| `:quit` | `q` | Quit workspace |
+| `:write` | `w` | Save workspace |
+| `:source <name>` | `so` | Load workspace |
 | `:share` | | Share workspace as URL |
-| `:commits` | `git` | Toggle git commit markers |
-| `:tutorial` | | Interactive tutorial |
-| `:help` | `h` | Show help |
+| `:provider <name>` | `ai` | Set AI provider (claude, codex) |
+| `:font <name>` | | Set editor font |
+
+See the [Keyboard Reference](/docs/docs/editor/keyboard-reference/) for the complete list of commands and shortcuts.
 
 ## Workspaces
 
@@ -154,7 +151,7 @@ preset = "1h"
 [[panes]]
 query = "sum(rate(http_requests_total[5m])) by (method)"
 name = "Request Rate"
-visualization = "timeseries"
+visualization = "time_series"
 
 [[panes]]
 query = "histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))"

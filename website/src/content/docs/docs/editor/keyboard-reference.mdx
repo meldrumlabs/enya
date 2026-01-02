@@ -87,27 +87,16 @@ Enya uses vim-style keybindings. This page provides a complete reference of all 
 
 Press `:` to open the command palette.
 
-| Command | Action |
-|---------|--------|
-| `:connect <url>` | Connect to Prometheus |
-| `:agent` | Open agent pane |
-| `:cv <type>` | Change visualization |
-| `:font <name>` | Change editor font |
-| `:mksession <name>` | Save workspace |
-| `:source <name>` | Load workspace |
-| `:q` | Quit |
-| `:w` | Save |
-| `:wq` | Save and quit |
-
-## Visualization Types
-
-Use `:cv <type>` to change visualization:
-
-| Type | Description |
-|------|-------------|
-| `ts` | Time series |
-| `stat` | Single stat |
-| `gauge` | Gauge |
-| `bar` | Bar chart |
-| `spark` | Sparkline |
-| `heat` | Heatmap |
+| Command | Alias | Action |
+|---------|-------|--------|
+| `:theme <dark/light>` | `t` | Toggle or set theme |
+| `:info` | `version` | Show version and build info |
+| `:split <h/v>` | `sp` | Split view (horizontal/vertical) |
+| `:vsplit` | `vs` | Vertical split |
+| `:quit` | `q` | Quit workspace |
+| `:write` | `w` | Save workspace |
+| `:screenshot [path]` | `ss` | Take a screenshot |
+| `:source <name>` | `so` | Load workspace |
+| `:share` | | Share workspace as URL |
+| `:provider <name>` | `ai` | Set AI provider (claude, codex) |
+| `:font <name>` | | Set font (maple, departure, jetbrains, iosevka) |

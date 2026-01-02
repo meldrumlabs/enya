@@ -12,11 +12,10 @@ Workspaces are TOML configuration files that define a collection of panes with q
 
 ## Workspace Commands
 
-| Command | Aliases | Description |
-|---------|---------|-------------|
-| `:mksession [name]` | `mks` | Save current workspace |
-| `:source [name]` | `so` | Load a workspace |
-| `:workspaces` | `ws` | Open workspace finder (fuzzy search) |
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `:write` | `w` | Save current workspace |
+| `:source <name>` | `so` | Load a workspace |
 | `:share` | | Share workspace as URL |
 
 ## Basic Structure
@@ -38,7 +37,7 @@ preset = "1h"  # Options: 5m, 15m, 30m, 1h, 6h, 24h, 7d
 [[panes]]
 query = "sum(rate(http_requests_total[5m])) by (method)"
 name = "Request Rate"
-visualization = "timeseries"
+visualization = "time_series"
 
 [[panes]]
 query = "histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))"
@@ -52,12 +51,12 @@ Each pane in the `[[panes]]` array supports:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `query` | string | PromQL query expression |
+| `query` | string | PromQL query expression (required) |
 | `name` | string | Display name for the pane |
-| `visualization` | string | Chart type: `timeseries`, `stat`, `gauge`, `bar`, `sparkline`, `heatmap` |
-| `aggregation` | string | Aggregation function (optional) |
-| `granularity` | string | Time granularity: `1m`, `5m`, `15m`, etc. |
-| `unit` | string | Display unit: `ms`, `%`, `req/s`, etc. |
+| `tag` | string | User-defined tag for organizing panes (e.g., "Critical") |
+| `visualization` | string | Chart type: `time_series`, `stat`, `gauge`, `bar`, `sparkline`, `heatmap` |
+| `granularity` | string | Time granularity: `1m`, `5m`, `15m`, `1h`, `6h`, `1d` (default: `5m`) |
+| `unit` | string | Display unit suffix: `ms`, `%`, `req/s`, etc. |
 
 ## i3-Style Layouts
 
@@ -166,7 +165,7 @@ visualization = "stat"
 [[panes]]
 query = "rate(http_requests_total[5m])"
 name = "Request Rate"
-visualization = "timeseries"
+visualization = "time_series"
 ```
 
 ### Complex Layout
@@ -185,7 +184,7 @@ preset = "1h"
 [[panes]]
 query = "sum(rate(http_requests_total[5m])) by (method)"
 name = "Requests by Method"
-visualization = "timeseries"
+visualization = "time_series"
 
 [[panes]]
 query = "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))"

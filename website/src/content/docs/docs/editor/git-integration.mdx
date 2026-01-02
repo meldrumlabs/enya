@@ -157,14 +157,16 @@ The indexer extracts:
 
 ## Supported Languages
 
-Currently, metric instrumentation discovery supports:
+Enya uses tree-sitter to parse source files and discover metric instrumentation:
 
-| Language | Framework | Status |
-|----------|-----------|--------|
-| Rust | metrics-rs | Supported |
-| YAML | Prometheus alerts | Supported |
-
-More languages and frameworks are planned.
+| Language | Framework | Extensions |
+|----------|-----------|------------|
+| Rust | metrics-rs | `.rs` |
+| Go | prometheus/client_golang | `.go` |
+| Python | prometheus_client | `.py` |
+| TypeScript | prom-client | `.ts`, `.tsx` |
+| JavaScript | prom-client | `.js`, `.jsx` |
+| YAML | Prometheus alerting rules | `.yaml`, `.yml` |
 
 ## Troubleshooting
 
