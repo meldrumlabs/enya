@@ -323,6 +323,7 @@ impl SlashCommandPopup {
 
     /// Show the slash command popup (renders above the input bar like @ mentions).
     /// cursor_x is the optional X position of the / character for popup alignment.
+    #[profiling::function]
     pub fn show(&self, ui: &mut egui::Ui, input_rect: egui::Rect, cursor_x: Option<f32>) {
         if !self.active || self.results.is_empty() {
             return;

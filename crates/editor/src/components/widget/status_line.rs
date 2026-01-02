@@ -440,6 +440,7 @@ impl StatusLine {
     }
 
     /// Render the status line
+    #[profiling::function]
     pub fn show(&self, ui: &mut Ui) {
         let height = 26.0; // Slightly taller for breathing room
         let padding = 8.0; // More generous padding

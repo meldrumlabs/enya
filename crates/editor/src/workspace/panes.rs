@@ -775,6 +775,7 @@ impl Workspace {
     // ==================== Pane Queries ====================
 
     /// Get all pane tile IDs in the viewport (for navigation)
+    #[profiling::function]
     pub(super) fn get_pane_tile_ids(&self) -> Vec<TileId> {
         let mut pane_ids = Vec::new();
 
@@ -822,6 +823,7 @@ impl Workspace {
     }
 
     /// Count how many panes match the current filter and total panes
+    #[profiling::function]
     pub(super) fn count_filtered_panes(&self) -> (usize, usize) {
         let pane_ids = self.get_pane_tile_ids();
         let total = pane_ids.len();

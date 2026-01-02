@@ -110,6 +110,7 @@ impl WorkspaceFinder {
     ///
     /// Returns `Some(name)` if the user selected a workspace this frame,
     /// where `name` is the workspace name (filename without extension).
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> Option<String> {
         self.finder.show(ctx).map(|item| item.name)
     }

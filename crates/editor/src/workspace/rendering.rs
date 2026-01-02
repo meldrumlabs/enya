@@ -12,6 +12,7 @@ use crate::ui::theme::AppTheme;
 
 impl Workspace {
     /// Render only matching panes when viewport filter is active
+    #[profiling::function]
     pub(super) fn render_filtered_view(&mut self, ui: &mut egui::Ui) {
         // Get matching pane IDs - matches on query content AND tag
         let matching_panes: Vec<egui_tiles::TileId> = self

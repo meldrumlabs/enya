@@ -6,6 +6,14 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Native app promo overlay (WASM only)**: When using the web version, a frosted glass overlay appears on the landing page highlighting features only available in the native desktop app:
+  - Git integration for cloning repos and viewing diffs
+  - AI agents for intelligent metric analysis and query suggestions
+  - Local workspace persistence with full filesystem access
+  - Includes a "Download for macOS" link to the native app
+  - Press Enter or Escape to dismiss and continue to the web version
+  - Overlay only shows once per session (remembers dismissal)
+
 - **Vim-style window movement (Ctrl+W h/j/k/l)**: Move the focused pane to the edge of the viewport in the specified direction, matching Neovim's window movement behavior:
   - `Ctrl+W h` - Move pane to far left (becomes leftmost vertical split)
   - `Ctrl+W j` - Move pane to bottom (becomes bottom horizontal split)

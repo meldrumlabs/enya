@@ -201,6 +201,7 @@ impl Buffer {
 
     /// Render the buffer UI
     /// Returns a `BufferAction` indicating what action should be taken
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> BufferAction {
         let text_col = text_color(self.theme);
 

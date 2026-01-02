@@ -1,0 +1,281 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  # Create the GitHub release first
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Validate version matches Cargo.toml
+        run: |
+          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "Version mismatch: Cargo.toml has $CARGO_VERSION but tag is $TAG_VERSION"
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "Enya ${{ github.ref_name }}" \
+            --draft \
+            --generate-notes
+
+  # Build macOS universal binary and DMG
+  build-macos:
+    name: Build macOS
+    needs: create-release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Set up cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-macos"
+
+      - name: Build ARM64 (Apple Silicon)
+        run: cargo build --release --package enya-editor --target aarch64-apple-darwin
+
+      - name: Build x86_64 (Intel)
+        run: cargo build --release --package enya-editor --target x86_64-apple-darwin
+
+      - name: Create universal binary
+        run: |
+          mkdir -p target/universal-apple-darwin/release
+          lipo -create \
+            target/aarch64-apple-darwin/release/Enya \
+            target/x86_64-apple-darwin/release/Enya \
+            -output target/universal-apple-darwin/release/Enya
+
+      - name: Create app bundle
+        run: |
+          APP_NAME="Enya.app"
+          mkdir -p "$APP_NAME/Contents/MacOS"
+          mkdir -p "$APP_NAME/Contents/Resources"
+
+          # Copy the universal binary
+          cp target/universal-apple-darwin/release/Enya "$APP_NAME/Contents/MacOS/"
+
+          # Copy icon if it exists
+          if [ -f "assets/icon.icns" ]; then
+            cp assets/icon.icns "$APP_NAME/Contents/Resources/Enya.icns"
+            ICON_LINE="<key>CFBundleIconFile</key><string>Enya</string>"
+          else
+            ICON_LINE=""
+          fi
+
+          # Create Info.plist
+          cat > "$APP_NAME/Contents/Info.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Enya</string>
+            <key>CFBundleDisplayName</key>
+            <string>Enya</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.meldrumlabs.enya</string>
+            <key>CFBundleVersion</key>
+            <string>${{ needs.create-release.outputs.version }}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${{ needs.create-release.outputs.version }}</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleExecutable</key>
+            <string>Enya</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            $ICON_LINE
+          </dict>
+          </plist>
+          EOF
+
+      - name: Create DMG
+        run: |
+          # Create a temporary directory for DMG contents
+          DMG_DIR="dmg_contents"
+          mkdir -p "$DMG_DIR"
+          cp -r Enya.app "$DMG_DIR/"
+          ln -s /Applications "$DMG_DIR/Applications"
+
+          # Create DMG
+          DMG_NAME="Enya-${{ needs.create-release.outputs.version }}-universal-macos.dmg"
+          hdiutil create -volname "Enya" -srcfolder "$DMG_DIR" -ov -format UDZO "$DMG_NAME"
+
+      - name: Create tarball
+        run: |
+          TARBALL="Enya-${{ needs.create-release.outputs.version }}-universal-macos.tar.gz"
+          tar -czvf "$TARBALL" Enya.app
+
+      - name: Generate checksums
+        run: |
+          shasum -a 256 Enya-*.dmg Enya-*.tar.gz > checksums-macos.txt
+          cat checksums-macos.txt
+
+      - name: Upload release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            Enya-*.dmg \
+            Enya-*.tar.gz \
+            checksums-macos.txt
+
+  # Build Windows installer and portable executable
+  build-windows:
+    name: Build Windows
+    needs: create-release
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc,aarch64-pc-windows-msvc
+
+      - name: Set up cargo cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-windows"
+
+      - name: Build x86_64
+        run: cargo build --release --package enya-editor --target x86_64-pc-windows-msvc
+
+      - name: Build ARM64
+        run: cargo build --release --package enya-editor --target aarch64-pc-windows-msvc
+
+      - name: Create portable archives
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+
+          # x86_64 portable
+          mkdir -p "Enya-x86_64"
+          cp "target/x86_64-pc-windows-msvc/release/Enya.exe" "Enya-x86_64/"
+          7z a -tzip "Enya-${VERSION}-x86_64-windows.zip" "Enya-x86_64"
+
+          # ARM64 portable
+          mkdir -p "Enya-arm64"
+          cp "target/aarch64-pc-windows-msvc/release/Enya.exe" "Enya-arm64/"
+          7z a -tzip "Enya-${VERSION}-arm64-windows.zip" "Enya-arm64"
+
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+
+      - name: Create WiX manifest
+        shell: pwsh
+        run: |
+          $version = "${{ needs.create-release.outputs.version }}"
+          $wxs = @"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+            <Package Name="Enya"
+                     Manufacturer="Meldrum Labs"
+                     Version="$version"
+                     UpgradeCode="E9A1B2C3-D4E5-6F78-9012-3456789ABCDE">
+
+              <MajorUpgrade DowngradeErrorMessage="A newer version of Enya is already installed." />
+              <MediaTemplate EmbedCab="yes" />
+
+              <StandardDirectory Id="ProgramFiles64Folder">
+                <Directory Id="INSTALLFOLDER" Name="Enya">
+                  <Component Id="MainExecutable" Guid="*">
+                    <File Id="EnyaExe" Source="target\x86_64-pc-windows-msvc\release\Enya.exe" KeyPath="yes" />
+                  </Component>
+                </Directory>
+              </StandardDirectory>
+
+              <StandardDirectory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="Enya">
+                  <Component Id="ApplicationShortcut" Guid="*">
+                    <Shortcut Id="ApplicationStartMenuShortcut"
+                              Name="Enya"
+                              Target="[INSTALLFOLDER]Enya.exe"
+                              WorkingDirectory="INSTALLFOLDER" />
+                    <RemoveFolder Id="CleanUpShortCut" On="uninstall" />
+                    <RegistryValue Root="HKCU" Key="Software\MeldrumLabs\Enya" Name="installed" Type="integer" Value="1" KeyPath="yes" />
+                  </Component>
+                </Directory>
+              </StandardDirectory>
+
+              <Feature Id="ProductFeature" Title="Enya" Level="1">
+                <ComponentRef Id="MainExecutable" />
+                <ComponentRef Id="ApplicationShortcut" />
+              </Feature>
+            </Package>
+          </Wix>
+          "@
+          $wxs | Out-File -FilePath "enya.wxs" -Encoding UTF8
+
+      - name: Build MSI installer
+        shell: pwsh
+        run: |
+          $version = "${{ needs.create-release.outputs.version }}"
+          wix build -arch x64 -o "Enya-${version}-x86_64-windows.msi" "enya.wxs"
+
+      - name: Generate checksums
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          sha256sum Enya-*.zip Enya-*.msi > checksums-windows.txt
+          cat checksums-windows.txt
+
+      - name: Upload release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            Enya-*.zip \
+            Enya-*.msi \
+            checksums-windows.txt
+
+  # Publish the release after all builds complete
+  publish-release:
+    name: Publish Release
+    needs: [create-release, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit "${{ github.ref_name }}" --draft=false

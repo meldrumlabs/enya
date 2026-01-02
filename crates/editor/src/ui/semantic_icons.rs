@@ -312,6 +312,7 @@ pub mod action {
 
     // AI/Agent operations
     pub const ROBOT: &str = regular::ROBOT;
+    pub const BRAIN: &str = regular::BRAIN;
     pub const TOOL: &str = regular::WRENCH;
 }
 
