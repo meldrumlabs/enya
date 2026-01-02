@@ -162,6 +162,7 @@ impl WorkspaceCreator {
     }
 
     /// Show the overlay. Returns the result of the interaction.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> WorkspaceCreatorResult {
         if !self.is_open {
             return WorkspaceCreatorResult::None;

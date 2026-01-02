@@ -51,6 +51,7 @@ impl InfoOverlay {
     }
 
     /// Show the overlay. Returns true if it should be closed.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         if !self.is_open {
             return false;

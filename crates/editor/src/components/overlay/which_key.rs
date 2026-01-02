@@ -283,6 +283,7 @@ impl WhichKey {
     }
 
     /// Show the overlay. Returns true if it was closed this frame.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         if !self.is_open {
             return false;

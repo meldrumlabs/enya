@@ -171,6 +171,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         egui_tiles::UiResponse::None
     }
 
+    #[profiling::function]
     fn paint_on_top_of_tile(
         &self,
         painter: &egui::Painter,

@@ -150,6 +150,7 @@ impl BarChartViz {
     }
 
     /// Render the bar chart
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
         let accent_color = palette::accent::PRIMARY;

@@ -115,6 +115,7 @@ impl ViewportFilter {
     }
 
     /// Show the filter input bar (renders above status line in bottom panel)
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> ViewportFilterResult {
         if !self.is_open {
             return ViewportFilterResult::None;

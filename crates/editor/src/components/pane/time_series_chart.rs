@@ -61,6 +61,7 @@ const DEFAULT_ASPECT_RATIO: f32 = 0.35;
 /// Format a Unix timestamp (in seconds) to a human-readable string.
 /// Adapts format based on the time range being displayed.
 /// Uses UTC time for simplicity and cross-platform compatibility.
+#[profiling::function]
 fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
     // Handle invalid timestamps
     if !timestamp.is_finite() || timestamp < 0.0 {
@@ -147,6 +148,7 @@ fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
 
 /// Format a numeric value with K, M, B suffixes and an optional unit suffix.
 /// Used for Y-axis labels and legend values.
+#[profiling::function]
 pub fn format_value_with_unit(value: f64, unit: &str) -> String {
     if !value.is_finite() {
         return String::new();

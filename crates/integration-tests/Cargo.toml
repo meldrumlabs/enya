@@ -1,0 +1,21 @@
+[package]
+name = "enya-integration-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+license.workspace = true
+description = "Integration tests for enya crates"
+
+[dependencies]
+enya-client = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
+testcontainers = "0.23"
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+egui = { workspace = true }
+
+[lints]
+workspace = true
