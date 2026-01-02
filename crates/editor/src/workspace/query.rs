@@ -2,13 +2,20 @@
 //!
 //! This module handles polling for query results, executing queries for panes
 //! that need refresh, and coordinating with the query executor and diagnostics.
+//!
+//! Queries are executed in parallel (Grafana-style) - all panes that need refresh
+//! are queried simultaneously, and results are processed as they arrive.
 
 use super::{Workspace, WorkspaceAction};
+use crate::components::util::query_executor::populate_from_response;
 use crate::components::{Diagnostic, DiagnosticSource, ExecuteParams, QueryPane, QueryPollResult};
 
 impl Workspace {
     /// Process query execution: poll for pending results and execute queries for panes that need refresh
     /// Returns a notification action if a connection status changed.
+    ///
+    /// This uses parallel query execution - all panes needing refresh are queried simultaneously,
+    /// similar to how Grafana refreshes all panels at once.
     #[profiling::function]
     pub(super) fn process_query_execution(&mut self, ctx: &egui::Context) -> WorkspaceAction {
         // 0. Poll for health check completion
@@ -112,36 +119,35 @@ impl Workspace {
             }
         }
 
-        // 1. Poll for query results if there's a pending query
-        // We use the pane's component ID (not TileId) because TileIds can change when
-        // egui_tiles restructures the tree during ui() calls
-        if let Some(pending_pane_id) = self.pending_query_pane_id {
-            let tile_count = self.viewport_tree.tiles.len();
-            log::debug!(
-                "Polling pending query for pane ID {pending_pane_id}. Total tiles: {tile_count}"
-            );
-
+        // 1. Poll for ALL completed query results (parallel execution)
+        let completed_results = self.query_executor.poll_all();
+        for (pane_id, poll_result) in completed_results {
             // Find the pane by its component ID
             let mut pane_found = false;
             for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
                 if let egui_tiles::Tile::Pane(component) = tile {
                     if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
-                        if query_pane.id() == pending_pane_id {
+                        if query_pane.id() == pane_id {
                             pane_found = true;
-                            let pane_id = query_pane.id();
                             let pane_name = query_pane.name().to_string();
 
-                            match self.query_executor.poll(query_pane.visualization_mut()) {
+                            match poll_result {
                                 QueryPollResult::Complete {
                                     series_count,
                                     point_count,
                                     suggested_viz,
+                                    response,
                                 } => {
-                                    // Query completed
-                                    self.pending_query_pane_id = None;
+                                    // Query completed - update visualization
                                     query_pane.set_loading(false);
                                     // Clear any previous errors for this pane
                                     self.diagnostics_pane.clear_for_pane(pane_id);
+
+                                    // Populate visualization from response
+                                    let viz = query_pane.visualization_mut();
+                                    viz.clear();
+                                    viz.set_metric_name(&response.metric);
+                                    populate_from_response(viz, &response);
 
                                     // Apply suggested visualization if user hasn't manually overridden
                                     if !query_pane.has_user_override() {
@@ -170,7 +176,6 @@ impl Workspace {
                                 }
                                 QueryPollResult::Error(error) => {
                                     // Query failed - add diagnostic
-                                    self.pending_query_pane_id = None;
                                     query_pane.set_loading(false);
                                     // Clear previous diagnostics for this pane and add the new error
                                     self.diagnostics_pane.clear_for_pane(pane_id);
@@ -181,7 +186,7 @@ impl Workspace {
                                     log::error!("Query failed for pane {pane_id}: {error}");
                                 }
                                 QueryPollResult::Pending => {
-                                    // Still waiting for results
+                                    // This shouldn't happen in poll_all results
                                 }
                             }
                             break;
@@ -190,29 +195,16 @@ impl Workspace {
                 }
             }
 
-            // If we couldn't find the pane (it was removed), clean up
+            // If we couldn't find the pane (it was removed), cancel its query
             if !pane_found {
                 log::warn!(
-                    "Pending query pane ID {pending_pane_id} no longer exists, clearing pending state"
+                    "Completed query for pane ID {pane_id} but pane no longer exists, ignoring result"
                 );
-                self.pending_query_pane_id = None;
-                self.query_executor.cancel_query();
-                // Clear loading state on all panes to prevent stuck loading animations
-                for (_id, tile) in self.viewport_tree.tiles.iter_mut() {
-                    if let egui_tiles::Tile::Pane(component) = tile {
-                        if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>()
-                        {
-                            if query_pane.is_loading() {
-                                log::debug!("Clearing orphaned loading state on pane");
-                                query_pane.set_loading(false);
-                            }
-                        }
-                    }
-                }
+                self.query_executor.cancel_query(pane_id);
             }
         }
 
-        // 2. If no query in flight, check for panes that need refresh and execute
+        // 2. Execute queries for ALL panes that need refresh (parallel execution)
         // Only execute queries if:
         // - We're in demo mode (always works), OR
         // - We're connected to Prometheus AND the connection is online
@@ -225,6 +217,7 @@ impl Workspace {
                     if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
                         if query_pane.needs_refresh() {
                             query_pane.clear_refresh();
+                            query_pane.set_loading(false);
                         }
                     }
                 }
@@ -233,64 +226,57 @@ impl Workspace {
 
         let can_execute = !self.query_executor.is_connected() || self.query_executor.is_online();
 
-        if self.pending_query_pane_id.is_none() && can_execute {
+        if can_execute {
             let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
 
-            // Find the first pane that needs refresh and get its component ID
-            let mut pane_to_execute: Option<(usize, String, String, u64)> = None;
+            // Collect all panes that need refresh
+            let mut panes_to_execute: Vec<(usize, String, String, u64)> = Vec::new();
             for (_tile_id, tile) in self.viewport_tree.tiles.iter() {
                 if let egui_tiles::Tile::Pane(component) = tile {
                     if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                        if query_pane.needs_refresh() {
-                            log::debug!(
-                                "Found pane {} that needs refresh: {}",
-                                query_pane.id(),
-                                query_pane.name()
-                            );
-                            pane_to_execute = Some((
+                        if query_pane.needs_refresh()
+                            && !self.query_executor.is_querying_pane(query_pane.id())
+                        {
+                            panes_to_execute.push((
                                 query_pane.id(),
                                 query_pane.name().to_string(),
                                 query_pane.saved_query().to_string(),
                                 query_pane.query_state().granularity.seconds(),
                             ));
-                            break;
                         }
                     }
                 }
             }
 
-            // Execute the query for the pane we found
-            if let Some((pane_id, metric, query, step_secs)) = pane_to_execute {
-                let tile_count = self.viewport_tree.tiles.len();
-                // Find the pane again to modify it (needed because we can't hold a reference across the iter)
-                for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
-                    if let egui_tiles::Tile::Pane(component) = tile {
-                        if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>()
-                        {
-                            if query_pane.id() == pane_id {
-                                // Clear the refresh flag
-                                query_pane.clear_refresh();
+            // Execute queries for ALL panes that need refresh (in parallel)
+            if !panes_to_execute.is_empty() {
+                log::debug!("Executing {} queries in parallel", panes_to_execute.len());
 
-                                // Execute the query
-                                let params = ExecuteParams {
-                                    metric: &metric,
-                                    query: &query,
-                                    step_secs,
-                                    start_ns: Some(start_ns),
-                                    end_ns: Some(end_ns),
-                                };
-                                self.query_executor.execute(
-                                    &params,
-                                    query_pane.visualization_mut(),
-                                    ctx,
-                                );
-                                self.pending_query_pane_id = Some(pane_id);
-                                query_pane.set_loading(true);
+                for (pane_id, metric, query, step_secs) in panes_to_execute {
+                    // Find the pane again to modify it
+                    for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
+                        if let egui_tiles::Tile::Pane(component) = tile {
+                            if let Some(query_pane) =
+                                component.as_any_mut().downcast_mut::<QueryPane>()
+                            {
+                                if query_pane.id() == pane_id {
+                                    // Clear the refresh flag and set loading
+                                    query_pane.clear_refresh();
+                                    query_pane.set_loading(true);
 
-                                log::debug!(
-                                    "Executing query for pane {pane_id}: {query}. Total tiles: {tile_count}"
-                                );
-                                break;
+                                    // Execute the query
+                                    let params = ExecuteParams {
+                                        metric: &metric,
+                                        query: &query,
+                                        step_secs,
+                                        start_ns: Some(start_ns),
+                                        end_ns: Some(end_ns),
+                                    };
+                                    self.query_executor.execute_for_pane(pane_id, &params, ctx);
+
+                                    log::debug!("Fired query for pane {pane_id}: {query}");
+                                    break;
+                                }
                             }
                         }
                     }
@@ -299,5 +285,24 @@ impl Workspace {
         }
 
         notification_action
+    }
+
+    /// Refresh all query panes (triggered by time range change or manual refresh).
+    ///
+    /// This marks all query panes as needing refresh, which will cause them to
+    /// be re-queried in parallel on the next frame.
+    pub fn refresh_all_panes(&mut self) {
+        let mut count = 0;
+        for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
+            if let egui_tiles::Tile::Pane(component) = tile {
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    query_pane.mark_needs_refresh();
+                    count += 1;
+                }
+            }
+        }
+        if count > 0 {
+            log::info!("Marked {count} panes for refresh");
+        }
     }
 }

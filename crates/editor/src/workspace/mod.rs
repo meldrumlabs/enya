@@ -183,9 +183,6 @@ pub struct Workspace {
     pending_open_workspace_finder: bool,
     /// Query executor for running queries against backends (Prometheus, Enya)
     query_executor: QueryExecutor,
-    /// Track which pane is waiting for a query result (by stable pane component ID, not TileId)
-    /// We use the pane's internal ID because TileIds can change when egui_tiles restructures the tree
-    pending_query_pane_id: Option<usize>,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
     next_query_number: usize,
     /// Workspace filter for filtering visible panes by query content
@@ -264,7 +261,6 @@ impl Workspace {
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
             query_executor: QueryExecutor::new(async_runtime.clone()),
-            pending_query_pane_id: None,
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
             source_preview: SourcePreviewOverlay::new(),
@@ -473,6 +469,11 @@ impl Workspace {
                         });
                         ui.add_space(4.0);
                     });
+            }
+
+            // Trigger global refresh when time range changes (Grafana-style)
+            if self.time_range_toolbar.changed() {
+                self.refresh_all_panes();
             }
 
             // Main viewport area (tabbed charts/views)
@@ -817,24 +818,21 @@ impl Workspace {
             }
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and add demo panes for the tutorial
+                // These queries use labels that exist in the demo client's generated data
                 self.show_landing = false;
                 let demo_queries = [
                     (
-                        "http_requests_total{env=\"prod\", service=\"api\"}",
+                        "http_requests_total{method=\"GET\", path=\"/api/users\"}",
                         "HTTP Requests",
                         "",
                     ),
                     (
-                        "sum(rate(http_requests_total[5m])) by_endpoint",
+                        "sum(rate(http_requests_total[5m])) by (path)",
                         "Requests by Endpoint",
                         "req/s",
                     ),
-                    ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
-                    (
-                        "memory_used_bytes{env=\"prod\", service=\"api\"}",
-                        "Memory Used",
-                        "MB",
-                    ),
+                    ("node_cpu_seconds_total{mode=\"user\"}", "CPU Usage", "%"),
+                    ("node_memory_Active_bytes", "Memory Used", "MB"),
                 ];
                 for (query, name, unit) in demo_queries {
                     self.add_demo_query_pane(query, name, unit);

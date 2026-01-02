@@ -145,6 +145,8 @@ pub struct QueryPane {
     has_user_override: bool,
     /// Whether edit was requested via button click (for workspace to pick up)
     edit_requested: bool,
+    /// Whether the visualization type dropdown is open
+    viz_dropdown_open: bool,
 }
 
 impl Default for QueryPane {
@@ -183,6 +185,7 @@ impl QueryPane {
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
         }
     }
 
@@ -240,6 +243,7 @@ impl QueryPane {
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
         }
     }
 
@@ -268,6 +272,7 @@ impl QueryPane {
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
         }
     }
 
@@ -299,6 +304,7 @@ impl QueryPane {
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
         }
     }
 
@@ -330,6 +336,7 @@ impl QueryPane {
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
         }
     }
 
@@ -372,6 +379,7 @@ impl QueryPane {
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
         }
     }
 
@@ -401,6 +409,7 @@ impl QueryPane {
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
         }
     }
 
@@ -720,37 +729,116 @@ impl QueryPane {
             }
         });
 
-        // Edit button overlay in top-right corner (only when buffer is collapsed)
-        // Positioned to align with the + button in the tab bar above
+        // Toolbar overlay in top-right corner (only when buffer is collapsed)
+        // Contains: visualization type dropdown + edit button
         if !self.buffer_expanded {
             let button_size = egui::vec2(24.0, 24.0);
-            let button_pos = egui::pos2(
+            let spacing = 2.0;
+
+            // Edit button (rightmost)
+            let edit_button_pos = egui::pos2(
                 pane_rect.right() - button_size.x - 4.0,
                 pane_rect.top() + 4.0,
             );
-            let button_rect = egui::Rect::from_min_size(button_pos, button_size);
+            let edit_button_rect = egui::Rect::from_min_size(edit_button_pos, button_size);
 
-            // Determine icon color based on hover state
-            let is_hovered = ui.rect_contains_pointer(button_rect);
-            let icon_color = if is_hovered {
+            let is_edit_hovered = ui.rect_contains_pointer(edit_button_rect);
+            let edit_icon_color = if is_edit_hovered {
                 text_col.gamma_multiply(0.9)
             } else {
                 text_col.gamma_multiply(0.5)
             };
 
-            let response = ui.put(
-                button_rect,
+            let edit_response = ui.put(
+                edit_button_rect,
                 egui::Button::new(
                     RichText::new(semantic_icons::action::EDIT)
-                        .color(icon_color)
+                        .color(edit_icon_color)
                         .size(14.0),
                 )
                 .fill(Color32::TRANSPARENT)
                 .frame(false),
             );
 
-            if response.on_hover_text("Edit query (e)").clicked() {
+            if edit_response.on_hover_text("Edit query (e)").clicked() {
                 self.edit_requested = true;
+            }
+
+            // Visualization type dropdown (left of edit button)
+            let viz_button_pos = egui::pos2(
+                edit_button_pos.x - button_size.x - spacing,
+                pane_rect.top() + 4.0,
+            );
+            let viz_button_rect = egui::Rect::from_min_size(viz_button_pos, button_size);
+
+            let is_viz_hovered = ui.rect_contains_pointer(viz_button_rect);
+            let viz_icon_color = if is_viz_hovered {
+                text_col.gamma_multiply(0.9)
+            } else {
+                text_col.gamma_multiply(0.5)
+            };
+
+            let current_viz = self.visualization_type();
+            let viz_response = ui.put(
+                viz_button_rect,
+                egui::Button::new(
+                    RichText::new(semantic_icons::action::CHART)
+                        .color(viz_icon_color)
+                        .size(14.0),
+                )
+                .fill(Color32::TRANSPARENT)
+                .frame(false),
+            );
+
+            let viz_tooltip = format!("Visualization: {} (click to change)", current_viz.label());
+            let viz_response = viz_response.on_hover_text(viz_tooltip);
+
+            // Toggle dropdown on click
+            if viz_response.clicked() {
+                self.viz_dropdown_open = !self.viz_dropdown_open;
+            }
+
+            // Show popup menu using Area
+            if self.viz_dropdown_open {
+                let popup_id = egui::Id::new(format!("viz_popup_{}", self.id));
+                let area_response = egui::Area::new(popup_id)
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(viz_response.rect.left_bottom() + egui::vec2(0.0, 2.0))
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.set_min_width(120.0);
+                            let mut clicked_type = None;
+                            for viz_type in VisualizationType::all() {
+                                let is_selected = *viz_type == current_viz;
+                                let label = format!("{} {}", viz_type.icon(), viz_type.label());
+
+                                let text = if is_selected {
+                                    RichText::new(label).strong()
+                                } else {
+                                    RichText::new(label)
+                                };
+
+                                if ui.selectable_label(is_selected, text).clicked() {
+                                    clicked_type = Some(*viz_type);
+                                }
+                            }
+                            clicked_type
+                        })
+                    });
+
+                // Handle selection and close popup
+                if let Some(viz_type) = area_response.inner.inner {
+                    self.set_visualization_type(viz_type);
+                    self.viz_dropdown_open = false;
+                }
+
+                // Close if clicked outside
+                if ui.input(|i| i.pointer.any_click())
+                    && !area_response.response.contains_pointer()
+                    && !viz_response.contains_pointer()
+                {
+                    self.viz_dropdown_open = false;
+                }
             }
         }
 

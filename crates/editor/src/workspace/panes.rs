@@ -171,7 +171,9 @@ impl Workspace {
                     // Parse preset string into a TimeRangePreset
                     if let Some(preset_enum) = Self::parse_time_preset(&preset) {
                         self.time_range_toolbar.set_preset(preset_enum);
-                        log::info!("Agent set time range to: {preset}");
+                        // Trigger global refresh of all panes (Grafana-style)
+                        self.refresh_all_panes();
+                        log::info!("Agent set time range to: {preset}, refreshing all panes");
                         executed_any = true;
                     } else {
                         log::warn!("Agent requested unknown time preset: {preset}");
