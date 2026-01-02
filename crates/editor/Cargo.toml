@@ -88,6 +88,10 @@ web-sys = { workspace = true, features = [
 web-time = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 
+# Linux: enable X11 and Wayland support for eframe
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { workspace = true, features = ["x11", "wayland"] }
+
 [build-dependencies]
 enya-build-tools = { workspace = true }
 chrono = { workspace = true }

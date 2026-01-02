@@ -6,6 +6,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Linux-only X11/Wayland features**: The `x11` and `wayland` eframe features are now only enabled on Linux builds. On macOS and Windows, these dependencies are excluded, reducing compile time and binary size.
+
 - **Additional language grammars are now optional**: Go, Python, and JavaScript/TypeScript syntax highlighting are controlled by the `all-languages` feature flag (enabled by default). Rust highlighting and codebase integration (git, metrics discovery) are always available on native builds. Build with `--no-default-features` to exclude the extra language grammars.
 
 ### Changed
