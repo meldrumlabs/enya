@@ -49,7 +49,7 @@ profiling = "1.0"
 parking_lot = { workspace = true, features = ["serde"] }
 simple_logger = { workspace = true }
 mimalloc = { workspace = true }
-rustls = { workspace = true, features = ["ring"] }
+rustls = { workspace = true }
 # Enable metal backend for wgpu on macOS
 wgpu = { workspace = true, features = ["metal", "vulkan"] }
 # Codebase integration: git repo management, metrics discovery, syntax highlighting

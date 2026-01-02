@@ -8,6 +8,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Linux-only X11/Wayland features**: The `x11` and `wayland` eframe features are now only enabled on Linux builds. On macOS and Windows, these dependencies are excluded, reducing compile time and binary size.
 
+- **Use ring instead of aws-lc for TLS**: Switched from aws-lc-sys (heavy C dependency) to ring for rustls crypto, reducing dependency count by ~35 crates and significantly improving compile times.
+
 - **Additional language grammars are now optional**: Go, Python, and JavaScript/TypeScript syntax highlighting are controlled by the `all-languages` feature flag (enabled by default). Rust highlighting and codebase integration (git, metrics discovery) are always available on native builds. Build with `--no-default-features` to exclude the extra language grammars.
 
 ### Changed

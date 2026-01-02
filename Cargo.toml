@@ -78,7 +78,7 @@ parking_lot = { version = "0.12", features = ["serde"] }
 simple_logger = { version = "5.1", default-features = false }
 env_logger = "0.11"
 mimalloc = "0.1.43"
-rustls = { version = "0.23.22", features = ["ring"] }
+rustls = { version = "0.23.22", default-features = false, features = ["ring", "std", "tls12"] }
 
 ewebsock = { git = "https://github.com/c-git/ewebsock.git" }
 wasm-bindgen-futures = "0.4"
