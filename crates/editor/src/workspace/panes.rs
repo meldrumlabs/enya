@@ -7,10 +7,10 @@
 use egui_tiles::{Tile, TileId};
 
 use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::InlineSource;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
-use crate::components::{
-    AgentPane, Buffer, Component, InlineChart, InlineContent, InlineSource, QueryPane,
-};
+use crate::components::{AgentPane, Buffer, Component, InlineChart, InlineContent, QueryPane};
 
 impl Workspace {
     // ==================== Pane Adding ====================
@@ -196,7 +196,7 @@ impl Workspace {
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
-                        log::warn!("ShowMetricSource not available on WASM: {metric}");
+                        log::warn!("ShowMetricSource not available: {metric}");
                     }
                 }
                 AgentCommand::ShowAlertSource { alert } => {
@@ -209,7 +209,7 @@ impl Workspace {
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
-                        log::warn!("ShowAlertSource not available on WASM: {alert}");
+                        log::warn!("ShowAlertSource not available: {alert}");
                     }
                 }
                 AgentCommand::ShowInlineChart {
@@ -232,13 +232,21 @@ impl Workspace {
                     context_lines,
                 } => {
                     // Look up metric source and generate inline source preview
-                    let lines = context_lines.unwrap_or(5);
-                    if let Some(source) = self.generate_inline_source(&metric, lines) {
-                        self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
-                        log::info!("Injected inline source for metric: {metric}");
-                        executed_any = true;
-                    } else {
-                        log::warn!("Could not find source for metric: {metric}");
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let lines = context_lines.unwrap_or(5);
+                        if let Some(source) = self.generate_inline_source(&metric, lines) {
+                            self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
+                            log::info!("Injected inline source for metric: {metric}");
+                            executed_any = true;
+                        } else {
+                            log::warn!("Could not find source for metric: {metric}");
+                        }
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _ = (metric, context_lines); // Silence unused warnings
+                        log::warn!("ShowInlineSource not available without codebase feature");
                     }
                 }
             }
@@ -1035,12 +1043,6 @@ impl Workspace {
             language,
             highlight_data,
         })
-    }
-
-    /// WASM stub for generate_inline_source.
-    #[cfg(target_arch = "wasm32")]
-    fn generate_inline_source(&self, _metric: &str, _context_lines: usize) -> Option<InlineSource> {
-        None
     }
 
     /// Inject inline content into the first agent pane's last assistant message.

@@ -52,14 +52,15 @@ mimalloc = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
 # Enable metal backend for wgpu on macOS
 wgpu = { workspace = true, features = ["metal", "vulkan"] }
-# Codebase integration
+# Codebase integration: git repo management, metrics discovery, syntax highlighting
 enya-analyzer = { workspace = true }
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
-tree-sitter-go = "0.23"
-tree-sitter-python = "0.23"
-tree-sitter-javascript = "0.23"
 tree-sitter-highlight = "0.25"
+# Additional language grammars (optional, enabled by "all-languages" feature)
+tree-sitter-go = { version = "0.23", optional = true }
+tree-sitter-python = { version = "0.23", optional = true }
+tree-sitter-javascript = { version = "0.23", optional = true }
 # Async runtime for AI agent and background tasks
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 # AI agent integration via ACP
@@ -99,7 +100,14 @@ insta = { version = "1.43", features = ["toml"] }
 # egui_kittest = { version = "0.33.3", features = ["snapshot"] }
 
 [features]
-default = []
+default = ["all-languages"]
+# Enable syntax highlighting for Go, Python, and JavaScript/TypeScript.
+# Rust highlighting is always available on native builds.
+all-languages = [
+  "dep:tree-sitter-go",
+  "dep:tree-sitter-python",
+  "dep:tree-sitter-javascript",
+]
 # Enable puffin profiling backend (use with puffin_viewer)
 puffin = ["profiling/profile-with-puffin", "dep:puffin", "dep:puffin_http"]
 # Enable tracy profiling backend (use with tracy profiler)

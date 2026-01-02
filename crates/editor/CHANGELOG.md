@@ -6,6 +6,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Additional language grammars are now optional**: Go, Python, and JavaScript/TypeScript syntax highlighting are controlled by the `all-languages` feature flag (enabled by default). Rust highlighting and codebase integration (git, metrics discovery) are always available on native builds. Build with `--no-default-features` to exclude the extra language grammars.
+
+### Changed
+
 - **Parallel query execution (Grafana-style refresh)**: Query execution now runs in parallel instead of sequentially. When refreshing the time range or triggering a manual refresh:
   - All panes fire their queries simultaneously using async promises
   - All panes show the loading skeleton animation at once

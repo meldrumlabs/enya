@@ -1055,7 +1055,7 @@ impl HttpHandler {
         job
     }
 
-    /// Fallback for WASM - no syntax highlighting.
+    /// Fallback when tree-sitter is not available - no syntax highlighting.
     #[cfg(target_arch = "wasm32")]
     fn highlight_rust_line(&self, _line_num: usize, line: &str) -> LayoutJob {
         let mut job = LayoutJob::default();
