@@ -64,6 +64,10 @@ lint: check-fmt clippy
 test:
     cargo nextest run {{ _features }} --cargo-profile ci
 
+# Runs integration tests (requires Docker)
+it-test:
+    cargo nextest run -p enya-integration-tests --run-ignored ignored-only
+
 # Runs a local CI check
 # Note: We don't use --all-features because puffin and tracy profiling backends are mutually exclusive
 ci:

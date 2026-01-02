@@ -22,6 +22,7 @@ members = [
   "crates/build-info",
   "crates/build-tools",
   "crates/egui_nerdfonts",
+  "crates/integration-tests",
 ]
 # Excluded for faster compilation (editor-focused development):
 # - crates/datafusion-enya (heavy DataFusion dependency)
@@ -30,7 +31,6 @@ members = [
 # - crates/metrics-store
 # - crates/log-store
 # - crates/macros
-# - crates/integration-tests
 # - examples/*
 
 [workspace.dependencies]
