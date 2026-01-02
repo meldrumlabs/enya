@@ -47,7 +47,6 @@ profiling = "1.0"
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 parking_lot = { workspace = true, features = ["serde"] }
-ewebsock = { workspace = true, features = ["tls"] }
 simple_logger = { workspace = true }
 mimalloc = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
@@ -68,7 +67,6 @@ enya-ai = { workspace = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-ewebsock = { workspace = true }
 parking_lot = { workspace = true, features = ["serde"] }
 wasm-bindgen-futures = { workspace = true }
 wasm-bindgen = { workspace = true }
