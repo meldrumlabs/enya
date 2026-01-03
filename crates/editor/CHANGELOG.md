@@ -8,6 +8,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Platform-specific GPU backends**: wgpu now only enables the Metal backend on macOS and Vulkan on Linux/Windows, instead of enabling both everywhere. Combined with X11/Wayland being Linux-only, this reduces compile time and binary size on each platform.
 
+- **Disable egui default fonts**: Since we bundle our own fonts (Departure Mono, Maple Mono, JetBrains Mono, Iosevka), we no longer include egui's embedded default fonts (`epaint_default_fonts`). This reduces binary size.
+
 - **Use ring instead of aws-lc for TLS**: Switched from aws-lc-sys (heavy C dependency) to ring for rustls crypto, reducing dependency count by ~35 crates and significantly improving compile times.
 
 - **Additional language grammars are now optional**: Go, Python, and JavaScript/TypeScript syntax highlighting are controlled by the `all-languages` feature flag (enabled by default). Rust highlighting and codebase integration (git, metrics discovery) are always available on native builds. Build with `--no-default-features` to exclude the extra language grammars.

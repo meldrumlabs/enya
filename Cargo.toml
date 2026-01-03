@@ -41,9 +41,10 @@ enya-client = { path = "crates/client", version = "0.1.0" }
 enya-analyzer = { path = "crates/analyzer", version = "0.1.0" }
 enya-ai = { path = "crates/ai", version = "0.1.0" }
 
-egui = "0.33.2"
+# We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts
+egui = { version = "0.33.2", default-features = false }
 eframe = { version = "0.33.2", default-features = false, features = [
-  "default_fonts", # Embed the default egui fonts.
+  # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so skip egui's defaults
   "wgpu",          # Use the wgpu rendering backend (supports web screenshots).
   "persistence",   # Enable restoring app state when restarting the app.
   # x11/wayland added conditionally per-platform in editor crate

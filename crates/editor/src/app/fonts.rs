@@ -8,7 +8,8 @@ use crate::ui::settings_screen::EditorFont;
 /// Set up fonts with all available fonts and Nerd Fonts icons.
 /// The preferred font is set as highest priority in the font families.
 pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
-    let mut fonts = egui::FontDefinitions::default();
+    // Start with empty fonts since we disabled default_fonts feature
+    let mut fonts = egui::FontDefinitions::empty();
 
     // Add Maple Mono font
     fonts.font_data.insert(
@@ -45,22 +46,31 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
     // Add Nerd Fonts icons
     egui_nerdfonts::add_to_fonts(&mut fonts, egui_nerdfonts::Variant::Regular);
 
-    // Set the preferred font as highest priority
+    // Get the preferred font name
     let primary_font = preferred_font.font_family_name().to_owned();
 
-    // Put preferred font first (highest priority) for proportional text:
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, primary_font.clone());
+    // All available text fonts (preferred first, then fallbacks)
+    let all_fonts: Vec<String> = [
+        primary_font.clone(),
+        "maple_mono".to_owned(),
+        "departure_mono".to_owned(),
+        "jetbrains_mono".to_owned(),
+        "iosevka".to_owned(),
+    ]
+    .into_iter()
+    .filter(|f| *f != primary_font) // Remove duplicate of primary
+    .collect();
 
-    // Put preferred font first (highest priority) for monospace too:
+    let mut font_list = vec![primary_font];
+    font_list.extend(all_fonts);
+
+    // Set up font families - since we start from empty, we need to populate them
     fonts
         .families
-        .entry(egui::FontFamily::Monospace)
-        .or_default()
-        .insert(0, primary_font);
+        .insert(egui::FontFamily::Proportional, font_list.clone());
+    fonts
+        .families
+        .insert(egui::FontFamily::Monospace, font_list);
 
     // Tell egui to use these fonts:
     ctx.set_fonts(fonts);
