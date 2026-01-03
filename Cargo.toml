@@ -41,13 +41,13 @@ enya-client = { path = "crates/client", version = "0.1.0" }
 enya-analyzer = { path = "crates/analyzer", version = "0.1.0" }
 enya-ai = { path = "crates/ai", version = "0.1.0" }
 
-egui = "0.33.2"
+# We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts
+egui = { version = "0.33.2", default-features = false }
 eframe = { version = "0.33.2", default-features = false, features = [
-  "default_fonts", # Embed the default egui fonts.
+  # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so skip egui's defaults
   "wgpu",          # Use the wgpu rendering backend (supports web screenshots).
   "persistence",   # Enable restoring app state when restarting the app.
-  "x11",           # Linux X11 support
-  "wayland",       # Linux Wayland support
+  # x11/wayland added conditionally per-platform in editor crate
 ] }
 # wgpu with explicit backend support
 wgpu = { version = "27.0", default-features = false, features = [
@@ -79,9 +79,8 @@ parking_lot = { version = "0.12", features = ["serde"] }
 simple_logger = { version = "5.1", default-features = false }
 env_logger = "0.11"
 mimalloc = "0.1.43"
-rustls = { version = "0.23.22", features = ["ring"] }
+rustls = { version = "0.23.22", default-features = false, features = ["ring", "std", "tls12"] }
 
-ewebsock = { git = "https://github.com/c-git/ewebsock.git" }
 wasm-bindgen-futures = "0.4"
 wasm-bindgen = "0.2"
 js-sys = "0.3"
@@ -112,8 +111,6 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 metrics = "0.24"
 
-
-uwheel = { git = "https://github.com/uwheel/uwheel.git", features = ["bloom"] }
 sketches-ddsketch = "0.3.0"
 criterion = { version = "0.5", default-features = false }
 
@@ -129,8 +126,21 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)', 'cfg(get
 [profile.dev]
 lto = "off"
 opt-level = 0
-debug = 0
-panic = "abort"
+debug = 0              # No debug info for faster builds (use debug = 1 if needed)
+panic = "abort"        # Smaller binaries, faster builds
+incremental = true     # Enable incremental compilation
+codegen-units = 256    # More parallelism for faster builds
+
+# Optimize proc-macros and build scripts even in dev mode
+[profile.dev.build-override]
+opt-level = 3
+codegen-units = 16
+
+# Optimize dependencies in dev mode for better runtime performance
+# This adds some compile time but makes the app much faster to use
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
 
 [profile.ci]
 inherits = "dev"
@@ -138,6 +148,10 @@ lto = "off"
 opt-level = 0
 debug = 0
 panic = "abort"
+incremental = false    # Disable incremental in CI (not useful, wastes cache space)
 
 [profile.release]
-opt-level = 2 # fast and small wasm
+opt-level = 2          # Good balance for wasm size and speed
+lto = "thin"           # Enable thin LTO for smaller binaries
+codegen-units = 1      # Better optimization at cost of compile time
+strip = true           # Strip symbols for smaller binaries

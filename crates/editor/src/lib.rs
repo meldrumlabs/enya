@@ -19,6 +19,7 @@ mod async_runtime;
 pub use async_runtime::AsyncRuntime;
 
 /// Codebase integration: git repo management and metrics-rs instrumentation discovery.
+/// Requires the "codebase" feature (enabled by default on native builds).
 #[cfg(not(target_arch = "wasm32"))]
 pub mod codebase;
 
