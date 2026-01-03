@@ -15,4 +15,5 @@ runs:
     - name: Install dev tools
       uses: taiki-e/install-action@v2.49.15
       with:
-        tool: nextest@0.9.89, cargo-machete, cargo-deny, taplo-cli
+        # cargo-deny@0.18.9+ required for CVSS 4.0 support in RustSec advisories
+        tool: nextest@0.9.89, cargo-machete, cargo-deny@0.18.9, taplo-cli
