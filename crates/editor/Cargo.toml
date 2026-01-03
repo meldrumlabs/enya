@@ -50,8 +50,6 @@ parking_lot = { workspace = true, features = ["serde"] }
 simple_logger = { workspace = true }
 mimalloc = { workspace = true }
 rustls = { workspace = true }
-# Enable metal backend for wgpu on macOS
-wgpu = { workspace = true, features = ["metal", "vulkan"] }
 # Codebase integration: git repo management, metrics discovery, syntax highlighting
 enya-analyzer = { workspace = true }
 tree-sitter = "0.25"
@@ -89,9 +87,18 @@ web-sys = { workspace = true, features = [
 web-time = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 
-# Linux: enable X11 and Wayland support for eframe
+# Linux: enable X11 and Wayland support for eframe, vulkan for wgpu
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { workspace = true, features = ["x11", "wayland"] }
+wgpu = { workspace = true, features = ["vulkan"] }
+
+# macOS: enable metal backend for wgpu
+[target.'cfg(target_os = "macos")'.dependencies]
+wgpu = { workspace = true, features = ["metal"] }
+
+# Windows: enable vulkan backend for wgpu
+[target.'cfg(target_os = "windows")'.dependencies]
+wgpu = { workspace = true, features = ["vulkan"] }
 
 [build-dependencies]
 enya-build-tools = { workspace = true }

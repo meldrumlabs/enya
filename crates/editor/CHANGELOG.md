@@ -6,7 +6,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
-- **Linux-only X11/Wayland features**: The `x11` and `wayland` eframe features are now only enabled on Linux builds. On macOS and Windows, these dependencies are excluded, reducing compile time and binary size.
+- **Platform-specific GPU backends**: wgpu now only enables the Metal backend on macOS and Vulkan on Linux/Windows, instead of enabling both everywhere. Combined with X11/Wayland being Linux-only, this reduces compile time and binary size on each platform.
 
 - **Use ring instead of aws-lc for TLS**: Switched from aws-lc-sys (heavy C dependency) to ring for rustls crypto, reducing dependency count by ~35 crates and significantly improving compile times.
 
