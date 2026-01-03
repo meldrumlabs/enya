@@ -43,26 +43,26 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
             .into(),
     );
 
-    // Add Nerd Fonts icons
-    egui_nerdfonts::add_to_fonts(&mut fonts, egui_nerdfonts::Variant::Regular);
+    // Add Nerd Fonts icons font data
+    fonts
+        .font_data
+        .insert("nerdfonts".to_owned(), egui_nerdfonts::Variant::Regular.font_data().into());
 
     // Get the preferred font name
     let primary_font = preferred_font.font_family_name().to_owned();
 
-    // All available text fonts (preferred first, then fallbacks)
-    let all_fonts: Vec<String> = [
-        primary_font.clone(),
-        "maple_mono".to_owned(),
-        "departure_mono".to_owned(),
-        "jetbrains_mono".to_owned(),
-        "iosevka".to_owned(),
-    ]
-    .into_iter()
-    .filter(|f| *f != primary_font) // Remove duplicate of primary
-    .collect();
+    // Build font list: preferred font first, then fallbacks, then nerdfonts for icons
+    let mut font_list = vec![primary_font.clone()];
 
-    let mut font_list = vec![primary_font];
-    font_list.extend(all_fonts);
+    // Add other fonts as fallbacks (skip if it's the same as primary)
+    for font in ["maple_mono", "departure_mono", "jetbrains_mono", "iosevka"] {
+        if font != primary_font {
+            font_list.push(font.to_owned());
+        }
+    }
+
+    // Add nerdfonts last for icon fallback
+    font_list.push("nerdfonts".to_owned());
 
     // Set up font families - since we start from empty, we need to populate them
     fonts
