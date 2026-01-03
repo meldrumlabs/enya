@@ -1,0 +1,102 @@
+---
+title: Keyboard Reference
+description: Complete keyboard shortcut reference for Enya
+---
+
+Enya uses vim-style keybindings. This page provides a complete reference of all available shortcuts.
+
+## Navigation
+
+| Key | Action |
+|-----|--------|
+| `h/j/k/l` | Move between panes |
+| `Ctrl+w h/j/k/l` | Move focus to split |
+| `g` | Go to first pane |
+| `G` | Go to last pane |
+| `Tab` | Next pane |
+| `Shift+Tab` | Previous pane |
+
+## Pane Management
+
+| Key | Action |
+|-----|--------|
+| `s` | Horizontal split |
+| `v` | Vertical split |
+| `q` | Close pane |
+| `o` | Maximize/restore pane |
+| `=` | Equalize pane sizes |
+
+## Queries
+
+| Key | Action |
+|-----|--------|
+| `i` | Edit query (insert mode) |
+| `Escape` | Exit insert mode |
+| `Enter` | Execute query |
+| `/` | Search metrics |
+| `Ctrl+p` | Fuzzy finder |
+
+## Time Range
+
+| Key | Action |
+|-----|--------|
+| `.` | Zoom in (time) |
+| `,` | Zoom out (time) |
+| `+` | Zoom in (Y-axis) |
+| `-` | Zoom out (Y-axis) |
+| `Left/Right` | Pan time range |
+
+## Git Integration
+
+| Key | Action |
+|-----|--------|
+| `gd` | Go to definition |
+| `ga` | Go to alert |
+| `]c` | Next commit marker |
+| `[c` | Previous commit marker |
+
+## Visual Mode
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+v` | Enter visual-multi mode |
+| `Escape` | Exit visual mode |
+| `j/k` | Extend selection |
+| `d` | Delete selected |
+| `y` | Yank (copy) selected |
+
+## Agent Mode
+
+| Key | Action |
+|-----|--------|
+| `Space+a` | Open agent pane |
+| `@` | Mention metric (in agent input) |
+| `/` | Slash commands (in agent input) |
+
+## Window Movement
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+w h` | Move pane to far left |
+| `Ctrl+w j` | Move pane to bottom |
+| `Ctrl+w k` | Move pane to top |
+| `Ctrl+w l` | Move pane to far right |
+| `Ctrl+w t h/j/k/l` | Merge pane into tabs with neighbor |
+
+## Command Palette
+
+Press `:` to open the command palette.
+
+| Command | Alias | Action |
+|---------|-------|--------|
+| `:theme <dark/light>` | `t` | Toggle or set theme |
+| `:info` | `version` | Show version and build info |
+| `:split <h/v>` | `sp` | Split view (horizontal/vertical) |
+| `:vsplit` | `vs` | Vertical split |
+| `:quit` | `q` | Quit workspace |
+| `:write` | `w` | Save workspace |
+| `:screenshot [path]` | `ss` | Take a screenshot |
+| `:source <name>` | `so` | Load workspace |
+| `:share` | | Share workspace as URL |
+| `:provider <name>` | `ai` | Set AI provider (claude, codex) |
+| `:font <name>` | | Set font (maple, departure, jetbrains, iosevka) |

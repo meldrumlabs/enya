@@ -1,0 +1,194 @@
+---
+title: Git Integration
+description: Connecting Enya to your codebase for enhanced observability
+sidebar:
+  order: 4
+  label: Git Integration
+---
+
+# Git Integration
+
+Enya integrates with your git repository to connect metrics with code. This enables powerful features like jumping to metric definitions, viewing alert rules, and correlating commits with metric changes.
+
+## Configuration
+
+Add a `[codebase]` section to your workspace TOML:
+
+```toml
+[codebase]
+url = "https://github.com/your-org/your-repo"
+branch = "main"
+```
+
+When you load the workspace, Enya will:
+1. Clone the repository (or fetch if already cloned)
+2. Parse source files with tree-sitter
+3. Index metric instrumentation points
+4. Scan for alert rule definitions in YAML files
+
+## Go to Definition (`gd`)
+
+Press `gd` on a focused chart pane to jump to where the metric is instrumented in your source code.
+
+**What you'll see:**
+- Source code preview with ~20 lines of context
+- Rust syntax highlighting (keywords, types, strings, functions, macros)
+- File path and line number in the header
+- Metric kind badge (counter/gauge/histogram)
+- Labels extracted from the metric macro in the footer
+
+**Navigation:**
+- Press `Escape` to close the preview
+- If a metric is defined in multiple locations, press `N` to go to the next location, `P` for previous
+- Location indicator shows `[1/3]` when multiple locations exist
+
+**Example:**
+
+If you're viewing a chart for `http_requests_total`, pressing `gd` might show:
+
+```rust
+// src/server/handlers.rs:142
+fn handle_request(&self, req: Request) -> Response {
+    counter!("http_requests_total", "method" => req.method.as_str());
+    // ...
+}
+```
+
+### Metric Prefix Matching
+
+When metrics-rs adds a runtime prefix (e.g., `myapp_`), Enya falls back to suffix matching. Querying `myapp_http_requests_total` will find `counter!("http_requests_total")` in your source.
+
+## Go to Alert (`ga`)
+
+Press `ga` on a focused chart pane to view alert rules that reference the metric.
+
+**What you'll see:**
+- YAML source preview with ~20 lines of context
+- Alert severity badge (critical/warning) in the header
+- Alert name and message in the footer
+- Press `Escape` to dismiss
+
+**Example:**
+
+For a metric `error_rate`, pressing `ga` might show:
+
+```yaml
+# alerts/api.yaml:45
+groups:
+  - name: api
+    rules:
+      - alert: HighErrorRate
+        expr: sum(rate(error_rate[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          message: "Error rate exceeded 5%"
+```
+
+## Git Commit Markers
+
+Time-series charts display vertical markers for git commits that occurred during the visible time range.
+
+**Features:**
+- Dashed emerald vertical lines at commit times
+- Commit labels shown above the chart (up to 8 visible)
+- Hover over a marker to see the hash and full commit message
+- Commits are cached per time range for performance
+
+**Navigation:**
+- `]c` — Jump to next commit marker
+- `[c` — Jump to previous commit marker
+
+**Toggle commits:**
+```
+:commits toggle
+:commits show
+:commits hide
+```
+
+Or use the alias:
+```
+:git toggle
+```
+
+## How Indexing Works
+
+### Metric Discovery
+
+Enya uses tree-sitter to parse your source files and find metric instrumentation:
+
+**Rust (metrics-rs):**
+```rust
+counter!("requests_total", "method" => method);
+gauge!("connections_active");
+histogram!("request_duration_seconds", "endpoint" => endpoint);
+```
+
+The indexer extracts:
+- Metric name
+- Metric kind (counter/gauge/histogram)
+- Labels and their names
+- File path and line number
+- Containing function name
+
+### Alert Rule Discovery
+
+Enya scans YAML files for Prometheus alerting rules in the standard format:
+
+```yaml
+groups:
+  - name: example
+    rules:
+      - alert: AlertName
+        expr: promql_expression
+        labels:
+          severity: warning
+        annotations:
+          message: "Alert description"
+```
+
+The indexer extracts:
+- Alert name
+- PromQL expression
+- Severity level
+- Message/runbook URL
+- File location
+
+## Supported Languages
+
+Enya uses tree-sitter to parse source files and discover metric instrumentation:
+
+| Language | Framework | Extensions |
+|----------|-----------|------------|
+| Rust | metrics-rs | `.rs` |
+| Go | prometheus/client_golang | `.go` |
+| Python | prometheus_client | `.py` |
+| TypeScript | prom-client | `.ts`, `.tsx` |
+| JavaScript | prom-client | `.js`, `.jsx` |
+| YAML | Prometheus alerting rules | `.yaml`, `.yml` |
+
+## Troubleshooting
+
+### Codebase not indexing
+
+Check that:
+1. The `url` is accessible (public repo or valid credentials)
+2. The `branch` exists
+3. You're running the native app (codebase features are native-only, not available in WASM)
+
+### Metric not found
+
+If `gd` doesn't find your metric:
+- Check that the metric name in your query matches the instrumentation
+- Runtime prefixes are handled automatically via suffix matching
+- Ensure the source file is in the repository
+
+### Commits not showing
+
+Git commit markers require:
+- A configured `[codebase]` section
+- The repository to be successfully cloned/indexed
+- Commits within the visible time range
+
+Check the diagnostics panel (`:diagnostics`) for indexing status.
