@@ -44,9 +44,10 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
     );
 
     // Add Nerd Fonts icons font data
-    fonts
-        .font_data
-        .insert("nerdfonts".to_owned(), egui_nerdfonts::Variant::Regular.font_data().into());
+    fonts.font_data.insert(
+        "nerdfonts".to_owned(),
+        egui_nerdfonts::Variant::Regular.font_data().into(),
+    );
 
     // Get the preferred font name
     let primary_font = preferred_font.font_family_name().to_owned();
