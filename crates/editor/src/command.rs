@@ -16,8 +16,10 @@ pub enum UICommand {
     OpenExampleDashboard(usize),
     Help,
     ConnectionStatus(bool),
+    /// Set a specific theme
     Theme(AppTheme),
-    ToggleTheme,
+    /// Cycle to the next theme
+    NextTheme,
     OpenFuzzyFinder,
     OpenCommandPalette,
 }
@@ -32,8 +34,8 @@ impl UICommand {
             Self::OpenExampleDashboard(0),
             Self::Help,
             Self::ConnectionStatus(false),
-            Self::Theme(AppTheme::Dark),
-            Self::ToggleTheme,
+            Self::Theme(AppTheme::default()),
+            Self::NextTheme,
             Self::OpenFuzzyFinder,
             Self::OpenCommandPalette,
         ]
@@ -55,7 +57,7 @@ impl UICommand {
             Self::Dashboard => ("Dashboard", "Open Enya Dashboard"),
             Self::OpenExampleDashboard(_) => ("...", "Create an Enya dashboard"),
             Self::Theme(_) => ("...", "..."),
-            Self::ToggleTheme => ("Toggle Theme...", "Toggles the application theme"),
+            Self::NextTheme => ("Next Theme", "Cycle to the next theme"),
             Self::ConnectionStatus(_) => ("", ""),
             Self::OpenFuzzyFinder => ("Search...", "Open fuzzy finder to search metrics"),
             Self::OpenCommandPalette => ("Command Palette", "Open command palette"),
@@ -159,8 +161,8 @@ impl UICommand {
             Self::Home => vec![],
             Self::Help => vec![], // Help accessed via ? on landing page or :help command
             Self::Dashboard => vec![key(Key::D)],
-            Self::ToggleTheme => vec![], // Removed: T key now used for gt/gT tab navigation
             Self::Theme(_) => vec![],
+            Self::NextTheme => vec![], // Use :theme command
             Self::OpenExampleDashboard(_) => vec![],
             Self::ConnectionStatus(_) => vec![],
             Self::OpenFuzzyFinder => vec![], // Space+m leader key sequence
@@ -247,7 +249,7 @@ mod tests {
         assert!(commands.contains(&UICommand::Home));
         assert!(commands.contains(&UICommand::Dashboard));
         assert!(commands.contains(&UICommand::Help));
-        assert!(commands.contains(&UICommand::ToggleTheme));
+        assert!(commands.contains(&UICommand::NextTheme));
         assert!(commands.contains(&UICommand::OpenFuzzyFinder));
         assert!(commands.contains(&UICommand::OpenCommandPalette));
     }
@@ -257,7 +259,7 @@ mod tests {
         assert_eq!(UICommand::Home.text(), "Home");
         assert_eq!(UICommand::Help.text(), "Help");
         assert_eq!(UICommand::Dashboard.text(), "Dashboard");
-        assert_eq!(UICommand::ToggleTheme.text(), "Toggle Theme...");
+        assert_eq!(UICommand::NextTheme.text(), "Next Theme");
         assert_eq!(UICommand::OpenFuzzyFinder.text(), "Search...");
         assert_eq!(UICommand::OpenCommandPalette.text(), "Command Palette");
     }
@@ -270,10 +272,7 @@ mod tests {
             "Get help with any Playground issues"
         );
         assert_eq!(UICommand::Dashboard.tooltip(), "Open Enya Dashboard");
-        assert_eq!(
-            UICommand::ToggleTheme.tooltip(),
-            "Toggles the application theme"
-        );
+        assert_eq!(UICommand::NextTheme.tooltip(), "Cycle to the next theme");
         assert_eq!(
             UICommand::OpenFuzzyFinder.tooltip(),
             "Open fuzzy finder to search metrics"
@@ -298,7 +297,7 @@ mod tests {
         assert!(UICommand::Help.is_link());
         assert!(!UICommand::Home.is_link());
         assert!(!UICommand::Dashboard.is_link());
-        assert!(!UICommand::ToggleTheme.is_link());
+        assert!(!UICommand::NextTheme.is_link());
         assert!(!UICommand::OpenFuzzyFinder.is_link());
         assert!(!UICommand::OpenCommandPalette.is_link());
     }
@@ -308,7 +307,7 @@ mod tests {
         assert!(UICommand::Help.icon().is_some());
         assert!(UICommand::Home.icon().is_none());
         assert!(UICommand::Dashboard.icon().is_none());
-        assert!(UICommand::ToggleTheme.icon().is_none());
+        assert!(UICommand::NextTheme.icon().is_none());
         assert!(UICommand::OpenFuzzyFinder.icon().is_none());
         assert!(UICommand::OpenCommandPalette.icon().is_none());
     }
@@ -342,7 +341,7 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            UICommand::ToggleTheme
+            UICommand::NextTheme
                 .kb_shortcuts(OperatingSystem::Mac)
                 .is_empty()
         );
@@ -352,7 +351,7 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            UICommand::Theme(AppTheme::Dark)
+            UICommand::Theme(AppTheme::Emerald)
                 .kb_shortcuts(OperatingSystem::Mac)
                 .is_empty()
         );
@@ -413,10 +412,10 @@ mod tests {
 
     #[test]
     fn test_ui_command_theme_variants() {
-        let dark = UICommand::Theme(AppTheme::Dark);
+        let emerald = UICommand::Theme(AppTheme::Emerald);
         let light = UICommand::Theme(AppTheme::Light);
-        assert_ne!(dark, light);
-        assert_eq!(dark.text(), "...");
+        assert_ne!(emerald, light);
+        assert_eq!(emerald.text(), "...");
         assert_eq!(light.text(), "...");
     }
 

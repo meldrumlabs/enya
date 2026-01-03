@@ -35,7 +35,7 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use egui::{Color32, RichText};
+use egui::RichText;
 
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
@@ -194,14 +194,8 @@ impl MetricsFinder {
         theme: AppTheme,
     ) {
         let text_col = text_color(theme);
-        let tag_key_color = match theme {
-            AppTheme::Light => Color32::from_rgb(50, 120, 180), // blue
-            AppTheme::Dark => Color32::from_rgb(97, 175, 239),  // light blue
-        };
-        let tag_value_color = match theme {
-            AppTheme::Light => Color32::from_rgb(80, 140, 80), // green
-            AppTheme::Dark => Color32::from_rgb(152, 195, 121), // light green
-        };
+        let tag_key_color = theme.syntax_key();
+        let tag_value_color = theme.syntax_value();
 
         // Header with metric info
         ui.horizontal(|ui| {

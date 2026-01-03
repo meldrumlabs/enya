@@ -3,7 +3,6 @@
 use egui::{Color32, RichText, Stroke};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 use super::stat::Threshold;
@@ -121,7 +120,7 @@ impl GaugeChart {
 
     /// Get color based on thresholds
     fn color_for_value(&self) -> Color32 {
-        let mut color = palette::accent::PRIMARY;
+        let mut color = self.theme.accent_primary();
         for threshold in &self.thresholds {
             if self.current_value >= threshold.value {
                 color = threshold.color;

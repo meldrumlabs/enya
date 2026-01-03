@@ -8,6 +8,7 @@ pub mod palette;
 pub mod semantic_icons;
 pub mod settings_screen;
 pub mod theme;
+pub mod tinted_logo;
 pub mod typography;
 pub mod welcome_screen;
 

@@ -1,9 +1,9 @@
 use egui::{Color32, NumExt, RichText, Vec2};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
+use crate::ui::tinted_logo::TintedLogo;
 use crate::ui::typography;
 
 /// Action returned by the landing page
@@ -45,6 +45,8 @@ pub struct LandingPage {
     keyboard_disabled: bool,
     /// Last known mouse position (to detect actual mouse movement)
     last_mouse_pos: Option<egui::Pos2>,
+    /// Cached tinted logo texture
+    tinted_logo: TintedLogo,
 }
 
 impl Default for LandingPage {
@@ -60,6 +62,7 @@ impl LandingPage {
             selected_index: 0,
             keyboard_disabled: false,
             last_mouse_pos: None,
+            tinted_logo: TintedLogo::new(),
         }
     }
 
@@ -109,7 +112,7 @@ impl LandingPage {
                 ui.add_space(top_padding);
 
                 // === HEADER SECTION ===
-                self.show_header(ui, muted_color);
+                self.show_header(ui, ctx, muted_color);
 
                 ui.add_space(32.0);
 
@@ -127,16 +130,28 @@ impl LandingPage {
     }
 
     /// Show the header with logo and title
-    fn show_header(&self, ui: &mut egui::Ui, _muted_color: Color32) {
-        // Logo
-        let logo = egui::Image::new(egui::include_image!("../../../assets/logo.png"));
+    fn show_header(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, muted_color: Color32) {
+        let accent = self.accent_color();
+
+        // Get the overlay-blended tinted logo (cached per theme)
+        let texture = self.tinted_logo.get(ctx, self.theme);
+        let logo = egui::Image::from_texture(egui::load::SizedTexture::from_handle(texture));
         ui.add(logo.max_width(160.0).max_height(160.0));
 
         ui.add_space(12.0);
 
-        // App name in Enya's brand color (emerald)
-        let accent = self.accent_color();
+        // App name in theme accent color
         ui.heading(RichText::new("ENYA").strong().size(42.0).color(accent));
+
+        ui.add_space(8.0);
+
+        // Version badge - ASCII box style: [ v0.1.0 ]
+        let version = format!("[ v{} ]", env!("CARGO_PKG_VERSION"));
+        ui.label(
+            RichText::new(version)
+                .size(typography::SM)
+                .color(muted_color.gamma_multiply(0.7)),
+        );
     }
 
     /// Show the vertical menu buttons (alpha-nvim style)
@@ -282,7 +297,7 @@ impl LandingPage {
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     }
 
-    /// Show the footer with keyboard hints and version
+    /// Show the footer with keyboard hints
     fn show_footer(&self, ui: &mut egui::Ui, muted_color: Color32) {
         // Keyboard hints
         ui.label(
@@ -293,14 +308,11 @@ impl LandingPage {
 
         ui.add_space(12.0);
 
-        // Version and credits
+        // Credits
         ui.label(
-            RichText::new(format!(
-                "v{}  •  Developed by Meldrum Labs",
-                env!("CARGO_PKG_VERSION")
-            ))
-            .size(typography::SM)
-            .color(muted_color.gamma_multiply(0.5)),
+            RichText::new("Developed by Meldrum Labs")
+                .size(typography::SM)
+                .color(muted_color.gamma_multiply(0.5)),
         );
     }
 
@@ -401,9 +413,6 @@ impl LandingPage {
 
     /// Get the accent color based on theme (Enya's emerald brand color)
     fn accent_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::PRIMARY,
-        }
+        self.theme.accent_primary()
     }
 }

@@ -72,10 +72,10 @@ pub use config::{
 pub enum WorkspaceAction {
     /// No action needed
     None,
-    /// Toggle the theme
-    ToggleTheme,
     /// Set a specific theme
     SetTheme(AppTheme),
+    /// Cycle to the next theme
+    NextTheme,
     /// Set the editor font
     SetFont(EditorFont),
     /// Show a notification
@@ -943,8 +943,8 @@ impl Workspace {
     /// Handle a command result from the command palette
     fn handle_command_result(&mut self, result: CommandResult) -> WorkspaceAction {
         match result {
-            CommandResult::ToggleTheme => WorkspaceAction::ToggleTheme,
             CommandResult::SetTheme(theme) => WorkspaceAction::SetTheme(theme),
+            CommandResult::NextTheme => WorkspaceAction::NextTheme,
             CommandResult::SetFont(font) => WorkspaceAction::SetFont(font),
             CommandResult::ShowInfo => {
                 self.info_overlay.open();

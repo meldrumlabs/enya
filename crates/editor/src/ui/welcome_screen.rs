@@ -1,8 +1,7 @@
 use egui::NumExt;
 
 use crate::app::AppState;
-
-use super::colors::text_color;
+use crate::ui::tinted_logo::get_tinted_logo;
 
 pub fn welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState) {
     egui::Frame {
@@ -28,16 +27,18 @@ pub fn welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState) {
 
 pub fn show_welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState) {
     ui.vertical_centered_justified(|ui| {
-        let image = egui::Image::new(egui::include_image!("../../assets/logo.png"));
+        let accent = app_state.theme.accent_primary();
 
-        let theme_color = text_color(app_state.theme);
-
+        // Get the overlay-blended tinted logo
+        let texture = get_tinted_logo(ui.ctx(), app_state.theme);
+        let image = egui::Image::from_texture(egui::load::SizedTexture::from_handle(&texture));
         ui.add(image.max_width(250.0).max_height(250.0));
+
         ui.heading(
             egui::RichText::new("Enya")
                 .strong()
                 .size(24.0)
-                .color(theme_color),
+                .color(accent),
         );
         ui.add_space(10.0);
     });

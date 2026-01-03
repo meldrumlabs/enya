@@ -21,7 +21,6 @@ use enya_ai::{AcpClient, AgentEvent};
 use std::sync::mpsc::Receiver;
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -542,23 +541,17 @@ impl AgentInputBar {
             }
         };
 
-        // Emerald accent for Agent mode (matching obsidian glass theme)
-        let accent = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,  // Deep emerald
-            AppTheme::Dark => palette::accent::PRIMARY, // Signature emerald #10B981
-        };
+        // Accent for Agent mode
+        let accent = self.theme.accent_primary();
 
-        // Inner glow color for premium glass effect (emerald-tinted)
-        let inner_glow = match self.theme {
-            AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 50),
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(16, 185, 129, 8), // Subtle emerald tint
-        };
+        // Inner glow color for premium glass effect
+        let inner_glow = self.theme.overlay_highlight();
 
-        // Subtle bottom shadow glow (emerald accent)
-        let bottom_glow = match self.theme {
-            AppTheme::Light => Color32::TRANSPARENT,
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(16, 185, 129, 4), // Very subtle emerald
-        };
+        // Subtle bottom shadow glow (accent)
+        let bottom_glow = self
+            .theme
+            .backdrop_accent_glow()
+            .unwrap_or(Color32::TRANSPARENT);
 
         // Create frame with premium glass styling
         let frame = style
@@ -579,11 +572,8 @@ impl AgentInputBar {
             ui.vertical(|ui| {
                 // Top row: Provider badge + Context + Input
                 ui.horizontal(|ui| {
-                    // Provider badge with emerald accent and logo
-                    let badge_bg = match self.theme {
-                        AppTheme::Light => accent.gamma_multiply(0.15),
-                        AppTheme::Dark => accent.gamma_multiply(0.2),
-                    };
+                    // Provider badge with accent
+                    let badge_bg = accent.gamma_multiply(0.18);
 
                     egui::Frame::new()
                         .fill(badge_bg)
@@ -645,10 +635,7 @@ impl AgentInputBar {
                         };
 
                         // Context badge
-                        let ctx_badge_bg = match self.theme {
-                            AppTheme::Light => colors.badge_bg,
-                            AppTheme::Dark => colors.badge_bg.gamma_multiply(0.8),
-                        };
+                        let ctx_badge_bg = colors.badge_bg.gamma_multiply(0.9);
 
                         egui::Frame::new()
                             .fill(ctx_badge_bg)
@@ -921,8 +908,6 @@ impl AgentInputBar {
         input_rect: egui::Rect,
         cursor_x: Option<f32>,
     ) {
-        use crate::ui::palette;
-
         if self.mention_popup.results.is_empty() {
             return;
         }
@@ -952,24 +937,15 @@ impl AgentInputBar {
         // Premium Obsidian Glass styling
         let style = OverlayStyle::frosted_glass(self.theme);
 
-        // Emerald accent colors
-        let emerald_accent = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::HOVER,
-        };
-        let emerald_primary = palette::accent::PRIMARY;
+        // Accent colors
+        let emerald_accent = self.theme.accent_hover();
+        let emerald_primary = self.theme.accent_primary();
 
         // Accent color for hover/selection
-        let accent_col = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::PRIMARY,
-        };
+        let accent_col = self.theme.accent_primary();
 
         // Separator color
-        let separator_color = match self.theme {
-            AppTheme::Light => palette::light_border::SUBTLE,
-            AppTheme::Dark => palette::border::SUBTLE,
-        };
+        let separator_color = self.theme.border_subtle();
 
         // Muted text
         let muted_text = text_col.gamma_multiply(0.6);
@@ -1366,11 +1342,8 @@ impl AgentInputBar {
             ("/diff", "@cpu compare to yesterday"),
         ];
 
-        // Emerald accent for pill highlights
-        let pill_accent = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::PRIMARY,
-        };
+        // Accent for pill highlights
+        let pill_accent = self.theme.accent_primary();
 
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;

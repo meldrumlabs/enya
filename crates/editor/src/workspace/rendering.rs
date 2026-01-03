@@ -138,18 +138,9 @@ impl Workspace {
         );
 
         // Theme-aware colors
-        let (track_color, thumb_color, thumb_highlight) = match theme {
-            AppTheme::Light => (
-                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 15),
-                egui::Color32::from_rgba_unmultiplied(80, 80, 90, 140),
-                egui::Color32::from_rgba_unmultiplied(60, 60, 70, 180),
-            ),
-            AppTheme::Dark => (
-                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 8),
-                egui::Color32::from_rgba_unmultiplied(140, 140, 160, 120),
-                egui::Color32::from_rgba_unmultiplied(180, 180, 200, 160),
-            ),
-        };
+        let track_color = theme.scrollbar_track();
+        let thumb_color = theme.scrollbar_thumb();
+        let thumb_highlight = theme.scrollbar_thumb_highlight();
 
         // Draw track with rounded ends
         painter.rect_filled(track_rect, scrollbar_width / 2.0, track_color);
@@ -171,10 +162,7 @@ impl Workspace {
         let cap_height = 3.0_f32.min(thumb_height / 4.0);
         let cap_rect =
             egui::Rect::from_min_size(thumb_rect.min, egui::vec2(scrollbar_width, cap_height));
-        let cap_color = match theme {
-            AppTheme::Light => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 40),
-            AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 25),
-        };
+        let cap_color = theme.scrollbar_cap();
         painter.rect_filled(cap_rect, scrollbar_width / 2.0, cap_color);
     }
 

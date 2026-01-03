@@ -4,27 +4,18 @@ use crate::ui::theme::AppTheme;
 
 #[inline]
 pub fn text_color(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Light => ENYA_WHITE,
-        AppTheme::Dark => ENYA_WHITE,
-    }
+    theme.text_primary()
 }
 
 #[inline]
 pub fn button_color(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Light => ENYA_WHITE,
-        AppTheme::Dark => ENYA_WHITE,
-    }
+    theme.text_primary()
 }
 
 pub fn apply_button_theme(theme: AppTheme, button: egui::Button<'_>) -> egui::Button<'_> {
-    match theme {
-        AppTheme::Light => button.fill(ENYA_WHITE),
-        AppTheme::Dark => button
-            .fill(ENYA_DARK)
-            .stroke(egui::Stroke::new(1.0, ENYA_WHITE.gamma_multiply(0.086))),
-    }
+    button
+        .fill(theme.bg_surface())
+        .stroke(egui::Stroke::new(1.0, theme.border_subtle()))
 }
 
 pub const ENYA_WHITE: Color32 = Color32::from_rgb(255, 255, 255);

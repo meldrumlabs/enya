@@ -90,7 +90,6 @@ use nucleo_matcher::{
 };
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -820,10 +819,7 @@ impl<T: FinderItem> Finder<T> {
         colors: &FinderColors,
     ) -> bool {
         let text_col = text_color(self.theme);
-        let accent_col = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::PRIMARY,
-        };
+        let accent_col = self.theme.accent_primary();
         let secondary_color = text_col.gamma_multiply(0.5);
 
         let row_height = 36.0;

@@ -553,20 +553,11 @@ impl QueryCompletion {
         let popup_height = visible_items as f32 * item_height + 8.0;
 
         // Premium Obsidian Glass theme colors - darker, more distinct popup
-        let bg_color = match self.theme {
-            AppTheme::Light => palette::light_bg::SURFACE,
-            AppTheme::Dark => Color32::from_rgb(16, 16, 20), // Darker obsidian for distinction
-        };
-        let border_color = match self.theme {
-            AppTheme::Light => palette::light_border::DEFAULT,
-            AppTheme::Dark => Color32::from_rgb(50, 55, 52), // Subtle emerald-tinted border
-        };
-        let text_col = palette::text_primary(self.theme);
-        let text_tertiary = palette::text_tertiary(self.theme);
-        let accent_color = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::HOVER, // Luminous emerald
-        };
+        let bg_color = self.theme.popup_bg();
+        let border_color = self.theme.popup_border();
+        let text_col = self.theme.text_primary();
+        let text_tertiary = self.theme.text_tertiary();
+        let accent_color = self.theme.accent_hover();
 
         let popup_rect =
             egui::Rect::from_min_size(popup_pos, egui::vec2(popup_width, popup_height));
@@ -599,10 +590,7 @@ impl QueryCompletion {
             popup_rect.left_top() + egui::vec2(1.0, 1.0),
             egui::vec2(popup_rect.width() - 2.0, 1.5),
         );
-        let highlight_color = match self.theme {
-            AppTheme::Light => Color32::from_rgba_unmultiplied(255, 255, 255, 80),
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 255, 255, 20), // Stronger highlight
-        };
+        let highlight_color = self.theme.overlay_highlight();
         ui.painter()
             .rect_filled(highlight_rect, 10.0, highlight_color);
 
@@ -689,10 +677,7 @@ impl QueryCompletion {
                 kind_pos - egui::vec2(kind_galley.size().x / 2.0, 0.0),
                 kind_galley.size() + egui::vec2(10.0, 6.0),
             );
-            let badge_bg = match self.theme {
-                AppTheme::Light => palette::light_bg::ELEVATED,
-                AppTheme::Dark => palette::bg::HOVER.gamma_multiply(0.6),
-            };
+            let badge_bg = self.theme.bg_hover().gamma_multiply(0.6);
             ui.painter().rect_filled(badge_rect, 4.0, badge_bg);
 
             ui.painter().text(

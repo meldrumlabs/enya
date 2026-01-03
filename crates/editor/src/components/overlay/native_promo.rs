@@ -7,7 +7,6 @@
 use egui::{Key, RichText};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -159,23 +158,11 @@ impl NativePromoOverlay {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                let separator_color = match self.theme {
-                    AppTheme::Light => palette::light_border::SUBTLE,
-                    AppTheme::Dark => palette::border::SUBTLE,
-                };
+                let separator_color = self.theme.border_subtle();
                 let muted_text = text_color(self.theme).gamma_multiply(0.6);
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::PRIMARY,
-                };
-                let key_bg = match self.theme {
-                    AppTheme::Light => palette::light_bg::ELEVATED,
-                    AppTheme::Dark => palette::bg::ELEVATED,
-                };
-                let feature_bg = match self.theme {
-                    AppTheme::Light => palette::light_bg::HOVER,
-                    AppTheme::Dark => palette::bg::HOVER,
-                };
+                let accent_color = self.theme.accent_primary();
+                let key_bg = self.theme.bg_elevated();
+                let feature_bg = self.theme.bg_hover();
 
                 overlay_style
                     .apply_to_frame(egui::Frame::new().inner_margin(24.0))
