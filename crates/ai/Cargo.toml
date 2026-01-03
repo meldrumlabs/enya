@@ -13,8 +13,8 @@ keywords.workspace = true
 description = "AI agent integration for Enya"
 
 [dependencies]
-# HTTP client for LLM APIs
-ureq = { version = "3", features = ["json"] }
+# HTTP client for LLM APIs (use ring crypto instead of aws-lc for faster builds)
+ureq = { version = "3", default-features = false, features = ["json", "rustls", "_ring"] }
 
 # Serialization
 serde.workspace = true

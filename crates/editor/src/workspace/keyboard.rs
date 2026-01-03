@@ -606,7 +606,9 @@ impl Workspace {
         // Handle time range preset changes (t5, t1, th, td, tw, etc.)
         if let Some(preset) = time_range_preset {
             self.time_range_toolbar.set_preset(preset);
-            log::debug!("Time range set to {preset:?} via keyboard");
+            // Trigger global refresh of all panes (Grafana-style)
+            self.refresh_all_panes();
+            log::debug!("Time range set to {preset:?} via keyboard, refreshing all panes");
             ctx.request_repaint();
         }
 

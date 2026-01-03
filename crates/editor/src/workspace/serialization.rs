@@ -149,7 +149,7 @@ impl Workspace {
             self.show_landing = false;
         }
 
-        // Store codebase URL for deferred initialization (native only)
+        // Store codebase URL for deferred initialization (native only with codebase feature)
         // The actual clone/index happens in show() when ctx is available
         #[cfg(not(target_arch = "wasm32"))]
         {

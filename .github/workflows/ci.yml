@@ -45,8 +45,7 @@ jobs:
       - name: Set up Just Runner
         uses: extractions/setup-just@v2
 
-      # Note: We don't use features=all because puffin and tracy profiling
-      # backends are mutually exclusive
+      # Note: We don't use --all-features because puffin and tracy profiling backends are mutually exclusive
       - name: Run +${{ matrix.target }}
         run: just ${{ matrix.target }}
         env:

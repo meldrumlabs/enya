@@ -183,9 +183,6 @@ pub struct Workspace {
     pending_open_workspace_finder: bool,
     /// Query executor for running queries against backends (Prometheus, Enya)
     query_executor: QueryExecutor,
-    /// Track which pane is waiting for a query result (by stable pane component ID, not TileId)
-    /// We use the pane's internal ID because TileIds can change when egui_tiles restructures the tree
-    pending_query_pane_id: Option<usize>,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
     next_query_number: usize,
     /// Workspace filter for filtering visible panes by query content
@@ -200,7 +197,7 @@ pub struct Workspace {
     agent_mode_active: bool,
     /// Panes in agent context (from visual mode selection or manual +/-)
     agent_context_panes: FxHashSet<TileId>,
-    /// Codebase manager for git repo and metrics discovery (native only)
+    /// Codebase manager for git repo and metrics discovery (native only with codebase feature)
     #[cfg(not(target_arch = "wasm32"))]
     codebase_manager: CodebaseManager,
     /// Pending codebase config to initialize (set during load, executed in show())
@@ -264,7 +261,6 @@ impl Workspace {
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
             query_executor: QueryExecutor::new(async_runtime.clone()),
-            pending_query_pane_id: None,
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
             source_preview: SourcePreviewOverlay::new(),
@@ -331,7 +327,7 @@ impl Workspace {
             return query_action;
         }
 
-        // Handle pending codebase initialization (native only)
+        // Handle pending codebase initialization (native only with codebase feature)
         // This deferred pattern is needed because load_workspace_config() doesn't have ctx
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(url) = self.pending_codebase_config.take() {
@@ -348,11 +344,11 @@ impl Workspace {
             self.query_executor.fetch_label_names(ctx);
         }
 
-        // Poll codebase manager for clone/index completion (native only)
+        // Poll codebase manager for clone/index completion (native only with codebase feature)
         #[cfg(not(target_arch = "wasm32"))]
         self.codebase_manager.poll(ctx);
 
-        // Sync git commits to panes when codebase is ready (native only)
+        // Sync git commits to panes when codebase is ready (native only with codebase feature)
         #[cfg(not(target_arch = "wasm32"))]
         self.sync_commits_to_panes(ctx);
 
@@ -473,6 +469,11 @@ impl Workspace {
                         });
                         ui.add_space(4.0);
                     });
+            }
+
+            // Trigger global refresh when time range changes (Grafana-style)
+            if self.time_range_toolbar.changed() {
+                self.refresh_all_panes();
             }
 
             // Main viewport area (tabbed charts/views)
@@ -650,13 +651,13 @@ impl Workspace {
             } => {
                 // Set pending connection endpoint to apply
                 self.pending_connection_endpoint = Some(endpoint);
-                // Store git repo path for codebase integration (native only)
+                // Store git repo path for codebase integration (native only with codebase feature)
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     self.pending_git_repo = git_repo;
                 }
                 #[cfg(target_arch = "wasm32")]
-                let _ = git_repo; // Silence unused warning on WASM
+                let _ = git_repo; // Silence unused warning
                 self.show_landing = false;
                 ctx.request_repaint();
                 // Return action to rename and save the workspace
@@ -698,7 +699,7 @@ impl Workspace {
         // Note: agent_input_bar.poll() is now called at the start of show()
         // to ensure agent-created panes are available for immediate query execution
 
-        // Poll codebase manager for async operations (native only)
+        // Poll codebase manager for async operations (native only with codebase feature)
         #[cfg(not(target_arch = "wasm32"))]
         self.codebase_manager.poll(ctx);
 
@@ -817,24 +818,21 @@ impl Workspace {
             }
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and add demo panes for the tutorial
+                // These queries use labels that exist in the demo client's generated data
                 self.show_landing = false;
                 let demo_queries = [
                     (
-                        "http_requests_total{env=\"prod\", service=\"api\"}",
+                        "http_requests_total{method=\"GET\", path=\"/api/users\"}",
                         "HTTP Requests",
                         "",
                     ),
                     (
-                        "sum(rate(http_requests_total[5m])) by_endpoint",
+                        "sum(rate(http_requests_total[5m])) by (path)",
                         "Requests by Endpoint",
                         "req/s",
                     ),
-                    ("cpu_usage{env=\"prod\", service=\"api\"}", "CPU Usage", "%"),
-                    (
-                        "memory_used_bytes{env=\"prod\", service=\"api\"}",
-                        "Memory Used",
-                        "MB",
-                    ),
+                    ("node_cpu_seconds_total{mode=\"user\"}", "CPU Usage", "%"),
+                    ("node_memory_Active_bytes", "Memory Used", "MB"),
                 ];
                 for (query, name, unit) in demo_queries {
                     self.add_demo_query_pane(query, name, unit);
@@ -894,13 +892,13 @@ impl Workspace {
             } => {
                 // Set pending connection endpoint to apply
                 self.pending_connection_endpoint = Some(endpoint);
-                // Store git repo path for codebase integration (native only)
+                // Store git repo path for codebase integration (native only with codebase feature)
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     self.pending_git_repo = git_repo;
                 }
                 #[cfg(target_arch = "wasm32")]
-                let _ = git_repo; // Silence unused warning on WASM
+                let _ = git_repo; // Silence unused warning
                 self.show_landing = false;
                 ctx.request_repaint();
                 // Return action to rename and save the workspace
@@ -1850,7 +1848,7 @@ impl Workspace {
         }
     }
 
-    /// Get the current codebase status for StatusLine display (WASM stub).
+    /// Get the current codebase status for StatusLine display (stub when codebase feature disabled).
     #[cfg(target_arch = "wasm32")]
     pub fn codebase_status_info(
         &self,
@@ -1883,7 +1881,7 @@ impl Workspace {
         // Get available metrics (limited to top 50 in EditorContext)
         let metrics: Vec<String> = self.query_executor.metric_names().to_vec();
 
-        // Build codebase context (native only) - includes recent commits
+        // Build codebase context (native only with codebase feature) - includes recent commits
         #[cfg(not(target_arch = "wasm32"))]
         let codebase = {
             use crate::codebase::CodebaseStatus;
@@ -1981,7 +1979,7 @@ impl Workspace {
         // Get available metrics
         let metrics: Vec<String> = self.query_executor.metric_names().to_vec();
 
-        // Build codebase context (native only) - skips commits (requires mutable borrow)
+        // Build codebase context (native only with codebase feature) - skips commits (requires mutable borrow)
         #[cfg(not(target_arch = "wasm32"))]
         let codebase = {
             use crate::codebase::CodebaseStatus;

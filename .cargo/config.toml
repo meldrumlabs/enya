@@ -1,10 +1,27 @@
 [build]
 rustflags = ["--cfg", "tokio_unstable"]
+# Use all available CPU cores for building
+jobs = -1
 
-# Use mold linking for linux builds
+# Use mold linker for Linux builds (much faster than ld/gold)
 [target.'cfg(target_os = "linux")']
 rustflags = ["--cfg", "tokio_unstable", "-C", "link-arg=-fuse-ld=mold"]
+
+# Use lld linker for macOS (faster than default ld)
+# Requires: brew install llvm (provides lld)
+# Uncomment if you have lld installed:
+# [target.'cfg(target_os = "macos")']
+# rustflags = ["--cfg", "tokio_unstable", "-C", "link-arg=-fuse-ld=lld"]
 
 # Configure getrandom to use JS backend for WASM builds
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg", "tokio_unstable", "--cfg", "getrandom_backend=\"wasm_js\""]
+
+# Network and registry settings
+[net]
+# Use git CLI for fetching (can be faster and handles auth better)
+git-fetch-with-cli = true
+
+[registries.crates-io]
+# Use sparse protocol for faster index updates (default in Rust 1.70+)
+protocol = "sparse"

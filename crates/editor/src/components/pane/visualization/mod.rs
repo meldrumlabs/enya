@@ -84,6 +84,18 @@ impl VisualizationType {
         }
     }
 
+    /// Get all visualization types
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::TimeSeries,
+            Self::Stat,
+            Self::Gauge,
+            Self::BarChart,
+            Self::Sparkline,
+            Self::Heatmap,
+        ]
+    }
+
     /// Get the string representation for serialization
     pub fn as_str(&self) -> &'static str {
         match self {

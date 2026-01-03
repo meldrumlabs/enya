@@ -2,6 +2,8 @@
 //!
 //! Provides shared syntax highlighting functionality for source code display,
 //! used by both `SourcePreviewOverlay` and inline source previews in agent panes.
+//!
+//! Requires the "codebase" feature on native builds.
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::ops::Range;
@@ -95,7 +97,7 @@ impl SyntaxHighlightData {
         data
     }
 
-    /// WASM stub - no tree-sitter available.
+    /// Stub when tree-sitter is not available (WASM or codebase feature disabled).
     #[cfg(target_arch = "wasm32")]
     pub fn new(_content: &str, _language: &str) -> Self {
         Self::default()
@@ -111,6 +113,7 @@ impl SyntaxHighlightData {
         }
 
         // Select the appropriate language grammar
+        // Rust is always available, other languages require "all-languages" feature
         let config_result = match language {
             "rust" => HighlightConfiguration::new(
                 tree_sitter_rust::LANGUAGE.into(),
@@ -119,6 +122,7 @@ impl SyntaxHighlightData {
                 "",
                 "",
             ),
+            #[cfg(feature = "all-languages")]
             "go" => HighlightConfiguration::new(
                 tree_sitter_go::LANGUAGE.into(),
                 "go",
@@ -126,6 +130,7 @@ impl SyntaxHighlightData {
                 "",
                 "",
             ),
+            #[cfg(feature = "all-languages")]
             "python" => HighlightConfiguration::new(
                 tree_sitter_python::LANGUAGE.into(),
                 "python",
@@ -133,6 +138,7 @@ impl SyntaxHighlightData {
                 "",
                 "",
             ),
+            #[cfg(feature = "all-languages")]
             "javascript" | "typescript" | "js" | "ts" => HighlightConfiguration::new(
                 tree_sitter_javascript::LANGUAGE.into(),
                 "javascript",
@@ -297,7 +303,7 @@ impl SyntaxHighlightData {
         job
     }
 
-    /// WASM fallback - no syntax highlighting, just plain text.
+    /// Fallback when tree-sitter is not available - no syntax highlighting, just plain text.
     #[cfg(target_arch = "wasm32")]
     #[profiling::function]
     pub fn highlight_line(&self, _line_num: usize, line: &str, theme: AppTheme) -> LayoutJob {
@@ -354,7 +360,7 @@ pub fn highlight_color(idx: usize, theme: AppTheme) -> Color32 {
     }
 }
 
-/// WASM stub for highlight_color.
+/// Stub for highlight_color when tree-sitter is not available.
 #[cfg(target_arch = "wasm32")]
 pub fn highlight_color(_idx: usize, theme: AppTheme) -> Color32 {
     text_color(theme)
