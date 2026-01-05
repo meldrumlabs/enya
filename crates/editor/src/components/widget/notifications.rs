@@ -9,7 +9,6 @@ use std::time::Duration;
 use egui::{Color32, RichText, Ui};
 
 use crate::components::util::id_generator::next_id;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::util::Instant;
@@ -39,25 +38,13 @@ impl NotificationLevel {
     }
 
     /// Get the accent color for this notification level
-    /// Uses the obsidian glass emerald theme semantic colors
+    /// Uses theme-aware semantic colors
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
-            Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(37, 99, 235), // Blue 600
-                AppTheme::Dark => palette::semantic::INFO,
-            },
-            Self::Success => match theme {
-                AppTheme::Light => palette::accent::LIGHT, // Emerald (brand color)
-                AppTheme::Dark => palette::accent::PRIMARY, // Emerald (brand color)
-            },
-            Self::Warn => match theme {
-                AppTheme::Light => Color32::from_rgb(217, 119, 6), // Amber 600
-                AppTheme::Dark => palette::semantic::WARNING,
-            },
-            Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(220, 38, 38), // Red 600
-                AppTheme::Dark => palette::semantic::ERROR,
-            },
+            Self::Info => theme.semantic_info(),
+            Self::Success => theme.accent_primary(),
+            Self::Warn => theme.semantic_warning(),
+            Self::Error => theme.semantic_error(),
         }
     }
 }
@@ -150,7 +137,7 @@ impl NotificationManager {
     pub fn new() -> Self {
         Self {
             notifications: Vec::new(),
-            theme: AppTheme::Dark,
+            theme: AppTheme::default(),
             max_visible: 5,
         }
     }
@@ -255,22 +242,11 @@ impl NotificationManager {
     ) -> f32 {
         let accent_color = notification.level.color(theme);
 
-        // Obsidian glass theme colors
-        let (bg_color, border_color, text_color, muted_color) = match theme {
-            AppTheme::Dark => (
-                // Frosted glass background - semi-transparent surface
-                palette::bg::SURFACE.gamma_multiply(0.95),
-                palette::border::SUBTLE,
-                palette::text::PRIMARY,
-                palette::text::SECONDARY,
-            ),
-            AppTheme::Light => (
-                palette::light_bg::SURFACE.gamma_multiply(0.98),
-                palette::light_border::SUBTLE,
-                palette::light_text::PRIMARY,
-                palette::light_text::SECONDARY,
-            ),
-        };
+        // Theme-aware colors for frosted glass effect
+        let bg_color = theme.bg_surface().gamma_multiply(0.95);
+        let border_color = theme.border_subtle();
+        let text_color = theme.text_primary();
+        let muted_color = theme.text_secondary();
 
         // Calculate opacity based on progress (fade out near the end)
         let opacity = if let Some(progress) = notification.progress() {

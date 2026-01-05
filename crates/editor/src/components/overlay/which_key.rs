@@ -6,7 +6,6 @@
 use egui::{Color32, Key, RichText};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -319,19 +318,10 @@ impl WhichKey {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                let separator_color = match self.theme {
-                    AppTheme::Light => palette::light_border::SUBTLE,
-                    AppTheme::Dark => palette::border::SUBTLE,
-                };
+                let separator_color = self.theme.border_subtle();
                 let muted_text = text_color(self.theme).gamma_multiply(0.6);
-                let key_bg = match self.theme {
-                    AppTheme::Light => palette::light_bg::ELEVATED,
-                    AppTheme::Dark => palette::bg::ELEVATED,
-                };
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::PRIMARY,
-                };
+                let key_bg = self.theme.bg_elevated();
+                let accent_color = self.theme.accent_primary();
 
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);

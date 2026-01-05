@@ -422,17 +422,10 @@ impl AgentPane {
 
     fn render_message(&mut self, ui: &mut egui::Ui, message: &ChatMessage, colors: &OverlayColors) {
         let (role_label, role_color, msg_bg) = match message.role {
-            MessageRole::User => (
-                "You",
-                colors.accent,
-                match self.theme {
-                    AppTheme::Light => palette::light_bg::ELEVATED,
-                    AppTheme::Dark => palette::bg::ELEVATED,
-                },
-            ),
+            MessageRole::User => ("You", colors.accent, self.theme.chat_user_msg_bg()),
             MessageRole::Assistant => (
                 self.selected_provider.display_name(),
-                palette::accent::PRIMARY,
+                self.theme.accent_primary(),
                 Color32::TRANSPARENT,
             ),
             MessageRole::System => ("System", colors.faint_text, Color32::TRANSPARENT),
@@ -723,13 +716,7 @@ impl AgentPane {
                     let is_target = line_num == source.line;
 
                     let (line_color, bg_color) = if is_target {
-                        (
-                            palette::semantic::WARNING,
-                            match self.theme {
-                                AppTheme::Light => Color32::from_rgba_unmultiplied(255, 220, 0, 40),
-                                AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 220, 0, 25),
-                            },
-                        )
+                        (palette::semantic::WARNING, self.theme.highlight_line())
                     } else {
                         (colors.faint_text, Color32::TRANSPARENT)
                     };

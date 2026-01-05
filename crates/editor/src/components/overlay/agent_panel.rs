@@ -298,16 +298,8 @@ impl AgentPanel {
 
     fn panel_frame(&self) -> egui::Frame {
         // Use frosted glass style matching other overlays
-        let (bg, border) = match self.theme {
-            AppTheme::Light => (
-                Color32::from_rgba_unmultiplied(255, 255, 255, 250),
-                palette::light_border::DEFAULT,
-            ),
-            AppTheme::Dark => (
-                Color32::from_rgba_unmultiplied(15, 15, 15, 250), // Slightly darker than SURFACE
-                palette::border::SUBTLE,
-            ),
-        };
+        let bg = self.theme.agent_panel_bg();
+        let border = self.theme.agent_panel_border();
 
         egui::Frame::NONE
             .fill(bg)
@@ -550,17 +542,10 @@ impl AgentPanel {
 
     fn render_message(&self, ui: &mut egui::Ui, message: &ChatMessage, colors: &OverlayColors) {
         let (role_label, role_color, msg_bg) = match message.role {
-            MessageRole::User => (
-                "You",
-                colors.accent,
-                match self.theme {
-                    AppTheme::Light => palette::light_bg::ELEVATED,
-                    AppTheme::Dark => palette::bg::ELEVATED,
-                },
-            ),
+            MessageRole::User => ("You", colors.accent, self.theme.chat_user_msg_bg()),
             MessageRole::Assistant => (
                 self.selected_provider.display_name(),
-                palette::accent::PRIMARY,
+                self.theme.accent_primary(),
                 Color32::TRANSPARENT, // No background for assistant - cleaner
             ),
             MessageRole::System => ("System", colors.faint_text, Color32::TRANSPARENT),

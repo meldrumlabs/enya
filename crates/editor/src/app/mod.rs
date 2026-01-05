@@ -310,12 +310,8 @@ impl EnyaApp {
                 egui_ctx.set_visuals(self.state.visuals());
                 egui_ctx.request_repaint();
             }
-            UICommand::ToggleTheme => {
-                let new_theme = match self.state.theme {
-                    AppTheme::Light => AppTheme::Dark,
-                    AppTheme::Dark => AppTheme::Light,
-                };
-                self.state.theme = new_theme;
+            UICommand::NextTheme => {
+                self.state.theme.next();
                 egui_ctx.set_visuals(self.state.visuals());
                 egui_ctx.request_repaint();
             }
@@ -414,11 +410,11 @@ impl EnyaApp {
     fn handle_workspace_action(&mut self, ctx: &egui::Context, action: WorkspaceAction) {
         match action {
             WorkspaceAction::None => {}
-            WorkspaceAction::ToggleTheme => {
-                self.command_sender.send_ui(UICommand::ToggleTheme);
-            }
             WorkspaceAction::SetTheme(theme) => {
                 self.command_sender.send_ui(UICommand::Theme(theme));
+            }
+            WorkspaceAction::NextTheme => {
+                self.command_sender.send_ui(UICommand::NextTheme);
             }
             WorkspaceAction::SetFont(font) => {
                 // Update the setting (will be persisted automatically via save())
@@ -572,16 +568,15 @@ impl eframe::App for EnyaApp {
         self.check_tab_navigation(ctx);
 
         // Custom titlebar with window controls and drag area
-        // Replaces native macOS titlebar for seamless Obsidian Glass theme
+        // Replaces native macOS titlebar for seamless theme integration
         #[cfg(not(target_arch = "wasm32"))]
         {
-            use crate::ui::palette::{accent, bg};
-
+            let theme = self.state.theme;
             let titlebar_height = 32.0;
 
             egui::TopBottomPanel::top("custom_titlebar")
                 .exact_height(titlebar_height)
-                .frame(egui::Frame::NONE.fill(bg::BASE))
+                .frame(egui::Frame::NONE.fill(theme.bg_base()))
                 .show(ctx, |ui| {
                     ui.horizontal_centered(|ui| {
                         ui.add_space(8.0);
@@ -634,14 +629,14 @@ impl eframe::App for EnyaApp {
 
                         ui.add_space(button_spacing);
 
-                        // Fullscreen button (green/emerald to match theme)
-                        let fullscreen_color = accent::PRIMARY; // Emerald from theme
+                        // Fullscreen button (uses theme accent)
+                        let fullscreen_color = theme.accent_primary();
                         let (fs_rect, fs_response) = ui.allocate_exact_size(
                             egui::vec2(button_size, button_size),
                             egui::Sense::click(),
                         );
                         let fullscreen_color = if fs_response.hovered() {
-                            accent::HOVER
+                            theme.accent_hover()
                         } else {
                             fullscreen_color.gamma_multiply(0.7)
                         };

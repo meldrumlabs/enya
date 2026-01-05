@@ -37,27 +37,15 @@ struct QuerySyntaxColors {
 
 impl QuerySyntaxColors {
     fn for_theme(theme: AppTheme) -> Self {
-        match theme {
-            AppTheme::Light => Self {
-                keyword: Color32::from_rgb(166, 38, 164), // purple - keywords
-                tag_key: Color32::from_rgb(0, 92, 197),   // blue - keys
-                colon: palette::light_text::TERTIARY,
-                tag_value: palette::accent::LIGHT, // emerald - values
-                wildcard: Color32::from_rgb(200, 120, 0), // orange
-                paren: palette::light_text::TERTIARY,
-                negation: palette::semantic::ERROR,
-                default: palette::light_text::PRIMARY,
-            },
-            AppTheme::Dark => Self {
-                keyword: palette::syntax::KEYWORD,
-                tag_key: palette::syntax::KEY,
-                colon: palette::syntax::PUNCTUATION,
-                tag_value: palette::syntax::VALUE,
-                wildcard: palette::syntax::SPECIAL,
-                paren: palette::syntax::PUNCTUATION,
-                negation: palette::syntax::NEGATION,
-                default: palette::text::PRIMARY,
-            },
+        Self {
+            keyword: theme.syntax_keyword(),
+            tag_key: theme.syntax_key(),
+            colon: theme.syntax_punctuation(),
+            tag_value: theme.syntax_value(),
+            wildcard: theme.syntax_type(), // Use type color for wildcards/special
+            paren: theme.syntax_punctuation(),
+            negation: theme.semantic_error(),
+            default: theme.text_primary(),
         }
     }
 }
@@ -673,11 +661,8 @@ impl BufferEditor {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                // Muted accent for badges/buttons (darker, less saturated for dark mode)
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => Color32::from_rgb(13, 148, 103), // Darker emerald (~0.8x PRIMARY)
-                };
+                // Muted accent for badges/buttons
+                let accent_color = self.theme.accent_muted();
 
                 let frame_response = overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
@@ -778,10 +763,7 @@ impl BufferEditor {
                     ui.add_space(12.0);
 
                     // Separator
-                    let separator_color = match self.theme {
-                        AppTheme::Light => palette::light_border::SUBTLE,
-                        AppTheme::Dark => palette::border::SUBTLE,
-                    };
+                    let separator_color = self.theme.border_subtle();
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
@@ -841,14 +823,8 @@ impl BufferEditor {
                         let editor_width = popup_width - 32.0;
 
                         // Premium editor styling
-                        let editor_bg = match self.theme {
-                            AppTheme::Light => palette::light_bg::ELEVATED,
-                            AppTheme::Dark => Color32::from_rgb(14, 14, 17), // Slightly darker for contrast
-                        };
-                        let editor_border = match self.theme {
-                            AppTheme::Light => palette::light_border::SUBTLE,
-                            AppTheme::Dark => palette::border::SUBTLE,
-                        };
+                        let editor_bg = self.theme.bg_inset();
+                        let editor_border = self.theme.border_subtle();
 
                         // Create layouter closure for syntax highlighting
                         // Use larger font for better readability
@@ -1073,10 +1049,7 @@ impl BufferEditor {
                         ui.add_space(20.0);
 
                         let hint_color = text_color(self.theme).gamma_multiply(0.35);
-                        let key_bg = match self.theme {
-                            AppTheme::Light => palette::light_bg::ELEVATED,
-                            AppTheme::Dark => palette::bg::ELEVATED,
-                        };
+                        let key_bg = self.theme.bg_elevated();
 
                         // Premium keyboard hints with key badges
                         crate::components::util::finder_utils::render_key_badge(
@@ -1135,14 +1108,8 @@ impl BufferEditor {
                             ui.add_space(10.0);
 
                             // Cancel button with refined ghost styling
-                            let cancel_bg = match self.theme {
-                                AppTheme::Light => palette::light_bg::HOVER,
-                                AppTheme::Dark => palette::bg::ELEVATED,
-                            };
-                            let cancel_border = match self.theme {
-                                AppTheme::Light => palette::light_border::SUBTLE,
-                                AppTheme::Dark => palette::border::SUBTLE,
-                            };
+                            let cancel_bg = self.theme.bg_elevated();
+                            let cancel_border = self.theme.border_subtle();
                             let cancel_btn = egui::Button::new(
                                 RichText::new("Cancel")
                                     .size(typography::MD)

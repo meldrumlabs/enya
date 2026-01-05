@@ -5,7 +5,6 @@ use nucleo_matcher::{
 };
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -42,10 +41,10 @@ pub enum CommandKind {
 pub enum CommandResult {
     /// Command executed successfully
     Success,
-    /// Toggle theme
-    ToggleTheme,
     /// Set specific theme
     SetTheme(AppTheme),
+    /// Cycle to next theme
+    NextTheme,
     /// Show info overlay with build info
     ShowInfo,
     /// Horizontal split
@@ -77,7 +76,7 @@ const COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         name: "theme",
         aliases: &["t"],
-        description: "Toggle or set theme (dark/light)",
+        description: "Set theme (dark/nord/gruvbox/light)",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
@@ -334,14 +333,14 @@ impl CommandPalette {
         match cmd.name {
             "theme" => {
                 if args.is_empty() {
-                    CommandResult::ToggleTheme
+                    // No argument: cycle to next theme
+                    CommandResult::NextTheme
                 } else {
-                    match args[0].to_lowercase().as_str() {
-                        "dark" | "d" => CommandResult::SetTheme(AppTheme::Dark),
-                        "light" | "l" => CommandResult::SetTheme(AppTheme::Light),
-                        "toggle" | "t" => CommandResult::ToggleTheme,
-                        _ => CommandResult::Error(format!(
-                            "Unknown theme: {}. Use 'dark' or 'light'",
+                    // Parse theme name
+                    match AppTheme::parse(args[0]) {
+                        Some(theme) => CommandResult::SetTheme(theme),
+                        None => CommandResult::Error(format!(
+                            "Unknown theme: {}. Use: dark, nord, gruvbox, light",
                             args[0]
                         )),
                     }
@@ -532,10 +531,7 @@ impl CommandPalette {
                     ui.add_space(8.0);
 
                     // Separator
-                    let separator_color = match self.theme {
-                        AppTheme::Light => palette::light_border::SUBTLE,
-                        AppTheme::Dark => palette::border::SUBTLE,
-                    };
+                    let separator_color = self.theme.border_subtle();
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
@@ -643,10 +639,7 @@ impl CommandPalette {
     ) {
         let text_col = text_color(self.theme);
         // Use emerald accent for highlights to match brand
-        let accent_col = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::PRIMARY,
-        };
+        let accent_col = self.theme.accent_primary();
 
         let row_height = 32.0;
         let (rect, response) = ui.allocate_exact_size(

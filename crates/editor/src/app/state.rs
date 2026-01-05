@@ -6,10 +6,8 @@
 
 use egui::Visuals;
 
-use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::ui::theme::AppTheme;
-use crate::ui::theme::light;
 use crate::util::Instant;
 
 /// Tracks internal editor metrics for the status line sparkline
@@ -78,10 +76,7 @@ pub struct AppState {
 impl AppState {
     /// Returns the current App theme visuals
     pub fn visuals(&self) -> Visuals {
-        match self.theme {
-            AppTheme::Light => light(),
-            AppTheme::Dark => black_theme(),
-        }
+        self.theme.visuals()
     }
 
     /// Returns the current UIState

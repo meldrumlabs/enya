@@ -320,43 +320,20 @@ impl SyntaxHighlightData {
 pub fn highlight_color(idx: usize, theme: AppTheme) -> Color32 {
     let name = HIGHLIGHT_NAMES.get(idx).copied().unwrap_or("");
 
-    match theme {
-        AppTheme::Light => match name {
-            "keyword" => Color32::from_rgb(160, 50, 160), // purple
-            "string" | "escape" => Color32::from_rgb(50, 130, 50), // green
-            "comment" => Color32::from_rgb(120, 120, 120), // gray
-            "function" | "function.builtin" => Color32::from_rgb(50, 100, 180), // blue
-            "function.macro" => Color32::from_rgb(0, 130, 150), // teal
-            "type" | "type.builtin" | "constructor" => Color32::from_rgb(180, 100, 50), // orange
-            "number" | "constant" | "constant.builtin" => Color32::from_rgb(180, 80, 80), // red-ish
-            "attribute" => Color32::from_rgb(150, 120, 50), // yellow-brown
-            "variable" | "variable.parameter" | "property" | "label" => {
-                Color32::from_rgb(40, 40, 40)
-            } // dark
-            "variable.builtin" => Color32::from_rgb(160, 50, 160), // purple (self)
-            "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
-                Color32::from_rgb(60, 60, 60) // dark gray
-            }
-            _ => Color32::from_rgb(40, 40, 40), // default dark
-        },
-        AppTheme::Dark => match name {
-            "keyword" => Color32::from_rgb(200, 120, 220), // purple
-            "string" | "escape" => Color32::from_rgb(130, 200, 130), // green
-            "comment" => Color32::from_rgb(128, 128, 128), // gray
-            "function" | "function.builtin" => Color32::from_rgb(100, 160, 255), // blue
-            "function.macro" => Color32::from_rgb(80, 200, 200), // cyan
-            "type" | "type.builtin" | "constructor" => Color32::from_rgb(220, 160, 100), // orange
-            "number" | "constant" | "constant.builtin" => Color32::from_rgb(220, 120, 120), // red-ish
-            "attribute" => Color32::from_rgb(220, 190, 100), // yellow
-            "variable" | "variable.parameter" | "property" | "label" => {
-                Color32::from_rgb(220, 220, 220)
-            } // light
-            "variable.builtin" => Color32::from_rgb(200, 120, 220), // purple (self)
-            "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
-                Color32::from_rgb(180, 180, 180) // light gray
-            }
-            _ => Color32::from_rgb(220, 220, 220), // default light
-        },
+    match name {
+        "keyword" => theme.syntax_keyword(),
+        "string" | "escape" => theme.syntax_value(),
+        "comment" => theme.syntax_comment(),
+        "function" | "function.builtin" | "function.macro" => theme.syntax_function(),
+        "type" | "type.builtin" | "constructor" => theme.syntax_type(),
+        "number" | "constant" | "constant.builtin" => theme.syntax_number(),
+        "attribute" => theme.syntax_type(), // Use type color for attributes
+        "variable" | "variable.parameter" | "property" | "label" => theme.syntax_variable(),
+        "variable.builtin" => theme.syntax_keyword(), // Use keyword color for builtin vars (self)
+        "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
+            theme.syntax_punctuation()
+        }
+        _ => theme.syntax_variable(), // Default to variable color
     }
 }
 

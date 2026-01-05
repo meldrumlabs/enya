@@ -3,7 +3,6 @@
 use egui::{Color32, RichText, Stroke};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
@@ -107,7 +106,7 @@ impl SparklineViz {
 
     /// Get the line color (uses accent if not set)
     fn line_color(&self) -> Color32 {
-        self.color.unwrap_or(palette::accent::PRIMARY)
+        self.color.unwrap_or(self.theme.accent_primary())
     }
 
     /// Get the current (latest) value

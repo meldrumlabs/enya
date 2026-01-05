@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use egui::{Color32, Sense, Ui};
 
 use crate::AsyncRuntime;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
@@ -97,7 +96,7 @@ impl WorkspaceTabBar {
             tabs: Vec::new(),
             active_tab_index: 0,
             next_tab_id: 0,
-            theme: AppTheme::Dark,
+            theme: AppTheme::default(),
             async_runtime,
         };
         // Create initial default workspace (shows landing page)
@@ -366,21 +365,21 @@ impl WorkspaceTabBar {
             };
             painter.rect_filled(rect, 0.0, bg);
 
-            // Active indicator bar at bottom - premium emerald accent
+            // Active indicator bar at bottom - theme accent
             if is_active {
                 // Subtle glow layer
                 let glow_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.min.x, rect.max.y - 3.0),
                     egui::vec2(rect.width(), 3.0),
                 );
-                painter.rect_filled(glow_rect, 0.0, palette::accent::GLOW);
+                painter.rect_filled(glow_rect, 0.0, self.theme.accent_glow());
 
                 // Main accent bar
                 let bar_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.min.x, rect.max.y - 2.0),
                     egui::vec2(rect.width(), 2.0),
                 );
-                painter.rect_filled(bar_rect, 0.0, palette::accent::PRIMARY);
+                painter.rect_filled(bar_rect, 0.0, self.theme.accent_primary());
             }
 
             // Tab text
@@ -401,7 +400,7 @@ impl WorkspaceTabBar {
                     rect.min.x + tab_padding_h + text_galley.size().x + 4.0,
                     rect.center().y,
                 );
-                painter.circle_filled(dot_pos, 3.0, palette::accent::PRIMARY);
+                painter.circle_filled(dot_pos, 3.0, self.theme.accent_primary());
             }
 
             // Close button (for active tab or on hover)
@@ -418,7 +417,7 @@ impl WorkspaceTabBar {
                     ui.interact(close_rect, ui.id().with(("close", idx)), Sense::click());
 
                 let close_color = if close_response.hovered() {
-                    palette::semantic::ERROR
+                    self.theme.semantic_error()
                 } else {
                     self.close_btn_color()
                 };
@@ -483,48 +482,34 @@ impl WorkspaceTabBar {
         response.on_hover_text("New workspace (tabnew)").clicked()
     }
 
-    // Color helpers
+    // Color helpers - use theme-aware methods
 
     fn bg_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Dark => palette::bg::SURFACE,
-            AppTheme::Light => palette::light_bg::SURFACE,
-        }
+        self.theme.bg_surface()
     }
 
     fn active_bg_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Dark => palette::bg::ELEVATED,
-            AppTheme::Light => palette::light_bg::ELEVATED,
-        }
+        self.theme.bg_elevated()
     }
 
     fn hover_bg_color(&self) -> Color32 {
         // Use subtle hover like landing page - 5% of text color
-        let text_col = self.text_color(false);
-        text_col.gamma_multiply(0.05)
+        self.theme.text_secondary().gamma_multiply(0.05)
     }
 
     fn text_color(&self, is_active: bool) -> Color32 {
-        match (self.theme, is_active) {
-            (AppTheme::Dark, true) => palette::text::PRIMARY,
-            (AppTheme::Dark, false) => palette::text::SECONDARY,
-            (AppTheme::Light, true) => palette::light_text::PRIMARY,
-            (AppTheme::Light, false) => palette::light_text::SECONDARY,
+        if is_active {
+            self.theme.text_primary()
+        } else {
+            self.theme.text_secondary()
         }
     }
 
     fn close_btn_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Dark => palette::text::TERTIARY,
-            AppTheme::Light => palette::light_text::TERTIARY,
-        }
+        self.theme.text_tertiary()
     }
 
     fn separator_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Dark => palette::border::SUBTLE,
-            AppTheme::Light => palette::light_border::SUBTLE,
-        }
+        self.theme.border_subtle()
     }
 }

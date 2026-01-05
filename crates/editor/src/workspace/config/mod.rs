@@ -284,10 +284,7 @@ impl Default for ViewConfig {
 impl ViewConfig {
     /// Convert theme string to AppTheme
     pub fn app_theme(&self) -> AppTheme {
-        match self.theme.to_lowercase().as_str() {
-            "light" => AppTheme::Light,
-            _ => AppTheme::Dark,
-        }
+        AppTheme::parse(&self.theme).unwrap_or_default()
     }
 
     /// Check if all values are defaults
@@ -1310,7 +1307,7 @@ children = [0, { type = "vertical", children = [1, 2] }]
     #[test]
     fn test_view_config_app_theme() {
         let mut config = ViewConfig::default();
-        assert_eq!(config.app_theme(), AppTheme::Dark);
+        assert_eq!(config.app_theme(), AppTheme::Dark); // "dark" parses to Dark
 
         config.theme = "light".to_string();
         assert_eq!(config.app_theme(), AppTheme::Light);
@@ -1318,8 +1315,11 @@ children = [0, { type = "vertical", children = [1, 2] }]
         config.theme = "LIGHT".to_string();
         assert_eq!(config.app_theme(), AppTheme::Light);
 
+        config.theme = "gruvbox".to_string();
+        assert_eq!(config.app_theme(), AppTheme::Gruvbox);
+
         config.theme = "invalid".to_string();
-        assert_eq!(config.app_theme(), AppTheme::Dark); // Defaults to dark
+        assert_eq!(config.app_theme(), AppTheme::Dark); // Defaults to Dark
     }
 
     // ==================== TimeConfig Tests ====================

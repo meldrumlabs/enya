@@ -4,7 +4,6 @@ use egui::{Color32, Key, RichText};
 use enya_build_info::BuildInfo;
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -76,19 +75,10 @@ impl InfoOverlay {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                let separator_color = match self.theme {
-                    AppTheme::Light => palette::light_border::SUBTLE,
-                    AppTheme::Dark => palette::border::SUBTLE,
-                };
+                let separator_color = self.theme.border_subtle();
                 let muted_text = text_color(self.theme).gamma_multiply(0.6);
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::HOVER,
-                };
-                let key_color = match self.theme {
-                    AppTheme::Light => palette::light_text::TERTIARY,
-                    AppTheme::Dark => palette::text::TERTIARY,
-                };
+                let accent_color = self.theme.accent_hover();
+                let key_color = self.theme.text_tertiary();
                 let value_color = text_color(self.theme);
 
                 overlay_style.frame().show(ui, |ui| {

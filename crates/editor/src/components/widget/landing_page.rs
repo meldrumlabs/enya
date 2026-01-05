@@ -1,9 +1,9 @@
-use egui::{Color32, NumExt, RichText, Vec2};
+use egui::{Color32, RichText, Vec2};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
+use crate::ui::tinted_logo::TintedLogo;
 use crate::ui::typography;
 
 /// Action returned by the landing page
@@ -45,6 +45,8 @@ pub struct LandingPage {
     keyboard_disabled: bool,
     /// Last known mouse position (to detect actual mouse movement)
     last_mouse_pos: Option<egui::Pos2>,
+    /// Cached tinted logo texture
+    tinted_logo: TintedLogo,
 }
 
 impl Default for LandingPage {
@@ -60,6 +62,7 @@ impl LandingPage {
             selected_index: 0,
             keyboard_disabled: false,
             last_mouse_pos: None,
+            tinted_logo: TintedLogo::new(),
         }
     }
 
@@ -95,13 +98,35 @@ impl LandingPage {
         let accent_color = self.accent_color();
         let muted_color = text_col.gamma_multiply(0.5);
 
-        // Calculate vertical centering (shifted up to fit content)
+        // Responsive layout that scales to fit any screen without scrolling
         let available_height = ui.available_height();
-        let content_height = 520.0;
-        let top_padding = ((available_height - content_height) / 2.0 - 60.0).at_least(0.0);
+
+        // Calculate the unscaled content height to determine required scale
+        // Header: logo(160) + spacing(12) + title(42) + spacing(6) + tagline(20) + spacing(8) + version(14) = 262
+        // Header spacing: 32
+        // Menu: 6 items * (48 + 8) = 336
+        // Footer spacing: 16
+        // Footer: hints(16) + spacing(12) + credits(12) = 40
+        // Margins: 32 (frame) + some padding
+        // Total unscaled: ~720
+        const UNSCALED_CONTENT_HEIGHT: f32 = 720.0;
+
+        // Calculate scale to fit content with some breathing room (16px top + 16px bottom)
+        let target_height = available_height - 32.0;
+        let scale = (target_height / UNSCALED_CONTENT_HEIGHT).clamp(0.5, 1.0);
+
+        // Scaled spacing values
+        let header_spacing = 32.0 * scale;
+        let footer_spacing = 16.0 * scale;
+
+        // Actual content height after scaling
+        let content_height = UNSCALED_CONTENT_HEIGHT * scale;
+
+        // Center vertically with slight upward shift (35% from top)
+        let top_padding = ((available_height - content_height) * 0.35).clamp(4.0, 80.0);
 
         egui::Frame {
-            inner_margin: egui::Margin::same(16),
+            inner_margin: egui::Margin::same((16.0 * scale) as i8),
             ..Default::default()
         }
         .show(ui, |ui| {
@@ -109,43 +134,78 @@ impl LandingPage {
                 ui.add_space(top_padding);
 
                 // === HEADER SECTION ===
-                self.show_header(ui, muted_color);
+                self.show_header_scaled(ui, ctx, muted_color, scale);
 
-                ui.add_space(32.0);
+                ui.add_space(header_spacing);
 
                 // === MENU BUTTONS (Vertical list) ===
-                action = self.show_menu(ui, text_col, accent_color, mouse_moved);
+                action = self.show_menu_scaled(ui, text_col, accent_color, mouse_moved, scale);
 
-                ui.add_space(16.0);
+                ui.add_space(footer_spacing);
 
                 // === FOOTER ===
-                self.show_footer(ui, muted_color);
+                self.show_footer_scaled(ui, muted_color, scale);
             });
         });
 
         action
     }
 
-    /// Show the header with logo and title
-    fn show_header(&self, ui: &mut egui::Ui, _muted_color: Color32) {
-        // Logo
-        let logo = egui::Image::new(egui::include_image!("../../../assets/logo.png"));
-        ui.add(logo.max_width(160.0).max_height(160.0));
-
-        ui.add_space(12.0);
-
-        // App name in Enya's brand color (emerald)
+    /// Show the header with logo and title (scaled version)
+    fn show_header_scaled(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        muted_color: Color32,
+        scale: f32,
+    ) {
         let accent = self.accent_color();
-        ui.heading(RichText::new("ENYA").strong().size(42.0).color(accent));
+        let logo_size = 160.0 * scale;
+        let title_size = 42.0 * scale;
+
+        // Get the overlay-blended tinted logo (cached per theme)
+        let texture = self.tinted_logo.get(ctx, self.theme);
+        let logo = egui::Image::from_texture(egui::load::SizedTexture::from_handle(texture));
+        ui.add(logo.max_width(logo_size).max_height(logo_size));
+
+        ui.add_space(12.0 * scale);
+
+        // App name in theme accent color
+        ui.heading(
+            RichText::new("ENYA")
+                .strong()
+                .size(title_size)
+                .color(accent),
+        );
+
+        ui.add_space(6.0 * scale);
+
+        // Tagline
+        ui.label(
+            RichText::new("A Builder's Best Friend")
+                .size(typography::LG * scale)
+                .color(muted_color),
+        );
+
+        ui.add_space(8.0 * scale);
+
+        // Version badge - ASCII box style: [ v0.1.0 ]
+        let version = format!("[ v{} ]", env!("CARGO_PKG_VERSION"));
+        ui.label(
+            RichText::new(version)
+                .size(typography::SM * scale)
+                .color(muted_color.gamma_multiply(0.7)),
+        );
     }
 
-    /// Show the vertical menu buttons (alpha-nvim style)
-    fn show_menu(
+    /// Show the vertical menu buttons (scaled version)
+    fn show_menu_scaled(
         &mut self,
         ui: &mut egui::Ui,
         text_col: Color32,
         accent_color: Color32,
         mouse_moved: bool,
+        scale: f32,
     ) -> LandingPageAction {
         let mut action = LandingPageAction::None;
 
@@ -174,12 +234,14 @@ impl LandingPage {
             }),
         ];
 
-        let button_width = 440.0;
+        let button_width = 440.0 * scale;
+        let item_height = 48.0 * scale;
+        let item_spacing = 8.0 * scale;
 
         for (idx, (icon, label, shortcut, action_fn)) in menu_items.iter().enumerate() {
             let is_selected = self.selected_index == idx;
 
-            let response = self.show_menu_item(
+            let response = self.show_menu_item_scaled(
                 ui,
                 icon,
                 label,
@@ -188,6 +250,8 @@ impl LandingPage {
                 accent_color,
                 is_selected,
                 button_width,
+                item_height,
+                scale,
             );
 
             if response.clicked() {
@@ -195,21 +259,20 @@ impl LandingPage {
             }
 
             // Only update selection on hover if mouse actually moved
-            // This prevents stationary mouse from overriding keyboard navigation
             if response.hovered() && !is_selected && mouse_moved {
                 self.selected_index = idx;
             }
 
             // Small gap between items
-            ui.add_space(8.0);
+            ui.add_space(item_spacing);
         }
 
         action
     }
 
-    /// Show a single menu item button (alpha-nvim style)
+    /// Show a single menu item button (scaled version)
     #[allow(clippy::too_many_arguments)]
-    fn show_menu_item(
+    fn show_menu_item_scaled(
         &self,
         ui: &mut egui::Ui,
         icon: &str,
@@ -219,9 +282,9 @@ impl LandingPage {
         accent_color: Color32,
         is_selected: bool,
         width: f32,
+        height: f32,
+        scale: f32,
     ) -> egui::Response {
-        let height = 48.0;
-
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(width, height), egui::Sense::click());
 
@@ -235,7 +298,7 @@ impl LandingPage {
         };
 
         if bg_color != Color32::TRANSPARENT {
-            ui.painter().rect_filled(rect, 8.0, bg_color);
+            ui.painter().rect_filled(rect, 8.0 * scale, bg_color);
         }
 
         // Icon (left side)
@@ -246,10 +309,10 @@ impl LandingPage {
         };
 
         ui.painter().text(
-            egui::pos2(rect.min.x + 20.0, rect.center().y),
+            egui::pos2(rect.min.x + 20.0 * scale, rect.center().y),
             egui::Align2::LEFT_CENTER,
             icon,
-            egui::FontId::proportional(semantic_icons::SIZE_HEADER),
+            egui::FontId::proportional(semantic_icons::SIZE_HEADER * scale),
             icon_color,
         );
 
@@ -257,10 +320,10 @@ impl LandingPage {
         let label_color = if is_selected { accent_color } else { text_col };
 
         ui.painter().text(
-            egui::pos2(rect.min.x + 56.0, rect.center().y),
+            egui::pos2(rect.min.x + 56.0 * scale, rect.center().y),
             egui::Align2::LEFT_CENTER,
             label,
-            typography::proportional(typography::XL),
+            typography::proportional(typography::XL * scale),
             label_color,
         );
 
@@ -272,35 +335,32 @@ impl LandingPage {
         };
 
         ui.painter().text(
-            egui::pos2(rect.max.x - 20.0, rect.center().y),
+            egui::pos2(rect.max.x - 20.0 * scale, rect.center().y),
             egui::Align2::RIGHT_CENTER,
             shortcut,
-            typography::proportional(typography::LG),
+            typography::proportional(typography::LG * scale),
             shortcut_color,
         );
 
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     }
 
-    /// Show the footer with keyboard hints and version
-    fn show_footer(&self, ui: &mut egui::Ui, muted_color: Color32) {
+    /// Show the footer with keyboard hints (scaled version)
+    fn show_footer_scaled(&self, ui: &mut egui::Ui, muted_color: Color32, scale: f32) {
         // Keyboard hints
         ui.label(
             RichText::new("j/k navigate  •  Enter select  •  : commands")
-                .size(typography::MD)
+                .size(typography::MD * scale)
                 .color(muted_color.gamma_multiply(0.7)),
         );
 
-        ui.add_space(12.0);
+        ui.add_space(12.0 * scale);
 
-        // Version and credits
+        // Credits
         ui.label(
-            RichText::new(format!(
-                "v{}  •  Developed by Meldrum Labs",
-                env!("CARGO_PKG_VERSION")
-            ))
-            .size(typography::SM)
-            .color(muted_color.gamma_multiply(0.5)),
+            RichText::new("Developed by Meldrum Labs")
+                .size(typography::SM * scale)
+                .color(muted_color.gamma_multiply(0.5)),
         );
     }
 
@@ -401,9 +461,6 @@ impl LandingPage {
 
     /// Get the accent color based on theme (Enya's emerald brand color)
     fn accent_color(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::PRIMARY,
-        }
+        self.theme.accent_primary()
     }
 }

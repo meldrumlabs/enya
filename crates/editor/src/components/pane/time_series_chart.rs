@@ -11,9 +11,9 @@ use egui_plot::{
 
 use crate::components::util::id_generator::next_id_usize;
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
+use crate::ui::tinted_logo::get_tinted_logo_with_opacity;
 
 /// A marker representing a git commit at a specific point in time.
 ///
@@ -403,7 +403,7 @@ impl TimeSeriesChart {
             Series::new(name.clone())
                 .with_tag("host", "server1")
                 .with_points(points1)
-                .with_color(palette::chart::PALETTE[0]), // Sky blue
+                .with_color(chart.theme.chart_color(0)), // Sky blue
         );
 
         // Series 2: Higher values
@@ -423,7 +423,7 @@ impl TimeSeriesChart {
             Series::new(name)
                 .with_tag("host", "server2")
                 .with_points(points2)
-                .with_color(palette::chart::PALETTE[2]), // Teal
+                .with_color(chart.theme.chart_color(2)), // Teal
         );
 
         // Add some demo commit markers spread across the time range
@@ -683,9 +683,9 @@ impl TimeSeriesChart {
     }
 
     /// Get a default color for series index
-    /// Uses the centralized chart palette from the design system
+    /// Uses the theme's chart palette for consistent colors
     fn series_color(&self, index: usize) -> Color32 {
-        palette::chart::PALETTE[index % palette::chart::PALETTE.len()]
+        self.theme.chart_color(index)
     }
 
     /// Render the chart
@@ -714,11 +714,12 @@ impl TimeSeriesChart {
                 let center_offset = (ui.available_height() / 2.0 - 50.0).max(20.0);
                 ui.add_space(center_offset);
 
-                // Enya logo (slightly transparent for subtle branding)
-                let logo = egui::Image::new(egui::include_image!("../../../assets/logo.png"))
-                    .max_width(logo_size)
-                    .max_height(logo_size)
-                    .tint(text_color.gamma_multiply(0.7));
+                // Get the overlay-blended tinted logo (subtle for empty state)
+                let texture = get_tinted_logo_with_opacity(ui.ctx(), self.theme, 0.5);
+                let logo =
+                    egui::Image::from_texture(egui::load::SizedTexture::from_handle(&texture))
+                        .max_width(logo_size)
+                        .max_height(logo_size);
                 ui.add(logo);
 
                 ui.add_space(16.0 * scale_factor);
@@ -756,8 +757,8 @@ impl TimeSeriesChart {
             Vec::new()
         };
 
-        // Commit marker color - uses brand emerald
-        let commit_color = palette::chart::COMMIT_MARKER;
+        // Commit marker color - uses theme color
+        let commit_color = self.theme.chart_commit_marker();
 
         // Calculate time range for adaptive formatting
         let time_range_secs = data_time_range
@@ -800,7 +801,7 @@ impl TimeSeriesChart {
         // This looks cleaner in vsplit layouts where panes are tall and narrow.
 
         // Apply very soft grid lines for premium look - barely visible structure
-        let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.25);
+        let grid_color = self.theme.border_subtle().gamma_multiply(0.25);
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
         // Legend above the chart (only show if multiple series)
@@ -878,8 +879,7 @@ impl TimeSeriesChart {
                     if response.hovered() {
                         let rect = response.rect;
                         // Paint over with highlighted text
-                        ui.painter()
-                            .rect_filled(rect, 0.0, palette::bg_surface(self.theme));
+                        ui.painter().rect_filled(rect, 0.0, self.theme.bg_surface());
                         ui.painter().text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,

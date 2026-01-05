@@ -6,6 +6,26 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Theme-aware egui visuals**: The `dark_theme()` function in `design.rs` now uses theme-aware colors instead of hardcoded Obsidian Glass palette constants. This ensures that egui widgets (including egui_plot backgrounds, panels, and all widget visuals) correctly reflect the selected theme's colors. Previously, switching to Nord or Gruvbox themes would leave the plot background as black; now each theme uses its own appropriate background color.
+
+- **Theme-adaptive logo**: The Enya logo now adapts to the current theme:
+  - **Dark** (default): Uses the original branded logo with full color
+  - **Light**: Uses the grayscale logo directly (ink on paper aesthetic)
+  - **Other themes** (Nord, Gruvbox): Uses a grayscale version with overlay blend tinting that preserves the logo's depth and shading while applying the theme's accent color. Dark areas stay dark, mid-tones and highlights receive the theme color. Textures are cached per theme for efficient rendering.
+
+### Added
+
+- **Extensible theme presets**: The editor now supports multiple theme presets:
+  - **Dark** (default) - Obsidian Glass with signature Enya emerald (#10B981)
+  - **Nord** - Arctic blue (#88C0D0)
+  - **Gruvbox** - Warm orange (#D65D0E)
+  - **Light** - Paper/Ink aesthetic with warm cream backgrounds and grayscale syntax
+  - Use `:theme <name>` to switch themes (e.g., `:theme gruvbox`, `:theme nord`, `:theme light`)
+  - Use `:theme` (no argument) to cycle to the next theme
+  - Theme can be configured in workspace TOML files with `theme = "dark"` etc.
+
+### Changed
+
 - **Platform-specific GPU backends**: wgpu now only enables the Metal backend on macOS and Vulkan on Linux/Windows, instead of enabling both everywhere. Combined with X11/Wayland being Linux-only, this reduces compile time and binary size on each platform.
 
 - **Disable egui default fonts**: Since we bundle our own fonts (Departure Mono, Maple Mono, JetBrains Mono, Iosevka), we no longer include egui's embedded default fonts (`epaint_default_fonts`). This reduces binary size.
