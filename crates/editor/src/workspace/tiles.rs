@@ -387,13 +387,13 @@ mod tests {
     #[test]
     fn test_set_theme() {
         let mut behavior = TreeBehavior::default();
-        assert_eq!(behavior.theme(), AppTheme::Emerald);
+        assert_eq!(behavior.theme(), AppTheme::Dark);
 
         behavior.set_theme(AppTheme::Light);
         assert_eq!(behavior.theme(), AppTheme::Light);
 
-        behavior.set_theme(AppTheme::Emerald);
-        assert_eq!(behavior.theme(), AppTheme::Emerald);
+        behavior.set_theme(AppTheme::Dark);
+        assert_eq!(behavior.theme(), AppTheme::Dark);
     }
 
     #[test]

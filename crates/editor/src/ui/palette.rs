@@ -4,8 +4,8 @@
 //! Designed for a luxurious, high-end developer experience with Departure Mono typography.
 //! This module provides a centralized color system for consistent UI styling.
 //!
-//! The default theme is Obsidian Glass Emerald, but users can switch to other themes
-//! like Nord, Gruvbox, Rose, or Amber via `:theme <name>`.
+//! The default theme is Obsidian Glass (Dark), but users can switch to other themes
+//! like Nord, Gruvbox, or Light via `:theme <name>`.
 
 use egui::Color32;
 
@@ -126,32 +126,6 @@ pub mod gruvbox {
     pub const GLOW: Color32 = Color32::from_rgba_premultiplied(214, 93, 14, 30);
     pub const SELECTION: Color32 = Color32::from_rgb(50, 40, 30);
     pub const FOCUS_BORDER: Color32 = Color32::from_rgb(80, 73, 69); // #504945
-}
-
-/// Rose accent colors (Soft pink)
-pub mod rose {
-    use super::*;
-
-    pub const PRIMARY: Color32 = Color32::from_rgb(244, 114, 182); // #F472B6
-    pub const HOVER: Color32 = Color32::from_rgb(251, 146, 201); // #FB92C9
-    pub const MUTED: Color32 = Color32::from_rgb(40, 25, 35);
-    pub const LIGHT: Color32 = Color32::from_rgb(219, 39, 119); // #DB2777 - darker for light mode
-    pub const GLOW: Color32 = Color32::from_rgba_premultiplied(244, 114, 182, 30);
-    pub const SELECTION: Color32 = Color32::from_rgb(55, 35, 45);
-    pub const FOCUS_BORDER: Color32 = Color32::from_rgb(90, 60, 75);
-}
-
-/// Amber accent colors (Warm gold)
-pub mod amber {
-    use super::*;
-
-    pub const PRIMARY: Color32 = Color32::from_rgb(245, 158, 11); // #F59E0B
-    pub const HOVER: Color32 = Color32::from_rgb(252, 191, 73); // #FCBF49
-    pub const MUTED: Color32 = Color32::from_rgb(40, 35, 20);
-    pub const LIGHT: Color32 = Color32::from_rgb(217, 119, 6); // #D97706 - darker for light mode
-    pub const GLOW: Color32 = Color32::from_rgba_premultiplied(245, 158, 11, 30);
-    pub const SELECTION: Color32 = Color32::from_rgb(50, 45, 25);
-    pub const FOCUS_BORDER: Color32 = Color32::from_rgb(90, 80, 55);
 }
 
 /// Highlight colors - premium selections and search matches

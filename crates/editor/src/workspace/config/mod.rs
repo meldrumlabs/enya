@@ -1307,7 +1307,7 @@ children = [0, { type = "vertical", children = [1, 2] }]
     #[test]
     fn test_view_config_app_theme() {
         let mut config = ViewConfig::default();
-        assert_eq!(config.app_theme(), AppTheme::Emerald); // "dark" parses to Emerald
+        assert_eq!(config.app_theme(), AppTheme::Dark); // "dark" parses to Dark
 
         config.theme = "light".to_string();
         assert_eq!(config.app_theme(), AppTheme::Light);
@@ -1319,7 +1319,7 @@ children = [0, { type = "vertical", children = [1, 2] }]
         assert_eq!(config.app_theme(), AppTheme::Gruvbox);
 
         config.theme = "invalid".to_string();
-        assert_eq!(config.app_theme(), AppTheme::Emerald); // Defaults to Emerald
+        assert_eq!(config.app_theme(), AppTheme::Dark); // Defaults to Dark
     }
 
     // ==================== TimeConfig Tests ====================

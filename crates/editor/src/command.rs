@@ -351,7 +351,7 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            UICommand::Theme(AppTheme::Emerald)
+            UICommand::Theme(AppTheme::Dark)
                 .kb_shortcuts(OperatingSystem::Mac)
                 .is_empty()
         );
@@ -412,10 +412,10 @@ mod tests {
 
     #[test]
     fn test_ui_command_theme_variants() {
-        let emerald = UICommand::Theme(AppTheme::Emerald);
+        let dark = UICommand::Theme(AppTheme::Dark);
         let light = UICommand::Theme(AppTheme::Light);
-        assert_ne!(emerald, light);
-        assert_eq!(emerald.text(), "...");
+        assert_ne!(dark, light);
+        assert_eq!(dark.text(), "...");
         assert_eq!(light.text(), "...");
     }
 

@@ -656,7 +656,7 @@ mod tests {
         let mut toolbar = TimeRangeToolbar::new();
         toolbar.set_theme(AppTheme::Light);
         // Theme is private, but we can verify it doesn't panic
-        toolbar.set_theme(AppTheme::Emerald);
+        toolbar.set_theme(AppTheme::Dark);
     }
 
     #[test]

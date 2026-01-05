@@ -171,7 +171,12 @@ impl LandingPage {
         ui.add_space(12.0 * scale);
 
         // App name in theme accent color
-        ui.heading(RichText::new("ENYA").strong().size(title_size).color(accent));
+        ui.heading(
+            RichText::new("ENYA")
+                .strong()
+                .size(title_size)
+                .color(accent),
+        );
 
         ui.add_space(6.0 * scale);
 

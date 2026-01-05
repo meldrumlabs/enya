@@ -76,7 +76,7 @@ const COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         name: "theme",
         aliases: &["t"],
-        description: "Set theme (emerald/nord/gruvbox/rose/amber/light)",
+        description: "Set theme (dark/nord/gruvbox/light)",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
@@ -340,7 +340,7 @@ impl CommandPalette {
                     match AppTheme::parse(args[0]) {
                         Some(theme) => CommandResult::SetTheme(theme),
                         None => CommandResult::Error(format!(
-                            "Unknown theme: {}. Use: emerald, nord, gruvbox, rose, amber, light",
+                            "Unknown theme: {}. Use: dark, nord, gruvbox, light",
                             args[0]
                         )),
                     }

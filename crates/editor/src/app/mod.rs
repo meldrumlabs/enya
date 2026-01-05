@@ -97,7 +97,7 @@ impl EnyaApp {
 
         match cc.egui_ctx.theme() {
             Theme::Light => state.theme = AppTheme::Light,
-            Theme::Dark => state.theme = AppTheme::Emerald, // Default to Emerald dark
+            Theme::Dark => state.theme = AppTheme::Dark,
         }
 
         // Initialize workspace tabs with async runtime

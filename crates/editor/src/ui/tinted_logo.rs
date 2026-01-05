@@ -1,7 +1,7 @@
 //! Tintable logo texture with overlay blend for depth-preserving color tinting.
 //!
 //! This module provides a cached texture system for the Enya logo:
-//! - For the Emerald theme (default): uses the original branded logo
+//! - For the Dark theme (default): uses the original branded logo
 //! - For the Light theme (ink/paper): uses the grayscale logo directly (ink on paper)
 //! - For other themes: applies an overlay blend to a grayscale version,
 //!   preserving depth and shading while tinting with the theme's accent color.
@@ -10,7 +10,7 @@ use egui::{Color32, ColorImage, Context, TextureHandle, TextureOptions};
 
 use super::theme::AppTheme;
 
-/// Raw bytes of the original branded logo PNG (for Emerald theme)
+/// Raw bytes of the original branded logo PNG (for Dark theme)
 const LOGO_BYTES_ORIGINAL: &[u8] = include_bytes!("../../assets/logo.png");
 
 /// Raw bytes of the tintable (grayscale) logo PNG (for other themes)
@@ -38,7 +38,7 @@ impl TintedLogo {
 
     /// Get or create the logo texture for the current theme.
     ///
-    /// - For Emerald: returns the original branded logo
+    /// - For Dark: returns the original branded logo
     /// - For other themes: returns an overlay-blended tinted version
     ///
     /// Returns a texture handle that can be used with `egui::Image::from_texture()`.
@@ -59,7 +59,7 @@ impl TintedLogo {
 
     /// Get the texture with a custom opacity multiplier applied.
     /// Useful for subtle/watermark effects.
-    /// For Emerald theme, applies opacity to the original logo.
+    /// For Dark theme, applies opacity to the original logo.
     /// For other themes, applies opacity to the tint color.
     pub fn get_with_opacity(
         &mut self,
@@ -77,7 +77,7 @@ impl TintedLogo {
 }
 
 /// Get a logo texture for stateless contexts.
-/// - For Emerald: returns the original branded logo
+/// - For Dark: returns the original branded logo
 /// - For other themes: returns an overlay-blended tinted version
 ///
 /// This creates/retrieves a texture with a name based on the theme, so egui's
@@ -103,11 +103,11 @@ pub fn get_tinted_logo_with_opacity(ctx: &Context, theme: AppTheme, opacity: f32
 }
 
 /// Load the appropriate logo for the given theme.
-/// - For Emerald: loads the original branded logo (with optional opacity)
+/// - For Dark: loads the original branded logo (with optional opacity)
 /// - For Light: loads the grayscale logo as-is (ink on paper aesthetic)
 /// - For other themes: loads the tintable logo with overlay blend tinting
 fn load_logo_for_theme(theme: AppTheme, opacity: f32) -> ColorImage {
-    if theme == AppTheme::Emerald {
+    if theme == AppTheme::Dark {
         load_original_logo(opacity)
     } else if theme == AppTheme::Light {
         // Light uses ink/paper aesthetic - use grayscale logo directly
@@ -118,7 +118,7 @@ fn load_logo_for_theme(theme: AppTheme, opacity: f32) -> ColorImage {
     }
 }
 
-/// Load the original branded logo (for Emerald theme).
+/// Load the original branded logo (for Dark theme).
 /// Optionally applies opacity by multiplying the alpha channel.
 fn load_original_logo(opacity: f32) -> ColorImage {
     let image = image::load_from_memory(LOGO_BYTES_ORIGINAL)
@@ -250,9 +250,9 @@ mod tests {
     }
 
     #[test]
-    fn test_emerald_uses_original() {
-        // Emerald theme should use the original logo
-        let image = load_logo_for_theme(AppTheme::Emerald, 1.0);
+    fn test_dark_uses_original() {
+        // Dark theme should use the original logo
+        let image = load_logo_for_theme(AppTheme::Dark, 1.0);
 
         // Should match the original logo dimensions
         let original = load_original_logo(1.0);
@@ -260,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn test_non_emerald_uses_tinted() {
+    fn test_non_dark_uses_tinted() {
         // Nord theme should use tinted version
         let nord_image = load_logo_for_theme(AppTheme::Nord, 1.0);
 
