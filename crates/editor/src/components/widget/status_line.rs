@@ -176,8 +176,17 @@ impl StatusMode {
     }
 
     /// Get the text color for this mode's segment
-    /// Uses dark text on bright backgrounds for contrast
-    pub fn text_color(&self, _theme: AppTheme) -> Color32 {
+    /// Uses contrasting text for visibility
+    pub fn text_color(&self, theme: AppTheme) -> Color32 {
+        // Light theme uses dark accent backgrounds (ink aesthetic) - need light text
+        if theme.is_light() {
+            return match self {
+                Self::Search => Color32::from_rgb(30, 30, 30), // Dark text on light bg
+                _ => Color32::from_rgb(250, 248, 245),         // Cream/paper text on dark bg
+            };
+        }
+
+        // Dark themes: bright accent backgrounds - use dark text
         match self {
             // Most modes have bright backgrounds - use dark text
             Self::Normal | Self::Home | Self::Command | Self::VisualMulti | Self::Agent => {
