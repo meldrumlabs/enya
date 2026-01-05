@@ -3,8 +3,12 @@
 pub mod agent_context;
 pub mod agent_panel;
 pub mod buffer_editor;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod codebase_finder;
 pub mod command_palette;
 pub mod diagnostics;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod diff_viewer;
 pub mod info;
 pub mod metrics_finder;
 pub mod multi_edit;
@@ -25,6 +29,8 @@ pub use agent_context::{
     build_connection_context, build_dashboard_context, parse_commands, strip_command_blocks,
 };
 pub use agent_panel::{AgentPanel, AgentPanelResult, ChatMessage};
+#[cfg(not(target_arch = "wasm32"))]
+pub use codebase_finder::{CodebaseFinder, CodebaseFinderResult, CodebaseFinderStatus};
 // Re-export shared types from util for backwards compatibility
 pub use super::util::{AiProvider, MessageRole};
 pub use buffer_editor::{BufferEditor, BufferEditorResult};
@@ -33,6 +39,8 @@ pub use diagnostics::{
     Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter, DiagnosticsPane,
     DiagnosticsPaneAction,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use diff_viewer::{DiffViewerOverlay, DiffViewerResult};
 pub use info::InfoOverlay;
 pub use metrics_finder::{MetricItem, MetricsFinder};
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};

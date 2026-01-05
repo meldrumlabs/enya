@@ -11,7 +11,15 @@ use rustc_hash::FxHashMap;
 pub use enya_analyzer::{
     AlertRule, CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind,
     Scanner, ScannerRegistry, build_index_with_progress, fetch_commit_history,
+    fetch_recent_commits,
 };
+
+// Full-text search module (native only)
+#[cfg(not(target_arch = "wasm32"))]
+pub mod search;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use search::{IndexError, SearchFilter, SearchResult, SearchResultKind, TantivyCodebaseIndex};
 
 // Re-export CommitMarker from the chart module
 pub use crate::components::pane::time_series_chart::CommitMarker;
@@ -144,6 +152,10 @@ pub enum CodebaseResult {
     Error { url: String, message: String },
 }
 
+/// Result from building a Tantivy index (native only).
+#[cfg(not(target_arch = "wasm32"))]
+type TantivyResult = Result<TantivyCodebaseIndex, IndexError>;
+
 /// Manages codebase integration for the editor.
 ///
 /// Handles git operations (clone/fetch) and source code indexing using
@@ -165,6 +177,15 @@ pub struct CodebaseManager {
     pending_history_range: Option<(i64, i64)>,
     /// Flag indicating new commits arrived this frame
     commits_updated: bool,
+    /// Tantivy full-text search index (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    tantivy_index: Option<TantivyCodebaseIndex>,
+    /// Pending Tantivy index result from background thread
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_tantivy: Arc<Mutex<Option<TantivyResult>>>,
+    /// Progress tracking for Tantivy indexing (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    tantivy_progress: Option<search::TantivyProgress>,
 }
 
 impl Default for CodebaseManager {
@@ -186,6 +207,12 @@ impl CodebaseManager {
             commit_cache: FxHashMap::default(),
             pending_history_range: None,
             commits_updated: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            tantivy_index: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_tantivy: Arc::new(Mutex::new(None)),
+            #[cfg(not(target_arch = "wasm32"))]
+            tantivy_progress: None,
         }
     }
 
@@ -349,6 +376,28 @@ impl CodebaseManager {
             }
         }
 
+        // Check for completed Tantivy index build (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(result) = self.pending_tantivy.lock().take() {
+            match result {
+                Ok(tantivy_index) => {
+                    log::info!(
+                        "Tantivy index ready: {} metrics, {} alerts, {} commits",
+                        tantivy_index.metric_count(),
+                        tantivy_index.alert_count(),
+                        tantivy_index.commit_count()
+                    );
+                    self.tantivy_index = Some(tantivy_index);
+                }
+                Err(e) => {
+                    log::warn!("Failed to build Tantivy index: {e}");
+                    // Continue without Tantivy - fallback to in-memory search
+                }
+            }
+            // Clear progress tracker when done
+            self.tantivy_progress = None;
+        }
+
         let result = self.pending_result.lock().take();
 
         let Some(result) = result else {
@@ -416,6 +465,92 @@ impl CodebaseManager {
             } => {
                 let metrics_count = index.metrics.len();
                 let repo_name = extract_repo_name(&url);
+
+                // Spawn background task to build Tantivy index (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let repo_path = index.repo_path.clone();
+                    let index_clone = index.clone();
+                    let pending_tantivy = Arc::clone(&self.pending_tantivy);
+                    let ctx_clone = ctx.clone();
+
+                    // Create progress tracker for Tantivy indexing
+                    let progress = search::TantivyProgress::new();
+                    self.tantivy_progress = Some(progress.clone());
+
+                    std::thread::spawn(move || {
+                        // Phase 1: Fetch commit metadata (fast)
+                        progress.set_phase(search::TantivyPhase::FetchingCommits);
+                        progress.set_current_item(Some("Loading commit list...".to_string()));
+
+                        log::info!(
+                            "Fetching commits for Tantivy index from: {}",
+                            repo_path.display()
+                        );
+
+                        // First get basic commit info (fast - just git log)
+                        let mut commits = enya_analyzer::fetch_recent_commits(&repo_path, 1000)
+                            .unwrap_or_else(|e| {
+                                log::warn!("Failed to fetch commits for indexing: {e}");
+                                Vec::new()
+                            });
+
+                        // Phase 2: Load diffs for each commit (slower - shows progress)
+                        if !commits.is_empty() {
+                            progress.set_total(commits.len());
+                            for (i, commit) in commits.iter_mut().enumerate() {
+                                // Update progress with commit info
+                                let short_hash = &commit.hash[..7.min(commit.hash.len())];
+                                let first_line = commit.message.lines().next().unwrap_or("");
+                                let truncated = if first_line.len() > 35 {
+                                    format!("{}...", &first_line[..32])
+                                } else {
+                                    first_line.to_string()
+                                };
+                                progress.increment(Some(format!("{short_hash} {truncated}")));
+
+                                // Fetch diff for this commit
+                                match enya_analyzer::fetch_commit_diff(&repo_path, &commit.hash) {
+                                    Ok(diff) => {
+                                        commit.semantics = enya_analyzer::extract_semantics(&diff);
+                                        commit.diff = diff;
+                                    }
+                                    Err(e) => {
+                                        log::warn!(
+                                            "Failed to fetch diff for {}: {e}",
+                                            &commit.hash[..8]
+                                        );
+                                    }
+                                }
+
+                                // Request repaint periodically for smooth updates
+                                if i % 10 == 0 {
+                                    ctx_clone.request_repaint();
+                                }
+                            }
+                        }
+
+                        log::info!(
+                            "Fetched {} commits with diffs for Tantivy indexing",
+                            commits.len()
+                        );
+
+                        let result = TantivyCodebaseIndex::open_or_create(&repo_path).and_then(
+                            |mut tantivy_index| {
+                                tantivy_index.rebuild_with_progress(
+                                    &index_clone,
+                                    &commits,
+                                    Some(&progress),
+                                )?;
+                                Ok(tantivy_index)
+                            },
+                        );
+
+                        *pending_tantivy.lock() = Some(result);
+                        ctx_clone.request_repaint();
+                    });
+                }
+
                 self.index = Some(index);
                 self.status = CodebaseStatus::Ready {
                     url,
@@ -536,5 +671,104 @@ impl CodebaseManager {
     /// Call this when the codebase is updated to ensure fresh history.
     pub fn clear_commit_cache(&mut self) {
         self.commit_cache.clear();
+    }
+
+    /// Returns true if Tantivy full-text search is available.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn has_tantivy_index(&self) -> bool {
+        self.tantivy_index.is_some()
+    }
+
+    /// Returns true if Tantivy index is currently being built in the background.
+    ///
+    /// This is true when we're in Ready state (tree-sitter done) but Tantivy
+    /// hasn't finished yet.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn is_tantivy_indexing(&self) -> bool {
+        // We're building Tantivy if we have a progress tracker active
+        self.tantivy_progress.is_some()
+    }
+
+    /// Returns the Tantivy indexing progress if currently building.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn tantivy_progress(&self) -> Option<&search::TantivyProgress> {
+        self.tantivy_progress.as_ref()
+    }
+
+    /// Returns a reference to the Tantivy index if available.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn tantivy_index(&self) -> Option<&TantivyCodebaseIndex> {
+        self.tantivy_index.as_ref()
+    }
+
+    /// Searches using Tantivy full-text search.
+    ///
+    /// Returns ranked search results. Falls back to in-memory substring
+    /// search if Tantivy is not available.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn search_ranked(
+        &self,
+        query: &str,
+        filter: SearchFilter,
+        limit: usize,
+    ) -> Vec<SearchResult> {
+        if let Some(tantivy) = &self.tantivy_index {
+            tantivy.search(query, filter, limit)
+        } else {
+            // Fallback to in-memory search
+            self.fallback_search(query, filter, limit)
+        }
+    }
+
+    /// Fallback in-memory search when Tantivy is not available.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fallback_search(
+        &self,
+        query: &str,
+        filter: SearchFilter,
+        limit: usize,
+    ) -> Vec<SearchResult> {
+        let Some(index) = &self.index else {
+            return Vec::new();
+        };
+
+        let query_lower = query.to_lowercase();
+        let mut results = Vec::new();
+
+        // Search metrics
+        if matches!(filter, SearchFilter::All | SearchFilter::Metrics) {
+            for metric in &index.metrics {
+                if metric.name.to_lowercase().contains(&query_lower) {
+                    results.push(SearchResult::from_metric(metric, 1.0));
+                    if results.len() >= limit {
+                        return results;
+                    }
+                }
+            }
+        }
+
+        // Search alerts
+        if matches!(filter, SearchFilter::All | SearchFilter::Alerts) {
+            for alert in &index.alerts {
+                if alert.name.to_lowercase().contains(&query_lower)
+                    || alert
+                        .metric_name
+                        .as_ref()
+                        .is_some_and(|m| m.to_lowercase().contains(&query_lower))
+                {
+                    results.push(SearchResult::from_alert(alert, 1.0));
+                    if results.len() >= limit {
+                        return results;
+                    }
+                }
+            }
+        }
+
+        results
     }
 }

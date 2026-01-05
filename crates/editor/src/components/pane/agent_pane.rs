@@ -32,6 +32,8 @@ pub enum InlineContent {
     Chart(InlineChart),
     /// An inline source code preview
     Source(InlineSource),
+    /// Inline search results
+    SearchResults(InlineSearchResults),
 }
 
 /// Inline time series chart data.
@@ -64,6 +66,36 @@ pub struct InlineSource {
     pub language: String,
     /// Pre-computed tree-sitter syntax highlighting data
     pub highlight_data: crate::components::util::SyntaxHighlightData,
+}
+
+/// Inline search results.
+///
+/// Contains search results from the Tantivy codebase index.
+#[derive(Debug, Clone)]
+pub struct InlineSearchResults {
+    /// Search query
+    pub query: String,
+    /// Filter applied (all, metrics, alerts, commits)
+    pub filter: String,
+    /// Search results
+    pub results: Vec<SearchResultItem>,
+}
+
+/// A single search result item for display.
+#[derive(Debug, Clone)]
+pub struct SearchResultItem {
+    /// Result type (metric, alert, commit)
+    pub kind: String,
+    /// Name (metric name, alert name, or commit message)
+    pub name: String,
+    /// File path (relative)
+    pub file_path: String,
+    /// Line number
+    pub line: usize,
+    /// Relevance score
+    pub score: f32,
+    /// Optional snippet or context
+    pub snippet: Option<String>,
 }
 
 /// A message in the chat history.
@@ -507,6 +539,9 @@ impl AgentPane {
                 InlineContent::Source(source) => {
                     self.render_inline_source(ui, source, colors);
                 }
+                InlineContent::SearchResults(results) => {
+                    self.render_inline_search_results(ui, results, colors);
+                }
             }
         }
 
@@ -759,6 +794,140 @@ impl AgentPane {
                     if is_target {
                         let rect = response.response.rect.expand2(egui::vec2(2.0, 1.0));
                         ui.painter().rect_filled(rect, 2.0, bg_color);
+                    }
+                }
+            });
+    }
+
+    /// Render inline search results within a message.
+    fn render_inline_search_results(
+        &self,
+        ui: &mut egui::Ui,
+        results: &InlineSearchResults,
+        colors: &OverlayColors,
+    ) {
+        use egui_nerdfonts::regular;
+
+        // Search results container with border
+        egui::Frame::new()
+            .fill(colors.elevated_bg)
+            .corner_radius(6.0)
+            .stroke(egui::Stroke::new(1.0, colors.separator))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                // Header with search query
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::MAGNIFY)
+                            .color(colors.accent)
+                            .size(12.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!("Search: \"{}\"", results.query))
+                            .color(colors.text)
+                            .size(typography::SM)
+                            .strong(),
+                    );
+
+                    // Filter badge
+                    if results.filter != "all" {
+                        ui.add_space(8.0);
+                        egui::Frame::new()
+                            .fill(colors.badge_bg)
+                            .corner_radius(3.0)
+                            .inner_margin(egui::Margin::symmetric(4, 1))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(&results.filter)
+                                        .color(colors.muted_text)
+                                        .size(typography::XS),
+                                );
+                            });
+                    }
+
+                    // Result count
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{} results", results.results.len()))
+                                .color(colors.faint_text)
+                                .size(typography::XS),
+                        );
+                    });
+                });
+
+                ui.add_space(6.0);
+
+                if results.results.is_empty() {
+                    ui.label(
+                        RichText::new("No results found")
+                            .color(colors.faint_text)
+                            .size(typography::SM),
+                    );
+                } else {
+                    // Render each result
+                    for result in &results.results {
+                        let (icon, icon_color) = match result.kind.as_str() {
+                            "metric" => (regular::CHART_LINE, colors.accent),
+                            "alert" => (regular::BELL_ALERT, palette::semantic::WARNING),
+                            "commit" => (regular::GIT_COMMIT, palette::chart::PRIMARY),
+                            _ => (regular::FILE, colors.muted_text),
+                        };
+
+                        ui.horizontal(|ui| {
+                            // Type icon
+                            ui.label(RichText::new(icon).color(icon_color).size(10.0));
+                            ui.add_space(4.0);
+
+                            // Name (clickable-looking)
+                            ui.label(
+                                RichText::new(&result.name)
+                                    .color(colors.text)
+                                    .size(typography::SM),
+                            );
+
+                            // File path and line
+                            if !result.file_path.is_empty() {
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(format!("{}:{}", result.file_path, result.line))
+                                        .color(colors.faint_text)
+                                        .size(typography::XS),
+                                );
+                            }
+
+                            // Score badge
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    egui::Frame::new()
+                                        .fill(colors.badge_bg)
+                                        .corner_radius(3.0)
+                                        .inner_margin(egui::Margin::symmetric(3, 1))
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                RichText::new(format!("{:.1}", result.score))
+                                                    .color(colors.faint_text)
+                                                    .size(typography::XS),
+                                            );
+                                        });
+                                },
+                            );
+                        });
+
+                        // Snippet if available
+                        if let Some(snippet) = &result.snippet {
+                            ui.horizontal(|ui| {
+                                ui.add_space(18.0); // Indent
+                                ui.label(
+                                    RichText::new(snippet)
+                                        .color(colors.muted_text)
+                                        .size(typography::XS),
+                                );
+                            });
+                        }
+
+                        ui.add_space(2.0);
                     }
                 }
             });

@@ -22,6 +22,11 @@ impl Workspace {
         }
 
         // Don't handle if any modal is open
+        #[cfg(not(target_arch = "wasm32"))]
+        let codebase_finder_open = self.codebase_finder.is_open();
+        #[cfg(target_arch = "wasm32")]
+        let codebase_finder_open = false;
+
         if self.metrics_finder.is_open()
             || self.workspace_finder.is_open()
             || self.command_palette.is_open()
@@ -32,6 +37,7 @@ impl Workspace {
             || self.tutorial_overlay.is_open()
             || self.source_preview.is_open()
             || self.agent_panel.is_open()
+            || codebase_finder_open
         {
             return None;
         }
@@ -68,6 +74,8 @@ impl Workspace {
         let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
         let mut should_open_metrics_finder = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut should_open_codebase_finder = false;
         let mut should_show_home = false;
         let mut should_toggle_diagnostics = false;
         let mut should_edit_buffer = false;
@@ -106,7 +114,12 @@ impl Workspace {
             }
 
             // cv - cycle visualization type on focused pane (time series -> stat -> ...)
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::C) && current_focus.is_some() {
+            // Only handle if Space leader key is NOT active (Space+c is codebase finder)
+            // NOTE: Check space_active BEFORE consume_key, as consume_key has side effects
+            if !self.leader_keys.is_space_active()
+                && current_focus.is_some()
+                && input.consume_key(egui::Modifiers::NONE, egui::Key::C)
+            {
                 // Record c press time for cv detection
                 self.leader_keys.press_c();
                 consumed = true;
@@ -181,6 +194,15 @@ impl Workspace {
                 // Space+a - open/focus agent pane (Claude Code)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
                     should_toggle_agent_panel = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+c - open codebase finder (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
+                    should_open_codebase_finder = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -621,6 +643,13 @@ impl Workspace {
         // Handle metrics finder (m key)
         if should_open_metrics_finder {
             self.open_metrics_finder();
+            ctx.request_repaint();
+        }
+
+        // Handle codebase finder (Space+c) - native only
+        #[cfg(not(target_arch = "wasm32"))]
+        if should_open_codebase_finder {
+            self.codebase_finder.open();
             ctx.request_repaint();
         }
 

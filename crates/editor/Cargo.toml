@@ -63,6 +63,8 @@ tree-sitter-javascript = { version = "0.25", optional = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 # AI agent integration via ACP
 enya-ai = { workspace = true }
+# Full-text search index for codebase (metrics, alerts, commits)
+enya-search = { workspace = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -106,6 +108,7 @@ chrono = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 insta = { version = "1.43", features = ["toml"] }
+tempfile = "3"
 # NOTE: egui_kittest 0.33.3 has a compatibility bug with egui 0.33.2 (accesskit_update field mismatch)
 # Re-enable when egui 0.33.4 or later is released with the fix
 # egui_kittest = { version = "0.33.3", features = ["snapshot"] }

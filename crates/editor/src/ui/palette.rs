@@ -143,6 +143,32 @@ pub mod syntax {
     pub const NEGATION: Color32 = Color32::from_rgb(255, 120, 120); // Refined coral
 }
 
+/// Diff colors - for git diff visualization (GitHub/delta style)
+pub mod diff {
+    use super::*;
+
+    /// Addition line background - subtle green tint
+    pub const ADDED_BG: Color32 = Color32::from_rgb(22, 39, 29); // Dark green tint
+
+    /// Deletion line background - subtle red tint
+    pub const REMOVED_BG: Color32 = Color32::from_rgb(45, 24, 24); // Dark red tint
+
+    /// Addition text color - bright green
+    pub const ADDED_TEXT: Color32 = Color32::from_rgb(87, 213, 140); // #57D58C
+
+    /// Deletion text color - bright red/coral
+    pub const REMOVED_TEXT: Color32 = Color32::from_rgb(248, 113, 113); // #F87171
+
+    /// Hunk header background - subtle blue tint
+    pub const HUNK_BG: Color32 = Color32::from_rgb(24, 32, 45); // Dark blue tint
+
+    /// Hunk header text - muted blue
+    pub const HUNK_TEXT: Color32 = Color32::from_rgb(110, 160, 220); // Soft blue
+
+    /// File header text - accent color
+    pub const FILE_HEADER: Color32 = Color32::from_rgb(180, 180, 190); // Slightly bright
+}
+
 /// Chart colors - premium palette for data visualization
 pub mod chart {
     use super::*;

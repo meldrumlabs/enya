@@ -8,6 +8,8 @@ use crate::app::AppState;
 use crate::codebase::CodebaseManager;
 #[cfg(target_arch = "wasm32")]
 use crate::components::NativePromoOverlay;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::overlay::{CodebaseFinder, CodebaseFinderStatus, DiffViewerOverlay};
 use crate::components::{
     AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult, Buffer,
     BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
@@ -200,6 +202,12 @@ pub struct Workspace {
     /// Codebase manager for git repo and metrics discovery (native only with codebase feature)
     #[cfg(not(target_arch = "wasm32"))]
     codebase_manager: CodebaseManager,
+    /// Codebase finder overlay (Space+c) for searching metrics, alerts, commits
+    #[cfg(not(target_arch = "wasm32"))]
+    codebase_finder: CodebaseFinder,
+    /// Diff viewer overlay for viewing commit diffs
+    #[cfg(not(target_arch = "wasm32"))]
+    diff_viewer: DiffViewerOverlay,
     /// Pending codebase config to initialize (set during load, executed in show())
     #[cfg(not(target_arch = "wasm32"))]
     pending_codebase_config: Option<String>,
@@ -276,6 +284,10 @@ impl Workspace {
             agent_context_panes: FxHashSet::default(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            codebase_finder: CodebaseFinder::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            diff_viewer: DiffViewerOverlay::new(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_codebase_config: None,
             pending_connection_endpoint: None,
@@ -604,6 +616,41 @@ impl Workspace {
             return WorkspaceAction::LoadWorkspace(selected_workspace);
         }
 
+        // Show codebase finder modal (native only with Tantivy search)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Update codebase status for the finder
+            let status = match self.codebase_manager.status() {
+                crate::codebase::CodebaseStatus::None => CodebaseFinderStatus::NoCodebase,
+                crate::codebase::CodebaseStatus::Cloning { .. }
+                | crate::codebase::CodebaseStatus::Fetching { .. }
+                | crate::codebase::CodebaseStatus::Indexing { .. } => {
+                    CodebaseFinderStatus::Indexing
+                }
+                crate::codebase::CodebaseStatus::Ready { metrics_count, .. } => {
+                    CodebaseFinderStatus::Ready {
+                        metric_count: *metrics_count,
+                    }
+                }
+                crate::codebase::CodebaseStatus::Error { .. } => CodebaseFinderStatus::NoCodebase,
+            };
+            self.codebase_finder.set_status(status);
+
+            // Update search results when query or filter changes
+            let query = self.codebase_finder.query().to_string();
+            let filter = self.codebase_finder.filter();
+            if self.codebase_finder.is_open() && !query.is_empty() {
+                let results = self.codebase_manager.search_ranked(&query, filter, 50);
+                self.codebase_finder.set_results(results);
+            }
+
+            self.codebase_finder.set_theme(app_state.theme);
+            if let Some(finder_result) = self.codebase_finder.show(ctx) {
+                // Handle the selected result - navigate to source
+                self.handle_codebase_finder_result(finder_result.result);
+            }
+        }
+
         // Show command palette modal
         self.command_palette.set_theme(app_state.theme);
         let cmd_result = self.command_palette.show(ctx);
@@ -682,6 +729,13 @@ impl Workspace {
             SourcePreviewResult::None => {}
         }
 
+        // Show diff viewer overlay modal (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.diff_viewer.set_theme(app_state.theme);
+            let _ = self.diff_viewer.show(ctx);
+        }
+
         // Show agent panel (Claude Code integration)
         // Update context before showing so the agent has awareness of editor state
         self.update_agent_context();
@@ -714,11 +768,17 @@ impl Workspace {
         // Handle / key for viewport filter (vim-style search)
         // NOTE: Must run BEFORE the ? handler since both use the Slash key
         // Only available in Normal mode (not Visual, Insert, or Agent mode)
+        #[cfg(not(target_arch = "wasm32"))]
+        let codebase_finder_open = self.codebase_finder.is_open();
+        #[cfg(target_arch = "wasm32")]
+        let codebase_finder_open = false;
+
         if !self.which_key.is_open()
             && !self.metrics_finder.is_open()
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
+            && !codebase_finder_open
             && !self.is_any_buffer_in_insert_mode()
             && !self.agent_mode_active
             && !self.is_visual_multi_mode()
@@ -745,6 +805,7 @@ impl Workspace {
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
+            && !codebase_finder_open
             && !self.agent_mode_active
         {
             ctx.input_mut(|input| {
@@ -864,6 +925,41 @@ impl Workspace {
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
             return WorkspaceAction::LoadWorkspace(selected_workspace);
+        }
+
+        // Show codebase finder modal (native only with Tantivy search)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Update codebase status for the finder
+            let status = match self.codebase_manager.status() {
+                crate::codebase::CodebaseStatus::None => CodebaseFinderStatus::NoCodebase,
+                crate::codebase::CodebaseStatus::Cloning { .. }
+                | crate::codebase::CodebaseStatus::Fetching { .. }
+                | crate::codebase::CodebaseStatus::Indexing { .. } => {
+                    CodebaseFinderStatus::Indexing
+                }
+                crate::codebase::CodebaseStatus::Ready { metrics_count, .. } => {
+                    CodebaseFinderStatus::Ready {
+                        metric_count: *metrics_count,
+                    }
+                }
+                crate::codebase::CodebaseStatus::Error { .. } => CodebaseFinderStatus::NoCodebase,
+            };
+            self.codebase_finder.set_status(status);
+
+            // Update search results when query or filter changes
+            let query = self.codebase_finder.query().to_string();
+            let filter = self.codebase_finder.filter();
+            if self.codebase_finder.is_open() && !query.is_empty() {
+                let results = self.codebase_manager.search_ranked(&query, filter, 50);
+                self.codebase_finder.set_results(results);
+            }
+
+            self.codebase_finder.set_theme(app_state.theme);
+            if let Some(finder_result) = self.codebase_finder.show(ctx) {
+                // Handle the selected result - navigate to source
+                self.handle_codebase_finder_result(finder_result.result);
+            }
         }
 
         // Show command palette modal
@@ -1792,11 +1888,19 @@ impl Workspace {
 
         match self.codebase_manager.status() {
             CodebaseStatus::None => None,
-            CodebaseStatus::Cloning { .. } => Some(CodebaseStatusInfo {
-                message: "Cloning repo...".to_string(),
-                is_loading: true,
-                ..Default::default()
-            }),
+            CodebaseStatus::Cloning { url } => {
+                // Extract repo name from URL for better UX
+                let repo_name = url
+                    .rsplit(['/', ':'])
+                    .next()
+                    .unwrap_or(url)
+                    .trim_end_matches(".git");
+                Some(CodebaseStatusInfo {
+                    message: format!("Cloning {repo_name}..."),
+                    is_loading: true,
+                    ..Default::default()
+                })
+            }
             CodebaseStatus::Fetching { .. } => Some(CodebaseStatusInfo {
                 message: "Fetching...".to_string(),
                 is_loading: true,
@@ -1831,14 +1935,41 @@ impl Workspace {
                 metrics_count,
                 language,
                 ..
-            } => Some(CodebaseStatusInfo {
-                message: format!("{metrics_count} metrics"),
-                repo_name: Some(repo_name.clone()),
-                metrics_count: Some(*metrics_count),
-                language: language.clone(),
-                is_loading: false,
-                is_error: false,
-            }),
+            } => {
+                let is_tantivy_indexing = self.codebase_manager.is_tantivy_indexing();
+
+                // Get Tantivy progress details if indexing
+                let (tantivy_phase, tantivy_item, tantivy_progress) =
+                    if let Some(progress) = self.codebase_manager.tantivy_progress() {
+                        let phase_label = progress.phase().label().to_string();
+                        let item = progress.current_item();
+                        let (current, total) = progress.get();
+                        (
+                            Some(phase_label),
+                            item,
+                            if total > 0 {
+                                Some((current, total))
+                            } else {
+                                None
+                            },
+                        )
+                    } else {
+                        (None, None, None)
+                    };
+
+                Some(CodebaseStatusInfo {
+                    message: format!("{metrics_count} metrics"),
+                    repo_name: Some(repo_name.clone()),
+                    metrics_count: Some(*metrics_count),
+                    language: language.clone(),
+                    is_loading: false,
+                    is_error: false,
+                    is_tantivy_indexing,
+                    tantivy_phase,
+                    tantivy_item,
+                    tantivy_progress,
+                })
+            }
             CodebaseStatus::Error { message, .. } => Some(CodebaseStatusInfo {
                 message: format!("Error: {message}"),
                 is_loading: false,

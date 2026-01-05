@@ -1,12 +1,14 @@
 //! Finder modal methods for the workspace.
 //!
-//! This module handles the metrics finder and workspace finder overlays,
+//! This module handles the metrics finder, workspace finder, and codebase finder overlays,
 //! including generating metric items from Prometheus or demo data.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::{Workspace, WorkspaceAction};
 use crate::app::AppState;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::codebase::search::{SearchResult, SearchResultKind};
 use crate::components::{MetricItem, WorkspaceItem};
 
 impl Workspace {
@@ -280,5 +282,79 @@ impl Workspace {
     /// Open the workspace creator overlay
     pub fn open_workspace_creator(&mut self) {
         self.workspace_creator.open();
+    }
+
+    // ==================== Codebase Finder ====================
+
+    /// Handle codebase finder selection - navigate to source
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn handle_codebase_finder_result(&mut self, result: SearchResult) {
+        use crate::codebase::CodebaseStatus;
+
+        log::info!("Codebase finder selected: {result:?}");
+
+        // Get the index if codebase is ready
+        let Some(index) = self.codebase_manager.index() else {
+            log::warn!("Codebase not ready, cannot open source preview");
+            return;
+        };
+
+        // Check if codebase manager is ready
+        if !matches!(self.codebase_manager.status(), CodebaseStatus::Ready { .. }) {
+            log::warn!("Codebase not in ready state");
+            return;
+        }
+
+        match &result.kind {
+            SearchResultKind::Metric(_metric_kind) => {
+                // Look up the metric in the index to get full instrumentation data
+                let locations: Vec<_> = index
+                    .metrics
+                    .iter()
+                    .filter(|m| m.name == result.name)
+                    .cloned()
+                    .collect();
+
+                if locations.is_empty() {
+                    // Fallback: just add a chart for this metric
+                    log::info!("No source location for metric, adding chart");
+                    self.show_landing = false;
+                    let _ = self.add_chart_for_metric_with_tracking(&result.name);
+                } else {
+                    log::info!(
+                        "Opening source preview for '{}' with {} location(s)",
+                        result.name,
+                        locations.len()
+                    );
+                    self.source_preview
+                        .open_metric_with_locations(locations, &index.repo_path);
+                }
+            }
+            SearchResultKind::Alert { .. } => {
+                // Look up the alert in the index
+                let alert = index.alerts.iter().find(|a| a.name == result.name);
+
+                if let Some(alert) = alert {
+                    log::info!(
+                        "Opening alert preview for '{}' at {}:{}",
+                        alert.name,
+                        alert.file.display(),
+                        alert.line
+                    );
+                    self.source_preview.open_alert(alert, &index.repo_path);
+                } else {
+                    log::warn!("Alert '{}' not found in index", result.name);
+                }
+            }
+            SearchResultKind::Commit {
+                hash,
+                timestamp,
+                diff,
+            } => {
+                log::info!("Opening diff viewer for commit: {} - {}", hash, result.name);
+                // Open the diff viewer overlay with the commit's full diff
+                self.diff_viewer.open(hash, &result.name, *timestamp, diff);
+            }
+        }
     }
 }

@@ -9,6 +9,8 @@ use egui_tiles::{Tile, TileId};
 use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::InlineSource;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::pane::agent_pane::{InlineSearchResults, SearchResultItem};
 use crate::components::pane::time_series_chart::{DataPoint, Series};
 use crate::components::{AgentPane, Buffer, Component, InlineChart, InlineContent, QueryPane};
 
@@ -247,6 +249,54 @@ impl Workspace {
                     {
                         let _ = (metric, context_lines); // Silence unused warnings
                         log::warn!("ShowInlineSource not available without codebase feature");
+                    }
+                }
+                AgentCommand::SearchCodebase {
+                    query,
+                    filter,
+                    limit,
+                } => {
+                    // Search the Tantivy index and return results
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let filter_str = filter.as_deref().unwrap_or("all");
+                        let results = self.search_codebase(&query, Some(filter_str), limit);
+
+                        // Log results with details
+                        if results.is_empty() {
+                            log::info!(
+                                "Agent searched codebase for '{query}' (filter: {filter_str}): no results"
+                            );
+                        } else {
+                            let count = results.len();
+                            log::info!(
+                                "Agent searched codebase for '{query}' (filter: {filter_str}): {count} results"
+                            );
+                            for (i, r) in results.iter().take(5).enumerate() {
+                                let idx = i + 1;
+                                let kind = &r.kind;
+                                let name = &r.name;
+                                let score = r.score;
+                                log::info!("  [{idx}] {kind:?}: {name} (score: {score:.2})");
+                            }
+                            if count > 5 {
+                                let remaining = count - 5;
+                                log::info!("  ... and {remaining} more");
+                            }
+                        }
+
+                        // Convert to inline search results and inject into agent pane
+                        let inline_results =
+                            self.convert_to_inline_search_results(&query, filter_str, results);
+                        self.inject_inline_content_to_agent_pane(InlineContent::SearchResults(
+                            inline_results,
+                        ));
+                        executed_any = true;
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _ = (query, filter, limit);
+                        log::warn!("SearchCodebase not available in WASM");
                     }
                 }
             }
@@ -1059,5 +1109,70 @@ impl Workspace {
         }
 
         log::warn!("No agent pane found to inject inline content");
+    }
+
+    /// Search the codebase using Tantivy full-text search.
+    ///
+    /// Returns ranked search results for metrics, alerts, and commits.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn search_codebase(
+        &self,
+        query: &str,
+        filter: Option<&str>,
+        limit: Option<usize>,
+    ) -> Vec<crate::codebase::SearchResult> {
+        use crate::codebase::SearchFilter;
+
+        // Parse filter string
+        let filter_enum = filter
+            .map(|s| match s.to_lowercase().as_str() {
+                "metrics" => SearchFilter::Metrics,
+                "alerts" => SearchFilter::Alerts,
+                "commits" => SearchFilter::Commits,
+                _ => SearchFilter::All,
+            })
+            .unwrap_or(SearchFilter::All);
+
+        let limit = limit.unwrap_or(10).min(50);
+
+        self.codebase_manager
+            .search_ranked(query, filter_enum, limit)
+    }
+
+    /// Convert search results to inline display format.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn convert_to_inline_search_results(
+        &self,
+        query: &str,
+        filter: &str,
+        results: Vec<crate::codebase::SearchResult>,
+    ) -> InlineSearchResults {
+        use crate::codebase::SearchResultKind;
+
+        let items = results
+            .into_iter()
+            .map(|r| {
+                let kind = match &r.kind {
+                    SearchResultKind::Metric(_) => "metric".to_string(),
+                    SearchResultKind::Alert { .. } => "alert".to_string(),
+                    SearchResultKind::Commit { .. } => "commit".to_string(),
+                };
+
+                SearchResultItem {
+                    kind,
+                    name: r.name,
+                    file_path: r.file.display().to_string(),
+                    line: r.line,
+                    score: r.score,
+                    snippet: r.snippet,
+                }
+            })
+            .collect();
+
+        InlineSearchResults {
+            query: query.to_string(),
+            filter: filter.to_string(),
+            results: items,
+        }
     }
 }
