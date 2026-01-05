@@ -3,7 +3,6 @@
 use egui::{Color32, RichText};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
@@ -153,7 +152,7 @@ impl BarChartViz {
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
-        let accent_color = palette::accent::PRIMARY;
+        let accent_color = self.theme.accent_primary();
 
         let available_width = ui.available_width();
         let available_height = ui.available_height();

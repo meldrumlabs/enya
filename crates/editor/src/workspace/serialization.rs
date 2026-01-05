@@ -56,10 +56,7 @@ impl Workspace {
             }),
             codebase: CodebaseConfig::default(),
             view: ViewConfig {
-                theme: match theme {
-                    AppTheme::Light => "light".to_string(),
-                    AppTheme::Dark => "dark".to_string(),
-                },
+                theme: theme.name().to_lowercase(),
                 zen_mode: self.zen_mode,
             },
             time: TimeConfig::from_preset(self.time_range_toolbar.time_range().preset),

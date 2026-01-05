@@ -7,7 +7,6 @@ use crate::components::util::id_generator::next_id_usize;
 use crate::components::util::query_state::QueryState;
 use crate::components::widget::buffer::{Buffer, BufferAction, BufferMode};
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
@@ -16,17 +15,18 @@ fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
     let time = ui.ctx().input(|i| i.time);
     let available = ui.available_size();
 
-    // Skeleton colors - obsidian glass emerald style
-    let base = palette::bg_elevated(theme);
-    // Add subtle emerald tint to skeleton elements for cohesive look
+    // Skeleton colors - theme-aware styling
+    let base = theme.bg_elevated();
+    // Add subtle accent tint to skeleton elements for cohesive look
+    let accent = theme.accent_primary();
     let skeleton_base = Color32::from_rgba_unmultiplied(
         base.r().saturating_sub(5),
-        base.g().saturating_add(8), // subtle green tint
+        base.g().saturating_add(8), // subtle tint
         base.b().saturating_add(3),
         base.a(),
     );
-    // Richer emerald shimmer for glassy effect
-    let shimmer_color = palette::accent::PRIMARY.gamma_multiply(0.3);
+    // Use theme accent for shimmer effect
+    let shimmer_color = accent.gamma_multiply(0.3);
 
     // Calculate shimmer position (sweeps left to right)
     let shimmer_progress = ((time * 0.8) % 2.0) as f32; // 0.0 to 2.0, loops

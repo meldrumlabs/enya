@@ -188,14 +188,8 @@ impl Buffer {
     /// Get the mode indicator color
     fn mode_color(&self) -> Color32 {
         match self.mode {
-            BufferMode::Normal => match self.theme {
-                AppTheme::Light => Color32::from_rgb(80, 120, 200),
-                AppTheme::Dark => Color32::from_rgb(130, 180, 255),
-            },
-            BufferMode::Insert => match self.theme {
-                AppTheme::Light => Color32::from_rgb(100, 160, 80),
-                AppTheme::Dark => Color32::from_rgb(150, 220, 120),
-            },
+            BufferMode::Normal => self.theme.mode_normal(),
+            BufferMode::Insert => self.theme.mode_insert(),
         }
     }
 
@@ -209,16 +203,10 @@ impl Buffer {
         let border_color = if self.mode == BufferMode::Insert {
             self.mode_color()
         } else {
-            match self.theme {
-                AppTheme::Light => Color32::from_rgb(200, 200, 200),
-                AppTheme::Dark => Color32::from_rgb(60, 60, 70),
-            }
+            self.theme.buffer_border()
         };
 
-        let bg_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(252, 252, 252),
-            AppTheme::Dark => Color32::from_rgb(25, 25, 30),
-        };
+        let bg_color = self.theme.buffer_bg();
 
         egui::Frame::new()
             .fill(bg_color)
@@ -286,10 +274,7 @@ impl Buffer {
                         BufferMode::Normal => {
                             // Display-only view with syntax highlighting
                             egui::Frame::new()
-                                .fill(match self.theme {
-                                    AppTheme::Light => Color32::from_rgb(248, 248, 248),
-                                    AppTheme::Dark => Color32::from_rgb(20, 20, 25),
-                                })
+                                .fill(self.theme.buffer_content_bg())
                                 .corner_radius(3.0)
                                 .inner_margin(8.0)
                                 .show(ui, |ui| {
@@ -368,18 +353,9 @@ impl Buffer {
     /// Render the query with basic syntax highlighting
     fn render_highlighted_query(&self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
-        let keyword_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(160, 80, 160),
-            AppTheme::Dark => Color32::from_rgb(220, 140, 220),
-        };
-        let operator_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(80, 120, 180),
-            AppTheme::Dark => Color32::from_rgb(130, 180, 255),
-        };
-        let value_color = match self.theme {
-            AppTheme::Light => Color32::from_rgb(80, 140, 80),
-            AppTheme::Dark => Color32::from_rgb(130, 200, 130),
-        };
+        let keyword_color = self.theme.syntax_keyword();
+        let operator_color = self.theme.syntax_key();
+        let value_color = self.theme.syntax_value();
 
         // Simple token-based highlighting
         let mut job = egui::text::LayoutJob::default();

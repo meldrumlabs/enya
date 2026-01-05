@@ -60,18 +60,9 @@ impl OverlayStyle {
     /// Frosted glass style: semi-transparent background with soft edges
     /// Now enhanced with inner highlight for premium feel
     pub fn frosted_glass(theme: AppTheme) -> Self {
-        let (bg, border, inner_highlight) = match theme {
-            AppTheme::Light => (
-                Color32::from_rgba_unmultiplied(252, 252, 250, 245), // Warm white, 96% opacity
-                Color32::from_rgba_unmultiplied(210, 210, 205, 180),
-                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 60)), // Subtle top highlight
-            ),
-            AppTheme::Dark => (
-                Color32::from_rgba_unmultiplied(14, 14, 16, 245), // Neutral obsidian, 96% opacity
-                Color32::from_rgba_unmultiplied(45, 45, 48, 160), // Neutral border
-                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 12)), // Subtle top highlight
-            ),
-        };
+        let bg = theme.overlay_bg();
+        let border = theme.overlay_border();
+        let inner_highlight = Some(theme.overlay_highlight());
 
         Self {
             bg,
@@ -90,10 +81,8 @@ impl OverlayStyle {
 
     /// Minimal flat style: solid background, no shadows
     pub fn minimal_flat(theme: AppTheme) -> Self {
-        let (bg, border) = match theme {
-            AppTheme::Light => (palette::light_bg::SURFACE, palette::light_border::DEFAULT),
-            AppTheme::Dark => (palette::bg::SURFACE, palette::border::SUBTLE),
-        };
+        let bg = theme.bg_surface();
+        let border = theme.border_default();
 
         Self {
             bg,
@@ -107,11 +96,8 @@ impl OverlayStyle {
 
     /// Subtle neon style: solid background with glowing accent border
     pub fn subtle_neon(theme: AppTheme) -> Self {
-        let bg = match theme {
-            AppTheme::Light => palette::light_bg::SURFACE,
-            AppTheme::Dark => palette::bg::BASE,
-        };
-        let glow_color = palette::accent::PRIMARY;
+        let bg = theme.bg_base();
+        let glow_color = theme.accent_primary();
 
         Self {
             bg,
@@ -130,18 +116,9 @@ impl OverlayStyle {
 
     /// Premium glass style: enhanced transparency with inner glow and deep shadows
     pub fn premium_glass(theme: AppTheme) -> Self {
-        let (bg, border, inner_highlight) = match theme {
-            AppTheme::Light => (
-                Color32::from_rgba_unmultiplied(250, 250, 248, 235), // Warm white transparent
-                Color32::from_rgba_unmultiplied(200, 200, 195, 150),
-                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 80)), // Stronger top highlight
-            ),
-            AppTheme::Dark => (
-                Color32::from_rgba_unmultiplied(12, 12, 14, 235), // Neutral deep obsidian
-                Color32::from_rgba_unmultiplied(40, 40, 44, 140), // Neutral border
-                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 18)), // Top edge glow
-            ),
-        };
+        let bg = theme.overlay_bg_deep();
+        let border = theme.overlay_border();
+        let inner_highlight = Some(theme.overlay_highlight_strong());
 
         Self {
             bg,
@@ -215,27 +192,15 @@ pub struct FinderColors {
 impl FinderColors {
     /// Create finder colors for the given theme
     pub fn new(theme: AppTheme) -> Self {
-        match theme {
-            AppTheme::Light => Self {
-                bg: palette::light_bg::SURFACE,
-                border: palette::light_border::DEFAULT,
-                separator: palette::light_border::SUBTLE,
-                highlight: palette::highlight::MATCH,
-                selected_bg: palette::light_bg::SELECTED,
-                hover_bg: palette::light_bg::HOVER,
-                preview_bg: palette::light_bg::ELEVATED,
-                panel_bg: palette::light_bg::BASE,
-            },
-            AppTheme::Dark => Self {
-                bg: palette::bg::SURFACE,
-                border: palette::border::SUBTLE,
-                separator: palette::border::SUBTLE,
-                highlight: palette::highlight::MATCH,
-                selected_bg: palette::bg::SELECTED,
-                hover_bg: palette::bg::HOVER,
-                preview_bg: palette::bg::ELEVATED,
-                panel_bg: palette::bg::BASE,
-            },
+        Self {
+            bg: theme.bg_surface(),
+            border: theme.border_default(),
+            separator: theme.border_subtle(),
+            highlight: theme.highlight_match(),
+            selected_bg: theme.bg_selected(),
+            hover_bg: theme.bg_hover(),
+            preview_bg: theme.bg_elevated(),
+            panel_bg: theme.bg_base(),
         }
     }
 }
@@ -409,25 +374,14 @@ impl OverlayColors {
     /// Create overlay colors for the given theme
     pub fn new(theme: AppTheme) -> Self {
         let text = text_color(theme);
-        match theme {
-            AppTheme::Light => Self {
-                text,
-                muted_text: text.gamma_multiply(0.6),
-                faint_text: text.gamma_multiply(0.4),
-                accent: palette::accent::LIGHT,
-                separator: palette::light_border::SUBTLE,
-                elevated_bg: palette::light_bg::ELEVATED,
-                badge_bg: palette::light_bg::HOVER,
-            },
-            AppTheme::Dark => Self {
-                text,
-                muted_text: text.gamma_multiply(0.6),
-                faint_text: text.gamma_multiply(0.4),
-                accent: palette::accent::HOVER,
-                separator: palette::border::SUBTLE,
-                elevated_bg: palette::bg::ELEVATED,
-                badge_bg: palette::bg::HOVER,
-            },
+        Self {
+            text,
+            muted_text: text.gamma_multiply(0.6),
+            faint_text: text.gamma_multiply(0.4),
+            accent: theme.accent_hover(),
+            separator: theme.border_subtle(),
+            elevated_bg: theme.bg_elevated(),
+            badge_bg: theme.bg_hover(),
         }
     }
 }
@@ -441,10 +395,7 @@ impl OverlayColors {
 /// This is a common pattern used across all overlay components to
 /// visually separate sections.
 pub fn draw_separator(ui: &mut egui::Ui, theme: AppTheme) {
-    let separator_color = match theme {
-        AppTheme::Light => palette::light_border::SUBTLE,
-        AppTheme::Dark => palette::border::SUBTLE,
-    };
+    let separator_color = theme.border_subtle();
     ui.painter().hline(
         ui.available_rect_before_wrap().x_range(),
         ui.cursor().top(),
@@ -551,15 +502,11 @@ pub fn draw_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
             // Premium backdrop with slight vignette effect
-            let backdrop_color = match theme {
-                AppTheme::Light => Color32::from_rgba_unmultiplied(245, 245, 250, 140),
-                AppTheme::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 200), // Deeper, richer backdrop
-            };
+            let backdrop_color = theme.backdrop_color();
             ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
 
-            // Add subtle vignette at edges for depth (dark theme only)
-            if theme == AppTheme::Dark {
-                let vignette_color = Color32::from_rgba_unmultiplied(0, 0, 0, 40);
+            // Add subtle vignette at edges for depth (dark themes)
+            if let Some(vignette_color) = theme.backdrop_vignette() {
                 // Top edge vignette
                 let top_rect = egui::Rect::from_min_size(
                     screen_rect.min,
@@ -576,9 +523,9 @@ pub fn draw_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
         });
 }
 
-/// Draw a premium backdrop with emerald accent glow
+/// Draw a premium backdrop with accent glow
 ///
-/// Similar to draw_backdrop but with a subtle emerald glow in the center
+/// Similar to draw_backdrop but with a subtle accent glow in the center
 /// for a more branded, luxurious feel.
 #[allow(deprecated)]
 pub fn draw_premium_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
@@ -588,17 +535,13 @@ pub fn draw_premium_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &s
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
             // Base backdrop
-            let backdrop_color = match theme {
-                AppTheme::Light => Color32::from_rgba_unmultiplied(245, 245, 250, 150),
-                AppTheme::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 210),
-            };
+            let backdrop_color = theme.backdrop_color_strong();
             ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
 
-            // Subtle emerald glow in the center (where modal will appear)
-            if theme == AppTheme::Dark {
+            // Subtle accent glow in the center (where modal will appear)
+            if let Some(glow_color) = theme.backdrop_accent_glow() {
                 let center = screen_rect.center();
                 let glow_rect = egui::Rect::from_center_size(center, egui::vec2(400.0, 300.0));
-                let glow_color = Color32::from_rgba_unmultiplied(16, 185, 129, 8); // Very subtle emerald
                 ui.painter().rect_filled(glow_rect, 100.0, glow_color);
             }
         });

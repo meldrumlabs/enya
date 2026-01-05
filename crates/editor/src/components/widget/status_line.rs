@@ -164,55 +164,36 @@ impl StatusMode {
     }
 
     /// Get the background color for this mode's segment
-    /// Uses Enya's color scheme: emerald primary, other colors for secondary modes
+    /// Uses Enya's color scheme: theme accent as primary, other colors for secondary modes
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
-            Self::Normal => match theme {
-                AppTheme::Light => palette::accent::LIGHT, // Emerald - brand color
-                AppTheme::Dark => palette::accent::PRIMARY, // Emerald
-            },
-            Self::Home => match theme {
-                AppTheme::Light => palette::accent::LIGHT, // Emerald - brand color
-                AppTheme::Dark => palette::accent::PRIMARY, // Emerald
-            },
-            Self::Command => match theme {
-                AppTheme::Light => palette::accent::LIGHT,
-                AppTheme::Dark => palette::accent::HOVER, // Brighter emerald for command
-            },
-            Self::Search => match theme {
-                AppTheme::Light => Color32::from_rgb(140, 140, 150), // Muted gray
-                AppTheme::Dark => Color32::from_rgb(180, 180, 190),  // Light gray
-            },
-            Self::Diff => match theme {
-                AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue
-                AppTheme::Dark => Color32::from_rgb(96, 165, 250),  // Bright blue
-            },
-            Self::VisualMulti => match theme {
-                AppTheme::Light => palette::accent::LIGHT, // Emerald - matches brand
-                AppTheme::Dark => palette::accent::HOVER,  // Bright emerald
-            },
-            Self::Agent => match theme {
-                AppTheme::Light => Color32::from_rgb(245, 158, 11), // Amber
-                AppTheme::Dark => Color32::from_rgb(251, 191, 36),  // Bright amber
-            },
+            Self::Normal | Self::Home => theme.accent_primary(),
+            Self::Command | Self::VisualMulti => theme.accent_hover(),
+            Self::Search => theme.text_secondary(),
+            Self::Diff => theme.semantic_info(),
+            Self::Agent => theme.semantic_warning(),
         }
     }
 
     /// Get the text color for this mode's segment
-    /// Uses dark text on bright backgrounds, light text on dark backgrounds
+    /// Uses contrasting text for visibility
     pub fn text_color(&self, theme: AppTheme) -> Color32 {
+        // Light theme uses dark accent backgrounds (ink aesthetic) - need light text
+        if theme.is_light() {
+            return match self {
+                Self::Search => Color32::from_rgb(30, 30, 30), // Dark text on light bg
+                _ => Color32::from_rgb(250, 248, 245),         // Cream/paper text on dark bg
+            };
+        }
+
+        // Dark themes: bright accent backgrounds - use dark text
         match self {
-            // Emerald backgrounds - use dark text
-            Self::Normal | Self::Home | Self::Command | Self::VisualMulti => {
+            // Most modes have bright backgrounds - use dark text
+            Self::Normal | Self::Home | Self::Command | Self::VisualMulti | Self::Agent => {
                 Color32::from_rgb(10, 10, 10)
             }
-            // Amber backgrounds - use dark text for contrast
-            Self::Agent => Color32::from_rgb(40, 44, 52),
-            // Gray backgrounds in light theme need light text, dark theme need dark text
-            Self::Search => match theme {
-                AppTheme::Light => Color32::from_rgb(248, 248, 242),
-                AppTheme::Dark => Color32::from_rgb(40, 44, 52),
-            },
+            // Search uses secondary text color as bg - use contrasting color
+            Self::Search => Color32::from_rgb(255, 255, 255),
             // Blue backgrounds - use white text
             Self::Diff => Color32::from_rgb(255, 255, 255),
         }
@@ -310,7 +291,7 @@ pub struct StatusLine {
 impl Default for StatusLine {
     fn default() -> Self {
         Self {
-            theme: AppTheme::Dark,
+            theme: AppTheme::default(),
             mode: StatusMode::Normal,
             is_connected: false,
             open_tabs: 0,
@@ -425,26 +406,17 @@ impl StatusLine {
 
     /// Get the background color for segments based on theme
     fn segment_bg(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => palette::light_bg::ELEVATED,
-            AppTheme::Dark => palette::bg::SURFACE,
-        }
+        self.theme.bg_surface()
     }
 
     /// Get the secondary background color for segments
     fn segment_bg_secondary(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => palette::light_bg::SURFACE,
-            AppTheme::Dark => palette::bg::ELEVATED,
-        }
+        self.theme.bg_elevated()
     }
 
     /// Get the text color for segments
     fn segment_fg(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => palette::light_text::PRIMARY,
-            AppTheme::Dark => palette::text::SECONDARY,
-        }
+        self.theme.text_secondary()
     }
 
     /// Render the status line
@@ -454,16 +426,10 @@ impl StatusLine {
         let padding = 8.0; // More generous padding
 
         // Premium status line styling
-        let status_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::SURFACE,
-            AppTheme::Dark => palette::bg::SURFACE,
-        };
+        let status_bg = self.theme.bg_surface();
 
         // Draw subtle top border for separation
-        let top_border_color = match self.theme {
-            AppTheme::Light => palette::light_border::SUBTLE,
-            AppTheme::Dark => palette::border::SUBTLE,
-        };
+        let top_border_color = self.theme.border_subtle();
 
         let full_rect = ui.available_rect_before_wrap();
         let top_line_rect =
@@ -510,31 +476,16 @@ impl StatusLine {
 
         // Display preference badges (zen/fullscreen) - use distinct colors
         if self.is_zen_mode {
-            let (bg, fg) = match self.theme {
-                AppTheme::Light => (
-                    Color32::from_rgb(120, 100, 160), // Soft purple
-                    Color32::from_rgb(40, 44, 52),
-                ),
-                AppTheme::Dark => (
-                    Color32::from_rgb(180, 150, 220), // Light purple
-                    Color32::from_rgb(40, 44, 52),
-                ),
-            };
+            let (bg, fg) = (self.theme.badge_zen_bg(), self.theme.badge_zen_fg());
             ui.add_space(4.0);
             self.render_segment(ui, "ZEN", None, bg, fg, height, padding, false);
         }
 
         if self.is_fullscreen {
-            let (bg, fg) = match self.theme {
-                AppTheme::Light => (
-                    Color32::from_rgb(80, 140, 160), // Teal
-                    Color32::from_rgb(40, 44, 52),
-                ),
-                AppTheme::Dark => (
-                    Color32::from_rgb(120, 200, 220), // Bright cyan
-                    Color32::from_rgb(40, 44, 52),
-                ),
-            };
+            let (bg, fg) = (
+                self.theme.badge_fullscreen_bg(),
+                self.theme.badge_fullscreen_fg(),
+            );
             ui.add_space(4.0);
             self.render_segment(ui, "FULLSCREEN", None, bg, fg, height, padding, false);
         }
@@ -635,14 +586,14 @@ impl StatusLine {
 
                     ui.label(
                         egui::RichText::new(icon)
-                            .color(palette::accent::PRIMARY)
+                            .color(self.theme.accent_primary())
                             .size(typography::MD),
                     );
                     ui.add_space(4.0);
-                    // Status text in emerald accent
+                    // Status text in accent color
                     ui.label(
                         egui::RichText::new(&status.message)
-                            .color(palette::accent::PRIMARY)
+                            .color(self.theme.accent_primary())
                             .size(typography::MD),
                     );
                 }
@@ -1088,10 +1039,7 @@ impl StatusLine {
         let fg_color = self.segment_fg();
 
         // Sparkline color - use emerald accent for brand consistency
-        let sparkline_color = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::HOVER, // Bright emerald for visibility
-        };
+        let sparkline_color = self.theme.accent_hover(); // Bright accent for visibility
 
         // Build the content: "▁▂▃▅▇ 16.7ms label"
         let chart = sparkline.render();

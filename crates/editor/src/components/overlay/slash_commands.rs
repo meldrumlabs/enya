@@ -27,7 +27,6 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -354,17 +353,11 @@ impl SlashCommandPopup {
         // Premium Obsidian Glass styling
         let style = OverlayStyle::frosted_glass(self.theme);
 
-        // Emerald accent colors
-        let accent = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::PRIMARY,
-        };
+        // Accent color
+        let accent = self.theme.accent_primary();
 
         // Separator color
-        let separator_color = match self.theme {
-            AppTheme::Light => palette::light_border::SUBTLE,
-            AppTheme::Dark => palette::border::SUBTLE,
-        };
+        let separator_color = self.theme.border_subtle();
 
         // Muted text
         let muted_text = text_col.gamma_multiply(0.6);

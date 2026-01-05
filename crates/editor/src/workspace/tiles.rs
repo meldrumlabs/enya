@@ -9,7 +9,6 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::components::Component;
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 /// Behavior implementation for the egui_tiles tree.
@@ -92,9 +91,9 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         resize_state: egui_tiles::ResizeState,
     ) -> egui::Stroke {
         let color = match resize_state {
-            egui_tiles::ResizeState::Idle => palette::border_subtle(self.theme),
-            egui_tiles::ResizeState::Hovering => palette::border_default(self.theme),
-            egui_tiles::ResizeState::Dragging => palette::border::FOCUS,
+            egui_tiles::ResizeState::Idle => self.theme.border_subtle(),
+            egui_tiles::ResizeState::Hovering => self.theme.border_default(),
+            egui_tiles::ResizeState::Dragging => self.theme.border_focus(),
         };
         egui::Stroke::new(1.0, color)
     }
@@ -106,7 +105,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
     /// Background color of the tab bar
     fn tab_bar_color(&self, _visuals: &egui::Visuals) -> egui::Color32 {
-        palette::bg_surface(self.theme)
+        self.theme.bg_surface()
     }
 
     /// Background color of individual tabs
@@ -118,21 +117,20 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         state: &egui_tiles::TabState,
     ) -> egui::Color32 {
         if state.active {
-            palette::bg_elevated(self.theme)
+            self.theme.bg_elevated()
         } else if state.is_being_dragged {
-            palette::bg_hover(self.theme)
+            self.theme.bg_hover()
         } else {
-            palette::bg_surface(self.theme)
+            self.theme.bg_surface()
         }
     }
 
     /// Stroke for the line separating tab bar from content
     fn tab_bar_hline_stroke(&self, _visuals: &egui::Visuals) -> egui::Stroke {
-        egui::Stroke::new(1.0, palette::border_subtle(self.theme))
+        egui::Stroke::new(1.0, self.theme.border_subtle())
     }
 
-    /// Outline stroke around tabs (subtle sky blue for active, subtle for inactive)
-    /// Uses sky blue to differentiate from emerald pane focus
+    /// Outline stroke around tabs (subtle accent for active, subtle for inactive)
     fn tab_outline_stroke(
         &self,
         _visuals: &egui::Visuals,
@@ -141,10 +139,10 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         state: &egui_tiles::TabState,
     ) -> egui::Stroke {
         if state.active {
-            // Muted sky blue - visible but not distracting
-            egui::Stroke::new(1.0, palette::syntax::KEY.gamma_multiply(0.5))
+            // Muted accent - visible but not distracting
+            egui::Stroke::new(1.0, self.theme.syntax_key().gamma_multiply(0.5))
         } else {
-            egui::Stroke::new(1.0, palette::border_subtle(self.theme))
+            egui::Stroke::new(1.0, self.theme.border_subtle())
         }
     }
 
@@ -185,17 +183,11 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
         // When viewport filter is active, dim non-matching panes
         if is_filtered_out {
-            let dim_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200),
-                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200),
-            };
+            let dim_color = self.theme.bg_base().gamma_multiply(0.8);
             painter.rect_filled(rect, 4.0, dim_color);
 
             // Draw "filtered" indicator text
-            let text_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(100, 100, 100, 150),
-                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(150, 150, 150, 150),
-            };
+            let text_color = self.theme.text_tertiary();
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -208,20 +200,14 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
         // In visual-multi mode, draw selection indicator for selected panes
         if is_selected {
-            // Emerald selection color to match brand
-            let selection_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(5, 150, 105, 50),
-                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(16, 185, 129, 40),
-            };
+            // Selection tint using theme accent
+            let selection_color = self.theme.accent_primary().gamma_multiply(0.15);
 
             // Fill the entire tile with a subtle selection tint
             painter.rect_filled(rect, 4.0, selection_color);
 
             // Draw selection border
-            let border_color = match self.theme {
-                AppTheme::Light => palette::accent::LIGHT,
-                AppTheme::Dark => palette::accent::PRIMARY,
-            };
+            let border_color = self.theme.accent_primary();
             let border_width = 2.0;
             let inset_rect = rect.shrink(border_width / 2.0);
             painter.rect_stroke(
@@ -235,18 +221,12 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         // Draw focus border on top of the entire tile (including tab bar)
         // Premium glass effect with layered borders for depth
         if is_focused {
-            // Use emerald accent for focus border to match Obsidian Glass theme
-            // Brighter emerald in visual-multi mode to distinguish cursor from selection
+            // Use theme accent for focus border
+            // Brighter accent in visual-multi mode to distinguish cursor from selection
             let focus_color = if self.is_visual_multi_mode {
-                match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::HOVER, // Bright emerald #34D399
-                }
+                self.theme.accent_hover()
             } else {
-                match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::PRIMARY, // Standard emerald #10B981
-                }
+                self.theme.accent_primary()
             };
 
             // Premium layered glow effect - thin layers to minimize content overlap
@@ -281,18 +261,9 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         if is_selected {
             if let Some(query) = self.tile_queries.get(&tile_id) {
                 // Premium glass styling for query overlay
-                let bg_color = match self.theme {
-                    AppTheme::Light => palette::light_bg::SURFACE.gamma_multiply(0.95),
-                    AppTheme::Dark => palette::bg::SURFACE.gamma_multiply(0.92),
-                };
-                let text_color = match self.theme {
-                    AppTheme::Light => palette::light_text::PRIMARY,
-                    AppTheme::Dark => palette::text::PRIMARY.gamma_multiply(0.9),
-                };
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::PRIMARY,
-                };
+                let bg_color = self.theme.bg_surface().gamma_multiply(0.92);
+                let text_color = self.theme.text_primary().gamma_multiply(0.9);
+                let accent_color = self.theme.accent_primary();
                 let border_color = accent_color.gamma_multiply(0.3);
 
                 // Truncate query if too long
@@ -409,20 +380,20 @@ mod tests {
     fn test_tree_behavior_default() {
         let behavior = TreeBehavior::default();
         assert!(behavior.focused_tile().is_none());
-        assert_eq!(behavior.theme(), AppTheme::Light); // Default theme (from Default derive)
+        assert_eq!(behavior.theme(), AppTheme::default()); // Default theme (from Default derive)
         assert_eq!(behavior.api_key(), "");
     }
 
     #[test]
     fn test_set_theme() {
         let mut behavior = TreeBehavior::default();
-        assert_eq!(behavior.theme(), AppTheme::Light);
-
-        behavior.set_theme(AppTheme::Dark);
         assert_eq!(behavior.theme(), AppTheme::Dark);
 
         behavior.set_theme(AppTheme::Light);
         assert_eq!(behavior.theme(), AppTheme::Light);
+
+        behavior.set_theme(AppTheme::Dark);
+        assert_eq!(behavior.theme(), AppTheme::Dark);
     }
 
     #[test]

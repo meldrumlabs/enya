@@ -3,7 +3,6 @@ use std::time::Duration;
 use egui::RichText;
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
@@ -257,10 +256,7 @@ impl TimeRangeToolbar {
         let text_color = text_color(self.theme);
 
         // Get accent colors based on theme for better visibility
-        let accent_color = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::PRIMARY,
-        };
+        let accent_color = self.theme.accent_primary();
         // Use subtle selection background like landing page
         let selected_bg = accent_color.gamma_multiply(0.12);
 

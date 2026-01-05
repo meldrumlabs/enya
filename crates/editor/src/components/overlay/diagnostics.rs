@@ -8,7 +8,6 @@ use std::any::Any;
 use egui::{Color32, Key, RichText, ScrollArea, Ui};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::util::Instant;
@@ -44,44 +43,20 @@ impl DiagnosticLevel {
     /// Get the accent color for this diagnostic level
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
-            Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(220, 38, 38),
-                AppTheme::Dark => Color32::from_rgb(248, 113, 113),
-            },
-            Self::Warning => match theme {
-                AppTheme::Light => Color32::from_rgb(217, 119, 6),
-                AppTheme::Dark => Color32::from_rgb(251, 191, 36),
-            },
-            Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(37, 99, 235),
-                AppTheme::Dark => Color32::from_rgb(96, 165, 250),
-            },
-            Self::Hint => match theme {
-                AppTheme::Light => Color32::from_rgb(22, 163, 74),
-                AppTheme::Dark => Color32::from_rgb(74, 222, 128),
-            },
+            Self::Error => theme.semantic_error(),
+            Self::Warning => theme.semantic_warning(),
+            Self::Info => theme.semantic_info(),
+            Self::Hint => theme.semantic_success(),
         }
     }
 
     /// Get the background color for this diagnostic level
     pub fn bg_color(&self, theme: AppTheme) -> Color32 {
         match self {
-            Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(254, 242, 242),
-                AppTheme::Dark => Color32::from_rgb(51, 28, 28),
-            },
-            Self::Warning => match theme {
-                AppTheme::Light => Color32::from_rgb(255, 251, 235),
-                AppTheme::Dark => Color32::from_rgb(54, 47, 22),
-            },
-            Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(239, 246, 255),
-                AppTheme::Dark => Color32::from_rgb(30, 41, 59),
-            },
-            Self::Hint => match theme {
-                AppTheme::Light => Color32::from_rgb(240, 253, 244),
-                AppTheme::Dark => Color32::from_rgb(20, 51, 36),
-            },
+            Self::Error => theme.diagnostic_error_bg(),
+            Self::Warning => theme.diagnostic_warning_bg(),
+            Self::Info => theme.diagnostic_info_bg(),
+            Self::Hint => theme.diagnostic_hint_bg(),
         }
     }
 
@@ -566,15 +541,9 @@ impl DiagnosticsPane {
 
         // Use shared overlay style
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
-        let separator_color = match self.theme {
-            AppTheme::Light => palette::light_border::SUBTLE,
-            AppTheme::Dark => palette::border::SUBTLE,
-        };
+        let separator_color = self.theme.border_subtle();
         let muted_text = text_col.gamma_multiply(0.6);
-        let key_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgba_unmultiplied(240, 240, 240, 200),
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(40, 40, 40, 200),
-        };
+        let key_bg = self.theme.bg_elevated();
 
         egui::Area::new(egui::Id::new("diagnostics_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
