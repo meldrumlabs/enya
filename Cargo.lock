@@ -1366,6 +1366,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "similar",
  "simple_logger",
  "tempfile",
  "tokio",

@@ -186,29 +186,79 @@ pub mod syntax {
 }
 
 /// Diff colors - for git diff visualization (GitHub/delta style)
+/// Inspired by modern diff viewers like GitHub, delta, and shiki
 pub mod diff {
     use super::*;
 
-    /// Addition line background - subtle green tint
-    pub const ADDED_BG: Color32 = Color32::from_rgb(22, 39, 29); // Dark green tint
+    // ========================================================================
+    // Line backgrounds - subtle tints that span the full line width
+    // ========================================================================
 
-    /// Deletion line background - subtle red tint
-    pub const REMOVED_BG: Color32 = Color32::from_rgb(45, 24, 24); // Dark red tint
+    /// Addition line background - subtle green tint (GitHub dark style)
+    pub const ADDED_BG: Color32 = Color32::from_rgb(19, 35, 26); // #13231A - very subtle green
 
-    /// Addition text color - bright green
-    pub const ADDED_TEXT: Color32 = Color32::from_rgb(87, 213, 140); // #57D58C
+    /// Deletion line background - subtle red tint (GitHub dark style)
+    pub const REMOVED_BG: Color32 = Color32::from_rgb(40, 22, 24); // #281618 - very subtle red
 
-    /// Deletion text color - bright red/coral
-    pub const REMOVED_TEXT: Color32 = Color32::from_rgb(248, 113, 113); // #F87171
+    // ========================================================================
+    // Word-level highlights - brighter backgrounds for inline changes
+    // These highlight the specific characters that changed within a line
+    // ========================================================================
 
-    /// Hunk header background - subtle blue tint
-    pub const HUNK_BG: Color32 = Color32::from_rgb(24, 32, 45); // Dark blue tint
+    /// Word-level addition highlight - brighter green for inline changes
+    pub const ADDED_WORD_BG: Color32 = Color32::from_rgb(35, 70, 50); // More saturated green
 
-    /// Hunk header text - muted blue
-    pub const HUNK_TEXT: Color32 = Color32::from_rgb(110, 160, 220); // Soft blue
+    /// Word-level deletion highlight - brighter red for inline changes
+    pub const REMOVED_WORD_BG: Color32 = Color32::from_rgb(75, 35, 38); // More saturated red
 
-    /// File header text - accent color
-    pub const FILE_HEADER: Color32 = Color32::from_rgb(180, 180, 190); // Slightly bright
+    // ========================================================================
+    // Text colors - high contrast for readability
+    // ========================================================================
+
+    /// Addition text color - crisp green
+    pub const ADDED_TEXT: Color32 = Color32::from_rgb(126, 231, 135); // #7EE787 - GitHub green
+
+    /// Deletion text color - soft red/coral
+    pub const REMOVED_TEXT: Color32 = Color32::from_rgb(255, 123, 114); // #FF7B72 - GitHub red
+
+    /// Context line text - dimmed for less visual weight
+    pub const CONTEXT_TEXT: Color32 = Color32::from_rgb(145, 152, 161); // #9198A1 - muted
+
+    // ========================================================================
+    // Gutter decorations - left border stripes
+    // ========================================================================
+
+    /// Addition gutter/border color - solid green stripe
+    pub const ADDED_GUTTER: Color32 = Color32::from_rgb(63, 185, 80); // #3FB950 - GitHub green
+
+    /// Deletion gutter/border color - solid red stripe
+    pub const REMOVED_GUTTER: Color32 = Color32::from_rgb(248, 81, 73); // #F85149 - GitHub red
+
+    // ========================================================================
+    // Line numbers - muted colors for less distraction
+    // ========================================================================
+
+    /// Line number text color - very muted
+    pub const LINE_NUMBER: Color32 = Color32::from_rgb(72, 79, 88); // #484F58 - dim
+
+    /// Line number background - slightly darker than content
+    pub const LINE_NUMBER_BG: Color32 = Color32::from_rgb(13, 17, 23); // #0D1117 - GitHub dark bg
+
+    // ========================================================================
+    // Headers and metadata
+    // ========================================================================
+
+    /// Hunk header background - subtle blue/purple tint
+    pub const HUNK_BG: Color32 = Color32::from_rgb(22, 27, 46); // Dark indigo tint
+
+    /// Hunk header text - soft cyan/blue
+    pub const HUNK_TEXT: Color32 = Color32::from_rgb(121, 184, 255); // #79B8FF - GitHub blue
+
+    /// File header text - bright accent for visibility
+    pub const FILE_HEADER: Color32 = Color32::from_rgb(201, 209, 217); // #C9D1D9 - bright text
+
+    /// File header background - subtle elevation
+    pub const FILE_HEADER_BG: Color32 = Color32::from_rgb(22, 27, 34); // #161B22 - GitHub surface
 }
 
 /// Chart colors - premium palette for data visualization
