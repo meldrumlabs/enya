@@ -19,6 +19,7 @@ members = [
   "crates/analyzer",
   "crates/promql",
   "crates/client",
+  "crates/search",
   "crates/build-info",
   "crates/build-tools",
   "crates/egui_nerdfonts",
@@ -40,6 +41,7 @@ enya-build-info = { path = "crates/build-info" }
 enya-client = { path = "crates/client", version = "0.1.0" }
 enya-analyzer = { path = "crates/analyzer", version = "0.1.0" }
 enya-ai = { path = "crates/ai", version = "0.1.0" }
+enya-search = { path = "crates/search", version = "0.1.0" }
 
 # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts
 egui = { version = "0.33.2", default-features = false }

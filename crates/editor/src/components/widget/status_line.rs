@@ -215,6 +215,14 @@ pub struct CodebaseStatusInfo {
     pub is_loading: bool,
     /// Whether there's an error
     pub is_error: bool,
+    /// Whether Tantivy full-text search index is being built (background task after tree-sitter)
+    pub is_tantivy_indexing: bool,
+    /// Tantivy indexing phase label (e.g., "Indexing commits")
+    pub tantivy_phase: Option<String>,
+    /// Tantivy indexing current item (e.g., commit hash or metric name)
+    pub tantivy_item: Option<String>,
+    /// Tantivy indexing progress (current, total)
+    pub tantivy_progress: Option<(usize, usize)>,
 }
 
 /// Configuration for a status line segment
@@ -565,6 +573,7 @@ impl StatusLine {
 
             // Codebase indexing status (shown in center to avoid layout jumping from varying file names)
             if let Some(ref status) = self.codebase_status {
+                // Show loading status (cloning, indexing tree-sitter)
                 if status.is_loading && !status.is_error {
                     ui.add_space(16.0);
 
@@ -585,6 +594,49 @@ impl StatusLine {
                     ui.label(
                         egui::RichText::new(&status.message)
                             .color(self.theme.accent_primary())
+                            .size(typography::MD),
+                    );
+                }
+                // Show Tantivy indexing status (background task after tree-sitter completes)
+                else if status.is_tantivy_indexing && !status.is_error {
+                    ui.add_space(16.0);
+
+                    // Search icon for Tantivy indexing
+                    ui.label(
+                        egui::RichText::new(semantic_icons::action::SEARCH)
+                            .color(palette::text::SECONDARY)
+                            .size(typography::MD),
+                    );
+                    ui.add_space(4.0);
+
+                    // Build progress message with details
+                    let progress_msg = if let Some(phase) = &status.tantivy_phase {
+                        if let Some((current, total)) = status.tantivy_progress {
+                            // Show progress with count
+                            if let Some(item) = &status.tantivy_item {
+                                // Truncate item name for display
+                                let truncated = if item.len() > 30 {
+                                    format!("{}...", &item[..27])
+                                } else {
+                                    item.clone()
+                                };
+                                format!("{phase} [{current}/{total}] {truncated}")
+                            } else {
+                                format!("{phase} [{current}/{total}]")
+                            }
+                        } else if let Some(item) = &status.tantivy_item {
+                            // No count, just item name
+                            format!("{phase}: {item}")
+                        } else {
+                            phase.clone()
+                        }
+                    } else {
+                        "Building search index...".to_string()
+                    };
+
+                    ui.label(
+                        egui::RichText::new(progress_msg)
+                            .color(palette::text::SECONDARY)
                             .size(typography::MD),
                     );
                 }

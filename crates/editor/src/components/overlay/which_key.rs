@@ -196,6 +196,10 @@ impl WhichKey {
                         description: "Open workspace finder",
                     },
                     Keybinding {
+                        key: "Space+c",
+                        description: "Open codebase finder",
+                    },
+                    Keybinding {
                         key: "Space+h",
                         description: "Go to home",
                     },

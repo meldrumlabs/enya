@@ -211,11 +211,24 @@ impl EditorContext {
         parts.push("  - Required: `metric` (metric name)\n".to_string());
         parts.push("- `show_alert_source`: Open modal overlay for alert rule (use only when user says \"open\" or \"go to\")\n".to_string());
         parts.push("  - Required: `alert` (alert name)\n".to_string());
+        parts.push("- `search_codebase`: Search the indexed codebase using full-text search (PREFERRED over git log)\n".to_string());
+        parts.push("  - Required: `query` (search terms)\n".to_string());
+        parts.push("  - Optional: `filter` (\"all\", \"metrics\", \"alerts\", \"commits\"), `limit` (default: 10)\n".to_string());
+        parts.push(
+            "  - Returns: Ranked results with file paths, line numbers, and relevance scores\n"
+                .to_string(),
+        );
+        parts.push(
+            "  - Use this for finding: metrics by name, alert rules, commit messages, file paths\n"
+                .to_string(),
+        );
         parts.push("\n**Preference**: When showing source code or charts, prefer `show_inline_source` and `show_inline_chart` \n".to_string());
         parts.push("to keep content in the conversation flow. Only use `show_metric_source` or `show_alert_source` when the user \n".to_string());
         parts.push(
             "explicitly asks to \"open\", \"go to\", or \"navigate to\" the source.\n".to_string(),
         );
+        parts.push("\n**Search preference**: Use `search_codebase` instead of `git log --grep` for searching commits, \n".to_string());
+        parts.push("as it provides faster full-text search with relevance ranking.\n".to_string());
 
         parts.join("")
     }
@@ -274,6 +287,17 @@ pub enum AgentCommand {
         /// Number of context lines to show (default: 5)
         #[serde(default)]
         context_lines: Option<usize>,
+    },
+    /// Search the indexed codebase for metrics, alerts, or commits
+    SearchCodebase {
+        /// Search query (full-text search)
+        query: String,
+        /// Filter by type: "all", "metrics", "alerts", or "commits"
+        #[serde(default)]
+        filter: Option<String>,
+        /// Maximum results to return (default: 10)
+        #[serde(default)]
+        limit: Option<usize>,
     },
 }
 
@@ -579,5 +603,55 @@ Done!"#;
         let text = "Just a normal response with no commands.";
         let stripped = strip_command_blocks(text);
         assert_eq!(stripped, text);
+    }
+
+    #[test]
+    fn test_parse_search_codebase_command() {
+        let text = r#"
+Let me search for that.
+
+```enya-command
+{"action": "search_codebase", "query": "http_requests", "filter": "metrics", "limit": 5}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::SearchCodebase {
+                query,
+                filter,
+                limit,
+            } => {
+                assert_eq!(query, "http_requests");
+                assert_eq!(filter.as_deref(), Some("metrics"));
+                assert_eq!(*limit, Some(5));
+            }
+            _ => panic!("Expected SearchCodebase command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_search_codebase_command_minimal() {
+        let text = r#"
+```enya-command
+{"action": "search_codebase", "query": "error"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::SearchCodebase {
+                query,
+                filter,
+                limit,
+            } => {
+                assert_eq!(query, "error");
+                assert!(filter.is_none());
+                assert!(limit.is_none());
+            }
+            _ => panic!("Expected SearchCodebase command"),
+        }
     }
 }

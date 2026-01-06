@@ -4,6 +4,76 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Unified fuzzy finder (Telescope-style)**: Added a single unified finder that consolidates all search functionality into one modal with prefix-based mode switching. Features include:
+  - Single entry point with `Space f` keybinding
+  - **Prefix-based modes** for quick mode switching:
+    - (no prefix) - Search live metrics from Prometheus
+    - `@` - Search indexed metrics from source code
+    - `!` - Search alert rules from codebase
+    - `#` - Search git commits
+    - `:` - Execute editor commands
+    - `>` - Open/switch workspaces
+    - `/` - Search everything in codebase
+  - Tab key cycles through modes
+  - **Preview pane** shows context-aware details for each result type:
+    - **Metrics/Alerts**: Source code preview with tree-sitter syntax highlighting (matching the full Source Preview Overlay styling) and target line highlighting
+    - **Live metrics**: Tags preview showing available label keys and values
+    - **Commits**: Diff preview with +/- line highlighting
+  - Nucleo-based fuzzy matching for fast, typo-tolerant search
+  - Full Tantivy integration for codebase search modes
+  - WASM-compatible: codebase search modes disabled on WASM, metrics/commands/workspaces work on both platforms
+
+- **Tantivy full-text search index** (native-only): Added a Tantivy-based full-text search index for the codebase. Features include:
+  - Indexes metrics, alerts, and git commits in a persistent on-disk index stored in `{repo}/.enya/tantivy/`
+  - Schema supports metric name, kind, labels, function context, alert expressions, severity, commit messages, and file locations
+  - Full-text search with relevance scoring via Tantivy's BM25 algorithm
+  - Filter searches by type (metrics, alerts, commits, or all)
+  - `TantivyCodebaseIndex` API: `open_or_create()`, `rebuild()`, `rebuild_with_commits()`, `search()`, `search_metrics()`, `search_alerts()`, `search_commits()`
+  - Automatically indexes up to 1000 recent git commits when building the index
+  - Automatic reader reload after index updates for immediate search visibility
+  - Metadata persistence tracking indexed commit, timestamp, and document counts
+  - AI agent tool (`SearchCodebaseTool`) for codebase search via the Agent mode
+  - WASM-compatible: All Tantivy code is behind `#[cfg(not(target_arch = "wasm32"))]`
+
+- **Agent `search_codebase` command**: AI agents can now use the `search_codebase` command to search the Tantivy index for metrics, alerts, and commits. This provides faster, ranked full-text search compared to using `git log --grep` directly. Results are displayed inline in the agent conversation with relevance scores, file paths, and line numbers.
+
+- **Status line Tantivy progress**: The status line now shows detailed progress while the Tantivy full-text search index is being built in the background. Progress includes:
+  - Current phase (Fetching commits, Indexing metrics, Indexing alerts, Indexing commits, Finalizing)
+  - Progress count (e.g., `[42/100]`)
+  - Current item name (metric name, alert name, or commit hash with message)
+
+- **Improved cloning status**: The status line now shows the repository name being cloned (e.g., "Cloning enya...") instead of the generic "Cloning repo..." message.
+
+### Fixed
+
+- **Unified finder search modes not working**: Fixed an issue where search results weren't appearing or would briefly appear then disappear when using mode prefixes (`@` for metrics, `#` for commits, `!` for alerts). Three bugs were fixed:
+  1. The mode was being read from a stale cache instead of parsing from the current query prefix
+  2. The codebase search was incorrectly running for Metrics mode, interfering with live Prometheus metric search
+  3. The internal debounce `refresh_results()` was clearing codebase results that were already set by the workspace
+
+  Now the mode is parsed from the query in real-time, each mode uses the correct search backend, and the internal debounce only runs for Metrics mode (codebase modes are handled immediately by the workspace).
+
+- **Match highlight color visibility**: Added a new `highlight_match_text()` theme method that provides bright, visible colors for fuzzy match highlighting in search results. The previous `highlight_match()` color was too dark for text foreground use. Match highlights now use bright gold/amber colors that stand out clearly against the background.
+
+- **Diff viewer showing full commit diff**: Fixed an issue where the diff viewer overlay only displayed the first file of a commit. The diff viewer now correctly shows all files in a commit, with n/p navigation between files.
+
+### Added
+
+- **Codebase finder overlay (Space+c)**: Added a new telescope-style fuzzy finder for searching the codebase. Features include:
+  - Full-text search across metrics, alerts, and git commits using the Tantivy index
+  - Filter buttons to narrow results by type (All, Metrics, Alerts, Commits)
+  - Tab key cycles through filter modes
+  - **Tabbed preview pane** with Code, Diff, and Blame views:
+    - **Code tab**: Shows result details (type, severity, file location, code snippets)
+    - **Diff tab**: Delta/GitHub-style diff rendering with green background for additions, red for deletions, blue for hunk headers
+    - **Blame tab**: Placeholder for upcoming git blame integration
+  - Arrow keys (←/→) or Ctrl+Tab/Shift+Tab to switch preview tabs
+  - j/k or arrow keys (↑/↓) for navigation, Enter to select, Escape to close
+  - Selecting a metric or alert opens the source preview overlay at the definition location
+  - Native-only (not available on WASM)
+
 ### Changed
 
 - **Theme-aware egui visuals**: The `dark_theme()` function in `design.rs` now uses theme-aware colors instead of hardcoded Obsidian Glass palette constants. This ensures that egui widgets (including egui_plot backgrounds, panels, and all widget visuals) correctly reflect the selected theme's colors. Previously, switching to Nord or Gruvbox themes would leave the plot background as black; now each theme uses its own appropriate background color.
