@@ -696,8 +696,10 @@ impl DiffViewerOverlay {
         let line_height = typography::SM + 6.0;
 
         // Allocate space first, then draw background, then text
-        let (line_rect, _) =
-            ui.allocate_exact_size(egui::vec2(available_width, line_height), egui::Sense::hover());
+        let (line_rect, _) = ui.allocate_exact_size(
+            egui::vec2(available_width, line_height),
+            egui::Sense::hover(),
+        );
 
         // Draw background
         ui.painter().rect_filled(line_rect, 0.0, bg_color);
