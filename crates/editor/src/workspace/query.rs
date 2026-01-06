@@ -305,4 +305,67 @@ impl Workspace {
             log::info!("Marked {count} panes for refresh");
         }
     }
+
+    // =========================================================================
+    // Auto-refresh
+    // =========================================================================
+
+    /// Set the auto-refresh interval
+    pub fn set_refresh_interval(&mut self, interval: super::RefreshInterval) {
+        if interval == super::RefreshInterval::Off {
+            self.refresh_interval = None;
+            self.last_refresh = None;
+            log::info!("Auto-refresh disabled");
+        } else {
+            self.refresh_interval = Some(interval);
+            // Reset the timer when interval changes
+            self.last_refresh = Some(crate::util::Instant::now());
+            log::info!("Auto-refresh set to {}", interval.label());
+        }
+    }
+
+    /// Get the current refresh interval
+    pub fn refresh_interval(&self) -> Option<super::RefreshInterval> {
+        self.refresh_interval
+    }
+
+    /// Check if auto-refresh is due and trigger it if so.
+    /// Returns true if a refresh was triggered.
+    pub(super) fn check_auto_refresh(&mut self) -> bool {
+        let Some(interval) = self.refresh_interval else {
+            return false;
+        };
+
+        let Some(interval_secs) = interval.to_secs() else {
+            return false;
+        };
+
+        let now = crate::util::Instant::now();
+
+        // Check if enough time has passed
+        let should_refresh = match self.last_refresh {
+            Some(last) => now.duration_since(last).as_secs() >= interval_secs,
+            None => true, // First refresh
+        };
+
+        if should_refresh {
+            log::info!("Auto-refresh triggered (interval: {})", interval.label());
+            self.last_refresh = Some(now);
+            self.refresh_all_panes();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the time remaining until the next auto-refresh in seconds.
+    /// Returns None if auto-refresh is disabled.
+    pub fn time_until_refresh(&self) -> Option<u64> {
+        let interval = self.refresh_interval?;
+        let interval_secs = interval.to_secs()?;
+        let last = self.last_refresh?;
+
+        let elapsed = crate::util::Instant::now().duration_since(last).as_secs();
+        Some(interval_secs.saturating_sub(elapsed))
+    }
 }

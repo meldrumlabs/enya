@@ -311,9 +311,10 @@ impl GrafanaDashboard {
                 name: self.title.clone(),
                 description: self.description.clone().unwrap_or_default(),
                 version: WORKSPACE_VERSION,
+                endpoint: String::new(),
             },
             connection: Default::default(),
-            codebase: Default::default(),
+            git: Default::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
             panes: Vec::new(),
@@ -483,6 +484,7 @@ fn convert_panel(panel: &GrafanaPanel, warnings: &mut Vec<String>) -> Option<Pan
             query
         },
         name: panel.title.clone(),
+        description: String::new(), // Grafana panel descriptions not supported yet
         tag: String::new(),
         granularity: "5m".to_string(), // Default, Grafana doesn't have an equivalent
         visualization: visualization.to_string(),

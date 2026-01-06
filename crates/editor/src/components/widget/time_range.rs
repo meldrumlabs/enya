@@ -249,9 +249,15 @@ impl TimeRangeToolbar {
         self.auto_refresh
     }
 
-    /// Render the toolbar
+    /// Render the toolbar (without countdown)
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        self.show_with_countdown(ui, None);
+    }
+
+    /// Render the toolbar with an optional refresh countdown
+    #[profiling::function]
+    pub fn show_with_countdown(&mut self, ui: &mut egui::Ui, countdown_secs: Option<u64>) {
         self.changed = false;
         let text_color = text_color(self.theme);
 
@@ -309,32 +315,23 @@ impl TimeRangeToolbar {
 
             ui.separator();
 
-            // Auto-refresh toggle
-            let refresh_icon = semantic_icons::action::REFRESH;
-
-            let auto_button = if self.auto_refresh {
-                egui::Button::new(RichText::new(refresh_icon).color(accent_color).strong())
-                    .fill(selected_bg)
-            } else {
-                egui::Button::new(RichText::new(refresh_icon).color(text_color.gamma_multiply(0.7)))
-            };
-
-            if ui
-                .add(auto_button)
-                .on_hover_text(if self.auto_refresh {
-                    "Auto-refresh ON"
+            // Auto-refresh indicator with countdown
+            if let Some(secs) = countdown_secs {
+                let refresh_icon = semantic_icons::action::REFRESH;
+                let countdown_label = if secs < 60 {
+                    format!("{refresh_icon} {secs}s")
                 } else {
-                    "Auto-refresh OFF"
-                })
-                .clicked()
-            {
-                self.auto_refresh = !self.auto_refresh;
+                    format!("{refresh_icon} {}m", secs / 60)
+                };
+
+                ui.label(RichText::new(countdown_label).color(accent_color).strong())
+                    .on_hover_text("Auto-refresh countdown (use :refresh to change)");
             }
 
             // Manual refresh button
             if ui
                 .button(RichText::new(semantic_icons::action::RELOAD).color(text_color))
-                .on_hover_text("Refresh now")
+                .on_hover_text("Refresh now (use :refresh <interval> to enable auto-refresh)")
                 .clicked()
             {
                 self.time_range.refresh();

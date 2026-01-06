@@ -64,9 +64,9 @@ pub use tabs::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
 
 // Re-export config types for convenience
 pub use config::{
-    ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, CodebaseConfig, ConnectionConfig,
-    DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML, LayoutConfig, LayoutContainer, LayoutNode,
-    LayoutType, PaneConfig, TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig,
+    ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
+    DEMO_WORKSPACE_TOML, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
+    PaneConfig, RefreshInterval, TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig,
     WorkspaceError, WorkspaceMeta,
 };
 
@@ -209,11 +209,15 @@ pub struct Workspace {
     /// Diff viewer overlay for viewing commit diffs
     #[cfg(not(target_arch = "wasm32"))]
     diff_viewer: DiffViewerOverlay,
-    /// Pending codebase config to initialize (set during load, executed in show())
+    /// Pending git config URL to initialize (set during load, executed in show())
     #[cfg(not(target_arch = "wasm32"))]
-    pending_codebase_config: Option<String>,
+    pending_git_config: Option<String>,
     /// Pending connection endpoint to apply (set during load, executed in show())
     pending_connection_endpoint: Option<String>,
+    /// Auto-refresh interval (None = disabled)
+    refresh_interval: Option<RefreshInterval>,
+    /// Last time queries were auto-refreshed
+    last_refresh: Option<crate::util::Instant>,
     /// Pending git repo path to configure (set from workspace creator)
     #[cfg(not(target_arch = "wasm32"))]
     pending_git_repo: Option<String>,
@@ -292,8 +296,10 @@ impl Workspace {
             #[cfg(not(target_arch = "wasm32"))]
             diff_viewer: DiffViewerOverlay::new(),
             #[cfg(not(target_arch = "wasm32"))]
-            pending_codebase_config: None,
+            pending_git_config: None,
             pending_connection_endpoint: None,
+            refresh_interval: None,
+            last_refresh: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_git_repo: None,
             #[cfg(target_arch = "wasm32")]
@@ -337,16 +343,19 @@ impl Workspace {
             }
         }
 
+        // Check auto-refresh timer and trigger refresh if due
+        self.check_auto_refresh();
+
         // Process query execution: poll for results and execute pending queries
         let query_action = self.process_query_execution(ctx);
         if query_action != WorkspaceAction::None {
             return query_action;
         }
 
-        // Handle pending codebase initialization (native only with codebase feature)
+        // Handle pending git config initialization (native only with codebase feature)
         // This deferred pattern is needed because load_workspace_config() doesn't have ctx
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(url) = self.pending_codebase_config.take() {
+        if let Some(url) = self.pending_git_config.take() {
             self.codebase_manager.clone_repo(&url, ctx);
         }
 
@@ -475,13 +484,16 @@ impl Workspace {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             // Top toolbar with time range controls (hidden in zen mode)
             if !self.zen_mode {
+                // Get countdown before borrowing self mutably
+                let countdown = self.time_until_refresh();
+
                 egui::TopBottomPanel::top("time_range_toolbar")
                     .resizable(false)
                     .show_inside(ui, |ui| {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            // Time range controls
-                            self.time_range_toolbar.show(ui);
+                            // Time range controls with refresh countdown
+                            self.time_range_toolbar.show_with_countdown(ui, countdown);
                         });
                         ui.add_space(4.0);
                     });
@@ -1084,6 +1096,21 @@ impl Workspace {
                     log::warn!("Unknown AI provider: {provider_name}. Use 'claude' or 'codex'.");
                 }
                 WorkspaceAction::None
+            }
+            CommandResult::SetRefresh(interval_str) => {
+                let interval = RefreshInterval::parse(&interval_str);
+                self.set_refresh_interval(interval);
+                if interval == RefreshInterval::Off {
+                    WorkspaceAction::Notify {
+                        level: "info".to_string(),
+                        message: "Auto-refresh disabled".to_string(),
+                    }
+                } else {
+                    WorkspaceAction::Notify {
+                        level: "info".to_string(),
+                        message: format!("Auto-refresh set to {}", interval.label()),
+                    }
+                }
             }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None

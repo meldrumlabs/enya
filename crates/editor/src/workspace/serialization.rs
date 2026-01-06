@@ -9,8 +9,8 @@ use rustc_hash::FxHashMap;
 use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
-    CodebaseConfig, ConnectionConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
-    PaneConfig, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
+    ConnectionConfig, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
+    RefreshInterval, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
     WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
@@ -39,6 +39,7 @@ impl Workspace {
                         query_pane.saved_query(),
                         query_pane.name(),
                         query_pane.tag(),
+                        query_pane.description(),
                         state,
                     ));
                 }
@@ -50,16 +51,18 @@ impl Workspace {
                 name: name.to_string(),
                 description: String::new(),
                 version: WORKSPACE_VERSION,
+                endpoint: endpoint.map(|e| e.to_string()).unwrap_or_default(),
             },
-            connection: endpoint.map_or_else(ConnectionConfig::default, |e| {
-                ConnectionConfig::with_endpoint(e)
-            }),
-            codebase: CodebaseConfig::default(),
+            connection: ConnectionConfig::default(),
+            git: GitConfig::default(),
             view: ViewConfig {
                 theme: theme.name().to_lowercase(),
                 zen_mode: self.zen_mode,
             },
-            time: TimeConfig::from_preset(self.time_range_toolbar.time_range().preset),
+            time: TimeConfig::from_preset_with_refresh(
+                self.time_range_toolbar.time_range().preset,
+                self.refresh_interval.unwrap_or_default(),
+            ),
             panes,
             layout: self.extract_layout_from_tree(),
         }
@@ -78,6 +81,9 @@ impl Workspace {
 
         // Apply time range
         self.time_range_toolbar.set_preset(config.time.to_preset());
+
+        // Apply refresh interval
+        self.set_refresh_interval(RefreshInterval::parse(&config.time.refresh));
 
         // Clear existing panes and reset the tree
         self.clear_all_panes();
@@ -99,6 +105,9 @@ impl Workspace {
             );
             if !pane_config.tag.is_empty() {
                 query_pane.set_tag(&pane_config.tag);
+            }
+            if !pane_config.description.is_empty() {
+                query_pane.set_description(&pane_config.description);
             }
             if !pane_config.unit.is_empty() {
                 query_pane.set_unit(&pane_config.unit);
@@ -146,33 +155,34 @@ impl Workspace {
             self.show_landing = false;
         }
 
-        // Store codebase URL for deferred initialization (native only with codebase feature)
+        // Store git URL for deferred initialization (native only with codebase feature)
         // The actual clone/index happens in show() when ctx is available
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.pending_codebase_config = if config.codebase.is_empty() {
+            self.pending_git_config = if config.git.is_empty() {
                 None
             } else {
                 // Set language filter if configured
-                self.codebase_manager
-                    .set_language(&config.codebase.language);
-                Some(config.codebase.url.clone())
+                self.codebase_manager.set_language(&config.git.language);
+                Some(config.git.url.clone())
             };
         }
 
         // Store connection endpoint for deferred initialization
         // The actual connection happens in show() when ctx is available
-        self.pending_connection_endpoint = if config.connection.is_empty() {
+        // Use effective_connection() to support both workspace.endpoint and [connection]
+        let effective_conn = config.effective_connection();
+        self.pending_connection_endpoint = if effective_conn.is_empty() {
             None
         } else {
-            Some(config.connection.endpoint.clone())
+            Some(effective_conn.endpoint.clone())
         };
 
         // Return connection config if present (for logging/tracking in caller)
-        if config.connection.is_empty() {
+        if effective_conn.is_empty() {
             None
         } else {
-            Some(config.connection.clone())
+            Some(effective_conn)
         }
     }
 

@@ -15,15 +15,7 @@
 //! [workspace]
 //! name = "prod-api"
 //! description = "Production API monitoring"
-//!
-//! [connection]
-//! endpoint = "https://metrics.example.com"
-//! # api_key can be set but is often omitted for security
-//! # api_key = "sk-..."
-//!
-//! [codebase]
-//! url = "https://github.com/org/repo.git"
-//! # branch = "main"  # optional, defaults to repo's default branch
+//! endpoint = "https://metrics.example.com"  # simple inline endpoint
 //!
 //! [view]
 //! theme = "dark"
@@ -37,6 +29,22 @@
 //! tag = "Critical"
 //! aggregation = "avg"
 //! granularity = "5m"
+//! ```
+//!
+//! For advanced connection options (api_key, etc.), use a `[connection]` section:
+//!
+//! ```toml
+//! [connection]
+//! endpoint = "https://metrics.example.com"
+//! api_key = "sk-..."  # optional
+//! ```
+//!
+//! Git integration for go-to-definition and commit markers:
+//!
+//! ```toml
+//! [git]
+//! url = "https://github.com/org/repo.git"
+//! branch = "main"  # optional
 //! ```
 //!
 //! # Web Loading
@@ -123,9 +131,9 @@ pub struct WorkspaceConfig {
     #[serde(default, skip_serializing_if = "ConnectionConfig::is_empty")]
     pub connection: ConnectionConfig,
 
-    /// Codebase integration settings (git repo for source code awareness)
-    #[serde(default, skip_serializing_if = "CodebaseConfig::is_empty")]
-    pub codebase: CodebaseConfig,
+    /// Git integration settings (repository for source code awareness)
+    #[serde(default, skip_serializing_if = "GitConfig::is_empty")]
+    pub git: GitConfig,
 
     /// View/UI preferences
     #[serde(default, skip_serializing_if = "ViewConfig::is_default")]
@@ -160,6 +168,11 @@ pub struct WorkspaceMeta {
         skip_serializing_if = "is_default_version"
     )]
     pub version: u32,
+
+    /// Inline endpoint for simple workspaces (alternative to [connection] section)
+    /// If both this and [connection].endpoint are set, [connection] takes precedence.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub endpoint: String,
 }
 
 fn is_default_version(v: &u32) -> bool {
@@ -197,12 +210,12 @@ impl ConnectionConfig {
     }
 }
 
-/// Codebase integration configuration
+/// Git integration configuration
 ///
 /// Allows the editor to connect to a git repository for source code awareness,
 /// enabling features like metrics-to-code mapping.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CodebaseConfig {
+pub struct GitConfig {
     /// Git repository URL (e.g., "https://github.com/org/repo.git")
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub url: String,
@@ -217,13 +230,13 @@ pub struct CodebaseConfig {
     pub language: String,
 }
 
-impl CodebaseConfig {
-    /// Check if this config has any codebase settings
+impl GitConfig {
+    /// Check if this config has any git settings
     pub fn is_empty(&self) -> bool {
         self.url.is_empty()
     }
 
-    /// Create a new codebase config with a URL
+    /// Create a new git config with a URL
     pub fn with_url(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
@@ -232,7 +245,7 @@ impl CodebaseConfig {
         }
     }
 
-    /// Create a new codebase config with a URL and branch
+    /// Create a new git config with a URL and branch
     pub fn with_url_and_branch(url: impl Into<String>, branch: impl Into<String>) -> Self {
         Self {
             url: url.into(),
@@ -241,7 +254,7 @@ impl CodebaseConfig {
         }
     }
 
-    /// Set the language for this codebase config
+    /// Set the language for this git config
     pub fn with_language(mut self, language: impl Into<String>) -> Self {
         self.language = language.into();
         self
@@ -302,6 +315,11 @@ pub struct TimeConfig {
         skip_serializing_if = "is_default_time_preset"
     )]
     pub preset: String,
+
+    /// Auto-refresh interval: "off", "10s", "30s", "1m", "5m", "15m"
+    /// Defaults to "off" (no auto-refresh)
+    #[serde(default, skip_serializing_if = "is_refresh_off")]
+    pub refresh: String,
 }
 
 fn is_default_time_preset(s: &String) -> bool {
@@ -312,10 +330,15 @@ fn default_time_preset() -> String {
     "15m".to_string()
 }
 
+fn is_refresh_off(s: &String) -> bool {
+    s.is_empty() || s == "off"
+}
+
 impl Default for TimeConfig {
     fn default() -> Self {
         Self {
             preset: default_time_preset(),
+            refresh: String::new(),
         }
     }
 }
@@ -339,12 +362,113 @@ impl TimeConfig {
     pub fn from_preset(preset: TimeRangePreset) -> Self {
         Self {
             preset: preset.label().to_string(),
+            refresh: String::new(),
         }
+    }
+
+    /// Create from TimeRangePreset with refresh interval
+    pub fn from_preset_with_refresh(preset: TimeRangePreset, refresh: RefreshInterval) -> Self {
+        Self {
+            preset: preset.label().to_string(),
+            refresh: refresh.to_string(),
+        }
+    }
+
+    /// Get the refresh interval in seconds, or None if disabled
+    pub fn refresh_interval_secs(&self) -> Option<u64> {
+        RefreshInterval::parse(&self.refresh).to_secs()
+    }
+
+    /// Check if auto-refresh is enabled
+    pub fn is_refresh_enabled(&self) -> bool {
+        self.refresh_interval_secs().is_some()
     }
 
     /// Check if all values are defaults
     pub fn is_default(&self) -> bool {
-        self.preset == "15m"
+        self.preset == "15m" && is_refresh_off(&self.refresh)
+    }
+}
+
+/// Auto-refresh interval options
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RefreshInterval {
+    /// No auto-refresh
+    #[default]
+    Off,
+    /// Refresh every 10 seconds
+    TenSeconds,
+    /// Refresh every 30 seconds
+    ThirtySeconds,
+    /// Refresh every 1 minute
+    OneMinute,
+    /// Refresh every 5 minutes
+    FiveMinutes,
+    /// Refresh every 15 minutes
+    FifteenMinutes,
+}
+
+impl RefreshInterval {
+    /// Parse a refresh interval string
+    pub fn parse(s: &str) -> Self {
+        match s.to_lowercase().trim() {
+            "" | "off" | "none" | "disabled" => Self::Off,
+            "10s" => Self::TenSeconds,
+            "30s" => Self::ThirtySeconds,
+            "1m" | "60s" => Self::OneMinute,
+            "5m" | "300s" => Self::FiveMinutes,
+            "15m" | "900s" => Self::FifteenMinutes,
+            _ => Self::Off,
+        }
+    }
+
+    /// Get the interval in seconds, or None if disabled
+    pub fn to_secs(self) -> Option<u64> {
+        match self {
+            Self::Off => None,
+            Self::TenSeconds => Some(10),
+            Self::ThirtySeconds => Some(30),
+            Self::OneMinute => Some(60),
+            Self::FiveMinutes => Some(300),
+            Self::FifteenMinutes => Some(900),
+        }
+    }
+
+    /// Get the display label
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::TenSeconds => "10s",
+            Self::ThirtySeconds => "30s",
+            Self::OneMinute => "1m",
+            Self::FiveMinutes => "5m",
+            Self::FifteenMinutes => "15m",
+        }
+    }
+
+    /// Get all available options (for UI dropdown)
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Off,
+            Self::TenSeconds,
+            Self::ThirtySeconds,
+            Self::OneMinute,
+            Self::FiveMinutes,
+            Self::FifteenMinutes,
+        ]
+    }
+}
+
+impl std::fmt::Display for RefreshInterval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Off => write!(f, "off"),
+            Self::TenSeconds => write!(f, "10s"),
+            Self::ThirtySeconds => write!(f, "30s"),
+            Self::OneMinute => write!(f, "1m"),
+            Self::FiveMinutes => write!(f, "5m"),
+            Self::FifteenMinutes => write!(f, "15m"),
+        }
     }
 }
 
@@ -361,6 +485,10 @@ pub struct PaneConfig {
     /// Display name (optional)
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+
+    /// Description providing context about the pane (shown on hover)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
 
     /// User-defined tag for organizing panes (e.g., "Critical", "Warning", "Info")
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -407,6 +535,7 @@ impl PaneConfig {
         Self {
             query: query.into(),
             name: String::new(),
+            description: String::new(),
             tag: String::new(),
             unit: String::new(),
             granularity: default_granularity(),
@@ -417,6 +546,12 @@ impl PaneConfig {
     /// Set the name
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
+        self
+    }
+
+    /// Set the description
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
         self
     }
 
@@ -465,10 +600,17 @@ impl PaneConfig {
     }
 
     /// Create from query and QueryState
-    pub fn from_query_state(query: &str, name: &str, tag: &str, state: &QueryState) -> Self {
+    pub fn from_query_state(
+        query: &str,
+        name: &str,
+        tag: &str,
+        description: &str,
+        state: &QueryState,
+    ) -> Self {
         Self {
             query: query.to_string(),
             name: name.to_string(),
+            description: description.to_string(),
             tag: tag.to_string(),
             unit: String::new(),
             granularity: state.granularity.label().to_string(),
@@ -481,12 +623,14 @@ impl PaneConfig {
         query: &str,
         name: &str,
         tag: &str,
+        description: &str,
         state: &QueryState,
         viz_type: VisualizationType,
     ) -> Self {
         Self {
             query: query.to_string(),
             name: name.to_string(),
+            description: description.to_string(),
             tag: tag.to_string(),
             unit: String::new(),
             granularity: state.granularity.label().to_string(),
@@ -612,9 +756,10 @@ impl WorkspaceConfig {
                 name: name.into(),
                 description: String::new(),
                 version: WORKSPACE_VERSION,
+                endpoint: String::new(),
             },
             connection: ConnectionConfig::default(),
-            codebase: CodebaseConfig::default(),
+            git: GitConfig::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
             panes: Vec::new(),
@@ -622,11 +767,35 @@ impl WorkspaceConfig {
         }
     }
 
-    /// Create a workspace with an API endpoint
+    /// Create a workspace with an API endpoint (using inline workspace.endpoint)
     pub fn with_endpoint(name: impl Into<String>, endpoint: impl Into<String>) -> Self {
         let mut ws = Self::new(name);
-        ws.connection = ConnectionConfig::with_endpoint(endpoint);
+        ws.workspace.endpoint = endpoint.into();
         ws
+    }
+
+    /// Get the effective endpoint, preferring [connection].endpoint over workspace.endpoint
+    pub fn effective_endpoint(&self) -> Option<&str> {
+        if !self.connection.endpoint.is_empty() {
+            Some(&self.connection.endpoint)
+        } else if !self.workspace.endpoint.is_empty() {
+            Some(&self.workspace.endpoint)
+        } else {
+            None
+        }
+    }
+
+    /// Get the effective connection config, merging workspace.endpoint if needed
+    pub fn effective_connection(&self) -> ConnectionConfig {
+        if !self.connection.endpoint.is_empty() {
+            // [connection] section takes precedence
+            self.connection.clone()
+        } else if !self.workspace.endpoint.is_empty() {
+            // Use inline workspace.endpoint
+            ConnectionConfig::with_endpoint(&self.workspace.endpoint)
+        } else {
+            ConnectionConfig::default()
+        }
     }
 
     /// Add a pane to the workspace
@@ -899,6 +1068,7 @@ granularity = "5m"
         let pane = PaneConfig {
             query: "sum(*) by (service)".to_string(),
             name: "Test".to_string(),
+            description: String::new(),
             tag: "Critical".to_string(),
             granularity: "15m".to_string(),
             visualization: "time_series".to_string(),
@@ -953,6 +1123,7 @@ name = "Staging"
         for (input, expected) in cases {
             let config = TimeConfig {
                 preset: input.to_string(),
+                refresh: String::new(),
             };
             assert_eq!(config.to_preset(), expected);
         }
@@ -1365,6 +1536,7 @@ children = [0, { type = "vertical", children = [1, 2] }]
         for (input, expected) in cases {
             let config = TimeConfig {
                 preset: input.to_string(),
+                refresh: String::new(),
             };
             assert_eq!(config.to_preset(), expected, "Failed for input: {input}");
         }
@@ -1444,6 +1616,7 @@ children = [0, { type = "vertical", children = [1, 2] }]
             let pane = PaneConfig {
                 query: "test".to_string(),
                 name: String::new(),
+                description: String::new(),
                 tag: String::new(),
                 granularity: input.to_string(),
                 visualization: "time_series".to_string(),
@@ -1463,12 +1636,14 @@ children = [0, { type = "vertical", children = [1, 2] }]
             "sum(*)",
             "Test",
             "MyTag",
+            "Test description",
             &state,
             VisualizationType::Stat,
         );
 
         assert_eq!(pane.query, "sum(*)");
         assert_eq!(pane.name, "Test");
+        assert_eq!(pane.description, "Test description");
         assert_eq!(pane.tag, "MyTag");
         assert_eq!(pane.granularity, "1m");
         assert_eq!(pane.visualization, "stat");
@@ -1514,7 +1689,28 @@ name = "no-version"
     fn test_workspace_config_with_endpoint() {
         let ws = WorkspaceConfig::with_endpoint("test", "https://api.example.com");
         assert_eq!(ws.workspace.name, "test");
-        assert_eq!(ws.connection.endpoint, "https://api.example.com");
+        // endpoint is now stored inline in workspace section
+        assert_eq!(ws.workspace.endpoint, "https://api.example.com");
+        assert!(ws.connection.is_empty());
+        // effective_endpoint should return the inline endpoint
+        assert_eq!(ws.effective_endpoint(), Some("https://api.example.com"));
+    }
+
+    #[test]
+    fn test_workspace_config_effective_endpoint_precedence() {
+        // When both workspace.endpoint and connection.endpoint are set,
+        // connection takes precedence
+        let mut ws = WorkspaceConfig::with_endpoint("test", "http://inline:9090");
+        ws.connection = ConnectionConfig::with_endpoint("http://connection:9090");
+        assert_eq!(ws.effective_endpoint(), Some("http://connection:9090"));
+
+        // When only workspace.endpoint is set
+        let ws = WorkspaceConfig::with_endpoint("test", "http://inline:9090");
+        assert_eq!(ws.effective_endpoint(), Some("http://inline:9090"));
+
+        // When neither is set
+        let ws = WorkspaceConfig::new("test");
+        assert_eq!(ws.effective_endpoint(), None);
     }
 
     #[test]
