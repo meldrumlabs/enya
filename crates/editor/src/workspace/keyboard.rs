@@ -29,6 +29,7 @@ impl Workspace {
 
         if self.metrics_finder.is_open()
             || self.workspace_finder.is_open()
+            || self.unified_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
             || self.multi_edit_overlay.is_open()
@@ -74,6 +75,7 @@ impl Workspace {
         let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
         let mut should_open_metrics_finder = false;
+        let mut should_open_unified_finder = false;
         #[cfg(not(target_arch = "wasm32"))]
         let mut should_open_codebase_finder = false;
         let mut should_show_home = false;
@@ -159,6 +161,14 @@ impl Workspace {
 
             // Leader key sequences (must follow Space within timeout)
             if self.leader_keys.is_space_active() {
+                // Space+f - open unified finder (Telescope-style)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+                    should_open_unified_finder = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
                 // Space+m - open metrics finder
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
                     should_open_metrics_finder = true;
@@ -643,6 +653,12 @@ impl Workspace {
         // Handle metrics finder (m key)
         if should_open_metrics_finder {
             self.open_metrics_finder();
+            ctx.request_repaint();
+        }
+
+        // Handle unified finder (Space+f)
+        if should_open_unified_finder {
+            self.open_unified_finder();
             ctx.request_repaint();
         }
 

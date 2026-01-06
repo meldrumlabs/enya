@@ -6,6 +6,25 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Unified fuzzy finder (Telescope-style)**: Added a single unified finder that consolidates all search functionality into one modal with prefix-based mode switching. Features include:
+  - Single entry point with `Space f` keybinding
+  - **Prefix-based modes** for quick mode switching:
+    - (no prefix) - Search live metrics from Prometheus
+    - `@` - Search indexed metrics from source code
+    - `!` - Search alert rules from codebase
+    - `#` - Search git commits
+    - `:` - Execute editor commands
+    - `>` - Open/switch workspaces
+    - `/` - Search everything in codebase
+  - Tab key cycles through modes
+  - **Preview pane** shows context-aware details for each result type:
+    - **Metrics/Alerts**: Source code preview with tree-sitter syntax highlighting (matching the full Source Preview Overlay styling) and target line highlighting
+    - **Live metrics**: Tags preview showing available label keys and values
+    - **Commits**: Diff preview with +/- line highlighting
+  - Nucleo-based fuzzy matching for fast, typo-tolerant search
+  - Full Tantivy integration for codebase search modes
+  - WASM-compatible: codebase search modes disabled on WASM, metrics/commands/workspaces work on both platforms
+
 - **Tantivy full-text search index** (native-only): Added a Tantivy-based full-text search index for the codebase. Features include:
   - Indexes metrics, alerts, and git commits in a persistent on-disk index stored in `{repo}/.enya/tantivy/`
   - Schema supports metric name, kind, labels, function context, alert expressions, severity, commit messages, and file locations

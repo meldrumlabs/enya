@@ -10,6 +10,7 @@ use crate::codebase::CodebaseManager;
 use crate::components::NativePromoOverlay;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::overlay::{CodebaseFinder, CodebaseFinderStatus, DiffViewerOverlay};
+use crate::components::overlay::{FinderMode, UnifiedFinder};
 use crate::components::{
     AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult, Buffer,
     BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
@@ -219,6 +220,8 @@ pub struct Workspace {
     /// Native app promo overlay (WASM only)
     #[cfg(target_arch = "wasm32")]
     native_promo_overlay: NativePromoOverlay,
+    /// Unified finder (Telescope-style fuzzy finder)
+    unified_finder: UnifiedFinder,
 }
 
 impl Workspace {
@@ -295,6 +298,7 @@ impl Workspace {
             pending_git_repo: None,
             #[cfg(target_arch = "wasm32")]
             native_promo_overlay: NativePromoOverlay::new(),
+            unified_finder: UnifiedFinder::new(),
         }
     }
 
@@ -616,6 +620,11 @@ impl Workspace {
             return WorkspaceAction::LoadWorkspace(selected_workspace);
         }
 
+        // Show unified finder modal (Telescope-style)
+        if let Some(action) = self.show_unified_finder(ctx, app_state) {
+            return action;
+        }
+
         // Show codebase finder modal (native only with Tantivy search)
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -775,6 +784,7 @@ impl Workspace {
 
         if !self.which_key.is_open()
             && !self.metrics_finder.is_open()
+            && !self.unified_finder.is_open()
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
@@ -802,6 +812,7 @@ impl Workspace {
         // Handle ? key for which-key overlay (bypasses focus check so it works even with chart focus)
         if !self.which_key.is_open()
             && !self.metrics_finder.is_open()
+            && !self.unified_finder.is_open()
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
@@ -925,6 +936,11 @@ impl Workspace {
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
             return WorkspaceAction::LoadWorkspace(selected_workspace);
+        }
+
+        // Show unified finder modal (Telescope-style)
+        if let Some(action) = self.show_unified_finder(ctx, app_state) {
+            return action;
         }
 
         // Show codebase finder modal (native only with Tantivy search)
