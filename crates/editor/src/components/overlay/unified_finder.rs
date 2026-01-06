@@ -27,7 +27,7 @@ use std::path::PathBuf;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use egui::{Color32, RichText};
+use egui::{Color32, RichText, text::LayoutJob};
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
@@ -38,6 +38,9 @@ use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::semantic_icons;
 
 #[cfg(not(target_arch = "wasm32"))]
 use super::preview::{render_diff_line_preview, render_source_preview};
@@ -129,6 +132,18 @@ impl FinderMode {
             (Self::Commits, rest)
         } else {
             (Self::All, query)
+        }
+    }
+
+    /// Returns the next mode in the cycle order.
+    /// Order: All -> Metrics -> Alerts -> Commits -> All
+    #[must_use]
+    pub fn cycle_next(self) -> Self {
+        match self {
+            Self::All => Self::Metrics,
+            Self::Metrics => Self::Alerts,
+            Self::Alerts => Self::Commits,
+            Self::Commits => Self::All,
         }
     }
 }
@@ -351,6 +366,34 @@ impl UnifiedFinder {
         }
     }
 
+    /// Cycles to the next mode, preserving the search text.
+    pub fn cycle_mode(&mut self) {
+        // Get current query text without the prefix
+        let query_text = self.query_text().to_string();
+
+        // Cycle to next mode
+        let next_mode = self.mode.cycle_next();
+        self.mode = next_mode;
+
+        // Rebuild query with new prefix
+        self.query.clear();
+        if let Some(prefix) = next_mode.prefix() {
+            self.query.push(prefix);
+        }
+        self.query.push_str(&query_text);
+
+        // Reset search state to trigger a fresh search
+        self.results.clear();
+        self.match_positions.clear();
+        self.selected_index = 0;
+        self.last_query_change = Some(std::time::Instant::now());
+        self.last_searched_query.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.last_codebase_search = None;
+        }
+    }
+
     /// Sets the available live metrics.
     pub fn set_live_metrics(
         &mut self,
@@ -366,10 +409,14 @@ impl UnifiedFinder {
         text
     }
 
-    /// Gets the current mode.
+    /// Gets the current mode based on query prefix.
+    ///
+    /// This parses the mode from the query prefix (e.g., `#` for commits)
+    /// to ensure the mode is always in sync with the current query.
     #[must_use]
     pub fn mode(&self) -> FinderMode {
-        self.mode
+        let (mode, _) = FinderMode::from_prefix(&self.query);
+        mode
     }
 
     /// Refreshes the search results based on current query and mode.
@@ -453,17 +500,21 @@ impl UnifiedFinder {
     #[must_use]
     pub fn needs_codebase_search(&self) -> bool {
         let query_text = self.query_text().to_string();
+        let current_mode = self.mode();
         match &self.last_codebase_search {
-            Some((last_query, last_mode)) => &query_text != last_query || self.mode != *last_mode,
+            Some((last_query, last_mode)) => {
+                &query_text != last_query || current_mode != *last_mode
+            }
             None => true,
         }
     }
 
     /// Sets codebase search results (called externally by workspace).
+    /// This clears existing results first - use for All, Alerts, Commits modes.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn set_codebase_results(&mut self, results: Vec<SearchResult>) {
         // Update the last search tracker
-        self.last_codebase_search = Some((self.query_text().to_string(), self.mode));
+        self.last_codebase_search = Some((self.query_text().to_string(), self.mode()));
 
         self.results.clear();
         self.match_positions.clear();
@@ -475,6 +526,19 @@ impl UnifiedFinder {
 
         if self.selected_index >= self.results.len() && !self.results.is_empty() {
             self.selected_index = self.results.len() - 1;
+        }
+    }
+
+    /// Appends codebase search results to existing results (called externally by workspace).
+    /// This preserves existing results (e.g., live metrics) - use for Metrics mode.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn append_codebase_results(&mut self, results: Vec<SearchResult>) {
+        // Update the last search tracker
+        self.last_codebase_search = Some((self.query_text().to_string(), self.mode()));
+
+        for result in results {
+            self.results.push(UnifiedResult::CodebaseResult(result));
+            self.match_positions.push(Vec::new()); // Tantivy handles highlighting
         }
     }
 
@@ -519,6 +583,11 @@ impl UnifiedFinder {
             return None;
         }
 
+        // Sync mode from query prefix at the start of each frame
+        // This ensures mode is always consistent with the current query
+        let (parsed_mode, _) = FinderMode::from_prefix(&self.query);
+        self.mode = parsed_mode;
+
         // Update highlight cache for current selection (native only)
         #[cfg(not(target_arch = "wasm32"))]
         self.update_highlight_cache();
@@ -549,10 +618,20 @@ impl UnifiedFinder {
             }
         }
 
+        // Tab cycles through modes (All -> Metrics -> Alerts -> Commits -> All)
+        if input.cycle_mode {
+            self.cycle_mode();
+        }
+
         // Check if debounce period has elapsed and we need to refresh results
+        // Only for Metrics mode - codebase modes (All, Alerts, Commits) are handled
+        // externally via set_codebase_results() in the workspace
         let should_refresh = if let Some(last_change) = self.last_query_change {
             let elapsed = last_change.elapsed().as_millis() as u64;
-            elapsed >= SEARCH_DEBOUNCE_MS && self.query != self.last_searched_query
+            let is_metrics_mode = matches!(self.mode, FinderMode::Metrics);
+            elapsed >= SEARCH_DEBOUNCE_MS
+                && self.query != self.last_searched_query
+                && is_metrics_mode
         } else {
             false
         };
@@ -561,10 +640,17 @@ impl UnifiedFinder {
             self.refresh_results();
             self.last_searched_query.clone_from(&self.query);
             self.last_query_change = None;
+            // Reset codebase search tracker so workspace will re-append codebase results
+            // (refresh_results only adds live metrics, codebase metrics need to be re-appended)
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.last_codebase_search = None;
+            }
         }
 
-        // Request repaint if debounce is pending (to check again after delay)
-        if self.last_query_change.is_some() {
+        // Request repaint if debounce is pending for Metrics mode
+        // (codebase modes don't use the internal debounce)
+        if self.last_query_change.is_some() && matches!(self.mode, FinderMode::Metrics) {
             ctx.request_repaint_after(std::time::Duration::from_millis(SEARCH_DEBOUNCE_MS));
         }
 
@@ -585,6 +671,24 @@ impl UnifiedFinder {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, -30.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Allocate a fixed-size rect to constrain the entire overlay
+                // This is the key - by allocating the exact size we want,
+                // nothing inside can expand beyond it
+                let (area_rect, _response) = ui.allocate_exact_size(
+                    egui::vec2(total_width, popup_max_height + 24.0),
+                    egui::Sense::hover(),
+                );
+
+                // Set clip rect to the allocated area to prevent visual overflow
+                ui.set_clip_rect(area_rect);
+
+                // Create a child UI that's constrained to our allocated rect
+                let mut child_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(area_rect)
+                        .layout(egui::Layout::top_down(egui::Align::LEFT)),
+                );
+
                 // Premium glass frame with refined styling
                 let frame = overlay_style
                     .frame()
@@ -597,7 +701,7 @@ impl UnifiedFinder {
                         color: Color32::from_black_alpha(80),
                     });
 
-                let frame_response = frame.show(ui, |ui| {
+                let frame_response = frame.show(&mut child_ui, |ui| {
                     // Set both min and max to ensure consistent size
                     ui.set_width(total_width);
                     ui.set_min_height(popup_max_height);
@@ -636,9 +740,12 @@ impl UnifiedFinder {
                         ui.cursor().top(),
                         egui::Stroke::new(1.0, colors.separator),
                     );
-                    ui.add_space(6.0);
-                    self.render_footer(ui);
-                    ui.add_space(4.0);
+
+                    // Use bottom-aligned layout to push footer content to the bottom of available space
+                    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                        ui.add_space(8.0); // Bottom padding
+                        self.render_footer(ui);
+                    });
                 });
 
                 // Draw premium glass effects - top edge highlight
@@ -716,7 +823,7 @@ impl UnifiedFinder {
                 self.last_query_change = Some(std::time::Instant::now());
             }
 
-            // Use remaining space to push badge to the right
+            // Use remaining space to push badges to the right
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
 
@@ -754,6 +861,21 @@ impl UnifiedFinder {
                             }
                         });
                     });
+
+                // Result count badge (only show when there are results)
+                if !self.results.is_empty() {
+                    ui.add_space(8.0);
+                    let count_text = if self.results.len() >= 50 {
+                        "50+".to_string()
+                    } else {
+                        self.results.len().to_string()
+                    };
+                    ui.label(
+                        RichText::new(format!("{count_text} results"))
+                            .color(text_col.gamma_multiply(0.4))
+                            .size(typography::XS),
+                    );
+                }
             });
         });
     }
@@ -855,6 +977,7 @@ impl UnifiedFinder {
         let mut clicked_index: Option<usize> = None;
         let text_col = text_color(self.theme);
         let accent_col = self.theme.accent_primary();
+        let highlight_col = self.theme.highlight_match_text();
 
         // Get the clip rect for the list area to prevent text overflow
         let list_clip_rect = ui.available_rect_before_wrap();
@@ -866,7 +989,12 @@ impl UnifiedFinder {
                 // Create a clipped painter to prevent text from spilling into preview pane
                 let clipped_painter = ui.painter().with_clip_rect(list_clip_rect);
 
-                for (i, result) in self.results.iter().enumerate() {
+                for (i, (result, positions)) in self
+                    .results
+                    .iter()
+                    .zip(self.match_positions.iter())
+                    .enumerate()
+                {
                     let is_selected = i == self.selected_index;
 
                     let row_height = 36.0;
@@ -902,7 +1030,21 @@ impl UnifiedFinder {
                     let mut cursor_x = content_rect.left();
 
                     // Calculate max width for the name (leave space for secondary text)
-                    let max_name_width = content_rect.width() * 0.65; // 65% for name, rest for secondary
+                    // Commits get more space (90%) since they have longer messages and less
+                    // useful secondary text. Other results use 65% for name.
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let is_commit = matches!(
+                        result,
+                        UnifiedResult::CodebaseResult(r) if matches!(r.kind, SearchResultKind::Commit { .. })
+                    );
+                    #[cfg(target_arch = "wasm32")]
+                    let is_commit = false;
+
+                    let max_name_width = if is_commit {
+                        content_rect.width() * 0.90
+                    } else {
+                        content_rect.width() * 0.65
+                    };
 
                     // Icon
                     let icon_color = if is_selected || is_hovered {
@@ -925,20 +1067,40 @@ impl UnifiedFinder {
                     );
                     cursor_x += icon_galley.size().x + 10.0;
 
-                    // Name - truncate if too long
+                    // Name - with match highlighting
                     let name_str = result.name();
                     let available_for_name = max_name_width - (cursor_x - content_rect.left());
-                    let truncated_name = truncate_to_width(
-                        name_str,
-                        available_for_name,
-                        typography::proportional(typography::MD),
-                        ui,
-                    );
-                    let name_galley = clipped_painter.layout_no_wrap(
-                        truncated_name,
-                        typography::proportional(typography::MD),
+
+                    // Check if we need to truncate
+                    let font = typography::proportional(typography::MD);
+                    let full_galley = clipped_painter.layout_no_wrap(
+                        name_str.to_string(),
+                        font.clone(),
                         text_col,
                     );
+                    let needs_truncation = full_galley.size().x > available_for_name;
+
+                    let name_galley = if !positions.is_empty() && !needs_truncation {
+                        // Use highlighted galley when we have match positions and don't need truncation
+                        create_highlighted_galley(
+                            ui,
+                            name_str,
+                            positions,
+                            font,
+                            text_col,
+                            highlight_col,
+                        )
+                    } else if needs_truncation {
+                        // Fall back to plain truncated text when truncation is needed
+                        // (highlight positions would be wrong after truncation)
+                        let truncated_name =
+                            truncate_to_width(name_str, available_for_name, font.clone(), ui);
+                        clipped_painter.layout_no_wrap(truncated_name, font, text_col)
+                    } else {
+                        // No highlights, no truncation - just use the full galley
+                        full_galley
+                    };
+
                     clipped_painter.galley(
                         egui::pos2(
                             cursor_x,
@@ -999,217 +1161,253 @@ impl UnifiedFinder {
         // No background fill - uses the same frosted glass as the rest of the overlay
         // This matches the Source Preview Overlay styling
 
+        let available_height = ui.available_height();
+        let preview_width = ui.available_width();
+
+        // Hard lock the width to prevent ANY content from expanding the overlay
+        // Using set_width forces both min and max to this exact value
+        ui.set_width(preview_width);
+
+        // Set clip rect to visually clip any overflow
+        let clip_rect = ui.available_rect_before_wrap();
+        ui.set_clip_rect(clip_rect);
+
         let Some(result) = self.results.get(self.selected_index) else {
-            ui.vertical_centered(|ui| {
-                ui.add_space(80.0);
-                ui.label(
-                    RichText::new("Select an item to preview")
-                        .color(text_color(self.theme).gamma_multiply(0.4))
-                        .italics(),
-                );
-            });
+            // Center the "Select an item" message both horizontally and vertically
+            ui.allocate_ui_with_layout(
+                egui::vec2(preview_width, available_height),
+                egui::Layout::centered_and_justified(egui::Direction::TopDown),
+                |ui| {
+                    ui.label(
+                        RichText::new("Select an item to preview")
+                            .color(text_color(self.theme).gamma_multiply(0.4))
+                            .italics(),
+                    );
+                },
+            );
             return;
         };
 
-        let preview_width = ui.available_width();
-        egui::Frame::new().inner_margin(12.0).show(ui, |ui| {
-            // Constrain content to prevent expansion
-            ui.set_max_width(preview_width - 24.0); // Account for inner margin
-            let text_col = text_color(self.theme);
+        // Use the full available space for preview content
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(16, 12))
+            .show(ui, |ui| {
+                // Hard lock content width to prevent expansion (accounting for margins)
+                let content_width = preview_width - 32.0;
+                ui.set_width(content_width);
+                ui.set_min_height(available_height - 24.0); // Fill vertical space
 
-            // Header - truncate title to fit available width
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(result.icon())
-                        .color(self.mode.color(self.theme))
-                        .size(20.0),
-                );
-                ui.add_space(8.0);
+                // Set clip rect for inner content too
+                let inner_clip = ui.available_rect_before_wrap();
+                ui.set_clip_rect(inner_clip);
 
-                // Truncate title to fit available space (reserve space for icon + margins)
-                let max_title_width = preview_width - 50.0;
-                let truncated_title = truncate_to_width(
-                    result.name(),
-                    max_title_width.max(100.0),
-                    typography::proportional(typography::LG),
-                    ui,
-                );
-                ui.label(
-                    RichText::new(truncated_title)
-                        .color(text_col)
-                        .size(typography::LG)
-                        .strong(),
-                );
-            });
+                let text_col = text_color(self.theme);
 
-            ui.add_space(12.0);
-
-            // Details based on result type
-            match result {
-                UnifiedResult::LiveMetric { category, tags, .. } => {
-                    // Category
+                // Header - truncate title to fit available width
+                ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("Category: {category}"))
-                            .color(text_col.gamma_multiply(0.6))
-                            .size(typography::SM),
-                    );
-
-                    ui.add_space(12.0);
-
-                    // Separator
-                    ui.painter().hline(
-                        ui.available_rect_before_wrap().x_range(),
-                        ui.cursor().top(),
-                        egui::Stroke::new(1.0, colors.separator),
-                    );
-                    ui.add_space(12.0);
-
-                    // Tags section
-                    let tag_key_color = self.theme.syntax_key();
-                    let tag_value_color = self.theme.syntax_value();
-
-                    ui.label(
-                        RichText::new("Available Tags")
-                            .color(text_col.gamma_multiply(0.6))
-                            .size(typography::XS),
+                        RichText::new(result.icon())
+                            .color(self.mode.color(self.theme))
+                            .size(20.0),
                     );
                     ui.add_space(8.0);
 
-                    if tags.is_empty() {
+                    // Truncate title to fit available space (reserve space for icon + margins)
+                    let max_title_width = preview_width - 50.0;
+                    let truncated_title = truncate_to_width(
+                        result.name(),
+                        max_title_width.max(100.0),
+                        typography::proportional(typography::LG),
+                        ui,
+                    );
+                    ui.label(
+                        RichText::new(truncated_title)
+                            .color(text_col)
+                            .size(typography::LG)
+                            .strong(),
+                    );
+                });
+
+                ui.add_space(12.0);
+
+                // Details based on result type
+                match result {
+                    UnifiedResult::LiveMetric { category, tags, .. } => {
+                        // Category
                         ui.label(
-                            RichText::new("No tags available")
-                                .color(text_col.gamma_multiply(0.4))
-                                .italics()
-                                .size(typography::SM),
-                        );
-                    } else {
-                        // Show tags in a scrollable area
-                        let remaining_height = ui.available_height();
-                        egui::ScrollArea::vertical()
-                            .max_height(remaining_height)
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| {
-                                // Sort tag keys for consistent display
-                                let mut tag_keys: Vec<_> = tags.keys().collect();
-                                tag_keys.sort();
-
-                                for (idx, key) in tag_keys.iter().enumerate() {
-                                    if let Some(values) = tags.get(*key) {
-                                        // Tag key
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(format!("{key}:"))
-                                                    .color(tag_key_color)
-                                                    .size(typography::MD)
-                                                    .strong(),
-                                            );
-                                        });
-
-                                        // Tag values (show up to 5, with ellipsis if more)
-                                        let mut sorted_values: Vec<_> = values.iter().collect();
-                                        sorted_values.sort();
-                                        let display_count = sorted_values.len().min(5);
-                                        let has_more = sorted_values.len() > 5;
-
-                                        ui.indent(egui::Id::new(("tag_values", idx)), |ui| {
-                                            for value in sorted_values.iter().take(display_count) {
-                                                ui.label(
-                                                    RichText::new(format!("• {value}"))
-                                                        .color(tag_value_color)
-                                                        .size(typography::SM),
-                                                );
-                                            }
-                                            if has_more {
-                                                ui.label(
-                                                    RichText::new(format!(
-                                                        "  ... and {} more",
-                                                        sorted_values.len() - 5
-                                                    ))
-                                                    .color(text_col.gamma_multiply(0.4))
-                                                    .italics()
-                                                    .size(typography::XS),
-                                                );
-                                            }
-                                        });
-
-                                        ui.add_space(6.0);
-                                    }
-                                }
-                            });
-                    }
-                }
-                #[cfg(not(target_arch = "wasm32"))]
-                UnifiedResult::CodebaseResult(search_result) => {
-                    // File location
-                    if !search_result.file.as_os_str().is_empty() {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(egui_nerdfonts::regular::FILE)
-                                    .color(text_col.gamma_multiply(0.5))
-                                    .size(12.0),
-                            );
-                            ui.add_space(4.0);
-                            ui.label(
-                                RichText::new(format!(
-                                    "{}:{}",
-                                    search_result.file.display(),
-                                    search_result.line
-                                ))
+                            RichText::new(format!("Category: {category}"))
                                 .color(text_col.gamma_multiply(0.6))
                                 .size(typography::SM),
+                        );
+
+                        ui.add_space(12.0);
+
+                        // Separator
+                        ui.painter().hline(
+                            ui.available_rect_before_wrap().x_range(),
+                            ui.cursor().top(),
+                            egui::Stroke::new(1.0, colors.separator),
+                        );
+                        ui.add_space(12.0);
+
+                        // Tags section
+                        let tag_key_color = self.theme.syntax_key();
+                        let tag_value_color = self.theme.syntax_value();
+
+                        ui.label(
+                            RichText::new("Available Tags")
+                                .color(text_col.gamma_multiply(0.6))
+                                .size(typography::XS),
+                        );
+                        ui.add_space(8.0);
+
+                        if tags.is_empty() {
+                            ui.label(
+                                RichText::new("No tags available")
+                                    .color(text_col.gamma_multiply(0.4))
+                                    .italics()
+                                    .size(typography::SM),
                             );
-                        });
-                    }
-
-                    // Score
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(format!("Score: {:.2}", search_result.score))
-                            .color(text_col.gamma_multiply(0.4))
-                            .size(typography::XS),
-                    );
-
-                    // Content preview based on result type
-                    let is_commit = matches!(search_result.kind, SearchResultKind::Commit { .. });
-
-                    if is_commit {
-                        // Commits: show diff with highlighting
-                        if let Some(snippet) = &search_result.snippet {
-                            ui.add_space(8.0);
+                        } else {
+                            // Show tags in a scrollable area
                             let remaining_height = ui.available_height();
-                            egui::ScrollArea::both()
+                            egui::ScrollArea::vertical()
                                 .max_height(remaining_height)
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
-                                    for line in snippet.lines() {
-                                        render_diff_line_preview(ui, line, text_col);
+                                    // Sort tag keys for consistent display
+                                    let mut tag_keys: Vec<_> = tags.keys().collect();
+                                    tag_keys.sort();
+
+                                    for (idx, key) in tag_keys.iter().enumerate() {
+                                        if let Some(values) = tags.get(*key) {
+                                            // Tag key
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new(format!("{key}:"))
+                                                        .color(tag_key_color)
+                                                        .size(typography::MD)
+                                                        .strong(),
+                                                );
+                                            });
+
+                                            // Tag values (show up to 5, with ellipsis if more)
+                                            let mut sorted_values: Vec<_> = values.iter().collect();
+                                            sorted_values.sort();
+                                            let display_count = sorted_values.len().min(5);
+                                            let has_more = sorted_values.len() > 5;
+
+                                            ui.indent(egui::Id::new(("tag_values", idx)), |ui| {
+                                                for value in
+                                                    sorted_values.iter().take(display_count)
+                                                {
+                                                    ui.label(
+                                                        RichText::new(format!("• {value}"))
+                                                            .color(tag_value_color)
+                                                            .size(typography::SM),
+                                                    );
+                                                }
+                                                if has_more {
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "  ... and {} more",
+                                                            sorted_values.len() - 5
+                                                        ))
+                                                        .color(text_col.gamma_multiply(0.4))
+                                                        .italics()
+                                                        .size(typography::XS),
+                                                    );
+                                                }
+                                            });
+
+                                            ui.add_space(6.0);
+                                        }
                                     }
                                 });
                         }
-                    } else {
-                        // Metrics/Alerts: show source code preview
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    UnifiedResult::CodebaseResult(search_result) => {
+                        // File location with language-specific icon
+                        if !search_result.file.as_os_str().is_empty() {
+                            ui.horizontal(|ui| {
+                                // Use language-specific file icon
+                                let file_icon = semantic_icons::file_icon(&search_result.file);
+                                ui.label(
+                                    RichText::new(file_icon)
+                                        .color(self.theme.accent_muted())
+                                        .size(14.0),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{}:{}",
+                                        search_result.file.display(),
+                                        search_result.line
+                                    ))
+                                    .color(text_col.gamma_multiply(0.6))
+                                    .size(typography::SM),
+                                );
+                            });
+                        }
+
+                        // Score badge (more subtle)
                         ui.add_space(8.0);
-                        let remaining_height = ui.available_height();
-                        // Construct full path by joining repo_path with relative file path
-                        let full_path = if let Some(repo) = &self.repo_path {
-                            repo.join(&search_result.file)
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!("{:.0}%", search_result.score * 10.0))
+                                    .color(text_col.gamma_multiply(0.35))
+                                    .size(typography::XS),
+                            );
+                            ui.label(
+                                RichText::new("relevance")
+                                    .color(text_col.gamma_multiply(0.25))
+                                    .size(typography::XS),
+                            );
+                        });
+
+                        // Content preview based on result type
+                        let is_commit =
+                            matches!(search_result.kind, SearchResultKind::Commit { .. });
+
+                        if is_commit {
+                            // Commits: show diff with highlighting
+                            if let Some(snippet) = &search_result.snippet {
+                                ui.add_space(8.0);
+                                let remaining_height = ui.available_height();
+                                egui::ScrollArea::both()
+                                    .max_height(remaining_height)
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        for line in snippet.lines() {
+                                            render_diff_line_preview(ui, line, text_col);
+                                        }
+                                    });
+                            }
                         } else {
-                            search_result.file.clone()
-                        };
-                        render_source_preview(
-                            ui,
-                            &full_path,
-                            search_result.line,
-                            remaining_height,
-                            text_col,
-                            colors,
-                            self.theme,
-                            self.highlight_cache.as_ref(),
-                        );
+                            // Metrics/Alerts: show source code preview
+                            ui.add_space(8.0);
+                            let remaining_height = ui.available_height();
+                            // Construct full path by joining repo_path with relative file path
+                            let full_path = if let Some(repo) = &self.repo_path {
+                                repo.join(&search_result.file)
+                            } else {
+                                search_result.file.clone()
+                            };
+                            render_source_preview(
+                                ui,
+                                &full_path,
+                                search_result.line,
+                                remaining_height,
+                                text_col,
+                                colors,
+                                self.theme,
+                                self.highlight_cache.as_ref(),
+                            );
+                        }
                     }
                 }
-            }
-        });
+            });
     }
 
     /// Renders the footer with keyboard hints.
@@ -1230,6 +1428,14 @@ impl UnifiedFinder {
             ui.label(RichText::new("⏎").color(accent).size(typography::XS));
             ui.label(
                 RichText::new("select")
+                    .color(hint_color)
+                    .size(typography::XS),
+            );
+            ui.add_space(16.0);
+            // Tab to cycle modes
+            ui.label(RichText::new("tab").color(accent).size(typography::XS));
+            ui.label(
+                RichText::new("cycle")
                     .color(hint_color)
                     .size(typography::XS),
             );
@@ -1379,4 +1585,39 @@ fn truncate_to_width(text: &str, max_width: f32, font: egui::FontId, ui: &egui::
         let truncated: String = chars[..low].iter().collect();
         format!("{truncated}...")
     }
+}
+
+/// Creates a galley with highlighted match positions for fuzzy search results.
+///
+/// Characters at positions in `match_positions` are rendered with `highlight_color`,
+/// all other characters use `normal_color`.
+fn create_highlighted_galley(
+    ui: &egui::Ui,
+    text: &str,
+    match_positions: &[usize],
+    font: egui::FontId,
+    normal_color: Color32,
+    highlight_color: Color32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = LayoutJob::default();
+
+    for (i, ch) in text.chars().enumerate() {
+        let color = if match_positions.contains(&i) {
+            highlight_color
+        } else {
+            normal_color
+        };
+
+        job.append(
+            &ch.to_string(),
+            0.0,
+            egui::TextFormat {
+                font_id: font.clone(),
+                color,
+                ..Default::default()
+            },
+        );
+    }
+
+    ui.fonts_mut(|f| f.layout_job(job))
 }

@@ -419,6 +419,17 @@ impl AppTheme {
         }
     }
 
+    /// Match highlight text color (for fuzzy search result highlighting)
+    /// This is a bright, visible color for text foreground use (not background)
+    pub fn highlight_match_text(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(180, 100, 0), // Warm amber text #B46400
+            Self::Gruvbox => Color32::from_rgb(250, 189, 47), // Gruvbox yellow
+            Self::Nord => Color32::from_rgb(235, 203, 139), // Nord aurora yellow
+            Self::Dark => Color32::from_rgb(255, 200, 80), // Bright gold/amber
+        }
+    }
+
     /// Line highlight color (for target lines in source preview)
     pub fn highlight_line(&self) -> Color32 {
         match self {

@@ -11,8 +11,10 @@ use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
-/// Number of context lines to show before and after the target line.
-const CONTEXT_LINES: usize = 5;
+/// Minimum number of context lines to show before and after the target line.
+const MIN_CONTEXT_LINES: usize = 5;
+/// Approximate height of each line in pixels (typography::SM ~13px + spacing).
+const LINE_HEIGHT_PX: f32 = 18.0;
 
 /// Renders a source code preview for metrics/alerts with tree-sitter syntax highlighting.
 ///
@@ -62,74 +64,104 @@ pub fn render_source_preview(
     }
 
     let source_lines: Vec<&str> = source_content.lines().collect();
+    let total_lines = source_lines.len();
+
+    // Calculate how many lines we can fit in the available height
+    let max_visible_lines = ((max_height / LINE_HEIGHT_PX) as usize).max(1);
+
+    // Calculate context lines - use more if we have space, but at least MIN_CONTEXT_LINES
+    // We want (context_before + 1 + context_after) <= max_visible_lines
+    let context_lines = ((max_visible_lines.saturating_sub(1)) / 2).max(MIN_CONTEXT_LINES);
 
     // Calculate line range (1-indexed target_line)
-    let start_line = target_line.saturating_sub(CONTEXT_LINES).max(1);
-    let end_line = (target_line + CONTEXT_LINES).min(source_lines.len());
+    let mut start_line = target_line.saturating_sub(context_lines).max(1);
+    let mut end_line = (target_line + context_lines).min(total_lines);
+
+    // If we have room for more lines, expand the range to fill available space
+    let current_range = end_line - start_line + 1;
+    if current_range < max_visible_lines {
+        let extra_lines = max_visible_lines - current_range;
+        // Try to expand downward first, then upward
+        let expand_down = (total_lines - end_line).min(extra_lines);
+        end_line += expand_down;
+        let remaining = extra_lines - expand_down;
+        let expand_up = (start_line - 1).min(remaining);
+        start_line -= expand_up;
+    }
 
     // Get theme colors matching source_preview.rs
     let line_num_color = theme.text_tertiary();
     let highlight_bg = theme.highlight_line();
 
+    // Capture available width before rendering to prevent expansion
+    let available_width = ui.available_width();
+
     // Render directly in the overlay without extra background frame (matching source_preview.rs)
-    egui::ScrollArea::horizontal()
+    // Use vertical-only scroll to avoid horizontal scroll bar - code will be clipped if too wide
+    egui::ScrollArea::vertical()
         .id_salt("unified_finder_source_preview")
         .auto_shrink([false, false])
-        .max_height(max_height - 20.0)
+        .max_height(max_height)
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                ui.vertical(|ui| {
-                    // Calculate the width needed for line numbers
-                    let line_num_width = format!("{}", source_lines.len()).len();
+            // Hard lock width to prevent ANY expansion
+            ui.set_width(available_width);
 
-                    for line_num in start_line..=end_line {
-                        let line_idx = line_num - 1;
-                        let line_content = source_lines.get(line_idx).copied().unwrap_or("");
-                        let is_target = line_num == target_line;
+            // Set clip rect to prevent content from visually overflowing
+            let clip_rect = ui.available_rect_before_wrap();
+            ui.set_clip_rect(clip_rect);
 
-                        // Syntax highlight the code using tree-sitter spans
-                        let highlighted = highlight_line_with_spans(
-                            line_num,
-                            line_content,
-                            highlight_spans,
-                            line_offsets,
-                            source_len,
-                            theme,
-                        );
+            ui.vertical(|ui| {
+                // Also lock the inner vertical layout
+                ui.set_width(available_width);
+                // Calculate the width needed for line numbers
+                let line_num_width = format!("{}", source_lines.len()).len();
 
-                        // Draw highlight background for target line
-                        if is_target {
-                            let response = ui.horizontal(|ui| {
-                                // Line number with arrow
-                                ui.label(
-                                    RichText::new(format!("{line_num:>line_num_width$} →"))
-                                        .color(palette::semantic::WARNING)
-                                        .font(typography::monospace(typography::SM)),
-                                );
-                                ui.add_space(4.0);
-                                // Code content with syntax highlighting
-                                ui.label(highlighted);
-                            });
+                for line_num in start_line..=end_line {
+                    let line_idx = line_num - 1;
+                    let line_content = source_lines.get(line_idx).copied().unwrap_or("");
+                    let is_target = line_num == target_line;
 
-                            // Draw background behind the row
-                            let rect = response.response.rect.expand2(egui::vec2(4.0, 1.0));
-                            ui.painter().rect_filled(rect, 2.0, highlight_bg);
-                        } else {
-                            ui.horizontal(|ui| {
-                                // Line number
-                                ui.label(
-                                    RichText::new(format!("{line_num:>line_num_width$}  "))
-                                        .color(line_num_color)
-                                        .font(typography::monospace(typography::SM)),
-                                );
-                                ui.add_space(4.0);
-                                // Code content with syntax highlighting
-                                ui.label(highlighted);
-                            });
-                        }
+                    // Syntax highlight the code using tree-sitter spans
+                    let highlighted = highlight_line_with_spans(
+                        line_num,
+                        line_content,
+                        highlight_spans,
+                        line_offsets,
+                        source_len,
+                        theme,
+                    );
+
+                    // Draw highlight background for target line
+                    if is_target {
+                        let response = ui.horizontal(|ui| {
+                            // Line number with arrow
+                            ui.label(
+                                RichText::new(format!("{line_num:>line_num_width$} →"))
+                                    .color(palette::semantic::WARNING)
+                                    .font(typography::monospace(typography::SM)),
+                            );
+                            ui.add_space(4.0);
+                            // Code content with syntax highlighting
+                            ui.label(highlighted);
+                        });
+
+                        // Draw background behind the row
+                        let rect = response.response.rect.expand2(egui::vec2(4.0, 1.0));
+                        ui.painter().rect_filled(rect, 2.0, highlight_bg);
+                    } else {
+                        ui.horizontal(|ui| {
+                            // Line number
+                            ui.label(
+                                RichText::new(format!("{line_num:>line_num_width$}  "))
+                                    .color(line_num_color)
+                                    .font(typography::monospace(typography::SM)),
+                            );
+                            ui.add_space(4.0);
+                            // Code content with syntax highlighting
+                            ui.label(highlighted);
+                        });
                     }
-                });
+                }
             });
         });
 }

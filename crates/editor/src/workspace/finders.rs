@@ -401,10 +401,16 @@ impl Workspace {
                 .map(|idx| idx.repo_path.clone());
             self.unified_finder.set_repo_path(repo_path);
 
-            // Only search if query or mode changed (avoid redundant searches every frame)
+            // Search codebase for modes that need it
+            // Metrics mode gets codebase metrics APPENDED to live Prometheus metrics
+            // Other modes (All, Alerts, Commits) get codebase results SET (replacing any existing)
             let query = self.unified_finder.query_text().to_string();
-            if !query.is_empty() && self.unified_finder.needs_codebase_search() {
-                let mode = self.unified_finder.mode();
+            let mode = self.unified_finder.mode();
+            let needs_codebase = matches!(
+                mode,
+                FinderMode::All | FinderMode::Alerts | FinderMode::Commits | FinderMode::Metrics
+            );
+            if needs_codebase && !query.is_empty() && self.unified_finder.needs_codebase_search() {
                 let filter = match mode {
                     FinderMode::Metrics => SearchFilter::Metrics,
                     FinderMode::Alerts => SearchFilter::Alerts,
@@ -412,7 +418,13 @@ impl Workspace {
                     FinderMode::All => SearchFilter::All,
                 };
                 let results = self.codebase_manager.search_ranked(&query, filter, 50);
-                self.unified_finder.set_codebase_results(results);
+                if mode == FinderMode::Metrics {
+                    // Append to existing live metrics
+                    self.unified_finder.append_codebase_results(results);
+                } else {
+                    // Replace results for other modes
+                    self.unified_finder.set_codebase_results(results);
+                }
             }
         }
 

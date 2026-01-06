@@ -196,7 +196,7 @@ impl FinderColors {
             bg: theme.bg_surface(),
             border: theme.border_default(),
             separator: theme.border_subtle(),
-            highlight: theme.highlight_match(),
+            highlight: theme.highlight_match_text(),
             selected_bg: theme.bg_selected(),
             hover_bg: theme.bg_hover(),
             preview_bg: theme.bg_elevated(),
@@ -217,6 +217,8 @@ pub struct FinderKeyboardInput {
     pub escape: bool,
     /// Toggle preview pane
     pub toggle_preview: bool,
+    /// Cycle to next mode (Tab key)
+    pub cycle_mode: bool,
 }
 
 impl FinderKeyboardInput {
@@ -230,6 +232,7 @@ impl FinderKeyboardInput {
             confirm: i.key_pressed(Key::Enter),
             escape: i.key_pressed(Key::Escape),
             toggle_preview: i.key_pressed(Key::P) && i.modifiers.ctrl,
+            cycle_mode: i.key_pressed(Key::Tab) && !i.modifiers.shift,
         })
     }
 }

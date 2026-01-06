@@ -48,6 +48,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Unified finder search modes not working**: Fixed an issue where search results weren't appearing or would briefly appear then disappear when using mode prefixes (`@` for metrics, `#` for commits, `!` for alerts). Three bugs were fixed:
+  1. The mode was being read from a stale cache instead of parsing from the current query prefix
+  2. The codebase search was incorrectly running for Metrics mode, interfering with live Prometheus metric search
+  3. The internal debounce `refresh_results()` was clearing codebase results that were already set by the workspace
+
+  Now the mode is parsed from the query in real-time, each mode uses the correct search backend, and the internal debounce only runs for Metrics mode (codebase modes are handled immediately by the workspace).
+
+- **Match highlight color visibility**: Added a new `highlight_match_text()` theme method that provides bright, visible colors for fuzzy match highlighting in search results. The previous `highlight_match()` color was too dark for text foreground use. Match highlights now use bright gold/amber colors that stand out clearly against the background.
+
 - **Diff viewer showing full commit diff**: Fixed an issue where the diff viewer overlay only displayed the first file of a commit. The diff viewer now correctly shows all files in a commit, with n/p navigation between files.
 
 ### Added

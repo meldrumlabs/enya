@@ -497,6 +497,18 @@ pub mod language {
     pub const PYTHON: &str = regular::LANGUAGE_PYTHON;
     pub const JAVASCRIPT: &str = regular::LANGUAGE_JAVASCRIPT;
     pub const TYPESCRIPT: &str = regular::LANGUAGE_TYPESCRIPT;
+    pub const JAVA: &str = regular::LANGUAGE_JAVA;
+    pub const C: &str = regular::LANGUAGE_C;
+    pub const CPP: &str = regular::LANGUAGE_CPP;
+    pub const CSHARP: &str = regular::LANGUAGE_CSHARP;
+    pub const HTML: &str = regular::LANGUAGE_HTML5;
+    pub const CSS: &str = regular::LANGUAGE_CSS3;
+    pub const RUBY: &str = regular::LANGUAGE_RUBY;
+    pub const PHP: &str = regular::LANGUAGE_PHP;
+    pub const LUA: &str = regular::LANGUAGE_LUA;
+    pub const KOTLIN: &str = regular::LANGUAGE_KOTLIN;
+    pub const SWIFT: &str = regular::LANGUAGE_SWIFT;
+    pub const MARKDOWN: &str = regular::LANGUAGE_MARKDOWN;
 
     /// Get language icon from language name
     pub fn from_name(name: &str) -> Option<&'static str> {
@@ -506,9 +518,89 @@ pub mod language {
             "python" | "py" => Some(PYTHON),
             "javascript" | "js" => Some(JAVASCRIPT),
             "typescript" | "ts" => Some(TYPESCRIPT),
+            "java" => Some(JAVA),
+            "c" => Some(C),
+            "cpp" | "c++" | "cc" | "cxx" => Some(CPP),
+            "csharp" | "cs" | "c#" => Some(CSHARP),
+            "html" | "htm" => Some(HTML),
+            "css" | "scss" | "sass" => Some(CSS),
+            "ruby" | "rb" => Some(RUBY),
+            "php" => Some(PHP),
+            "lua" => Some(LUA),
+            "kotlin" | "kt" => Some(KOTLIN),
+            "swift" => Some(SWIFT),
+            "markdown" | "md" => Some(MARKDOWN),
             _ => None,
         }
     }
+
+    /// Get language icon from file extension
+    pub fn from_extension(ext: &str) -> Option<&'static str> {
+        match ext.to_lowercase().as_str() {
+            "rs" => Some(RUST),
+            "go" => Some(GO),
+            "py" | "pyw" | "pyi" => Some(PYTHON),
+            "js" | "mjs" | "cjs" => Some(JAVASCRIPT),
+            "ts" | "tsx" => Some(TYPESCRIPT),
+            "jsx" => Some(JAVASCRIPT),
+            "java" => Some(JAVA),
+            "c" | "h" => Some(C),
+            "cpp" | "cc" | "cxx" | "hpp" | "hxx" => Some(CPP),
+            "cs" => Some(CSHARP),
+            "html" | "htm" => Some(HTML),
+            "css" | "scss" | "sass" | "less" => Some(CSS),
+            "rb" | "rake" => Some(RUBY),
+            "php" => Some(PHP),
+            "lua" => Some(LUA),
+            "kt" | "kts" => Some(KOTLIN),
+            "swift" => Some(SWIFT),
+            "md" | "markdown" => Some(MARKDOWN),
+            _ => None,
+        }
+    }
+}
+
+/// Get a file icon based on file path/extension
+pub fn file_icon(path: &std::path::Path) -> &'static str {
+    // Try to get language-specific icon first
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if let Some(icon) = language::from_extension(ext) {
+            return icon;
+        }
+
+        // Check for config files
+        match ext.to_lowercase().as_str() {
+            "toml" | "yaml" | "yml" | "json" | "ini" | "conf" | "cfg" => {
+                return file::CONFIG;
+            }
+            "csv" | "tsv" | "parquet" | "avro" => return file::DATA,
+            "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "ico" => return file::IMAGE,
+            "txt" | "log" => return file::TEXT,
+            _ => {}
+        }
+    }
+
+    // Check for special filenames
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        let name_lower = name.to_lowercase();
+        if name_lower.starts_with("dockerfile")
+            || name_lower == "makefile"
+            || name_lower == "cmakelists.txt"
+            || name_lower == "cargo.toml"
+            || name_lower == "package.json"
+            || name_lower == "go.mod"
+            || name_lower == ".gitignore"
+            || name_lower == ".env"
+        {
+            return file::CONFIG;
+        }
+        if name_lower == "readme.md" || name_lower == "changelog.md" || name_lower == "license" {
+            return file::TEXT;
+        }
+    }
+
+    // Default to code icon for unknown types
+    file::CODE
 }
 
 #[cfg(test)]
