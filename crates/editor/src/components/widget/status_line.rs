@@ -611,11 +611,24 @@ impl StatusLine {
                 else if status.is_tantivy_indexing && !status.is_error {
                     ui.add_space(16.0);
 
-                    // Simple static message - no progress numbers to avoid flickering
+                    // Show progress if available, otherwise static message
+                    let progress_msg = if let Some((current, total)) = status.tantivy_progress {
+                        if total > 0 {
+                            // Fixed-width padding for stable text width
+                            let width = total.to_string().len();
+                            format!("Indexing commits [{current:>width$}/{total}]")
+                        } else {
+                            "Building search index...".to_string()
+                        }
+                    } else {
+                        "Building search index...".to_string()
+                    };
+
                     ui.label(
-                        egui::RichText::new("Building search index...")
+                        egui::RichText::new(progress_msg)
                             .color(palette::text::SECONDARY)
-                            .size(typography::MD),
+                            .size(typography::MD)
+                            .family(egui::FontFamily::Monospace),
                     );
                 }
             }
