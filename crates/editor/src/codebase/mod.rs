@@ -474,14 +474,10 @@ impl CodebaseManager {
                     let pending_tantivy = Arc::clone(&self.pending_tantivy);
                     let ctx_clone = ctx.clone();
 
-                    // Create progress tracker for Tantivy indexing
-                    let progress = search::TantivyProgress::new();
-                    self.tantivy_progress = Some(progress.clone());
+                    // Set flag to show "Building search index..." in status line
+                    self.tantivy_progress = Some(search::TantivyProgress::new());
 
                     std::thread::spawn(move || {
-                        // Phase 1: Fetch commit metadata (fast)
-                        progress.set_phase(search::TantivyPhase::FetchingCommits);
-
                         log::info!(
                             "Fetching commits for Tantivy index from: {}",
                             repo_path.display()
@@ -494,32 +490,19 @@ impl CodebaseManager {
                                 Vec::new()
                             });
 
-                        // Phase 2: Load diffs for each commit (slower - shows progress)
-                        if !commits.is_empty() {
-                            progress.set_total(commits.len());
-                            let mut last_repaint = std::time::Instant::now();
-                            for commit in commits.iter_mut() {
-                                // Update progress counter only (no item name to keep status clean)
-                                progress.increment(None);
-
-                                // Fetch diff for this commit
-                                match enya_analyzer::fetch_commit_diff(&repo_path, &commit.hash) {
-                                    Ok(diff) => {
-                                        commit.semantics = enya_analyzer::extract_semantics(&diff);
-                                        commit.diff = diff;
-                                    }
-                                    Err(e) => {
-                                        log::warn!(
-                                            "Failed to fetch diff for {}: {e}",
-                                            &commit.hash[..8]
-                                        );
-                                    }
+                        // Load diffs for each commit (slower, but no UI updates)
+                        for commit in commits.iter_mut() {
+                            // Fetch diff for this commit
+                            match enya_analyzer::fetch_commit_diff(&repo_path, &commit.hash) {
+                                Ok(diff) => {
+                                    commit.semantics = enya_analyzer::extract_semantics(&diff);
+                                    commit.diff = diff;
                                 }
-
-                                // Request repaint at most every 50ms to avoid flickering
-                                if last_repaint.elapsed().as_millis() >= 50 {
-                                    ctx_clone.request_repaint();
-                                    last_repaint = std::time::Instant::now();
+                                Err(e) => {
+                                    log::warn!(
+                                        "Failed to fetch diff for {}: {e}",
+                                        &commit.hash[..8]
+                                    );
                                 }
                             }
                         }
@@ -529,17 +512,10 @@ impl CodebaseManager {
                             commits.len()
                         );
 
-                        // Request repaint before starting Tantivy indexing to ensure
-                        // the UI transitions cleanly to the next phase
-                        ctx_clone.request_repaint();
-
+                        // Build the Tantivy index (no progress tracking to avoid flickering)
                         let result = TantivyCodebaseIndex::open_or_create(&repo_path).and_then(
                             |mut tantivy_index| {
-                                tantivy_index.rebuild_with_progress(
-                                    &index_clone,
-                                    &commits,
-                                    Some(&progress),
-                                )?;
+                                tantivy_index.rebuild_with_commits(&index_clone, &commits)?;
                                 Ok(tantivy_index)
                             },
                         );
