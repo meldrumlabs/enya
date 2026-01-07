@@ -4,6 +4,17 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Cleaner Tantivy indexing status**: Improved the status line display during codebase search index building:
+  - Changed "Fetching commits" to "Loading commits" for the initial phase
+  - Changed "Indexing commits" label to only appear during actual indexing
+  - Added "Finalizing index" for the final phase
+  - Removed search and loading spinner icons for a cleaner look
+  - Uses monospace font for progress numbers to prevent text jumping
+  - Uses gray secondary text color for consistency with file indexing
+  - Hides the right status section during indexing to prevent visual overlap
+
 ### Added
 
 - **Vim-style navigation for channels panel**: Added vim keybindings to navigate to and within the team channels panel:
@@ -530,9 +541,9 @@ All notable changes to the Enya editor will be documented in this file.
 - **Agent `search_codebase` command**: AI agents can now use the `search_codebase` command to search the Tantivy index for metrics, alerts, and commits. This provides faster, ranked full-text search compared to using `git log --grep` directly. Results are displayed inline in the agent conversation with relevance scores, file paths, and line numbers.
 
 - **Status line Tantivy progress**: The status line now shows detailed progress while the Tantivy full-text search index is being built in the background. Progress includes:
-  - Current phase (Fetching commits, Indexing metrics, Indexing alerts, Indexing commits, Finalizing)
+  - Current phase (Indexing commits, Indexing metrics, Indexing alerts, Finalizing)
   - Progress count (e.g., `[42/100]`)
-  - Current item name (metric name, alert name, or commit hash with message)
+  - Current item name (metric name or alert name)
 
 - **Improved cloning status**: The status line now shows the repository name being cloned (e.g., "Cloning enya...") instead of the generic "Cloning repo..." message.
 

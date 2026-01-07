@@ -481,7 +481,6 @@ impl CodebaseManager {
                     std::thread::spawn(move || {
                         // Phase 1: Fetch commit metadata (fast)
                         progress.set_phase(search::TantivyPhase::FetchingCommits);
-                        progress.set_current_item(Some("Loading commit list...".to_string()));
 
                         log::info!(
                             "Fetching commits for Tantivy index from: {}",
@@ -499,15 +498,8 @@ impl CodebaseManager {
                         if !commits.is_empty() {
                             progress.set_total(commits.len());
                             for (i, commit) in commits.iter_mut().enumerate() {
-                                // Update progress with commit info
-                                let short_hash = &commit.hash[..7.min(commit.hash.len())];
-                                let first_line = commit.message.lines().next().unwrap_or("");
-                                let truncated = if first_line.len() > 35 {
-                                    format!("{}...", &first_line[..32])
-                                } else {
-                                    first_line.to_string()
-                                };
-                                progress.increment(Some(format!("{short_hash} {truncated}")));
+                                // Update progress counter only (no item name to keep status clean)
+                                progress.increment(None);
 
                                 // Fetch diff for this commit
                                 match enya_analyzer::fetch_commit_diff(&repo_path, &commit.hash) {

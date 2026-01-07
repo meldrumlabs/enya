@@ -596,14 +596,14 @@ impl StatusLine {
 
                     ui.label(
                         egui::RichText::new(icon)
-                            .color(self.theme.accent_primary())
+                            .color(palette::text::SECONDARY)
                             .size(typography::MD),
                     );
                     ui.add_space(4.0);
-                    // Status text in accent color
+                    // Status text in secondary (gray) color - consistent with Tantivy indexing
                     ui.label(
                         egui::RichText::new(&status.message)
-                            .color(self.theme.accent_primary())
+                            .color(palette::text::SECONDARY)
                             .size(typography::MD),
                     );
                 }
@@ -611,32 +611,10 @@ impl StatusLine {
                 else if status.is_tantivy_indexing && !status.is_error {
                     ui.add_space(16.0);
 
-                    // Search icon for Tantivy indexing
-                    ui.label(
-                        egui::RichText::new(semantic_icons::action::SEARCH)
-                            .color(palette::text::SECONDARY)
-                            .size(typography::MD),
-                    );
-                    ui.add_space(4.0);
-
-                    // Build progress message with details
+                    // Build progress message with details (no icon, just text)
                     let progress_msg = if let Some(phase) = &status.tantivy_phase {
                         if let Some((current, total)) = status.tantivy_progress {
-                            // Show progress with count
-                            if let Some(item) = &status.tantivy_item {
-                                // Truncate item name for display
-                                let truncated = if item.len() > 30 {
-                                    format!("{}...", &item[..27])
-                                } else {
-                                    item.clone()
-                                };
-                                format!("{phase} [{current}/{total}] {truncated}")
-                            } else {
-                                format!("{phase} [{current}/{total}]")
-                            }
-                        } else if let Some(item) = &status.tantivy_item {
-                            // No count, just item name
-                            format!("{phase}: {item}")
+                            format!("{phase} [{current}/{total}]")
                         } else {
                             phase.clone()
                         }
@@ -647,7 +625,8 @@ impl StatusLine {
                     ui.label(
                         egui::RichText::new(progress_msg)
                             .color(palette::text::SECONDARY)
-                            .size(typography::MD),
+                            .size(typography::MD)
+                            .family(egui::FontFamily::Monospace),
                     );
                 }
             }
@@ -758,8 +737,8 @@ impl StatusLine {
 
             // Codebase status (Cloning..., Ready, Error - but NOT Indexing which is in center)
             if let Some(ref status) = self.codebase_status {
-                // Skip loading status here - it's shown in center section to avoid layout jumping
-                if !status.is_loading {
+                // Skip loading/indexing status here - it's shown in center section to avoid layout jumping
+                if !status.is_loading && !status.is_tantivy_indexing {
                     if status.is_error {
                         // Error state
                         self.render_segment_rtl(

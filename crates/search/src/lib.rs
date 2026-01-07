@@ -79,11 +79,11 @@ impl TantivyPhase {
     #[must_use]
     pub fn label(&self) -> &'static str {
         match self {
-            Self::FetchingCommits => "Fetching commits",
+            Self::FetchingCommits => "Loading commits",
             Self::IndexingMetrics => "Indexing metrics",
             Self::IndexingAlerts => "Indexing alerts",
             Self::IndexingCommits => "Indexing commits",
-            Self::Finalizing => "Finalizing",
+            Self::Finalizing => "Finalizing index",
         }
     }
 }

@@ -2771,19 +2771,14 @@ impl Workspace {
             CodebaseStatus::Indexing {
                 current,
                 total,
-                current_file,
                 language,
                 ..
             } => {
+                // Consistent format with Tantivy indexing: "Indexing files [X/N]"
                 let message = if *total > 0 {
-                    let remaining = total.saturating_sub(*current);
-                    match (current_file, remaining) {
-                        (Some(file), 0) => format!("Indexing {file}"),
-                        (Some(file), n) => format!("Indexing {file} + {n} more"),
-                        (None, _) => format!("Indexing [{current}/{total}]..."),
-                    }
+                    format!("Indexing files [{current}/{total}]")
                 } else {
-                    "Indexing...".to_string()
+                    "Indexing files...".to_string()
                 };
                 Some(CodebaseStatusInfo {
                     message,

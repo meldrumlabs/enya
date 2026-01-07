@@ -1733,11 +1733,11 @@ mod tests {
     fn test_tantivy_phase_labels() {
         use crate::TantivyPhase;
 
-        assert_eq!(TantivyPhase::FetchingCommits.label(), "Fetching commits");
+        assert_eq!(TantivyPhase::FetchingCommits.label(), "Loading commits");
         assert_eq!(TantivyPhase::IndexingMetrics.label(), "Indexing metrics");
         assert_eq!(TantivyPhase::IndexingAlerts.label(), "Indexing alerts");
         assert_eq!(TantivyPhase::IndexingCommits.label(), "Indexing commits");
-        assert_eq!(TantivyPhase::Finalizing.label(), "Finalizing");
+        assert_eq!(TantivyPhase::Finalizing.label(), "Finalizing index");
     }
 
     #[test]
