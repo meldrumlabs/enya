@@ -819,7 +819,7 @@ impl DiffViewerOverlay {
         );
         cursor_x += line_num_area_width + 4.0;
 
-        // Content - truncate to fit available width
+        // Content - truncate to fit available width (Unicode-safe)
         let content = if line.content.is_empty() {
             " ".to_string()
         } else {
@@ -828,9 +828,12 @@ impl DiffViewerOverlay {
             let max_chars = (content_max_width / char_width) as usize;
             let char_count = line.content.chars().count();
             if char_count > max_chars && max_chars > 3 {
-                // Use char_indices to safely truncate at character boundaries
-                let truncate_at = max_chars.saturating_sub(1);
-                let truncated: String = line.content.chars().take(truncate_at).collect();
+                // Use chars().take() for Unicode-safe truncation instead of byte slicing
+                let truncated: String = line
+                    .content
+                    .chars()
+                    .take(max_chars.saturating_sub(1))
+                    .collect();
                 format!("{truncated}…")
             } else {
                 line.content.clone()

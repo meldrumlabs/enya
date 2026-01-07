@@ -281,6 +281,9 @@ pub struct UnifiedFinder {
     /// Cached syntax highlights for source preview (file path -> highlights).
     #[cfg(not(target_arch = "wasm32"))]
     highlight_cache: Option<HighlightCache>,
+    /// Last selected index for which highlight cache was computed (for lazy updates).
+    #[cfg(not(target_arch = "wasm32"))]
+    last_cached_index: Option<usize>,
 }
 
 impl Default for UnifiedFinder {
@@ -312,6 +315,8 @@ impl UnifiedFinder {
             last_codebase_search: None,
             #[cfg(not(target_arch = "wasm32"))]
             highlight_cache: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            last_cached_index: None,
         }
     }
 
@@ -364,6 +369,7 @@ impl UnifiedFinder {
         {
             self.last_codebase_search = None;
             self.highlight_cache = None;
+            self.last_cached_index = None;
         }
     }
 
@@ -556,13 +562,20 @@ impl UnifiedFinder {
 
     /// Update the highlight cache for the currently selected item's source file.
     /// Call this before rendering to pre-compute highlights.
+    /// Uses lazy evaluation - only recomputes when selected_index changes.
     #[cfg(not(target_arch = "wasm32"))]
     fn update_highlight_cache(&mut self) {
+        // Skip if the selected index hasn't changed since last cache update
+        if self.last_cached_index == Some(self.selected_index) {
+            return;
+        }
+
         // Get the selected result's file path
         let file_path = match self.results.get(self.selected_index) {
             Some(UnifiedResult::CodebaseResult(search_result)) => {
                 if matches!(search_result.kind, SearchResultKind::Commit { .. }) {
                     // Commits don't need source highlighting
+                    self.last_cached_index = Some(self.selected_index);
                     return;
                 }
                 // Construct full path
@@ -572,19 +585,25 @@ impl UnifiedFinder {
                     search_result.file.clone()
                 }
             }
-            _ => return,
+            _ => {
+                self.last_cached_index = Some(self.selected_index);
+                return;
+            }
         };
 
         // Check if cache is still valid for this file
+        // (could be same file at different index, e.g., after search refinement)
         if let Some(cache) = &self.highlight_cache {
             if cache.file_path == file_path {
-                // Cache is still valid
+                // Cache is still valid for this file
+                self.last_cached_index = Some(self.selected_index);
                 return;
             }
         }
 
         // Create new cache using the constructor (handles file read and highlighting)
         self.highlight_cache = HighlightCache::new(file_path);
+        self.last_cached_index = Some(self.selected_index);
     }
 
     /// Shows the unified finder and returns an action if one was triggered.
@@ -1663,8 +1682,12 @@ fn create_highlighted_galley(
 ) -> std::sync::Arc<egui::Galley> {
     let mut job = LayoutJob::default();
 
+    // Convert to HashSet for O(1) lookup instead of O(n) Vec::contains()
+    // This matters for long text with many match positions
+    let positions_set: FxHashSet<usize> = match_positions.iter().copied().collect();
+
     for (i, ch) in text.chars().enumerate() {
-        let color = if match_positions.contains(&i) {
+        let color = if positions_set.contains(&i) {
             highlight_color
         } else {
             normal_color
