@@ -612,9 +612,12 @@ impl StatusLine {
                     ui.add_space(16.0);
 
                     // Build progress message with details (no icon, just text)
+                    // Use fixed-width format for numbers to prevent layout shifts
                     let progress_msg = if let Some(phase) = &status.tantivy_phase {
                         if let Some((current, total)) = status.tantivy_progress {
-                            format!("{phase} [{current}/{total}]")
+                            // Pad numbers to fixed width based on total's digit count
+                            let width = total.to_string().len();
+                            format!("{phase} [{current:>width$}/{total}]")
                         } else {
                             phase.clone()
                         }
