@@ -962,6 +962,29 @@ impl Workspace {
         });
         } // end else (not chat_split_view_active)
 
+        // Handle the "+" add pane button click from tab headers
+        if let Some(tab_container_id) = self.behavior.take_add_child_to() {
+            // Add a new empty query pane to the specific tab container
+            self.add_query_pane_to_tab_container(tab_container_id);
+        }
+
+        // Handle tab close - find another pane to focus
+        if let Some(_closed_tile_id) = self.behavior.take_closed_tile() {
+            // Find another pane to focus
+            let pane_ids = self.get_pane_tile_ids();
+            if let Some(&next_tile) = pane_ids.first() {
+                self.behavior.set_focused_tile(Some(next_tile));
+                // Also activate this tile in its parent tabs container
+                self.activate_tile(next_tile);
+            }
+        }
+
+        // Show fuzzy finder modal (rendered on top of everything)
+        self.metrics_finder.set_theme(app_state.theme);
+        if let Some(selected_item) = self.metrics_finder.show(ctx) {
+            return self.handle_metric_selection_with_tracking(selected_item);
+        }
+
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {

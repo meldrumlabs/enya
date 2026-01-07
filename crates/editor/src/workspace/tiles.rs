@@ -9,6 +9,7 @@ use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::components::Component;
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
 /// Behavior implementation for the egui_tiles tree.
@@ -17,6 +18,9 @@ use crate::ui::theme::AppTheme;
 /// visual-multi selection overlays, and viewport filtering.
 #[derive(Default, Clone)]
 pub struct TreeBehavior {
+    pub(super) add_child_to: Option<TileId>,
+    /// Tile ID that was just closed via tab X button (needs focus handling)
+    pub(super) closed_tile: Option<TileId>,
     /// Currently focused tile for vim-style navigation
     focused_tile_id: Option<TileId>,
     /// Selected tiles in visual-multi mode (empty when not in visual-multi mode)
@@ -74,6 +78,18 @@ impl TreeBehavior {
     /// Get the current API key
     pub fn api_key(&self) -> &str {
         &self.api_key
+    }
+
+    /// Take the pending "add child" tile ID (if any).
+    /// Returns the tile ID where a new pane should be added, clearing the internal state.
+    pub fn take_add_child_to(&mut self) -> Option<TileId> {
+        self.add_child_to.take()
+    }
+
+    /// Take the closed tile ID (if any).
+    /// Returns the tile ID that was closed via tab X button, clearing the internal state.
+    pub fn take_closed_tile(&mut self) -> Option<TileId> {
+        self.closed_tile.take()
     }
 }
 
@@ -317,6 +333,19 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         }
     }
 
+    fn top_bar_right_ui(
+        &mut self,
+        _tiles: &Tiles<Box<dyn Component>>,
+        ui: &mut egui::Ui,
+        tile_id: TileId,
+        _tabs: &egui_tiles::Tabs,
+        _scroll_offset: &mut f32,
+    ) {
+        if ui.button(semantic_icons::action::ADD).clicked() {
+            self.add_child_to = Some(tile_id);
+        }
+    }
+
     fn is_tab_closable(&self, _tiles: &Tiles<Box<dyn Component>>, _tile_id: TileId) -> bool {
         true
     }
@@ -350,6 +379,14 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                     }
                 }
             }
+        }
+
+        // Store the closed tile ID so the workspace can handle focus updates
+        self.closed_tile = Some(tile_id);
+
+        // Clear focus if the closed tile was focused
+        if self.focused_tile_id == Some(tile_id) {
+            self.focused_tile_id = None;
         }
 
         // Proceed to removing the tab

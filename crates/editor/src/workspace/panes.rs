@@ -88,6 +88,44 @@ impl Workspace {
         }
     }
 
+    /// Add a new empty query pane to a specific tab container.
+    ///
+    /// This is used when clicking the "+" button in a tab bar.
+    pub(super) fn add_query_pane_to_tab_container(&mut self, tab_container_id: TileId) {
+        use egui_tiles::Tile;
+
+        let query_number = self.next_query_number;
+        self.next_query_number += 1;
+
+        // Create a new empty query pane
+        let pane: Box<dyn Component> = if self.query_executor.is_connected() {
+            Box::new(QueryPane::with_query_named("", "", query_number))
+        } else {
+            Box::new(QueryPane::with_demo_query_named("", "", query_number))
+        };
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        // Add to the specific tab container
+        if let Some(Tile::Container(egui_tiles::Container::Tabs(tabs))) =
+            self.viewport_tree.tiles.get_mut(tab_container_id)
+        {
+            tabs.add_child(pane_tile);
+            tabs.set_active(pane_tile);
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Added new query pane to tab container {tab_container_id:?}");
+        } else {
+            // Fallback: add to viewport normally if the tab container wasn't found
+            log::warn!(
+                "Tab container {tab_container_id:?} not found, adding to viewport root instead"
+            );
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+            }
+        }
+    }
+
     /// Add an agent pane to the viewport.
     ///
     /// Creates a new AI chat pane that can run in parallel with query panes.
