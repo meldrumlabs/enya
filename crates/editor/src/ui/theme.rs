@@ -863,6 +863,160 @@ impl AppTheme {
         // Distinguished violet that works across themes
         Color32::from_rgb(180, 155, 255)
     }
+
+    // =========================================================================
+    // Diff Colors (Git diff visualization)
+    // =========================================================================
+
+    /// Addition line background - subtle tint spanning full line
+    pub fn diff_added_bg(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(230, 255, 237), // Light green tint
+            Self::Gruvbox => Color32::from_rgb(30, 40, 25),  // Dark green tint
+            Self::Nord => Color32::from_rgb(35, 55, 45),     // Arctic green tint
+            Self::Dark => Color32::from_rgb(19, 35, 26),     // GitHub dark green #13231A
+        }
+    }
+
+    /// Deletion line background - subtle tint spanning full line
+    pub fn diff_removed_bg(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(255, 235, 235), // Light red tint
+            Self::Gruvbox => Color32::from_rgb(45, 30, 28),  // Dark red tint
+            Self::Nord => Color32::from_rgb(55, 40, 45),     // Arctic red tint
+            Self::Dark => Color32::from_rgb(40, 22, 24),     // GitHub dark red #281618
+        }
+    }
+
+    /// Word-level addition highlight - brighter for inline changes
+    pub fn diff_added_word_bg(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(172, 242, 189), // Bright green highlight
+            Self::Gruvbox => Color32::from_rgb(50, 75, 40),  // Gruvbox green highlight
+            Self::Nord => Color32::from_rgb(55, 90, 70),     // Nord green highlight
+            Self::Dark => Color32::from_rgb(35, 70, 50),     // Dark mode green highlight
+        }
+    }
+
+    /// Word-level deletion highlight - brighter for inline changes
+    pub fn diff_removed_word_bg(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(255, 200, 200), // Bright red highlight
+            Self::Gruvbox => Color32::from_rgb(90, 45, 42),  // Gruvbox red highlight
+            Self::Nord => Color32::from_rgb(100, 55, 60),    // Nord red highlight
+            Self::Dark => Color32::from_rgb(75, 35, 38),     // Dark mode red highlight
+        }
+    }
+
+    /// Addition text color - high contrast for readability
+    pub fn diff_added_text(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(36, 138, 61), // Dark green text
+            Self::Gruvbox => Color32::from_rgb(184, 187, 38), // Gruvbox green
+            Self::Nord => Color32::from_rgb(163, 190, 140), // Nord aurora green
+            Self::Dark => Color32::from_rgb(126, 231, 135), // GitHub green #7EE787
+        }
+    }
+
+    /// Deletion text color - high contrast for readability
+    pub fn diff_removed_text(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(207, 34, 46), // Dark red text
+            Self::Gruvbox => Color32::from_rgb(251, 73, 52), // Gruvbox red
+            Self::Nord => Color32::from_rgb(191, 97, 106), // Nord aurora red
+            Self::Dark => Color32::from_rgb(255, 123, 114), // GitHub red #FF7B72
+        }
+    }
+
+    /// Context line text color - dimmed for less visual weight
+    pub fn diff_context_text(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(87, 96, 106), // Gray text
+            Self::Gruvbox => Color32::from_rgb(146, 131, 116), // Gruvbox gray
+            Self::Nord => Color32::from_rgb(120, 130, 145), // Nord gray
+            Self::Dark => Color32::from_rgb(145, 152, 161), // GitHub gray #9198A1
+        }
+    }
+
+    /// Addition gutter stripe color
+    pub fn diff_added_gutter(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(52, 168, 83), // Google green
+            Self::Gruvbox => Color32::from_rgb(142, 192, 124), // Gruvbox bright green
+            Self::Nord => Color32::from_rgb(163, 190, 140), // Nord aurora green
+            Self::Dark => Color32::from_rgb(63, 185, 80),  // GitHub green #3FB950
+        }
+    }
+
+    /// Deletion gutter stripe color
+    pub fn diff_removed_gutter(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(234, 67, 53), // Google red
+            Self::Gruvbox => Color32::from_rgb(251, 73, 52), // Gruvbox red
+            Self::Nord => Color32::from_rgb(191, 97, 106), // Nord aurora red
+            Self::Dark => Color32::from_rgb(248, 81, 73),  // GitHub red #F85149
+        }
+    }
+
+    /// Line number text color
+    pub fn diff_line_number(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(140, 150, 160), // Light gray
+            Self::Gruvbox => Color32::from_rgb(102, 92, 84), // Gruvbox gray
+            Self::Nord => Color32::from_rgb(76, 86, 106),    // Nord gray
+            Self::Dark => Color32::from_rgb(72, 79, 88),     // GitHub gray #484F58
+        }
+    }
+
+    /// Line number background color
+    pub fn diff_line_number_bg(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(246, 248, 250), // Very light gray
+            Self::Gruvbox => Color32::from_rgb(24, 27, 28),  // Dark gray
+            Self::Nord => Color32::from_rgb(40, 46, 56),     // Nord dark
+            Self::Dark => Color32::from_rgb(13, 17, 23),     // GitHub dark #0D1117
+        }
+    }
+
+    /// Hunk header background
+    pub fn diff_hunk_bg(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(240, 245, 255), // Light blue tint
+            Self::Gruvbox => Color32::from_rgb(35, 40, 50),  // Dark blue tint
+            Self::Nord => Color32::from_rgb(40, 50, 70),     // Nord blue tint
+            Self::Dark => Color32::from_rgb(22, 27, 46),     // Dark indigo tint
+        }
+    }
+
+    /// Hunk header text color
+    pub fn diff_hunk_text(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(47, 93, 158), // Blue text
+            Self::Gruvbox => Color32::from_rgb(131, 165, 152), // Gruvbox aqua
+            Self::Nord => Color32::from_rgb(129, 161, 193), // Nord frost
+            Self::Dark => Color32::from_rgb(121, 184, 255), // GitHub blue #79B8FF
+        }
+    }
+
+    /// File header text color
+    pub fn diff_file_header(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(36, 41, 47), // Dark text
+            Self::Gruvbox => Color32::from_rgb(235, 219, 178), // Gruvbox fg
+            Self::Nord => Color32::from_rgb(236, 239, 244), // Nord snow
+            Self::Dark => Color32::from_rgb(201, 209, 217), // GitHub text #C9D1D9
+        }
+    }
+
+    /// File header background color
+    pub fn diff_file_header_bg(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(246, 248, 250), // Very light gray
+            Self::Gruvbox => Color32::from_rgb(29, 32, 33),  // Gruvbox bg
+            Self::Nord => Color32::from_rgb(46, 52, 64),     // Nord polar night
+            Self::Dark => Color32::from_rgb(22, 27, 34),     // GitHub surface #161B22
+        }
+    }
 }
 
 pub fn light() -> Visuals {

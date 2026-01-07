@@ -2,12 +2,15 @@
 //!
 //! This module provides rendering functions for source code previews
 //! and diff previews used in the unified finder's preview pane.
+//!
+//! The diff preview uses the same beautiful GitHub-style colors as the
+//! full diff viewer, with colored gutters and proper line backgrounds.
 
 use egui::{Color32, RichText};
 
 use super::syntax_highlight::{HighlightCache, highlight_line_with_spans};
 use crate::components::util::finder_utils::FinderColors;
-use crate::ui::palette;
+use crate::ui::palette; // Keep for semantic::WARNING
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -201,40 +204,83 @@ pub fn classify_diff_line(line: &str) -> DiffLineKind {
     }
 }
 
-/// Renders a single diff line with appropriate styling in the preview pane.
-pub fn render_diff_line_preview(ui: &mut egui::Ui, line: &str, base_text_color: Color32) {
+/// Renders a single diff line with beautiful GitHub-style styling in the preview pane.
+///
+/// Features:
+/// - Colored gutter stripe on the left (green for additions, red for deletions)
+/// - Subtle background colors for changed lines
+/// - Proper text colors matching the full diff viewer
+pub fn render_diff_line_preview(
+    ui: &mut egui::Ui,
+    line: &str,
+    _base_text_color: Color32,
+    theme: AppTheme,
+) {
     let kind = classify_diff_line(line);
 
-    let (text_color, bg_color) = match kind {
-        DiffLineKind::Addition => (palette::diff::ADDED_TEXT, Some(palette::diff::ADDED_BG)),
-        DiffLineKind::Deletion => (palette::diff::REMOVED_TEXT, Some(palette::diff::REMOVED_BG)),
-        DiffLineKind::HunkHeader => (palette::diff::HUNK_TEXT, Some(palette::diff::HUNK_BG)),
-        DiffLineKind::FileHeader => (palette::diff::FILE_HEADER, None),
-        DiffLineKind::Context => (base_text_color.gamma_multiply(0.7), None),
+    let (text_color, bg_color, gutter_color) = match kind {
+        DiffLineKind::Addition => (
+            theme.diff_added_text(),
+            Some(theme.diff_added_bg()),
+            Some(theme.diff_added_gutter()),
+        ),
+        DiffLineKind::Deletion => (
+            theme.diff_removed_text(),
+            Some(theme.diff_removed_bg()),
+            Some(theme.diff_removed_gutter()),
+        ),
+        DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
+        DiffLineKind::FileHeader => (
+            theme.diff_file_header(),
+            Some(theme.diff_file_header_bg()),
+            None,
+        ),
+        DiffLineKind::Context => (theme.diff_context_text(), None, None),
     };
 
-    // Ensure the line content has at least some content to display properly
-    let content = if line.is_empty() { " " } else { line };
+    // Strip the +/- prefix for cleaner display (but keep for headers)
+    let content = match kind {
+        DiffLineKind::Addition | DiffLineKind::Deletion => line.get(1..).unwrap_or(line),
+        DiffLineKind::Context => line.get(1..).unwrap_or(line),
+        _ => line,
+    };
+    let content = if content.is_empty() { " " } else { content };
 
-    // For lines with background, use a Frame to properly layer bg behind text
-    if let Some(bg) = bg_color {
-        egui::Frame::new()
-            .fill(bg)
-            .inner_margin(egui::Margin::symmetric(4, 1))
-            .show(ui, |ui| {
-                ui.label(
-                    RichText::new(content)
-                        .color(text_color)
-                        .size(typography::SM)
-                        .monospace(),
-                );
-            });
-    } else {
+    // Get available width for full-line background
+    let available_width = ui.available_width();
+
+    // Render the line with gutter and background
+    let response = ui.horizontal(|ui| {
+        // Gutter stripe (3px wide colored bar on the left)
+        let gutter_width = 3.0;
+        let line_height = typography::SM + 4.0;
+        let (gutter_rect, _) =
+            ui.allocate_exact_size(egui::vec2(gutter_width, line_height), egui::Sense::hover());
+
+        if let Some(gc) = gutter_color {
+            ui.painter().rect_filled(gutter_rect, 0.0, gc);
+        }
+
+        ui.add_space(6.0);
+
+        // Content
         ui.label(
             RichText::new(content)
                 .color(text_color)
-                .size(typography::SM)
-                .monospace(),
+                .font(typography::monospace(typography::SM)),
         );
+    });
+
+    // Draw full-width background behind the line
+    if let Some(bg) = bg_color {
+        let rect = egui::Rect::from_min_size(
+            response.response.rect.min,
+            egui::vec2(available_width, response.response.rect.height()),
+        );
+        let bg_painter = ui.painter().clone().with_layer_id(egui::LayerId::new(
+            egui::Order::Background,
+            egui::Id::new("diff_preview_bg"),
+        ));
+        bg_painter.rect_filled(rect, 0.0, bg);
     }
 }

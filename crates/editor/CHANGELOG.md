@@ -4,6 +4,19 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Beautiful diff viewer styling (GitHub/delta-inspired)**: Completely redesigned the diff viewer overlay and preview pane with modern, professional styling:
+  - **Side panel file list**: Replaced horizontal file tabs with a vertical "Changed Files" panel on the right side, similar to VS Code and Conductor. Shows file icons, names, and +/- stats for each file with click-to-select and hover effects.
+  - **Split view toggle**: Press `s` to switch between unified diff and side-by-side split view. Split view shows old code on the left and new code on the right with aligned lines, making it easy to compare changes. Paired deletions and additions are shown on the same row.
+  - **Word-level diff highlighting**: Uses the `similar` crate to compute character-level differences between paired add/delete lines. Changed characters are highlighted with brighter background colors, making it easy to see exactly what changed within a line.
+  - **Dual line numbers**: Shows both old and new line numbers in a dark gutter area, making it easy to reference specific lines.
+  - **Colored gutter stripes**: Green stripe for additions, red stripe for deletions - a subtle but effective visual cue on the left edge of each changed line.
+  - **Theme-aware diff colors**: Diff colors now respect the active theme (Dark, Light, Nord, Gruvbox). Each theme has appropriate colors for additions, deletions, context lines, hunk headers, and gutter stripes. Light theme uses readable dark green/red text on light tinted backgrounds.
+  - **Stat badges**: Separate green (+N) and red (-N) badges in the header showing additions and deletions per file.
+  - **Larger, more readable overlay**: Increased popup dimensions (85% width/height) for better code review experience.
+  - **Consistent preview styling**: The unified finder's diff preview now uses the same beautiful styling with gutter stripes and proper colors.
+
 ### Added
 
 - **Unified fuzzy finder (Telescope-style)**: Added a single unified finder that consolidates all search functionality into one modal with prefix-based mode switching. Features include:

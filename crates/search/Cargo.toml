@@ -12,7 +12,7 @@ description = "Full-text search index for Enya codebase (metrics, alerts, commit
 enya-analyzer = { workspace = true }
 
 # Full-text search engine
-tantivy = "0.22"
+tantivy = "0.25"
 
 # Serialization for metadata
 serde = { workspace = true, features = ["derive"] }

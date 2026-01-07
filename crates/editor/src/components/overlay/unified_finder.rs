@@ -997,7 +997,7 @@ impl UnifiedFinder {
                 {
                     let is_selected = i == self.selected_index;
 
-                    let row_height = 36.0;
+                    let row_height = 38.0;
                     let (rect, response) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), row_height),
                         egui::Sense::click(),
@@ -1005,24 +1005,37 @@ impl UnifiedFinder {
 
                     let is_hovered = response.hovered();
 
-                    // Background with subtle rounded corners
-                    let bg_color = if is_selected {
-                        accent_col.gamma_multiply(0.12)
-                    } else if is_hovered {
-                        text_col.gamma_multiply(0.05)
-                    } else {
-                        Color32::TRANSPARENT
-                    };
-
-                    if bg_color != Color32::TRANSPARENT {
-                        clipped_painter.rect_filled(rect, 6.0, bg_color);
-                    }
-
-                    // Selection indicator bar (accent colored)
+                    // Premium row styling with subtle gradients and glow
                     if is_selected {
+                        // Selected: accent-tinted background with subtle inner glow
+                        let bg_color = accent_col.gamma_multiply(0.15);
+                        clipped_painter.rect_filled(rect, 6.0, bg_color);
+
+                        // Subtle glow border around the selected row
+                        let glow_rect = rect.expand(1.0);
+                        clipped_painter.rect_stroke(
+                            glow_rect,
+                            6.0,
+                            egui::Stroke::new(1.0, accent_col.gamma_multiply(0.3)),
+                            egui::StrokeKind::Outside,
+                        );
+
+                        // Left accent bar with rounded caps
                         let indicator_rect =
                             egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height));
                         clipped_painter.rect_filled(indicator_rect, 2.0, accent_col);
+                    } else if is_hovered {
+                        // Hovered: subtle highlight with light border
+                        let bg_color = text_col.gamma_multiply(0.06);
+                        clipped_painter.rect_filled(rect, 6.0, bg_color);
+
+                        // Very subtle border on hover
+                        clipped_painter.rect_stroke(
+                            rect,
+                            6.0,
+                            egui::Stroke::new(0.5, text_col.gamma_multiply(0.1)),
+                            egui::StrokeKind::Inside,
+                        );
                     }
 
                     // Content - use content_rect for clipping and layout
@@ -1380,7 +1393,9 @@ impl UnifiedFinder {
                                     .auto_shrink([false, false])
                                     .show(ui, |ui| {
                                         for line in snippet.lines() {
-                                            render_diff_line_preview(ui, line, text_col);
+                                            render_diff_line_preview(
+                                                ui, line, text_col, self.theme,
+                                            );
                                         }
                                     });
                             }
@@ -1485,7 +1500,7 @@ impl UnifiedFinder {
         }
     }
 
-    /// Renders an empty state with consistent sizing.
+    /// Renders a premium empty state with centered icon, message, and optional hint.
     fn render_empty_state(
         &self,
         ui: &mut egui::Ui,
@@ -1504,32 +1519,67 @@ impl UnifiedFinder {
             egui::Layout::top_down(egui::Align::Center),
             |ui| {
                 // Center the content vertically
-                let icon_height = 36.0;
+                let icon_height = 42.0;
                 let message_height = 20.0;
                 let hint_height = if hint.is_some() { 20.0 } else { 0.0 };
-                let total_content = icon_height + 16.0 + message_height + 8.0 + hint_height;
+                let total_content = icon_height + 20.0 + message_height + 8.0 + hint_height;
                 let top_padding = (content_height - total_content) / 2.0;
 
                 ui.add_space(top_padding.max(40.0));
 
-                // Icon with subtle accent tint
-                ui.label(
-                    RichText::new(icon)
-                        .color(accent.gamma_multiply(0.4))
-                        .size(icon_height),
+                // Icon inside a subtle circular background (premium feel)
+                let icon_area_size = 72.0;
+                let (icon_rect, _) = ui.allocate_exact_size(
+                    egui::vec2(icon_area_size, icon_area_size),
+                    egui::Sense::hover(),
                 );
-                ui.add_space(16.0);
+
+                // Circular background with subtle gradient feel
+                let circle_center = icon_rect.center();
+                let circle_radius = icon_area_size / 2.0;
+
+                // Outer subtle glow
+                ui.painter().circle_filled(
+                    circle_center,
+                    circle_radius,
+                    accent.gamma_multiply(0.08),
+                );
+
+                // Inner circle slightly brighter
+                ui.painter().circle_filled(
+                    circle_center,
+                    circle_radius * 0.85,
+                    accent.gamma_multiply(0.05),
+                );
+
+                // Icon centered in the circle
+                let icon_galley = ui.painter().layout_no_wrap(
+                    icon.to_string(),
+                    typography::proportional(icon_height),
+                    accent.gamma_multiply(0.5),
+                );
+                let icon_pos = egui::pos2(
+                    circle_center.x - icon_galley.size().x / 2.0,
+                    circle_center.y - icon_galley.size().y / 2.0,
+                );
+                ui.painter().galley(icon_pos, icon_galley, accent);
+
+                ui.add_space(20.0);
+
+                // Message text
                 ui.label(
                     RichText::new(message)
-                        .color(text_col.gamma_multiply(0.6))
-                        .size(typography::MD),
+                        .color(text_col.gamma_multiply(0.7))
+                        .font(typography::proportional(typography::MD)),
                 );
+
+                // Hint text (smaller, more muted)
                 if let Some(hint_text) = hint {
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     ui.label(
                         RichText::new(hint_text)
                             .color(text_col.gamma_multiply(0.4))
-                            .size(typography::SM),
+                            .font(typography::proportional(typography::SM)),
                     );
                 }
             },
