@@ -529,6 +529,10 @@ impl CodebaseManager {
                             commits.len()
                         );
 
+                        // Request repaint before starting Tantivy indexing to ensure
+                        // the UI transitions cleanly to the next phase
+                        ctx_clone.request_repaint();
+
                         let result = TantivyCodebaseIndex::open_or_create(&repo_path).and_then(
                             |mut tantivy_index| {
                                 tantivy_index.rebuild_with_progress(
