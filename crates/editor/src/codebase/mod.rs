@@ -497,6 +497,7 @@ impl CodebaseManager {
                         // Phase 2: Load diffs for each commit (slower - shows progress)
                         if !commits.is_empty() {
                             progress.set_total(commits.len());
+                            let mut last_repaint = std::time::Instant::now();
                             for commit in commits.iter_mut() {
                                 // Update progress counter only (no item name to keep status clean)
                                 progress.increment(None);
@@ -515,8 +516,11 @@ impl CodebaseManager {
                                     }
                                 }
 
-                                // Request repaint on every iteration for smooth progress updates
-                                ctx_clone.request_repaint();
+                                // Request repaint at most every 50ms to avoid flickering
+                                if last_repaint.elapsed().as_millis() >= 50 {
+                                    ctx_clone.request_repaint();
+                                    last_repaint = std::time::Instant::now();
+                                }
                             }
                         }
 
