@@ -497,7 +497,7 @@ impl CodebaseManager {
                         // Phase 2: Load diffs for each commit (slower - shows progress)
                         if !commits.is_empty() {
                             progress.set_total(commits.len());
-                            for (i, commit) in commits.iter_mut().enumerate() {
+                            for commit in commits.iter_mut() {
                                 // Update progress counter only (no item name to keep status clean)
                                 progress.increment(None);
 
@@ -515,10 +515,8 @@ impl CodebaseManager {
                                     }
                                 }
 
-                                // Request repaint periodically for smooth updates
-                                if i % 10 == 0 {
-                                    ctx_clone.request_repaint();
-                                }
+                                // Request repaint on every iteration for smooth progress updates
+                                ctx_clone.request_repaint();
                             }
                         }
 
