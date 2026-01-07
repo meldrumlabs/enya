@@ -12,11 +12,7 @@ All notable changes to the Enya editor will be documented in this file.
   - **Word-level diff highlighting**: Uses the `similar` crate to compute character-level differences between paired add/delete lines. Changed characters are highlighted with brighter background colors, making it easy to see exactly what changed within a line.
   - **Dual line numbers**: Shows both old and new line numbers in a dark gutter area, making it easy to reference specific lines.
   - **Colored gutter stripes**: Green stripe for additions, red stripe for deletions - a subtle but effective visual cue on the left edge of each changed line.
-  - **GitHub dark color palette**: Updated all diff colors to match GitHub's dark theme aesthetic with proper contrast ratios:
-    - Added lines: soft green background (#13231A) with bright green text (#7EE787)
-    - Deleted lines: soft red background (#281618) with coral text (#FF7B72)
-    - Hunk headers: indigo tint (#16172E) with blue text (#79B8FF)
-    - Context lines: muted gray text (#9198A1) without background
+  - **Theme-aware diff colors**: Diff colors now respect the active theme (Dark, Light, Nord, Gruvbox). Each theme has appropriate colors for additions, deletions, context lines, hunk headers, and gutter stripes. Light theme uses readable dark green/red text on light tinted backgrounds.
   - **Stat badges**: Separate green (+N) and red (-N) badges in the header showing additions and deletions per file.
   - **Larger, more readable overlay**: Increased popup dimensions (85% width/height) for better code review experience.
   - **Consistent preview styling**: The unified finder's diff preview now uses the same beautiful styling with gutter stripes and proper colors.

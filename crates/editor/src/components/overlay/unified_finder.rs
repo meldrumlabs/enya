@@ -1393,7 +1393,9 @@ impl UnifiedFinder {
                                     .auto_shrink([false, false])
                                     .show(ui, |ui| {
                                         for line in snippet.lines() {
-                                            render_diff_line_preview(ui, line, text_col);
+                                            render_diff_line_preview(
+                                                ui, line, text_col, self.theme,
+                                            );
                                         }
                                     });
                             }

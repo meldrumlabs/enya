@@ -10,7 +10,7 @@ use egui::{Color32, RichText};
 
 use super::syntax_highlight::{HighlightCache, highlight_line_with_spans};
 use crate::components::util::finder_utils::FinderColors;
-use crate::ui::palette;
+use crate::ui::palette; // Keep for semantic::WARNING
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -210,27 +210,32 @@ pub fn classify_diff_line(line: &str) -> DiffLineKind {
 /// - Colored gutter stripe on the left (green for additions, red for deletions)
 /// - Subtle background colors for changed lines
 /// - Proper text colors matching the full diff viewer
-pub fn render_diff_line_preview(ui: &mut egui::Ui, line: &str, _base_text_color: Color32) {
+pub fn render_diff_line_preview(
+    ui: &mut egui::Ui,
+    line: &str,
+    _base_text_color: Color32,
+    theme: AppTheme,
+) {
     let kind = classify_diff_line(line);
 
     let (text_color, bg_color, gutter_color) = match kind {
         DiffLineKind::Addition => (
-            palette::diff::ADDED_TEXT,
-            Some(palette::diff::ADDED_BG),
-            Some(palette::diff::ADDED_GUTTER),
+            theme.diff_added_text(),
+            Some(theme.diff_added_bg()),
+            Some(theme.diff_added_gutter()),
         ),
         DiffLineKind::Deletion => (
-            palette::diff::REMOVED_TEXT,
-            Some(palette::diff::REMOVED_BG),
-            Some(palette::diff::REMOVED_GUTTER),
+            theme.diff_removed_text(),
+            Some(theme.diff_removed_bg()),
+            Some(theme.diff_removed_gutter()),
         ),
-        DiffLineKind::HunkHeader => (palette::diff::HUNK_TEXT, Some(palette::diff::HUNK_BG), None),
+        DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
         DiffLineKind::FileHeader => (
-            palette::diff::FILE_HEADER,
-            Some(palette::diff::FILE_HEADER_BG),
+            theme.diff_file_header(),
+            Some(theme.diff_file_header_bg()),
             None,
         ),
-        DiffLineKind::Context => (palette::diff::CONTEXT_TEXT, None, None),
+        DiffLineKind::Context => (theme.diff_context_text(), None, None),
     };
 
     // Strip the +/- prefix for cleaner display (but keep for headers)

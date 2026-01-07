@@ -22,7 +22,6 @@ use similar::{ChangeTag, TextDiff};
 
 use crate::components::OverlayColors;
 use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -339,11 +338,11 @@ impl DiffViewerOverlay {
                 let total_dels: usize = self.file_diffs.iter().map(|f| f.deletions).sum();
 
                 if total_dels > 0 {
-                    render_stat_badge(ui, total_dels, false);
+                    render_stat_badge(ui, total_dels, false, self.theme);
                     ui.add_space(4.0);
                 }
                 if total_adds > 0 {
-                    render_stat_badge(ui, total_adds, true);
+                    render_stat_badge(ui, total_adds, true, self.theme);
                     ui.add_space(8.0);
                 }
 
@@ -415,26 +414,25 @@ impl DiffViewerOverlay {
 
     /// Renders a single diff line with gutter, line numbers, and word highlighting.
     fn render_diff_line(&self, ui: &mut egui::Ui, line: &DiffLine, line_num_width: usize) {
+        let theme = self.theme;
         let (base_text_color, bg_color, gutter_color) = match line.kind {
             DiffLineKind::Addition => (
-                palette::diff::ADDED_TEXT,
-                Some(palette::diff::ADDED_BG),
-                Some(palette::diff::ADDED_GUTTER),
+                theme.diff_added_text(),
+                Some(theme.diff_added_bg()),
+                Some(theme.diff_added_gutter()),
             ),
             DiffLineKind::Deletion => (
-                palette::diff::REMOVED_TEXT,
-                Some(palette::diff::REMOVED_BG),
-                Some(palette::diff::REMOVED_GUTTER),
+                theme.diff_removed_text(),
+                Some(theme.diff_removed_bg()),
+                Some(theme.diff_removed_gutter()),
             ),
-            DiffLineKind::HunkHeader => {
-                (palette::diff::HUNK_TEXT, Some(palette::diff::HUNK_BG), None)
-            }
+            DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
             DiffLineKind::FileHeader => (
-                palette::diff::FILE_HEADER,
-                Some(palette::diff::FILE_HEADER_BG),
+                theme.diff_file_header(),
+                Some(theme.diff_file_header_bg()),
                 None,
             ),
-            DiffLineKind::Context => (palette::diff::CONTEXT_TEXT, None, None),
+            DiffLineKind::Context => (theme.diff_context_text(), None, None),
         };
 
         // Get the full available width for the background
@@ -463,7 +461,7 @@ impl DiffViewerOverlay {
 
             // Draw line number background
             ui.painter()
-                .rect_filled(line_num_rect, 0.0, palette::diff::LINE_NUMBER_BG);
+                .rect_filled(line_num_rect, 0.0, theme.diff_line_number_bg());
 
             // Draw line numbers
             let old_num_str = line
@@ -482,7 +480,7 @@ impl DiffViewerOverlay {
                 egui::Align2::LEFT_CENTER,
                 line_nums_text,
                 typography::monospace(typography::SM),
-                palette::diff::LINE_NUMBER,
+                theme.diff_line_number(),
             );
 
             ui.add_space(8.0);
@@ -501,6 +499,7 @@ impl DiffViewerOverlay {
                 &line.word_highlights,
                 base_text_color,
                 line.kind,
+                theme,
             );
         });
 
@@ -561,6 +560,8 @@ impl DiffViewerOverlay {
         // Each side gets half the width minus some padding
         let side_width = (available_width - 8.0) / 2.0;
 
+        let theme = self.theme;
+
         // Column headers
         ui.horizontal(|ui| {
             // Left header
@@ -571,7 +572,7 @@ impl DiffViewerOverlay {
                     ui.add_space(8.0);
                     ui.label(
                         RichText::new("Old")
-                            .color(palette::diff::REMOVED_TEXT.gamma_multiply(0.7))
+                            .color(theme.diff_removed_text().gamma_multiply(0.7))
                             .font(typography::proportional(typography::XS))
                             .strong(),
                     );
@@ -589,7 +590,7 @@ impl DiffViewerOverlay {
                     ui.add_space(8.0);
                     ui.label(
                         RichText::new("New")
-                            .color(palette::diff::ADDED_TEXT.gamma_multiply(0.7))
+                            .color(theme.diff_added_text().gamma_multiply(0.7))
                             .font(typography::proportional(typography::XS))
                             .strong(),
                     );
@@ -687,9 +688,10 @@ impl DiffViewerOverlay {
 
     /// Renders a header line (file header or hunk header) spanning full width in split view.
     fn render_split_header_line(&self, ui: &mut egui::Ui, line: &DiffLine, available_width: f32) {
+        let theme = self.theme;
         let (text_color, bg_color) = match line.kind {
-            DiffLineKind::HunkHeader => (palette::diff::HUNK_TEXT, palette::diff::HUNK_BG),
-            DiffLineKind::FileHeader => (palette::diff::FILE_HEADER, palette::diff::FILE_HEADER_BG),
+            DiffLineKind::HunkHeader => (theme.diff_hunk_text(), theme.diff_hunk_bg()),
+            DiffLineKind::FileHeader => (theme.diff_file_header(), theme.diff_file_header_bg()),
             _ => return, // Should not happen
         };
 
@@ -726,6 +728,8 @@ impl DiffViewerOverlay {
         is_left: bool,
         side_width: f32,
     ) {
+        let theme = self.theme;
+
         // Constrain the layout to prevent content from expanding
         ui.set_max_width(side_width);
 
@@ -736,31 +740,29 @@ impl DiffViewerOverlay {
             let (rect, _) =
                 ui.allocate_exact_size(egui::vec2(side_width, line_height), egui::Sense::hover());
             ui.painter()
-                .rect_filled(rect, 0.0, palette::diff::LINE_NUMBER_BG.gamma_multiply(0.5));
+                .rect_filled(rect, 0.0, theme.diff_line_number_bg().gamma_multiply(0.5));
             return;
         };
 
         // Determine colors based on line kind
         let (text_color, bg_color, gutter_color) = match line.kind {
             DiffLineKind::Addition => (
-                palette::diff::ADDED_TEXT,
-                Some(palette::diff::ADDED_BG),
-                Some(palette::diff::ADDED_GUTTER),
+                theme.diff_added_text(),
+                Some(theme.diff_added_bg()),
+                Some(theme.diff_added_gutter()),
             ),
             DiffLineKind::Deletion => (
-                palette::diff::REMOVED_TEXT,
-                Some(palette::diff::REMOVED_BG),
-                Some(palette::diff::REMOVED_GUTTER),
+                theme.diff_removed_text(),
+                Some(theme.diff_removed_bg()),
+                Some(theme.diff_removed_gutter()),
             ),
-            DiffLineKind::HunkHeader => {
-                (palette::diff::HUNK_TEXT, Some(palette::diff::HUNK_BG), None)
-            }
+            DiffLineKind::HunkHeader => (theme.diff_hunk_text(), Some(theme.diff_hunk_bg()), None),
             DiffLineKind::FileHeader => (
-                palette::diff::FILE_HEADER,
-                Some(palette::diff::FILE_HEADER_BG),
+                theme.diff_file_header(),
+                Some(theme.diff_file_header_bg()),
                 None,
             ),
-            DiffLineKind::Context => (palette::diff::CONTEXT_TEXT, None, None),
+            DiffLineKind::Context => (theme.diff_context_text(), None, None),
         };
 
         // Calculate widths for each element
@@ -796,7 +798,7 @@ impl DiffViewerOverlay {
             egui::vec2(line_num_area_width, line_height),
         );
         ui.painter()
-            .rect_filled(line_num_rect, 0.0, palette::diff::LINE_NUMBER_BG);
+            .rect_filled(line_num_rect, 0.0, theme.diff_line_number_bg());
 
         let line_num = if is_left {
             line.old_line_num
@@ -812,7 +814,7 @@ impl DiffViewerOverlay {
             egui::Align2::LEFT_CENTER,
             line_num_str,
             typography::monospace(typography::SM),
-            palette::diff::LINE_NUMBER,
+            theme.diff_line_number(),
         );
         cursor_x += line_num_area_width + 4.0;
 
@@ -968,7 +970,7 @@ impl DiffViewerOverlay {
                         let del_galley = ui.painter().layout_no_wrap(
                             del_text,
                             typography::monospace(typography::XS),
-                            palette::diff::REMOVED_GUTTER,
+                            self.theme.diff_removed_gutter(),
                         );
                         right_x -= del_galley.size().x;
                         ui.painter().galley(
@@ -977,7 +979,7 @@ impl DiffViewerOverlay {
                                 content_rect.center().y - del_galley.size().y / 2.0,
                             ),
                             del_galley,
-                            palette::diff::REMOVED_GUTTER,
+                            self.theme.diff_removed_gutter(),
                         );
                         right_x -= 4.0;
                     }
@@ -988,7 +990,7 @@ impl DiffViewerOverlay {
                         let add_galley = ui.painter().layout_no_wrap(
                             add_text,
                             typography::monospace(typography::XS),
-                            palette::diff::ADDED_GUTTER,
+                            self.theme.diff_added_gutter(),
                         );
                         right_x -= add_galley.size().x;
                         ui.painter().galley(
@@ -997,7 +999,7 @@ impl DiffViewerOverlay {
                                 content_rect.center().y - add_galley.size().y / 2.0,
                             ),
                             add_galley,
-                            palette::diff::ADDED_GUTTER,
+                            self.theme.diff_added_gutter(),
                         );
                     }
 
@@ -1065,18 +1067,18 @@ impl DiffViewerOverlay {
 }
 
 /// Renders a +N or -N stat badge.
-fn render_stat_badge(ui: &mut egui::Ui, count: usize, is_addition: bool) {
+fn render_stat_badge(ui: &mut egui::Ui, count: usize, is_addition: bool, theme: AppTheme) {
     let (text, text_color, bg_color) = if is_addition {
         (
             format!("+{count}"),
-            palette::diff::ADDED_TEXT,
-            palette::diff::ADDED_BG,
+            theme.diff_added_text(),
+            theme.diff_added_bg(),
         )
     } else {
         (
             format!("-{count}"),
-            palette::diff::REMOVED_TEXT,
-            palette::diff::REMOVED_BG,
+            theme.diff_removed_text(),
+            theme.diff_removed_bg(),
         )
     };
 
@@ -1103,11 +1105,12 @@ fn render_highlighted_text(
     word_highlights: &[(usize, usize)],
     base_color: Color32,
     kind: DiffLineKind,
+    theme: AppTheme,
 ) {
     // Get word-level highlight background color
     let word_bg = match kind {
-        DiffLineKind::Addition => Some(palette::diff::ADDED_WORD_BG),
-        DiffLineKind::Deletion => Some(palette::diff::REMOVED_WORD_BG),
+        DiffLineKind::Addition => Some(theme.diff_added_word_bg()),
+        DiffLineKind::Deletion => Some(theme.diff_removed_word_bg()),
         _ => None,
     };
 
