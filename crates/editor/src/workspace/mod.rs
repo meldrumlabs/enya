@@ -979,12 +979,6 @@ impl Workspace {
             }
         }
 
-        // Show fuzzy finder modal (rendered on top of everything)
-        self.metrics_finder.set_theme(app_state.theme);
-        if let Some(selected_item) = self.metrics_finder.show(ctx) {
-            return self.handle_metric_selection_with_tracking(selected_item);
-        }
-
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {

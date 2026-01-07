@@ -666,7 +666,7 @@ impl UnifiedFinder {
             self.results.clear();
             self.match_positions.clear();
             self.selected_index = 0;
-            self.last_query_change = Some(std::time::Instant::now());
+            self.last_query_change = Some(Instant::now());
         }
 
         // Check if debounce period has elapsed and we need to refresh results

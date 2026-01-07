@@ -613,10 +613,9 @@ impl StatusLine {
 
                     // Show progress if available, otherwise static message
                     let progress_msg = if let Some((current, total)) = status.tantivy_progress {
-                        if total > 0 {
-                            // Fixed-width padding for stable text width
-                            let width = total.to_string().len();
-                            format!("Indexing commits [{current:>width$}/{total}]")
+                        if total > 0 && current > 0 {
+                            // Simple format without leading space padding
+                            format!("Indexing commits [{current}/{total}]")
                         } else {
                             "Building search index...".to_string()
                         }
