@@ -398,6 +398,13 @@ impl CodebaseManager {
             self.tantivy_progress = None;
         }
 
+        // Request periodic repaint while Tantivy indexing is in progress
+        // This ensures the progress counter updates smoothly in immediate mode
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.tantivy_progress.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
+
         let result = self.pending_result.lock().take();
 
         let Some(result) = result else {
