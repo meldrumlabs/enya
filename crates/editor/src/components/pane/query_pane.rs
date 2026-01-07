@@ -136,6 +136,8 @@ pub struct QueryPane {
     query_state: QueryState,
     /// User-defined tag for organizing panes (e.g., "Critical", "Warning")
     tag: String,
+    /// Description providing context about the pane (shown on hover)
+    description: String,
     /// Whether this pane needs a query refresh (set on save, cleared after execution)
     needs_refresh: bool,
     /// Whether a query is currently in flight (for loading state)
@@ -181,6 +183,7 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
@@ -239,6 +242,7 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: true, // Trigger query on first frame
             is_loading: false,
             has_user_override: false,
@@ -268,6 +272,7 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
@@ -300,6 +305,7 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: true, // Trigger query on first frame
             is_loading: false,
             has_user_override: false,
@@ -332,6 +338,7 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
@@ -375,6 +382,7 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
@@ -405,6 +413,7 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: true,
             is_loading: false,
             has_user_override: false,
@@ -491,6 +500,16 @@ impl QueryPane {
     /// Set the user-defined tag
     pub fn set_tag(&mut self, tag: &str) {
         self.tag = tag.to_string();
+    }
+
+    /// Get the description
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// Set the description
+    pub fn set_description(&mut self, description: &str) {
+        self.description = description.to_string();
     }
 
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
@@ -730,10 +749,11 @@ impl QueryPane {
         });
 
         // Toolbar overlay in top-right corner (only when buffer is collapsed)
-        // Contains: visualization type dropdown + edit button
+        // Contains: info button (if description), visualization type dropdown, edit button
         if !self.buffer_expanded {
             let button_size = egui::vec2(24.0, 24.0);
             let spacing = 2.0;
+            let has_description = !self.description.is_empty();
 
             // Edit button (rightmost)
             let edit_button_pos = egui::pos2(
@@ -769,6 +789,35 @@ impl QueryPane {
                 edit_button_pos.x - button_size.x - spacing,
                 pane_rect.top() + 4.0,
             );
+
+            // Info button (left of viz button, only if description exists)
+            if has_description {
+                let info_button_pos = egui::pos2(
+                    viz_button_pos.x - button_size.x - spacing,
+                    pane_rect.top() + 4.0,
+                );
+                let info_button_rect = egui::Rect::from_min_size(info_button_pos, button_size);
+
+                let is_info_hovered = ui.rect_contains_pointer(info_button_rect);
+                let info_icon_color = if is_info_hovered {
+                    self.theme.accent_primary()
+                } else {
+                    text_col.gamma_multiply(0.5)
+                };
+
+                let info_response = ui.put(
+                    info_button_rect,
+                    egui::Button::new(
+                        RichText::new(semantic_icons::status::INFO)
+                            .color(info_icon_color)
+                            .size(14.0),
+                    )
+                    .fill(Color32::TRANSPARENT)
+                    .frame(false),
+                );
+
+                info_response.on_hover_text(&self.description);
+            }
             let viz_button_rect = egui::Rect::from_min_size(viz_button_pos, button_size);
 
             let is_viz_hovered = ui.rect_contains_pointer(viz_button_rect);
@@ -889,6 +938,10 @@ impl crate::components::Component for QueryPane {
 
         let title = self.buffer.display_title();
         egui::RichText::new(format!("{icon} {title}"))
+    }
+
+    fn description(&self) -> &str {
+        &self.description
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

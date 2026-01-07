@@ -275,6 +275,7 @@ impl CompactWorkspaceConfig {
                 PaneConfig {
                     query: p.query,
                     name: p.name.unwrap_or_default(),
+                    description: String::new(), // Compact format doesn't encode description
                     tag: p.tag.unwrap_or_default(),
                     unit: String::new(), // Compact format doesn't encode unit
                     granularity: match gran {
@@ -385,6 +386,7 @@ impl CompactSinglePane {
         ws.panes.push(PaneConfig {
             query: self.query,
             name: self.name.unwrap_or_default(),
+            description: String::new(),
             tag: String::new(),
             unit: String::new(),
             granularity: match gran {
@@ -527,6 +529,7 @@ mod tests {
         PaneConfig {
             query: query.to_string(),
             name: name.to_string(),
+            description: String::new(),
             tag: tag.to_string(),
             granularity: granularity.to_string(),
             visualization: visualization.to_string(),
@@ -975,6 +978,7 @@ mod tests {
         ws.panes.push(PaneConfig {
             query: "q".to_string(),
             name: String::new(),
+            description: String::new(),
             tag: String::new(),
             granularity: "5m".to_string(),
             visualization: "time_series".to_string(),

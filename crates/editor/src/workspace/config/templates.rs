@@ -149,11 +149,9 @@ children = [
 pub const ATLAS_WORKSPACE_TOML: &str = r#"[workspace]
 name = "atlas"
 description = "Atlas observability dashboard with codebase integration"
-
-[connection]
 endpoint = "http://localhost:9090"
 
-[codebase]
+[git]
 url = "git@github.com:polygon-io/rust-app-atlas.git"
 branch = "main"
 language = "rust"
@@ -183,16 +181,14 @@ children = [0]
 pub const DEMO_WORKSPACE_TOML: &str = r#"[workspace]
 name = "demo"
 description = "Interactive demo with sample data - no backend required"
-
-# Empty endpoint means demo mode (synthetic data)
-[connection]
-endpoint = ""
+# No endpoint = demo mode (synthetic data)
 
 [view]
 theme = "dark"
 
 [time]
 preset = "1h"
+refresh = "30s"  # Auto-refresh every 30 seconds
 
 # Time Series: HTTP request rate by method (rate of counter)
 [[panes]]

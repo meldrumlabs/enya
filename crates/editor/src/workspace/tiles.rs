@@ -147,11 +147,18 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     }
 
     fn tab_title_for_pane(&mut self, component: &Box<dyn Component>) -> egui::WidgetText {
-        component
-            .label()
-            .color(text_color(self.theme))
-            .strong()
-            .into()
+        let label = component.label().color(text_color(self.theme)).strong();
+        let description = component.description();
+
+        if description.is_empty() {
+            label.into()
+        } else {
+            // Add info icon to indicate description is available
+            egui::RichText::new(format!("{} ℹ", label.text()))
+                .color(text_color(self.theme))
+                .strong()
+                .into()
+        }
     }
 
     fn pane_ui(

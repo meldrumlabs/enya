@@ -12,10 +12,10 @@ Enya integrates with your git repository to connect metrics with code. This enab
 
 ## Configuration
 
-Add a `[codebase]` section to your workspace TOML:
+Add a `[git]` section to your workspace TOML:
 
 ```toml
-[codebase]
+[git]
 url = "https://github.com/your-org/your-repo"
 branch = "main"
 ```
@@ -187,7 +187,7 @@ If `gd` doesn't find your metric:
 ### Commits not showing
 
 Git commit markers require:
-- A configured `[codebase]` section
+- A configured `[git]` section
 - The repository to be successfully cloned/indexed
 - Commits within the visible time range
 

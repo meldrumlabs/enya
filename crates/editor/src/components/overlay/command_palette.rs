@@ -65,6 +65,8 @@ pub enum CommandResult {
     SetProvider(String),
     /// Set editor font (maple/departure/jetbrains/iosevka)
     SetFont(EditorFont),
+    /// Set auto-refresh interval (off/10s/30s/1m/5m/15m)
+    SetRefresh(String),
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -137,6 +139,12 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "font",
         aliases: &[],
         description: "Set editor font (maple/departure/jetbrains/iosevka)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "refresh",
+        aliases: &["r"],
+        description: "Set auto-refresh interval (off/10s/30s/1m/5m/15m)",
         kind: CommandKind::SingleArg,
     },
 ];
@@ -407,6 +415,15 @@ impl CommandPalette {
                             args[0]
                         )),
                     }
+                }
+            }
+            "refresh" => {
+                // :refresh <interval> - set auto-refresh interval
+                if args.is_empty() {
+                    // No argument: disable refresh
+                    CommandResult::SetRefresh("off".to_string())
+                } else {
+                    CommandResult::SetRefresh(args[0].to_lowercase())
                 }
             }
             _ => CommandResult::None,

@@ -107,12 +107,12 @@ Configure your API key in settings to enable agent features.
 
 This gives agents access to metric names, labels, and query execution.
 
-### 2. Configure Codebase
+### 2. Configure Git
 
 In your workspace TOML:
 
 ```toml
-[codebase]
+[git]
 url = "https://github.com/your-org/your-repo"
 branch = "main"
 ```
@@ -125,7 +125,7 @@ This enables:
 
 ### 3. Index Your Codebase
 
-When you load a workspace with codebase config, Enya automatically:
+When you load a workspace with git config, Enya automatically:
 - Clones the repository
 - Parses source files with tree-sitter
 - Indexes metric instrumentation points

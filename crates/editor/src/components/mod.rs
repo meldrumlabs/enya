@@ -62,6 +62,11 @@ pub trait Component: Any {
     /// Returns a RichText label for the given component
     fn label(&self) -> egui::RichText;
 
+    /// Returns an optional description for the component (shown on hover)
+    fn description(&self) -> &str {
+        ""
+    }
+
     /// Get a reference to self as Any (for downcasting)
     fn as_any(&self) -> &dyn Any;
     /// Get a mutable reference to self as Any (for downcasting)

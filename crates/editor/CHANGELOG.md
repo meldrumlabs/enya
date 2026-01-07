@@ -4,6 +4,41 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Pane descriptions**: Panes now support an optional `description` field for providing context:
+  ```toml
+  [[panes]]
+  query = "histogram_quantile(0.99, ...)"
+  name = "P99 Latency"
+  description = "99th percentile latency - alert threshold is 500ms"
+  ```
+  - An info icon (ℹ) appears in the pane toolbar when a description is set
+  - Hover over the icon to view the description
+  - Tab title shows ℹ indicator for panes with descriptions
+
+- **Auto-refresh interval support**: Workspaces can now configure automatic query refresh via the `[time]` section:
+  ```toml
+  [time]
+  preset = "1h"
+  refresh = "30s"  # Options: off, 10s, 30s, 1m, 5m, 15m
+  ```
+  - Use `:refresh <interval>` (or `:r`) command to change at runtime
+  - A countdown timer appears in the toolbar when refresh is active
+  - Refresh interval is saved when exporting workspaces
+
+### Changed
+
+- **Renamed `[codebase]` to `[git]` in workspace config**: The workspace TOML section for git repository integration has been renamed from `[codebase]` to `[git]` to better reflect its purpose. The internal `CodebaseConfig` struct is now `GitConfig`. The fields (`url`, `branch`, `language`) remain the same.
+
+- **Inline endpoint support in workspace config**: You can now specify the Prometheus endpoint directly in the `[workspace]` section for simpler workspaces:
+  ```toml
+  [workspace]
+  name = "my-dashboard"
+  endpoint = "http://localhost:9090"
+  ```
+  The separate `[connection]` section is still supported for advanced options like `api_key`, and takes precedence if both are specified.
+
 ### Changed
 
 - **Beautiful diff viewer styling (GitHub/delta-inspired)**: Completely redesigned the diff viewer overlay and preview pane with modern, professional styling:
