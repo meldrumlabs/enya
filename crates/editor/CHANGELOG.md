@@ -469,6 +469,18 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Virtual scrolling for finder and diff viewer**: Both the unified fuzzy finder and diff viewer now use egui's `show_rows` API for virtual scrolling, only rendering visible rows. This significantly improves performance with large result sets (1000+ items) or large diffs (1000+ lines).
+
+- **Performance optimizations for finder**:
+  - Match position lookup now uses `FxHashSet` for O(1) lookups instead of O(n) `Vec::contains()`
+  - Syntax highlight cache is lazily updated only when the selected index changes, avoiding redundant file reads and tree-sitter parsing on every frame
+
+### Fixed
+
+- **Unicode-safe truncation in diff viewer**: Fixed potential panic when truncating diff lines containing multi-byte UTF-8 characters (emoji, CJK, accented letters) by using character-based iteration instead of byte slicing
+
+### Changed
+
 - **Beautiful diff viewer styling (GitHub/delta-inspired)**: Completely redesigned the diff viewer overlay and preview pane with modern, professional styling:
   - **Side panel file list**: Replaced horizontal file tabs with a vertical "Changed Files" panel on the right side, similar to VS Code and Conductor. Shows file icons, names, and +/- stats for each file with click-to-select and hover effects.
   - **Split view toggle**: Press `s` to switch between unified diff and side-by-side split view. Split view shows old code on the left and new code on the right with aligned lines, making it easy to compare changes. Paired deletions and additions are shown on the same row.

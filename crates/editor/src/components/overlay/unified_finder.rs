@@ -1013,189 +1013,196 @@ impl UnifiedFinder {
         // Get the clip rect for the list area to prevent text overflow
         let list_clip_rect = ui.available_rect_before_wrap();
 
-        egui::ScrollArea::vertical()
+        // Virtual scrolling: only render visible rows
+        let row_height = 38.0;
+        let total_rows = self.results.len();
+
+        // Calculate scroll offset needed to keep selected item in view
+        let mut scroll_area = egui::ScrollArea::vertical()
             .max_height(max_height)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                // Create a clipped painter to prevent text from spilling into preview pane
-                let clipped_painter = ui.painter().with_clip_rect(list_clip_rect);
+            .auto_shrink([false, false]);
 
-                for (i, (result, positions)) in self
-                    .results
-                    .iter()
-                    .zip(self.match_positions.iter())
-                    .enumerate()
-                {
-                    let is_selected = i == self.selected_index;
+        // Scroll to selected item
+        if !self.results.is_empty() {
+            let target_offset = self.selected_index as f32 * row_height;
+            let visible_height = max_height;
+            // Center the selected item in the visible area
+            let centered_offset =
+                (target_offset - visible_height / 2.0 + row_height / 2.0).max(0.0);
+            scroll_area = scroll_area.vertical_scroll_offset(centered_offset);
+        }
 
-                    let row_height = 38.0;
-                    let (rect, response) = ui.allocate_exact_size(
-                        egui::vec2(ui.available_width(), row_height),
-                        egui::Sense::click(),
+        scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+            // Create a clipped painter to prevent text from spilling into preview pane
+            let clipped_painter = ui.painter().with_clip_rect(list_clip_rect);
+
+            for i in row_range {
+                let result = &self.results[i];
+                let positions = &self.match_positions[i];
+                let is_selected = i == self.selected_index;
+
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), row_height),
+                    egui::Sense::click(),
+                );
+
+                let is_hovered = response.hovered();
+
+                // Premium row styling with subtle gradients and glow
+                if is_selected {
+                    // Selected: accent-tinted background with subtle inner glow
+                    let bg_color = accent_col.gamma_multiply(0.15);
+                    clipped_painter.rect_filled(rect, 6.0, bg_color);
+
+                    // Subtle glow border around the selected row
+                    let glow_rect = rect.expand(1.0);
+                    clipped_painter.rect_stroke(
+                        glow_rect,
+                        6.0,
+                        egui::Stroke::new(1.0, accent_col.gamma_multiply(0.3)),
+                        egui::StrokeKind::Outside,
                     );
 
-                    let is_hovered = response.hovered();
+                    // Left accent bar with rounded caps
+                    let indicator_rect =
+                        egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height));
+                    clipped_painter.rect_filled(indicator_rect, 2.0, accent_col);
+                } else if is_hovered {
+                    // Hovered: subtle highlight with light border
+                    let bg_color = text_col.gamma_multiply(0.06);
+                    clipped_painter.rect_filled(rect, 6.0, bg_color);
 
-                    // Premium row styling with subtle gradients and glow
-                    if is_selected {
-                        // Selected: accent-tinted background with subtle inner glow
-                        let bg_color = accent_col.gamma_multiply(0.15);
-                        clipped_painter.rect_filled(rect, 6.0, bg_color);
-
-                        // Subtle glow border around the selected row
-                        let glow_rect = rect.expand(1.0);
-                        clipped_painter.rect_stroke(
-                            glow_rect,
-                            6.0,
-                            egui::Stroke::new(1.0, accent_col.gamma_multiply(0.3)),
-                            egui::StrokeKind::Outside,
-                        );
-
-                        // Left accent bar with rounded caps
-                        let indicator_rect =
-                            egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height));
-                        clipped_painter.rect_filled(indicator_rect, 2.0, accent_col);
-                    } else if is_hovered {
-                        // Hovered: subtle highlight with light border
-                        let bg_color = text_col.gamma_multiply(0.06);
-                        clipped_painter.rect_filled(rect, 6.0, bg_color);
-
-                        // Very subtle border on hover
-                        clipped_painter.rect_stroke(
-                            rect,
-                            6.0,
-                            egui::Stroke::new(0.5, text_col.gamma_multiply(0.1)),
-                            egui::StrokeKind::Inside,
-                        );
-                    }
-
-                    // Content - use content_rect for clipping and layout
-                    let content_rect = rect.shrink2(egui::vec2(16.0, 0.0));
-                    let mut cursor_x = content_rect.left();
-
-                    // Calculate max width for the name (leave space for secondary text)
-                    // Commits get more space (90%) since they have longer messages and less
-                    // useful secondary text. Other results use 65% for name.
-                    #[cfg(not(target_arch = "wasm32"))]
-                    let is_commit = matches!(
-                        result,
-                        UnifiedResult::CodebaseResult(r) if matches!(r.kind, SearchResultKind::Commit { .. })
+                    // Very subtle border on hover
+                    clipped_painter.rect_stroke(
+                        rect,
+                        6.0,
+                        egui::Stroke::new(0.5, text_col.gamma_multiply(0.1)),
+                        egui::StrokeKind::Inside,
                     );
-                    #[cfg(target_arch = "wasm32")]
-                    let is_commit = false;
+                }
 
-                    let max_name_width = if is_commit {
-                        content_rect.width() * 0.90
-                    } else {
-                        content_rect.width() * 0.65
-                    };
+                // Content - use content_rect for clipping and layout
+                let content_rect = rect.shrink2(egui::vec2(16.0, 0.0));
+                let mut cursor_x = content_rect.left();
 
-                    // Icon
-                    let icon_color = if is_selected || is_hovered {
-                        accent_col
-                    } else {
-                        text_col.gamma_multiply(0.6)
-                    };
-                    let icon_galley = clipped_painter.layout_no_wrap(
-                        result.icon().to_string(),
-                        typography::proportional(typography::LG),
-                        icon_color,
-                    );
-                    clipped_painter.galley(
-                        egui::pos2(
-                            cursor_x,
-                            content_rect.center().y - icon_galley.size().y / 2.0,
-                        ),
-                        icon_galley.clone(),
-                        icon_color,
-                    );
-                    cursor_x += icon_galley.size().x + 10.0;
+                // Calculate max width for the name (leave space for secondary text)
+                // Commits get more space (90%) since they have longer messages and less
+                // useful secondary text. Other results use 65% for name.
+                #[cfg(not(target_arch = "wasm32"))]
+                let is_commit = matches!(
+                    result,
+                    UnifiedResult::CodebaseResult(r) if matches!(r.kind, SearchResultKind::Commit { .. })
+                );
+                #[cfg(target_arch = "wasm32")]
+                let is_commit = false;
 
-                    // Name - with match highlighting
-                    let name_str = result.name();
-                    let available_for_name = max_name_width - (cursor_x - content_rect.left());
+                let max_name_width = if is_commit {
+                    content_rect.width() * 0.90
+                } else {
+                    content_rect.width() * 0.65
+                };
 
-                    // Check if we need to truncate
-                    let font = typography::proportional(typography::MD);
-                    let full_galley = clipped_painter.layout_no_wrap(
-                        name_str.to_string(),
-                        font.clone(),
+                // Icon
+                let icon_color = if is_selected || is_hovered {
+                    accent_col
+                } else {
+                    text_col.gamma_multiply(0.6)
+                };
+                let icon_galley = clipped_painter.layout_no_wrap(
+                    result.icon().to_string(),
+                    typography::proportional(typography::LG),
+                    icon_color,
+                );
+                clipped_painter.galley(
+                    egui::pos2(
+                        cursor_x,
+                        content_rect.center().y - icon_galley.size().y / 2.0,
+                    ),
+                    icon_galley.clone(),
+                    icon_color,
+                );
+                cursor_x += icon_galley.size().x + 10.0;
+
+                // Name - with match highlighting
+                let name_str = result.name();
+                let available_for_name = max_name_width - (cursor_x - content_rect.left());
+
+                // Check if we need to truncate
+                let font = typography::proportional(typography::MD);
+                let full_galley = clipped_painter.layout_no_wrap(
+                    name_str.to_string(),
+                    font.clone(),
+                    text_col,
+                );
+                let needs_truncation = full_galley.size().x > available_for_name;
+
+                let name_galley = if !positions.is_empty() && !needs_truncation {
+                    // Use highlighted galley when we have match positions and don't need truncation
+                    create_highlighted_galley(
+                        ui,
+                        name_str,
+                        positions,
+                        font,
                         text_col,
-                    );
-                    let needs_truncation = full_galley.size().x > available_for_name;
+                        highlight_col,
+                    )
+                } else if needs_truncation {
+                    // Fall back to plain truncated text when truncation is needed
+                    // (highlight positions would be wrong after truncation)
+                    let truncated_name =
+                        truncate_to_width(name_str, available_for_name, font.clone(), ui);
+                    clipped_painter.layout_no_wrap(truncated_name, font, text_col)
+                } else {
+                    // No highlights, no truncation - just use the full galley
+                    full_galley
+                };
 
-                    let name_galley = if !positions.is_empty() && !needs_truncation {
-                        // Use highlighted galley when we have match positions and don't need truncation
-                        create_highlighted_galley(
+                clipped_painter.galley(
+                    egui::pos2(
+                        cursor_x,
+                        content_rect.center().y - name_galley.size().y / 2.0,
+                    ),
+                    name_galley.clone(),
+                    text_col,
+                );
+                cursor_x += name_galley.size().x + 12.0;
+
+                // Secondary text (right-aligned) - also truncate if needed
+                if let Some(secondary) = result.secondary_text() {
+                    let remaining = content_rect.right() - cursor_x - 8.0;
+                    if remaining > 50.0 {
+                        let truncated_secondary = truncate_to_width(
+                            &secondary,
+                            remaining,
+                            typography::proportional(typography::SM),
                             ui,
-                            name_str,
-                            positions,
-                            font,
-                            text_col,
-                            highlight_col,
-                        )
-                    } else if needs_truncation {
-                        // Fall back to plain truncated text when truncation is needed
-                        // (highlight positions would be wrong after truncation)
-                        let truncated_name =
-                            truncate_to_width(name_str, available_for_name, font.clone(), ui);
-                        clipped_painter.layout_no_wrap(truncated_name, font, text_col)
-                    } else {
-                        // No highlights, no truncation - just use the full galley
-                        full_galley
-                    };
+                        );
+                        let secondary_galley = clipped_painter.layout_no_wrap(
+                            truncated_secondary,
+                            typography::proportional(typography::SM),
+                            text_col.gamma_multiply(0.5),
+                        );
 
-                    clipped_painter.galley(
-                        egui::pos2(
-                            cursor_x,
-                            content_rect.center().y - name_galley.size().y / 2.0,
-                        ),
-                        name_galley.clone(),
-                        text_col,
-                    );
-                    cursor_x += name_galley.size().x + 12.0;
-
-                    // Secondary text (right-aligned) - also truncate if needed
-                    if let Some(secondary) = result.secondary_text() {
-                        let remaining = content_rect.right() - cursor_x - 8.0;
-                        if remaining > 50.0 {
-                            let truncated_secondary = truncate_to_width(
-                                &secondary,
-                                remaining,
-                                typography::proportional(typography::SM),
-                                ui,
-                            );
-                            let secondary_galley = clipped_painter.layout_no_wrap(
-                                truncated_secondary,
-                                typography::proportional(typography::SM),
-                                text_col.gamma_multiply(0.5),
-                            );
-
-                            // Right-align secondary text
-                            let secondary_x =
-                                content_rect.right() - secondary_galley.size().x - 8.0;
-                            clipped_painter.galley(
-                                egui::pos2(
-                                    secondary_x.max(cursor_x),
-                                    content_rect.center().y - secondary_galley.size().y / 2.0,
-                                ),
-                                secondary_galley,
-                                text_col.gamma_multiply(0.5),
-                            );
-                        }
-                    }
-
-                    // Handle click selection
-                    if response.clicked() {
-                        clicked_index = Some(i);
-                    }
-
-                    // Scroll into view
-                    if is_selected {
-                        response.scroll_to_me(Some(egui::Align::Center));
+                        // Right-align secondary text
+                        let secondary_x =
+                            content_rect.right() - secondary_galley.size().x - 8.0;
+                        clipped_painter.galley(
+                            egui::pos2(
+                                secondary_x.max(cursor_x),
+                                content_rect.center().y - secondary_galley.size().y / 2.0,
+                            ),
+                            secondary_galley,
+                            text_col.gamma_multiply(0.5),
+                        );
                     }
                 }
-            });
+
+                // Handle click selection
+                if response.clicked() {
+                    clicked_index = Some(i);
+                }
+            }
+        });
 
         clicked_index
     }

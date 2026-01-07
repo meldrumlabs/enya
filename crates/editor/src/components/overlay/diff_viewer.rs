@@ -366,6 +366,7 @@ impl DiffViewerOverlay {
     }
 
     /// Renders the diff content with line numbers, gutter, and word highlighting.
+    /// Uses virtual scrolling for performance with large diffs.
     fn render_diff_content(&self, ui: &mut egui::Ui, colors: &OverlayColors) {
         if self.file_diffs.is_empty() {
             ui.add_space(24.0);
@@ -394,22 +395,28 @@ impl DiffViewerOverlay {
             .unwrap_or(1);
         let line_num_width = max_line_num.to_string().len().max(3);
 
-        // Scrollable diff content
+        // Virtual scrolling: only render visible rows
+        let row_height = typography::MD + 4.0;
+        let total_rows = file_diff.lines.len();
+
+        // Scrollable diff content with virtual scrolling
         egui::ScrollArea::both()
             .id_salt("diff_viewer_scroll")
             .scroll_offset(egui::vec2(self.scroll_offset_x, self.scroll_offset_y))
             .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(4.0);
+            .show_rows(ui, row_height, total_rows, |ui, row_range| {
+                // Add top padding only for first visible row
+                if row_range.start == 0 {
+                    ui.add_space(4.0);
+                }
 
                 // Use a vertical layout with no spacing for tight line rendering
                 ui.style_mut().spacing.item_spacing.y = 0.0;
 
-                for line in &file_diff.lines {
+                for i in row_range {
+                    let line = &file_diff.lines[i];
                     self.render_diff_line(ui, line, line_num_width);
                 }
-
-                ui.add_space(8.0);
             });
     }
 
@@ -606,20 +613,29 @@ impl DiffViewerOverlay {
             egui::Stroke::new(1.0, colors.separator),
         );
 
-        // Scrollable diff content - only vertical scroll to prevent horizontal expansion
+        // Virtual scrolling: only render visible rows
+        let row_height = typography::MD + 4.0;
+        let total_rows = paired_lines.len();
+
+        // Scrollable diff content with virtual scrolling - only vertical scroll to prevent horizontal expansion
         egui::ScrollArea::vertical()
             .id_salt("diff_viewer_split_scroll")
             .scroll_offset(egui::vec2(0.0, self.scroll_offset_y))
             .auto_shrink([false, false])
-            .show(ui, |ui| {
+            .show_rows(ui, row_height, total_rows, |ui, row_range| {
                 // Constrain the layout width to prevent overflow into Changed Files panel
                 ui.set_max_width(available_width);
                 ui.set_width(available_width);
 
-                ui.add_space(4.0);
+                // Add top padding only for first visible row
+                if row_range.start == 0 {
+                    ui.add_space(4.0);
+                }
                 ui.style_mut().spacing.item_spacing.y = 0.0;
 
-                for (left, right) in &paired_lines {
+                for i in row_range {
+                    let (left, right) = &paired_lines[i];
+
                     // Check if this is a header line (spans full width)
                     let is_header = left
                         .as_ref()
@@ -682,8 +698,6 @@ impl DiffViewerOverlay {
                         });
                     }
                 }
-
-                ui.add_space(8.0);
             });
     }
 
