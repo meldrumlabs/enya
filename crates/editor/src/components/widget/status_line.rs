@@ -611,32 +611,11 @@ impl StatusLine {
                 else if status.is_tantivy_indexing && !status.is_error {
                     ui.add_space(16.0);
 
-                    // Build progress message - only show numbers for "Loading commits" phase
-                    // which is slow (fetching git diffs). Other phases are fast and showing
-                    // progress causes flickering due to rapid updates.
-                    let progress_msg = if let Some(phase) = &status.tantivy_phase {
-                        // Only show progress for "Loading commits" phase
-                        if phase == "Loading commits" {
-                            if let Some((current, total)) = status.tantivy_progress {
-                                // Pad numbers to fixed width based on total's digit count
-                                let width = total.to_string().len();
-                                format!("{phase} [{current:>width$}/{total}]")
-                            } else {
-                                phase.clone()
-                            }
-                        } else {
-                            // Fast phases - just show phase name, no numbers
-                            format!("{phase}...")
-                        }
-                    } else {
-                        "Building search index...".to_string()
-                    };
-
+                    // Simple static message - no progress numbers to avoid flickering
                     ui.label(
-                        egui::RichText::new(progress_msg)
+                        egui::RichText::new("Building search index...")
                             .color(palette::text::SECONDARY)
-                            .size(typography::MD)
-                            .family(egui::FontFamily::Monospace),
+                            .size(typography::MD),
                     );
                 }
             }
