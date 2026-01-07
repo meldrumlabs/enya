@@ -467,6 +467,8 @@ All notable changes to the Enya editor will be documented in this file.
   ```
   The separate `[connection]` section is still supported for advanced options like `api_key`, and takes precedence if both are specified.
 
+- **Ctrl+U to clear finder input**: Press Ctrl+U to clear the search query in both the unified finder and generic finder components. In the unified finder, the mode prefix is preserved (e.g., clearing `@some query` leaves `@` intact).
+
 ### Changed
 
 - **Virtual scrolling for finder and diff viewer**: Both the unified fuzzy finder and diff viewer now use egui's `show_rows` API for virtual scrolling, only rendering visible rows. This significantly improves performance with large result sets (1000+ items) or large diffs (1000+ lines).

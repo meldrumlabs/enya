@@ -598,6 +598,13 @@ impl<T: FinderItem> Finder<T> {
             should_close = true;
         }
 
+        // Ctrl+U clears the input
+        if input.clear_input {
+            self.query.clear();
+            self.results.clear();
+            self.selected_index = 0;
+        }
+
         // Calculate popup dimensions
         let screen_rect = ctx.available_rect();
         let list_width = if self.config.show_preview {

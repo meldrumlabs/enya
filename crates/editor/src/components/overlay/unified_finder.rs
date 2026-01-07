@@ -655,6 +655,20 @@ impl UnifiedFinder {
             self.cycle_mode();
         }
 
+        // Ctrl+U clears the input (keeps mode prefix)
+        if input.clear_input {
+            // Clear to just the mode prefix
+            self.query = self
+                .mode
+                .prefix()
+                .map(|c| c.to_string())
+                .unwrap_or_default();
+            self.results.clear();
+            self.match_positions.clear();
+            self.selected_index = 0;
+            self.last_query_change = Some(std::time::Instant::now());
+        }
+
         // Check if debounce period has elapsed and we need to refresh results
         // Only for Metrics mode - codebase modes (All, Alerts, Commits) are handled
         // externally via set_codebase_results() in the workspace

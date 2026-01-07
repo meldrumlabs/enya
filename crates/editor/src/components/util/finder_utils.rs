@@ -218,6 +218,8 @@ pub struct FinderKeyboardInput {
     pub toggle_preview: bool,
     /// Cycle to next mode (Tab key)
     pub cycle_mode: bool,
+    /// Clear the input (Ctrl+U)
+    pub clear_input: bool,
 }
 
 impl FinderKeyboardInput {
@@ -232,6 +234,7 @@ impl FinderKeyboardInput {
             escape: i.key_pressed(Key::Escape),
             toggle_preview: i.key_pressed(Key::P) && i.modifiers.ctrl,
             cycle_mode: i.key_pressed(Key::Tab) && !i.modifiers.shift,
+            clear_input: i.key_pressed(Key::U) && i.modifiers.ctrl,
         })
     }
 }
