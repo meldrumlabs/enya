@@ -564,6 +564,7 @@ impl UnifiedFinder {
     /// Call this before rendering to pre-compute highlights.
     /// Uses lazy evaluation - only recomputes when selected_index changes.
     #[cfg(not(target_arch = "wasm32"))]
+    #[profiling::function]
     fn update_highlight_cache(&mut self) {
         // Skip if the selected index hasn't changed since last cache update
         if self.last_cached_index == Some(self.selected_index) {
@@ -808,6 +809,7 @@ impl UnifiedFinder {
     }
 
     /// Renders the header with search input and mode badge.
+    #[profiling::function]
     fn render_header(&mut self, ui: &mut egui::Ui, _colors: &FinderColors, total_width: f32) {
         let accent = self.theme.accent_primary();
         let mode_color = self.mode.color(self.theme);
@@ -912,6 +914,7 @@ impl UnifiedFinder {
     }
 
     /// Renders the main content area. Returns clicked index if any.
+    #[profiling::function]
     fn render_content(
         &mut self,
         ui: &mut egui::Ui,
@@ -999,6 +1002,7 @@ impl UnifiedFinder {
     }
 
     /// Renders the results list. Returns the index of a clicked item if any.
+    #[profiling::function]
     fn render_results_list(
         &mut self,
         ui: &mut egui::Ui,
@@ -1208,6 +1212,7 @@ impl UnifiedFinder {
     }
 
     /// Renders the preview pane.
+    #[profiling::function]
     fn render_preview(&self, ui: &mut egui::Ui, colors: &FinderColors) {
         // No background fill - uses the same frosted glass as the rest of the overlay
         // This matches the Source Preview Overlay styling

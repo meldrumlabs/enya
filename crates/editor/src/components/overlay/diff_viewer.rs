@@ -367,6 +367,7 @@ impl DiffViewerOverlay {
 
     /// Renders the diff content with line numbers, gutter, and word highlighting.
     /// Uses virtual scrolling for performance with large diffs.
+    #[profiling::function]
     fn render_diff_content(&self, ui: &mut egui::Ui, colors: &OverlayColors) {
         if self.file_diffs.is_empty() {
             ui.add_space(24.0);
@@ -421,6 +422,7 @@ impl DiffViewerOverlay {
     }
 
     /// Renders a single diff line with gutter, line numbers, and word highlighting.
+    #[profiling::function]
     fn render_diff_line(&self, ui: &mut egui::Ui, line: &DiffLine, line_num_width: usize) {
         let theme = self.theme;
         let (base_text_color, bg_color, gutter_color) = match line.kind {
@@ -529,6 +531,7 @@ impl DiffViewerOverlay {
     /// Renders diff content in side-by-side split view.
     ///
     /// Shows old version on the left, new version on the right, with aligned lines.
+    #[profiling::function]
     fn render_split_diff_content(
         &self,
         ui: &mut egui::Ui,
@@ -735,6 +738,7 @@ impl DiffViewerOverlay {
     ///
     /// `is_left` indicates whether this is the left (old) or right (new) side.
     /// `side_width` is the fixed width for this side panel.
+    #[profiling::function]
     fn render_split_line(
         &self,
         ui: &mut egui::Ui,
@@ -864,6 +868,7 @@ impl DiffViewerOverlay {
     }
 
     /// Renders the file panel on the right side with version control style file list.
+    #[profiling::function]
     fn render_file_panel(
         &mut self,
         ui: &mut egui::Ui,
@@ -1212,6 +1217,7 @@ fn render_highlighted_text(
 }
 
 /// Parses a unified diff into per-file sections with word-level highlighting.
+#[profiling::function]
 fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
     let mut files: Vec<FileDiff> = Vec::new();
     let mut current_file: Option<FileDiff> = None;
@@ -1365,6 +1371,7 @@ fn parse_diff_into_files(diff: &str) -> Vec<FileDiff> {
 ///
 /// Uses word-based diffing to highlight meaningful changes (identifiers, operators, etc.)
 /// rather than individual characters. This produces much cleaner diffs for code.
+#[profiling::function]
 fn compute_word_highlights(
     file: &mut FileDiff,
     deletions: &[(String, usize)],
@@ -1511,6 +1518,7 @@ fn classify_diff_line(line: &str) -> DiffLineKind {
 /// - Additions appear on the right only
 /// - Paired deletions/additions are aligned on the same row
 /// - Headers span both sides
+#[profiling::function]
 fn build_split_view_lines(lines: &[DiffLine]) -> Vec<(Option<DiffLine>, Option<DiffLine>)> {
     let mut result: Vec<(Option<DiffLine>, Option<DiffLine>)> = Vec::new();
 
