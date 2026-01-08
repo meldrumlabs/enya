@@ -14,7 +14,9 @@ use egui::{Color32, CornerRadius, RichText, ScrollArea, Stroke, StrokeKind, Vec2
 use egui_nerdfonts::regular;
 use enya_team_api::UserId;
 
-use super::{Channel, ChannelId, ChatMessage, ChatMessageAuthor, ChatState, Thread, ThreadId};
+use super::{
+    Channel, ChannelId, ChatColors, ChatMessage, ChatMessageAuthor, ChatState, Thread, ThreadId,
+};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -137,46 +139,9 @@ impl ChatView {
     // Premium styling helpers (theme-aware)
     // =========================================================================
 
-    /// Get the message bubble background for own messages.
-    /// Uses accent color with subtle transparency for visual distinction.
-    fn own_message_bg(&self) -> Color32 {
-        self.theme.accent_primary().gamma_multiply(0.15)
-    }
-
-    /// Get the message bubble background for others' messages.
-    fn other_message_bg(&self) -> Color32 {
-        self.theme.bg_elevated()
-    }
-
-    /// Get the agent message background (subtle purple/accent tint).
-    /// Each theme gets a carefully tuned background that fits its palette.
-    fn agent_message_bg(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(245, 243, 255), // Purple-50 (soft lavender)
-            AppTheme::Nord => Color32::from_rgb(76, 86, 106).gamma_multiply(0.5), // Nord polar night
-            AppTheme::Gruvbox => Color32::from_rgb(80, 73, 69),                   // Gruvbox bg2
-            AppTheme::Dark => Color32::from_rgb(88, 86, 122).gamma_multiply(0.3), // Subtle purple
-        }
-    }
-
-    /// Get the system message color.
-    fn system_message_color(&self) -> Color32 {
-        self.theme.text_tertiary()
-    }
-
-    /// Get embedded chart border color (accent with transparency).
-    fn chart_embed_border(&self) -> Color32 {
-        self.theme.accent_primary().gamma_multiply(0.5)
-    }
-
-    /// Get message hover background.
-    fn message_hover_bg(&self) -> Color32 {
-        self.theme.bg_hover()
-    }
-
-    /// Get avatar ring color for agents (premium glow effect).
-    fn agent_avatar_ring(&self) -> Color32 {
-        self.theme.accent_primary().gamma_multiply(0.3)
+    /// Get the chat colors helper for the current theme.
+    fn colors(&self) -> ChatColors {
+        ChatColors::new(self.theme)
     }
 
     // =========================================================================
@@ -512,7 +477,7 @@ impl ChatView {
                 ui.label(
                     RichText::new(&message.content)
                         .size(typography::XS)
-                        .color(self.system_message_color())
+                        .color(self.colors().system_message())
                         .italics(),
                 );
             });
@@ -550,7 +515,7 @@ impl ChatView {
                         ui.painter().circle_filled(
                             avatar_rect.center(),
                             avatar_size / 2.0 + 2.0,
-                            self.agent_avatar_ring(),
+                            self.colors().agent_avatar_ring(),
                         );
                     }
 
@@ -617,12 +582,13 @@ impl ChatView {
                         });
 
                         // Message bubble with premium corner radius
+                        let colors = self.colors();
                         let bg_color = if is_agent {
-                            self.agent_message_bg()
+                            colors.agent_message_bg()
                         } else if is_own {
-                            self.own_message_bg()
+                            colors.own_message_bg()
                         } else {
-                            self.other_message_bg()
+                            colors.other_message_bg()
                         };
 
                         egui::Frame::new()
@@ -669,7 +635,7 @@ impl ChatView {
             ui.painter().rect_filled(
                 response.rect.expand(2.0),
                 CornerRadius::same(4),
-                self.message_hover_bg(),
+                self.colors().message_hover_bg(),
             );
         }
 
@@ -837,7 +803,7 @@ impl ChatView {
         ui.painter().rect_stroke(
             rect,
             CornerRadius::same(8),
-            Stroke::new(2.0, self.chart_embed_border()),
+            Stroke::new(2.0, self.colors().chart_embed_border()),
             StrokeKind::Inside,
         );
 

@@ -40,7 +40,7 @@ use enya_team_api::UserId;
 
 use super::chat_view::{ChatView, ChatViewAction, ChatViewMode};
 use super::thread::ThreadPriority;
-use super::{Channel, ChannelId, ChatState, Thread, ThreadId};
+use super::{Channel, ChannelId, ChatColors, ChatState, Thread, ThreadId};
 use crate::components::widget::team_menu::{MemberPresence, TeamMember};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -201,41 +201,9 @@ impl ChannelsPanel {
     // Premium styling helpers
     // =========================================================================
 
-    /// Get the selection highlight color for this theme.
-    fn selection_bg(&self) -> Color32 {
-        self.theme.accent_primary().gamma_multiply(0.15)
-    }
-
-    /// Get the nav highlight color (keyboard navigation).
-    fn nav_highlight_bg(&self) -> Color32 {
-        self.theme.accent_primary().gamma_multiply(0.08)
-    }
-
-    /// Get the hover background color.
-    fn hover_bg(&self) -> Color32 {
-        self.theme.bg_hover()
-    }
-
-    /// Get the divider color.
-    fn divider_color(&self) -> Color32 {
-        self.theme.border_subtle()
-    }
-
-    /// Get the unread badge color (theme-aware).
-    fn unread_badge_color(&self) -> Color32 {
-        // Use accent color for unread badges - looks better across themes
-        self.theme.accent_primary()
-    }
-
-    /// Get the critical badge color.
-    fn critical_badge_color(&self) -> Color32 {
-        // Red/error color for critical items
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(220, 38, 38), // Red-600
-            AppTheme::Nord => Color32::from_rgb(191, 97, 106), // Nord aurora red
-            AppTheme::Gruvbox => Color32::from_rgb(204, 36, 29), // Gruvbox red
-            AppTheme::Dark => Color32::from_rgb(239, 82, 82),  // Semantic error
-        }
+    /// Get the chat colors helper for the current theme.
+    fn colors(&self) -> ChatColors {
+        ChatColors::new(self.theme)
     }
 
     // =========================================================================
@@ -461,7 +429,7 @@ impl ChannelsPanel {
         ui.painter().hline(
             (rect.left() + 12.0)..=(rect.right() - 12.0),
             y,
-            Stroke::new(1.0, self.divider_color()),
+            Stroke::new(1.0, self.colors().divider()),
         );
         ui.add_space(8.0);
     }
@@ -556,13 +524,14 @@ impl ChannelsPanel {
 
         // Background with smooth corners
         let content_rect = rect.shrink2(egui::vec2(6.0, 2.0));
+        let colors = self.colors();
         if highlight {
             let bg_color = if is_selected {
-                self.selection_bg()
+                colors.selection_bg()
             } else if is_nav_selected {
-                self.nav_highlight_bg()
+                colors.nav_highlight_bg()
             } else {
-                self.hover_bg()
+                colors.hover_bg()
             };
             ui.painter()
                 .rect_filled(content_rect, CornerRadius::same(8), bg_color);
@@ -583,7 +552,7 @@ impl ChannelsPanel {
 
         // Priority icon with glow effect for critical
         let icon_color = match thread.priority {
-            ThreadPriority::Critical => self.critical_badge_color(),
+            ThreadPriority::Critical => colors.critical_badge(),
             ThreadPriority::High => self.theme.accent_primary(),
             ThreadPriority::Normal => self.theme.text_tertiary(),
         };
@@ -634,9 +603,9 @@ impl ChannelsPanel {
             );
 
             let badge_color = if thread.priority == ThreadPriority::Critical {
-                self.critical_badge_color()
+                colors.critical_badge()
             } else {
-                self.unread_badge_color()
+                colors.unread_badge()
             };
 
             ui.painter()
@@ -724,8 +693,11 @@ impl ChannelsPanel {
 
             let response = ui.add(add_btn);
             if response.hovered() {
-                ui.painter()
-                    .rect_filled(response.rect, CornerRadius::same(4), self.hover_bg());
+                ui.painter().rect_filled(
+                    response.rect,
+                    CornerRadius::same(4),
+                    self.colors().hover_bg(),
+                );
             }
             if response.clicked() {
                 action = Some(ChannelsPanelAction::CreateChannel);
@@ -754,13 +726,14 @@ impl ChannelsPanel {
 
         // Background with smooth corners
         let content_rect = rect.shrink2(egui::vec2(6.0, 2.0));
+        let colors = self.colors();
         if highlight {
             let bg_color = if is_selected {
-                self.selection_bg()
+                colors.selection_bg()
             } else if is_nav_selected {
-                self.nav_highlight_bg()
+                colors.nav_highlight_bg()
             } else {
-                self.hover_bg()
+                colors.hover_bg()
             };
             ui.painter()
                 .rect_filled(content_rect, CornerRadius::same(6), bg_color);
@@ -825,7 +798,7 @@ impl ChannelsPanel {
             );
 
             ui.painter()
-                .rect_filled(badge_rect, CornerRadius::same(9), self.unread_badge_color());
+                .rect_filled(badge_rect, CornerRadius::same(9), colors.unread_badge());
             ui.painter().text(
                 badge_rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -910,10 +883,11 @@ impl ChannelsPanel {
 
             // Hover/selection background
             if response.hovered() || is_nav_selected {
+                let colors = self.colors();
                 let bg_color = if is_nav_selected {
-                    self.nav_highlight_bg()
+                    colors.nav_highlight_bg()
                 } else {
-                    self.hover_bg()
+                    colors.hover_bg()
                 };
                 ui.painter()
                     .rect_filled(content_rect, CornerRadius::same(4), bg_color);
@@ -991,8 +965,11 @@ impl ChannelsPanel {
 
         // Hover background
         if response.hovered() {
-            ui.painter()
-                .rect_filled(content_rect, CornerRadius::same(4), self.hover_bg());
+            ui.painter().rect_filled(
+                content_rect,
+                CornerRadius::same(4),
+                self.colors().hover_bg(),
+            );
         }
 
         // Focus indicator (left accent bar)

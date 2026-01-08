@@ -100,6 +100,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Refactored chat module colors**: Extracted shared color helpers into `chat/theme_helpers.rs`
+  - New `ChatColors` struct provides theme-aware colors for chat UI elements
+  - Consolidates duplicate color logic from `chat_view.rs` and `channels_panel.rs`
+  - Semantic color methods: `selection_bg()`, `hover_bg()`, `own_message_bg()`, `agent_message_bg()`, etc.
+  - All themes (Dark, Light, Nord, Gruvbox) have consistent color semantics
+
 - **Renamed `[codebase]` to `[git]` in workspace config**: The workspace TOML section for git repository integration has been renamed from `[codebase]` to `[git]` to better reflect its purpose. The internal `CodebaseConfig` struct is now `GitConfig`. The fields (`url`, `branch`, `language`) remain the same.
 
 - **Inline endpoint support in workspace config**: You can now specify the Prometheus endpoint directly in the `[workspace]` section for simpler workspaces:
