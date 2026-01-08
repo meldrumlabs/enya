@@ -667,6 +667,28 @@ impl QueryPane {
         self.edit_requested = false;
     }
 
+    // ==================== Annotation Methods ====================
+
+    /// Add an annotation to the visualization's chart.
+    pub fn add_annotation(&mut self, annotation: super::annotation::Annotation) {
+        self.visualization.add_annotation(annotation);
+    }
+
+    /// Update an existing annotation in the visualization's chart.
+    pub fn update_annotation(&mut self, annotation: super::annotation::Annotation) {
+        self.visualization.update_annotation(annotation);
+    }
+
+    /// Remove an annotation from the visualization's chart.
+    pub fn remove_annotation(&mut self, id: super::annotation::AnnotationId) {
+        self.visualization.remove_annotation(id);
+    }
+
+    /// Get all annotations from the visualization's chart.
+    pub fn annotations(&self) -> Vec<&super::annotation::Annotation> {
+        self.visualization.annotations()
+    }
+
     /// Render the query pane
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {

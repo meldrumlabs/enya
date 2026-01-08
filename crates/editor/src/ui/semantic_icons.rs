@@ -222,6 +222,11 @@ pub mod status {
     pub const VISUAL: &str = regular::SELECTION;
     pub const SEARCH: &str = regular::MAGNIFY;
     pub const COMMAND_MODE: &str = regular::TERMINAL;
+
+    // Notifications
+    pub const NOTIFICATION: &str = regular::BELL;
+    pub const NOTIFICATION_NEW: &str = regular::BELL_BADGE;
+    pub const ALERT: &str = regular::ALERT;
 }
 
 // ============================================================================
@@ -261,6 +266,7 @@ pub mod nav {
     pub const HELP: &str = regular::HELP_CIRCLE;
     pub const BACK: &str = regular::ARROW_LEFT;
     pub const FORWARD: &str = regular::ARROW_RIGHT;
+    pub const SWITCH: &str = regular::SWAP_HORIZONTAL;
 }
 
 // ============================================================================
@@ -314,6 +320,11 @@ pub mod action {
     pub const ROBOT: &str = regular::ROBOT;
     pub const BRAIN: &str = regular::BRAIN;
     pub const TOOL: &str = regular::WRENCH;
+
+    // Account operations
+    pub const SETTINGS: &str = regular::COG_1;
+    pub const LOGOUT: &str = regular::LOGOUT;
+    pub const LOGIN: &str = regular::LOGIN;
 }
 
 // ============================================================================
@@ -481,6 +492,22 @@ pub mod statusline {
     pub const RECORDING: &str = regular::RECORD;
     pub const CLOCK: &str = regular::CLOCK_OUTLINE;
     pub const REFRESH: &str = regular::SYNC;
+}
+
+// ============================================================================
+// Social/Team Icons - icons for team collaboration features
+// ============================================================================
+
+pub mod social {
+    use egui_nerdfonts::regular;
+
+    pub const TEAM: &str = regular::ACCOUNT_GROUP;
+    pub const USER: &str = regular::ACCOUNT;
+    pub const USERS: &str = regular::ACCOUNT_MULTIPLE;
+    pub const COMMENT: &str = regular::COMMENT;
+    pub const COMMENTS: &str = regular::COMMENT_MULTIPLE;
+    pub const MENTION: &str = regular::AT;
+    pub const CHAT: &str = regular::CHAT;
 }
 
 // ============================================================================

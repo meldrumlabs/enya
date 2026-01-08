@@ -23,6 +23,7 @@ use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
 };
 use crate::connection::ConnectionManager;
+use crate::team::TeamState;
 use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
 use crate::workspace::{TabBarAction, WorkspaceAction, WorkspaceTabBar};
@@ -67,6 +68,9 @@ pub struct EnyaApp {
     // Whether we've checked URL for workspace parameter (WASM only)
     #[cfg(target_arch = "wasm32")]
     checked_url_workspace: bool,
+
+    // Team collaboration state (disabled by default, can be enabled with TeamConfig)
+    team_state: TeamState,
 }
 
 impl EnyaApp {
@@ -120,6 +124,8 @@ impl EnyaApp {
             is_fullscreen: false,
             #[cfg(target_arch = "wasm32")]
             checked_url_workspace: false,
+            // Team state starts disabled - can be enabled later via connect()
+            team_state: TeamState::default(),
         }
     }
 
@@ -174,6 +180,10 @@ impl EnyaApp {
 
         // Update status line state
         self.status_line.set_theme(self.state.theme);
+
+        // Set team status (only shows when connected)
+        self.status_line
+            .set_team_status(self.team_state.status_info());
 
         // Set mode based on current UI state
         // Note: Zen/Fullscreen are display preferences, not modes - user stays in Normal mode
@@ -376,6 +386,17 @@ impl EnyaApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                // Update workspace team status, members, and chat state before rendering
+                tab.workspace.set_team_status(self.team_state.status_info());
+                tab.workspace
+                    .set_team_members(self.team_state.members().to_vec());
+                // Set chat state when team mode is active
+                if self.team_state.is_connected() {
+                    tab.workspace
+                        .set_chat_state(self.team_state.chat_state().clone());
+                } else {
+                    tab.workspace.clear_chat_state();
+                }
                 workspace_action = tab.workspace.show(ui, ctx, &self.state);
             }
         });
@@ -500,6 +521,22 @@ impl EnyaApp {
                 self.workspace_tabs.rename_active_tab(name.clone());
                 self.save_workspace(Some(&name));
             }
+            WorkspaceAction::ToggleTeamDemo => {
+                self.team_state.toggle_demo_mode();
+                let msg = if self.team_state.is_demo() {
+                    "Team demo mode enabled"
+                } else {
+                    "Team demo mode disabled"
+                };
+                self.notifications
+                    .notify(Notification::new(msg, NotificationLevel::Info));
+            }
+            WorkspaceAction::OpenAnnotationEditor => {
+                // Open annotation editor on the focused pane
+                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+                    tab.workspace.open_annotation_editor();
+                }
+            }
         }
     }
 
@@ -563,6 +600,9 @@ impl eframe::App for EnyaApp {
 
         // Poll connection manager for completed health checks
         self.poll_connection();
+
+        // Poll team state for events (presence changes, mentions, etc.)
+        self.team_state.poll(ctx);
 
         // Handle workspace tab navigation shortcuts at app level
         self.check_tab_navigation(ctx);
@@ -667,11 +707,12 @@ impl eframe::App for EnyaApp {
                 });
         }
 
+        // Draw bottom panel with connection info etc.
+        // IMPORTANT: Must be drawn BEFORE main content so CentralPanel knows to reserve space
+        self.show_bottom_panel(ctx);
+
         // Draw main content
         self.show_main_content(ctx);
-
-        // Draw bottom panel with connection info etc.
-        self.show_bottom_panel(ctx);
 
         // Draw notifications (on top of everything)
         self.notifications.set_theme(self.state.theme);

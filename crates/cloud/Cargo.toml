@@ -1,0 +1,52 @@
+[package]
+name = "enya-cloud"
+version.workspace = true
+edition.workspace = true
+license = "UNLICENSED"
+description = "Enya team collaboration backend (SaaS)"
+publish = false
+
+[[bin]]
+name = "enya-cloud"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+enya-team-api = { path = "../team-api" }
+
+# Web framework
+axum = { workspace = true, features = ["ws", "macros", "json", "query"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+futures-util = "0.3"
+
+# Async runtime
+tokio = { workspace = true, features = ["full"] }
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono"] }
+
+# Auth
+jsonwebtoken = "9.3"
+urlencoding = "2.1"
+
+# HTTP client
+reqwest = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Utils
+uuid = { version = "1.11", features = ["v4", "serde"] }
+chrono = { workspace = true, features = ["serde"] }
+anyhow = "1.0"
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+# Config
+dotenvy = "0.15"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

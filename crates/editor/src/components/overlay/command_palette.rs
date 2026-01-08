@@ -67,6 +67,8 @@ pub enum CommandResult {
     SetFont(EditorFont),
     /// Set auto-refresh interval (off/10s/30s/1m/5m/15m)
     SetRefresh(String),
+    /// Toggle team demo mode
+    TeamDemo,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -145,6 +147,12 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "refresh",
         aliases: &["r"],
         description: "Set auto-refresh interval (off/10s/30s/1m/5m/15m)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "team",
+        aliases: &[],
+        description: "Team collaboration (demo to enable demo mode)",
         kind: CommandKind::SingleArg,
     },
 ];
@@ -426,6 +434,20 @@ impl CommandPalette {
                     CommandResult::SetRefresh(args[0].to_lowercase())
                 }
             }
+            "team" => {
+                // :team demo - toggle team demo mode
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :team demo".to_string())
+                } else {
+                    match args[0].to_lowercase().as_str() {
+                        "demo" => CommandResult::TeamDemo,
+                        _ => CommandResult::Error(format!(
+                            "Unknown team command: {}. Use 'demo'",
+                            args[0]
+                        )),
+                    }
+                }
+            }
             _ => CommandResult::None,
         }
     }
@@ -490,7 +512,7 @@ impl CommandPalette {
 
         egui::Area::new(egui::Id::new("command_palette"))
             .anchor(anchor, offset)
-            .order(egui::Order::Foreground)
+            .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
 

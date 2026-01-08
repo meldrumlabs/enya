@@ -865,6 +865,50 @@ impl AppTheme {
     }
 
     // =========================================================================
+    // Annotation Colors (Team collaboration annotations on charts)
+    // =========================================================================
+
+    /// Normal priority annotation color (notes/comments)
+    pub fn annotation_normal(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(59, 130, 246), // Bright blue for visibility on light
+            Self::Gruvbox => Color32::from_rgb(131, 165, 152), // Gruvbox aqua
+            Self::Nord => Color32::from_rgb(136, 192, 208), // Nord frost cyan
+            Self::Dark => Color32::from_rgb(100, 149, 237), // Cornflower blue
+        }
+    }
+
+    /// Important priority annotation color (highlighted)
+    pub fn annotation_important(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(245, 158, 11), // Amber for light theme
+            Self::Gruvbox => Color32::from_rgb(254, 128, 25), // Gruvbox orange
+            Self::Nord => Color32::from_rgb(235, 203, 139), // Nord aurora yellow
+            Self::Dark => Color32::from_rgb(255, 165, 0),   // Orange
+        }
+    }
+
+    /// Critical priority annotation color (alert-style)
+    pub fn annotation_critical(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(220, 38, 38), // Red-600 for light
+            Self::Gruvbox => Color32::from_rgb(251, 73, 52), // Gruvbox red
+            Self::Nord => Color32::from_rgb(191, 97, 106), // Nord aurora red
+            Self::Dark => Color32::from_rgb(220, 53, 69),  // Bootstrap red
+        }
+    }
+
+    /// Resolved annotation color (dimmed/inactive)
+    pub fn annotation_resolved(&self) -> Color32 {
+        match self {
+            Self::Light => Color32::from_rgb(156, 163, 175), // Gray-400
+            Self::Gruvbox => Color32::from_rgb(146, 131, 116), // Gruvbox gray
+            Self::Nord => Color32::from_rgb(76, 86, 106),    // Nord polar night light
+            Self::Dark => Color32::GRAY,
+        }
+    }
+
+    // =========================================================================
     // Diff Colors (Git diff visualization)
     // =========================================================================
 

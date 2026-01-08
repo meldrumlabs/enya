@@ -5,6 +5,8 @@ pub mod buffer;
 pub mod landing_page;
 pub mod notifications;
 pub mod status_line;
+pub mod team_menu;
+pub mod team_status;
 pub mod time_range;
 
 pub use agent_input_bar::{
@@ -14,4 +16,6 @@ pub use buffer::{Buffer, BufferAction, BufferMode};
 pub use landing_page::{LandingPage, LandingPageAction};
 pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use status_line::{Sparkline, StatusLine, StatusMode};
+pub use team_menu::{MemberPresence, TeamMember, TeamMenu, TeamMenuAction};
+pub use team_status::{TeamStatusInfo, TeamStatusWidget};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};

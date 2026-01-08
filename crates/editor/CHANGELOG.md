@@ -6,6 +6,77 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Team chat channels panel with Split View**: A Zed-inspired left sidebar for team collaboration with channels, threads, and inline chat:
+  - `Channel` - Hierarchical channels with kinds (General, Incidents, Deployments, Alerts, Custom)
+  - `Thread` - Conversation threads with priority levels (Normal, High, Critical) and status tracking
+  - `ChatMessage` - Messages with support for @mentions (users, agents, charts)
+  - `ChatState` - State management for channels, threads, and messages with demo data
+  - `ChannelsPanel` - Threads-first sidebar component showing:
+    - Active threads at the top (pinned, critical, or with unread) for quick incident access
+    - Collapsible channel tree with unread badges
+    - Slack/Discord-style team presence section with member names
+  - **Split View Chat** (Option A): When a channel or thread is selected, the panel expands to show:
+    - Left: Compact sidebar with threads, channels, and team members
+    - Right: Chat message view with conversation history
+    - Message input with @mention support and send button
+    - Chart embed button for inline plots in chat
+    - Dynamic panel sizing (220-400px sidebar only, 400-800px with chat open)
+    - Escape key to close split view
+  - `ChatView` component with:
+    - Header showing channel/thread name with back and close buttons
+    - Message bubbles with author avatars and timestamps
+    - Different styling for own messages, other users, and AI agents
+    - Agent badge for AI-generated messages
+    - System messages (centered, italic)
+    - Message reactions display
+    - Inline chart embed placeholders (click to navigate)
+  - Premium UX styling:
+    - Theme-aware colors (Dark, Nord, Gruvbox, Light themes)
+    - Smooth hover states with subtle backgrounds
+    - Left accent bars for selected items
+    - Pill-style unread badges with theme accent colors
+    - Subtle section dividers
+    - Premium tooltips for team members with presence status
+  - Keyboard navigation (Tab to switch sections, arrows to navigate - j/k reserved for viewport)
+  - AI agent integration through @agent mentions in chat messages
+  - **Workspace integration**: Channels panel shows as a resizable left sidebar when team mode is active
+    - Auto-opens when `:team demo` command activates team mode
+    - Toggle with `Space+g` keyboard shortcut
+    - Dynamic width based on split view state
+  - **Full-screen chat takeover**: When a channel or thread is selected, the chat takes over the entire workspace
+    - Hides the plots viewport to provide a full-screen chat experience
+    - Escape key or back button restores the normal viewport with plots
+    - `Space+g` shortcut works to close chat and return to viewport
+    - `:` command palette works when chat input is not focused
+    - Proper layout with fixed header (48px), scrollable messages, and fixed input (64px)
+    - Input area correctly respects the app status bar at the bottom
+
+- **Chart annotations for team collaboration**: Pin comments to specific points or time ranges on charts for team communication:
+  - `Annotation` - Data structure with message, author, priority (Normal/Important/Critical), and target (Point/Range/DataPoint)
+  - Annotations render as vertical lines for all target types (matching commit marker style)
+  - Hover over annotations to see author, message, and resolved status in a tooltip
+  - Priority colors: blue (Normal), orange (Important), red (Critical), gray (Resolved)
+  - "Add Annotation" action in team menu opens annotation editor overlay
+  - Keyboard navigation: `]a` / `[a` to jump between annotations, `gn` to toggle visibility
+  - Demo charts include sample annotations with varying priorities
+  - Annotation editor modal with message input, priority selector, and save/cancel actions
+
+- **Team collaboration state management**: Added a decoupled `TeamState` module for optional team collaboration features. The editor continues to work normally without team features enabled:
+  - `TeamConfig` - Configuration struct with optional `server_url` and `auth_token`
+  - `TeamState` - Wraps `TeamManager` from `enya-team-api` with a clean polling interface
+  - Optional connectivity - `TeamState::default()` returns a disconnected state
+  - Presence tracking - tracks online/idle/offline status for team members
+  - Unread notification count for mentions
+  - `status_info()` returns `None` when not connected, hiding team UI automatically
+  - Integrated into `EnyaApp`: polls for team events each frame, passes status to status line and workspace
+  - Space+t keyboard shortcut to toggle team menu (when connected)
+  - Demo mode (`:team demo`) for testing the team UI without a backend
+  - Sleek centered overlay design matching the unified finder UX:
+    - Frosted glass styling with premium shadow
+    - Keyboard navigation (↑/↓/j/k for items, Tab to switch sections, Enter to select, Esc to close)
+    - Two sections: MEMBERS (with presence dots and viewing status) and ACTIONS
+    - Hover and selection highlighting with accent colors
+
 - **Pane descriptions**: Panes now support an optional `description` field for providing context:
   ```toml
   [[panes]]

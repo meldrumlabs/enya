@@ -16,6 +16,39 @@ impl Workspace {
     /// Returns an optional WorkspaceAction if a key triggered an action.
     #[profiling::function]
     pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<WorkspaceAction> {
+        // When chat split view is active, handle ':' and 'Space+g' even if something has focus
+        // (unless the chat text input specifically has focus - checked via input consumption)
+        if self.channels_panel_visible && self.channels_panel.is_split_view_active() {
+            let mut close_chat = false;
+            let mut open_command_palette = false;
+            ctx.input_mut(|input| {
+                // ':' - open command palette
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Colon) {
+                    open_command_palette = true;
+                }
+
+                // Space - leader key for sequences
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
+                    self.leader_keys.press_space();
+                }
+
+                // Space+g - toggle channels panel (closes chat)
+                if self.leader_keys.is_space_active()
+                    && input.consume_key(egui::Modifiers::NONE, egui::Key::G)
+                {
+                    close_chat = true;
+                    self.leader_keys.clear_space();
+                }
+            });
+            if open_command_palette {
+                self.command_palette.open();
+            }
+            if close_chat {
+                self.toggle_channels_panel();
+            }
+            return None;
+        }
+
         // Don't handle keys if a text field or modal has focus
         if ctx.memory(|mem| mem.focused().is_some()) {
             return None;
@@ -80,6 +113,7 @@ impl Workspace {
         let mut should_open_codebase_finder = false;
         let mut should_show_home = false;
         let mut should_toggle_diagnostics = false;
+        let mut should_toggle_team_menu = false;
         let mut should_edit_buffer = false;
         let mut should_go_to_definition = false;
         let mut should_go_to_alert = false;
@@ -213,6 +247,24 @@ impl Workspace {
                 #[cfg(not(target_arch = "wasm32"))]
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
                     should_open_codebase_finder = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+t - toggle team menu (only when connected to a team)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
+                    should_toggle_team_menu = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+g - toggle channels panel (only when connected to a team)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::G) {
+                    if self.team_status.is_some() {
+                        self.toggle_channels_panel();
+                    }
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -678,6 +730,14 @@ impl Workspace {
         if should_toggle_diagnostics {
             self.toggle_diagnostics();
             ctx.request_repaint();
+        }
+
+        if should_toggle_team_menu {
+            // Only toggle if team is connected
+            if self.team_status.is_some() {
+                self.toggle_team_menu();
+                ctx.request_repaint();
+            }
         }
 
         if should_toggle_agent_panel {
