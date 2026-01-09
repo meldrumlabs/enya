@@ -44,6 +44,17 @@ pub mod util;
 /// Workspace runtime (pane layout), configuration (serialization), and tab management.
 pub mod workspace;
 
+/// Team collaboration state management (optional, works without team features).
+pub mod team;
+
+/// Team chat: channels, threads, and messages for collaboration.
+pub mod chat;
+
+pub use chat::{
+    Channel, ChannelId, ChannelKind, ChannelsPanel, ChannelsPanelAction, ChatMessage,
+    ChatMessageAuthor, ChatState, Mention, MentionKind, MessageId, Thread, ThreadId, ThreadStatus,
+};
+pub use team::{TeamConfig, TeamState};
 pub use workspace::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
 
 pub use app::EnyaApp;

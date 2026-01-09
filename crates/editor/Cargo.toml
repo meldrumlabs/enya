@@ -26,6 +26,8 @@ egui_tiles = { workspace = true, features = ["serde"] }
 egui_plot = { workspace = true }
 enya-promql = { workspace = true }
 enya-client = { workspace = true }
+enya-team-api = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

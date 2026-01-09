@@ -6,6 +6,120 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Team chat channels panel with Split View**: A Zed-inspired left sidebar for team collaboration with channels, threads, and inline chat:
+  - `Channel` - Hierarchical channels with kinds (General, Incidents, Deployments, Alerts, Custom)
+  - `Thread` - Conversation threads with priority levels (Normal, High, Critical) and status tracking
+  - `ChatMessage` - Messages with support for @mentions (users, agents, charts)
+  - `ChatState` - State management for channels, threads, and messages with demo data
+  - `ChannelsPanel` - Threads-first sidebar component showing:
+    - Active threads at the top (pinned, critical, or with unread) for quick incident access
+    - Collapsible channel tree with unread badges
+    - Slack/Discord-style team presence section with member names
+  - **Split View Chat** (Option A): When a channel or thread is selected, the panel expands to show:
+    - Left: Compact sidebar with threads, channels, and team members
+    - Right: Chat message view with conversation history
+    - Message input with @mention support and send button
+    - Chart embed button for inline plots in chat
+    - Dynamic panel sizing (220-400px sidebar only, 400-800px with chat open)
+    - Escape key to close split view
+  - `ChatView` component with:
+    - Header showing channel/thread name with back and close buttons
+    - Message bubbles with author avatars and timestamps
+    - Different styling for own messages, other users, and AI agents
+    - Agent badge for AI-generated messages
+    - System messages (centered, italic)
+    - Message reactions display
+    - Inline chart embed placeholders (click to navigate)
+  - **Inline time series charts in messages**: Share metrics data directly in chat with snapshot embedding:
+    - `InlineChart` struct holds `Vec<Series>` data captured at share time
+    - Charts render as full `TimeSeriesChart` components with axes and values
+    - Compact mode (legend hidden) fits naturally in message flow
+    - Data is frozen at share time - all team members see identical metrics
+    - Themed frame with chart icon header matching message bubble style
+    - Demo data shows P99 latency spike scenario with realistic data points
+  - **@pane autocomplete for chart sharing**: Type `@` in chat to mention and embed pane data:
+    - `PaneInfo` struct provides pane names and series data for autocomplete
+    - Autocomplete popup appears above input when typing `@` followed by any characters
+    - Fuzzy filtering matches pane names as you type
+    - Arrow keys, Tab, and Enter for navigation and selection
+    - Escape to dismiss the autocomplete popup
+    - Selected pane creates an `InlineChart` snapshot attached to the message
+    - Visual indicator shows when a chart is pending attachment
+    - Series count shown in autocomplete dropdown for each pane
+  - **#commit reference autocomplete in chat**: Type `#` in chat to reference commits and open diff viewer:
+    - `CommitInfo` struct provides commit hash, message, timestamp, and diff data
+    - Autocomplete popup shows commit history as you type `#` followed by query
+    - Commit hash displayed in monospace with full message and relative timestamp
+    - Fuzzy search filters by hash and commit message
+    - Arrow keys, Tab, and Enter for navigation and selection
+    - Selected commit inserts clickable `[#hash]` reference in message
+    - Clickable commit references in rendered messages open the diff viewer
+    - Git commit icon with premium accent styling for commit links
+    - Codebase search integration via `SearchChatCommits` action
+  - **Extended inline visualizations in chat**: Beyond time series charts, team members can share various data visualizations:
+    - `InlineVisualization` enum supporting multiple visualization types
+    - `InlineStat` - Single stat cards showing key metrics with trend indicators:
+      - Large value display with label and optional subtitle
+      - Trend arrows (up/down/neutral) with semantic colors (red for up = bad, green for down = good)
+      - Previous value comparison display
+    - `InlineTable` - Tabular data for structured information:
+      - Header row with column names
+      - Auto-sized columns with truncation for long values
+      - "... and N more rows" indicator when rows exceed max display
+    - `InlineBarChart` - Horizontal bar charts for categorical comparisons:
+      - Labels, bars, and value annotations
+      - Background track with filled bar overlay
+      - Cycling color palette (accent, blue, purple, yellow)
+      - Max value scaling for proportional bar widths
+    - Theme-aware colors in `ChatColors` for trends and chart palettes
+    - Demo data showcases all visualization types in the incident response thread
+  - Premium UX styling:
+    - Theme-aware colors (Dark, Nord, Gruvbox, Light themes)
+    - Smooth hover states with subtle backgrounds
+    - Left accent bars for selected items
+    - Pill-style unread badges with theme accent colors
+    - Subtle section dividers
+    - Premium tooltips for team members with presence status
+  - Keyboard navigation (Tab to switch sections, arrows to navigate - j/k reserved for viewport)
+  - AI agent integration through @agent mentions in chat messages
+  - **Workspace integration**: Channels panel shows as a resizable left sidebar when team mode is active
+    - Auto-opens when `:team demo` command activates team mode
+    - Toggle with `Space+g` keyboard shortcut
+    - Dynamic width based on split view state
+  - **Full-screen chat takeover**: When a channel or thread is selected, the chat takes over the entire workspace
+    - Hides the plots viewport to provide a full-screen chat experience
+    - Escape key or back button restores the normal viewport with plots
+    - `Space+g` shortcut works to close chat and return to viewport
+    - `:` command palette works when chat input is not focused
+    - Proper layout with fixed header (48px), scrollable messages, and fixed input (64px)
+    - Input area correctly respects the app status bar at the bottom
+
+- **Chart annotations for team collaboration**: Pin comments to specific points or time ranges on charts for team communication:
+  - `Annotation` - Data structure with message, author, priority (Normal/Important/Critical), and target (Point/Range/DataPoint)
+  - Annotations render as vertical lines for all target types (matching commit marker style)
+  - Hover over annotations to see author, message, and resolved status in a tooltip
+  - Priority colors: blue (Normal), orange (Important), red (Critical), gray (Resolved)
+  - "Add Annotation" action in team menu opens annotation editor overlay
+  - Keyboard navigation: `]a` / `[a` to jump between annotations, `gn` to toggle visibility
+  - Demo charts include sample annotations with varying priorities
+  - Annotation editor modal with message input, priority selector, and save/cancel actions
+
+- **Team collaboration state management**: Added a decoupled `TeamState` module for optional team collaboration features. The editor continues to work normally without team features enabled:
+  - `TeamConfig` - Configuration struct with optional `server_url` and `auth_token`
+  - `TeamState` - Wraps `TeamManager` from `enya-team-api` with a clean polling interface
+  - Optional connectivity - `TeamState::default()` returns a disconnected state
+  - Presence tracking - tracks online/idle/offline status for team members
+  - Unread notification count for mentions
+  - `status_info()` returns `None` when not connected, hiding team UI automatically
+  - Integrated into `EnyaApp`: polls for team events each frame, passes status to status line and workspace
+  - Space+t keyboard shortcut to toggle team menu (when connected)
+  - Demo mode (`:team demo`) for testing the team UI without a backend
+  - Sleek centered overlay design matching the unified finder UX:
+    - Frosted glass styling with premium shadow
+    - Keyboard navigation (↑/↓/j/k for items, Tab to switch sections, Enter to select, Esc to close)
+    - Two sections: MEMBERS (with presence dots and viewing status) and ACTIONS
+    - Hover and selection highlighting with accent colors
+
 - **Pane descriptions**: Panes now support an optional `description` field for providing context:
   ```toml
   [[panes]]
@@ -26,6 +140,64 @@ All notable changes to the Enya editor will be documented in this file.
   - Use `:refresh <interval>` (or `:r`) command to change at runtime
   - A countdown timer appears in the toolbar when refresh is active
   - Refresh interval is saved when exporting workspaces
+
+### Changed
+
+- **Refactored chat module colors**: Extracted shared color helpers into `chat/theme_helpers.rs`
+  - New `ChatColors` struct provides theme-aware colors for chat UI elements
+  - Consolidates duplicate color logic from `chat_view.rs` and `channels_panel.rs`
+  - Semantic color methods: `selection_bg()`, `hover_bg()`, `own_message_bg()`, `agent_message_bg()`, etc.
+  - All themes (Dark, Light, Nord, Gruvbox) have consistent color semantics
+
+- **Team API runtime fix**: Fixed crash when using `:team connect` command on native platforms:
+  - `TeamClient` now requires a `tokio::runtime::Handle` for spawning async HTTP requests
+  - `TeamManager` accepts and passes runtime handle to client on connect
+  - `TeamState` sets runtime via `set_async_runtime()` before connecting
+  - Error message shown if connect attempted without runtime handle set
+
+- **Fixed WebSocket 403 error**: WebSocket now connects with the correct team ID from the API:
+  - Added `list_teams()` method to `TeamClient` to fetch user's teams
+  - Two-phase authentication: first fetches user, then fetches teams
+  - WebSocket connects using the actual team ID from the server instead of a random UUID
+  - `pending_teams` and `pending_user` fields track auth state during connection
+
+- **WebSocket status indicator in team status**: The status line now shows real-time WebSocket connection state:
+  - `WsState` enum: Connected, Connecting, Reconnecting, Failed, Disconnected
+  - Visual indicators: no symbol when connected, `...` connecting, `~` reconnecting, `!` failed, `-` disconnected
+  - Hover tooltip shows detailed WebSocket status (e.g., "Real-time: connected")
+  - `TeamStatusInfo` now includes `ws_state` field populated from `TeamManager`
+  - Demo mode simulates connected state for testing
+
+- **Cloud backend channels API**: Full REST API and WebSocket support for team chat channels:
+  - New `enya-team-api` types: `Channel`, `ChannelKind`, `ChatThread`, `NewChannel`, `NewThread`, `InlineChartData`
+  - New `TeamEvent` variants: `ChannelCreated`, `ThreadCreated`, `ThreadResolved`
+  - Cloud API endpoints (`enya-cloud`):
+    - `GET/POST /teams/{team_id}/channels` - List and create channels
+    - `GET /teams/{team_id}/channels/{channel_id}` - Get channel details
+    - `GET/POST /teams/{team_id}/channels/{channel_id}/threads` - List and create threads
+    - `GET/POST /teams/{team_id}/channels/{channel_id}/threads/{thread_id}/messages` - Messages in threads
+    - `POST /teams/{team_id}/channels/{channel_id}/threads/{thread_id}/resolve` - Mark thread resolved
+  - Database models: `DbChannel`, `DbChannelThread` with conversions to API types
+  - Real-time broadcasting of channel/thread events via WebSocket
+  - Client methods: `list_channels()`, `create_channel()`, `list_channel_threads()`, `create_thread()`, `list_channel_messages()`, `send_channel_message()`
+  - `TeamManager` caching: Automatic caching for channels, threads, and messages with cache invalidation on create operations
+  - Real-time event handling in `TeamState::poll()`: Updates caches when `ChannelCreated`, `ThreadCreated`, and `ThreadResolved` events arrive via WebSocket
+
+- **Chat module types use UUID**: Editor chat types (`ChannelId`, `ThreadId`, `MessageId`) now use `Uuid` to match API types, enabling seamless synchronization with the cloud backend:
+  - `Channel::from_api()`, `Thread::from_api()`, `ChatMessage::from_api()` - Convert API types to editor types
+  - `ChannelKind::from_api()` / `ChannelKind::to_api()` - Convert between editor and API channel kinds
+
+### Fixed
+
+- **Chat messages now appear after sending**: Fixed bug where messages added through the chat input would not appear in the conversation. The root cause was that `workspace.chat_state` was being cloned from `team_state.chat_state` on every frame, overwriting any locally added messages. Messages are now added directly to `team_state.chat_state` via a new `WorkspaceAction::SendChatMessage` action, ensuring they persist across frames.
+
+- **Channel and thread creation now works**: Fixed clicking the "+" button to create channels and threads. Added `WorkspaceAction::CreateChannel` and `WorkspaceAction::CreateThread` actions that route through `EnyaApp` to `TeamState`. In demo mode, channels/threads are created locally; in live mode, API calls are made to the cloud backend. A notification appears to confirm the action.
+  - Added `pending_channel_creates` to track API create operations and poll for completion
+  - When API responds, the channel is added to cache and a `ChannelCreated` event is emitted
+  - Channels now have unique names with timestamps (e.g., "channel-1234")
+  - Fixed sync logic to update chat state when manager has more channels (not just on initial load)
+
+- **ChatState passed by reference instead of cloning**: Refactored to pass `&ChatState` to `workspace.show()` instead of cloning every frame. This improves performance and clarifies ownership - `TeamState` owns the `ChatState`, workspace only borrows it for rendering.
 
 ### Changed
 

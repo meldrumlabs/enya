@@ -627,6 +627,11 @@ impl QueryPane {
         self.refresh_chart();
     }
 
+    /// Get a reference to the visualization.
+    pub fn visualization(&self) -> &Visualization {
+        &self.visualization
+    }
+
     /// Get a mutable reference to the visualization (for external query execution)
     pub fn visualization_mut(&mut self) -> &mut Visualization {
         &mut self.visualization
@@ -665,6 +670,28 @@ impl QueryPane {
     /// Clear the edit requested flag (called after workspace handles it)
     pub fn clear_edit_requested(&mut self) {
         self.edit_requested = false;
+    }
+
+    // ==================== Annotation Methods ====================
+
+    /// Add an annotation to the visualization's chart.
+    pub fn add_annotation(&mut self, annotation: super::annotation::Annotation) {
+        self.visualization.add_annotation(annotation);
+    }
+
+    /// Update an existing annotation in the visualization's chart.
+    pub fn update_annotation(&mut self, annotation: super::annotation::Annotation) {
+        self.visualization.update_annotation(annotation);
+    }
+
+    /// Remove an annotation from the visualization's chart.
+    pub fn remove_annotation(&mut self, id: super::annotation::AnnotationId) {
+        self.visualization.remove_annotation(id);
+    }
+
+    /// Get all annotations from the visualization's chart.
+    pub fn annotations(&self) -> Vec<&super::annotation::Annotation> {
+        self.visualization.annotations()
     }
 
     /// Render the query pane

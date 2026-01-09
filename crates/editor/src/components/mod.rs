@@ -32,9 +32,9 @@ pub use overlay::{
 // Re-export from widget
 pub use widget::{
     AgentInputBar, AgentInputBarResult, AgentInputState, Buffer, BufferAction, BufferMode,
-    ContextPane, LandingPage, LandingPageAction, Notification, NotificationLevel,
-    NotificationManager, QuickCommand, Sparkline, StatusLine, StatusMode, TimeRange,
-    TimeRangePreset, TimeRangeToolbar,
+    ContextPane, LandingPage, LandingPageAction, MemberPresence, Notification, NotificationLevel,
+    NotificationManager, QuickCommand, Sparkline, StatusLine, StatusMode, TeamMember, TeamMenu,
+    TeamMenuAction, TeamStatusInfo, TimeRange, TimeRangePreset, TimeRangeToolbar,
 };
 
 // Re-export from util

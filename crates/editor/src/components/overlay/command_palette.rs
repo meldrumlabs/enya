@@ -67,6 +67,12 @@ pub enum CommandResult {
     SetFont(EditorFont),
     /// Set auto-refresh interval (off/10s/30s/1m/5m/15m)
     SetRefresh(String),
+    /// Toggle team demo mode
+    TeamDemo,
+    /// Connect to team server with URL and token
+    TeamConnect { url: String, token: String },
+    /// Disconnect from team server
+    TeamDisconnect,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -145,6 +151,12 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "refresh",
         aliases: &["r"],
         description: "Set auto-refresh interval (off/10s/30s/1m/5m/15m)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "team",
+        aliases: &[],
+        description: "Team (demo | connect <url> <token> | disconnect)",
         kind: CommandKind::SingleArg,
     },
 ];
@@ -426,6 +438,38 @@ impl CommandPalette {
                     CommandResult::SetRefresh(args[0].to_lowercase())
                 }
             }
+            "team" => {
+                // :team demo - toggle team demo mode
+                // :team connect <url> <token> - connect to server
+                // :team disconnect - disconnect from server
+                if args.is_empty() {
+                    CommandResult::Error(
+                        "Usage: :team demo | :team connect <url> <token> | :team disconnect"
+                            .to_string(),
+                    )
+                } else {
+                    match args[0].to_lowercase().as_str() {
+                        "demo" => CommandResult::TeamDemo,
+                        "connect" => {
+                            if args.len() < 3 {
+                                CommandResult::Error(
+                                    "Usage: :team connect <url> <token>".to_string(),
+                                )
+                            } else {
+                                CommandResult::TeamConnect {
+                                    url: args[1].to_string(),
+                                    token: args[2].to_string(),
+                                }
+                            }
+                        }
+                        "disconnect" => CommandResult::TeamDisconnect,
+                        _ => CommandResult::Error(format!(
+                            "Unknown team command: {}. Use 'demo', 'connect', or 'disconnect'",
+                            args[0]
+                        )),
+                    }
+                }
+            }
             _ => CommandResult::None,
         }
     }
@@ -490,7 +534,7 @@ impl CommandPalette {
 
         egui::Area::new(egui::Id::new("command_palette"))
             .anchor(anchor, offset)
-            .order(egui::Order::Foreground)
+            .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
 

@@ -4,10 +4,12 @@ use egui_tiles::{Tile, TileId, Tiles};
 
 use crate::AsyncRuntime;
 use crate::app::AppState;
+use crate::chat::{ChannelsPanel, ChannelsPanelAction};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::CodebaseManager;
 #[cfg(target_arch = "wasm32")]
 use crate::components::NativePromoOverlay;
+use crate::components::overlay::{AnnotationEditor, AnnotationEditorResult};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::overlay::{CodebaseFinder, CodebaseFinderStatus, DiffViewerOverlay};
 use crate::components::overlay::{FinderMode, UnifiedFinder};
@@ -16,9 +18,9 @@ use crate::components::{
     BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
     DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MetricsFinder, MultiBufferMode,
     MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
-    QuickCommand, SourcePreviewOverlay, SourcePreviewResult, TimeRangeToolbar, TutorialOverlay,
-    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
-    WorkspaceFinder,
+    QuickCommand, SourcePreviewOverlay, SourcePreviewResult, TeamMember, TeamMenu, TeamMenuAction,
+    TeamStatusInfo, TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult,
+    WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -115,6 +117,32 @@ pub enum WorkspaceAction {
     RenameCurrentWorkspace(String),
     /// Rename and save the current workspace (used after workspace creation)
     RenameAndSaveWorkspace(String),
+    /// Toggle team demo mode (for testing UI without backend)
+    ToggleTeamDemo,
+    /// Connect to team server
+    TeamConnect { url: String, token: String },
+    /// Disconnect from team server
+    TeamDisconnect,
+    /// Open the annotation editor for the focused pane
+    OpenAnnotationEditor,
+    /// Send a chat message (with optional inline chart or visualization)
+    SendChatMessage {
+        text: String,
+        chart: Option<crate::chat::InlineChart>,
+        visualization: Option<crate::chat::InlineVisualization>,
+        thread_id: Option<crate::chat::ThreadId>,
+    },
+    /// Create a new channel
+    CreateChannel { name: String },
+    /// Create a new thread in a channel
+    CreateThread {
+        channel_id: crate::chat::ChannelId,
+        title: String,
+    },
+    /// Search commits for # autocomplete in chat
+    SearchChatCommits { query: String },
+    /// Open diff viewer from a commit reference in chat
+    OpenDiffViewer { hash: String, diff: String },
 }
 
 /// The main viewport layout with a flexible tile tree for views/charts.
@@ -226,6 +254,18 @@ pub struct Workspace {
     native_promo_overlay: NativePromoOverlay,
     /// Unified finder (Telescope-style fuzzy finder)
     unified_finder: UnifiedFinder,
+    /// Team collaboration menu (only shown when connected to a team)
+    team_menu: TeamMenu,
+    /// Team collaboration status (only shown when connected to a team)
+    team_status: Option<TeamStatusInfo>,
+    /// Team members for the team menu (populated by EnyaApp from TeamState)
+    team_members: Vec<TeamMember>,
+    /// Annotation editor overlay
+    annotation_editor: AnnotationEditor,
+    /// Channels panel sidebar (shown when connected to a team)
+    channels_panel: ChannelsPanel,
+    /// Whether the channels panel sidebar is visible
+    channels_panel_visible: bool,
 }
 
 impl Workspace {
@@ -305,6 +345,12 @@ impl Workspace {
             #[cfg(target_arch = "wasm32")]
             native_promo_overlay: NativePromoOverlay::new(),
             unified_finder: UnifiedFinder::new(),
+            team_menu: TeamMenu::new(),
+            team_status: None,
+            team_members: Vec::new(),
+            annotation_editor: AnnotationEditor::new(),
+            channels_panel: ChannelsPanel::new(),
+            channels_panel_visible: false,
         }
     }
 
@@ -314,6 +360,7 @@ impl Workspace {
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         app_state: &AppState,
+        chat_state: Option<&crate::chat::ChatState>,
     ) -> WorkspaceAction {
         self.behavior.set_theme(app_state.theme);
         self.behavior
@@ -480,8 +527,186 @@ impl Workspace {
             return self.show_landing_page(ui, ctx, app_state);
         }
 
-        // Main area with toolbar and viewport
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        // Check if chat split view is active (takes over main area)
+        let chat_split_view_active = self.channels_panel_visible
+            && self.team_status.is_some()
+            && self.channels_panel.is_split_view_active();
+
+        // Left sidebar: Channels panel (when team mode is active, but NOT in split view)
+        // When split view is active, the chat takes over the entire central panel
+        let mut pending_message: Option<(
+            String,
+            Option<crate::chat::InlineChart>,
+            Option<crate::chat::InlineVisualization>,
+        )> = None;
+        let mut pending_create_channel = false;
+        let mut pending_create_thread: Option<crate::chat::ChannelId> = None;
+        let mut pending_commit_search: Option<String> = None;
+        let mut pending_diff_viewer: Option<(String, String)> = None;
+        if self.channels_panel_visible && self.team_status.is_some() && !chat_split_view_active {
+            if let Some(chat_state) = chat_state {
+                // Update available panes for @-mention autocomplete
+                let pane_info = self.collect_pane_info();
+                self.channels_panel.set_available_panes(pane_info);
+
+                egui::SidePanel::left("channels_panel")
+                    .resizable(true)
+                    .min_width(220.0)
+                    .default_width(280.0)
+                    .max_width(400.0)
+                    .show_inside(ui, |ui| {
+                        self.channels_panel.set_theme(app_state.theme);
+                        match self.channels_panel.show(
+                            ui,
+                            chat_state.threads(),
+                            chat_state.channels(),
+                            &self.team_members,
+                            chat_state,
+                        ) {
+                            ChannelsPanelAction::SelectChannel(id) => {
+                                log::info!("Selected channel: {id:?}");
+                                self.channels_panel.select_channel(id);
+                            }
+                            ChannelsPanelAction::SelectThread(id) => {
+                                log::info!("Selected thread: {id:?}");
+                                self.channels_panel.select_thread(id);
+                            }
+                            ChannelsPanelAction::CreateThread(channel_id) => {
+                                log::info!("Create thread in channel: {channel_id:?}");
+                                pending_create_thread = Some(channel_id);
+                            }
+                            ChannelsPanelAction::CreateChannel => {
+                                log::info!("Create new channel");
+                                pending_create_channel = true;
+                            }
+                            ChannelsPanelAction::SelectMember(user_id) => {
+                                log::info!("Selected member: {user_id:?}");
+                            }
+                            ChannelsPanelAction::StartDM(user_id) => {
+                                log::info!("Start DM with: {user_id:?}");
+                            }
+                            ChannelsPanelAction::SendMessage {
+                                text,
+                                chart,
+                                visualization,
+                            } => {
+                                pending_message = Some((text, chart, visualization));
+                            }
+                            ChannelsPanelAction::SearchCommits(query) => {
+                                pending_commit_search = Some(query);
+                            }
+                            ChannelsPanelAction::OpenDiffViewer { hash, diff } => {
+                                pending_diff_viewer = Some((hash, diff));
+                            }
+                            ChannelsPanelAction::None => {}
+                        }
+                    });
+            }
+        }
+
+        // Full-screen chat view (when split view is active, takes over entire central panel)
+        if chat_split_view_active {
+            if let Some(chat_state) = chat_state {
+                // Update available panes for @-mention autocomplete
+                let pane_info = self.collect_pane_info();
+                self.channels_panel.set_available_panes(pane_info);
+
+                egui::CentralPanel::default().show_inside(ui, |ui| {
+                    self.channels_panel.set_theme(app_state.theme);
+                    match self.channels_panel.show(
+                        ui,
+                        chat_state.threads(),
+                        chat_state.channels(),
+                        &self.team_members,
+                        chat_state,
+                    ) {
+                        ChannelsPanelAction::SelectChannel(id) => {
+                            log::info!("Selected channel: {id:?}");
+                            self.channels_panel.select_channel(id);
+                        }
+                        ChannelsPanelAction::SelectThread(id) => {
+                            log::info!("Selected thread: {id:?}");
+                            self.channels_panel.select_thread(id);
+                        }
+                        ChannelsPanelAction::CreateThread(channel_id) => {
+                            log::info!("Create thread in channel: {channel_id:?}");
+                            pending_create_thread = Some(channel_id);
+                        }
+                        ChannelsPanelAction::CreateChannel => {
+                            log::info!("Create new channel");
+                            pending_create_channel = true;
+                        }
+                        ChannelsPanelAction::SelectMember(user_id) => {
+                            log::info!("Selected member: {user_id:?}");
+                        }
+                        ChannelsPanelAction::StartDM(user_id) => {
+                            log::info!("Start DM with: {user_id:?}");
+                        }
+                        ChannelsPanelAction::SendMessage {
+                            text,
+                            chart,
+                            visualization,
+                        } => {
+                            pending_message = Some((text, chart, visualization));
+                        }
+                        ChannelsPanelAction::SearchCommits(query) => {
+                            pending_commit_search = Some(query);
+                        }
+                        ChannelsPanelAction::OpenDiffViewer { hash, diff } => {
+                            pending_diff_viewer = Some((hash, diff));
+                        }
+                        ChannelsPanelAction::None => {}
+                    }
+                });
+            }
+        }
+
+        // Handle pending message (after chat_state borrow is released)
+        // Return action to app so message is added to team_state.chat_state (not the clone)
+        if let Some((text, chart, visualization)) = pending_message {
+            let thread_id = self.channels_panel.selected_thread();
+            return WorkspaceAction::SendChatMessage {
+                text,
+                chart,
+                visualization,
+                thread_id,
+            };
+        }
+
+        // Handle pending create channel (after chat_state borrow is released)
+        if pending_create_channel {
+            // Generate unique channel name with timestamp
+            let timestamp = crate::util::now_unix_secs();
+            return WorkspaceAction::CreateChannel {
+                name: format!("channel-{}", timestamp % 10000),
+            };
+        }
+
+        // Handle pending create thread (after chat_state borrow is released)
+        if let Some(channel_id) = pending_create_thread {
+            // Generate unique thread title with timestamp
+            let timestamp = crate::util::now_unix_secs();
+            return WorkspaceAction::CreateThread {
+                channel_id,
+                title: format!("thread-{}", timestamp % 10000),
+            };
+        }
+
+        // Handle pending commit search (for # autocomplete in chat)
+        if let Some(query) = pending_commit_search {
+            return WorkspaceAction::SearchChatCommits { query };
+        }
+
+        // Handle pending diff viewer request (from commit click in chat)
+        if let Some((hash, diff)) = pending_diff_viewer {
+            return WorkspaceAction::OpenDiffViewer { hash, diff };
+        }
+
+        if chat_split_view_active {
+            // Already rendered chat in central panel above
+        } else {
+            // Main area with toolbar and viewport
+            egui::CentralPanel::default().show_inside(ui, |ui| {
             // Top toolbar with time range controls (hidden in zen mode)
             if !self.zen_mode {
                 // Get countdown before borrowing self mutably
@@ -619,6 +844,7 @@ impl Workspace {
                 }
             });
         });
+        } // end else (not chat_split_view_active)
 
         // Show fuzzy finder modal (rendered on top of everything)
         self.metrics_finder.set_theme(app_state.theme);
@@ -773,6 +999,49 @@ impl Workspace {
 
         // Note: agent_input_bar.poll() is now called at the start of show()
         // to ensure agent-created panes are available for immediate query execution
+
+        // Show team menu (only when connected to a team)
+        // The menu renders as a centered overlay (like unified finder)
+        if let Some(ref status) = self.team_status {
+            self.team_menu.set_theme(app_state.theme);
+
+            // Get team name and current user ID from status
+            let team_name = status.team_name.as_deref();
+            let current_user_id = None; // TODO: Get from TeamState
+
+            match self
+                .team_menu
+                .show(ctx, &self.team_members, team_name, current_user_id)
+            {
+                TeamMenuAction::AddAnnotation => {
+                    log::info!("Team action: Add annotation");
+                    // Open annotation editor on the focused pane
+                    self.open_annotation_editor();
+                }
+                TeamMenuAction::ShareView => {
+                    log::info!("Team action: Share current view");
+                    // TODO: Implement share view via TeamClient
+                }
+                TeamMenuAction::StartWarRoom => {
+                    log::info!("Team action: Start war room");
+                    // TODO: Implement war room mode
+                }
+                TeamMenuAction::OpenSettings => {
+                    log::info!("Team action: Open settings");
+                    // TODO: Implement team settings
+                }
+                TeamMenuAction::SwitchTeam => {
+                    log::info!("Team action: Switch team");
+                    // TODO: Implement team switcher
+                }
+                TeamMenuAction::SignOut => {
+                    log::info!("Team action: Sign out");
+                    // Clear team status to disconnect
+                    self.team_status = None;
+                }
+                TeamMenuAction::None => {}
+            }
+        }
 
         // Poll codebase manager for async operations (native only with codebase feature)
         #[cfg(not(target_arch = "wasm32"))]
@@ -1035,6 +1304,45 @@ impl Workspace {
         self.diagnostics_pane.set_theme(app_state.theme);
         self.diagnostics_pane.show_overlay(ctx);
 
+        // Show annotation editor overlay modal
+        self.annotation_editor.set_theme(app_state.theme);
+        match self.annotation_editor.show(ctx) {
+            AnnotationEditorResult::Created(annotation) => {
+                // Add annotation to the focused pane's chart
+                if let Some(focused_id) = self.behavior.focused_tile() {
+                    if let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(focused_id) {
+                        if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
+                            query_pane.add_annotation(annotation);
+                            log::info!("Added annotation to focused pane");
+                        }
+                    }
+                }
+            }
+            AnnotationEditorResult::Updated(annotation) => {
+                // Update annotation in the focused pane
+                if let Some(focused_id) = self.behavior.focused_tile() {
+                    if let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(focused_id) {
+                        if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
+                            query_pane.update_annotation(annotation);
+                            log::info!("Updated annotation in focused pane");
+                        }
+                    }
+                }
+            }
+            AnnotationEditorResult::Deleted(id) => {
+                // Remove annotation from the focused pane
+                if let Some(focused_id) = self.behavior.focused_tile() {
+                    if let Some(Tile::Pane(pane)) = self.viewport_tree.tiles.get_mut(focused_id) {
+                        if let Some(query_pane) = pane.as_any_mut().downcast_mut::<QueryPane>() {
+                            query_pane.remove_annotation(id);
+                            log::info!("Removed annotation from focused pane");
+                        }
+                    }
+                }
+            }
+            AnnotationEditorResult::Cancelled | AnnotationEditorResult::None => {}
+        }
+
         // Handle Space+d for diagnostics on landing page
         // (viewport keyboard handling doesn't run on landing page)
         if !self.metrics_finder.is_open()
@@ -1112,6 +1420,11 @@ impl Workspace {
                     }
                 }
             }
+            CommandResult::TeamDemo => WorkspaceAction::ToggleTeamDemo,
+            CommandResult::TeamConnect { url, token } => {
+                WorkspaceAction::TeamConnect { url, token }
+            }
+            CommandResult::TeamDisconnect => WorkspaceAction::TeamDisconnect,
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
             }
@@ -1258,6 +1571,57 @@ impl Workspace {
     /// Check if fullscreen mode is active
     pub fn is_fullscreen(&self) -> bool {
         self.fullscreen_tile.is_some()
+    }
+
+    /// Get team collaboration status (for status line display)
+    pub fn team_status(&self) -> Option<TeamStatusInfo> {
+        self.team_status.clone()
+    }
+
+    /// Set team collaboration status (called when connection status changes)
+    pub fn set_team_status(&mut self, status: Option<TeamStatusInfo>) {
+        self.team_status = status;
+    }
+
+    /// Set team members for the team menu (called from EnyaApp with TeamState data)
+    pub fn set_team_members(&mut self, members: Vec<TeamMember>) {
+        self.team_members = members;
+    }
+
+    /// Show channels panel when team mode becomes active.
+    pub fn show_channels_panel(&mut self) {
+        if self.team_status.is_some() && !self.channels_panel_visible {
+            self.channels_panel_visible = true;
+        }
+    }
+
+    /// Hide channels panel (called when disconnecting from team).
+    pub fn hide_channels_panel(&mut self) {
+        self.channels_panel_visible = false;
+    }
+
+    /// Toggle channels panel sidebar visibility
+    pub fn toggle_channels_panel(&mut self) {
+        self.channels_panel_visible = !self.channels_panel_visible;
+    }
+
+    /// Check if channels panel is visible
+    pub fn is_channels_panel_visible(&self) -> bool {
+        self.channels_panel_visible
+    }
+
+    /// Toggle team menu visibility
+    pub fn toggle_team_menu(&mut self) {
+        self.team_menu.toggle();
+    }
+
+    /// Open annotation editor for the focused pane.
+    /// Uses current time as the default annotation point.
+    pub fn open_annotation_editor(&mut self) {
+        // Get current time as default timestamp
+        let timestamp = crate::util::now_unix_secs() as f64;
+        // TODO: Get current user name from TeamState
+        self.annotation_editor.open_new(timestamp, Some("You"));
     }
 
     /// Check if the viewport filter input is open

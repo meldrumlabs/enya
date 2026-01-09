@@ -23,6 +23,7 @@ pub use suggester::{ResultCharacteristics, suggest_visualization};
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
+use super::annotation::{Annotation, AnnotationId};
 use super::time_series_chart::{CommitMarker, Series, TimeSeriesChart};
 
 /// Standard padding for visualization types (for consistent spacing)
@@ -422,6 +423,47 @@ impl Visualization {
             Self::Heatmap(_) => {
                 // Heatmaps don't use simple unit suffixes
             }
+        }
+    }
+
+    // ==================== Annotation Methods ====================
+
+    /// Add an annotation (only for time series charts).
+    pub fn add_annotation(&mut self, annotation: Annotation) {
+        if let Self::TimeSeries(chart) = self {
+            chart.add_annotation(annotation);
+        }
+    }
+
+    /// Update an existing annotation (only for time series charts).
+    pub fn update_annotation(&mut self, annotation: Annotation) {
+        if let Self::TimeSeries(chart) = self {
+            if let Some(existing) = chart.find_annotation_mut(annotation.id) {
+                *existing = annotation;
+            }
+        }
+    }
+
+    /// Remove an annotation (only for time series charts).
+    pub fn remove_annotation(&mut self, id: AnnotationId) {
+        if let Self::TimeSeries(chart) = self {
+            chart.remove_annotation(id);
+        }
+    }
+
+    /// Get all annotations (only for time series charts).
+    pub fn annotations(&self) -> Vec<&Annotation> {
+        if let Self::TimeSeries(chart) = self {
+            chart.annotations().iter().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Toggle annotations visibility (only for time series charts).
+    pub fn toggle_annotations(&mut self) {
+        if let Self::TimeSeries(chart) = self {
+            chart.toggle_annotations();
         }
     }
 }

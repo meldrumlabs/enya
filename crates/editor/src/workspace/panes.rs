@@ -866,6 +866,116 @@ impl Workspace {
             .collect()
     }
 
+    /// Collect pane info from all open QueryPane components.
+    ///
+    /// Used by the chat @-mention autocomplete to let users share visualizations in messages.
+    pub(super) fn collect_pane_info(&self) -> Vec<crate::chat::PaneInfo> {
+        use crate::chat::PaneVisualization;
+        use crate::components::pane::visualization::VisualizationType;
+
+        self.get_pane_tile_ids()
+            .iter()
+            .filter_map(|&tile_id| {
+                if let Some(egui_tiles::Tile::Pane(component)) =
+                    self.viewport_tree.tiles.get(tile_id)
+                {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        let viz = query_pane.visualization();
+                        let viz_type = viz.viz_type();
+                        let name = query_pane.name().to_string();
+
+                        let pane_viz = match viz_type {
+                            VisualizationType::TimeSeries => {
+                                if let Some(ts_chart) = viz.as_time_series() {
+                                    PaneVisualization::TimeSeries {
+                                        series: ts_chart.series().to_vec(),
+                                    }
+                                } else {
+                                    return None;
+                                }
+                            }
+                            VisualizationType::Stat => {
+                                if let Some(stat) = viz.as_stat() {
+                                    PaneVisualization::Stat {
+                                        value: stat.value(),
+                                        unit: stat.unit().to_string(),
+                                        sparkline: stat.sparkline_data().to_vec(),
+                                    }
+                                } else {
+                                    return None;
+                                }
+                            }
+                            VisualizationType::Gauge => {
+                                if let Some(gauge) = viz.as_gauge() {
+                                    PaneVisualization::Gauge {
+                                        value: gauge.value(),
+                                        min: gauge.min(),
+                                        max: gauge.max(),
+                                        unit: gauge.unit().to_string(),
+                                    }
+                                } else {
+                                    return None;
+                                }
+                            }
+                            VisualizationType::BarChart => {
+                                if let Some(bar) = viz.as_bar_chart() {
+                                    PaneVisualization::BarChart {
+                                        bars: bar
+                                            .bars()
+                                            .iter()
+                                            .map(|b| (b.label.clone(), b.value))
+                                            .collect(),
+                                    }
+                                } else {
+                                    return None;
+                                }
+                            }
+                            VisualizationType::Sparkline => {
+                                if let Some(spark) = viz.as_sparkline() {
+                                    PaneVisualization::Sparkline {
+                                        data: spark.data().to_vec(),
+                                    }
+                                } else {
+                                    return None;
+                                }
+                            }
+                            VisualizationType::Heatmap => PaneVisualization::Heatmap,
+                        };
+
+                        return Some(crate::chat::PaneInfo {
+                            name,
+                            viz_type,
+                            visualization: pane_viz,
+                        });
+                    }
+                }
+                None
+            })
+            .collect()
+    }
+
+    /// Set available commits for # reference autocomplete in chat.
+    pub fn set_chat_commits(&mut self, commits: Vec<crate::chat::CommitInfo>) {
+        self.channels_panel.set_available_commits(commits);
+    }
+
+    /// Open the diff viewer with specific content.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_diff_viewer_with_content(&mut self, hash: &str, diff: &str) {
+        log::info!("Opening diff viewer for commit from chat: {hash}");
+        self.diff_viewer.open(
+            hash,
+            &format!("Commit {}", &hash[..7.min(hash.len())]),
+            0,
+            diff,
+        );
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_diff_viewer_with_content(&mut self, _hash: &str, _diff: &str) {
+        // Diff viewer not available on WASM
+    }
+
     /// Recursively collect all pane tile IDs
     fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>) {
         if let Some(tile) = self.viewport_tree.tiles.get(tile_id) {
@@ -1115,7 +1225,7 @@ impl Workspace {
     ///
     /// Returns ranked search results for metrics, alerts, and commits.
     #[cfg(not(target_arch = "wasm32"))]
-    fn search_codebase(
+    pub fn search_codebase(
         &self,
         query: &str,
         filter: Option<&str>,
