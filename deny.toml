@@ -19,6 +19,9 @@ ignore = [
   "RUSTSEC-2025-0111", # tokio-tar vulnerability (via testcontainers)
   # wgpu dependencies - no alternative available
   "RUSTSEC-2024-0436", # paste unmaintained (via metal -> wgpu-hal)
+  # transitive dependencies we can't control - waiting for upstream updates
+  "RUSTSEC-2025-0141", # bincode unmaintained (via promql-parser, puffin)
+  "RUSTSEC-2026-0002", # lru unsound (via tantivy) - tantivy 0.25.0 pins lru 0.12.5
 ]
 
 [bans]
