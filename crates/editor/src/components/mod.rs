@@ -24,9 +24,9 @@ pub use overlay::{
     DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
     DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext, InfoOverlay, MessageRole,
     MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
-    SourcePreviewResult, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceItem, parse_commands,
-    strip_command_blocks,
+    SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
+    ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
+    WorkspaceItem, parse_commands, strip_command_blocks,
 };
 
 // Re-export from widget

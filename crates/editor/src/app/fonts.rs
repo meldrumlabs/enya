@@ -73,6 +73,14 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
         .families
         .insert(egui::FontFamily::Monospace, font_list);
 
+    // Register each font as a named family for direct access (e.g., in style picker previews)
+    for font_name in ["maple_mono", "departure_mono", "jetbrains_mono", "iosevka"] {
+        fonts.families.insert(
+            egui::FontFamily::Name(font_name.into()),
+            vec![font_name.to_owned(), "nerdfonts".to_owned()],
+        );
+    }
+
     // Tell egui to use these fonts:
     ctx.set_fonts(fonts);
 }

@@ -6,6 +6,73 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Unified Style Picker overlay** (`:style` command): A combined theme and font selector:
+  - Side-by-side layout: Theme panel on the left, Font panel on the right
+  - **Live preview**: Both theme and font change in real-time as you navigate
+  - See the immediate impact of font changes while browsing themes
+  - Theme panel with color palette bars (bg/elevated/accent/text preview)
+  - Font panel with Rust code sample rendered in each font's actual typeface
+  - Syntax highlighting in font preview: keywords in accent color
+  - Key cap styled keyboard hints in footer
+  - Panel switch animation with subtle glow effect
+  - Prominent active panel header with dot indicator and larger text
+  - Keyboard navigation: Tab/h/l to switch panels, ↑↓/jk to navigate, Enter to select, Esc to cancel
+  - Vim-style controls: Ctrl+N/P for navigation
+  - Focus indicator bar shows active panel
+  - "●" indicator marks current theme/font
+  - Cancel restores both original theme and font
+  - Aliases: `:st`, `:theme`, `:t`
+
+### Removed
+
+- **Old Theme Picker**: Removed separate `:theme` command overlay in favor of unified Style Picker
+- **Font command**: Removed `:font` command - use `:style` for both theme and font selection
+
+- **Sumi theme** - Japanese ink calligraphy-inspired monochrome light theme:
+  - Warm washi paper base (#F5F3EF) with brush black accent (#1A1A1A)
+  - Elegant, minimal, zen-like aesthetic inspired by traditional Japanese calligraphy
+  - Traditional Japanese color palette: Sumi black, Beni vermillion (#B43C32), Matcha green (#466E46), Ai indigo (#465A78), Yamabuki gold (#B48232)
+  - Aliases: `su`, `calligraphy`, `brush`, `japanese`, `washi`
+
+- **Five new Swedish-inspired light themes**: Added five distinctive light themes celebrating Swedish culture and nature:
+  - **Midsommar** - Swedish summer celebration with flag blue accent (#2563EB). Bright summer white base (#FEFEF5) capturing the endless daylight of Swedish midsummer. Aliases: `mid`, `summer`, `swedish-summer`, `flagblue`
+  - **Falu** - Swedish countryside with iconic Falu red accent (#802418). Weathered wood white base (#FAF8F5) inspired by the distinctive rödfärg seen on traditional Swedish barns and houses. Aliases: `fa`, `red`, `rodfarg`, `countryside`, `barn`
+  - **Birch** - Swedish forest (björkskog) with birch leaf green accent (#4A5D23). Birch bark white base (#FAFBF8) evoking the light, airy feel of Swedish birch forests. Aliases: `bi`, `bjork`, `bjorkskog`, `forest-light`
+  - **Fika** - Swedish coffee culture with coffee brown accent (#6F4E37). Cream/milk white base (#FBF8F4) celebrating the ritual of Swedish fika (coffee break). Aliases: `fi`, `coffee`, `kaffe`
+  - **Skärgård** - Stockholm archipelago with deep Baltic blue accent (#1E4D6B). Sea mist white base (#F8FBFC) inspired by the Stockholm island chain's maritime aesthetic. Aliases: `sk`, `archipelago`, `baltic`, `coastal`
+  - All themes feature complete color palettes optimized for code and time series visualization
+
+- **Four new original premium themes**: Added four distinctive themes with original color palettes:
+  - **Graphite** (dark) - Industrial precision with molten orange accent (#E85D04). Deep warm charcoal base (#121214) inspired by foundry aesthetics, warm off-white text for excellent readability. Aliases: `graph`, `industrial`, `foundry`, `molten`
+  - **Ink** (dark) - Monochrome editorial with pure silver accent (#C0C0C8). Blue-black base (#0A0A0F) for data-focused precision, cool typography-inspired palette. Aliases: `i`, `editorial`, `monochrome`, `silver`
+  - **Bone** (light) - Museum ivory with charcoal accent (#374151). Pure ivory base (#FEFDFB) with gallery-white aesthetics, elegant museum-like minimalism. Aliases: `bo`, `museum`, `ivory`, `gallery`
+  - **Sand** (light) - Desert warmth with terracotta brown accent (#9A6B4C). Warm sand base (#FAF7F2) with earthy tones, inspired by desert landscapes and natural materials. Aliases: `sa`, `desert`, `terracotta`, `earthy`
+  - All themes feature complete color palettes for backgrounds, borders, text, accents, syntax highlighting, charts, heatmaps, and diff visualization
+
+- **Five new Scandinavian light themes**: Added five premium light themes inspired by Nordic minimalism and design:
+  - **Stockholm** - Clean Nordic white with slate blue accent (#5C7A99). IKEA-inspired clarity with warm off-white backgrounds and maximum readability. Aliases: `sthlm`, `sto`, `ikea`, `nordic-white`
+  - **Copenhagen** - Danish hygge light with terracotta rose accent (#C4847A). Cozy warmth with creamy linen backgrounds and natural ceramic tones. Aliases: `cph`, `hygge`, `danish`, `linen`
+  - **Helsinki** - Finnish functionalism with forest green accent (#4A7C6F). Alvar Aalto-inspired with cool paper backgrounds and nature-meets-tech aesthetic. Aliases: `hel`, `finnish`, `aalto`, `forest`
+  - **Oslo** - Norwegian fjord light with deep fjord blue accent (#3D6B8C). Crisp glacier white backgrounds optimized for data visualization. Aliases: `osl`, `fjord`, `norwegian`
+  - **Reykjavik** - Icelandic minimal with volcanic gray accent (#2D3436). Extreme minimalism with pure snow backgrounds and stark contrasts. Aliases: `rvk`, `iceland`, `volcanic`, `snow`
+  - All themes feature carefully tuned contrast ratios for excellent readability and data visualization
+
+- **Two new Nordic-inspired dark themes**: Added two dark theme presets with Scandinavian inspiration:
+  - **Bergman** - Swedish foggy noir with steel silver accent (#A8B0C0). Inspired by Ingmar Bergman's cinematic style (The Seventh Seal), featuring muted foggy charcoal backgrounds with cool, understated silver tones for a contemplative, moody aesthetic.
+  - **Aurora** - Northern Lights with aurora teal accent (#7EE8B8). Deep night sky backgrounds with vibrant teal-green accents reminiscent of the aurora borealis, designed for excellent data visualization contrast.
+  - Both themes include complete color palettes for all UI elements, syntax highlighting, diffs, and chart visualizations
+  - Use `:theme bergman` (or aliases: `b`, `noir`, `fog`, `seventh-seal`) or `:theme aurora` (or aliases: `ar`, `northern`, `lights`, `borealis`) to switch
+
+- **Five new premium themes**: Added five new theme presets designed for premium UX feel, optimized for both code viewing and time series/chart visualization:
+  - **Midnight** - Deep space blue with electric blue accent (#3B82F6). Ultra-dark with navy undertones, inspired by Figma/Linear dark modes.
+  - **Rosé Pine** - Soft muted elegance with rose pink accent (#EBBCBA). Popular aesthetic theme with calming, low-contrast colors.
+  - **Catppuccin (Mocha)** - Warm pastel dark with mauve accent (#CBA6F7). Modern theme with warm, pastel accents that's easy on the eyes.
+  - **Ayu** - Soft amber warmth with orange accent (#FFB454). Refined dark theme with warm golden tones for a sophisticated feel.
+  - **Vesper** - Ultra-premium dark with warm amber accent (#FFC799). Near-black with subtle warm accents, inspired by fintech/trading platforms.
+  - All themes include complete color palettes for: backgrounds, borders, text, accents, syntax highlighting, visualization/chart colors, diff colors, and UI elements
+  - Theme-specific heatmap gradients for data visualization
+  - Use `:theme <name>` or aliases (`:theme cat`, `:theme rose`, `:theme midnight`, etc.) to switch
+
 - **Team chat channels panel with Split View**: A Zed-inspired left sidebar for team collaboration with channels, threads, and inline chat:
   - `Channel` - Hierarchical channels with kinds (General, Incidents, Deployments, Alerts, Custom)
   - `Thread` - Conversation threads with priority levels (Normal, High, Critical) and status tracking

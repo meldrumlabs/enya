@@ -443,11 +443,12 @@ impl EnyaApp {
                 self.state.settings.font = font;
                 // Apply the font change immediately
                 fonts::setup_fonts(ctx, font);
-                // Notify user
-                self.notifications.notify(Notification::new(
-                    format!("Font changed to {}", font.name()),
-                    NotificationLevel::Success,
-                ));
+            }
+            WorkspaceAction::SetThemeAndFont(theme, font) => {
+                // Restore both theme and font (used when cancelling style picker)
+                self.command_sender.send_ui(UICommand::Theme(theme));
+                self.state.settings.font = font;
+                fonts::setup_fonts(ctx, font);
             }
             WorkspaceAction::Notify { level, message } => {
                 let notification_level = match level.to_lowercase().as_str() {

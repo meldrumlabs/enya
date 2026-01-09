@@ -19,6 +19,7 @@ pub mod native_promo;
 mod preview;
 pub mod slash_commands;
 pub mod source_preview;
+pub mod style_picker;
 #[cfg(not(target_arch = "wasm32"))]
 mod syntax_highlight;
 pub mod tutorial;
@@ -57,6 +58,7 @@ pub use slash_commands::{
     SLASH_COMMANDS, SlashCommand, SlashCommandCategory, SlashCommandPopup, SlashCommandResult,
 };
 pub use source_preview::{SourcePreviewOverlay, SourcePreviewResult};
+pub use style_picker::{StylePicker, StylePickerResult, StyleTab};
 pub use tutorial::TutorialOverlay;
 pub use unified_finder::{FinderMode, UnifiedFinder, UnifiedFinderAction, UnifiedResult};
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
