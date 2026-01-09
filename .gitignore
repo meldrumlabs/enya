@@ -11,3 +11,20 @@ target_ra
 target_wasm
 
 .enya/
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Credentials
+*.pem
+*.key
+credentials.json

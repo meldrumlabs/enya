@@ -238,6 +238,11 @@ docker run -d --name enya-postgres \
 ### 2. Create `.env` file in `crates/cloud/`
 
 ```bash
+cp crates/cloud/.env.example crates/cloud/.env
+```
+
+Or create manually:
+```bash
 cat > crates/cloud/.env << 'EOF'
 DATABASE_URL=postgres://enya:enya@localhost:5432/enya
 JWT_SECRET=dev-secret-change-in-production
