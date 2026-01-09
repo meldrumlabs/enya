@@ -122,6 +122,11 @@ impl BarChartViz {
         self.sorted = sorted;
     }
 
+    /// Get a reference to the bars.
+    pub fn bars(&self) -> &[Bar] {
+        &self.bars
+    }
+
     /// Get bars sorted by value (descending) if sorted is true
     pub(crate) fn get_display_bars(&self) -> Vec<&Bar> {
         let mut bars: Vec<&Bar> = self.bars.iter().collect();

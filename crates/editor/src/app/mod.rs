@@ -386,18 +386,19 @@ impl EnyaApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                // Update workspace team status, members, and chat state before rendering
+                // Update workspace team status and members before rendering
                 tab.workspace.set_team_status(self.team_state.status_info());
                 tab.workspace
                     .set_team_members(self.team_state.members().to_vec());
-                // Set chat state when team mode is active
-                if self.team_state.is_connected() {
-                    tab.workspace
-                        .set_chat_state(self.team_state.chat_state().clone());
+                // Pass chat state reference when team mode is active
+                let chat_state = if self.team_state.is_connected() {
+                    tab.workspace.show_channels_panel();
+                    Some(self.team_state.chat_state())
                 } else {
-                    tab.workspace.clear_chat_state();
-                }
-                workspace_action = tab.workspace.show(ui, ctx, &self.state);
+                    tab.workspace.hide_channels_panel();
+                    None
+                };
+                workspace_action = tab.workspace.show(ui, ctx, &self.state, chat_state);
             }
         });
 
@@ -531,11 +532,76 @@ impl EnyaApp {
                 self.notifications
                     .notify(Notification::new(msg, NotificationLevel::Info));
             }
+            WorkspaceAction::TeamConnect { url, token } => {
+                // Set the async runtime before connecting (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                self.team_state
+                    .set_async_runtime(self.async_runtime.clone());
+
+                self.team_state.connect(&url, &token, ctx);
+                self.notifications.notify(Notification::new(
+                    format!("Connecting to team server: {url}"),
+                    NotificationLevel::Info,
+                ));
+            }
+            WorkspaceAction::TeamDisconnect => {
+                self.team_state.disconnect();
+                self.notifications.notify(Notification::new(
+                    "Disconnected from team server",
+                    NotificationLevel::Info,
+                ));
+            }
             WorkspaceAction::OpenAnnotationEditor => {
                 // Open annotation editor on the focused pane
                 if let Some(tab) = self.workspace_tabs.active_tab_mut() {
                     tab.workspace.open_annotation_editor();
                 }
+            }
+            WorkspaceAction::SendChatMessage {
+                text,
+                chart,
+                visualization,
+                thread_id,
+            } => {
+                // Add message to team_state.chat_state (the authoritative source)
+                use crate::chat::ChatMessage;
+                use enya_team_api::UserId;
+
+                let user_id = UserId::new_v4(); // TODO: Get from team_state
+                let mut message = ChatMessage::from_user(user_id, "You", &text);
+                if let Some(chart) = chart {
+                    message = message.with_inline_chart(chart);
+                }
+                if let Some(viz) = visualization {
+                    message = message.with_visualization(viz);
+                }
+                if let Some(tid) = thread_id {
+                    message.thread_id = Some(tid);
+                }
+
+                self.team_state.chat_state_mut().add_message(message);
+            }
+            WorkspaceAction::CreateChannel { name } => {
+                self.team_state.create_channel(&name, ctx);
+                self.notifications.notify(Notification::new(
+                    format!("Creating channel: {name}"),
+                    NotificationLevel::Info,
+                ));
+            }
+            WorkspaceAction::CreateThread { channel_id, title } => {
+                self.team_state.create_thread(channel_id, &title, ctx);
+                self.notifications.notify(Notification::new(
+                    format!("Creating thread: {title}"),
+                    NotificationLevel::Info,
+                ));
+            }
+            WorkspaceAction::SearchChatCommits { query } => {
+                // Search commits in the codebase index and provide to chat
+                self.search_chat_commits(&query);
+            }
+            WorkspaceAction::OpenDiffViewer { hash, diff } => {
+                // Open the diff viewer pane with the commit diff
+                self.open_diff_viewer(&hash, &diff);
             }
         }
     }
@@ -549,6 +615,61 @@ impl EnyaApp {
     fn open_command_palette(&mut self) {
         if let Some(tab) = self.workspace_tabs.active_tab_mut() {
             tab.workspace.open_command_palette();
+        }
+    }
+
+    /// Search commits for # autocomplete in chat.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn search_chat_commits(&mut self, query: &str) {
+        use crate::chat::CommitInfo;
+
+        if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+            // Search codebase for commits
+            let results = tab
+                .workspace
+                .search_codebase(query, Some("commits"), Some(10));
+
+            // Convert to CommitInfo for the chat
+            let commits: Vec<CommitInfo> = results
+                .into_iter()
+                .filter_map(|r| {
+                    if let crate::codebase::SearchResultKind::Commit {
+                        hash,
+                        timestamp,
+                        diff,
+                    } = r.kind
+                    {
+                        Some(CommitInfo {
+                            short_hash: if hash.len() >= 7 {
+                                hash[..7].to_string()
+                            } else {
+                                hash.clone()
+                            },
+                            full_hash: hash,
+                            message: r.name,
+                            timestamp,
+                            diff,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Provide commits to the channels panel
+            tab.workspace.set_chat_commits(commits);
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn search_chat_commits(&mut self, _query: &str) {
+        // Commit search is not available in WASM builds
+    }
+
+    /// Open the diff viewer with a commit diff.
+    fn open_diff_viewer(&mut self, hash: &str, diff: &str) {
+        if let Some(tab) = self.workspace_tabs.active_tab_mut() {
+            tab.workspace.open_diff_viewer_with_content(hash, diff);
         }
     }
 

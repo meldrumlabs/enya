@@ -38,7 +38,7 @@ use egui::{Color32, CornerRadius, RichText, ScrollArea, Stroke, Vec2};
 use egui_nerdfonts::regular;
 use enya_team_api::UserId;
 
-use super::chat_view::{ChatView, ChatViewAction, ChatViewMode};
+use super::chat_view::{ChatView, ChatViewAction, ChatViewMode, PaneInfo};
 use super::thread::ThreadPriority;
 use super::{Channel, ChannelId, ChatColors, ChatState, Thread, ThreadId};
 use crate::components::widget::team_menu::{MemberPresence, TeamMember};
@@ -62,6 +62,24 @@ pub enum ChannelsPanelAction {
     SelectMember(enya_team_api::UserId),
     /// User wants to start a DM with a member.
     StartDM(enya_team_api::UserId),
+    /// User sent a message (with optional inline chart or visualization).
+    SendMessage {
+        /// Message text content.
+        text: String,
+        /// Optional inline chart to attach.
+        chart: Option<super::InlineChart>,
+        /// Optional inline visualization to attach (stat, table, bar chart).
+        visualization: Option<super::InlineVisualization>,
+    },
+    /// User is searching for commits (# autocomplete in chat).
+    SearchCommits(String),
+    /// User clicked a commit reference to open diff viewer.
+    OpenDiffViewer {
+        /// Commit hash.
+        hash: String,
+        /// Full diff content.
+        diff: String,
+    },
 }
 
 /// Section collapse state.
@@ -142,6 +160,26 @@ impl ChannelsPanel {
     pub fn set_current_user(&mut self, user_id: Option<UserId>) {
         self.current_user_id = user_id;
         self.chat_view.set_current_user(user_id);
+    }
+
+    /// Set available panes for @mention autocomplete in chat.
+    pub fn set_available_panes(&mut self, panes: Vec<PaneInfo>) {
+        self.chat_view.set_available_panes(panes);
+    }
+
+    /// Set available commits for # reference autocomplete in chat.
+    pub fn set_available_commits(&mut self, commits: Vec<super::CommitInfo>) {
+        self.chat_view.set_available_commits(commits);
+    }
+
+    /// Get any pending chart to attach to the next message.
+    pub fn take_pending_chart(&mut self) -> Option<super::InlineChart> {
+        self.chat_view.take_pending_chart()
+    }
+
+    /// Get any pending visualization to attach to the next message.
+    pub fn take_pending_visualization(&mut self) -> Option<super::InlineVisualization> {
+        self.chat_view.take_pending_visualization()
     }
 
     /// Check if split view is active.
@@ -297,8 +335,14 @@ impl ChannelsPanel {
                         self.close_split_view();
                     }
                     ChatViewAction::SendMessage(text) => {
-                        // TODO: Actually send the message through chat_state
-                        log::info!("Would send message: {text}");
+                        // Return action to workspace to add message to chat state
+                        let chart = self.chat_view.take_pending_chart();
+                        let visualization = self.chat_view.take_pending_visualization();
+                        action = ChannelsPanelAction::SendMessage {
+                            text,
+                            chart,
+                            visualization,
+                        };
                     }
                     ChatViewAction::ResolveThread(thread_id) => {
                         action = ChannelsPanelAction::SelectThread(thread_id);
@@ -315,6 +359,12 @@ impl ChannelsPanel {
                     }
                     ChatViewAction::ViewUser(user_id) => {
                         action = ChannelsPanelAction::SelectMember(user_id);
+                    }
+                    ChatViewAction::SearchCommits(query) => {
+                        action = ChannelsPanelAction::SearchCommits(query);
+                    }
+                    ChatViewAction::OpenDiffViewer { hash, diff } => {
+                        action = ChannelsPanelAction::OpenDiffViewer { hash, diff };
                     }
                     _ => {}
                 }
@@ -1054,7 +1104,7 @@ mod tests {
     #[test]
     fn test_channel_selection() {
         let mut panel = ChannelsPanel::new();
-        let channel_id = ChannelId::new();
+        let channel_id = uuid::Uuid::new_v4();
 
         panel.select_channel(channel_id);
         assert_eq!(panel.selected_channel(), Some(channel_id));

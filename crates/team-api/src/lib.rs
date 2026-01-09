@@ -38,6 +38,7 @@ pub mod error;
 pub mod manager;
 pub mod promise;
 pub mod types;
+pub mod websocket;
 
 pub use client::TeamClient;
 pub use error::{TeamApiError, TeamApiResult};
@@ -45,6 +46,7 @@ pub use manager::TeamManager;
 pub use poll_promise::Promise;
 pub use promise::promise_channel;
 pub use types::*;
+pub use websocket::{RealtimeClient, WsConnectionState};
 
 /// Get the current Unix timestamp in seconds.
 /// Works on both native and WASM platforms.

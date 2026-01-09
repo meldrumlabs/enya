@@ -30,6 +30,49 @@ All notable changes to the Enya editor will be documented in this file.
     - System messages (centered, italic)
     - Message reactions display
     - Inline chart embed placeholders (click to navigate)
+  - **Inline time series charts in messages**: Share metrics data directly in chat with snapshot embedding:
+    - `InlineChart` struct holds `Vec<Series>` data captured at share time
+    - Charts render as full `TimeSeriesChart` components with axes and values
+    - Compact mode (legend hidden) fits naturally in message flow
+    - Data is frozen at share time - all team members see identical metrics
+    - Themed frame with chart icon header matching message bubble style
+    - Demo data shows P99 latency spike scenario with realistic data points
+  - **@pane autocomplete for chart sharing**: Type `@` in chat to mention and embed pane data:
+    - `PaneInfo` struct provides pane names and series data for autocomplete
+    - Autocomplete popup appears above input when typing `@` followed by any characters
+    - Fuzzy filtering matches pane names as you type
+    - Arrow keys, Tab, and Enter for navigation and selection
+    - Escape to dismiss the autocomplete popup
+    - Selected pane creates an `InlineChart` snapshot attached to the message
+    - Visual indicator shows when a chart is pending attachment
+    - Series count shown in autocomplete dropdown for each pane
+  - **#commit reference autocomplete in chat**: Type `#` in chat to reference commits and open diff viewer:
+    - `CommitInfo` struct provides commit hash, message, timestamp, and diff data
+    - Autocomplete popup shows commit history as you type `#` followed by query
+    - Commit hash displayed in monospace with full message and relative timestamp
+    - Fuzzy search filters by hash and commit message
+    - Arrow keys, Tab, and Enter for navigation and selection
+    - Selected commit inserts clickable `[#hash]` reference in message
+    - Clickable commit references in rendered messages open the diff viewer
+    - Git commit icon with premium accent styling for commit links
+    - Codebase search integration via `SearchChatCommits` action
+  - **Extended inline visualizations in chat**: Beyond time series charts, team members can share various data visualizations:
+    - `InlineVisualization` enum supporting multiple visualization types
+    - `InlineStat` - Single stat cards showing key metrics with trend indicators:
+      - Large value display with label and optional subtitle
+      - Trend arrows (up/down/neutral) with semantic colors (red for up = bad, green for down = good)
+      - Previous value comparison display
+    - `InlineTable` - Tabular data for structured information:
+      - Header row with column names
+      - Auto-sized columns with truncation for long values
+      - "... and N more rows" indicator when rows exceed max display
+    - `InlineBarChart` - Horizontal bar charts for categorical comparisons:
+      - Labels, bars, and value annotations
+      - Background track with filled bar overlay
+      - Cycling color palette (accent, blue, purple, yellow)
+      - Max value scaling for proportional bar widths
+    - Theme-aware colors in `ChatColors` for trends and chart palettes
+    - Demo data showcases all visualization types in the incident response thread
   - Premium UX styling:
     - Theme-aware colors (Dark, Nord, Gruvbox, Light themes)
     - Smooth hover states with subtle backgrounds
@@ -105,6 +148,58 @@ All notable changes to the Enya editor will be documented in this file.
   - Consolidates duplicate color logic from `chat_view.rs` and `channels_panel.rs`
   - Semantic color methods: `selection_bg()`, `hover_bg()`, `own_message_bg()`, `agent_message_bg()`, etc.
   - All themes (Dark, Light, Nord, Gruvbox) have consistent color semantics
+
+- **Team API runtime fix**: Fixed crash when using `:team connect` command on native platforms:
+  - `TeamClient` now requires a `tokio::runtime::Handle` for spawning async HTTP requests
+  - `TeamManager` accepts and passes runtime handle to client on connect
+  - `TeamState` sets runtime via `set_async_runtime()` before connecting
+  - Error message shown if connect attempted without runtime handle set
+
+- **Fixed WebSocket 403 error**: WebSocket now connects with the correct team ID from the API:
+  - Added `list_teams()` method to `TeamClient` to fetch user's teams
+  - Two-phase authentication: first fetches user, then fetches teams
+  - WebSocket connects using the actual team ID from the server instead of a random UUID
+  - `pending_teams` and `pending_user` fields track auth state during connection
+
+- **WebSocket status indicator in team status**: The status line now shows real-time WebSocket connection state:
+  - `WsState` enum: Connected, Connecting, Reconnecting, Failed, Disconnected
+  - Visual indicators: no symbol when connected, `...` connecting, `~` reconnecting, `!` failed, `-` disconnected
+  - Hover tooltip shows detailed WebSocket status (e.g., "Real-time: connected")
+  - `TeamStatusInfo` now includes `ws_state` field populated from `TeamManager`
+  - Demo mode simulates connected state for testing
+
+- **Cloud backend channels API**: Full REST API and WebSocket support for team chat channels:
+  - New `enya-team-api` types: `Channel`, `ChannelKind`, `ChatThread`, `NewChannel`, `NewThread`, `InlineChartData`
+  - New `TeamEvent` variants: `ChannelCreated`, `ThreadCreated`, `ThreadResolved`
+  - Cloud API endpoints (`enya-cloud`):
+    - `GET/POST /teams/{team_id}/channels` - List and create channels
+    - `GET /teams/{team_id}/channels/{channel_id}` - Get channel details
+    - `GET/POST /teams/{team_id}/channels/{channel_id}/threads` - List and create threads
+    - `GET/POST /teams/{team_id}/channels/{channel_id}/threads/{thread_id}/messages` - Messages in threads
+    - `POST /teams/{team_id}/channels/{channel_id}/threads/{thread_id}/resolve` - Mark thread resolved
+  - Database models: `DbChannel`, `DbChannelThread` with conversions to API types
+  - Real-time broadcasting of channel/thread events via WebSocket
+  - Client methods: `list_channels()`, `create_channel()`, `list_channel_threads()`, `create_thread()`, `list_channel_messages()`, `send_channel_message()`
+  - `TeamManager` caching: Automatic caching for channels, threads, and messages with cache invalidation on create operations
+  - Real-time event handling in `TeamState::poll()`: Updates caches when `ChannelCreated`, `ThreadCreated`, and `ThreadResolved` events arrive via WebSocket
+
+- **Chat module types use UUID**: Editor chat types (`ChannelId`, `ThreadId`, `MessageId`) now use `Uuid` to match API types, enabling seamless synchronization with the cloud backend:
+  - `Channel::from_api()`, `Thread::from_api()`, `ChatMessage::from_api()` - Convert API types to editor types
+  - `ChannelKind::from_api()` / `ChannelKind::to_api()` - Convert between editor and API channel kinds
+
+### Fixed
+
+- **Chat messages now appear after sending**: Fixed bug where messages added through the chat input would not appear in the conversation. The root cause was that `workspace.chat_state` was being cloned from `team_state.chat_state` on every frame, overwriting any locally added messages. Messages are now added directly to `team_state.chat_state` via a new `WorkspaceAction::SendChatMessage` action, ensuring they persist across frames.
+
+- **Channel and thread creation now works**: Fixed clicking the "+" button to create channels and threads. Added `WorkspaceAction::CreateChannel` and `WorkspaceAction::CreateThread` actions that route through `EnyaApp` to `TeamState`. In demo mode, channels/threads are created locally; in live mode, API calls are made to the cloud backend. A notification appears to confirm the action.
+  - Added `pending_channel_creates` to track API create operations and poll for completion
+  - When API responds, the channel is added to cache and a `ChannelCreated` event is emitted
+  - Channels now have unique names with timestamps (e.g., "channel-1234")
+  - Fixed sync logic to update chat state when manager has more channels (not just on initial load)
+
+- **ChatState passed by reference instead of cloning**: Refactored to pass `&ChatState` to `workspace.show()` instead of cloning every frame. This improves performance and clarifies ownership - `TeamState` owns the `ChatState`, workspace only borrows it for rendering.
+
+### Changed
 
 - **Renamed `[codebase]` to `[git]` in workspace config**: The workspace TOML section for git repository integration has been renamed from `[codebase]` to `[git]` to better reflect its purpose. The internal `CodebaseConfig` struct is now `GitConfig`. The fields (`url`, `branch`, `language`) remain the same.
 

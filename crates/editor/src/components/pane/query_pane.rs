@@ -627,6 +627,11 @@ impl QueryPane {
         self.refresh_chart();
     }
 
+    /// Get a reference to the visualization.
+    pub fn visualization(&self) -> &Visualization {
+        &self.visualization
+    }
+
     /// Get a mutable reference to the visualization (for external query execution)
     pub fn visualization_mut(&mut self) -> &mut Visualization {
         &mut self.visualization

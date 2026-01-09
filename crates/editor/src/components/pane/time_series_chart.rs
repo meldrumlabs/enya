@@ -4,7 +4,7 @@ use std::ops::RangeInclusive;
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 
-use egui::{Color32, Key, RichText, Stroke};
+use egui::{Color32, Key, Rangef, RichText, Stroke};
 use egui_plot::{
     AxisHints, GridMark, Line, LineStyle, Plot, PlotBounds, PlotPoints, Polygon, VLine,
 };
@@ -176,7 +176,7 @@ pub fn format_value_with_unit(value: f64, unit: &str) -> String {
 }
 
 /// A single data point in the time series
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DataPoint {
     /// Timestamp in seconds (Unix epoch or relative)
     pub timestamp: f64,
@@ -185,7 +185,7 @@ pub struct DataPoint {
 }
 
 /// A single series of data points
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Series {
     /// Display name for this series
     pub name: String,
@@ -350,6 +350,8 @@ pub struct TimeSeriesChart {
     stacked: bool,
     /// Whether annotation mode is active (click to add)
     annotation_mode: bool,
+    /// Compact mode for inline display (no background, no interaction)
+    compact: bool,
 }
 
 impl Default for TimeSeriesChart {
@@ -379,7 +381,13 @@ impl TimeSeriesChart {
             pending_bracket: None,
             stacked: false,
             annotation_mode: false,
+            compact: false,
         }
+    }
+
+    /// Enable compact mode for inline display (no background, no interaction).
+    pub fn set_compact(&mut self, compact: bool) {
+        self.compact = compact;
     }
 
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
@@ -649,6 +657,11 @@ impl TimeSeriesChart {
     /// Get the number of unresolved annotations.
     pub fn unresolved_annotation_count(&self) -> usize {
         self.annotations.iter().filter(|a| !a.resolved).count()
+    }
+
+    /// Get all series in the chart (for creating snapshots).
+    pub fn series(&self) -> &[Series] {
+        &self.series
     }
 
     /// Add a series to the chart
@@ -1143,16 +1156,58 @@ impl TimeSeriesChart {
             optimal_height.min(remaining_height)
         };
 
-        let plot = Plot::new(format!("plot_{}", self.id))
+        let mut plot = Plot::new(format!("plot_{}", self.id))
             .min_size(egui::vec2(100.0, 80.0)) // Reduced min height to allow smaller panes
             .height(plot_height)
             .show_axes([true, true])
             .custom_x_axes(vec![x_axis])
             .custom_y_axes(vec![y_axis])
             .show_grid(true)
-            .allow_zoom(true)
-            .allow_drag(true)
-            .allow_scroll(true);
+            .allow_zoom(!self.compact)
+            .allow_drag(!self.compact)
+            .allow_scroll(!self.compact);
+
+        // In compact mode, create a cleaner display
+        if self.compact {
+            // Use simpler axes with fixed minimum thickness for alignment
+            let compact_y_axis = AxisHints::new_y()
+                .min_thickness(45.0) // Fixed width for consistent alignment
+                .formatter(move |mark: GridMark, _range: &RangeInclusive<f64>| {
+                    // Simpler formatting for compact mode
+                    let value = mark.value;
+                    if !value.is_finite() {
+                        return String::new();
+                    }
+                    let abs_value = value.abs();
+                    if abs_value >= 1_000_000.0 {
+                        format!("{:.0}M", value / 1_000_000.0)
+                    } else if abs_value >= 1_000.0 {
+                        format!("{:.0}K", value / 1_000.0)
+                    } else if value.fract() == 0.0 {
+                        format!("{value:.0}")
+                    } else {
+                        format!("{value:.1}")
+                    }
+                });
+
+            let compact_x_axis = AxisHints::new_x()
+                .label_spacing(Rangef::new(80.0, 120.0)) // More spacing to avoid edge overlap
+                .formatter(move |mark: GridMark, _range: &RangeInclusive<f64>| {
+                    format_timestamp(mark.value, time_range_secs)
+                });
+
+            plot = plot
+                .custom_x_axes(vec![compact_x_axis])
+                .custom_y_axes(vec![compact_y_axis])
+                .show_background(false)
+                .allow_boxed_zoom(false)
+                .clamp_grid(true) // Clamp labels to data range
+                .show_x(false)
+                .show_y(false)
+                .allow_double_click_reset(false)
+                .cursor_color(Color32::TRANSPARENT) // Hide hover cursor lines
+                .sense(egui::Sense::empty()); // No interaction at all
+        }
 
         let plot_response = plot.show(ui, |plot_ui| {
             // Apply chart action inside the plot closure where we have access to plot_ui

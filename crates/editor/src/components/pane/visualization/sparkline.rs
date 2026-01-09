@@ -89,6 +89,11 @@ impl SparklineViz {
         self.data.clear();
     }
 
+    /// Get the data points.
+    pub fn data(&self) -> &[f64] {
+        &self.data
+    }
+
     /// Set whether to show the current value
     pub fn set_show_value(&mut self, show: bool) {
         self.show_value = show;

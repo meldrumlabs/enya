@@ -22,16 +22,42 @@ pub struct TeamClient {
     auth_token: Option<String>,
     /// HTTP client.
     http_client: reqwest::Client,
+    /// Tokio runtime handle for spawning async tasks (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    runtime_handle: tokio::runtime::Handle,
 }
 
 impl TeamClient {
-    /// Create a new team client.
+    /// Create a new team client (native).
+    ///
+    /// Requires a tokio runtime handle for spawning async HTTP requests.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new(base_url: impl Into<String>, runtime_handle: tokio::runtime::Handle) -> Self {
+        Self {
+            base_url: normalize_url(base_url.into()),
+            auth_token: None,
+            http_client: reqwest::Client::new(),
+            runtime_handle,
+        }
+    }
+
+    /// Create a new team client (WASM).
+    ///
+    /// On WASM, no runtime handle is needed - tasks are spawned using
+    /// `wasm-bindgen-futures::spawn_local`.
+    #[cfg(target_arch = "wasm32")]
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: normalize_url(base_url.into()),
             auth_token: None,
             http_client: reqwest::Client::new(),
         }
+    }
+
+    /// Get the runtime handle (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn runtime_handle(&self) -> &tokio::runtime::Handle {
+        &self.runtime_handle
     }
 
     /// Set the authentication token.
@@ -52,6 +78,11 @@ impl TeamClient {
     /// Check if authenticated.
     pub fn is_authenticated(&self) -> bool {
         self.auth_token.is_some()
+    }
+
+    /// Get the authentication token.
+    pub fn auth_token(&self) -> Option<&str> {
+        self.auth_token.as_deref()
     }
 
     /// Build a URL path relative to the base URL.
@@ -90,6 +121,11 @@ impl TeamClient {
     // -------------------------------------------------------------------------
     // Team endpoints
     // -------------------------------------------------------------------------
+
+    /// List all teams the current user belongs to.
+    pub fn list_teams(&self, ctx: &egui::Context) -> Promise<TeamApiResult<Vec<Team>>> {
+        self.get_json("/teams", ctx)
+    }
 
     /// Get team by ID.
     pub fn get_team(&self, team_id: TeamId, ctx: &egui::Context) -> Promise<TeamApiResult<Team>> {
@@ -195,6 +231,87 @@ impl TeamClient {
     }
 
     // -------------------------------------------------------------------------
+    // Channel endpoints
+    // -------------------------------------------------------------------------
+
+    /// List channels in a team.
+    pub fn list_channels(
+        &self,
+        team_id: TeamId,
+        ctx: &egui::Context,
+    ) -> Promise<TeamApiResult<Vec<Channel>>> {
+        self.get_json(&format!("/teams/{team_id}/channels"), ctx)
+    }
+
+    /// Create a new channel.
+    pub fn create_channel(
+        &self,
+        team_id: TeamId,
+        channel: &NewChannel,
+        ctx: &egui::Context,
+    ) -> Promise<TeamApiResult<Channel>> {
+        self.post_json(&format!("/teams/{team_id}/channels"), channel, ctx)
+    }
+
+    /// List threads in a channel.
+    pub fn list_channel_threads(
+        &self,
+        team_id: TeamId,
+        channel_id: ChannelId,
+        ctx: &egui::Context,
+    ) -> Promise<TeamApiResult<Vec<ChatThread>>> {
+        self.get_json(
+            &format!("/teams/{team_id}/channels/{channel_id}/threads"),
+            ctx,
+        )
+    }
+
+    /// Create a thread in a channel.
+    pub fn create_thread(
+        &self,
+        team_id: TeamId,
+        channel_id: ChannelId,
+        thread: &NewThread,
+        ctx: &egui::Context,
+    ) -> Promise<TeamApiResult<ChatThread>> {
+        self.post_json(
+            &format!("/teams/{team_id}/channels/{channel_id}/threads"),
+            thread,
+            ctx,
+        )
+    }
+
+    /// List messages in a channel thread.
+    pub fn list_channel_messages(
+        &self,
+        team_id: TeamId,
+        channel_id: ChannelId,
+        thread_id: ThreadId,
+        ctx: &egui::Context,
+    ) -> Promise<TeamApiResult<Vec<Message>>> {
+        self.get_json(
+            &format!("/teams/{team_id}/channels/{channel_id}/threads/{thread_id}/messages"),
+            ctx,
+        )
+    }
+
+    /// Send a message to a channel thread.
+    pub fn send_channel_message(
+        &self,
+        team_id: TeamId,
+        channel_id: ChannelId,
+        thread_id: ThreadId,
+        message: &NewMessage,
+        ctx: &egui::Context,
+    ) -> Promise<TeamApiResult<Message>> {
+        self.post_json(
+            &format!("/teams/{team_id}/channels/{channel_id}/threads/{thread_id}/messages"),
+            message,
+            ctx,
+        )
+    }
+
+    // -------------------------------------------------------------------------
     // HTTP helpers - Native (with Send bounds)
     // -------------------------------------------------------------------------
 
@@ -211,7 +328,9 @@ impl TeamClient {
             .header("Accept", "application/json");
         let request = self.with_auth(request);
 
-        spawn_request(ctx, async move { execute_json_request(request).await })
+        spawn_request(&self.runtime_handle, ctx, async move {
+            execute_json_request(request).await
+        })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -230,7 +349,9 @@ impl TeamClient {
             .json(&body);
         let request = self.with_auth(request);
 
-        spawn_request(ctx, async move { execute_json_request(request).await })
+        spawn_request(&self.runtime_handle, ctx, async move {
+            execute_json_request(request).await
+        })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -248,10 +369,9 @@ impl TeamClient {
             .json(&body);
         let request = self.with_auth(request);
 
-        spawn_request(
-            ctx,
-            async move { execute_no_response_request(request).await },
-        )
+        spawn_request(&self.runtime_handle, ctx, async move {
+            execute_no_response_request(request).await
+        })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -270,7 +390,9 @@ impl TeamClient {
             .json(&body);
         let request = self.with_auth(request);
 
-        spawn_request(ctx, async move { execute_json_request(request).await })
+        spawn_request(&self.runtime_handle, ctx, async move {
+            execute_json_request(request).await
+        })
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -279,10 +401,9 @@ impl TeamClient {
         let request = self.http_client.delete(self.url(path));
         let request = self.with_auth(request);
 
-        spawn_request(
-            ctx,
-            async move { execute_no_response_request(request).await },
-        )
+        spawn_request(&self.runtime_handle, ctx, async move {
+            execute_no_response_request(request).await
+        })
     }
 
     // -------------------------------------------------------------------------
@@ -384,7 +505,11 @@ impl TeamClient {
 /// Spawn an async request with platform-appropriate runtime (native).
 /// Returns a Promise that will complete when the request finishes.
 #[cfg(not(target_arch = "wasm32"))]
-fn spawn_request<T, F>(ctx: &egui::Context, future: F) -> Promise<TeamApiResult<T>>
+fn spawn_request<T, F>(
+    runtime: &tokio::runtime::Handle,
+    ctx: &egui::Context,
+    future: F,
+) -> Promise<TeamApiResult<T>>
 where
     T: Send + 'static,
     F: Future<Output = TeamApiResult<T>> + Send + 'static,
@@ -392,7 +517,7 @@ where
     let (sender, promise) = promise_channel();
     let ctx = ctx.clone();
 
-    tokio::spawn(async move {
+    runtime.spawn(async move {
         let result = future.await;
         sender.send(result);
         ctx.request_repaint();
@@ -492,7 +617,9 @@ mod tests {
 
     #[test]
     fn test_client_auth() {
-        let mut client = TeamClient::new("https://api.enya.dev");
+        // Create a runtime for the test
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut client = TeamClient::new("https://api.enya.dev", rt.handle().clone());
         assert!(!client.is_authenticated());
 
         client.set_auth_token("test_token");

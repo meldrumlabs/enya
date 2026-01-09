@@ -155,6 +155,21 @@ impl StatChart {
         self.change_value = None;
     }
 
+    /// Get the current value.
+    pub fn value(&self) -> f64 {
+        self.current_value
+    }
+
+    /// Get the unit string.
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
+    /// Get the sparkline data.
+    pub fn sparkline_data(&self) -> &[f64] {
+        &self.sparkline_data
+    }
+
     /// Get color based on thresholds
     fn color_for_value(&self, value: f64) -> Color32 {
         // Find the highest threshold that the value exceeds

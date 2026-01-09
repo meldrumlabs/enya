@@ -3,29 +3,14 @@
 //! Messages are the core content unit in channels and threads.
 //! They support @mentions for users, AI agents, and charts.
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use enya_team_api::UserId;
+use uuid::Uuid;
 
 use super::ThreadId;
+use super::chat_view::{InlineChart, InlineVisualization};
 
-/// Unique identifier for a message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MessageId(pub u64);
-
-impl MessageId {
-    /// Generate a new unique message ID.
-    pub fn new() -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(1);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
-impl Default for MessageId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+/// Unique identifier for a message (matches API type).
+pub type MessageId = Uuid;
 
 /// The kind of mention in a message.
 #[derive(Debug, Clone, PartialEq)]
@@ -187,6 +172,10 @@ pub struct ChatMessage {
     pub is_edited: bool,
     /// Emoji reactions (emoji -> count).
     pub reactions: Vec<(String, usize)>,
+    /// Inline time series charts (data snapshot at share time).
+    pub inline_charts: Vec<InlineChart>,
+    /// Inline visualizations (stats, tables, bar charts, etc.).
+    pub visualizations: Vec<InlineVisualization>,
 }
 
 impl ChatMessage {
@@ -198,7 +187,7 @@ impl ChatMessage {
     ) -> Self {
         let content = content.into();
         Self {
-            id: MessageId::new(),
+            id: Uuid::new_v4(),
             author: ChatMessageAuthor::user(user_id, display_name),
             content,
             mentions: Vec::new(),
@@ -206,6 +195,8 @@ impl ChatMessage {
             timestamp: now_unix_secs(),
             is_edited: false,
             reactions: Vec::new(),
+            inline_charts: Vec::new(),
+            visualizations: Vec::new(),
         }
     }
 
@@ -213,7 +204,7 @@ impl ChatMessage {
     pub fn from_agent(model: impl Into<String>, content: impl Into<String>) -> Self {
         let content = content.into();
         Self {
-            id: MessageId::new(),
+            id: Uuid::new_v4(),
             author: ChatMessageAuthor::agent(model),
             content,
             mentions: Vec::new(),
@@ -221,13 +212,15 @@ impl ChatMessage {
             timestamp: now_unix_secs(),
             is_edited: false,
             reactions: Vec::new(),
+            inline_charts: Vec::new(),
+            visualizations: Vec::new(),
         }
     }
 
     /// Create a system message.
     pub fn system(content: impl Into<String>) -> Self {
         Self {
-            id: MessageId::new(),
+            id: Uuid::new_v4(),
             author: ChatMessageAuthor::System,
             content: content.into(),
             mentions: Vec::new(),
@@ -235,6 +228,29 @@ impl ChatMessage {
             timestamp: now_unix_secs(),
             is_edited: false,
             reactions: Vec::new(),
+            inline_charts: Vec::new(),
+            visualizations: Vec::new(),
+        }
+    }
+
+    /// Create a message from API data.
+    /// Note: We need the author name from outside since the API only has author_id.
+    pub fn from_api(
+        api_message: &enya_team_api::Message,
+        author_name: &str,
+        thread_id: Option<ThreadId>,
+    ) -> Self {
+        Self {
+            id: api_message.id,
+            author: ChatMessageAuthor::user(api_message.author_id, author_name),
+            content: api_message.content.clone(),
+            mentions: Vec::new(), // TODO: Parse mentions from content
+            thread_id,
+            timestamp: api_message.created_at as f64,
+            is_edited: api_message.edited_at.is_some(),
+            reactions: Vec::new(),
+            inline_charts: Vec::new(), // TODO: Deserialize from API if present
+            visualizations: Vec::new(),
         }
     }
 
@@ -248,6 +264,28 @@ impl ChatMessage {
     pub fn with_mentions(mut self, mentions: Vec<Mention>) -> Self {
         self.mentions = mentions;
         self
+    }
+
+    /// Add an inline chart to the message (data snapshot).
+    pub fn with_inline_chart(mut self, chart: InlineChart) -> Self {
+        self.inline_charts.push(chart);
+        self
+    }
+
+    /// Add an inline visualization to the message (stat, table, bar chart, etc.).
+    pub fn with_visualization(mut self, viz: InlineVisualization) -> Self {
+        self.visualizations.push(viz);
+        self
+    }
+
+    /// Check if this message has any inline charts.
+    pub fn has_charts(&self) -> bool {
+        !self.inline_charts.is_empty()
+    }
+
+    /// Check if this message has any visualizations.
+    pub fn has_visualizations(&self) -> bool {
+        !self.visualizations.is_empty()
     }
 
     /// Get a preview of the message content.
@@ -321,8 +359,8 @@ mod tests {
 
     #[test]
     fn test_message_id_uniqueness() {
-        let id1 = MessageId::new();
-        let id2 = MessageId::new();
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
         assert_ne!(id1, id2);
     }
 

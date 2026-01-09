@@ -17,5 +17,5 @@ pub use landing_page::{LandingPage, LandingPageAction};
 pub use notifications::{Notification, NotificationLevel, NotificationManager};
 pub use status_line::{Sparkline, StatusLine, StatusMode};
 pub use team_menu::{MemberPresence, TeamMember, TeamMenu, TeamMenuAction};
-pub use team_status::{TeamStatusInfo, TeamStatusWidget};
+pub use team_status::{TeamStatusInfo, TeamStatusWidget, WsState};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};

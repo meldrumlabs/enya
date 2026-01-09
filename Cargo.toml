@@ -70,6 +70,7 @@ itertools = "0.14.0"
 poll-promise = "0.3"
 smallvec = "1.13.2"
 nucleo-matcher = "0.3.1"
+ewebsock = "0.7"
 
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"

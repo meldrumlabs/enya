@@ -89,8 +89,8 @@ pub enum ClientMessage {
 pub enum ServerMessage {
     /// Pong response.
     Pong,
-    /// Real-time event.
-    Event(TeamEvent),
+    /// Real-time event (boxed to reduce enum size).
+    Event(Box<TeamEvent>),
     /// Error message.
     Error { message: String },
 }
@@ -126,7 +126,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, user_id: Uuid, team_i
             match rx.recv().await {
                 Ok(event) => {
                     if event.should_send_to(team_id, user_id) {
-                        let msg = ServerMessage::Event(event.event);
+                        let msg = ServerMessage::Event(Box::new(event.event));
                         let json = serde_json::to_string(&msg).unwrap();
                         if sender.send(Message::Text(json.into())).await.is_err() {
                             break;

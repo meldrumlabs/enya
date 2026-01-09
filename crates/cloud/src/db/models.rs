@@ -106,3 +106,61 @@ impl From<DbMessage> for enya_team_api::Message {
         }
     }
 }
+
+/// Channel record from database.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct DbChannel {
+    pub id: Uuid,
+    pub team_id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub kind: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<DbChannel> for enya_team_api::Channel {
+    fn from(ch: DbChannel) -> Self {
+        Self {
+            id: ch.id,
+            team_id: ch.team_id,
+            name: ch.name,
+            description: ch.description,
+            kind: match ch.kind.as_str() {
+                "general" => enya_team_api::ChannelKind::General,
+                "incidents" => enya_team_api::ChannelKind::Incidents,
+                "deployments" => enya_team_api::ChannelKind::Deployments,
+                "alerts" => enya_team_api::ChannelKind::Alerts,
+                _ => enya_team_api::ChannelKind::Custom,
+            },
+            created_at: ch.created_at.timestamp() as u64,
+        }
+    }
+}
+
+/// Channel thread record from database.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct DbChannelThread {
+    pub id: Uuid,
+    pub channel_id: Uuid,
+    pub title: String,
+    pub created_by: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub resolved: bool,
+    pub message_count: i32,
+    pub last_message_at: Option<DateTime<Utc>>,
+}
+
+impl From<DbChannelThread> for enya_team_api::ChatThread {
+    fn from(t: DbChannelThread) -> Self {
+        Self {
+            id: t.id,
+            channel_id: t.channel_id,
+            title: t.title,
+            created_by: t.created_by,
+            created_at: t.created_at.timestamp() as u64,
+            resolved: t.resolved,
+            message_count: t.message_count as u32,
+            last_message_at: t.last_message_at.map(|t| t.timestamp() as u64),
+        }
+    }
+}

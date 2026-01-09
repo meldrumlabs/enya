@@ -109,6 +109,26 @@ impl GaugeChart {
         self.current_value = 0.0;
     }
 
+    /// Get the current value.
+    pub fn value(&self) -> f64 {
+        self.current_value
+    }
+
+    /// Get the minimum value.
+    pub fn min(&self) -> f64 {
+        self.min_value
+    }
+
+    /// Get the maximum value.
+    pub fn max(&self) -> f64 {
+        self.max_value
+    }
+
+    /// Get the unit string.
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
     /// Get the normalized value (0.0 to 1.0)
     pub(crate) fn normalized_value(&self) -> f64 {
         let range = self.max_value - self.min_value;

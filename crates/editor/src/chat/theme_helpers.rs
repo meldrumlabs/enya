@@ -120,6 +120,64 @@ impl ChatColors {
     pub fn system_message(&self) -> Color32 {
         self.theme.text_tertiary()
     }
+
+    // =========================================================================
+    // Trend Indicators (for stat cards)
+    // =========================================================================
+
+    /// Color for upward trend (typically bad for latency, errors).
+    pub fn trend_up(&self) -> Color32 {
+        match self.theme {
+            AppTheme::Light => Color32::from_rgb(220, 38, 38), // Red-600
+            AppTheme::Dark => Color32::from_rgb(248, 113, 113), // Red-400
+            AppTheme::Nord => Color32::from_rgb(191, 97, 106), // Nord aurora red
+            AppTheme::Gruvbox => Color32::from_rgb(251, 73, 52), // Gruvbox red
+        }
+    }
+
+    /// Color for downward trend (typically good for latency, errors).
+    pub fn trend_down(&self) -> Color32 {
+        match self.theme {
+            AppTheme::Light => Color32::from_rgb(22, 163, 74), // Green-600
+            AppTheme::Dark => Color32::from_rgb(74, 222, 128), // Green-400
+            AppTheme::Nord => Color32::from_rgb(163, 190, 140), // Nord aurora green
+            AppTheme::Gruvbox => Color32::from_rgb(184, 187, 38), // Gruvbox green
+        }
+    }
+
+    // =========================================================================
+    // Bar Chart Colors (cycling palette)
+    // =========================================================================
+
+    /// First bar chart color.
+    pub fn chart_color_1(&self) -> Color32 {
+        match self.theme {
+            AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue-500
+            AppTheme::Dark => Color32::from_rgb(96, 165, 250),  // Blue-400
+            AppTheme::Nord => Color32::from_rgb(136, 192, 208), // Nord frost
+            AppTheme::Gruvbox => Color32::from_rgb(131, 165, 152), // Gruvbox aqua
+        }
+    }
+
+    /// Second bar chart color.
+    pub fn chart_color_2(&self) -> Color32 {
+        match self.theme {
+            AppTheme::Light => Color32::from_rgb(168, 85, 247), // Purple-500
+            AppTheme::Dark => Color32::from_rgb(192, 132, 252), // Purple-400
+            AppTheme::Nord => Color32::from_rgb(180, 142, 173), // Nord aurora purple
+            AppTheme::Gruvbox => Color32::from_rgb(211, 134, 155), // Gruvbox purple
+        }
+    }
+
+    /// Third bar chart color.
+    pub fn chart_color_3(&self) -> Color32 {
+        match self.theme {
+            AppTheme::Light => Color32::from_rgb(234, 179, 8), // Yellow-500
+            AppTheme::Dark => Color32::from_rgb(250, 204, 21), // Yellow-400
+            AppTheme::Nord => Color32::from_rgb(235, 203, 139), // Nord aurora yellow
+            AppTheme::Gruvbox => Color32::from_rgb(250, 189, 47), // Gruvbox yellow
+        }
+    }
 }
 
 #[cfg(test)]

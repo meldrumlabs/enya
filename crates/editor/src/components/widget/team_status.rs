@@ -3,7 +3,7 @@
 //! Shows team connection status only when connected. Invisible for non-team users.
 
 use egui::{Color32, Response, Ui};
-use enya_team_api::TeamConnectionStatus;
+use enya_team_api::{TeamConnectionStatus, WsConnectionState};
 
 use crate::ui::palette;
 use crate::ui::semantic_icons;
@@ -23,11 +23,46 @@ pub struct TeamStatusInfo {
     pub team_name: Option<String>,
     /// Current user display name (if connected).
     pub user_name: Option<String>,
+    /// WebSocket connection state for real-time updates.
+    pub ws_state: WsState,
+}
+
+/// Simplified WebSocket state for UI display.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum WsState {
+    /// Not connected to WebSocket.
+    #[default]
+    Disconnected,
+    /// WebSocket is connecting.
+    Connecting,
+    /// WebSocket is connected and ready.
+    Connected,
+    /// WebSocket connection failed.
+    Failed,
+    /// WebSocket is reconnecting.
+    Reconnecting,
+}
+
+impl From<&WsConnectionState> for WsState {
+    fn from(state: &WsConnectionState) -> Self {
+        match state {
+            WsConnectionState::Disconnected => WsState::Disconnected,
+            WsConnectionState::Connecting => WsState::Connecting,
+            WsConnectionState::Connected => WsState::Connected,
+            WsConnectionState::Failed { .. } => WsState::Failed,
+            WsConnectionState::Reconnecting { .. } => WsState::Reconnecting,
+        }
+    }
 }
 
 impl TeamStatusInfo {
     /// Create status info from connection status.
-    pub fn from_status(status: &TeamConnectionStatus, online_count: usize, unread: usize) -> Self {
+    pub fn from_status(
+        status: &TeamConnectionStatus,
+        ws_state: &WsConnectionState,
+        online_count: usize,
+        unread: usize,
+    ) -> Self {
         match status {
             TeamConnectionStatus::Connected { user, team } => Self {
                 is_connected: true,
@@ -35,6 +70,7 @@ impl TeamStatusInfo {
                 unread_count: unread,
                 team_name: Some(team.name.clone()),
                 user_name: Some(user.display_name.clone()),
+                ws_state: WsState::from(ws_state),
             },
             _ => Self::default(),
         }
@@ -94,12 +130,8 @@ impl TeamStatusWidget {
 
         let status_text = parts.join(" | ");
 
-        // Icon based on state
-        let icon = if has_unread {
-            semantic_icons::status::NOTIFICATION // Bell with dot
-        } else {
-            semantic_icons::social::TEAM // Users icon
-        };
+        // Icon based on state - show WebSocket indicator
+        let (icon, ws_indicator) = self.ws_icon_and_indicator(info, has_unread);
 
         // Color based on unread
         let fg_color = if has_unread {
@@ -108,8 +140,8 @@ impl TeamStatusWidget {
             palette::text::SECONDARY
         };
 
-        // Render segment
-        let content = format!("{icon} {status_text}");
+        // Render segment with WebSocket indicator
+        let content = format!("{icon}{ws_indicator} {status_text}");
 
         // Add unread badge if any
         let unread = info.unread_count;
@@ -142,13 +174,44 @@ impl TeamStatusWidget {
             );
         }
 
-        // Tooltip
+        // Tooltip with WebSocket status
+        let ws_status = match info.ws_state {
+            WsState::Connected => "Real-time: connected",
+            WsState::Connecting => "Real-time: connecting...",
+            WsState::Reconnecting => "Real-time: reconnecting...",
+            WsState::Failed => "Real-time: connection failed",
+            WsState::Disconnected => "Real-time: disconnected",
+        };
+        let tooltip = format!("Team collaboration (Space+t)\n{ws_status}");
+
         if response.hovered() {
-            response
-                .clone()
-                .on_hover_text("Team collaboration (Space+t)");
+            response.clone().on_hover_text(tooltip);
         }
 
         Some(response)
+    }
+
+    /// Get the icon and WebSocket indicator based on state.
+    fn ws_icon_and_indicator(
+        &self,
+        info: &TeamStatusInfo,
+        has_unread: bool,
+    ) -> (&'static str, &'static str) {
+        let icon = if has_unread {
+            semantic_icons::status::NOTIFICATION // Bell with dot
+        } else {
+            semantic_icons::social::TEAM // Users icon
+        };
+
+        // WebSocket indicator - small dot/symbol after icon
+        let ws_indicator = match info.ws_state {
+            WsState::Connected => "",     // No indicator when connected (clean look)
+            WsState::Connecting => "...", // Ellipsis for connecting
+            WsState::Reconnecting => "~", // Tilde for reconnecting
+            WsState::Failed => "!",       // Exclamation for failed
+            WsState::Disconnected => "-", // Dash for disconnected
+        };
+
+        (icon, ws_indicator)
     }
 }

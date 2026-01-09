@@ -3,25 +3,10 @@
 //! Channels are organized containers for conversations, similar to Slack or Zed.
 //! Each channel can contain multiple threads.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use uuid::Uuid;
 
-/// Unique identifier for a channel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChannelId(pub u64);
-
-impl ChannelId {
-    /// Generate a new unique channel ID.
-    pub fn new() -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(1);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
-impl Default for ChannelId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+/// Unique identifier for a channel (matches API type).
+pub type ChannelId = Uuid;
 
 /// The kind/category of a channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -63,6 +48,28 @@ impl ChannelKind {
             Self::Custom => palette::semantic::INFO,
         }
     }
+
+    /// Convert from API ChannelKind.
+    pub fn from_api(kind: enya_team_api::ChannelKind) -> Self {
+        match kind {
+            enya_team_api::ChannelKind::General => Self::General,
+            enya_team_api::ChannelKind::Incidents => Self::Incidents,
+            enya_team_api::ChannelKind::Deployments => Self::Deployments,
+            enya_team_api::ChannelKind::Alerts => Self::Alerts,
+            enya_team_api::ChannelKind::Custom => Self::Custom,
+        }
+    }
+
+    /// Convert to API ChannelKind.
+    pub fn to_api(&self) -> enya_team_api::ChannelKind {
+        match self {
+            Self::General => enya_team_api::ChannelKind::General,
+            Self::Incidents => enya_team_api::ChannelKind::Incidents,
+            Self::Deployments => enya_team_api::ChannelKind::Deployments,
+            Self::Alerts => enya_team_api::ChannelKind::Alerts,
+            Self::Custom => enya_team_api::ChannelKind::Custom,
+        }
+    }
 }
 
 /// A chat channel containing conversations.
@@ -90,7 +97,7 @@ impl Channel {
     /// Create a new channel with the given name.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
-            id: ChannelId::new(),
+            id: Uuid::new_v4(),
             name: name.into(),
             description: None,
             kind: ChannelKind::General,
@@ -98,6 +105,20 @@ impl Channel {
             is_muted: false,
             is_collapsed: false,
             created_at: now_unix_secs(),
+        }
+    }
+
+    /// Create a channel from API data.
+    pub fn from_api(api_channel: &enya_team_api::Channel) -> Self {
+        Self {
+            id: api_channel.id,
+            name: api_channel.name.clone(),
+            description: api_channel.description.clone(),
+            kind: ChannelKind::from_api(api_channel.kind),
+            unread_count: 0,
+            is_muted: false,
+            is_collapsed: false,
+            created_at: api_channel.created_at as f64,
         }
     }
 
@@ -166,8 +187,8 @@ mod tests {
 
     #[test]
     fn test_channel_id_uniqueness() {
-        let id1 = ChannelId::new();
-        let id2 = ChannelId::new();
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
         assert_ne!(id1, id2);
     }
 

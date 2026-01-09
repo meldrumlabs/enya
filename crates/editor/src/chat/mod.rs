@@ -39,7 +39,11 @@ pub mod thread;
 
 pub use channel::{Channel, ChannelId, ChannelKind};
 pub use channels_panel::{ChannelsPanel, ChannelsPanelAction};
-pub use chat_view::{ChatView, ChatViewAction, ChatViewMode, EmbeddedChart};
+pub use chat_view::{
+    BarData, ChatView, ChatViewAction, ChatViewMode, CommitInfo, EmbeddedChart, InlineBarChart,
+    InlineChart, InlineGauge, InlineStat, InlineTable, InlineVisualization, PaneInfo,
+    PaneVisualization, StatTrend,
+};
 pub use message::{ChatMessage, ChatMessageAuthor, Mention, MentionKind, MessageId};
 pub use state::ChatState;
 pub use theme_helpers::ChatColors;

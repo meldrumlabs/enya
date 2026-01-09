@@ -3,27 +3,12 @@
 //! Threads allow branching conversations from a channel message,
 //! keeping discussions organized and reducing noise.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use uuid::Uuid;
 
 use super::{ChannelId, ChatMessage, MessageId};
 
-/// Unique identifier for a thread.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ThreadId(pub u64);
-
-impl ThreadId {
-    /// Generate a new unique thread ID.
-    pub fn new() -> Self {
-        static COUNTER: AtomicU64 = AtomicU64::new(1);
-        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
-impl Default for ThreadId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+/// Unique identifier for a thread (matches API type).
+pub type ThreadId = Uuid;
 
 /// Status of a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -130,7 +115,7 @@ impl Thread {
     ) -> Self {
         let now = now_unix_secs();
         Self {
-            id: ThreadId::new(),
+            id: Uuid::new_v4(),
             channel_id,
             root_message_id: root_message.id,
             title: title.into(),
@@ -140,6 +125,31 @@ impl Thread {
             participant_count: 1,
             created_at: now,
             last_activity_at: now,
+            is_pinned: false,
+            priority: ThreadPriority::Normal,
+        }
+    }
+
+    /// Create a thread from API data.
+    pub fn from_api(api_thread: &enya_team_api::ChatThread, root_message_id: MessageId) -> Self {
+        Self {
+            id: api_thread.id,
+            channel_id: api_thread.channel_id,
+            root_message_id,
+            title: api_thread.title.clone(),
+            status: if api_thread.resolved {
+                ThreadStatus::Resolved
+            } else {
+                ThreadStatus::Active
+            },
+            reply_count: api_thread.message_count as usize,
+            unread_count: 0,
+            participant_count: 1, // API doesn't track this yet
+            created_at: api_thread.created_at as f64,
+            last_activity_at: api_thread
+                .last_message_at
+                .map(|t| t as f64)
+                .unwrap_or(api_thread.created_at as f64),
             is_pinned: false,
             priority: ThreadPriority::Normal,
         }
@@ -247,18 +257,17 @@ mod tests {
     use enya_team_api::UserId;
 
     use super::*;
-    use crate::chat::ChannelId;
 
     #[test]
     fn test_thread_id_uniqueness() {
-        let id1 = ThreadId::new();
-        let id2 = ThreadId::new();
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
         assert_ne!(id1, id2);
     }
 
     #[test]
     fn test_thread_creation() {
-        let channel_id = ChannelId::new();
+        let channel_id = Uuid::new_v4();
         let msg = ChatMessage::from_user(UserId::new_v4(), "Alice", "P99 latency spike detected");
         let thread = Thread::new(channel_id, &msg, "P99 incident");
 
@@ -269,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_thread_replies() {
-        let channel_id = ChannelId::new();
+        let channel_id = Uuid::new_v4();
         let msg = ChatMessage::from_user(UserId::new_v4(), "Alice", "Starting investigation");
         let mut thread = Thread::new(channel_id, &msg, "Investigation");
 
@@ -283,7 +292,7 @@ mod tests {
 
     #[test]
     fn test_thread_resolve() {
-        let channel_id = ChannelId::new();
+        let channel_id = Uuid::new_v4();
         let msg = ChatMessage::from_user(UserId::new_v4(), "Alice", "Issue found");
         let mut thread = Thread::new(channel_id, &msg, "Bug report");
 

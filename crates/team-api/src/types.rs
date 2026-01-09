@@ -144,6 +144,108 @@ pub struct Message {
 pub struct NewMessage {
     /// Message content.
     pub content: String,
+    /// Optional inline chart data (JSON-serialized series).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_chart: Option<InlineChartData>,
+}
+
+/// Inline chart data embedded in a message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InlineChartData {
+    /// Chart title.
+    pub title: String,
+    /// Series data (JSON-serialized time series).
+    pub series_json: String,
+    /// Chart height in pixels.
+    #[serde(default)]
+    pub height: Option<f32>,
+}
+
+/// Unique channel identifier.
+pub type ChannelId = Uuid;
+
+/// Chat channel for team communication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Channel {
+    /// Unique identifier.
+    pub id: ChannelId,
+    /// Team this channel belongs to.
+    pub team_id: TeamId,
+    /// Channel name (e.g., "general", "incidents").
+    pub name: String,
+    /// Channel description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Channel kind/category.
+    pub kind: ChannelKind,
+    /// When the channel was created.
+    pub created_at: u64,
+}
+
+/// Kind/category of channel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelKind {
+    /// General discussion.
+    #[default]
+    General,
+    /// Incident response.
+    Incidents,
+    /// Deployment notifications.
+    Deployments,
+    /// Alert discussions.
+    Alerts,
+    /// Custom channel.
+    Custom,
+}
+
+/// Request to create a new channel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewChannel {
+    /// Channel name.
+    pub name: String,
+    /// Channel description.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Channel kind.
+    #[serde(default)]
+    pub kind: ChannelKind,
+}
+
+/// Chat thread within a channel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatThread {
+    /// Unique identifier.
+    pub id: ThreadId,
+    /// Channel this thread belongs to.
+    pub channel_id: ChannelId,
+    /// Thread title/subject.
+    pub title: String,
+    /// User who created the thread.
+    pub created_by: UserId,
+    /// When the thread was created.
+    pub created_at: u64,
+    /// Whether the thread is resolved.
+    #[serde(default)]
+    pub resolved: bool,
+    /// Message count in the thread.
+    #[serde(default)]
+    pub message_count: u32,
+    /// Last message timestamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message_at: Option<u64>,
+}
+
+/// Request to create a new thread.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewThread {
+    /// Thread title.
+    pub title: String,
+    /// Initial message content.
+    pub initial_message: String,
+    /// Optional inline chart for initial message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline_chart: Option<InlineChartData>,
 }
 
 /// Real-time event from server.
@@ -213,6 +315,27 @@ pub enum TeamEvent {
     MemberLeft {
         /// ID of the user who left.
         user_id: UserId,
+    },
+    /// New channel created.
+    ChannelCreated {
+        /// The new channel.
+        channel: Channel,
+    },
+    /// New thread created in a channel.
+    ThreadCreated {
+        /// The new thread.
+        thread: ChatThread,
+        /// Initial message.
+        initial_message: Message,
+        /// Author info.
+        author: User,
+    },
+    /// Thread was resolved/closed.
+    ThreadResolved {
+        /// Thread ID.
+        thread_id: ThreadId,
+        /// Channel ID.
+        channel_id: ChannelId,
     },
 }
 

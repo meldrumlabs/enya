@@ -365,6 +365,166 @@ pub async fn get_thread_participants(
 }
 
 // =============================================================================
+// Channel queries
+// =============================================================================
+
+/// List channels for a team.
+pub async fn list_channels(
+    pool: &PgPool,
+    team_id: Uuid,
+) -> Result<Vec<enya_team_api::Channel>, ApiError> {
+    let channels = sqlx::query_as::<_, DbChannel>(
+        r#"SELECT id, team_id, name, description, kind, created_at
+           FROM channels
+           WHERE team_id = $1
+           ORDER BY
+             CASE kind
+               WHEN 'general' THEN 0
+               WHEN 'incidents' THEN 1
+               WHEN 'deployments' THEN 2
+               WHEN 'alerts' THEN 3
+               ELSE 4
+             END,
+             name"#,
+    )
+    .bind(team_id)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(channels.into_iter().map(Into::into).collect())
+}
+
+/// Get channel by ID.
+pub async fn get_channel(
+    pool: &PgPool,
+    channel_id: Uuid,
+) -> Result<enya_team_api::Channel, ApiError> {
+    let channel = sqlx::query_as::<_, DbChannel>(
+        r#"SELECT id, team_id, name, description, kind, created_at
+           FROM channels WHERE id = $1"#,
+    )
+    .bind(channel_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(channel.into())
+}
+
+/// Create a channel.
+pub async fn create_channel(
+    pool: &PgPool,
+    team_id: Uuid,
+    request: &enya_team_api::NewChannel,
+) -> Result<enya_team_api::Channel, ApiError> {
+    let kind = match request.kind {
+        enya_team_api::ChannelKind::General => "general",
+        enya_team_api::ChannelKind::Incidents => "incidents",
+        enya_team_api::ChannelKind::Deployments => "deployments",
+        enya_team_api::ChannelKind::Alerts => "alerts",
+        enya_team_api::ChannelKind::Custom => "custom",
+    };
+
+    let channel = sqlx::query_as::<_, DbChannel>(
+        r#"INSERT INTO channels (id, team_id, name, description, kind)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, team_id, name, description, kind, created_at"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(team_id)
+    .bind(&request.name)
+    .bind(&request.description)
+    .bind(kind)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(channel.into())
+}
+
+/// List threads in a channel.
+pub async fn list_channel_threads(
+    pool: &PgPool,
+    channel_id: Uuid,
+) -> Result<Vec<enya_team_api::ChatThread>, ApiError> {
+    let threads = sqlx::query_as::<_, DbChannelThread>(
+        r#"SELECT id, channel_id, title, created_by, created_at, resolved, message_count, last_message_at
+           FROM channel_threads
+           WHERE channel_id = $1
+           ORDER BY last_message_at DESC NULLS LAST, created_at DESC"#,
+    )
+    .bind(channel_id)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(threads.into_iter().map(Into::into).collect())
+}
+
+/// Get channel thread by ID.
+pub async fn get_channel_thread(
+    pool: &PgPool,
+    thread_id: Uuid,
+) -> Result<enya_team_api::ChatThread, ApiError> {
+    let thread = sqlx::query_as::<_, DbChannelThread>(
+        r#"SELECT id, channel_id, title, created_by, created_at, resolved, message_count, last_message_at
+           FROM channel_threads WHERE id = $1"#,
+    )
+    .bind(thread_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(thread.into())
+}
+
+/// Create a thread in a channel with initial message.
+pub async fn create_channel_thread(
+    pool: &PgPool,
+    channel_id: Uuid,
+    created_by: Uuid,
+    request: &enya_team_api::NewThread,
+) -> Result<(enya_team_api::ChatThread, DbMessage), ApiError> {
+    let thread_id = Uuid::new_v4();
+    let message_id = Uuid::new_v4();
+
+    // Create thread
+    let thread = sqlx::query_as::<_, DbChannelThread>(
+        r#"INSERT INTO channel_threads (id, channel_id, title, created_by, message_count, last_message_at)
+           VALUES ($1, $2, $3, $4, 1, NOW())
+           RETURNING id, channel_id, title, created_by, created_at, resolved, message_count, last_message_at"#,
+    )
+    .bind(thread_id)
+    .bind(channel_id)
+    .bind(&request.title)
+    .bind(created_by)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    // Extract mentions from initial message
+    let mentions = extract_mentions(&request.initial_message);
+
+    // Create initial message
+    let message = sqlx::query_as::<_, DbMessage>(
+        r#"INSERT INTO messages (id, thread_id, author_id, content, mentions)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id, thread_id, author_id, content, mentions, created_at, edited_at"#,
+    )
+    .bind(message_id)
+    .bind(thread_id)
+    .bind(created_by)
+    .bind(&request.initial_message)
+    .bind(&mentions)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok((thread.into(), message))
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
