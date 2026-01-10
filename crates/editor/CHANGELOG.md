@@ -10,6 +10,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Tutorial layout**: Updated the tutorial layout to show "HTTP Requests" and "Requests by Endpoint" side by side in the top row, with "CPU Usage" and "Memory Used" stacked below. This demonstrates both horizontal and vertical pane arrangements.
 
+- **WASM native app promo**: Changed from an intrusive auto-popup overlay to a subtle clickable link below the version badge in the landing page header. Users can click "Download Native App for full experience" to see detailed information about native-only features (git integration, AI agents, persistent workspaces). Less invasive while still informing users about the full desktop experience.
+
 ### Removed
 
 - **Workspace tab bar**: Removed the workspace tab bar (barbar.nvim-style) at the top of the editor. The editor now manages a single workspace directly instead of multiple tabs. Related keyboard shortcuts (`Shift+N`, `Shift+P`, `Shift+T`, `Shift+X`) have been removed. The `:q` command now quits the application instead of closing the current tab.

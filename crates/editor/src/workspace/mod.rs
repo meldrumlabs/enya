@@ -1161,11 +1161,11 @@ impl Workspace {
         ctx: &egui::Context,
         app_state: &AppState,
     ) -> WorkspaceAction {
-        // On WASM, show native app promo overlay (if not already dismissed)
+        // On WASM, show native app promo overlay only if user clicked to open it
         // Process overlay FIRST so it can consume keyboard input before landing page
         #[cfg(target_arch = "wasm32")]
         let native_promo_open = {
-            self.native_promo_overlay.open();
+            // Don't auto-open - let user click the footer link to see details
             self.native_promo_overlay.set_theme(app_state.theme);
             self.native_promo_overlay.show(ctx);
             self.native_promo_overlay.is_open()
@@ -1220,6 +1220,11 @@ impl Workspace {
             }
             LandingPageAction::OpenDocs => {
                 ctx.open_url(egui::OpenUrl::new_tab("https://enya.build/docs"));
+            }
+            LandingPageAction::ShowNativeAppInfo => {
+                // Open the native app promo overlay (WASM only)
+                #[cfg(target_arch = "wasm32")]
+                self.native_promo_overlay.open_force();
             }
             LandingPageAction::None => {}
         }
