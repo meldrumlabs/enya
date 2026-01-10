@@ -3,33 +3,53 @@
 //! This module handles rendering the filtered view, custom scrollbar,
 //! and scroll-to-focused-tile functionality.
 
+use egui::RichText;
 use egui_tiles::Tile;
 
 use super::Workspace;
 use crate::components::{Buffer, QueryPane};
 use crate::ui::colors::text_color;
+use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
+use crate::ui::typography;
 
 impl Workspace {
     /// Render only matching panes when viewport filter is active
     #[profiling::function]
     pub(super) fn render_filtered_view(&mut self, ui: &mut egui::Ui) {
-        // Get matching pane IDs - matches on query content AND tag
-        let matching_panes: Vec<egui_tiles::TileId> = self
+        let theme = self.behavior.theme();
+
+        // Get matching pane IDs with their names - matches on query content AND tag
+        let matching_panes: Vec<(egui_tiles::TileId, String)> = self
             .get_pane_tile_ids()
             .into_iter()
-            .filter(|&tile_id| {
+            .filter_map(|tile_id| {
                 if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
                     if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                        // Match on query content OR tag
-                        return self.viewport_filter.matches(query_pane.saved_query())
-                            || self.viewport_filter.matches(query_pane.tag());
+                        // Match on query content OR tag OR name
+                        if self.viewport_filter.matches(query_pane.saved_query())
+                            || self.viewport_filter.matches(query_pane.tag())
+                            || self.viewport_filter.matches(query_pane.name())
+                        {
+                            let name = if !query_pane.tag().is_empty() {
+                                query_pane.tag().to_string()
+                            } else {
+                                query_pane.name().to_string()
+                            };
+                            return Some((tile_id, name));
+                        }
+                        return None;
                     }
                     if let Some(buffer) = component.as_any().downcast_ref::<Buffer>() {
-                        return self.viewport_filter.matches(buffer.saved_content());
+                        if self.viewport_filter.matches(buffer.saved_content())
+                            || self.viewport_filter.matches(buffer.name())
+                        {
+                            return Some((tile_id, buffer.name().to_string()));
+                        }
+                        return None;
                     }
                 }
-                true
+                Some((tile_id, String::new()))
             })
             .collect();
 
@@ -37,31 +57,40 @@ impl Workspace {
             // Show "no matches" message
             ui.centered_and_justified(|ui| {
                 ui.label(
-                    egui::RichText::new("No panes match the filter")
-                        .color(text_color(self.behavior.theme()).gamma_multiply(0.5))
+                    RichText::new("No panes match the filter")
+                        .color(text_color(theme).gamma_multiply(0.5))
                         .size(16.0),
                 );
             });
             return;
         }
 
-        // Calculate grid layout
+        // Calculate layout - prefer vertical stacking (1 column)
         let available = ui.available_size();
         let pane_count = matching_panes.len();
 
-        // Determine columns based on pane count and available width
-        let columns = if pane_count == 1 {
+        // Use single column for vertical stacking, only use 2 columns if many panes and wide screen
+        let columns = if pane_count == 1 || available.x < 800.0 {
             1
-        } else if pane_count <= 4 {
-            2.min(pane_count)
+        } else if pane_count >= 4 && available.x >= 1200.0 {
+            2
         } else {
-            3.min(pane_count)
+            1
         };
 
+        let header_height = 28.0;
+        let pane_spacing = 12.0;
         let rows = pane_count.div_ceil(columns);
 
-        let pane_width = (available.x - (columns as f32 - 1.0) * 8.0) / columns as f32;
-        let pane_height = ((available.y - (rows as f32 - 1.0) * 8.0) / rows as f32).max(200.0);
+        let pane_width = (available.x - (columns as f32 - 1.0) * pane_spacing) / columns as f32;
+        // Calculate pane height - account for headers
+        let total_header_height = rows as f32 * header_height;
+        let total_spacing = (rows as f32 - 1.0) * pane_spacing;
+        let pane_height =
+            ((available.y - total_header_height - total_spacing) / rows as f32).max(180.0);
+
+        let text_col = text_color(theme);
+        let accent = theme.accent_primary();
 
         egui::ScrollArea::vertical()
             .id_salt("filtered_view_scroll")
@@ -69,19 +98,53 @@ impl Workspace {
             .show(ui, |ui| {
                 egui::Grid::new("filtered_panes_grid")
                     .num_columns(columns)
-                    .spacing([8.0, 8.0])
+                    .spacing([pane_spacing, pane_spacing])
                     .show(ui, |ui| {
-                        for (idx, &tile_id) in matching_panes.iter().enumerate() {
+                        for (idx, (tile_id, pane_name)) in matching_panes.iter().enumerate() {
                             if let Some(Tile::Pane(component)) =
-                                self.viewport_tree.tiles.get_mut(tile_id)
+                                self.viewport_tree.tiles.get_mut(*tile_id)
                             {
-                                component.set_theme(self.behavior.theme());
+                                component.set_theme(theme);
                                 component.set_api_key(self.behavior.api_key());
 
-                                // Render pane with constrained size (no extra frame)
-                                ui.allocate_ui(egui::vec2(pane_width - 8.0, pane_height), |ui| {
-                                    component.show(ui);
-                                });
+                                // Render pane with header showing the name
+                                ui.allocate_ui(
+                                    egui::vec2(pane_width, pane_height + header_height),
+                                    |ui| {
+                                        ui.vertical(|ui| {
+                                            // Pane header with name
+                                            ui.horizontal(|ui| {
+                                                ui.add_space(4.0);
+                                                ui.label(
+                                                    RichText::new(semantic_icons::action::CHART)
+                                                        .color(accent)
+                                                        .size(typography::MD),
+                                                );
+                                                ui.add_space(4.0);
+                                                let display_name = if pane_name.is_empty() {
+                                                    format!("Pane {}", idx + 1)
+                                                } else {
+                                                    pane_name.clone()
+                                                };
+                                                ui.label(
+                                                    RichText::new(display_name)
+                                                        .color(text_col)
+                                                        .size(typography::MD)
+                                                        .strong(),
+                                                );
+                                            });
+                                            ui.add_space(4.0);
+
+                                            // Pane content
+                                            ui.allocate_ui(
+                                                egui::vec2(pane_width, pane_height),
+                                                |ui| {
+                                                    component.show(ui);
+                                                },
+                                            );
+                                        });
+                                    },
+                                );
                             }
 
                             // End row after 'columns' panes
