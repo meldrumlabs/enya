@@ -152,7 +152,7 @@ impl LandingPage {
                 ui.add_space(footer_spacing);
 
                 // === FOOTER ===
-                self.show_footer_scaled(ui, muted_color, scale);
+                self.show_footer_scaled(ui, ctx, muted_color, scale);
             });
         });
 
@@ -382,7 +382,13 @@ impl LandingPage {
     }
 
     /// Show the footer with keyboard hints (scaled version)
-    fn show_footer_scaled(&self, ui: &mut egui::Ui, muted_color: Color32, scale: f32) {
+    fn show_footer_scaled(
+        &self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        muted_color: Color32,
+        scale: f32,
+    ) {
         // Keyboard hints
         ui.label(
             RichText::new("j/k navigate  •  Enter select  •  : commands")
@@ -392,12 +398,22 @@ impl LandingPage {
 
         ui.add_space(12.0 * scale);
 
-        // Credits
-        ui.label(
-            RichText::new("Developed by Meldrum Labs")
-                .size(typography::SM * scale)
-                .color(muted_color.gamma_multiply(0.5)),
+        // Credits with clickable link
+        let link_color = muted_color.gamma_multiply(0.5);
+        let response = ui.add(
+            egui::Label::new(
+                RichText::new("Developed by Meldrum Labs")
+                    .size(typography::SM * scale)
+                    .color(link_color),
+            )
+            .sense(egui::Sense::click()),
         );
+        if response.clicked() {
+            ctx.open_url(egui::OpenUrl::new_tab("https://meldrumlabs.com"));
+        }
+        if response.hovered() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
     }
 
     /// Handle keyboard navigation
