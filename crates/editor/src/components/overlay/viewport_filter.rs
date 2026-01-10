@@ -98,20 +98,38 @@ impl ViewportFilter {
         self.total_count = total_count;
     }
 
-    /// Check if a query matches the current filter (live filtering while typing)
-    pub fn matches(&self, query: &str) -> bool {
-        // Use the live pattern if filter is open, otherwise use applied pattern
-        let pattern = if self.is_open {
+    /// Get the current active pattern (live if open, otherwise applied)
+    pub fn current_pattern(&self) -> &str {
+        if self.is_open {
             &self.pattern
         } else {
             &self.applied_pattern
-        };
+        }
+    }
 
+    /// Check if a query matches the current filter (live filtering while typing)
+    pub fn matches(&self, query: &str) -> bool {
+        let pattern = self.current_pattern();
         if pattern.is_empty() {
             return true;
         }
         // Case-insensitive search
         query.to_lowercase().contains(&pattern.to_lowercase())
+    }
+
+    /// Find the match range in text (case-insensitive)
+    /// Returns (start, end) byte indices if found
+    pub fn find_match_range(&self, text: &str) -> Option<(usize, usize)> {
+        let pattern = self.current_pattern();
+        if pattern.is_empty() {
+            return None;
+        }
+        let text_lower = text.to_lowercase();
+        let pattern_lower = pattern.to_lowercase();
+        text_lower.find(&pattern_lower).map(|start| {
+            // Find the actual byte position in original text
+            (start, start + pattern.len())
+        })
     }
 
     /// Show the filter input bar (renders above status line in bottom panel)

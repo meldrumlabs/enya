@@ -3,7 +3,7 @@
 //! This module handles rendering the filtered view, custom scrollbar,
 //! and scroll-to-focused-tile functionality.
 
-use egui::RichText;
+use egui::{Color32, RichText};
 use egui_tiles::Tile;
 
 use super::Workspace;
@@ -12,6 +12,61 @@ use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
+
+/// Render text with a highlighted portion (for filter matches)
+fn render_highlighted_text(
+    ui: &mut egui::Ui,
+    text: &str,
+    match_range: Option<(usize, usize)>,
+    normal_color: Color32,
+    highlight_color: Color32,
+    size: f32,
+) {
+    match match_range {
+        Some((start, end)) if start < text.len() && end <= text.len() => {
+            // Split text into before, match, and after
+            let before = &text[..start];
+            let matched = &text[start..end];
+            let after = &text[end..];
+
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if !before.is_empty() {
+                    ui.label(
+                        RichText::new(before)
+                            .color(normal_color)
+                            .size(size)
+                            .strong(),
+                    );
+                }
+                ui.label(
+                    RichText::new(matched)
+                        .color(highlight_color)
+                        .size(size)
+                        .strong()
+                        .underline(),
+                );
+                if !after.is_empty() {
+                    ui.label(
+                        RichText::new(after)
+                            .color(normal_color)
+                            .size(size)
+                            .strong(),
+                    );
+                }
+            });
+        }
+        _ => {
+            // No match, render normally
+            ui.label(
+                RichText::new(text)
+                    .color(normal_color)
+                    .size(size)
+                    .strong(),
+            );
+        }
+    }
+}
 
 impl Workspace {
     /// Render only matching panes when viewport filter is active
@@ -112,7 +167,7 @@ impl Workspace {
                                     egui::vec2(pane_width, pane_height + header_height),
                                     |ui| {
                                         ui.vertical(|ui| {
-                                            // Pane header with name
+                                            // Pane header with name (highlighted if matches filter)
                                             ui.horizontal(|ui| {
                                                 ui.add_space(4.0);
                                                 ui.label(
@@ -126,11 +181,16 @@ impl Workspace {
                                                 } else {
                                                     pane_name.clone()
                                                 };
-                                                ui.label(
-                                                    RichText::new(display_name)
-                                                        .color(text_col)
-                                                        .size(typography::MD)
-                                                        .strong(),
+                                                // Find match range for highlighting
+                                                let match_range =
+                                                    self.viewport_filter.find_match_range(&display_name);
+                                                render_highlighted_text(
+                                                    ui,
+                                                    &display_name,
+                                                    match_range,
+                                                    text_col,
+                                                    accent,
+                                                    typography::MD,
                                                 );
                                             });
                                             ui.add_space(4.0);
