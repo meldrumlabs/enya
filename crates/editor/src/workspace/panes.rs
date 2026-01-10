@@ -169,9 +169,10 @@ impl Workspace {
                     }
                 }
                 AgentCommand::SearchMetrics { pattern } => {
-                    // Open the metrics finder with the pattern
-                    self.metrics_finder.open();
-                    self.metrics_finder.set_query(&pattern);
+                    // Open the unified finder in metrics mode with the pattern
+                    self.unified_finder
+                        .open_with_mode(crate::components::overlay::FinderMode::Metrics);
+                    self.unified_finder.set_query(&pattern);
                     log::info!("Agent opened metrics search: {pattern}");
                     executed_any = true;
                 }

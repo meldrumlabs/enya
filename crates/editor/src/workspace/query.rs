@@ -73,16 +73,8 @@ impl Workspace {
 
         // 0b. Poll for per-metric labels and update the finder/buffer editor if labels were received
         if let Some(metric_name) = self.query_executor.poll_metric_labels() {
-            // Convert MetricLabels to FxHashMap<String, FxHashSet<String>> for the finder
+            // Update buffer editor completions if editing this metric
             if let Some(labels) = self.query_executor.get_metric_labels(&metric_name) {
-                let tags: rustc_hash::FxHashMap<String, rustc_hash::FxHashSet<String>> = labels
-                    .labels
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
-                    .collect();
-                self.metrics_finder.update_metric_tags(&metric_name, tags);
-
-                // Also update buffer editor completions if editing this metric
                 if self.buffer_editor.editing_metric_name() == Some(metric_name.as_str()) {
                     self.buffer_editor
                         .set_completions_from_labels(&labels.labels);
@@ -91,18 +83,6 @@ impl Workspace {
                         labels.labels.len(),
                         metric_name
                     );
-                }
-            }
-        }
-
-        // 0c. If metrics finder is open and connected, fetch labels for selected metric
-        if self.metrics_finder.is_open() && self.query_executor.is_connected() {
-            if let Some(metric_name) = self.metrics_finder.selected_metric_name() {
-                // Only fetch if not already cached and not currently fetching this metric
-                if !self.query_executor.has_metric_labels(metric_name)
-                    && self.query_executor.fetching_metric() != Some(metric_name)
-                {
-                    self.query_executor.fetch_metric_labels(metric_name, ctx);
                 }
             }
         }

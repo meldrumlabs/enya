@@ -16,7 +16,7 @@ use crate::components::overlay::{FinderMode, UnifiedFinder};
 use crate::components::{
     AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult, Buffer,
     BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
-    DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MetricsFinder, MultiBufferMode,
+    DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MultiBufferMode,
     MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
     QuickCommand, SourcePreviewOverlay, SourcePreviewResult, StylePicker, StylePickerResult,
     TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TutorialOverlay,
@@ -151,8 +151,6 @@ pub struct Workspace {
     pending_chart: Option<String>,
     /// Time range toolbar
     time_range_toolbar: TimeRangeToolbar,
-    /// Fuzzy finder modal for metrics (telescope-style search)
-    metrics_finder: MetricsFinder,
     /// Workspace finder modal (for loading saved workspaces)
     workspace_finder: WorkspaceFinder,
     /// Command palette (neovim-style `:` commands)
@@ -282,7 +280,6 @@ impl Workspace {
             open_charts: FxHashSet::default(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
-            metrics_finder: MetricsFinder::new(),
             workspace_finder: WorkspaceFinder::new(),
             command_palette: CommandPalette::new(),
             buffer_editor: BufferEditor::new(),
@@ -857,12 +854,6 @@ impl Workspace {
         });
         } // end else (not chat_split_view_active)
 
-        // Show fuzzy finder modal (rendered on top of everything)
-        self.metrics_finder.set_theme(app_state.theme);
-        if let Some(selected_item) = self.metrics_finder.show(ctx) {
-            return self.handle_metric_selection_with_tracking(selected_item);
-        }
-
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
@@ -1090,7 +1081,6 @@ impl Workspace {
         let codebase_finder_open = false;
 
         if !self.which_key.is_open()
-            && !self.metrics_finder.is_open()
             && !self.unified_finder.is_open()
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
@@ -1118,7 +1108,6 @@ impl Workspace {
 
         // Handle ? key for which-key overlay (bypasses focus check so it works even with chart focus)
         if !self.which_key.is_open()
-            && !self.metrics_finder.is_open()
             && !self.unified_finder.is_open()
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
@@ -1177,7 +1166,6 @@ impl Workspace {
         // This prevents the landing page from consuming keyboard input meant for modals
         let modal_open = native_promo_open
             || self.style_picker.is_open()
-            || self.metrics_finder.is_open()
             || self.workspace_finder.is_open()
             || self.command_palette.is_open()
             || self.which_key.is_open();
@@ -1227,12 +1215,6 @@ impl Workspace {
                 self.native_promo_overlay.open_force();
             }
             LandingPageAction::None => {}
-        }
-
-        // Show fuzzy finder modal (rendered on top of everything)
-        self.metrics_finder.set_theme(app_state.theme);
-        if let Some(selected_item) = self.metrics_finder.show(ctx) {
-            return self.handle_metric_selection_with_tracking(selected_item);
         }
 
         // Show workspace finder modal (rendered on top of everything)
@@ -1382,8 +1364,7 @@ impl Workspace {
 
         // Handle Space+d for diagnostics on landing page
         // (viewport keyboard handling doesn't run on landing page)
-        if !self.metrics_finder.is_open()
-            && !self.workspace_finder.is_open()
+        if !self.workspace_finder.is_open()
             && !self.command_palette.is_open()
             && !self.which_key.is_open()
             && !self.diagnostics_pane.is_open()
@@ -1683,9 +1664,9 @@ impl Workspace {
         self.command_palette.is_open()
     }
 
-    /// Check if the fuzzy finder is currently open
-    pub fn is_metrics_finder_open(&self) -> bool {
-        self.metrics_finder.is_open()
+    /// Check if the unified finder is currently open
+    pub fn is_unified_finder_open(&self) -> bool {
+        self.unified_finder.is_open()
     }
 
     /// Check if multi-buffer is in input mode (capturing text input)

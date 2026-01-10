@@ -23,7 +23,7 @@ pub use overlay::{
     ChatMessage, CodebaseContext, CommandPalette, CommandResult, ConnectionContext,
     DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
     DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext, InfoOverlay, MessageRole,
-    MetricItem, MetricsFinder, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
+    MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
     SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
     WorkspaceItem, parse_commands, strip_command_blocks,

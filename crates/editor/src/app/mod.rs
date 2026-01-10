@@ -164,7 +164,7 @@ impl EnyaApp {
             UIState::Dashboard => {
                 if self.workspace.is_command_palette_open() {
                     StatusMode::Command
-                } else if self.workspace.is_metrics_finder_open() {
+                } else if self.workspace.is_unified_finder_open() {
                     StatusMode::Search
                 } else if self.workspace.is_agent_mode() {
                     StatusMode::Agent
@@ -294,7 +294,7 @@ impl EnyaApp {
             }
 
             UICommand::OpenFuzzyFinder => {
-                self.open_metrics_finder();
+                self.workspace.open_unified_finder();
             }
 
             UICommand::OpenCommandPalette => {
@@ -498,10 +498,6 @@ impl EnyaApp {
                 self.open_diff_viewer(&hash, &diff);
             }
         }
-    }
-
-    fn open_metrics_finder(&mut self) {
-        self.workspace.open_metrics_finder();
     }
 
     fn open_command_palette(&mut self) {

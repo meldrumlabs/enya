@@ -410,6 +410,17 @@ impl UnifiedFinder {
         text
     }
 
+    /// Sets the query text, preserving the current mode prefix.
+    pub fn set_query(&mut self, query: &str) {
+        if let Some(prefix) = self.mode.prefix() {
+            self.query = format!("{prefix}{query}");
+        } else {
+            self.query = query.to_string();
+        }
+        self.selected_index = 0;
+        self.refresh_results();
+    }
+
     /// Gets the current mode based on query prefix.
     ///
     /// This parses the mode from the query prefix (e.g., `#` for commits)
