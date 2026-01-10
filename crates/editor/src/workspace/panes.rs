@@ -60,19 +60,6 @@ impl Workspace {
         WorkspaceAction::None
     }
 
-    /// Add a demo query pane with a full PromQL query, custom name, and unit (for tutorial)
-    pub(super) fn add_demo_query_pane(&mut self, query: &str, name: &str, unit: &str) {
-        let pane: Box<dyn Component> =
-            Box::new(QueryPane::with_demo_query_named_unit(query, name, unit));
-        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(pane_tile) {
-            self.open_charts.insert(query.to_string());
-            self.behavior.set_focused_tile(Some(pane_tile));
-            log::debug!("Added demo query pane: {name}");
-        }
-    }
-
     /// Add a query pane with a PromQL query and optional title.
     ///
     /// This is used by the agent to create panes programmatically.
@@ -509,6 +496,60 @@ impl Workspace {
         // Restore focus
         self.behavior.set_focused_tile(focus_pane);
         log::debug!("Split panes vertically (horizontal layout)");
+    }
+
+    /// Setup the tutorial layout with a custom arrangement:
+    /// - Top row: "HTTP Requests" and "Requests by Endpoint" side by side
+    /// - Second row: "CPU Usage"
+    /// - Third row: "Memory Used"
+    pub(super) fn setup_tutorial_layout(&mut self) {
+        use crate::components::pane::QueryPane;
+
+        // Define the demo queries with their names and units
+        let demo_queries = [
+            (
+                "http_requests_total{method=\"GET\", path=\"/api/users\"}",
+                "HTTP Requests",
+                "",
+            ),
+            (
+                "sum(rate(http_requests_total[5m])) by (path)",
+                "Requests by Endpoint",
+                "req/s",
+            ),
+            ("node_cpu_seconds_total{mode=\"user\"}", "CPU Usage", "%"),
+            ("node_memory_Active_bytes", "Memory Used", "MB"),
+        ];
+
+        // Create panes without adding them to the viewport yet
+        let mut pane_ids = Vec::new();
+        for (query, name, unit) in demo_queries {
+            let pane: Box<dyn Component> =
+                Box::new(QueryPane::with_demo_query_named_unit(query, name, unit));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+            self.open_charts.insert(query.to_string());
+            pane_ids.push(pane_tile);
+        }
+
+        // Create a horizontal container for the first two panes (side by side)
+        let top_row = self
+            .viewport_tree
+            .tiles
+            .insert_horizontal_tile(vec![pane_ids[0], pane_ids[1]]);
+
+        // Create the main vertical container with: top row, CPU, Memory
+        let root = self
+            .viewport_tree
+            .tiles
+            .insert_vertical_tile(vec![top_row, pane_ids[2], pane_ids[3]]);
+
+        // Set as the tree root
+        self.viewport_tree.root = Some(root);
+
+        // Focus the first pane
+        self.behavior.set_focused_tile(Some(pane_ids[0]));
+
+        log::debug!("Setup tutorial layout with HTTP panes side by side");
     }
 
     // ==================== Pane Movement (Ctrl+W H/J/K/L) ====================

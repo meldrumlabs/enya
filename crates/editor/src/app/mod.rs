@@ -26,7 +26,7 @@ use crate::connection::ConnectionManager;
 use crate::team::TeamState;
 use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
-use crate::workspace::{TabBarAction, WorkspaceAction, WorkspaceTabBar};
+use crate::workspace::{Workspace, WorkspaceAction};
 
 use state::EditorMetrics;
 
@@ -34,8 +34,8 @@ use state::EditorMetrics;
 pub struct EnyaApp {
     pub(super) state: AppState,
 
-    /// Workspace tab bar for managing multiple workspaces
-    pub(super) workspace_tabs: WorkspaceTabBar,
+    /// The workspace (pane layout, modals, etc.)
+    pub(super) workspace: Workspace,
 
     // Agent connection manager
     connection: ConnectionManager,
@@ -110,13 +110,12 @@ impl EnyaApp {
         // Sync state.theme from settings.theme (settings is the source of truth)
         state.theme = state.settings.theme;
 
-        // Initialize workspace tabs with async runtime
-        let mut workspace_tabs = WorkspaceTabBar::new(async_runtime.clone());
-        workspace_tabs.set_theme(state.theme);
+        // Initialize workspace with async runtime
+        let workspace = Workspace::new(async_runtime.clone());
 
         Self {
             state,
-            workspace_tabs,
+            workspace,
             command_sender,
             command_receiver,
             connection: ConnectionManager::new(async_runtime.clone()),
@@ -137,51 +136,19 @@ impl EnyaApp {
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
         // Skip global shortcuts when multi-buffer editing is capturing input
-        if let Some(tab) = self.workspace_tabs.active_tab() {
-            if tab.workspace.is_multi_buffer_input_mode() {
-                return;
-            }
+        if self.workspace.is_multi_buffer_input_mode() {
+            return;
         }
         if let Some(cmd) = UICommand::listen_for_kb_shortcut(egui_ctx) {
             self.command_sender.send_ui(cmd);
         }
     }
 
-    /// Handle workspace tab navigation keyboard shortcuts at the app level
-    fn check_tab_navigation(&mut self, ctx: &egui::Context) {
-        // Don't handle if something has focus (text input, etc.)
-        if ctx.memory(|mem| mem.focused().is_some()) {
-            return;
-        }
-
-        ctx.input_mut(|input| {
-            // Shift+N - next workspace tab
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::N) {
-                self.workspace_tabs.next_tab();
-            }
-            // Shift+P - previous workspace tab
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::P) {
-                self.workspace_tabs.prev_tab();
-            }
-            // Shift+T - create new workspace tab (like :tabnew)
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::T) {
-                self.workspace_tabs.new_tab();
-            }
-            // Shift+X - close current workspace tab (like :tabclose)
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::X) {
-                self.workspace_tabs
-                    .close_tab(self.workspace_tabs.active_index());
-            }
-        });
-    }
-
     // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
         // Hide status line on landing page - it's part of the workspace UI, not the landing page
-        if let Some(tab) = self.workspace_tabs.active_tab() {
-            if tab.workspace.is_landing_page() {
-                return;
-            }
+        if self.workspace.is_landing_page() {
+            return;
         }
 
         // Update status line state
@@ -195,19 +162,14 @@ impl EnyaApp {
         // Note: Zen/Fullscreen are display preferences, not modes - user stays in Normal mode
         let mode = match self.state.ui_state {
             UIState::Dashboard => {
-                if let Some(tab) = self.workspace_tabs.active_tab() {
-                    let workspace = &tab.workspace;
-                    if workspace.is_command_palette_open() {
-                        StatusMode::Command
-                    } else if workspace.is_metrics_finder_open() {
-                        StatusMode::Search
-                    } else if workspace.is_agent_mode() {
-                        StatusMode::Agent
-                    } else if workspace.is_visual_multi_mode() {
-                        StatusMode::VisualMulti
-                    } else {
-                        StatusMode::Normal
-                    }
+                if self.workspace.is_command_palette_open() {
+                    StatusMode::Command
+                } else if self.workspace.is_metrics_finder_open() {
+                    StatusMode::Search
+                } else if self.workspace.is_agent_mode() {
+                    StatusMode::Agent
+                } else if self.workspace.is_visual_multi_mode() {
+                    StatusMode::VisualMulti
                 } else {
                     StatusMode::Normal
                 }
@@ -217,42 +179,37 @@ impl EnyaApp {
         self.status_line.set_mode(mode);
 
         // Set open tabs count from workspace
-        if let Some(tab) = self.workspace_tabs.active_tab() {
-            let workspace = &tab.workspace;
-            self.status_line.set_open_tabs(workspace.open_tabs_count());
-            self.status_line
-                .set_selected_metric(workspace.selected_metric());
-            self.status_line
-                .set_viewport_info(workspace.viewport_info());
-            // Set multi-buffer status if in visual-multi mode
-            let multi_buffer_status = workspace.multi_buffer_status_text();
-            self.status_line
-                .set_extra_status(if multi_buffer_status.is_empty() {
-                    None
-                } else {
-                    Some(multi_buffer_status)
-                });
-            // Set diagnostics count
-            let (errors, warnings, infos) = workspace.diagnostics_count_by_level();
-            self.status_line
-                .set_diagnostics_count(errors, warnings, infos);
-            // Set connection status based on Prometheus health check
-            self.status_line.set_connected(workspace.is_online());
-            // Set display preference badges
-            self.status_line.set_zen_mode(workspace.is_zen_mode());
-            self.status_line.set_fullscreen(workspace.is_fullscreen());
-            // Set codebase status (Cloning..., Indexing..., Ready, Error)
-            // Only show when not on landing page - user expects status after entering workspace
-            if workspace.is_landing_page() {
-                self.status_line.set_codebase_status(None);
+        self.status_line
+            .set_open_tabs(self.workspace.open_tabs_count());
+        self.status_line
+            .set_selected_metric(self.workspace.selected_metric());
+        self.status_line
+            .set_viewport_info(self.workspace.viewport_info());
+        // Set multi-buffer status if in visual-multi mode
+        let multi_buffer_status = self.workspace.multi_buffer_status_text();
+        self.status_line
+            .set_extra_status(if multi_buffer_status.is_empty() {
+                None
             } else {
-                self.status_line
-                    .set_codebase_status(workspace.codebase_status_info());
-            }
-        } else {
-            // No active tab - show offline
-            self.status_line.set_connected(false);
+                Some(multi_buffer_status)
+            });
+        // Set diagnostics count
+        let (errors, warnings, infos) = self.workspace.diagnostics_count_by_level();
+        self.status_line
+            .set_diagnostics_count(errors, warnings, infos);
+        // Set connection status based on Prometheus health check
+        self.status_line.set_connected(self.workspace.is_online());
+        // Set display preference badges
+        self.status_line.set_zen_mode(self.workspace.is_zen_mode());
+        self.status_line
+            .set_fullscreen(self.workspace.is_fullscreen());
+        // Set codebase status (Cloning..., Indexing..., Ready, Error)
+        // Only show when not on landing page - user expects status after entering workspace
+        if self.workspace.is_landing_page() {
             self.status_line.set_codebase_status(None);
+        } else {
+            self.status_line
+                .set_codebase_status(self.workspace.codebase_status_info());
         }
 
         // Update sparkline with editor frame time metrics
@@ -271,14 +228,10 @@ impl EnyaApp {
             .resizable(false)
             .show(ctx, |ui| {
                 // Show agent input bar above status line (if in agent mode)
-                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                    tab.workspace.show_agent_input_bar(ui, ctx, theme);
-                }
+                self.workspace.show_agent_input_bar(ui, ctx, theme);
 
                 // Show viewport filter bar above status line (if filter is open)
-                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                    tab.workspace.show_viewport_filter_bar(ui);
-                }
+                self.workspace.show_viewport_filter_bar(ui);
 
                 // Status line at the bottom
                 self.status_line.show(ui);
@@ -372,69 +325,27 @@ impl EnyaApp {
             }
         }
 
-        // Update workspace tabs theme
-        self.workspace_tabs.set_theme(self.state.theme);
-
-        // Render workspace tab bar (hide when single tab on landing page, or in zen mode)
-        let should_hide_tabs = (self.workspace_tabs.tab_count() == 1
-            && self
-                .workspace_tabs
-                .active_tab()
-                .is_some_and(|tab| tab.workspace.is_landing_page()))
-            || self
-                .workspace_tabs
-                .active_tab()
-                .is_some_and(|tab| tab.workspace.is_zen_mode());
-        if !should_hide_tabs {
-            let tab_action = self.workspace_tabs.show(ctx);
-            self.handle_tab_bar_action(tab_action);
-        }
-
         let mut workspace_action = WorkspaceAction::None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                // Update workspace team status and members before rendering
-                tab.workspace.set_team_status(self.team_state.status_info());
-                tab.workspace
-                    .set_team_members(self.team_state.members().to_vec());
-                // Pass chat state reference when team mode is active
-                let chat_state = if self.team_state.is_connected() {
-                    tab.workspace.show_channels_panel();
-                    Some(self.team_state.chat_state())
-                } else {
-                    tab.workspace.hide_channels_panel();
-                    None
-                };
-                workspace_action = tab.workspace.show(ui, ctx, &self.state, chat_state);
-            }
+            // Update workspace team status and members before rendering
+            self.workspace
+                .set_team_status(self.team_state.status_info());
+            self.workspace
+                .set_team_members(self.team_state.members().to_vec());
+            // Pass chat state reference when team mode is active
+            let chat_state = if self.team_state.is_connected() {
+                self.workspace.show_channels_panel();
+                Some(self.team_state.chat_state())
+            } else {
+                self.workspace.hide_channels_panel();
+                None
+            };
+            workspace_action = self.workspace.show(ui, ctx, &self.state, chat_state);
         });
 
         // Handle actions from the viewport (e.g., from command palette)
         self.handle_workspace_action(ctx, workspace_action);
-    }
-
-    /// Handle actions from the workspace tab bar
-    fn handle_tab_bar_action(&mut self, action: TabBarAction) {
-        match action {
-            TabBarAction::None => {}
-            TabBarAction::SwitchToTab(idx) => {
-                self.workspace_tabs.switch_to_tab(idx);
-            }
-            TabBarAction::CloseTab(idx) => {
-                self.workspace_tabs.close_tab(idx);
-            }
-            TabBarAction::NewTab => {
-                // On native: open the workspace creator overlay
-                // On WASM: directly create a new tab (overlay not supported)
-                #[cfg(not(target_arch = "wasm32"))]
-                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                    tab.workspace.open_workspace_creator();
-                }
-                #[cfg(target_arch = "wasm32")]
-                self.workspace_tabs.new_tab();
-            }
-        }
     }
 
     fn handle_workspace_action(&mut self, ctx: &egui::Context, action: WorkspaceAction) {
@@ -507,30 +418,6 @@ impl EnyaApp {
             WorkspaceAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            WorkspaceAction::NewWorkspaceTab(name) => {
-                if let Some(name) = name {
-                    self.workspace_tabs.new_tab_with_name(name);
-                } else {
-                    self.workspace_tabs.new_tab();
-                }
-            }
-            WorkspaceAction::CloseWorkspaceTab => {
-                self.workspace_tabs
-                    .close_tab(self.workspace_tabs.active_index());
-            }
-            WorkspaceAction::NextWorkspaceTab => {
-                self.workspace_tabs.next_tab();
-            }
-            WorkspaceAction::PrevWorkspaceTab => {
-                self.workspace_tabs.prev_tab();
-            }
-            WorkspaceAction::RenameCurrentWorkspace(name) => {
-                self.workspace_tabs.rename_active_tab(name);
-            }
-            WorkspaceAction::RenameAndSaveWorkspace(name) => {
-                self.workspace_tabs.rename_active_tab(name.clone());
-                self.save_workspace(Some(&name));
-            }
             WorkspaceAction::ToggleTeamDemo => {
                 self.team_state.toggle_demo_mode();
                 let msg = if self.team_state.is_demo() {
@@ -562,9 +449,7 @@ impl EnyaApp {
             }
             WorkspaceAction::OpenAnnotationEditor => {
                 // Open annotation editor on the focused pane
-                if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                    tab.workspace.open_annotation_editor();
-                }
+                self.workspace.open_annotation_editor();
             }
             WorkspaceAction::SendChatMessage {
                 text,
@@ -616,15 +501,11 @@ impl EnyaApp {
     }
 
     fn open_metrics_finder(&mut self) {
-        if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-            tab.workspace.open_metrics_finder();
-        }
+        self.workspace.open_metrics_finder();
     }
 
     fn open_command_palette(&mut self) {
-        if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-            tab.workspace.open_command_palette();
-        }
+        self.workspace.open_command_palette();
     }
 
     /// Search commits for # autocomplete in chat.
@@ -632,42 +513,40 @@ impl EnyaApp {
     fn search_chat_commits(&mut self, query: &str) {
         use crate::chat::CommitInfo;
 
-        if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-            // Search codebase for commits
-            let results = tab
-                .workspace
-                .search_codebase(query, Some("commits"), Some(10));
+        // Search codebase for commits
+        let results = self
+            .workspace
+            .search_codebase(query, Some("commits"), Some(10));
 
-            // Convert to CommitInfo for the chat
-            let commits: Vec<CommitInfo> = results
-                .into_iter()
-                .filter_map(|r| {
-                    if let crate::codebase::SearchResultKind::Commit {
-                        hash,
+        // Convert to CommitInfo for the chat
+        let commits: Vec<CommitInfo> = results
+            .into_iter()
+            .filter_map(|r| {
+                if let crate::codebase::SearchResultKind::Commit {
+                    hash,
+                    timestamp,
+                    diff,
+                } = r.kind
+                {
+                    Some(CommitInfo {
+                        short_hash: if hash.len() >= 7 {
+                            hash[..7].to_string()
+                        } else {
+                            hash.clone()
+                        },
+                        full_hash: hash,
+                        message: r.name,
                         timestamp,
                         diff,
-                    } = r.kind
-                    {
-                        Some(CommitInfo {
-                            short_hash: if hash.len() >= 7 {
-                                hash[..7].to_string()
-                            } else {
-                                hash.clone()
-                            },
-                            full_hash: hash,
-                            message: r.name,
-                            timestamp,
-                            diff,
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-            // Provide commits to the channels panel
-            tab.workspace.set_chat_commits(commits);
-        }
+        // Provide commits to the channels panel
+        self.workspace.set_chat_commits(commits);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -677,9 +556,7 @@ impl EnyaApp {
 
     /// Open the diff viewer with a commit diff.
     fn open_diff_viewer(&mut self, hash: &str, diff: &str) {
-        if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-            tab.workspace.open_diff_viewer_with_content(hash, diff);
-        }
+        self.workspace.open_diff_viewer_with_content(hash, diff);
     }
 
     /// Poll the connection manager for completed health checks
@@ -733,9 +610,6 @@ impl eframe::App for EnyaApp {
 
         // Poll team state for events (presence changes, mentions, etc.)
         self.team_state.poll(ctx);
-
-        // Handle workspace tab navigation shortcuts at app level
-        self.check_tab_navigation(ctx);
 
         // Custom titlebar with window controls and drag area
         // Replaces native macOS titlebar for seamless theme integration

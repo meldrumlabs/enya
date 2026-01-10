@@ -61,10 +61,6 @@ mod panes;
 // UI rendering (filtered view, scrollbar, scroll-to-focus)
 mod rendering;
 
-// Workspace tab bar (barbar.nvim style workspace switching)
-mod tabs;
-pub use tabs::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
-
 // Re-export config types for convenience
 pub use config::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
@@ -108,18 +104,6 @@ pub enum WorkspaceAction {
     SharePane(usize),
     /// Quit the application
     QuitApp,
-    /// Create a new workspace tab
-    NewWorkspaceTab(Option<String>),
-    /// Close current workspace tab
-    CloseWorkspaceTab,
-    /// Go to next workspace tab
-    NextWorkspaceTab,
-    /// Go to previous workspace tab
-    PrevWorkspaceTab,
-    /// Rename/set the current workspace tab name
-    RenameCurrentWorkspace(String),
-    /// Rename and save the current workspace (used after workspace creation)
-    RenameAndSaveWorkspace(String),
     /// Toggle team demo mode (for testing UI without backend)
     ToggleTeamDemo,
     /// Connect to team server
@@ -746,7 +730,15 @@ impl Workspace {
             }
 
             // Main viewport area (tabbed charts/views)
-            egui::CentralPanel::default().show_inside(ui, |ui| {
+            // Use a frame that clips content to prevent overflow onto status bar
+            egui::CentralPanel::default()
+                .frame(egui::Frame::central_panel(ui.style()).inner_margin(0.0))
+                .show_inside(ui, |ui| {
+                // Get the exact available rect and set it as the clip rect on the painter
+                // This prevents any content from painting outside this area
+                let panel_rect = ui.available_rect_before_wrap();
+                ui.set_clip_rect(panel_rect);
+
                 if let Some(fullscreen_id) = self.fullscreen_tile {
                     // Render only the fullscreen pane
                     if let Some(Tile::Pane(component)) =
@@ -770,93 +762,96 @@ impl Workspace {
                     // Scrollbar dimensions
                     const SCROLLBAR_WIDTH: f32 = 10.0; // Width including padding
 
-                    // Calculate if we need scrolling
-                    const MIN_PANE_HEIGHT: f32 = 300.0;
+                    // Calculate if we need scrolling based on absolute minimum pane height
+                    // This matches TreeBehavior::min_size() (200px) which is the floor enforced by egui_tiles
+                    // Scrolling only kicks in when panes would be smaller than the absolute minimum
+                    const MIN_PANE_HEIGHT: f32 = 200.0;
                     let pane_count = self.get_pane_tile_ids().len();
                     let min_content_height = pane_count as f32 * MIN_PANE_HEIGHT;
                     let needs_scrollbar = min_content_height > full_rect.height();
 
-                    // Layout: main content area + scrollbar gutter on right
-                    ui.horizontal(|ui| {
-                        // Main viewport area (takes remaining space minus scrollbar)
-                        let viewport_width = if needs_scrollbar {
-                            full_rect.width() - SCROLLBAR_WIDTH
-                        } else {
-                            full_rect.width()
-                        };
+                    // Use the exact available height
+                    self.viewport_visible_height = full_rect.height();
 
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(viewport_width, full_rect.height()),
-                            egui::Layout::top_down(egui::Align::LEFT),
-                            |ui| {
-                                self.viewport_visible_height = ui.available_height();
+                    // Animate scroll offset towards target (smooth scrolling)
+                    let scroll_speed = 12.0; // Higher = faster animation
+                    let dt = ctx.input(|i| i.predicted_dt);
+                    let diff = self.viewport_scroll_target - self.viewport_scroll_offset;
+                    if diff.abs() > 0.5 {
+                        self.viewport_scroll_offset += diff * scroll_speed * dt;
+                        ctx.request_repaint();
+                    } else {
+                        self.viewport_scroll_offset = self.viewport_scroll_target;
+                    }
 
-                                // Animate scroll offset towards target (smooth scrolling)
-                                let scroll_speed = 12.0; // Higher = faster animation
-                                let dt = ctx.input(|i| i.predicted_dt);
-                                let diff =
-                                    self.viewport_scroll_target - self.viewport_scroll_offset;
-                                if diff.abs() > 0.5 {
-                                    self.viewport_scroll_offset += diff * scroll_speed * dt;
-                                    ctx.request_repaint();
-                                } else {
-                                    self.viewport_scroll_offset = self.viewport_scroll_target;
-                                }
+                    // Always set tree height to viewport height - the tree's min_size()
+                    // ensures panes don't get smaller than 200px, and ScrollArea handles
+                    // any overflow via clipping
+                    self.viewport_tree.set_height(self.viewport_visible_height);
 
-                                // Set tree height to enable scrolling when content exceeds viewport
-                                if min_content_height > self.viewport_visible_height {
-                                    self.viewport_tree.set_height(min_content_height);
-                                } else {
-                                    self.viewport_tree.set_height(f32::INFINITY);
-                                }
+                    // Calculate viewport and scrollbar rects
+                    let viewport_width = if needs_scrollbar {
+                        full_rect.width() - SCROLLBAR_WIDTH
+                    } else {
+                        full_rect.width()
+                    };
 
-                                // Create ScrollArea with controlled offset
-                                let tiles_before_ui = self.viewport_tree.tiles.len();
-                                let scroll_output = egui::ScrollArea::vertical()
-                                    .id_salt("viewport_scroll")
-                                    .scroll_bar_visibility(
-                                        egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
-                                    )
-                                    .vertical_scroll_offset(self.viewport_scroll_offset)
-                                    .auto_shrink([false, false])
-                                    .show(ui, |ui| {
-                                        self.viewport_tree.ui(&mut self.behavior, ui);
-                                    });
-                                let tiles_after_ui = self.viewport_tree.tiles.len();
-                                if tiles_before_ui != tiles_after_ui {
-                                    log::warn!(
-                                        "viewport_tree.ui() changed tile count: {tiles_before_ui} -> {tiles_after_ui} (GC may have removed tiles)"
-                                    );
-                                }
+                    let viewport_rect = egui::Rect::from_min_size(
+                        full_rect.min,
+                        egui::vec2(viewport_width, full_rect.height()),
+                    );
 
-                                // Update scroll state from ScrollArea output
-                                self.viewport_content_height = scroll_output.content_size.y;
+                    // Create a child UI constrained to the viewport rect with explicit clip rect
+                    let scroll_output = ui
+                        .new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(viewport_rect)
+                                .layout(egui::Layout::top_down(egui::Align::LEFT)),
+                        )
+                        .with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                            // Set clip rect to viewport bounds - this is critical
+                            ui.set_clip_rect(viewport_rect);
 
-                                // Sync scroll offset if user scrolled with mouse
-                                let current_offset = scroll_output.state.offset.y;
-                                if (current_offset - self.viewport_scroll_offset).abs() > 1.0 {
-                                    self.viewport_scroll_offset = current_offset;
-                                    self.viewport_scroll_target = current_offset;
-                                }
-                            },
+                            let tiles_before_ui = self.viewport_tree.tiles.len();
+                            let output = egui::ScrollArea::vertical()
+                                .id_salt("viewport_scroll")
+                                .scroll_bar_visibility(
+                                    egui::scroll_area::ScrollBarVisibility::AlwaysHidden,
+                                )
+                                .vertical_scroll_offset(self.viewport_scroll_offset)
+                                .auto_shrink([false, false])
+                                .max_height(self.viewport_visible_height)
+                                .show(ui, |ui| {
+                                    self.viewport_tree.ui(&mut self.behavior, ui);
+                                });
+                            let tiles_after_ui = self.viewport_tree.tiles.len();
+                            if tiles_before_ui != tiles_after_ui {
+                                log::warn!(
+                                    "viewport_tree.ui() changed tile count: {tiles_before_ui} -> {tiles_after_ui} (GC may have removed tiles)"
+                                );
+                            }
+                            output
+                        })
+                        .inner;
+
+                    // Update scroll state from ScrollArea output
+                    self.viewport_content_height = scroll_output.content_size.y;
+
+                    // Sync scroll offset if user scrolled with mouse
+                    let current_offset = scroll_output.state.offset.y;
+                    if (current_offset - self.viewport_scroll_offset).abs() > 1.0 {
+                        self.viewport_scroll_offset = current_offset;
+                        self.viewport_scroll_target = current_offset;
+                    }
+
+                    // Scrollbar gutter on the right (only if needed)
+                    if needs_scrollbar {
+                        let scrollbar_rect = egui::Rect::from_min_size(
+                            egui::pos2(viewport_rect.right(), full_rect.top()),
+                            egui::vec2(SCROLLBAR_WIDTH, full_rect.height()),
                         );
-
-                        // Scrollbar gutter on the right (only if needed)
-                        if needs_scrollbar {
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(SCROLLBAR_WIDTH, full_rect.height()),
-                                egui::Layout::top_down(egui::Align::Center),
-                                |ui| {
-                                    let scrollbar_rect = ui.available_rect_before_wrap();
-                                    self.draw_scrollbar(
-                                        ui.painter(),
-                                        scrollbar_rect,
-                                        app_state.theme,
-                                    );
-                                },
-                            );
-                        }
-                    });
+                        self.draw_scrollbar(ui.painter(), scrollbar_rect, app_state.theme);
+                    }
                 }
             });
         });
@@ -985,8 +980,8 @@ impl Workspace {
                 let _ = git_repo; // Silence unused warning
                 self.show_landing = false;
                 ctx.request_repaint();
-                // Return action to rename and save the workspace
-                return WorkspaceAction::RenameAndSaveWorkspace(name);
+                // Return action to save the workspace
+                return WorkspaceAction::SaveWorkspace(Some(name));
             }
             WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
         }
@@ -1208,28 +1203,12 @@ impl Workspace {
                 self.workspace_creator.open();
             }
             LandingPageAction::OpenTutorial => {
-                // Hide landing page and add demo panes for the tutorial
-                // These queries use labels that exist in the demo client's generated data
+                // Hide landing page and setup tutorial layout
+                // Layout: HTTP Requests | Requests by Endpoint (side by side at top)
+                //         CPU Usage
+                //         Memory Used
                 self.show_landing = false;
-                let demo_queries = [
-                    (
-                        "http_requests_total{method=\"GET\", path=\"/api/users\"}",
-                        "HTTP Requests",
-                        "",
-                    ),
-                    (
-                        "sum(rate(http_requests_total[5m])) by (path)",
-                        "Requests by Endpoint",
-                        "req/s",
-                    ),
-                    ("node_cpu_seconds_total{mode=\"user\"}", "CPU Usage", "%"),
-                    ("node_memory_Active_bytes", "Memory Used", "MB"),
-                ];
-                for (query, name, unit) in demo_queries {
-                    self.add_demo_query_pane(query, name, unit);
-                }
-                // Stack panes vertically by default for tutorial
-                self.split_panes_horizontal();
+                self.setup_tutorial_layout();
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
             }
@@ -1347,8 +1326,8 @@ impl Workspace {
                 let _ = git_repo; // Silence unused warning
                 self.show_landing = false;
                 ctx.request_repaint();
-                // Return action to rename and save the workspace
-                return WorkspaceAction::RenameAndSaveWorkspace(name);
+                // Return action to save the workspace
+                return WorkspaceAction::SaveWorkspace(Some(name));
             }
             WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
         }
@@ -1445,7 +1424,7 @@ impl Workspace {
                 self.split_panes_vertical();
                 WorkspaceAction::None
             }
-            CommandResult::QuitWorkspace => WorkspaceAction::CloseWorkspaceTab,
+            CommandResult::QuitWorkspace => WorkspaceAction::QuitApp,
             CommandResult::WriteWorkspace => WorkspaceAction::SaveWorkspace(None),
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),

@@ -104,8 +104,6 @@ impl Workspace {
         let mut should_open_which_key = false;
         let mut should_enter_visual_multi = false;
         let mut should_cycle_visualization = false;
-        let mut should_next_workspace_tab = false;
-        let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
         let mut should_open_metrics_finder = false;
         let mut should_open_unified_finder = false;
@@ -170,20 +168,6 @@ impl Workspace {
                     consumed = true;
                     return;
                 }
-            }
-
-            // N - go to next workspace tab
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::N) {
-                should_next_workspace_tab = true;
-                consumed = true;
-                return;
-            }
-
-            // P - go to previous workspace tab
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::P) {
-                should_prev_workspace_tab = true;
-                consumed = true;
-                return;
             }
 
             // Space - leader key for sequences (Space+m, Space+q, Space+w)
@@ -675,16 +659,6 @@ impl Workspace {
                     return Some(WorkspaceAction::SharePane(pane_index));
                 }
             }
-        }
-
-        // Handle workspace tab navigation (gt/gT)
-        if should_next_workspace_tab {
-            ctx.request_repaint();
-            return Some(WorkspaceAction::NextWorkspaceTab);
-        }
-        if should_prev_workspace_tab {
-            ctx.request_repaint();
-            return Some(WorkspaceAction::PrevWorkspaceTab);
         }
 
         // Handle time range preset changes (t5, t1, th, td, tw, etc.)
