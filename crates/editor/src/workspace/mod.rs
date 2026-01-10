@@ -752,6 +752,9 @@ impl Workspace {
                 } else if self.viewport_filter.is_active() {
                     // Render filtered view - only matching panes in a grid
                     self.render_filtered_view(ui);
+                } else if self.get_pane_tile_ids().is_empty() {
+                    // Show empty workspace hint
+                    self.render_empty_workspace_hint(ui);
                 } else {
                     // Store available rect before layout for scrollbar positioning
                     let full_rect = ui.available_rect_before_wrap();

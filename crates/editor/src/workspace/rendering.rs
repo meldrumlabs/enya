@@ -7,11 +7,77 @@ use egui::{Color32, RichText};
 use egui_tiles::Tile;
 
 use super::Workspace;
+use crate::components::util::query_executor::Backend;
 use crate::components::{Buffer, QueryPane};
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
+
+/// Render a centered hint with key and description (e.g. "Space+f to explore metrics")
+fn render_centered_hint(
+    ui: &mut egui::Ui,
+    key_text: &str,
+    description: &str,
+    key_color: Color32,
+    desc_color: Color32,
+) {
+    let font_key = egui::FontId::monospace(typography::MD);
+    let font_desc = egui::FontId::proportional(typography::MD);
+    let spacing = 4.0;
+
+    // Layout text to measure widths (use temporary painter reference)
+    let (key_galley, desc_galley) = {
+        let painter = ui.painter();
+        let key = painter.layout_no_wrap(key_text.to_string(), font_key, key_color);
+        let desc = painter.layout_no_wrap(description.to_string(), font_desc, desc_color);
+        (key, desc)
+    };
+
+    let total_width = key_galley.size().x + spacing + desc_galley.size().x;
+    let row_height = key_galley.size().y.max(desc_galley.size().y);
+    let available_width = ui.available_width();
+    let start_x = ((available_width - total_width) / 2.0).max(0.0);
+
+    // Allocate space for the row
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(available_width, row_height), egui::Sense::hover());
+
+    // Draw key text
+    let painter = ui.painter();
+    painter.galley(
+        egui::pos2(rect.left() + start_x, rect.top()),
+        key_galley.clone(),
+        key_color,
+    );
+
+    // Draw description
+    painter.galley(
+        egui::pos2(
+            rect.left() + start_x + key_galley.size().x + spacing,
+            rect.top(),
+        ),
+        desc_galley,
+        desc_color,
+    );
+}
+
+/// Render centered text (single style)
+fn render_centered_text(ui: &mut egui::Ui, text: &str, color: Color32, font: egui::FontId) {
+    let galley = {
+        let painter = ui.painter();
+        painter.layout_no_wrap(text.to_string(), font, color)
+    };
+
+    let available_width = ui.available_width();
+    let start_x = ((available_width - galley.size().x) / 2.0).max(0.0);
+
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(available_width, galley.size().y), egui::Sense::hover());
+
+    let painter = ui.painter();
+    painter.galley(egui::pos2(rect.left() + start_x, rect.top()), galley, color);
+}
 
 /// Render text with a highlighted portion (for filter matches)
 fn render_highlighted_text(
@@ -335,5 +401,80 @@ impl Workspace {
                 (target_bottom - self.viewport_visible_height + padding).clamp(0.0, max_scroll);
             ctx.request_repaint();
         }
+    }
+
+    /// Render empty workspace hint when there are no panes
+    #[profiling::function]
+    pub(super) fn render_empty_workspace_hint(&self, ui: &mut egui::Ui) {
+        let theme = self.behavior.theme();
+        let text_col = text_color(theme);
+        let muted_col = text_col.gamma_multiply(0.5);
+        let subtle_col = text_col.gamma_multiply(0.35);
+        let accent = theme.accent_primary();
+
+        // Calculate vertical centering
+        let available_height = ui.available_height();
+        ui.add_space(available_height * 0.35);
+
+        // Connection status (only show when connected)
+        if self.query_executor.is_connected() {
+            let endpoint = match self.query_executor.backend() {
+                Backend::Prometheus(endpoint) => endpoint.clone(),
+                Backend::Demo => "Demo Mode".to_string(),
+            };
+
+            // Truncate long endpoints for display
+            let display_endpoint = if endpoint.len() > 40 {
+                format!("{}...", &endpoint[..37])
+            } else {
+                endpoint
+            };
+
+            render_centered_text(
+                ui,
+                &format!("{} {}", semantic_icons::status::CONNECTED, display_endpoint),
+                accent,
+                egui::FontId::proportional(typography::SM),
+            );
+
+            ui.add_space(4.0);
+
+            // Metric count
+            let metric_count = self.query_executor.metric_names().len();
+            let metric_text = if metric_count == 1 {
+                "1 metric available".to_string()
+            } else {
+                format!("{} metrics available", metric_count)
+            };
+            render_centered_text(
+                ui,
+                &metric_text,
+                subtle_col,
+                egui::FontId::proportional(typography::SM),
+            );
+
+            ui.add_space(20.0);
+        }
+
+        // Main hint: Space+f to explore metrics
+        render_centered_hint(ui, "Space+f", "to explore metrics", text_col, muted_col);
+
+        // Native-only: Agent mode hint
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            ui.add_space(8.0);
+            render_centered_hint(
+                ui,
+                "aa",
+                "to enter Agent mode and create plots",
+                text_col,
+                muted_col,
+            );
+        }
+
+        ui.add_space(8.0);
+
+        // Help hint (same styling as other hints)
+        render_centered_hint(ui, "?", "for help", text_col, muted_col);
     }
 }

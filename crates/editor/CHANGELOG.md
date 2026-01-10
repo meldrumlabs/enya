@@ -4,6 +4,16 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Empty workspace hints**: When a workspace has no panes, centered hints now guide users on how to get started:
+  - Shows connection status (endpoint and metric count if connected, "Not connected" otherwise)
+  - "Space+f to explore metrics"
+  - On native: "aa to enter Agent mode and create plots"
+  - "? for help" to discover keyboard shortcuts
+
+- **Filter match highlighting**: When using the viewport filter (`/`), matched text in pane names is now highlighted with the accent color and underlined for better visibility.
+
 ### Changed
 
 - **Viewport pane alignment**: Improved pane layout consistency to prevent bottom panes from overlapping the status line. The viewport tree now always renders at the exact viewport height, with `TreeBehavior::min_size()` (200px) preventing panes from becoming too small. Scrolling only activates when panes would be smaller than this absolute minimum. Added explicit clip rectangles and constrained child UI rendering to ensure content never overflows into the status bar area.
