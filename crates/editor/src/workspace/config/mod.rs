@@ -1486,8 +1486,8 @@ children = [0, { type = "vertical", children = [1, 2] }]
         config.theme = "LIGHT".to_string();
         assert_eq!(config.app_theme(), AppTheme::Light);
 
-        config.theme = "gruvbox".to_string();
-        assert_eq!(config.app_theme(), AppTheme::Gruvbox);
+        config.theme = "nord".to_string();
+        assert_eq!(config.app_theme(), AppTheme::Nord);
 
         config.theme = "invalid".to_string();
         assert_eq!(config.app_theme(), AppTheme::Dark); // Defaults to Dark

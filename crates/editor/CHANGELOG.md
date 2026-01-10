@@ -6,6 +6,36 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Theme-based chart palettes**: Each of the 13 themes now has its own unique 8-color palette for time series visualization:
+  - **Dark themes** (9 themes): Vibrant saturated colors optimized for dark backgrounds
+    - Dark: Emerald accent with vibrant complements
+    - Midnight: Electric neon cyberpunk
+    - Nord: Aurora borealis colors from the Nord spec
+    - Catppuccin: Pastel macchiato palette
+    - Ayu: Warm sunset gradients
+    - Bergman: Silver cinema with muted accents
+    - Aurora: Northern lights teal/green
+    - Graphite: Industrial orange/steel
+    - Ink: Silver monochrome editorial
+  - **Light themes** (4 themes): Muted/desaturated colors for elegance on light backgrounds
+    - Light: Classic muted professional
+    - Stockholm: Nordic clarity blues
+    - Midsommar: Swedish summer brights
+    - Skärgård: Baltic sea blues
+  - Commit markers now also adapt per-theme for consistent styling
+  - Charts now feel native to each theme's aesthetic
+  - Colors update dynamically when switching themes (no app restart needed)
+
+### Changed
+
+- **Theme is now a user preference**: Theme is stored in user settings, not per-workspace. Loading a workspace no longer overrides your theme preference. This means your preferred theme stays consistent across all workspaces.
+
+- **Streamlined theme selection**: Reduced from 24 to 13 curated themes for a more focused experience
+
+- **Improved Style Picker UX**:
+  - Chart palette preview dots showing all 8 series colors for each theme
+  - Cleaner two-row layout: UI palette bar + theme name on top, chart dots below
+
 - **Unified Style Picker overlay** (`:style` command): A combined theme and font selector:
   - Side-by-side layout: Theme panel on the left, Font panel on the right
   - **Live preview**: Both theme and font change in real-time as you navigate

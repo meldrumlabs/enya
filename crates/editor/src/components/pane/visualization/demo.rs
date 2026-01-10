@@ -2,6 +2,10 @@
 //!
 //! This module provides functions to populate visualizations with
 //! demo data when not connected to a real data source.
+//!
+//! Note: Series colors are intentionally NOT set here. The TimeSeriesChart
+//! will automatically use theme-aware colors from `theme.chart_color(index)`
+//! when rendering, allowing colors to change dynamically with theme switches.
 
 use crate::ui::palette;
 
@@ -54,6 +58,10 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         return;
     }
 
+    // Note: We intentionally don't set colors here. The TimeSeriesChart will
+    // use theme.chart_color(index) at render time, allowing colors to change
+    // dynamically when the theme changes.
+
     // Generate some demo data based on query hash for variety
     let hash = query
         .bytes()
@@ -80,8 +88,7 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
     chart.add_series(
         Series::new(query)
             .with_tag("host", "server1")
-            .with_points(points1)
-            .with_color(palette::chart::PALETTE[0]), // Sky blue
+            .with_points(points1),
     );
 
     // Series 2
@@ -102,8 +109,7 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
     chart.add_series(
         Series::new(query)
             .with_tag("host", "server2")
-            .with_points(points2)
-            .with_color(palette::chart::PALETTE[6]), // Emerald
+            .with_points(points2),
     );
 
     // Add demo commit markers
@@ -361,16 +367,17 @@ fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         "/api/notifications",
     ];
 
-    // Use centralized chart palette from design system
-    let colors = palette::chart::PALETTE;
+    // Note: We intentionally don't set colors here. The TimeSeriesChart will
+    // use theme.chart_color(index) at render time, allowing colors to change
+    // dynamically when the theme changes.
 
-    for (i, endpoint) in endpoints.iter().enumerate() {
+    for endpoint in endpoints.iter() {
         let hash = endpoint
             .bytes()
             .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
         let base = 20.0 + (hash % 80) as f64;
         let freq = 100.0 + (hash % 200) as f64;
-        let phase = (i as f64) * 0.5;
+        let phase = (hash % 10) as f64 * 0.5;
 
         let points: Vec<DataPoint> = (0..num_points)
             .map(|j| {
@@ -386,8 +393,7 @@ fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         chart.add_series(
             Series::new(query)
                 .with_tag("endpoint", *endpoint)
-                .with_points(points)
-                .with_color(colors[i % colors.len()]),
+                .with_points(points),
         );
     }
 }

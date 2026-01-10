@@ -343,9 +343,9 @@ impl StylePicker {
 
                             // Animate panel switch highlight (decay over time)
                             if self.panel_switch_anim > 0.0 {
-                                self.panel_switch_anim =
-                                    (self.panel_switch_anim - ctx.input(|i| i.stable_dt) * 3.0)
-                                        .max(0.0);
+                                self.panel_switch_anim = (self.panel_switch_anim
+                                    - ctx.input(|i| i.stable_dt) * 3.0)
+                                    .max(0.0);
                                 ctx.request_repaint();
                             }
 
@@ -444,37 +444,36 @@ impl StylePicker {
                                 ui.add_space(16.0);
 
                                 // Helper to draw a key cap
-                                let draw_keycap =
-                                    |ui: &mut egui::Ui, key: &str, label: &str| {
-                                        // Key cap background
-                                        let key_size = Vec2::new(18.0, 16.0);
-                                        let (key_rect, _) =
-                                            ui.allocate_exact_size(key_size, egui::Sense::hover());
-                                        ui.painter().rect_filled(
-                                            key_rect,
-                                            3.0,
-                                            text.gamma_multiply(0.12),
-                                        );
-                                        ui.painter().rect_stroke(
-                                            key_rect,
-                                            3.0,
-                                            egui::Stroke::new(1.0, text.gamma_multiply(0.25)),
-                                            egui::StrokeKind::Inside,
-                                        );
-                                        ui.painter().text(
-                                            key_rect.center(),
-                                            egui::Align2::CENTER_CENTER,
-                                            key,
-                                            typography::monospace(typography::XS),
-                                            text.gamma_multiply(0.7),
-                                        );
-                                        ui.add_space(4.0);
-                                        ui.label(
-                                            RichText::new(label)
-                                                .color(text_muted)
-                                                .font(typography::proportional(typography::XS)),
-                                        );
-                                    };
+                                let draw_keycap = |ui: &mut egui::Ui, key: &str, label: &str| {
+                                    // Key cap background
+                                    let key_size = Vec2::new(18.0, 16.0);
+                                    let (key_rect, _) =
+                                        ui.allocate_exact_size(key_size, egui::Sense::hover());
+                                    ui.painter().rect_filled(
+                                        key_rect,
+                                        3.0,
+                                        text.gamma_multiply(0.12),
+                                    );
+                                    ui.painter().rect_stroke(
+                                        key_rect,
+                                        3.0,
+                                        egui::Stroke::new(1.0, text.gamma_multiply(0.25)),
+                                        egui::StrokeKind::Inside,
+                                    );
+                                    ui.painter().text(
+                                        key_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        key,
+                                        typography::monospace(typography::XS),
+                                        text.gamma_multiply(0.7),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(label)
+                                            .color(text_muted)
+                                            .font(typography::proportional(typography::XS)),
+                                    );
+                                };
 
                                 draw_keycap(ui, "h", "");
                                 draw_keycap(ui, "l", "switch");
@@ -514,7 +513,7 @@ impl StylePicker {
         result: &mut StylePickerResult,
     ) {
         let is_focused = self.focused_panel == StyleTab::Theme;
-        let row_height = 44.0;
+        let row_height = 52.0; // Slightly taller to fit chart palette dots
 
         // Panel header with icon, title, count, and active indicator
         ui.horizontal(|ui| {
@@ -559,134 +558,176 @@ impl StylePicker {
             .show(ui, |ui| {
                 ui.vertical(|ui| {
                     for (i, theme) in themes.iter().enumerate() {
-                        let is_selected = i == self.theme_index;
-                        let is_original = *theme == self.original_theme;
-
-                        let (rect, response) = ui.allocate_exact_size(
-                            Vec2::new(panel_width, row_height),
-                            egui::Sense::click(),
-                        );
-
-                        // Scroll into view
-                        if is_selected && self.scroll_theme {
-                            response.scroll_to_me(Some(egui::Align::Center));
-                        }
-
-                        // Handle click
-                        if response.clicked() {
-                            self.theme_index = i;
-                            self.focused_panel = StyleTab::Theme;
-                            let selected = themes[i];
-                            self.close();
-                            *result = StylePickerResult::ThemeSelected(selected);
-                            return;
-                        }
-
-                        // Hover/selection background
-                        if is_selected && is_focused {
-                            ui.painter()
-                                .rect_filled(rect, 6.0, accent.gamma_multiply(0.20));
-                            ui.painter().rect_filled(
-                                egui::Rect::from_min_size(rect.min, Vec2::new(3.0, row_height)),
-                                2.0,
-                                accent,
-                            );
-                        } else if is_selected {
-                            ui.painter()
-                                .rect_filled(rect, 6.0, text.gamma_multiply(0.08));
-                        } else if response.hovered() {
-                            ui.painter().rect_filled(rect, 6.0, bg_hover);
-                        }
-
-                        // Color palette bar
-                        let palette_x = rect.min.x + 8.0;
-                        let palette_y = rect.center().y - 9.0;
-                        let palette_width = 44.0;
-                        let palette_height = 18.0;
-                        let color_width = palette_width / 4.0;
-
-                        let colors = [
-                            theme.bg_base(),
-                            theme.bg_elevated(),
-                            theme.accent_primary(),
-                            theme.text_primary(),
-                        ];
-
-                        for (idx, color) in colors.iter().enumerate() {
-                            let x = palette_x + (idx as f32) * color_width;
-                            let color_rect = egui::Rect::from_min_size(
-                                egui::pos2(x, palette_y),
-                                Vec2::new(color_width, palette_height),
-                            );
-                            let rounding = if idx == 0 {
-                                egui::CornerRadius {
-                                    nw: 4,
-                                    sw: 4,
-                                    ne: 0,
-                                    se: 0,
-                                }
-                            } else if idx == 3 {
-                                egui::CornerRadius {
-                                    nw: 0,
-                                    sw: 0,
-                                    ne: 4,
-                                    se: 4,
-                                }
-                            } else {
-                                egui::CornerRadius::ZERO
-                            };
-                            ui.painter().rect_filled(color_rect, rounding, *color);
-                        }
-
-                        // Border around palette
-                        let palette_rect = egui::Rect::from_min_size(
-                            egui::pos2(palette_x, palette_y),
-                            Vec2::new(palette_width, palette_height),
-                        );
-                        ui.painter().rect_stroke(
-                            palette_rect,
-                            4.0,
-                            egui::Stroke::new(1.0, style.border),
-                            egui::StrokeKind::Inside,
-                        );
-
-                        // Theme name and badge
-                        let name_x = palette_x + palette_width + 10.0;
-                        ui.painter().text(
-                            egui::pos2(name_x, rect.center().y - 6.0),
-                            egui::Align2::LEFT_CENTER,
-                            theme.name(),
-                            typography::proportional(typography::SM),
-                            if is_selected && is_focused {
-                                accent
-                            } else {
-                                text
-                            },
-                        );
-
-                        // Light/Dark badge
-                        let badge_text = if theme.is_light() { "Light" } else { "Dark" };
-                        ui.painter().text(
-                            egui::pos2(name_x, rect.center().y + 8.0),
-                            egui::Align2::LEFT_CENTER,
-                            badge_text,
-                            typography::monospace(typography::XS),
+                        self.render_theme_row(
+                            ui,
+                            panel_width,
+                            row_height,
+                            i,
+                            *theme,
+                            accent,
+                            text,
                             text_muted,
+                            bg_hover,
+                            style,
+                            result,
+                            is_focused,
                         );
-
-                        // "current" indicator
-                        if is_original {
-                            ui.painter().text(
-                                egui::pos2(rect.max.x - 6.0, rect.center().y),
-                                egui::Align2::RIGHT_CENTER,
-                                "●",
-                                typography::monospace(typography::SM),
-                                accent,
-                            );
-                        }
                     }
                 });
             });
+    }
+
+    /// Renders a single theme row in the theme panel
+    #[allow(clippy::too_many_arguments)]
+    fn render_theme_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        panel_width: f32,
+        row_height: f32,
+        index: usize,
+        theme: AppTheme,
+        accent: Color32,
+        text: Color32,
+        text_muted: Color32,
+        bg_hover: Color32,
+        style: &OverlayStyle,
+        result: &mut StylePickerResult,
+        is_focused: bool,
+    ) {
+        let is_selected = index == self.theme_index;
+        let is_original = theme == self.original_theme;
+
+        let (rect, response) =
+            ui.allocate_exact_size(Vec2::new(panel_width, row_height), egui::Sense::click());
+
+        // Scroll into view
+        if is_selected && self.scroll_theme {
+            response.scroll_to_me(Some(egui::Align::Center));
+        }
+
+        // Handle click
+        if response.clicked() {
+            self.theme_index = index;
+            self.focused_panel = StyleTab::Theme;
+            self.close();
+            *result = StylePickerResult::ThemeSelected(theme);
+            return;
+        }
+
+        // Hover/selection background
+        if is_selected && is_focused {
+            ui.painter()
+                .rect_filled(rect, 6.0, accent.gamma_multiply(0.20));
+            ui.painter().rect_filled(
+                egui::Rect::from_min_size(rect.min, Vec2::new(3.0, row_height)),
+                2.0,
+                accent,
+            );
+        } else if is_selected {
+            ui.painter()
+                .rect_filled(rect, 6.0, text.gamma_multiply(0.08));
+        } else if response.hovered() {
+            ui.painter().rect_filled(rect, 6.0, bg_hover);
+        }
+
+        // Color palette bar (UI colors)
+        let palette_x = rect.min.x + 8.0;
+        let palette_y = rect.min.y + 10.0;
+        let palette_width = 44.0;
+        let palette_height = 14.0;
+        let color_width = palette_width / 4.0;
+
+        let colors = [
+            theme.bg_base(),
+            theme.bg_elevated(),
+            theme.accent_primary(),
+            theme.text_primary(),
+        ];
+
+        for (idx, color) in colors.iter().enumerate() {
+            let x = palette_x + (idx as f32) * color_width;
+            let color_rect = egui::Rect::from_min_size(
+                egui::pos2(x, palette_y),
+                Vec2::new(color_width, palette_height),
+            );
+            let rounding = if idx == 0 {
+                egui::CornerRadius {
+                    nw: 3,
+                    sw: 3,
+                    ne: 0,
+                    se: 0,
+                }
+            } else if idx == 3 {
+                egui::CornerRadius {
+                    nw: 0,
+                    sw: 0,
+                    ne: 3,
+                    se: 3,
+                }
+            } else {
+                egui::CornerRadius::ZERO
+            };
+            ui.painter().rect_filled(color_rect, rounding, *color);
+        }
+
+        // Border around palette
+        let palette_rect = egui::Rect::from_min_size(
+            egui::pos2(palette_x, palette_y),
+            Vec2::new(palette_width, palette_height),
+        );
+        ui.painter().rect_stroke(
+            palette_rect,
+            3.0,
+            egui::Stroke::new(1.0, style.border),
+            egui::StrokeKind::Inside,
+        );
+
+        // Theme name
+        let name_x = palette_x + palette_width + 10.0;
+        ui.painter().text(
+            egui::pos2(name_x, rect.min.y + 16.0),
+            egui::Align2::LEFT_CENTER,
+            theme.name(),
+            typography::proportional(typography::SM),
+            if is_selected && is_focused {
+                accent
+            } else {
+                text
+            },
+        );
+
+        // Chart palette preview dots (8 colors)
+        let chart_colors = theme.chart_palette();
+        let dot_size = 5.0;
+        let dot_spacing = 7.0;
+        let dots_y = rect.min.y + 34.0;
+
+        for (idx, color) in chart_colors.iter().enumerate() {
+            let dot_x = palette_x + (idx as f32) * dot_spacing;
+            let dot_center = egui::pos2(dot_x + dot_size / 2.0, dots_y);
+            ui.painter()
+                .circle_filled(dot_center, dot_size / 2.0, *color);
+        }
+
+        // "Chart" label next to dots
+        ui.painter().text(
+            egui::pos2(palette_x + 8.0 * dot_spacing + 4.0, dots_y),
+            egui::Align2::LEFT_CENTER,
+            "chart",
+            typography::monospace(9.0), // Smaller than XS for subtle label
+            text_muted.gamma_multiply(0.6),
+        );
+
+        // "current" indicator
+        if is_original {
+            ui.painter().text(
+                egui::pos2(rect.max.x - 6.0, rect.center().y),
+                egui::Align2::RIGHT_CENTER,
+                "●",
+                typography::monospace(typography::SM),
+                accent,
+            );
+        }
     }
 
     /// Renders the font panel (right side)
@@ -834,8 +875,7 @@ impl StylePicker {
                             .rect_filled(preview_rect, 4.0, text.gamma_multiply(0.05));
 
                         // Create a FontId using this specific font's family
-                        let font_family =
-                            FontFamily::Name(font.font_family_name().into());
+                        let font_family = FontFamily::Name(font.font_family_name().into());
                         let preview_font = FontId::new(typography::SM, font_family);
 
                         // Draw Rust code preview with syntax highlighting colors
@@ -851,11 +891,8 @@ impl StylePicker {
                                     preview_font.clone(),
                                     color,
                                 );
-                                ui.painter().galley(
-                                    egui::pos2(x, y - 6.0),
-                                    galley.clone(),
-                                    color,
-                                );
+                                ui.painter()
+                                    .galley(egui::pos2(x, y - 6.0), galley.clone(), color);
                                 x + galley.rect.width()
                             };
 

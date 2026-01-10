@@ -99,10 +99,16 @@ impl EnyaApp {
         // Ensure demo workspace is in recent workspaces (for new users)
         state.settings.ensure_demo_workspace();
 
-        match cc.egui_ctx.theme() {
-            Theme::Light => state.theme = AppTheme::Light,
-            Theme::Dark => state.theme = AppTheme::Dark,
+        // Use theme from settings (user preference), falling back to system theme only on first run
+        if state.settings.theme == AppTheme::default() && state.theme == AppTheme::default() {
+            // First run: use system theme
+            match cc.egui_ctx.theme() {
+                Theme::Light => state.settings.theme = AppTheme::Light,
+                Theme::Dark => state.settings.theme = AppTheme::Dark,
+            }
         }
+        // Sync state.theme from settings.theme (settings is the source of truth)
+        state.theme = state.settings.theme;
 
         // Initialize workspace tabs with async runtime
         let mut workspace_tabs = WorkspaceTabBar::new(async_runtime.clone());
@@ -317,11 +323,13 @@ impl EnyaApp {
             }
             UICommand::Theme(theme) => {
                 self.state.theme = theme;
+                self.state.settings.theme = theme; // Persist to settings
                 egui_ctx.set_visuals(self.state.visuals());
                 egui_ctx.request_repaint();
             }
             UICommand::NextTheme => {
                 self.state.theme.next();
+                self.state.settings.theme = self.state.theme; // Persist to settings
                 egui_ctx.set_visuals(self.state.visuals());
                 egui_ctx.request_repaint();
             }

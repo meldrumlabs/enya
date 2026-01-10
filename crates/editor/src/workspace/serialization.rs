@@ -14,7 +14,6 @@ use super::{
     WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
-use crate::ui::theme::AppTheme;
 
 impl Workspace {
     // =========================================================================
@@ -22,12 +21,10 @@ impl Workspace {
     // =========================================================================
 
     /// Serialize the current workspace state to a WorkspaceConfig
-    pub fn to_workspace_config(
-        &self,
-        name: &str,
-        theme: AppTheme,
-        endpoint: Option<&str>,
-    ) -> WorkspaceConfig {
+    ///
+    /// Note: Theme is NOT saved to workspace config - it's a user preference
+    /// stored in AppSettings, not a per-workspace setting.
+    pub fn to_workspace_config(&self, name: &str, endpoint: Option<&str>) -> WorkspaceConfig {
         let mut panes = Vec::new();
 
         // Collect all QueryPane data from the viewport tree
@@ -56,8 +53,9 @@ impl Workspace {
             connection: ConnectionConfig::default(),
             git: GitConfig::default(),
             view: ViewConfig {
-                theme: theme.name().to_lowercase(),
+                // Theme is NOT included - it's a user preference, not workspace setting
                 zen_mode: self.zen_mode,
+                ..Default::default()
             },
             time: TimeConfig::from_preset_with_refresh(
                 self.time_range_toolbar.time_range().preset,
@@ -70,13 +68,11 @@ impl Workspace {
 
     /// Load a workspace config, replacing current state
     /// Returns the connection config if specified in the workspace
-    pub fn load_workspace_config(
-        &mut self,
-        config: &WorkspaceConfig,
-        theme: &mut AppTheme,
-    ) -> Option<ConnectionConfig> {
-        // Apply view settings
-        *theme = config.view.app_theme();
+    ///
+    /// Note: Theme is NOT loaded from workspace config - it's a user preference
+    /// stored in AppSettings, not a per-workspace setting.
+    pub fn load_workspace_config(&mut self, config: &WorkspaceConfig) -> Option<ConnectionConfig> {
+        // Apply view settings (theme is intentionally NOT loaded - it's a user preference)
         self.zen_mode = config.view.zen_mode;
 
         // Apply time range

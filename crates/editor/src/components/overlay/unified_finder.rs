@@ -109,7 +109,7 @@ impl FinderMode {
             Self::All => theme.accent_muted(),
             Self::Metrics => theme.accent_primary(),
             Self::Alerts => palette::semantic::WARNING,
-            Self::Commits => palette::chart::PRIMARY,
+            Self::Commits => theme.chart_commit_marker(),
         }
     }
 

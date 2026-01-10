@@ -318,8 +318,9 @@ impl DiffViewerOverlay {
             ui.add_space(12.0);
 
             // Commit message (truncated)
-            let msg = if self.commit_message.len() > 80 {
-                format!("{}...", &self.commit_message[..77])
+            let msg = if self.commit_message.chars().count() > 80 {
+                let truncated: String = self.commit_message.chars().take(77).collect();
+                format!("{truncated}...")
             } else {
                 self.commit_message.clone()
             };
@@ -825,8 +826,12 @@ impl DiffViewerOverlay {
             // Estimate max characters that fit (assuming ~7px per monospace char at SM size)
             let char_width = 7.0;
             let max_chars = (content_max_width / char_width) as usize;
-            if line.content.len() > max_chars && max_chars > 3 {
-                format!("{}…", &line.content[..max_chars.saturating_sub(1)])
+            let char_count = line.content.chars().count();
+            if char_count > max_chars && max_chars > 3 {
+                // Use char_indices to safely truncate at character boundaries
+                let truncate_at = max_chars.saturating_sub(1);
+                let truncated: String = line.content.chars().take(truncate_at).collect();
+                format!("{truncated}…")
             } else {
                 line.content.clone()
             }
@@ -870,12 +875,17 @@ impl DiffViewerOverlay {
                     let is_selected = i == self.current_file_index;
 
                     // Extract filename and directory from path
-                    let (filename, directory) = if let Some(slash_pos) = file.path.rfind('/') {
-                        let dir = &file.path[..slash_pos];
-                        let name = &file.path[slash_pos + 1..];
-                        (name, Some(dir))
-                    } else {
-                        (file.path.as_str(), None)
+                    let (filename, directory) = {
+                        let path = std::path::Path::new(&file.path);
+                        let name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&file.path);
+                        let dir = path
+                            .parent()
+                            .and_then(|p| p.to_str())
+                            .filter(|s| !s.is_empty());
+                        (name, dir)
                     };
 
                     // Row styling

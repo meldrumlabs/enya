@@ -471,7 +471,8 @@ impl CodebaseFinder {
                             ui.vertical(|ui| {
                                 ui.horizontal(|ui| {
                                     // Type icon
-                                    let (icon, icon_color) = Self::result_icon(result, colors);
+                                    let (icon, icon_color) =
+                                        Self::result_icon(result, colors, self.theme);
                                     ui.label(RichText::new(icon).color(icon_color).size(12.0));
                                     ui.add_space(6.0);
 
@@ -556,7 +557,7 @@ impl CodebaseFinder {
         colors: &OverlayColors,
     ) {
         // Type and name header
-        let (icon, icon_color) = Self::result_icon(result, colors);
+        let (icon, icon_color) = Self::result_icon(result, colors, self.theme);
         ui.horizontal(|ui| {
             ui.label(RichText::new(icon).color(icon_color).size(16.0));
             ui.add_space(6.0);
@@ -666,12 +667,16 @@ impl CodebaseFinder {
     }
 
     /// Returns the icon and color for a search result.
-    fn result_icon(result: &SearchResult, colors: &OverlayColors) -> (&'static str, Color32) {
+    fn result_icon(
+        result: &SearchResult,
+        colors: &OverlayColors,
+        theme: AppTheme,
+    ) -> (&'static str, Color32) {
         use egui_nerdfonts::regular;
         match &result.kind {
             SearchResultKind::Metric(_) => (regular::CHART_LINE, colors.accent),
             SearchResultKind::Alert { .. } => (regular::BELL_ALERT, palette::semantic::WARNING),
-            SearchResultKind::Commit { .. } => (regular::GIT_COMMIT, palette::chart::PRIMARY),
+            SearchResultKind::Commit { .. } => (regular::GIT_COMMIT, theme.chart_commit_marker()),
         }
     }
 }
