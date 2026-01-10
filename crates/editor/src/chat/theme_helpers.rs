@@ -58,10 +58,19 @@ impl ChatColors {
     /// Background color for AI agent messages.
     pub fn agent_message_bg(&self) -> Color32 {
         match self.theme {
-            AppTheme::Light => Color32::from_rgb(245, 243, 255), // Purple-50 (soft lavender)
-            AppTheme::Dark => Color32::from_rgb(30, 27, 45),     // Dark purple tint
-            AppTheme::Nord => Color32::from_rgb(46, 52, 74),     // Nord frost-tinted
-            AppTheme::Gruvbox => Color32::from_rgb(50, 40, 50),  // Gruvbox purple-tinted
+            AppTheme::Light => Color32::from_rgb(245, 243, 255),
+            AppTheme::Nord => Color32::from_rgb(46, 52, 74),
+            AppTheme::Midnight => Color32::from_rgb(25, 30, 50),
+            AppTheme::Catppuccin => Color32::from_rgb(40, 38, 60),
+            AppTheme::Ayu => Color32::from_rgb(22, 26, 35),
+            AppTheme::Bergman => Color32::from_rgb(30, 34, 45),
+            AppTheme::Aurora => Color32::from_rgb(22, 35, 38),
+            AppTheme::Stockholm => Color32::from_rgb(235, 240, 248),
+            AppTheme::Graphite => Color32::from_rgb(35, 30, 25), // Orange-tinted dark
+            AppTheme::Ink => Color32::from_rgb(22, 22, 32),      // Silver-tinted dark
+            AppTheme::Midsommar => Color32::from_rgb(235, 242, 252), // Blue-tinted summer light
+            AppTheme::Skargard => Color32::from_rgb(235, 245, 252), // Sea blue-tinted skargard light
+            AppTheme::Dark => Color32::from_rgb(30, 27, 45),
         }
     }
 
@@ -81,12 +90,7 @@ impl ChatColors {
 
     /// Color for critical/urgent badges.
     pub fn critical_badge(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(220, 38, 38), // Red-600
-            AppTheme::Dark => Color32::from_rgb(248, 113, 113), // Red-400
-            AppTheme::Nord => Color32::from_rgb(191, 97, 106), // Nord aurora red
-            AppTheme::Gruvbox => Color32::from_rgb(251, 73, 52), // Gruvbox red
-        }
+        self.theme.semantic_error()
     }
 
     // =========================================================================
@@ -127,22 +131,12 @@ impl ChatColors {
 
     /// Color for upward trend (typically bad for latency, errors).
     pub fn trend_up(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(220, 38, 38), // Red-600
-            AppTheme::Dark => Color32::from_rgb(248, 113, 113), // Red-400
-            AppTheme::Nord => Color32::from_rgb(191, 97, 106), // Nord aurora red
-            AppTheme::Gruvbox => Color32::from_rgb(251, 73, 52), // Gruvbox red
-        }
+        self.theme.semantic_error()
     }
 
     /// Color for downward trend (typically good for latency, errors).
     pub fn trend_down(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(22, 163, 74), // Green-600
-            AppTheme::Dark => Color32::from_rgb(74, 222, 128), // Green-400
-            AppTheme::Nord => Color32::from_rgb(163, 190, 140), // Nord aurora green
-            AppTheme::Gruvbox => Color32::from_rgb(184, 187, 38), // Gruvbox green
-        }
+        self.theme.semantic_success()
     }
 
     // =========================================================================
@@ -151,32 +145,17 @@ impl ChatColors {
 
     /// First bar chart color.
     pub fn chart_color_1(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue-500
-            AppTheme::Dark => Color32::from_rgb(96, 165, 250),  // Blue-400
-            AppTheme::Nord => Color32::from_rgb(136, 192, 208), // Nord frost
-            AppTheme::Gruvbox => Color32::from_rgb(131, 165, 152), // Gruvbox aqua
-        }
+        self.theme.chart_color(0)
     }
 
     /// Second bar chart color.
     pub fn chart_color_2(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(168, 85, 247), // Purple-500
-            AppTheme::Dark => Color32::from_rgb(192, 132, 252), // Purple-400
-            AppTheme::Nord => Color32::from_rgb(180, 142, 173), // Nord aurora purple
-            AppTheme::Gruvbox => Color32::from_rgb(211, 134, 155), // Gruvbox purple
-        }
+        self.theme.chart_color(1)
     }
 
     /// Third bar chart color.
     pub fn chart_color_3(&self) -> Color32 {
-        match self.theme {
-            AppTheme::Light => Color32::from_rgb(234, 179, 8), // Yellow-500
-            AppTheme::Dark => Color32::from_rgb(250, 204, 21), // Yellow-400
-            AppTheme::Nord => Color32::from_rgb(235, 203, 139), // Nord aurora yellow
-            AppTheme::Gruvbox => Color32::from_rgb(250, 189, 47), // Gruvbox yellow
-        }
+        self.theme.chart_color(2)
     }
 }
 
@@ -195,13 +174,8 @@ mod tests {
 
     #[test]
     fn test_all_themes_have_colors() {
-        for theme in [
-            AppTheme::Light,
-            AppTheme::Dark,
-            AppTheme::Nord,
-            AppTheme::Gruvbox,
-        ] {
-            let colors = ChatColors::new(theme);
+        for theme in AppTheme::all() {
+            let colors = ChatColors::new(*theme);
             // Ensure all colors are valid (no panic)
             let _ = colors.selection_bg();
             let _ = colors.nav_highlight_bg();

@@ -10,7 +10,6 @@
 use egui::{Color32, Key, RichText, Stroke, TextFormat, text::LayoutJob};
 
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -294,8 +293,8 @@ pub fn generate_demo_preview_data(item_name: &str) -> Vec<DataPoint> {
 }
 
 /// Get the chart line color for the given theme
-pub fn chart_color(_theme: AppTheme) -> Color32 {
-    palette::chart::PRIMARY
+pub fn chart_color(theme: AppTheme) -> Color32 {
+    theme.chart_color(0)
 }
 
 /// Render keyboard hints footer for finder modals

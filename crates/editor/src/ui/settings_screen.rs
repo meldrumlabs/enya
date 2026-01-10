@@ -32,7 +32,29 @@ impl EditorFont {
             Self::Iosevka => "iosevka",
         }
     }
+
+    /// Returns all available fonts
+    pub fn all() -> &'static [EditorFont] {
+        &[
+            Self::DepartureMono,
+            Self::MapleMono,
+            Self::JetBrainsMono,
+            Self::Iosevka,
+        ]
+    }
+
+    /// Description of the font
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::MapleMono => "Clean, modern monospace with ligatures",
+            Self::DepartureMono => "Distinctive retro-style monospace",
+            Self::JetBrainsMono => "Developer-focused, great for code",
+            Self::Iosevka => "Narrow, highly customizable",
+        }
+    }
 }
+
+use crate::ui::theme::AppTheme;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {
@@ -48,6 +70,9 @@ pub struct AppSettings {
     /// Currently selected editor font
     #[serde(default)]
     pub font: EditorFont,
+    /// Current UI theme (user preference, not per-workspace)
+    #[serde(default)]
+    pub theme: AppTheme,
 }
 
 /// Entry for a recently opened plot/chart

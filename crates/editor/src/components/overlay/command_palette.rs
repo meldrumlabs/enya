@@ -6,7 +6,6 @@ use nucleo_matcher::{
 
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
-use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -41,10 +40,8 @@ pub enum CommandKind {
 pub enum CommandResult {
     /// Command executed successfully
     Success,
-    /// Set specific theme
-    SetTheme(AppTheme),
-    /// Cycle to next theme
-    NextTheme,
+    /// Open style picker (unified theme + font picker)
+    OpenStylePicker,
     /// Show info overlay with build info
     ShowInfo,
     /// Horizontal split
@@ -63,8 +60,6 @@ pub enum CommandResult {
     ShareWorkspace,
     /// Set AI provider (claude, codex)
     SetProvider(String),
-    /// Set editor font (maple/departure/jetbrains/iosevka)
-    SetFont(EditorFont),
     /// Set auto-refresh interval (off/10s/30s/1m/5m/15m)
     SetRefresh(String),
     /// Toggle team demo mode
@@ -82,10 +77,10 @@ pub enum CommandResult {
 /// Built-in commands
 const COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
-        name: "theme",
-        aliases: &["t"],
-        description: "Set theme (dark/nord/gruvbox/light)",
-        kind: CommandKind::SingleArg,
+        name: "style",
+        aliases: &["st", "theme", "t"],
+        description: "Open style picker (theme + font)",
+        kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "info",
@@ -139,12 +134,6 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "provider",
         aliases: &["ai"],
         description: "Set AI provider (claude, codex)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "font",
-        aliases: &[],
-        description: "Set editor font (maple/departure/jetbrains/iosevka)",
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
@@ -351,21 +340,7 @@ impl CommandPalette {
     /// Execute a specific command with arguments
     fn execute(&self, cmd: &PaletteCommand, args: &[&str]) -> CommandResult {
         match cmd.name {
-            "theme" => {
-                if args.is_empty() {
-                    // No argument: cycle to next theme
-                    CommandResult::NextTheme
-                } else {
-                    // Parse theme name
-                    match AppTheme::parse(args[0]) {
-                        Some(theme) => CommandResult::SetTheme(theme),
-                        None => CommandResult::Error(format!(
-                            "Unknown theme: {}. Use: dark, nord, gruvbox, light",
-                            args[0]
-                        )),
-                    }
-                }
-            }
+            "style" => CommandResult::OpenStylePicker,
             "info" => CommandResult::ShowInfo,
             "split" => {
                 if args.is_empty() {
@@ -408,25 +383,6 @@ impl CommandPalette {
                     CommandResult::Error("Usage: :provider <claude|codex>".to_string())
                 } else {
                     CommandResult::SetProvider(args[0].to_lowercase())
-                }
-            }
-            "font" => {
-                // :font <name> - set editor font
-                if args.is_empty() {
-                    CommandResult::Error(
-                        "Usage: :font <maple|departure|jetbrains|iosevka>".to_string(),
-                    )
-                } else {
-                    match args[0].to_lowercase().as_str() {
-                        "maple" => CommandResult::SetFont(EditorFont::MapleMono),
-                        "departure" => CommandResult::SetFont(EditorFont::DepartureMono),
-                        "jetbrains" => CommandResult::SetFont(EditorFont::JetBrainsMono),
-                        "iosevka" => CommandResult::SetFont(EditorFont::Iosevka),
-                        _ => CommandResult::Error(format!(
-                            "Unknown font: {}. Use 'maple', 'departure', 'jetbrains', or 'iosevka'",
-                            args[0]
-                        )),
-                    }
                 }
             }
             "refresh" => {

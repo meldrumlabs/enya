@@ -18,9 +18,10 @@ use crate::components::{
     BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
     DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MetricsFinder, MultiBufferMode,
     MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
-    QuickCommand, SourcePreviewOverlay, SourcePreviewResult, TeamMember, TeamMenu, TeamMenuAction,
-    TeamStatusInfo, TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult,
-    WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
+    QuickCommand, SourcePreviewOverlay, SourcePreviewResult, StylePicker, StylePickerResult,
+    TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TutorialOverlay,
+    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
+    WorkspaceFinder,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -83,6 +84,8 @@ pub enum WorkspaceAction {
     NextTheme,
     /// Set the editor font
     SetFont(EditorFont),
+    /// Set both theme and font (used when cancelling style picker to restore originals)
+    SetThemeAndFont(AppTheme, EditorFont),
     /// Show a notification
     Notify { level: String, message: String },
     /// Track a recently opened plot
@@ -188,6 +191,8 @@ pub struct Workspace {
     info_overlay: InfoOverlay,
     /// Which-key overlay (shows available keybindings)
     which_key: WhichKey,
+    /// Style picker overlay (unified theme + font selection)
+    style_picker: StylePicker,
     /// Tutorial overlay (interactive walkthrough)
     tutorial_overlay: TutorialOverlay,
     /// Workspace creator overlay (new workspace wizard)
@@ -212,6 +217,8 @@ pub struct Workspace {
     diagnostics_visible: bool,
     /// Flag to open workspace finder (set by keyboard, handled in show with app_state)
     pending_open_workspace_finder: bool,
+    /// Flag to open style picker (set by command, handled in show with app_state)
+    pending_open_style_picker: bool,
     /// Query executor for running queries against backends (Prometheus, Enya)
     query_executor: QueryExecutor,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
@@ -303,6 +310,7 @@ impl Workspace {
             leader_keys: LeaderKeyState::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             which_key: WhichKey::new(),
+            style_picker: StylePicker::new(),
             tutorial_overlay: TutorialOverlay::new(),
             workspace_creator: WorkspaceCreator::new(),
             viewport_scroll_offset: 0.0,
@@ -315,6 +323,7 @@ impl Workspace {
             diagnostics_pane: DiagnosticsPane::new(),
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
+            pending_open_style_picker: false,
             query_executor: QueryExecutor::new(async_runtime.clone()),
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
@@ -519,6 +528,13 @@ impl Workspace {
         if self.pending_open_workspace_finder {
             self.pending_open_workspace_finder = false;
             self.open_workspace_finder(app_state, crate::app::EnyaApp::list_available_workspaces());
+        }
+
+        // Handle pending style picker open (needs app_state for current theme and font)
+        if self.pending_open_style_picker {
+            self.pending_open_style_picker = false;
+            self.style_picker
+                .open(app_state.theme, app_state.settings.font);
         }
 
         // Show landing page only if explicitly enabled and no charts open
@@ -858,6 +874,21 @@ impl Workspace {
             return WorkspaceAction::LoadWorkspace(selected_workspace);
         }
 
+        // Show style picker modal (unified theme + font picker)
+        match self
+            .style_picker
+            .show(ctx, app_state.theme, app_state.settings.font)
+        {
+            StylePickerResult::ThemeSelected(theme) => return WorkspaceAction::SetTheme(theme),
+            StylePickerResult::Cancelled(original_theme, original_font) => {
+                return WorkspaceAction::SetThemeAndFont(original_theme, original_font);
+            }
+            StylePickerResult::ThemePreview(theme) => return WorkspaceAction::SetTheme(theme),
+            StylePickerResult::FontSelected(font) => return WorkspaceAction::SetFont(font),
+            StylePickerResult::FontPreview(font) => return WorkspaceAction::SetFont(font),
+            StylePickerResult::None => {}
+        }
+
         // Show unified finder modal (Telescope-style)
         if let Some(action) = self.show_unified_finder(ctx, app_state) {
             return action;
@@ -1147,8 +1178,15 @@ impl Workspace {
         #[cfg(not(target_arch = "wasm32"))]
         let native_promo_open = false;
 
-        // Disable landing page keyboard when native promo overlay is open
-        self.landing_page.set_keyboard_disabled(native_promo_open);
+        // Disable landing page keyboard when any modal overlay is open
+        // This prevents the landing page from consuming keyboard input meant for modals
+        let modal_open = native_promo_open
+            || self.style_picker.is_open()
+            || self.metrics_finder.is_open()
+            || self.workspace_finder.is_open()
+            || self.command_palette.is_open()
+            || self.which_key.is_open();
+        self.landing_page.set_keyboard_disabled(modal_open);
 
         // Show the landing page in the central panel
         let mut landing_action = LandingPageAction::None;
@@ -1217,6 +1255,21 @@ impl Workspace {
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
             return WorkspaceAction::LoadWorkspace(selected_workspace);
+        }
+
+        // Show style picker modal (unified theme + font picker)
+        match self
+            .style_picker
+            .show(ctx, app_state.theme, app_state.settings.font)
+        {
+            StylePickerResult::ThemeSelected(theme) => return WorkspaceAction::SetTheme(theme),
+            StylePickerResult::Cancelled(original_theme, original_font) => {
+                return WorkspaceAction::SetThemeAndFont(original_theme, original_font);
+            }
+            StylePickerResult::ThemePreview(theme) => return WorkspaceAction::SetTheme(theme),
+            StylePickerResult::FontSelected(font) => return WorkspaceAction::SetFont(font),
+            StylePickerResult::FontPreview(font) => return WorkspaceAction::SetFont(font),
+            StylePickerResult::None => {}
         }
 
         // Show unified finder modal (Telescope-style)
@@ -1375,9 +1428,11 @@ impl Workspace {
     /// Handle a command result from the command palette
     fn handle_command_result(&mut self, result: CommandResult) -> WorkspaceAction {
         match result {
-            CommandResult::SetTheme(theme) => WorkspaceAction::SetTheme(theme),
-            CommandResult::NextTheme => WorkspaceAction::NextTheme,
-            CommandResult::SetFont(font) => WorkspaceAction::SetFont(font),
+            CommandResult::OpenStylePicker => {
+                // Style picker needs current theme and font - flag it to open on next show()
+                self.pending_open_style_picker = true;
+                WorkspaceAction::None
+            }
             CommandResult::ShowInfo => {
                 self.info_overlay.open();
                 WorkspaceAction::None

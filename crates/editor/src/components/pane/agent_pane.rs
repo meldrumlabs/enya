@@ -857,7 +857,7 @@ impl AgentPane {
                         let (icon, icon_color) = match result.kind.as_str() {
                             "metric" => (regular::CHART_LINE, colors.accent),
                             "alert" => (regular::BELL_ALERT, palette::semantic::WARNING),
-                            "commit" => (regular::GIT_COMMIT, palette::chart::PRIMARY),
+                            "commit" => (regular::GIT_COMMIT, self.theme.chart_commit_marker()),
                             _ => (regular::FILE, colors.muted_text),
                         };
 

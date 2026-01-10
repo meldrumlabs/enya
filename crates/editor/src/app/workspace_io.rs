@@ -133,9 +133,7 @@ impl EnyaApp {
             ));
             return;
         };
-        let workspace_config =
-            tab.workspace
-                .to_workspace_config(workspace_name, self.state.theme, None);
+        let workspace_config = tab.workspace.to_workspace_config(workspace_name, None);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -222,9 +220,7 @@ impl EnyaApp {
                     }
 
                     if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                        let connection = tab
-                            .workspace
-                            .load_workspace_config(&workspace_config, &mut self.state.theme);
+                        let connection = tab.workspace.load_workspace_config(&workspace_config);
 
                         // Update tab name to match loaded workspace
                         tab.name = workspace_config.workspace.name.clone();
@@ -288,9 +284,7 @@ impl EnyaApp {
                     }
 
                     if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                        let connection = tab
-                            .workspace
-                            .load_workspace_config(&workspace_config, &mut self.state.theme);
+                        let connection = tab.workspace.load_workspace_config(&workspace_config);
 
                         // Update tab name to match loaded workspace
                         tab.name = workspace_config.workspace.name.clone();
@@ -335,9 +329,7 @@ impl EnyaApp {
             return;
         };
 
-        let workspace_config = tab
-            .workspace
-            .to_workspace_config("shared", self.state.theme, None);
+        let workspace_config = tab.workspace.to_workspace_config("shared", None);
 
         match workspace_config.to_base64() {
             Ok(encoded) => {
@@ -402,9 +394,7 @@ impl EnyaApp {
             return;
         };
 
-        let workspace_config = tab
-            .workspace
-            .to_workspace_config("shared", self.state.theme, None);
+        let workspace_config = tab.workspace.to_workspace_config("shared", None);
 
         match workspace_config.pane_to_base64(pane_index) {
             Ok(encoded) => {
