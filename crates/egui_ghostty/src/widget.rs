@@ -70,6 +70,8 @@ pub struct TerminalWidget {
     is_selecting: bool,
     /// Whether to auto-focus on next show (set on creation).
     auto_focus: bool,
+    /// Whether keyboard input is enabled (disabled when modals are open).
+    keyboard_enabled: bool,
 }
 
 impl TerminalWidget {
@@ -93,6 +95,7 @@ impl TerminalWidget {
             selection_end: None,
             is_selecting: false,
             auto_focus: true,
+            keyboard_enabled: true,
         })
     }
 
@@ -181,8 +184,9 @@ impl TerminalWidget {
             self.cursor_visible = true;
         }
 
-        // Handle keyboard input when focused; release focus on Ctrl+Shift+Escape
-        if resp.has_focus() && self.handle_keyboard_input(ui) {
+        // Handle keyboard input when focused and enabled
+        // (keyboard is disabled when modal overlays are open)
+        if resp.has_focus() && self.keyboard_enabled && self.handle_keyboard_input(ui) {
             ui.memory_mut(|mem| mem.surrender_focus(resp.id));
             response.focus_released = true;
         }
@@ -815,5 +819,13 @@ impl TerminalWidget {
     /// Enable or disable mouse reporting.
     pub fn set_mouse_reporting(&mut self, enabled: bool) {
         self.mouse_reporting = enabled;
+    }
+
+    /// Enable or disable keyboard input processing.
+    ///
+    /// When disabled, the terminal will not process keyboard input even if focused.
+    /// Use this when modal overlays are open to prevent keys from being captured.
+    pub fn set_keyboard_enabled(&mut self, enabled: bool) {
+        self.keyboard_enabled = enabled;
     }
 }

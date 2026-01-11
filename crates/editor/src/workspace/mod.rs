@@ -356,9 +356,24 @@ impl Workspace {
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
 
-        // Pre-consume keyboard input for any open overlays BEFORE rendering panes
-        // This ensures overlays capture j/k/h/l keys before terminal or other components
-        self.style_picker.consume_keyboard_input(ctx);
+        // Disable terminal keyboard input when modals are open
+        // This prevents terminal from capturing j/k/h/l keys meant for overlays
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let modal_open = self.style_picker.is_open()
+                || self.metrics_finder.is_open()
+                || self.workspace_finder.is_open()
+                || self.unified_finder.is_open()
+                || self.command_palette.is_open()
+                || self.buffer_editor.is_open()
+                || self.multi_edit_overlay.is_open()
+                || self.which_key.is_open()
+                || self.viewport_filter.is_open()
+                || self.tutorial_overlay.is_open()
+                || self.source_preview.is_open()
+                || self.agent_panel.is_open();
+            self.set_terminal_keyboard_enabled(!modal_open);
+        }
 
         // Poll and process agent input bar commands BEFORE query execution
         // This ensures panes created by AI are available for immediate query execution

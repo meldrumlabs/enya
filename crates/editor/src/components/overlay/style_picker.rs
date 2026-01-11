@@ -130,34 +130,6 @@ impl StylePicker {
         self.last_font_preview = None;
     }
 
-    /// Pre-consume keyboard input to prevent other components from seeing it.
-    ///
-    /// Call this early in the frame (before rendering panes) to ensure the style picker
-    /// captures j/k/h/l keys before terminal or other components can read them.
-    pub fn consume_keyboard_input(&self, ctx: &egui::Context) {
-        if !self.open {
-            return;
-        }
-
-        // Consume all keys that the style picker handles to prevent them from reaching
-        // other components (like terminal panes) that process input during their show()
-        ctx.input_mut(|i| {
-            // Navigation keys
-            i.consume_key(egui::Modifiers::NONE, Key::J);
-            i.consume_key(egui::Modifiers::NONE, Key::K);
-            i.consume_key(egui::Modifiers::NONE, Key::H);
-            i.consume_key(egui::Modifiers::NONE, Key::L);
-            i.consume_key(egui::Modifiers::NONE, Key::ArrowUp);
-            i.consume_key(egui::Modifiers::NONE, Key::ArrowDown);
-            i.consume_key(egui::Modifiers::CTRL, Key::N);
-            i.consume_key(egui::Modifiers::CTRL, Key::P);
-            // Action keys
-            i.consume_key(egui::Modifiers::NONE, Key::Enter);
-            i.consume_key(egui::Modifiers::NONE, Key::Escape);
-            i.consume_key(egui::Modifiers::NONE, Key::Tab);
-        });
-    }
-
     /// Shows the style picker overlay.
     #[profiling::function]
     pub fn show(

@@ -178,6 +178,14 @@ impl TerminalPane {
     pub fn take_action(&mut self) -> TerminalPaneAction {
         std::mem::replace(&mut self.pending_action, TerminalPaneAction::None)
     }
+
+    /// Enable or disable keyboard input processing.
+    ///
+    /// When disabled, the terminal will not process keyboard input even if focused.
+    /// Use this when modal overlays are open to prevent keys from being captured.
+    pub fn set_keyboard_enabled(&mut self, enabled: bool) {
+        self.terminal.set_keyboard_enabled(enabled);
+    }
 }
 
 impl crate::components::Component for TerminalPane {
