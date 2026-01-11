@@ -159,8 +159,9 @@ impl TerminalWidget {
             ui.memory_mut(|mem| mem.request_focus(resp.id));
         }
 
-        // Allow Enter to focus the terminal when hovered but not focused
-        if !resp.has_focus() && resp.hovered() {
+        // Allow Enter to focus the terminal when not focused
+        // This lets users re-enter the terminal after switching panes without using mouse
+        if !resp.has_focus() {
             let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
             if enter_pressed {
                 ui.memory_mut(|mem| mem.request_focus(resp.id));
