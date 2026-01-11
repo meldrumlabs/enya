@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::auth::AuthUser;
 use crate::db;
 use crate::error::ApiError;
+use crate::metrics;
 use crate::realtime::RealtimeEvent;
 use crate::state::AppState;
 use enya_team_api::{Channel, ChatThread, Message, NewChannel, NewMessage, NewThread, TeamEvent};
@@ -34,6 +35,8 @@ pub async fn create_channel(
     crate::auth::middleware::require_team_member(&state, team_id, user.id).await?;
 
     let channel = db::queries::create_channel(&state.db, team_id, &request).await?;
+
+    metrics::record_channel_created();
 
     // Broadcast channel creation
     state.broadcast(RealtimeEvent::broadcast(
@@ -85,6 +88,8 @@ pub async fn create_thread(
     let (thread, initial_message) =
         db::queries::create_channel_thread(&state.db, channel_id, user.id, &request).await?;
 
+    metrics::record_thread_created();
+
     // Get author info for broadcast
     let author = db::queries::get_user(&state.db, user.id).await?;
 
@@ -125,6 +130,8 @@ pub async fn send_thread_message(
         db::queries::create_message(&state.db, thread_id, user.id, &request.content).await?;
     let author = db::queries::get_user(&state.db, user.id).await?;
 
+    metrics::record_message_sent();
+
     // Broadcast message
     state.broadcast(RealtimeEvent::broadcast(
         team_id,
@@ -148,6 +155,8 @@ pub async fn resolve_thread(
     crate::auth::middleware::require_team_member(&state, team_id, user.id).await?;
 
     db::queries::update_thread_resolved(&state.db, thread_id, true).await?;
+
+    metrics::record_thread_resolved();
 
     // Broadcast resolution
     state.broadcast(RealtimeEvent::broadcast(

@@ -15,6 +15,7 @@ mod auth;
 mod config;
 mod db;
 mod error;
+pub mod metrics;
 mod realtime;
 mod state;
 
@@ -35,6 +36,9 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // Initialize Prometheus metrics
+    let metrics_handle = metrics::init_metrics();
+
     // Load configuration
     let config = Config::from_env()?;
     let addr: SocketAddr = format!("{}:{}", config.host, config.port).parse()?;
@@ -50,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState::new(config.clone(), pool);
 
     // Build router
-    let app = api::router(state);
+    let app = api::router(state, metrics_handle);
 
     // Start server
     tracing::info!("Starting server on {}", addr);

@@ -13,9 +13,12 @@ enya-client = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "rt-multi-thread", "macros"] }
 testcontainers = "0.23"
+testcontainers-modules = { version = "0.11", features = ["postgres"] }
 reqwest = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 egui = { workspace = true }
+uuid = { version = "1.11", features = ["v4", "serde"] }
 
 [lints]
 workspace = true

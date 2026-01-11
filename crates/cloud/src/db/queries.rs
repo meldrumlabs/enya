@@ -547,6 +547,295 @@ fn extract_mentions(content: &str) -> Vec<Uuid> {
     mentions
 }
 
+// =============================================================================
+// Team member role queries
+// =============================================================================
+
+/// Get a team member with role information.
+pub async fn get_team_member(
+    pool: &PgPool,
+    team_id: Uuid,
+    user_id: Uuid,
+) -> Result<Option<super::models::DbTeamMember>, ApiError> {
+    sqlx::query_as::<_, super::models::DbTeamMember>(
+        r#"SELECT team_id, user_id, role, created_at
+           FROM team_members
+           WHERE team_id = $1 AND user_id = $2"#,
+    )
+    .bind(team_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(ApiError::from)
+}
+
+/// Check if user is an admin of the team.
+pub async fn is_team_admin(pool: &PgPool, team_id: Uuid, user_id: Uuid) -> Result<bool, ApiError> {
+    let row = sqlx::query(
+        r#"SELECT EXISTS(
+            SELECT 1 FROM team_members
+            WHERE team_id = $1 AND user_id = $2 AND role = 'admin'
+        ) as is_admin"#,
+    )
+    .bind(team_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(row.get::<bool, _>("is_admin"))
+}
+
+/// Update a team member's role.
+pub async fn update_member_role(
+    pool: &PgPool,
+    team_id: Uuid,
+    user_id: Uuid,
+    role: &str,
+) -> Result<(), ApiError> {
+    sqlx::query(r#"UPDATE team_members SET role = $3 WHERE team_id = $1 AND user_id = $2"#)
+        .bind(team_id)
+        .bind(user_id)
+        .bind(role)
+        .execute(pool)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(())
+}
+
+/// Remove a member from a team.
+pub async fn remove_team_member(
+    pool: &PgPool,
+    team_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, ApiError> {
+    let result = sqlx::query(r#"DELETE FROM team_members WHERE team_id = $1 AND user_id = $2"#)
+        .bind(team_id)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Add a member to a team.
+pub async fn add_team_member(
+    pool: &PgPool,
+    team_id: Uuid,
+    user_id: Uuid,
+    role: &str,
+) -> Result<(), ApiError> {
+    sqlx::query(r#"INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, $3)"#)
+        .bind(team_id)
+        .bind(user_id)
+        .bind(role)
+        .execute(pool)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(())
+}
+
+/// Count team admins (to prevent removing the last admin).
+pub async fn count_team_admins(pool: &PgPool, team_id: Uuid) -> Result<i64, ApiError> {
+    let row = sqlx::query(
+        r#"SELECT COUNT(*) as count FROM team_members WHERE team_id = $1 AND role = 'admin'"#,
+    )
+    .bind(team_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(row.get::<i64, _>("count"))
+}
+
+// =============================================================================
+// Invitation queries
+// =============================================================================
+
+/// Create a team invitation.
+pub async fn create_invitation(
+    pool: &PgPool,
+    team_id: Uuid,
+    email: Option<&str>,
+    token: &str,
+    role: &str,
+    invited_by: Uuid,
+    expires_at: chrono::DateTime<chrono::Utc>,
+) -> Result<super::models::DbTeamInvitation, ApiError> {
+    sqlx::query_as::<_, super::models::DbTeamInvitation>(
+        r#"INSERT INTO team_invitations (id, team_id, email, token, role, invited_by, expires_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           RETURNING id, team_id, email, token, role, invited_by, expires_at, accepted_at, accepted_by, created_at"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(team_id)
+    .bind(email)
+    .bind(token)
+    .bind(role)
+    .bind(invited_by)
+    .bind(expires_at)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)
+}
+
+/// Get invitation by token.
+pub async fn get_invitation_by_token(
+    pool: &PgPool,
+    token: &str,
+) -> Result<Option<super::models::DbTeamInvitation>, ApiError> {
+    sqlx::query_as::<_, super::models::DbTeamInvitation>(
+        r#"SELECT id, team_id, email, token, role, invited_by, expires_at, accepted_at, accepted_by, created_at
+           FROM team_invitations
+           WHERE token = $1"#,
+    )
+    .bind(token)
+    .fetch_optional(pool)
+    .await
+    .map_err(ApiError::from)
+}
+
+/// Get pending invitations for a team.
+pub async fn list_team_invitations(
+    pool: &PgPool,
+    team_id: Uuid,
+) -> Result<Vec<super::models::DbTeamInvitation>, ApiError> {
+    sqlx::query_as::<_, super::models::DbTeamInvitation>(
+        r#"SELECT id, team_id, email, token, role, invited_by, expires_at, accepted_at, accepted_by, created_at
+           FROM team_invitations
+           WHERE team_id = $1 AND accepted_at IS NULL
+           ORDER BY created_at DESC"#,
+    )
+    .bind(team_id)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::from)
+}
+
+/// Accept an invitation.
+pub async fn accept_invitation(
+    pool: &PgPool,
+    invitation_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), ApiError> {
+    sqlx::query(
+        r#"UPDATE team_invitations
+           SET accepted_at = NOW(), accepted_by = $2
+           WHERE id = $1"#,
+    )
+    .bind(invitation_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(())
+}
+
+/// Delete an invitation.
+pub async fn delete_invitation(pool: &PgPool, invitation_id: Uuid) -> Result<bool, ApiError> {
+    let result = sqlx::query(r#"DELETE FROM team_invitations WHERE id = $1"#)
+        .bind(invitation_id)
+        .execute(pool)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(result.rows_affected() > 0)
+}
+
+/// Check if an invitation already exists for an email in a team.
+pub async fn invitation_exists_for_email(
+    pool: &PgPool,
+    team_id: Uuid,
+    email: &str,
+) -> Result<bool, ApiError> {
+    let row = sqlx::query(
+        r#"SELECT EXISTS(
+            SELECT 1 FROM team_invitations
+            WHERE team_id = $1 AND email = $2 AND accepted_at IS NULL AND expires_at > NOW()
+        ) as exists"#,
+    )
+    .bind(team_id)
+    .bind(email)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(row.get::<bool, _>("exists"))
+}
+
+// =============================================================================
+// Audit log queries
+// =============================================================================
+
+/// Create an audit log entry.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_audit_log(
+    pool: &PgPool,
+    team_id: Uuid,
+    actor_id: Uuid,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<Uuid>,
+    details: Option<serde_json::Value>,
+    ip_address: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<super::models::DbAuditLog, ApiError> {
+    sqlx::query_as::<_, super::models::DbAuditLog>(
+        r#"INSERT INTO audit_logs (id, team_id, actor_id, action, resource_type, resource_id, details, ip_address, user_agent)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING id, team_id, actor_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at"#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(team_id)
+    .bind(actor_id)
+    .bind(action)
+    .bind(resource_type)
+    .bind(resource_id)
+    .bind(details)
+    .bind(ip_address)
+    .bind(user_agent)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::from)
+}
+
+/// List audit logs for a team with pagination.
+pub async fn list_audit_logs(
+    pool: &PgPool,
+    team_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<super::models::DbAuditLog>, ApiError> {
+    sqlx::query_as::<_, super::models::DbAuditLog>(
+        r#"SELECT id, team_id, actor_id, action, resource_type, resource_id, details, ip_address, user_agent, created_at
+           FROM audit_logs
+           WHERE team_id = $1
+           ORDER BY created_at DESC
+           LIMIT $2 OFFSET $3"#,
+    )
+    .bind(team_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::from)
+}
+
+/// Count audit logs for a team.
+pub async fn count_audit_logs(pool: &PgPool, team_id: Uuid) -> Result<i64, ApiError> {
+    let row = sqlx::query(r#"SELECT COUNT(*) as count FROM audit_logs WHERE team_id = $1"#)
+        .bind(team_id)
+        .fetch_one(pool)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(row.get::<i64, _>("count"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

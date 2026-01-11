@@ -1,0 +1,40 @@
+# Build artifacts
+target/
+*.rs.bk
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Documentation (not needed in image)
+*.md
+!migrations/*.sql
+
+# Environment files (secrets)
+.env
+.env.*
+!.env.example
+
+# Test files
+tests/
+*_test.rs
+
+# Other crates we don't need
+../editor/
+../client/
+../ai/
+../search/
+../promql/
+../build-info/
+../build-tools/
+../egui_nerdfonts/
+../integration-tests/
+
+# Website
+website/
