@@ -17,8 +17,12 @@ _features := if features == "all" {
         "--features=" + features
     } else { "" }
 
+# Initialize git submodules (ghostty for terminal emulator)
+submodules:
+    git submodule update --init --recursive
+
 # Installs required dev tools
-install:
+install: submodules
     cargo install --locked cargo-machete cargo-nextest cargo-deny
     cd website && npm install
 
@@ -70,5 +74,13 @@ it-test:
 
 # Runs a local CI check
 # Note: We don't use --all-features because puffin and tracy profiling backends are mutually exclusive
-ci:
+ci: submodules
     just lint machete test check-wasm website-build
+
+# Run the editor (initializes submodules first)
+run: submodules
+    cargo run -p enya-editor
+
+# Build the editor (initializes submodules first)
+build: submodules
+    cargo build -p enya-editor
