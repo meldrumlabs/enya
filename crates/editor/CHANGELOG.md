@@ -16,6 +16,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **LogsPane query history**: Added query history feature to the LogsPane component. Users can now recall previous LogQL queries from a dropdown menu in the header. The history stores up to 20 most recent unique queries, with the most recent appearing first. Duplicate queries are automatically deduplicated and moved to the front.
 
+- **Separate metrics and logs config**: Workspace config now has distinct `[metrics]` and `[logs]` sections for Prometheus and Loki connections respectively. The old `[connection]` section is still supported via serde alias for backward compatibility. New `LogsConfig` includes `endpoint`, `api_key`, and `default_query` fields.
+
 - **Terminal pane (native-only)**: Embedded terminal emulator backed by ghostty's VT library for running shell commands while debugging incidents:
   - New `TerminalPane` component implementing the `Component` trait
   - Run commands like `kubectl logs`, `k9s`, or any shell command directly in the editor

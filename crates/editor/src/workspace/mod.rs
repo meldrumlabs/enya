@@ -65,8 +65,8 @@ mod rendering;
 pub use config::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
     DEMO_WORKSPACE_TOML, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
-    PaneConfig, RefreshInterval, TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig,
-    WorkspaceError, WorkspaceMeta,
+    LogsConfig, MetricsConfig, PaneConfig, RefreshInterval, TimeConfig, ViewConfig,
+    WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
 };
 
 /// Actions that the Workspace needs the App to handle

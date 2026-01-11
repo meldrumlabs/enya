@@ -9,9 +9,9 @@ use rustc_hash::FxHashMap;
 use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
-    ConnectionConfig, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
-    RefreshInterval, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
-    WorkspaceMeta,
+    ConnectionConfig, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig,
+    MetricsConfig, PaneConfig, RefreshInterval, TimeConfig, ViewConfig, WORKSPACE_VERSION,
+    Workspace, WorkspaceConfig, WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
 
@@ -50,7 +50,8 @@ impl Workspace {
                 version: WORKSPACE_VERSION,
                 endpoint: endpoint.map(|e| e.to_string()).unwrap_or_default(),
             },
-            connection: ConnectionConfig::default(),
+            metrics: MetricsConfig::default(),
+            logs: LogsConfig::default(),
             git: GitConfig::default(),
             view: ViewConfig {
                 // Theme is NOT included - it's a user preference, not workspace setting
