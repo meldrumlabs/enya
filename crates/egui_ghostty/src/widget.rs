@@ -145,9 +145,17 @@ impl TerminalWidget {
             content_rect_size,
         );
 
-        // Handle focus - only via explicit click
+        // Handle focus - via click or Enter key when hovered
         if resp.clicked() {
             ui.memory_mut(|mem| mem.request_focus(resp.id));
+        }
+
+        // Allow Enter to focus the terminal when hovered but not focused
+        if !resp.has_focus() && resp.hovered() {
+            let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if enter_pressed {
+                ui.memory_mut(|mem| mem.request_focus(resp.id));
+            }
         }
 
         response.has_focus = resp.has_focus();
