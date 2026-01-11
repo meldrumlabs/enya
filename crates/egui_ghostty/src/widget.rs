@@ -68,6 +68,8 @@ pub struct TerminalWidget {
     selection_end: Option<SelectionPos>,
     /// Whether we're currently dragging to select.
     is_selecting: bool,
+    /// Whether to auto-focus on next show (set on creation).
+    auto_focus: bool,
 }
 
 impl TerminalWidget {
@@ -90,6 +92,7 @@ impl TerminalWidget {
             selection_start: None,
             selection_end: None,
             is_selecting: false,
+            auto_focus: true,
         })
     }
 
@@ -145,8 +148,14 @@ impl TerminalWidget {
             content_rect_size,
         );
 
-        // Handle focus - via click or Enter key when hovered
+        // Handle focus - via click, Enter when hovered, or auto-focus on first show
         if resp.clicked() {
+            ui.memory_mut(|mem| mem.request_focus(resp.id));
+        }
+
+        // Auto-focus on first show (e.g., when terminal is newly created)
+        if self.auto_focus {
+            self.auto_focus = false;
             ui.memory_mut(|mem| mem.request_focus(resp.id));
         }
 
