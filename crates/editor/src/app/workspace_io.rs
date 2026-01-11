@@ -125,15 +125,7 @@ impl EnyaApp {
     pub(super) fn save_workspace(&mut self, name: Option<&str>) {
         let workspace_name = name.unwrap_or("default");
 
-        // Get workspace from active tab's viewport
-        let Some(tab) = self.workspace_tabs.active_tab() else {
-            self.notifications.notify(Notification::new(
-                "No active workspace".to_string(),
-                NotificationLevel::Error,
-            ));
-            return;
-        };
-        let workspace_config = tab.workspace.to_workspace_config(workspace_name, None);
+        let workspace_config = self.workspace.to_workspace_config(workspace_name, None);
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -219,32 +211,22 @@ impl EnyaApp {
                         return;
                     }
 
-                    if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                        let connection = tab.workspace.load_workspace_config(&workspace_config);
+                    let connection = self.workspace.load_workspace_config(&workspace_config);
 
-                        // Update tab name to match loaded workspace
-                        tab.name = workspace_config.workspace.name.clone();
-
-                        // TODO: Apply connection settings when endpoint tracking is implemented
-                        if let Some(conn) = connection {
-                            if !conn.endpoint.is_empty() {
-                                log::info!("Workspace specifies endpoint: {}", conn.endpoint);
-                            }
+                    // TODO: Apply connection settings when endpoint tracking is implemented
+                    if let Some(conn) = connection {
+                        if !conn.endpoint.is_empty() {
+                            log::info!("Workspace specifies endpoint: {}", conn.endpoint);
                         }
-
-                        // Add to recent workspaces
-                        self.state.settings.add_recent_workspace(
-                            name.to_string(),
-                            workspace_config.workspace.description.clone(),
-                        );
-
-                        log::info!("Workspace loaded: {name}");
-                    } else {
-                        self.notifications.notify(Notification::new(
-                            "No active workspace tab".to_string(),
-                            NotificationLevel::Error,
-                        ));
                     }
+
+                    // Add to recent workspaces
+                    self.state.settings.add_recent_workspace(
+                        name.to_string(),
+                        workspace_config.workspace.description.clone(),
+                    );
+
+                    log::info!("Workspace loaded: {name}");
                 }
                 Err(e) => {
                     log::error!("Failed to load workspace '{name}': {e}");
@@ -283,30 +265,20 @@ impl EnyaApp {
                         return;
                     }
 
-                    if let Some(tab) = self.workspace_tabs.active_tab_mut() {
-                        let connection = tab.workspace.load_workspace_config(&workspace_config);
+                    let connection = self.workspace.load_workspace_config(&workspace_config);
 
-                        // Update tab name to match loaded workspace
-                        tab.name = workspace_config.workspace.name.clone();
-
-                        // TODO: Apply connection settings when endpoint tracking is implemented
-                        if let Some(conn) = connection {
-                            if !conn.endpoint.is_empty() {
-                                log::info!("Workspace specifies endpoint: {}", conn.endpoint);
-                            }
+                    // TODO: Apply connection settings when endpoint tracking is implemented
+                    if let Some(conn) = connection {
+                        if !conn.endpoint.is_empty() {
+                            log::info!("Workspace specifies endpoint: {}", conn.endpoint);
                         }
-
-                        // Add to recent workspaces
-                        self.state.settings.add_recent_workspace(
-                            workspace_config.workspace.name.clone(),
-                            workspace_config.workspace.description.clone(),
-                        );
-                    } else {
-                        self.notifications.notify(Notification::new(
-                            "No active workspace tab".to_string(),
-                            NotificationLevel::Error,
-                        ));
                     }
+
+                    // Add to recent workspaces
+                    self.state.settings.add_recent_workspace(
+                        workspace_config.workspace.name.clone(),
+                        workspace_config.workspace.description.clone(),
+                    );
                 }
                 Err(e) => {
                     self.notifications.notify(Notification::new(
@@ -320,16 +292,7 @@ impl EnyaApp {
 
     /// Share the current workspace as a URL (copies to clipboard)
     pub(super) fn share_workspace(&mut self) {
-        // Get workspace from active tab
-        let Some(tab) = self.workspace_tabs.active_tab() else {
-            self.notifications.notify(Notification::new(
-                "No active workspace".to_string(),
-                NotificationLevel::Error,
-            ));
-            return;
-        };
-
-        let workspace_config = tab.workspace.to_workspace_config("shared", None);
+        let workspace_config = self.workspace.to_workspace_config("shared", None);
 
         match workspace_config.to_base64() {
             Ok(encoded) => {
@@ -385,16 +348,7 @@ impl EnyaApp {
 
     /// Share a single pane as a URL (copies to clipboard)
     pub(super) fn share_pane(&mut self, pane_index: usize) {
-        // Get workspace from active tab
-        let Some(tab) = self.workspace_tabs.active_tab() else {
-            self.notifications.notify(Notification::new(
-                "No active workspace".to_string(),
-                NotificationLevel::Error,
-            ));
-            return;
-        };
-
-        let workspace_config = tab.workspace.to_workspace_config("shared", None);
+        let workspace_config = self.workspace.to_workspace_config("shared", None);
 
         match workspace_config.pane_to_base64(pane_index) {
             Ok(encoded) => {

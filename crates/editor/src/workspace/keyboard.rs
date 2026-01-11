@@ -60,8 +60,7 @@ impl Workspace {
         #[cfg(target_arch = "wasm32")]
         let codebase_finder_open = false;
 
-        if self.metrics_finder.is_open()
-            || self.workspace_finder.is_open()
+        if self.workspace_finder.is_open()
             || self.unified_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
@@ -104,10 +103,7 @@ impl Workspace {
         let mut should_open_which_key = false;
         let mut should_enter_visual_multi = false;
         let mut should_cycle_visualization = false;
-        let mut should_next_workspace_tab = false;
-        let mut should_prev_workspace_tab = false;
         let mut should_open_workspace_finder = false;
-        let mut should_open_metrics_finder = false;
         let mut should_open_unified_finder = false;
         #[cfg(not(target_arch = "wasm32"))]
         let mut should_open_codebase_finder = false;
@@ -172,20 +168,6 @@ impl Workspace {
                 }
             }
 
-            // N - go to next workspace tab
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::N) {
-                should_next_workspace_tab = true;
-                consumed = true;
-                return;
-            }
-
-            // P - go to previous workspace tab
-            if input.consume_key(egui::Modifiers::SHIFT, egui::Key::P) {
-                should_prev_workspace_tab = true;
-                consumed = true;
-                return;
-            }
-
             // Space - leader key for sequences (Space+m, Space+q, Space+w)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
                 self.leader_keys.press_space();
@@ -198,14 +180,6 @@ impl Workspace {
                 // Space+f - open unified finder (Telescope-style)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
                     should_open_unified_finder = true;
-                    self.leader_keys.clear_space();
-                    consumed = true;
-                    return;
-                }
-
-                // Space+m - open metrics finder
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
-                    should_open_metrics_finder = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -677,16 +651,6 @@ impl Workspace {
             }
         }
 
-        // Handle workspace tab navigation (gt/gT)
-        if should_next_workspace_tab {
-            ctx.request_repaint();
-            return Some(WorkspaceAction::NextWorkspaceTab);
-        }
-        if should_prev_workspace_tab {
-            ctx.request_repaint();
-            return Some(WorkspaceAction::PrevWorkspaceTab);
-        }
-
         // Handle time range preset changes (t5, t1, th, td, tw, etc.)
         if let Some(preset) = time_range_preset {
             self.time_range_toolbar.set_preset(preset);
@@ -699,12 +663,6 @@ impl Workspace {
         // Handle workspace finder (w key)
         if should_open_workspace_finder {
             self.pending_open_workspace_finder = true;
-            ctx.request_repaint();
-        }
-
-        // Handle metrics finder (m key)
-        if should_open_metrics_finder {
-            self.open_metrics_finder();
             ctx.request_repaint();
         }
 

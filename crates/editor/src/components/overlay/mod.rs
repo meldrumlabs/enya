@@ -11,7 +11,6 @@ pub mod diagnostics;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod diff_viewer;
 pub mod info;
-pub mod metrics_finder;
 pub mod multi_edit;
 #[cfg(target_arch = "wasm32")]
 pub mod native_promo;
@@ -50,7 +49,6 @@ pub use diagnostics::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use diff_viewer::{DiffViewerOverlay, DiffViewerResult};
 pub use info::InfoOverlay;
-pub use metrics_finder::{MetricItem, MetricsFinder};
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
 #[cfg(target_arch = "wasm32")]
 pub use native_promo::NativePromoOverlay;

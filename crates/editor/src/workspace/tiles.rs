@@ -79,6 +79,11 @@ impl TreeBehavior {
 }
 
 impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
+    /// Minimum size for any pane - prevents panes from becoming too small
+    fn min_size(&self) -> f32 {
+        200.0 // Minimum 200px to ensure charts/content remain readable
+    }
+
     /// Gap between panes in horizontal/vertical layouts
     fn gap_width(&self, _style: &egui::Style) -> f32 {
         4.0 // Subtle gap for visual separation

@@ -15,14 +15,14 @@ fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
     let time = ui.ctx().input(|i| i.time);
     let available = ui.available_size();
 
-    // Skeleton colors - theme-aware styling
+    // Skeleton colors - fully theme-aware styling
     let base = theme.bg_elevated();
-    // Add subtle accent tint to skeleton elements for cohesive look
     let accent = theme.accent_primary();
+    // Blend base with a subtle amount of accent for theme-aware skeleton tint
     let skeleton_base = Color32::from_rgba_unmultiplied(
-        base.r().saturating_sub(5),
-        base.g().saturating_add(8), // subtle tint
-        base.b().saturating_add(3),
+        (base.r() as f32 * 0.95 + accent.r() as f32 * 0.05) as u8,
+        (base.g() as f32 * 0.95 + accent.g() as f32 * 0.05) as u8,
+        (base.b() as f32 * 0.95 + accent.b() as f32 * 0.05) as u8,
         base.a(),
     );
     // Use theme accent for shimmer effect

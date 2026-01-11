@@ -23,6 +23,8 @@ pub enum LandingPageAction {
     ShowAbout,
     /// Show keyboard shortcuts (which-key)
     ShowShortcuts,
+    /// Show native app info (WASM only)
+    ShowNativeAppInfo,
 }
 
 /// Number of menu items in the landing page
@@ -134,17 +136,24 @@ impl LandingPage {
                 ui.add_space(top_padding);
 
                 // === HEADER SECTION ===
-                self.show_header_scaled(ui, ctx, muted_color, scale);
+                let header_action = self.show_header_scaled(ui, ctx, muted_color, scale);
+                if header_action != LandingPageAction::None {
+                    action = header_action;
+                }
 
                 ui.add_space(header_spacing);
 
                 // === MENU BUTTONS (Vertical list) ===
-                action = self.show_menu_scaled(ui, text_col, accent_color, mouse_moved, scale);
+                let menu_action =
+                    self.show_menu_scaled(ui, text_col, accent_color, mouse_moved, scale);
+                if menu_action != LandingPageAction::None {
+                    action = menu_action;
+                }
 
                 ui.add_space(footer_spacing);
 
                 // === FOOTER ===
-                self.show_footer_scaled(ui, muted_color, scale);
+                self.show_footer_scaled(ui, ctx, muted_color, scale);
             });
         });
 
@@ -152,13 +161,14 @@ impl LandingPage {
     }
 
     /// Show the header with logo and title (scaled version)
+    /// Returns an action if the native app link was clicked (WASM only)
     fn show_header_scaled(
         &mut self,
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         muted_color: Color32,
         scale: f32,
-    ) {
+    ) -> LandingPageAction {
         let accent = self.accent_color();
         let logo_size = 160.0 * scale;
         let title_size = 42.0 * scale;
@@ -196,6 +206,33 @@ impl LandingPage {
                 .size(typography::SM * scale)
                 .color(muted_color.gamma_multiply(0.7)),
         );
+
+        // On WASM, show a subtle native app notification below version
+        #[cfg(target_arch = "wasm32")]
+        {
+            ui.add_space(8.0 * scale);
+            let response = ui.add(
+                egui::Label::new(
+                    RichText::new(format!(
+                        "{}  Download Native App for full experience",
+                        semantic_icons::action::IMPORT
+                    ))
+                    .size(typography::SM * scale)
+                    .color(accent.gamma_multiply(0.7)),
+                )
+                .sense(egui::Sense::click()),
+            );
+
+            if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+
+            if response.clicked() {
+                return LandingPageAction::ShowNativeAppInfo;
+            }
+        }
+
+        LandingPageAction::None
     }
 
     /// Show the vertical menu buttons (scaled version)
@@ -346,7 +383,13 @@ impl LandingPage {
     }
 
     /// Show the footer with keyboard hints (scaled version)
-    fn show_footer_scaled(&self, ui: &mut egui::Ui, muted_color: Color32, scale: f32) {
+    fn show_footer_scaled(
+        &self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        muted_color: Color32,
+        scale: f32,
+    ) {
         // Keyboard hints
         ui.label(
             RichText::new("j/k navigate  •  Enter select  •  : commands")
@@ -356,12 +399,22 @@ impl LandingPage {
 
         ui.add_space(12.0 * scale);
 
-        // Credits
-        ui.label(
-            RichText::new("Developed by Meldrum Labs")
-                .size(typography::SM * scale)
-                .color(muted_color.gamma_multiply(0.5)),
+        // Credits with clickable link
+        let link_color = muted_color.gamma_multiply(0.5);
+        let response = ui.add(
+            egui::Label::new(
+                RichText::new("Developed by Meldrum Labs")
+                    .size(typography::SM * scale)
+                    .color(link_color),
+            )
+            .sense(egui::Sense::click()),
         );
+        if response.clicked() {
+            ctx.open_url(egui::OpenUrl::new_tab("https://meldrumlabs.com"));
+        }
+        if response.hovered() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
     }
 
     /// Handle keyboard navigation

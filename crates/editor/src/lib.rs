@@ -41,7 +41,7 @@ pub mod ui;
 /// General utilities including WASM-compatible time handling.
 pub mod util;
 
-/// Workspace runtime (pane layout), configuration (serialization), and tab management.
+/// Workspace runtime (pane layout) and configuration (serialization).
 pub mod workspace;
 
 /// Team collaboration state management (optional, works without team features).
@@ -55,6 +55,5 @@ pub use chat::{
     ChatMessageAuthor, ChatState, Mention, MentionKind, MessageId, Thread, ThreadId, ThreadStatus,
 };
 pub use team::{TeamConfig, TeamState};
-pub use workspace::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
 
 pub use app::EnyaApp;

@@ -6,6 +6,32 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Neovim-style intro message**: When a workspace has no panes, a centered intro screen displays "Enya" with tagline "A Neovim-inspired observability editor for builders", version number, and aligned command hints. Includes `~` tilde markers on every line (left margin) just like Neovim:
+  - `type  Space+f    fuzzy finder`
+  - `type  aa         ask AI agent` (native only)
+  - `type  ?          help`
+  - `type  :          commands`
+
+- **Filter match highlighting**: When using the viewport filter (`/`), matched text in pane names is now highlighted with the accent color and underlined for better visibility.
+
+### Changed
+
+- **Viewport pane alignment**: Improved pane layout consistency to prevent bottom panes from overlapping the status line. The viewport tree now always renders at the exact viewport height, with `TreeBehavior::min_size()` (200px) preventing panes from becoming too small. Scrolling only activates when panes would be smaller than this absolute minimum. Added explicit clip rectangles and constrained child UI rendering to ensure content never overflows into the status bar area.
+
+- **Tutorial layout**: Updated the tutorial layout to show "HTTP Requests" and "Requests by Endpoint" side by side in the top row, with "CPU Usage" and "Memory Used" stacked below. This demonstrates both horizontal and vertical pane arrangements.
+
+- **WASM native app promo**: Changed from an intrusive auto-popup overlay to a subtle clickable link below the version badge in the landing page header. Users can click "Download Native App for full experience" to see detailed information about native-only features (git integration, AI agents, persistent workspaces). Less invasive while still informing users about the full desktop experience.
+
+### Fixed
+
+- **Unified finder WASM freeze**: Fixed the unified fuzzy finder freezing on WASM by using `crate::util::Instant` (which uses `web_time::Instant` on WASM) instead of `std::time::Instant` which doesn't work properly in browsers.
+
+### Removed
+
+- **Workspace tab bar**: Removed the workspace tab bar (barbar.nvim-style) at the top of the editor. The editor now manages a single workspace directly instead of multiple tabs. Related keyboard shortcuts (`Shift+N`, `Shift+P`, `Shift+T`, `Shift+X`) have been removed. The `:q` command now quits the application instead of closing the current tab.
+
+### Added
+
 - **Theme-based chart palettes**: Each of the 13 themes now has its own unique 8-color palette for time series visualization:
   - **Dark themes** (9 themes): Vibrant saturated colors optimized for dark backgrounds
     - Dark: Emerald accent with vibrant complements

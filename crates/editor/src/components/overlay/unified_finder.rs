@@ -38,6 +38,7 @@ use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
+use crate::util::Instant;
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::semantic_icons;
@@ -268,7 +269,7 @@ pub struct UnifiedFinder {
     /// Available live metrics for metrics mode (name, category, tags).
     live_metrics: Vec<(String, String, FxHashMap<String, FxHashSet<String>>)>,
     /// Timestamp of last query change (for debouncing).
-    last_query_change: Option<std::time::Instant>,
+    last_query_change: Option<Instant>,
     /// Last query that was actually searched (for debounce tracking).
     last_searched_query: String,
     /// Repository root path for constructing full file paths (native only).
@@ -386,7 +387,7 @@ impl UnifiedFinder {
         self.results.clear();
         self.match_positions.clear();
         self.selected_index = 0;
-        self.last_query_change = Some(std::time::Instant::now());
+        self.last_query_change = Some(Instant::now());
         self.last_searched_query.clear();
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -407,6 +408,17 @@ impl UnifiedFinder {
     pub fn query_text(&self) -> &str {
         let (_, text) = FinderMode::from_prefix(&self.query);
         text
+    }
+
+    /// Sets the query text, preserving the current mode prefix.
+    pub fn set_query(&mut self, query: &str) {
+        if let Some(prefix) = self.mode.prefix() {
+            self.query = format!("{prefix}{query}");
+        } else {
+            self.query = query.to_string();
+        }
+        self.selected_index = 0;
+        self.refresh_results();
     }
 
     /// Gets the current mode based on query prefix.
@@ -820,7 +832,7 @@ impl UnifiedFinder {
 
             if response.changed() {
                 // Record timestamp for debounce - actual refresh happens in show() after delay
-                self.last_query_change = Some(std::time::Instant::now());
+                self.last_query_change = Some(Instant::now());
             }
 
             // Use remaining space to push badges to the right
