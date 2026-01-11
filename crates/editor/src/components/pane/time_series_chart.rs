@@ -312,6 +312,14 @@ pub enum ChartInteraction {
     DeleteAnnotation { id: AnnotationId },
     /// User wants to resolve an annotation.
     ResolveAnnotation { id: AnnotationId },
+    /// User double-clicked on the chart for logs drilldown.
+    /// Opens a logs pane centered around this timestamp.
+    DrilldownLogs {
+        /// The timestamp in seconds (Unix epoch) where the user clicked
+        timestamp_secs: f64,
+        /// The metric name for context
+        metric_name: String,
+    },
 }
 
 /// A time series chart component
@@ -352,6 +360,8 @@ pub struct TimeSeriesChart {
     annotation_mode: bool,
     /// Compact mode for inline display (no background, no interaction)
     compact: bool,
+    /// Pending interaction to be consumed by the parent (set on double-click, cleared on take)
+    pending_interaction: Option<ChartInteraction>,
 }
 
 impl Default for TimeSeriesChart {
@@ -382,6 +392,7 @@ impl TimeSeriesChart {
             stacked: false,
             annotation_mode: false,
             compact: false,
+            pending_interaction: None,
         }
     }
 
@@ -652,6 +663,12 @@ impl TimeSeriesChart {
     /// Check if annotation mode is active.
     pub fn is_annotation_mode(&self) -> bool {
         self.annotation_mode
+    }
+
+    /// Take the pending interaction (returns and clears it).
+    /// Call this after `show()` to check if the user triggered a drilldown.
+    pub fn take_interaction(&mut self) -> Option<ChartInteraction> {
+        self.pending_interaction.take()
     }
 
     /// Get the number of unresolved annotations.
@@ -1585,6 +1602,27 @@ impl TimeSeriesChart {
                 }
             }
         });
+
+        // Detect double-click for logs drilldown (only when not in compact or annotation mode)
+        if !self.compact && !self.annotation_mode && plot_response.response.double_clicked() {
+            // Get the pointer position and convert to plot coordinates
+            if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                // Convert screen position to plot coordinates
+                let plot_point = plot_response.transform.value_from_position(pointer_pos);
+                let timestamp_secs = plot_point.x;
+
+                self.pending_interaction = Some(ChartInteraction::DrilldownLogs {
+                    timestamp_secs,
+                    metric_name: self.metric_name.clone(),
+                });
+
+                log::debug!(
+                    "Chart drilldown triggered at timestamp {} for metric '{}'",
+                    timestamp_secs,
+                    self.metric_name
+                );
+            }
+        }
 
         // Render commit labels below the plot, positioned at their timestamp's X coordinate
         if self.show_commits && !commits_to_render.is_empty() {

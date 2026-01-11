@@ -11,8 +11,8 @@ pub mod widget;
 pub use pane::{
     AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, CommitMarker, DataPoint,
     GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSource,
-    QueryPane, QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart,
-    Visualization, VisualizationType,
+    LogsBackend, LogsPane, LogsPaneAction, QueryPane, QueryPaneAction, Series, SparklineViz,
+    StatChart, Threshold, TimeSeriesChart, Visualization, VisualizationType,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use pane::{TerminalPane, TerminalPaneAction};
@@ -44,8 +44,8 @@ pub use util::{
     Backend, CompletionItem, CompletionKind, CompletionResult, ExecuteParams, Finder, FinderColors,
     FinderConfig, FinderItem, FinderKeyboardInput, FinderResult, Granularity, MultiBufferMode,
     MultiBufferState, OverlayColors, OverlayStyle, OverlayStyleVariant, QueryCompletion,
-    QueryExecutor, QueryPollResult, QueryState, Selection, ValidationResult, draw_backdrop,
-    draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
+    QueryExecutor, QueryLanguage, QueryPollResult, QueryState, Selection, ValidationResult,
+    draw_backdrop, draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
     render_key_badge, render_key_badge_large, validate_query,
 };
 

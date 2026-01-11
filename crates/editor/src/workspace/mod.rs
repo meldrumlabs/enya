@@ -16,12 +16,12 @@ use crate::components::overlay::{FinderMode, UnifiedFinder};
 use crate::components::{
     AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult, Buffer,
     BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
-    DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, MultiBufferMode,
-    MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryPane, QueryState,
-    QuickCommand, SourcePreviewOverlay, SourcePreviewResult, StylePicker, StylePickerResult,
-    TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TutorialOverlay,
-    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
-    WorkspaceFinder,
+    DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LogsPane, MultiBufferMode,
+    MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryLanguage, QueryPane,
+    QueryState, QuickCommand, SourcePreviewOverlay, SourcePreviewResult, StylePicker,
+    StylePickerResult, TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangeToolbar,
+    TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator,
+    WorkspaceCreatorResult, WorkspaceFinder,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -461,6 +461,25 @@ impl Workspace {
                         // Set known metric names for completion
                         let metric_names = self.query_executor.metric_names().to_vec();
                         self.buffer_editor.set_metric_names(metric_names);
+                        break;
+                    }
+                }
+
+                // Handle LogsPane edit button click - opens modal BufferEditor with LogQL mode
+                if let Some(logs_pane) = component.as_any_mut().downcast_mut::<LogsPane>() {
+                    if logs_pane.edit_requested() {
+                        logs_pane.clear_edit_requested();
+                        // Focus this tile and open the buffer editor
+                        self.behavior.set_focused_tile(Some(tile_id));
+                        self.editing_tile_id = Some(tile_id);
+
+                        let query = logs_pane.saved_query().to_string();
+                        let name = logs_pane.name().to_string();
+                        // Use LogQL completion mode for LogsPane
+                        self.buffer_editor
+                            .open_with_language(&query, &name, QueryLanguage::LogQL);
+
+                        log::debug!("Opening buffer editor for LogsPane (button click)");
                         break;
                     }
                 }
@@ -1462,6 +1481,20 @@ impl Workspace {
                     }
                 }
             }
+            CommandResult::OpenLogs => {
+                // Use a default time range of the last hour for the logs pane
+                let now_ns = crate::util::now_unix_secs() * 1_000_000_000;
+                let one_hour_ns = 3600 * 1_000_000_000;
+                self.add_logs_pane(now_ns - one_hour_ns, now_ns);
+                WorkspaceAction::None
+            }
+            CommandResult::OpenLoki(url) => {
+                // Connect to a real Loki server
+                let now_ns = crate::util::now_unix_secs() * 1_000_000_000;
+                let one_hour_ns = 3600 * 1_000_000_000;
+                self.add_loki_pane(now_ns - one_hour_ns, now_ns, url);
+                WorkspaceAction::None
+            }
             CommandResult::TeamDemo => WorkspaceAction::ToggleTeamDemo,
             CommandResult::TeamConnect { url, token } => {
                 WorkspaceAction::TeamConnect { url, token }
@@ -1524,6 +1557,16 @@ impl Workspace {
                     self.buffer_editor.set_metric_names(metric_names);
 
                     log::debug!("Opening buffer editor for Buffer");
+                } else if let Some(logs_pane) = component.as_any().downcast_ref::<LogsPane>() {
+                    // LogsPane uses modal BufferEditor like QueryPane, with LogQL completion mode
+                    let query = logs_pane.saved_query().to_string();
+                    let name = logs_pane.name().to_string();
+                    // Use LogQL completion mode for LogsPane
+                    self.buffer_editor
+                        .open_with_language(&query, &name, QueryLanguage::LogQL);
+                    self.editing_tile_id = Some(tile_id);
+
+                    log::debug!("Opening buffer editor for LogsPane");
                 }
             }
         }
@@ -1561,6 +1604,9 @@ impl Workspace {
                     buffer.set_content(&query);
                     buffer.save();
                     log::debug!("Applied query to Buffer: {query}");
+                } else if let Some(logs_pane) = component.as_any_mut().downcast_mut::<LogsPane>() {
+                    logs_pane.set_query(&query);
+                    log::debug!("Applied query to LogsPane: {query}");
                 }
             }
         }

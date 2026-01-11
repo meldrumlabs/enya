@@ -18,6 +18,7 @@ members = [
   "crates/editor",
   "crates/analyzer",
   "crates/promql",
+  "crates/logql",
   "crates/client",
   "crates/search",
   "crates/team-api",
@@ -42,6 +43,7 @@ members = [
 
 [workspace.dependencies]
 enya-promql = { path = "crates/promql", version = "0.1.0" }
+enya-logql = { path = "crates/logql", version = "0.1.0" }
 enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 enya-client = { path = "crates/client", version = "0.1.0" }

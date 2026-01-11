@@ -139,6 +139,56 @@ All notable changes to the Enya editor will be documented in this file.
   - Theme-specific heatmap gradients for data visualization
   - Use `:theme <name>` or aliases (`:theme cat`, `:theme rose`, `:theme midnight`, etc.) to switch
 
+- **LogQL parser and autocomplete crate** (`enya-logql`): Lightweight LogQL parser for context-aware autocomplete, mirroring the architecture of `enya-promql`:
+  - **Lexer** (`lexer.rs`): `ScanState` for tracking nesting depth, `TokenHint` enum, `partial_at_cursor()`, `last_token_before()` for cursor context detection
+  - **Completion** (`completion.rs`): `Context` enum for 15 autocomplete states (stream selectors, pipe stages, line filters, grouping, etc.), `analyze()` for context detection, `syntax_suggestions()` for static suggestions
+  - **Validation** (`validation.rs`): Basic structural validation (balanced brackets, stream selector presence, function argument validation)
+  - **LogQL syntax support**: Stream selectors `{}`, line filters (`|=`, `!=`, `|~`, `!~`), parsers (`json`, `logfmt`, `pattern`, `regexp`, `unpack`), filter expressions (`line_format`, `label_format`), range aggregations (`rate`, `count_over_time`, `bytes_rate`), aggregations (`sum`, `avg`, `topk`)
+
+- **LogQL autocomplete in BufferEditor**: `QueryCompletion` now supports both PromQL and LogQL via `QueryLanguage` enum:
+  - `QueryLanguage::PromQL` (default) for metric queries
+  - `QueryLanguage::LogQL` for log queries
+  - `set_language()` method to switch completion mode
+  - Context-aware suggestions for LogQL pipe stages, parsers, and line filters
+  - Language-aware hint text: PromQL shows `rate(http_requests_total[5m])`, LogQL shows `{app="nginx"} |= "error" | json`
+
+- **Logs pane component**: New `LogsPane` component for metric→log correlation, enabling drill-down from metric spikes to see actual SQL queries (or other logs) during that period:
+  - **Editable LogQL query** via modal BufferEditor (same UX as QueryPane - press `e` to edit, `:w` to save)
+  - Edit button overlay in top-right corner for quick access
+  - Scrollable table view with color-coded log levels (Error=red, Warn=yellow, Info=blue, Debug=gray)
+  - Level filter dropdown (All, Error, Warn, Info, Debug, Trace)
+  - Text search filter for searching within log messages
+  - Timestamp formatting (HH:MM:SS.mmm)
+  - Loading skeleton animation during data fetch
+  - Configurable backend via `LogsBackend` enum (Demo or Loki)
+  - Implements `Component` trait for integration with workspace tile system
+  - `add_logs_pane()` for demo mode, `add_loki_pane()` for real Loki servers
+
+- **Loki logs backend**: Full `LokiClient` implementation in `enya-client` for querying Grafana Loki:
+  - HTTP API integration via `/loki/api/v1/query_range`, `/loki/api/v1/labels`, `/loki/api/v1/status/buildinfo`
+  - LogQL query building from labels and text filters
+  - Response parsing with log level detection from labels (`level`, `severity`) or message patterns
+  - Health check support for connection validation
+  - Works on both native (tokio) and WASM (wasm-bindgen-futures)
+
+- **Logs command palette commands**:
+  - `:logs` - Open demo logs pane with synthetic SQL query data
+  - `:loki <url>` - Connect to a Loki server (e.g., `:loki localhost:3100`)
+
+- **Chart drilldown to logs**: Double-click on any time series chart to open a logs pane centered on that timestamp:
+  - Creates a 5-minute window around the clicked point
+  - Enables quick correlation from metric spikes to logs
+  - Works with both demo and Loki backends
+  - `ChartInteraction::DrilldownLogs` event propagates from chart → visualization → query pane → workspace
+
+### Changed
+
+- **Refactored query completion helpers**: Consolidated duplicate code between PromQL and LogQL completion handlers:
+  - Unified `find_word_start()` function with language-specific delimiters parameter
+  - Added `COMMON_DELIMITERS` constant for shared delimiter set
+  - Extracted helper methods: `push_item()`, `push_operators()`, `push_durations()`, `push_tag_keys()`, `push_tag_values()`, `push_metrics()`
+  - Reduced ~200 lines of duplicated code
+
 - **Team chat channels panel with Split View**: A Zed-inspired left sidebar for team collaboration with channels, threads, and inline chat:
   - `Channel` - Hierarchical channels with kinds (General, Incidents, Deployments, Alerts, Custom)
   - `Thread` - Conversation threads with priority levels (Normal, High, Critical) and status tracking
