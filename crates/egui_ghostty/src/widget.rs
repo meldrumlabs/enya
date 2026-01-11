@@ -212,13 +212,17 @@ impl TerminalWidget {
     }
 
     /// Calculate cell dimensions based on the monospace font.
-    fn calculate_cell_size(&self, _ui: &Ui) -> Vec2 {
-        // For a 14pt monospace font, typical dimensions are:
-        // - Character width: ~8.4 pixels (varies by font, Menlo/Monaco/Consolas average)
-        // - Line height: ~18 pixels (includes line spacing)
-        // These are approximate and work well for most monospace fonts.
-        let char_width = 8.4;
-        let row_height = 18.0;
+    fn calculate_cell_size(&self, ui: &Ui) -> Vec2 {
+        let font_id = FontId::new(14.0, FontFamily::Monospace);
+
+        // Measure character width and row height by laying out a reference character
+        // We use 'M' as it's typically the widest character in most fonts
+        let galley = ui
+            .painter()
+            .layout_no_wrap("M".to_string(), font_id, egui::Color32::WHITE);
+        let char_width = galley.rect.width();
+        let row_height = galley.rect.height();
+
         Vec2::new(char_width, row_height)
     }
 
