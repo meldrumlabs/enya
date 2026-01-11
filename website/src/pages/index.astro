@@ -51,8 +51,8 @@ async fn main() -> Result<()> {
 			<main class="main">
                 <div class="hero-section">
                     <img src="/img/enya.png" alt="Enya" class="hero-logo" />
-                    <h1 class="hero-tagline">Metrics at editor speed</h1>
-                    <p class="hero-headline">A keyboard-first observability editor that connects metrics, code, and AI.</p>
+                    <h1 class="hero-tagline">Observability at editor speed</h1>
+                    <p class="hero-headline">A keyboard-first editor that connects metrics, logs, traces, and code with AI.</p>
                     <div class="hero-buttons">
                         <a href="#" class="hero-button-primary" id="download-button">
                             <svg class="download-icon-btn" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -70,8 +70,8 @@ async fn main() -> Result<()> {
 			<section class="feature-showcase">
 				<div class="feature-section">
 					<div class="feature-content">
-						<h2 class="feature-heading">Find Metrics Instantly</h2>
-						<p class="feature-text">Fuzzy finder (telescope-style) to search through thousands of metrics with minimal keystrokes. Live chart previews show data as you navigate, letting you explore your entire observability stack at the speed of thought.</p>
+						<h2 class="feature-heading">Find Signals Instantly</h2>
+						<p class="feature-text">Fuzzy finder (telescope-style) to search through metrics, logs, and traces with minimal keystrokes. Live previews show data as you navigate, letting you explore your entire observability stack at the speed of thought.</p>
 					</div>
 					<div class="feature-media">
 						<video autoplay loop muted playsinline>
@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
 				<div class="feature-section">
 					<div class="feature-content">
 						<h2 class="feature-heading">Context-Aware Completion</h2>
-						<p class="feature-text">Inline autocomplete provides real-time suggestions for PromQL queries—functions, aggregations, metric names, and label selectors—all without configuration. Labels are fetched dynamically from your Prometheus backend.</p>
+						<p class="feature-text">Inline autocomplete provides real-time suggestions for queries across PromQL, LogQL, and TraceQL—functions, aggregations, names, and label selectors—all without configuration. Data is fetched dynamically from your backends.</p>
 					</div>
 					<div class="feature-media">
 						<img src="/img/demos/enya_hero.png" alt="Query autocompletion" />
@@ -108,15 +108,15 @@ async fn main() -> Result<()> {
 					<div class="features-grid">
 						<div class="feature-card">
 							<h3 class="feature-title">AI Native</h3>
-							<p class="feature-description">AI agents with access to both your Prometheus metrics and application codebase for intelligent observability workflows</p>
+							<p class="feature-description">AI agents with access to your metrics, logs, traces, and application codebase for intelligent observability workflows</p>
 						</div>
 						<div class="feature-card">
-							<h3 class="feature-title">Prometheus Compatible</h3>
-							<p class="feature-description">Works with any Prometheus compatible endpoint with full PromQL support, including completion and inline hints</p>
+							<h3 class="feature-title">Multi-Backend</h3>
+							<p class="feature-description">Works with Prometheus, Loki, Tempo, and compatible backends with full query support, including completion and inline hints</p>
 						</div>
 						<a href="/docs/editor" class="feature-card">
 							<h3 class="feature-title">Codebase-Aware</h3>
-							<p class="feature-description">Integrates with your codebase and analyzes your code allowing you to quickly jump between metric graphs and where in the code it is generated from</p>
+							<p class="feature-description">Integrates with your codebase and analyzes your code allowing you to quickly jump between observability data and where in the code it originates</p>
 						</a>
 						<a href="/docs/editor" class="feature-card">
 							<h3 class="feature-title">Keyboard-Driven</h3>
