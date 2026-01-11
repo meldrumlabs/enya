@@ -356,6 +356,10 @@ impl Workspace {
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
 
+        // Pre-consume keyboard input for any open overlays BEFORE rendering panes
+        // This ensures overlays capture j/k/h/l keys before terminal or other components
+        self.style_picker.consume_keyboard_input(ctx);
+
         // Poll and process agent input bar commands BEFORE query execution
         // This ensures panes created by AI are available for immediate query execution
         if self.agent_mode_active {
