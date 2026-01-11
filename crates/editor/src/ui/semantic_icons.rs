@@ -323,6 +323,7 @@ pub mod action {
 
     // Terminal operations
     pub const TERMINAL: &str = regular::TERMINAL;
+    pub const GHOSTTY: &str = regular::GHOST;
 
     // Account operations
     pub const SETTINGS: &str = regular::COG_1;
