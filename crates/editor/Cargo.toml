@@ -68,6 +68,8 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 enya-ai = { workspace = true }
 # Full-text search index for codebase (metrics, alerts, commits)
 enya-search = { workspace = true }
+# Terminal emulator for running shell commands (kubectl, k9s, etc.)
+egui_ghostty = { workspace = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

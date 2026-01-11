@@ -24,6 +24,9 @@ target_wasm
 *.swp
 *.swo
 
+# Zig build cache (ghostty_vt_sys)
+.zig-cache/
+
 # Credentials
 *.pem
 *.key

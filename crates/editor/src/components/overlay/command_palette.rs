@@ -68,6 +68,8 @@ pub enum CommandResult {
     TeamConnect { url: String, token: String },
     /// Disconnect from team server
     TeamDisconnect,
+    /// Open a terminal pane (native only)
+    OpenTerminal,
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -147,6 +149,12 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &[],
         description: "Team (demo | connect <url> <token> | disconnect)",
         kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "terminal",
+        aliases: &["term"],
+        description: "Open a terminal pane",
+        kind: CommandKind::NoArgs,
     },
 ];
 
@@ -426,6 +434,7 @@ impl CommandPalette {
                     }
                 }
             }
+            "terminal" => CommandResult::OpenTerminal,
             _ => CommandResult::None,
         }
     }

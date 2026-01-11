@@ -14,6 +14,8 @@ pub use pane::{
     QueryPane, QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart,
     Visualization, VisualizationType,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use pane::{TerminalPane, TerminalPaneAction};
 
 // Re-export from overlay
 #[cfg(target_arch = "wasm32")]

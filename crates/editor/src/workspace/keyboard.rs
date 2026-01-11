@@ -70,6 +70,7 @@ impl Workspace {
             || self.tutorial_overlay.is_open()
             || self.source_preview.is_open()
             || self.agent_panel.is_open()
+            || self.style_picker.is_open()
             || codebase_finder_open
         {
             return None;

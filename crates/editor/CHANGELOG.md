@@ -14,6 +14,18 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Filter match highlighting**: When using the viewport filter (`/`), matched text in pane names is now highlighted with the accent color and underlined for better visibility.
 
+- **Terminal pane (native-only)**: Embedded terminal emulator backed by ghostty's VT library for running shell commands while debugging incidents:
+  - New `TerminalPane` component implementing the `Component` trait
+  - Run commands like `kubectl logs`, `k9s`, or any shell command directly in the editor
+  - Theme-aware terminal colors that adapt to the current editor theme with live updates
+  - Semantic ANSI palette colors (Red is red, Green is green, etc.) via `terminal_palette()`
+  - Dynamic palette updates for running TUI apps (k9s, htop, vim update colors immediately on theme change)
+  - Full keyboard input support including special keys (arrows, function keys, etc.)
+  - Mouse support for applications that use mouse reporting
+  - PTY integration via `portable-pty` for cross-platform shell spawning
+  - Three new workspace crates: `ghostty_vt_sys` (FFI bindings), `ghostty_vt` (safe Rust API), `egui_ghostty` (egui widget)
+  - Native-only feature (requires Zig 0.14.1 toolchain for building ghostty)
+
 ### Changed
 
 - **Viewport pane alignment**: Improved pane layout consistency to prevent bottom panes from overlapping the status line. The viewport tree now always renders at the exact viewport height, with `TreeBehavior::min_size()` (200px) preventing panes from becoming too small. Scrolling only activates when panes would be smaller than this absolute minimum. Added explicit clip rectangles and constrained child UI rendering to ensure content never overflows into the status bar area.
@@ -29,8 +41,6 @@ All notable changes to the Enya editor will be documented in this file.
 ### Removed
 
 - **Workspace tab bar**: Removed the workspace tab bar (barbar.nvim-style) at the top of the editor. The editor now manages a single workspace directly instead of multiple tabs. Related keyboard shortcuts (`Shift+N`, `Shift+P`, `Shift+T`, `Shift+X`) have been removed. The `:q` command now quits the application instead of closing the current tab.
-
-### Added
 
 - **Theme-based chart palettes**: Each of the 13 themes now has its own unique 8-color palette for time series visualization:
   - **Dark themes** (9 themes): Vibrant saturated colors optimized for dark backgrounds
