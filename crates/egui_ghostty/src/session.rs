@@ -213,6 +213,14 @@ impl TerminalSession {
         self.terminal.set_default_colors(fg, bg);
     }
 
+    /// Set an ANSI palette color (0-255).
+    ///
+    /// This updates the terminal's internal palette and triggers a redraw,
+    /// causing all cells using this color index to display the new color.
+    pub fn set_ansi_color(&mut self, index: u8, color: Rgb) {
+        self.terminal.set_ansi_color(index, color);
+    }
+
     /// Scroll the viewport by the specified number of lines.
     ///
     /// Positive values scroll up (show older content in scrollback),

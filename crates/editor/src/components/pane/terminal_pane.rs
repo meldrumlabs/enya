@@ -102,8 +102,9 @@ impl TerminalPane {
         let bright_white = theme.text_primary();
         let selection = theme.accent_selection();
 
-        // Use theme chart palette for ANSI colors
-        let palette = theme.chart_palette();
+        // Use terminal palette for semantically-correct ANSI colors
+        // terminal_palette returns [Red, Green, Yellow, Blue, Magenta, Cyan]
+        let palette = theme.terminal_palette();
 
         // Helper to brighten a color for "bright" variants
         let brighten = |c: egui::Color32| -> Rgb {
@@ -156,6 +157,9 @@ impl TerminalPane {
     }
 
     /// Set the theme.
+    ///
+    /// Updates the terminal's color scheme for rendering. The terminal
+    /// widget uses this scheme when painting cells, cursor, and selection.
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
         self.terminal

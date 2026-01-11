@@ -235,6 +235,22 @@ export fn ghostty_vt_terminal_set_default_colors(
     handle.default_bg = .{ .r = bg_r, .g = bg_g, .b = bg_b };
 }
 
+/// Set an ANSI palette color (0-255).
+/// This updates the terminal's internal palette and triggers a redraw.
+export fn ghostty_vt_terminal_set_ansi_color(
+    terminal_ptr: ?*anyopaque,
+    index: u8,
+    r: u8,
+    g: u8,
+    b: u8,
+) callconv(.C) void {
+    if (terminal_ptr == null) return;
+    const handle: *TerminalHandle = @ptrCast(@alignCast(terminal_ptr.?));
+    handle.terminal.color_palette.colors[index] = .{ .r = r, .g = g, .b = b };
+    handle.terminal.color_palette.mask.set(index);
+    handle.terminal.flags.dirty.palette = true;
+}
+
 export fn ghostty_vt_terminal_feed(
     terminal_ptr: ?*anyopaque,
     bytes: [*]const u8,

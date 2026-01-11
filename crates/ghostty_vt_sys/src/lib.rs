@@ -28,6 +28,16 @@ unsafe extern "C" {
         bg_b: u8,
     );
 
+    /// Set an ANSI palette color (0-255).
+    /// This updates the terminal's internal palette and triggers a redraw.
+    pub fn ghostty_vt_terminal_set_ansi_color(
+        terminal: *mut core::ffi::c_void,
+        index: u8,
+        r: u8,
+        g: u8,
+        b: u8,
+    );
+
     pub fn ghostty_vt_terminal_feed(
         terminal: *mut core::ffi::c_void,
         bytes: *const u8,

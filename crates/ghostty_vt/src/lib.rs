@@ -247,6 +247,22 @@ impl Terminal {
         }
     }
 
+    /// Set an ANSI palette color (0-255).
+    ///
+    /// This updates the terminal's internal palette and triggers a redraw,
+    /// causing all cells using this color index to display the new color.
+    pub fn set_ansi_color(&mut self, index: u8, color: Rgb) {
+        unsafe {
+            ghostty_vt_sys::ghostty_vt_terminal_set_ansi_color(
+                self.ptr.as_ptr(),
+                index,
+                color.r,
+                color.g,
+                color.b,
+            )
+        }
+    }
+
     /// Feed bytes into the terminal for processing.
     ///
     /// This is the primary input method - bytes from PTY output should be fed here.

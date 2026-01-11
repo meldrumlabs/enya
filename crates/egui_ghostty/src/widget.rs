@@ -100,9 +100,20 @@ impl TerminalWidget {
     }
 
     /// Set the color scheme.
+    ///
+    /// This updates both the rendering colors and the terminal's internal ANSI palette,
+    /// causing running applications to immediately reflect the new theme colors.
     pub fn set_color_scheme(&mut self, scheme: ColorScheme) {
+        // Update default foreground/background
         self.session
             .set_default_colors(scheme.foreground, scheme.background);
+
+        // Update all 16 ANSI palette colors in the terminal's internal state
+        // This triggers a palette dirty flag that causes a full redraw
+        for (index, color) in scheme.colors.iter().enumerate() {
+            self.session.set_ansi_color(index as u8, *color);
+        }
+
         self.color_scheme = scheme;
     }
 

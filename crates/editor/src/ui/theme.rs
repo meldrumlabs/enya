@@ -1628,6 +1628,126 @@ impl AppTheme {
         palette[index % palette.len()]
     }
 
+    /// Terminal palette for ANSI color mapping in the embedded terminal.
+    ///
+    /// Returns 6 colors for the 6 chromatic ANSI colors: Red, Green, Yellow, Blue, Magenta, Cyan.
+    /// These colors are semantically meaningful (red is reddish, green is greenish) while still
+    /// fitting the theme's aesthetic. Black/White are derived from theme bg/text colors.
+    ///
+    /// This is separate from chart_palette because terminal colors need semantic meaning
+    /// (errors are red, success is green) while chart colors just need to be distinct.
+    pub fn terminal_palette(&self) -> [Color32; 6] {
+        match self {
+            // === Dark Themes ===
+            Self::Dark => [
+                Color32::from_rgb(248, 113, 133), // Red - Soft coral
+                Color32::from_rgb(52, 211, 153),  // Green - Emerald (accent-inspired)
+                Color32::from_rgb(250, 204, 21),  // Yellow - Gold
+                Color32::from_rgb(96, 165, 250),  // Blue - Sky blue
+                Color32::from_rgb(192, 132, 252), // Magenta - Violet
+                Color32::from_rgb(34, 211, 238),  // Cyan - Bright cyan
+            ],
+            Self::Nord => [
+                Color32::from_rgb(191, 97, 106),  // Red - Aurora red (nord11)
+                Color32::from_rgb(163, 190, 140), // Green - Aurora green (nord14)
+                Color32::from_rgb(235, 203, 139), // Yellow - Aurora yellow (nord13)
+                Color32::from_rgb(129, 161, 193), // Blue - Frost blue (nord9)
+                Color32::from_rgb(180, 142, 173), // Magenta - Aurora purple (nord15)
+                Color32::from_rgb(136, 192, 208), // Cyan - Frost cyan (nord8)
+            ],
+            Self::Midnight => [
+                Color32::from_rgb(248, 113, 113), // Red - Neon red
+                Color32::from_rgb(52, 211, 153),  // Green - Cyber teal-green
+                Color32::from_rgb(251, 191, 36),  // Yellow - Neon amber
+                Color32::from_rgb(96, 165, 250),  // Blue - Electric blue (accent)
+                Color32::from_rgb(192, 132, 252), // Magenta - Neon purple
+                Color32::from_rgb(34, 211, 238),  // Cyan - Bright cyan
+            ],
+            Self::Catppuccin => [
+                Color32::from_rgb(243, 139, 168), // Red - Catppuccin red
+                Color32::from_rgb(166, 227, 161), // Green - Catppuccin green
+                Color32::from_rgb(249, 226, 175), // Yellow - Catppuccin yellow
+                Color32::from_rgb(137, 180, 250), // Blue - Catppuccin blue
+                Color32::from_rgb(203, 166, 247), // Magenta - Catppuccin mauve
+                Color32::from_rgb(148, 226, 213), // Cyan - Catppuccin teal
+            ],
+            Self::Ayu => [
+                Color32::from_rgb(255, 102, 102), // Red - Warm red
+                Color32::from_rgb(127, 204, 127), // Green - Soft green
+                Color32::from_rgb(255, 204, 102), // Yellow - Amber-yellow
+                Color32::from_rgb(89, 186, 163),  // Blue - Ayu cyan-blue
+                Color32::from_rgb(172, 128, 255), // Magenta - Purple
+                Color32::from_rgb(127, 193, 202), // Cyan - Soft cyan
+            ],
+            Self::Bergman => [
+                Color32::from_rgb(180, 120, 120), // Red - Muted dusty red
+                Color32::from_rgb(140, 170, 140), // Green - Foggy green
+                Color32::from_rgb(200, 180, 130), // Yellow - Sepia gold
+                Color32::from_rgb(130, 150, 180), // Blue - Slate blue
+                Color32::from_rgb(160, 140, 170), // Magenta - Dusty violet
+                Color32::from_rgb(140, 170, 180), // Cyan - Misty cyan
+            ],
+            Self::Aurora => [
+                Color32::from_rgb(240, 120, 140), // Red - Aurora red glow
+                Color32::from_rgb(126, 232, 184), // Green - Aurora teal (accent)
+                Color32::from_rgb(250, 220, 130), // Yellow - Soft aurora gold
+                Color32::from_rgb(130, 180, 230), // Blue - Night sky blue
+                Color32::from_rgb(200, 160, 220), // Magenta - Aurora violet
+                Color32::from_rgb(100, 210, 220), // Cyan - Aurora cyan
+            ],
+            Self::Graphite => [
+                Color32::from_rgb(232, 93, 4), // Red - Molten orange-red (accent-inspired)
+                Color32::from_rgb(140, 180, 120), // Green - Industrial sage
+                Color32::from_rgb(230, 180, 80), // Yellow - Brass gold
+                Color32::from_rgb(120, 150, 190), // Blue - Steel blue
+                Color32::from_rgb(180, 140, 160), // Magenta - Tarnished rose
+                Color32::from_rgb(120, 180, 190), // Cyan - Oxidized cyan
+            ],
+            Self::Ink => [
+                Color32::from_rgb(180, 100, 110), // Red - Ink red (muted)
+                Color32::from_rgb(130, 160, 140), // Green - Ink green (muted)
+                Color32::from_rgb(180, 170, 130), // Yellow - Parchment gold
+                Color32::from_rgb(130, 150, 180), // Blue - Steel blue
+                Color32::from_rgb(160, 140, 170), // Magenta - Silver violet
+                Color32::from_rgb(140, 170, 180), // Cyan - Silver cyan
+            ],
+            Self::Skargard => [
+                Color32::from_rgb(180, 100, 100), // Red - Muted coastal red
+                Color32::from_rgb(100, 160, 140), // Green - Sea green
+                Color32::from_rgb(200, 180, 120), // Yellow - Sandy gold
+                Color32::from_rgb(80, 140, 180),  // Blue - Baltic blue
+                Color32::from_rgb(140, 120, 160), // Magenta - Heather purple
+                Color32::from_rgb(100, 170, 180), // Cyan - Archipelago cyan
+            ],
+
+            // === Light Themes ===
+            Self::Light => [
+                Color32::from_rgb(185, 28, 28),  // Red - Deep ink red
+                Color32::from_rgb(21, 128, 61),  // Green - Forest green
+                Color32::from_rgb(161, 98, 7),   // Yellow - Amber-brown
+                Color32::from_rgb(29, 78, 216),  // Blue - Classic blue
+                Color32::from_rgb(126, 34, 206), // Magenta - Purple
+                Color32::from_rgb(14, 116, 144), // Cyan - Teal
+            ],
+            Self::Stockholm => [
+                Color32::from_rgb(153, 27, 27),  // Red - Nordic muted red
+                Color32::from_rgb(22, 101, 52),  // Green - Nordic forest
+                Color32::from_rgb(133, 77, 14),  // Yellow - Nordic amber
+                Color32::from_rgb(59, 93, 140),  // Blue - Nordic blue (accent-inspired)
+                Color32::from_rgb(107, 33, 168), // Magenta - Nordic purple
+                Color32::from_rgb(17, 94, 89),   // Cyan - Nordic teal
+            ],
+            Self::Midsommar => [
+                Color32::from_rgb(220, 38, 38),  // Red - Poppy red
+                Color32::from_rgb(22, 163, 74),  // Green - Meadow green
+                Color32::from_rgb(202, 138, 4),  // Yellow - Sunflower
+                Color32::from_rgb(37, 99, 235),  // Blue - Swedish flag blue (accent)
+                Color32::from_rgb(147, 51, 234), // Magenta - Wildflower purple
+                Color32::from_rgb(6, 182, 212),  // Cyan - Summer sky cyan
+            ],
+        }
+    }
+
     /// Commit marker color for git annotations on charts
     pub fn chart_commit_marker(&self) -> Color32 {
         match self {
