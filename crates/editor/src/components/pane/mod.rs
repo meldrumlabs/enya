@@ -3,10 +3,14 @@
 pub mod agent_pane;
 pub mod annotation;
 pub mod query_pane;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod terminal_pane;
 pub mod time_series_chart;
 pub mod visualization;
 
 pub use agent_pane::{AgentPane, AgentPaneAction, InlineChart, InlineContent, InlineSource};
+#[cfg(not(target_arch = "wasm32"))]
+pub use terminal_pane::{TerminalPane, TerminalPaneAction};
 // Re-export AiProvider from util for backwards compatibility
 pub use super::util::AiProvider as AgentAiProvider;
 pub use annotation::{

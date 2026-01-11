@@ -321,6 +321,9 @@ pub mod action {
     pub const BRAIN: &str = regular::BRAIN;
     pub const TOOL: &str = regular::WRENCH;
 
+    // Terminal operations
+    pub const TERMINAL: &str = regular::TERMINAL;
+
     // Account operations
     pub const SETTINGS: &str = regular::COG_1;
     pub const LOGOUT: &str = regular::LOGOUT;

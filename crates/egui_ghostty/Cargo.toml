@@ -1,0 +1,16 @@
+[package]
+name = "egui_ghostty"
+version.workspace = true
+edition.workspace = true
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Terminal emulator widget for egui using ghostty's VT library"
+
+[dependencies]
+ghostty_vt = { path = "../ghostty_vt" }
+egui = { workspace = true }
+portable-pty = "0.8"
+log = { workspace = true }
+fastrand = { workspace = true }
+
+[dev-dependencies]

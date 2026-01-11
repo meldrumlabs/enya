@@ -1448,6 +1448,10 @@ impl Workspace {
                 WorkspaceAction::TeamConnect { url, token }
             }
             CommandResult::TeamDisconnect => WorkspaceAction::TeamDisconnect,
+            CommandResult::OpenTerminal => {
+                self.add_terminal_pane();
+                WorkspaceAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
             }

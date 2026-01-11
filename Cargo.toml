@@ -26,6 +26,10 @@ members = [
   "crates/build-tools",
   "crates/egui_nerdfonts",
   "crates/integration-tests",
+  # Terminal emulator (native-only, requires Zig toolchain)
+  "crates/ghostty_vt_sys",
+  "crates/ghostty_vt",
+  "crates/egui_ghostty",
 ]
 # Excluded for faster compilation (editor-focused development):
 # - crates/datafusion-enya (heavy DataFusion dependency)
@@ -45,6 +49,7 @@ enya-analyzer = { path = "crates/analyzer", version = "0.1.0" }
 enya-ai = { path = "crates/ai", version = "0.1.0" }
 enya-search = { path = "crates/search", version = "0.1.0" }
 enya-team-api = { path = "crates/team-api", version = "0.1.0" }
+egui_ghostty = { path = "crates/egui_ghostty" }
 
 # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts
 egui = { version = "0.33.2", default-features = false }

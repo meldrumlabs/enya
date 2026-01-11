@@ -118,6 +118,43 @@ impl Workspace {
         None
     }
 
+    /// Add a terminal pane to the viewport.
+    ///
+    /// Creates a new terminal pane backed by ghostty-vt for running shell commands.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+        use crate::components::TerminalPane;
+        use crate::ui::theme::AppTheme;
+
+        // Use the default theme - it will be updated via set_theme() later
+        match TerminalPane::new(AppTheme::default()) {
+            Ok(terminal_pane) => {
+                let pane: Box<dyn Component> = Box::new(terminal_pane);
+                let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+                if self.add_tile_to_viewport(pane_tile) {
+                    self.behavior.set_focused_tile(Some(pane_tile));
+                    self.show_landing = false;
+                    log::info!("Added terminal pane");
+                    Some(pane_tile)
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to create terminal pane: {e}");
+                None
+            }
+        }
+    }
+
+    /// Add a terminal pane (WASM stub - terminals not supported in browser).
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+        log::warn!("Terminal panes are not available in the browser");
+        None
+    }
+
     /// Find or create an agent pane. Returns the tile ID.
     ///
     /// If an agent pane already exists, focuses it. Otherwise creates a new one.
