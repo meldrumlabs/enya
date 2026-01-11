@@ -200,9 +200,17 @@ impl TerminalWidget {
             resp.has_focus(),
         );
 
-        // Request repaint if we had output or are blinking
+        // Request repaint to keep terminal responsive:
+        // - Immediate repaint if we had output (process more quickly)
+        // - Immediate repaint if cursor is blinking with focus
+        // - Otherwise, schedule repaint after 50ms to poll for new PTY output
+        //   (keeps htop, kubectl logs, etc. updating even without focus)
         if had_output || (resp.has_focus() && self.config.cursor_blink_interval > 0.0) {
             ui.ctx().request_repaint();
+        } else {
+            // Poll for new output at ~20fps when terminal is idle/unfocused
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(50));
         }
 
         // Update title
