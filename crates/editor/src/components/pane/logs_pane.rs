@@ -52,6 +52,9 @@ pub enum LogsPaneAction {
     QueryChanged,
 }
 
+/// Maximum number of queries to keep in history.
+const MAX_HISTORY_SIZE: usize = 20;
+
 /// A logs pane that displays log entries from a logs client.
 ///
 /// This pane shows log entries in a scrollable table with:
@@ -60,6 +63,7 @@ pub enum LogsPaneAction {
 /// - Timestamp formatting
 /// - Text filter input for searching within logs
 /// - Level filter dropdown (All, Error, Warn, Info, Debug)
+/// - Query history for recalling previous queries
 pub struct LogsPane {
     /// Unique identifier for this pane
     id: usize,
@@ -101,6 +105,10 @@ pub struct LogsPane {
     selected_index: Option<usize>,
     hovered_index: Option<usize>,
     level_dropdown_open: bool,
+    /// Whether the query history dropdown is open
+    history_dropdown_open: bool,
+    /// Query history (most recent first)
+    query_history: Vec<String>,
 }
 
 impl Default for LogsPane {
@@ -178,6 +186,8 @@ impl LogsPane {
             selected_index: None,
             hovered_index: None,
             level_dropdown_open: false,
+            history_dropdown_open: false,
+            query_history: Vec::new(),
         }
     }
 
@@ -237,11 +247,37 @@ impl LogsPane {
     }
 
     /// Set the LogQL query and trigger a refresh.
+    ///
+    /// The query is added to history (if non-empty and different from the last entry).
     pub fn set_query(&mut self, query: impl Into<String>) {
-        self.saved_query = query.into();
+        let query = query.into();
+
+        // Add to history if non-empty and different from the most recent entry
+        if !query.is_empty() && self.query_history.first() != Some(&query) {
+            // Remove any existing occurrence to avoid duplicates
+            self.query_history.retain(|q| q != &query);
+            // Add to front (most recent)
+            self.query_history.insert(0, query.clone());
+            // Trim to max size
+            if self.query_history.len() > MAX_HISTORY_SIZE {
+                self.query_history.truncate(MAX_HISTORY_SIZE);
+            }
+        }
+
+        self.saved_query = query;
         self.needs_refresh = true;
         self.results = None;
         self.promise = None;
+    }
+
+    /// Get the query history (most recent first).
+    pub fn query_history(&self) -> &[String] {
+        &self.query_history
+    }
+
+    /// Clear the query history.
+    pub fn clear_history(&mut self) {
+        self.query_history.clear();
     }
 
     /// Check if edit was requested via button click.
@@ -352,6 +388,25 @@ impl LogsPane {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
 
+                        // Edit button (rightmost in RTL layout, so first)
+                        let edit_response = ui.add(
+                            egui::Button::new(
+                                RichText::new(semantic_icons::action::EDIT)
+                                    .color(muted_text)
+                                    .size(14.0),
+                            )
+                            .fill(Color32::TRANSPARENT)
+                            .min_size(Vec2::splat(28.0)),
+                        );
+
+                        if edit_response
+                            .on_hover_text("Edit query (e)")
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
+                            self.edit_requested = true;
+                        }
+
                         // Refresh button
                         let refresh_response = ui.add(
                             egui::Button::new(
@@ -369,6 +424,11 @@ impl LogsPane {
                             .clicked()
                         {
                             self.refresh();
+                        }
+
+                        // History button (only show if we have history)
+                        if !self.query_history.is_empty() {
+                            self.render_history_dropdown(ui, text_col, muted_text);
                         }
 
                         // Row count badge
@@ -531,6 +591,152 @@ impl LogsPane {
                 && !dropdown_hovered
             {
                 self.level_dropdown_open = false;
+            }
+        }
+    }
+
+    /// Render the query history dropdown.
+    fn render_history_dropdown(
+        &mut self,
+        ui: &mut egui::Ui,
+        text_col: Color32,
+        muted_text: Color32,
+    ) {
+        let history_count = self.query_history.len();
+
+        let dropdown_response = ui.add(
+            egui::Button::new(
+                RichText::new(format!(
+                    "{} {} {}",
+                    semantic_icons::action::HISTORY,
+                    history_count,
+                    semantic_icons::nav::EXPAND
+                ))
+                .color(muted_text)
+                .size(12.0),
+            )
+            .fill(self.theme.bg_elevated())
+            .corner_radius(SMALL_CORNER_RADIUS),
+        );
+
+        // Save rect before consuming response
+        let dropdown_rect = dropdown_response.rect;
+        let dropdown_hovered = dropdown_response.contains_pointer();
+
+        if dropdown_response
+            .on_hover_text("Query history")
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
+        {
+            self.history_dropdown_open = !self.history_dropdown_open;
+        }
+
+        // Show dropdown menu
+        if self.history_dropdown_open {
+            let popup_id = egui::Id::new(format!("logs_history_popup_{}", self.id));
+
+            // Clone history for use in closure
+            let history_clone = self.query_history.clone();
+            let mut selected_query: Option<String> = None;
+
+            let area_response = egui::Area::new(popup_id)
+                .order(egui::Order::Foreground)
+                .fixed_pos(dropdown_rect.left_bottom() + egui::vec2(0.0, 4.0))
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::new()
+                        .fill(self.theme.bg_elevated())
+                        .stroke(egui::Stroke::new(1.0, self.theme.bg_surface()))
+                        .corner_radius(CORNER_RADIUS)
+                        .shadow(egui::epaint::Shadow {
+                            offset: [0, 4],
+                            blur: 12,
+                            spread: 0,
+                            color: Color32::from_black_alpha(40),
+                        })
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui| {
+                            ui.set_min_width(300.0);
+                            ui.set_max_width(400.0);
+                            ui.spacing_mut().item_spacing.y = 2.0;
+
+                            // Header
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new("Recent Queries")
+                                        .color(muted_text)
+                                        .size(10.0)
+                                        .strong(),
+                                );
+                            });
+
+                            ui.add_space(4.0);
+                            ui.separator();
+                            ui.add_space(4.0);
+
+                            // History entries (scrollable if many)
+                            egui::ScrollArea::vertical()
+                                .max_height(200.0)
+                                .show(ui, |ui| {
+                                    for (idx, query) in history_clone.iter().enumerate() {
+                                        let is_current = query == &self.saved_query;
+
+                                        // Truncate long queries for display
+                                        let display_query = if query.len() > 50 {
+                                            format!("{}…", &query[..47])
+                                        } else {
+                                            query.clone()
+                                        };
+
+                                        let item_response = ui.add(
+                                            egui::Button::new(
+                                                RichText::new(&display_query)
+                                                    .color(if is_current {
+                                                        self.theme.accent_primary()
+                                                    } else {
+                                                        text_col
+                                                    })
+                                                    .size(11.0)
+                                                    .monospace(),
+                                            )
+                                            .fill(if is_current {
+                                                self.theme.accent_primary().gamma_multiply(0.15)
+                                            } else {
+                                                Color32::TRANSPARENT
+                                            })
+                                            .corner_radius(SMALL_CORNER_RADIUS)
+                                            .min_size(egui::vec2(ui.available_width(), 28.0)),
+                                        );
+
+                                        // Show full query on hover (truncated for display)
+                                        let hover_text = if idx < 9 {
+                                            format!("{}\n(Press {} to select)", query, idx + 1)
+                                        } else {
+                                            query.clone()
+                                        };
+
+                                        if item_response.on_hover_text(hover_text).clicked() {
+                                            selected_query = Some(query.clone());
+                                        }
+                                    }
+                                });
+                        });
+                });
+
+            // Apply selection if made
+            if let Some(query) = selected_query {
+                self.saved_query = query;
+                self.needs_refresh = true;
+                self.results = None;
+                self.promise = None;
+                self.history_dropdown_open = false;
+            }
+
+            // Close if clicked outside
+            if ui.input(|i| i.pointer.any_click())
+                && !area_response.response.contains_pointer()
+                && !dropdown_hovered
+            {
+                self.history_dropdown_open = false;
             }
         }
     }
@@ -840,43 +1046,88 @@ impl LogsPane {
     /// Render the logs table with premium styling.
     fn render_logs_table(&mut self, ui: &mut egui::Ui, response: &LogsResponse) {
         let text_col = text_color(self.theme);
-        let muted_text = text_col.gamma_multiply(0.5);
+        let muted_text = text_col.gamma_multiply(0.4);
+        let separator_color = self.theme.border_subtle();
 
-        // Table header
-        egui::Frame::new()
+        // Column layout - these are OFFSETS from the left edge of the content area
+        // TIME column: 0 to 95px
+        // LEVEL column: 95 to 160px (separator at 95, content starts at 107)
+        // MESSAGE column: 160px onwards (separator at 160, content starts at 172)
+        const TIME_COL_END: f32 = 95.0;
+        const LEVEL_COL_END: f32 = 160.0;
+        const COL_PADDING: f32 = 12.0;
+
+        // Table header with bottom border
+        let header_response = egui::Frame::new()
             .fill(self.theme.bg_surface())
-            .inner_margin(egui::Margin::symmetric(PADDING as i8, 6))
+            .inner_margin(egui::Margin::symmetric(PADDING as i8, 8))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), 18.0),
+                    egui::Sense::hover(),
+                );
 
-                    // Time column
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(90.0, 16.0),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.label(RichText::new("TIME").color(muted_text).size(10.0).strong());
-                        },
-                    );
+                let painter = ui.painter();
+                let base_x = rect.left();
 
-                    // Level column
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(70.0, 16.0),
-                        egui::Layout::left_to_right(egui::Align::Center),
-                        |ui| {
-                            ui.label(RichText::new("LEVEL").color(muted_text).size(10.0).strong());
-                        },
-                    );
+                // TIME header
+                painter.text(
+                    egui::pos2(base_x, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    "TIME",
+                    egui::FontId::proportional(10.0),
+                    muted_text,
+                );
 
-                    // Message column
-                    ui.label(
-                        RichText::new("MESSAGE")
-                            .color(muted_text)
-                            .size(10.0)
-                            .strong(),
-                    );
-                });
+                // Subtle vertical separator after TIME
+                let sep1_x = base_x + TIME_COL_END;
+                painter.line_segment(
+                    [
+                        egui::pos2(sep1_x, rect.top() + 2.0),
+                        egui::pos2(sep1_x, rect.bottom() - 2.0),
+                    ],
+                    egui::Stroke::new(1.0, separator_color),
+                );
+
+                // LEVEL header - centered in column
+                let level_col_center = sep1_x + (LEVEL_COL_END - TIME_COL_END) / 2.0;
+                painter.text(
+                    egui::pos2(level_col_center, rect.center().y),
+                    egui::Align2::CENTER_CENTER,
+                    "LEVEL",
+                    egui::FontId::proportional(10.0),
+                    muted_text,
+                );
+
+                // Subtle vertical separator after LEVEL
+                let sep2_x = base_x + LEVEL_COL_END;
+                painter.line_segment(
+                    [
+                        egui::pos2(sep2_x, rect.top() + 2.0),
+                        egui::pos2(sep2_x, rect.bottom() - 2.0),
+                    ],
+                    egui::Stroke::new(1.0, separator_color),
+                );
+
+                // MESSAGE header
+                painter.text(
+                    egui::pos2(sep2_x + COL_PADDING, rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    "MESSAGE",
+                    egui::FontId::proportional(10.0),
+                    muted_text,
+                );
+
+                rect
             });
+
+        // Bottom border line under header
+        let header_outer_rect = header_response.response.rect;
+        let border_rect = egui::Rect::from_min_size(
+            egui::pos2(header_outer_rect.left(), header_outer_rect.bottom()),
+            egui::vec2(header_outer_rect.width(), 1.0),
+        );
+        ui.painter().rect_filled(border_rect, 0.0, separator_color);
 
         // Reset hover state before rendering rows
         self.hovered_index = None;
@@ -936,11 +1187,17 @@ impl LogsPane {
                         painter.rect_filled(border_rect, 0.0, self.theme.accent_primary());
                     }
 
-                    // Draw row content
-                    let content_left = rect.left() + PADDING;
-                    let center_y = rect.center().y;
+                    // Draw row content - column layout must match header exactly
+                    // These constants MUST match the header constants
+                    const TIME_COL_END: f32 = 95.0;
+                    const LEVEL_COL_END: f32 = 160.0;
+                    const COL_PADDING: f32 = 12.0;
 
-                    // Timestamp
+                    let base_x = rect.left() + PADDING;
+                    let center_y = rect.center().y;
+                    let separator_color = self.theme.border_subtle().gamma_multiply(0.5);
+
+                    // Timestamp column (left-aligned)
                     let timestamp_str = format_timestamp_ns(entry.timestamp_ns);
                     let ts_galley = painter.layout_no_wrap(
                         timestamp_str,
@@ -948,13 +1205,22 @@ impl LogsPane {
                         text_col.gamma_multiply(0.7),
                     );
                     painter.galley(
-                        egui::pos2(content_left, center_y - ts_galley.size().y / 2.0),
+                        egui::pos2(base_x, center_y - ts_galley.size().y / 2.0),
                         ts_galley,
                         text_col,
                     );
 
-                    // Level badge
-                    let level_x = content_left + 90.0;
+                    // Vertical separator after timestamp
+                    let sep1_x = base_x + TIME_COL_END;
+                    painter.line_segment(
+                        [
+                            egui::pos2(sep1_x, rect.top() + 4.0),
+                            egui::pos2(sep1_x, rect.bottom() - 4.0),
+                        ],
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+
+                    // Level badge column (centered in column)
                     if let Some(level) = entry.level {
                         let color = level_color(level, self.theme);
                         let level_text = level_to_short(level);
@@ -965,9 +1231,14 @@ impl LogsPane {
                             color,
                         );
 
-                        let badge_rect = egui::Rect::from_min_size(
-                            egui::pos2(level_x, center_y - badge_galley.size().y / 2.0 - 3.0),
-                            badge_galley.size() + egui::vec2(10.0, 6.0),
+                        // Center the badge in the LEVEL column
+                        let level_col_center = sep1_x + (LEVEL_COL_END - TIME_COL_END) / 2.0;
+                        let badge_width = badge_galley.size().x + 10.0;
+                        let badge_height = badge_galley.size().y + 6.0;
+
+                        let badge_rect = egui::Rect::from_center_size(
+                            egui::pos2(level_col_center, center_y),
+                            egui::vec2(badge_width, badge_height),
                         );
 
                         // Badge background
@@ -977,16 +1248,29 @@ impl LogsPane {
                             color.gamma_multiply(0.15),
                         );
 
-                        // Badge text
+                        // Badge text (centered)
                         painter.galley(
-                            egui::pos2(level_x + 5.0, center_y - badge_galley.size().y / 2.0),
+                            egui::pos2(
+                                badge_rect.center().x - badge_galley.size().x / 2.0,
+                                center_y - badge_galley.size().y / 2.0,
+                            ),
                             badge_galley,
                             color,
                         );
                     }
 
-                    // Message
-                    let msg_x = level_x + 70.0;
+                    // Vertical separator after level
+                    let sep2_x = base_x + LEVEL_COL_END;
+                    painter.line_segment(
+                        [
+                            egui::pos2(sep2_x, rect.top() + 4.0),
+                            egui::pos2(sep2_x, rect.bottom() - 4.0),
+                        ],
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+
+                    // Message column (left-aligned)
+                    let msg_x = sep2_x + COL_PADDING;
                     let available_width = rect.right() - msg_x - PADDING;
                     let message = truncate_message(&entry.message, available_width, 11.0);
 
@@ -1006,11 +1290,6 @@ impl LogsPane {
     pub fn show(&mut self, ui: &mut egui::Ui) {
         self.poll_results(ui.ctx());
 
-        let text_col = text_color(self.theme);
-
-        // Get the full pane rect for button overlay
-        let pane_rect = ui.available_rect_before_wrap();
-
         egui::Frame::new()
             .fill(self.theme.bg_base())
             .show(ui, |ui| {
@@ -1019,38 +1298,6 @@ impl LogsPane {
                     self.render_content(ui);
                 });
             });
-
-        // Toolbar overlay in top-right corner (edit button like QueryPane)
-        let button_size = egui::vec2(24.0, 24.0);
-
-        // Edit button (rightmost)
-        let edit_button_pos = egui::pos2(
-            pane_rect.right() - button_size.x - 4.0,
-            pane_rect.top() + 4.0,
-        );
-        let edit_button_rect = egui::Rect::from_min_size(edit_button_pos, button_size);
-
-        let is_edit_hovered = ui.rect_contains_pointer(edit_button_rect);
-        let edit_icon_color = if is_edit_hovered {
-            text_col.gamma_multiply(0.9)
-        } else {
-            text_col.gamma_multiply(0.5)
-        };
-
-        let edit_response = ui.put(
-            edit_button_rect,
-            egui::Button::new(
-                RichText::new(semantic_icons::action::EDIT)
-                    .color(edit_icon_color)
-                    .size(14.0),
-            )
-            .fill(Color32::TRANSPARENT)
-            .frame(false),
-        );
-
-        if edit_response.on_hover_text("Edit query (e)").clicked() {
-            self.edit_requested = true;
-        }
     }
 }
 
@@ -1271,5 +1518,83 @@ mod tests {
         assert_eq!(level_color(LogLevel::Error, theme), theme.semantic_error());
         assert_eq!(level_color(LogLevel::Warn, theme), theme.semantic_warning());
         assert_eq!(level_color(LogLevel::Info, theme), theme.semantic_info());
+    }
+
+    #[test]
+    fn test_query_history_added_on_set() {
+        let start_ns = 1_609_459_200_000_000_000_i64;
+        let end_ns = start_ns + 3_600_000_000_000_i64;
+        let mut pane = LogsPane::new(start_ns, end_ns);
+
+        // History should start empty
+        assert!(pane.query_history().is_empty());
+
+        // Setting a query should add it to history
+        pane.set_query("{app=\"nginx\"}");
+        assert_eq!(pane.query_history().len(), 1);
+        assert_eq!(pane.query_history()[0], "{app=\"nginx\"}");
+
+        // Setting a different query should add to front
+        pane.set_query("{job=\"varlogs\"}");
+        assert_eq!(pane.query_history().len(), 2);
+        assert_eq!(pane.query_history()[0], "{job=\"varlogs\"}");
+        assert_eq!(pane.query_history()[1], "{app=\"nginx\"}");
+    }
+
+    #[test]
+    fn test_query_history_deduplication() {
+        let start_ns = 1_609_459_200_000_000_000_i64;
+        let end_ns = start_ns + 3_600_000_000_000_i64;
+        let mut pane = LogsPane::new(start_ns, end_ns);
+
+        pane.set_query("{app=\"nginx\"}");
+        pane.set_query("{job=\"varlogs\"}");
+        pane.set_query("{app=\"nginx\"}"); // Duplicate
+
+        // Should deduplicate and move to front
+        assert_eq!(pane.query_history().len(), 2);
+        assert_eq!(pane.query_history()[0], "{app=\"nginx\"}");
+        assert_eq!(pane.query_history()[1], "{job=\"varlogs\"}");
+    }
+
+    #[test]
+    fn test_query_history_empty_query_not_added() {
+        let start_ns = 1_609_459_200_000_000_000_i64;
+        let end_ns = start_ns + 3_600_000_000_000_i64;
+        let mut pane = LogsPane::new(start_ns, end_ns);
+
+        pane.set_query("");
+        assert!(pane.query_history().is_empty());
+    }
+
+    #[test]
+    fn test_query_history_max_size() {
+        let start_ns = 1_609_459_200_000_000_000_i64;
+        let end_ns = start_ns + 3_600_000_000_000_i64;
+        let mut pane = LogsPane::new(start_ns, end_ns);
+
+        // Add more than MAX_HISTORY_SIZE queries
+        for i in 0..25 {
+            pane.set_query(format!("{{app=\"test{i}\"}}"));
+        }
+
+        // Should be capped at MAX_HISTORY_SIZE
+        assert_eq!(pane.query_history().len(), MAX_HISTORY_SIZE);
+        // Most recent should be first
+        assert_eq!(pane.query_history()[0], "{app=\"test24\"}");
+    }
+
+    #[test]
+    fn test_query_history_clear() {
+        let start_ns = 1_609_459_200_000_000_000_i64;
+        let end_ns = start_ns + 3_600_000_000_000_i64;
+        let mut pane = LogsPane::new(start_ns, end_ns);
+
+        pane.set_query("{app=\"nginx\"}");
+        pane.set_query("{job=\"varlogs\"}");
+        assert_eq!(pane.query_history().len(), 2);
+
+        pane.clear_history();
+        assert!(pane.query_history().is_empty());
     }
 }

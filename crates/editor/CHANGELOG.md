@@ -14,6 +14,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Filter match highlighting**: When using the viewport filter (`/`), matched text in pane names is now highlighted with the accent color and underlined for better visibility.
 
+- **LogsPane query history**: Added query history feature to the LogsPane component. Users can now recall previous LogQL queries from a dropdown menu in the header. The history stores up to 20 most recent unique queries, with the most recent appearing first. Duplicate queries are automatically deduplicated and moved to the front.
+
 - **Terminal pane (native-only)**: Embedded terminal emulator backed by ghostty's VT library for running shell commands while debugging incidents:
   - New `TerminalPane` component implementing the `Component` trait
   - Run commands like `kubectl logs`, `k9s`, or any shell command directly in the editor
