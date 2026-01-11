@@ -143,3 +143,118 @@ pub fn encode_sgr_mouse(
 
     format!("\x1b[<{code};{col};{row}{terminator}").into_bytes()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_egui_key_to_name() {
+        assert_eq!(egui_key_to_name(Key::ArrowUp), Some("up"));
+        assert_eq!(egui_key_to_name(Key::ArrowDown), Some("down"));
+        assert_eq!(egui_key_to_name(Key::Enter), Some("enter"));
+        assert_eq!(egui_key_to_name(Key::Escape), Some("escape"));
+        assert_eq!(egui_key_to_name(Key::Tab), Some("tab"));
+        assert_eq!(egui_key_to_name(Key::F1), Some("f1"));
+        assert_eq!(egui_key_to_name(Key::F12), Some("f12"));
+        // Regular letter keys don't have names
+        assert_eq!(egui_key_to_name(Key::A), None);
+    }
+
+    #[test]
+    fn test_encode_ctrl_char() {
+        // Ctrl+A = 0x01, Ctrl+Z = 0x1A
+        assert_eq!(encode_ctrl_char('a'), Some(0x01));
+        assert_eq!(encode_ctrl_char('A'), Some(0x01));
+        assert_eq!(encode_ctrl_char('z'), Some(0x1A));
+        assert_eq!(encode_ctrl_char('Z'), Some(0x1A));
+        // Ctrl+C = 0x03
+        assert_eq!(encode_ctrl_char('c'), Some(0x03));
+        // Ctrl+[ = Escape
+        assert_eq!(encode_ctrl_char('['), Some(0x1B));
+        // Non-control characters
+        assert_eq!(encode_ctrl_char('1'), None);
+    }
+
+    #[test]
+    fn test_encode_text_input_simple() {
+        let modifiers = Modifiers::NONE;
+        let result = encode_text_input("hello", &modifiers);
+        assert_eq!(result, b"hello");
+    }
+
+    #[test]
+    fn test_encode_text_input_ctrl() {
+        let modifiers = Modifiers::CTRL;
+        // Ctrl+C = 0x03
+        let result = encode_text_input("c", &modifiers);
+        assert_eq!(result, vec![0x03]);
+    }
+
+    #[test]
+    fn test_encode_text_input_alt() {
+        let modifiers = Modifiers::ALT;
+        // Alt+x should send ESC + x
+        let result = encode_text_input("x", &modifiers);
+        assert_eq!(result, vec![0x1B, b'x']);
+    }
+
+    #[test]
+    fn test_encode_text_input_unicode() {
+        let modifiers = Modifiers::NONE;
+        let result = encode_text_input("日本語", &modifiers);
+        assert_eq!(result, "日本語".as_bytes());
+    }
+
+    #[test]
+    fn test_mouse_button_sgr_code() {
+        assert_eq!(MouseButton::Left.sgr_code(), 0);
+        assert_eq!(MouseButton::Middle.sgr_code(), 1);
+        assert_eq!(MouseButton::Right.sgr_code(), 2);
+        assert_eq!(MouseButton::WheelUp.sgr_code(), 64);
+        assert_eq!(MouseButton::WheelDown.sgr_code(), 65);
+    }
+
+    #[test]
+    fn test_encode_sgr_mouse_press() {
+        let modifiers = Modifiers::NONE;
+        let result = encode_sgr_mouse(MouseButton::Left, 10, 5, true, &modifiers);
+        assert_eq!(result, b"\x1b[<0;10;5M");
+    }
+
+    #[test]
+    fn test_encode_sgr_mouse_release() {
+        let modifiers = Modifiers::NONE;
+        let result = encode_sgr_mouse(MouseButton::Left, 10, 5, false, &modifiers);
+        assert_eq!(result, b"\x1b[<0;10;5m");
+    }
+
+    #[test]
+    fn test_encode_sgr_mouse_with_modifiers() {
+        let modifiers = Modifiers {
+            shift: true,
+            ctrl: true,
+            alt: false,
+            ..Default::default()
+        };
+        // Shift adds 4, Ctrl adds 16
+        let result = encode_sgr_mouse(MouseButton::Left, 1, 1, true, &modifiers);
+        assert_eq!(result, b"\x1b[<20;1;1M");
+    }
+
+    #[test]
+    fn test_egui_to_ghostty_modifiers() {
+        let egui_mods = Modifiers {
+            shift: true,
+            ctrl: true,
+            alt: true,
+            mac_cmd: true,
+            ..Default::default()
+        };
+        let ghostty_mods = egui_to_ghostty_modifiers(&egui_mods);
+        assert!(ghostty_mods.shift);
+        assert!(ghostty_mods.control);
+        assert!(ghostty_mods.alt);
+        assert!(ghostty_mods.super_key);
+    }
+}
