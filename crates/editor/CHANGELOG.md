@@ -6,11 +6,11 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
-- **Empty workspace hints**: When a workspace has no panes, centered hints now guide users on how to get started:
-  - Shows connection status (endpoint and metric count if connected, "Not connected" otherwise)
-  - "Space+f to explore metrics"
-  - On native: "aa to enter Agent mode and create plots"
-  - "? for help" to discover keyboard shortcuts
+- **Neovim-style intro message**: When a workspace has no panes, a centered intro screen displays "Enya" with tagline "A Neovim-inspired observability editor for builders", version number, and aligned command hints. Includes `~` tilde markers on every line (left margin) just like Neovim:
+  - `type  Space+f    fuzzy finder`
+  - `type  aa         ask AI agent` (native only)
+  - `type  ?          help`
+  - `type  :          commands`
 
 - **Filter match highlighting**: When using the viewport filter (`/`), matched text in pane names is now highlighted with the accent color and underlined for better visibility.
 

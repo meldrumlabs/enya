@@ -7,77 +7,11 @@ use egui::{Color32, RichText};
 use egui_tiles::Tile;
 
 use super::Workspace;
-use crate::components::util::query_executor::Backend;
 use crate::components::{Buffer, QueryPane};
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
-
-/// Render a centered hint with key and description (e.g. "Space+f to explore metrics")
-fn render_centered_hint(
-    ui: &mut egui::Ui,
-    key_text: &str,
-    description: &str,
-    key_color: Color32,
-    desc_color: Color32,
-) {
-    let font_key = egui::FontId::monospace(typography::MD);
-    let font_desc = egui::FontId::proportional(typography::MD);
-    let spacing = 4.0;
-
-    // Layout text to measure widths (use temporary painter reference)
-    let (key_galley, desc_galley) = {
-        let painter = ui.painter();
-        let key = painter.layout_no_wrap(key_text.to_string(), font_key, key_color);
-        let desc = painter.layout_no_wrap(description.to_string(), font_desc, desc_color);
-        (key, desc)
-    };
-
-    let total_width = key_galley.size().x + spacing + desc_galley.size().x;
-    let row_height = key_galley.size().y.max(desc_galley.size().y);
-    let available_width = ui.available_width();
-    let start_x = ((available_width - total_width) / 2.0).max(0.0);
-
-    // Allocate space for the row
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(available_width, row_height), egui::Sense::hover());
-
-    // Draw key text
-    let painter = ui.painter();
-    painter.galley(
-        egui::pos2(rect.left() + start_x, rect.top()),
-        key_galley.clone(),
-        key_color,
-    );
-
-    // Draw description
-    painter.galley(
-        egui::pos2(
-            rect.left() + start_x + key_galley.size().x + spacing,
-            rect.top(),
-        ),
-        desc_galley,
-        desc_color,
-    );
-}
-
-/// Render centered text (single style)
-fn render_centered_text(ui: &mut egui::Ui, text: &str, color: Color32, font: egui::FontId) {
-    let galley = {
-        let painter = ui.painter();
-        painter.layout_no_wrap(text.to_string(), font, color)
-    };
-
-    let available_width = ui.available_width();
-    let start_x = ((available_width - galley.size().x) / 2.0).max(0.0);
-
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(available_width, galley.size().y), egui::Sense::hover());
-
-    let painter = ui.painter();
-    painter.galley(egui::pos2(rect.left() + start_x, rect.top()), galley, color);
-}
 
 /// Render text with a highlighted portion (for filter matches)
 fn render_highlighted_text(
@@ -113,23 +47,13 @@ fn render_highlighted_text(
                         .underline(),
                 );
                 if !after.is_empty() {
-                    ui.label(
-                        RichText::new(after)
-                            .color(normal_color)
-                            .size(size)
-                            .strong(),
-                    );
+                    ui.label(RichText::new(after).color(normal_color).size(size).strong());
                 }
             });
         }
         _ => {
             // No match, render normally
-            ui.label(
-                RichText::new(text)
-                    .color(normal_color)
-                    .size(size)
-                    .strong(),
-            );
+            ui.label(RichText::new(text).color(normal_color).size(size).strong());
         }
     }
 }
@@ -248,8 +172,9 @@ impl Workspace {
                                                     pane_name.clone()
                                                 };
                                                 // Find match range for highlighting
-                                                let match_range =
-                                                    self.viewport_filter.find_match_range(&display_name);
+                                                let match_range = self
+                                                    .viewport_filter
+                                                    .find_match_range(&display_name);
                                                 render_highlighted_text(
                                                     ui,
                                                     &display_name,
@@ -403,78 +328,267 @@ impl Workspace {
         }
     }
 
-    /// Render empty workspace hint when there are no panes
+    /// Render empty workspace hint when there are no panes (Neovim-style intro)
     #[profiling::function]
     pub(super) fn render_empty_workspace_hint(&self, ui: &mut egui::Ui) {
         let theme = self.behavior.theme();
         let text_col = text_color(theme);
         let muted_col = text_col.gamma_multiply(0.5);
         let subtle_col = text_col.gamma_multiply(0.35);
-        let accent = theme.accent_primary();
+        let tilde_col = text_col.gamma_multiply(0.25); // Very subtle tilde color
 
-        // Calculate vertical centering
+        let line_height = typography::MD + 4.0;
+
+        // Calculate how many tilde lines to show above content for vertical centering
         let available_height = ui.available_height();
-        ui.add_space(available_height * 0.35);
+        let top_padding_lines = ((available_height * 0.30) / line_height) as usize;
 
-        // Connection status (only show when connected)
-        if self.query_executor.is_connected() {
-            let endpoint = match self.query_executor.backend() {
-                Backend::Prometheus(endpoint) => endpoint.clone(),
-                Backend::Demo => "Demo Mode".to_string(),
-            };
-
-            // Truncate long endpoints for display
-            let display_endpoint = if endpoint.len() > 40 {
-                format!("{}...", &endpoint[..37])
-            } else {
-                endpoint
-            };
-
-            render_centered_text(
-                ui,
-                &format!("{} {}", semantic_icons::status::CONNECTED, display_endpoint),
-                accent,
-                egui::FontId::proportional(typography::SM),
-            );
-
-            ui.add_space(4.0);
-
-            // Metric count
-            let metric_count = self.query_executor.metric_names().len();
-            let metric_text = if metric_count == 1 {
-                "1 metric available".to_string()
-            } else {
-                format!("{} metrics available", metric_count)
-            };
-            render_centered_text(
-                ui,
-                &metric_text,
-                subtle_col,
-                egui::FontId::proportional(typography::SM),
-            );
-
-            ui.add_space(20.0);
+        // Render tilde lines for top padding
+        for _ in 0..top_padding_lines {
+            render_tilde_line(ui, tilde_col, line_height);
         }
 
-        // Main hint: Space+f to explore metrics
-        render_centered_hint(ui, "Space+f", "to explore metrics", text_col, muted_col);
+        // Empty line before title
+        render_tilde_line(ui, tilde_col, line_height);
 
-        // Native-only: Agent mode hint
+        // Title: "Enya" in large monospace (with tilde)
+        render_centered_title_with_tilde(ui, "Enya", text_col, tilde_col);
+
+        // Tagline (with tilde)
+        render_centered_tagline_with_tilde(
+            ui,
+            "A Neovim-inspired observability editor for builders",
+            subtle_col,
+            tilde_col,
+        );
+
+        // Version (with tilde)
+        let version = format!("version {}", env!("CARGO_PKG_VERSION"));
+        render_centered_tagline_with_tilde(ui, &version, muted_col, tilde_col);
+
+        // Empty line after version
+        render_tilde_line(ui, tilde_col, line_height);
+        render_tilde_line(ui, tilde_col, line_height);
+
+        // Build hint lines - Neovim style: "type  :command    description"
+        // Format: (key, description)
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            ui.add_space(8.0);
-            render_centered_hint(
-                ui,
-                "aa",
-                "to enter Agent mode and create plots",
-                text_col,
-                muted_col,
-            );
+        let hints: &[(&str, &str)] = &[
+            ("Space+f", "fuzzy finder"),
+            ("aa", "ask AI agent"),
+            ("?", "help"),
+            (":", "commands"),
+        ];
+
+        #[cfg(target_arch = "wasm32")]
+        let hints: &[(&str, &str)] = &[
+            ("Space+f", "fuzzy finder"),
+            ("?", "help"),
+            (":", "commands"),
+        ];
+
+        // Render hints as centered block with aligned columns (with tildes)
+        render_centered_hints_block_with_tilde(ui, hints, text_col, muted_col, tilde_col);
+
+        // Fill remaining space with tilde lines
+        let remaining_height = ui.available_height();
+        let remaining_lines = (remaining_height / line_height) as usize;
+        for _ in 0..remaining_lines {
+            render_tilde_line(ui, tilde_col, line_height);
         }
+    }
+}
 
-        ui.add_space(8.0);
+/// Render a tilde line (Neovim-style empty line marker)
+fn render_tilde_line(ui: &mut egui::Ui, color: Color32, line_height: f32) {
+    let font = egui::FontId::monospace(typography::MD);
+    let galley = {
+        let painter = ui.painter();
+        painter.layout_no_wrap("~".to_string(), font, color)
+    };
 
-        // Help hint (same styling as other hints)
-        render_centered_hint(ui, "?", "for help", text_col, muted_col);
+    let available_width = ui.available_width();
+    let left_margin = 16.0; // Small margin from left edge
+
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(available_width, line_height),
+        egui::Sense::hover(),
+    );
+
+    let painter = ui.painter();
+    // Center the tilde vertically within the line height
+    let y_offset = (line_height - galley.size().y) / 2.0;
+    painter.galley(
+        egui::pos2(rect.left() + left_margin, rect.top() + y_offset),
+        galley,
+        color,
+    );
+}
+
+/// Render centered title text (large monospace) with tilde marker
+fn render_centered_title_with_tilde(
+    ui: &mut egui::Ui,
+    text: &str,
+    color: Color32,
+    tilde_color: Color32,
+) {
+    let font = egui::FontId::monospace(typography::HEADING + 4.0);
+    let tilde_font = egui::FontId::monospace(typography::MD);
+    let left_margin = 16.0;
+
+    let (galley, tilde_galley) = {
+        let painter = ui.painter();
+        let g = painter.layout_no_wrap(text.to_string(), font, color);
+        let t = painter.layout_no_wrap("~".to_string(), tilde_font, tilde_color);
+        (g, t)
+    };
+
+    let available_width = ui.available_width();
+    let start_x = ((available_width - galley.size().x) / 2.0).max(0.0);
+
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(available_width, galley.size().y),
+        egui::Sense::hover(),
+    );
+
+    let painter = ui.painter();
+    // Tilde on left, vertically centered
+    let tilde_y = rect.top() + (galley.size().y - tilde_galley.size().y) / 2.0;
+    painter.galley(
+        egui::pos2(rect.left() + left_margin, tilde_y),
+        tilde_galley,
+        tilde_color,
+    );
+    // Centered title
+    painter.galley(egui::pos2(rect.left() + start_x, rect.top()), galley, color);
+}
+
+/// Render centered tagline (smaller proportional) with tilde marker
+fn render_centered_tagline_with_tilde(
+    ui: &mut egui::Ui,
+    text: &str,
+    color: Color32,
+    tilde_color: Color32,
+) {
+    let font = egui::FontId::proportional(typography::SM);
+    let tilde_font = egui::FontId::monospace(typography::MD);
+    let left_margin = 16.0;
+
+    let (galley, tilde_galley) = {
+        let painter = ui.painter();
+        let g = painter.layout_no_wrap(text.to_string(), font, color);
+        let t = painter.layout_no_wrap("~".to_string(), tilde_font, tilde_color);
+        (g, t)
+    };
+
+    let available_width = ui.available_width();
+    let start_x = ((available_width - galley.size().x) / 2.0).max(0.0);
+    let line_height = galley.size().y.max(tilde_galley.size().y);
+
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(available_width, line_height),
+        egui::Sense::hover(),
+    );
+
+    let painter = ui.painter();
+    // Tilde on left
+    let tilde_y = rect.top() + (line_height - tilde_galley.size().y) / 2.0;
+    painter.galley(
+        egui::pos2(rect.left() + left_margin, tilde_y),
+        tilde_galley,
+        tilde_color,
+    );
+    // Centered tagline
+    let text_y = rect.top() + (line_height - galley.size().y) / 2.0;
+    painter.galley(egui::pos2(rect.left() + start_x, text_y), galley, color);
+}
+
+/// Render a centered block of hints with aligned columns (Neovim-style) with tilde markers
+fn render_centered_hints_block_with_tilde(
+    ui: &mut egui::Ui,
+    hints: &[(&str, &str)],
+    key_color: Color32,
+    desc_color: Color32,
+    tilde_color: Color32,
+) {
+    let font = egui::FontId::monospace(typography::MD);
+    let col_spacing = 16.0;
+    let left_margin = 16.0;
+
+    // Measure widths in a scoped block to release the painter borrow
+    let (max_key_width, max_desc_width) = {
+        let painter = ui.painter();
+        let max_key = hints
+            .iter()
+            .map(|(key, _)| {
+                painter
+                    .layout_no_wrap(format!("type  {key}"), font.clone(), key_color)
+                    .size()
+                    .x
+            })
+            .fold(0.0_f32, |a, b| a.max(b));
+
+        let max_desc = hints
+            .iter()
+            .map(|(_, desc)| {
+                painter
+                    .layout_no_wrap(desc.to_string(), font.clone(), desc_color)
+                    .size()
+                    .x
+            })
+            .fold(0.0_f32, |a, b| a.max(b));
+
+        (max_key, max_desc)
+    };
+
+    let total_width = max_key_width + col_spacing + max_desc_width;
+    let available_width = ui.available_width();
+    let block_start_x = ((available_width - total_width) / 2.0).max(0.0);
+
+    // Render each hint line
+    for (key, desc) in hints {
+        let type_key_text = format!("type  {key}");
+
+        // Create galleys in scoped block
+        let (key_galley, desc_galley, tilde_galley, row_height) = {
+            let painter = ui.painter();
+            let kg = painter.layout_no_wrap(type_key_text, font.clone(), key_color);
+            let dg = painter.layout_no_wrap(desc.to_string(), font.clone(), desc_color);
+            let tg = painter.layout_no_wrap("~".to_string(), font.clone(), tilde_color);
+            let h = kg.size().y.max(dg.size().y);
+            (kg, dg, tg, h)
+        };
+
+        // Allocate space
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(available_width, row_height + 4.0),
+            egui::Sense::hover(),
+        );
+
+        // Draw tilde on left
+        let painter = ui.painter();
+        let tilde_y = rect.top() + (row_height - tilde_galley.size().y) / 2.0;
+        painter.galley(
+            egui::pos2(rect.left() + left_margin, tilde_y),
+            tilde_galley,
+            tilde_color,
+        );
+
+        // Draw key
+        painter.galley(
+            egui::pos2(rect.left() + block_start_x, rect.top()),
+            key_galley,
+            key_color,
+        );
+
+        // Draw description
+        painter.galley(
+            egui::pos2(
+                rect.left() + block_start_x + max_key_width + col_spacing,
+                rect.top(),
+            ),
+            desc_galley,
+            desc_color,
+        );
     }
 }

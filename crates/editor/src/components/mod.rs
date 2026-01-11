@@ -23,10 +23,10 @@ pub use overlay::{
     ChatMessage, CodebaseContext, CommandPalette, CommandResult, ConnectionContext,
     DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
     DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext, InfoOverlay, MessageRole,
-    MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
-    SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
-    WorkspaceItem, parse_commands, strip_command_blocks,
+    MultiEditOverlay, MultiEditResult, SourcePreviewOverlay, SourcePreviewResult, StylePicker,
+    StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
+    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceItem, parse_commands,
+    strip_command_blocks,
 };
 
 // Re-export from widget

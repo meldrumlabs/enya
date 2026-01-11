@@ -144,7 +144,8 @@ impl LandingPage {
                 ui.add_space(header_spacing);
 
                 // === MENU BUTTONS (Vertical list) ===
-                let menu_action = self.show_menu_scaled(ui, text_col, accent_color, mouse_moved, scale);
+                let menu_action =
+                    self.show_menu_scaled(ui, text_col, accent_color, mouse_moved, scale);
                 if menu_action != LandingPageAction::None {
                     action = menu_action;
                 }

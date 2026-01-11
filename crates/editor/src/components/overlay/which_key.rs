@@ -214,12 +214,10 @@ impl WhichKey {
             KeybindingGroup {
                 name: "Help",
                 icon: semantic_icons::status::INFO,
-                bindings: vec![
-                    Keybinding {
-                        key: "?",
-                        description: "This help",
-                    },
-                ],
+                bindings: vec![Keybinding {
+                    key: "?",
+                    description: "This help",
+                }],
             },
         ]
     }

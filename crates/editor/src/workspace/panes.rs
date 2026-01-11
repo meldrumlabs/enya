@@ -539,10 +539,10 @@ impl Workspace {
             .insert_horizontal_tile(vec![pane_ids[0], pane_ids[1]]);
 
         // Create the main vertical container with: top row, CPU, Memory
-        let root = self
-            .viewport_tree
-            .tiles
-            .insert_vertical_tile(vec![top_row, pane_ids[2], pane_ids[3]]);
+        let root =
+            self.viewport_tree
+                .tiles
+                .insert_vertical_tile(vec![top_row, pane_ids[2], pane_ids[3]]);
 
         // Set as the tree root
         self.viewport_tree.root = Some(root);

@@ -9,8 +9,8 @@ use super::{FinderMode, Workspace, WorkspaceAction};
 use crate::app::AppState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::search::{SearchFilter, SearchResult, SearchResultKind};
-use crate::components::overlay::UnifiedFinderAction;
 use crate::components::WorkspaceItem;
+use crate::components::overlay::UnifiedFinderAction;
 
 impl Workspace {
     /// Infer category from Prometheus metric name conventions
