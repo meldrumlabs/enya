@@ -141,3 +141,68 @@ pub struct AnnotationResponse {
     pub created_at: u64,
     pub thread: ThreadResponse,
 }
+
+// =============================================================================
+// Invitation responses
+// =============================================================================
+
+/// Team invitation response.
+#[derive(Debug, Clone, Serialize)]
+pub struct InvitationResponse {
+    pub id: Uuid,
+    pub team_id: Uuid,
+    pub email: Option<String>,
+    pub role: String,
+    pub invited_by: Uuid,
+    pub invite_url: String,
+    pub expires_at: u64,
+    pub created_at: u64,
+}
+
+/// Invitation accepted response.
+#[derive(Debug, Clone, Serialize)]
+pub struct InvitationAcceptedResponse {
+    pub team_id: Uuid,
+    pub team_name: String,
+    pub role: String,
+}
+
+// =============================================================================
+// Member responses with role
+// =============================================================================
+
+/// Team member response with role.
+#[derive(Debug, Clone, Serialize)]
+pub struct MemberWithRoleResponse {
+    pub id: Uuid,
+    pub display_name: String,
+    pub avatar_url: Option<String>,
+    pub email: Option<String>,
+    pub role: String,
+}
+
+// =============================================================================
+// Audit log responses
+// =============================================================================
+
+/// Audit log entry response.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditLogResponse {
+    pub id: Uuid,
+    pub actor_id: Uuid,
+    pub actor_name: Option<String>,
+    pub action: String,
+    pub resource_type: String,
+    pub resource_id: Option<Uuid>,
+    pub details: Option<serde_json::Value>,
+    pub created_at: u64,
+}
+
+/// Paginated audit logs response.
+#[derive(Debug, Clone, Serialize)]
+pub struct AuditLogsResponse {
+    pub logs: Vec<AuditLogResponse>,
+    pub total: i64,
+    pub limit: i64,
+    pub offset: i64,
+}

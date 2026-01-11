@@ -11,6 +11,7 @@ use crate::api::responses::{AnnotationResponse, ThreadResponse, ThreadResponseBu
 use crate::auth::{AuthUser, middleware::require_team_member};
 use crate::db;
 use crate::error::ApiError;
+use crate::metrics;
 use crate::realtime::RealtimeEvent;
 use crate::state::AppState;
 use enya_team_api::{Annotation, NewAnnotation, TeamEvent, Thread};
@@ -94,6 +95,9 @@ pub async fn create_annotation(
         },
     };
 
+    metrics::record_annotation_created();
+    metrics::record_thread_created();
+
     // Broadcast event
     state.broadcast(RealtimeEvent::broadcast(
         team_id,
@@ -139,6 +143,8 @@ pub async fn delete_annotation(
     }
 
     db::queries::delete_annotation(&state.db, annotation_id).await?;
+
+    metrics::record_annotation_deleted();
 
     state.broadcast(RealtimeEvent::broadcast(
         team_id,

@@ -40,10 +40,16 @@ serde_json = { workspace = true }
 uuid = { version = "1.11", features = ["v4", "serde"] }
 chrono = { workspace = true, features = ["serde"] }
 anyhow = "1.0"
+rand = "0.8"
+hex = "0.4"
 
 # Logging
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+# Metrics
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
 
 # Config
 dotenvy = "0.15"

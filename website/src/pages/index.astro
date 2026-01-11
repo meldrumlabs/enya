@@ -185,6 +185,92 @@ async fn main() -> Result<()> {
 					<p class="open-source-team">Interested in being a design partner? <a href="mailto:contact@meldrumlabs.com">Get in touch</a></p>
 				</div>
 			</section>
+			<section class="teams-section">
+				<div class="teams-header">
+					<h2 class="teams-title">Enya for Teams</h2>
+					<p class="teams-text">Collaborate on incidents, share knowledge, and debug faster together.</p>
+				</div>
+				<div class="teams-showcase">
+					<div class="teams-showcase-item">
+						<div class="teams-showcase-media">
+							<div class="teams-placeholder">
+								<span class="teams-placeholder-icon">👥</span>
+								<span class="teams-placeholder-text">Real-time Collaboration</span>
+							</div>
+						</div>
+						<div class="teams-showcase-content">
+							<h3 class="teams-showcase-title">Debug Together in Real-Time</h3>
+							<p class="teams-showcase-desc">Multiple team members can investigate the same incident simultaneously. See cursors, annotations, and discoveries as they happen.</p>
+						</div>
+					</div>
+					<div class="teams-showcase-item teams-showcase-item-alt">
+						<div class="teams-showcase-media">
+							<div class="teams-placeholder">
+								<span class="teams-placeholder-icon">📊</span>
+								<span class="teams-placeholder-text">Shared Dashboards</span>
+							</div>
+						</div>
+						<div class="teams-showcase-content">
+							<h3 class="teams-showcase-title">Shared Dashboards & Queries</h3>
+							<p class="teams-showcase-desc">Save and share your most useful dashboards and queries with the team. No more recreating the same views.</p>
+						</div>
+					</div>
+					<div class="teams-showcase-item">
+						<div class="teams-showcase-media">
+							<div class="teams-placeholder">
+								<span class="teams-placeholder-icon">📝</span>
+								<span class="teams-placeholder-text">Team Annotations</span>
+							</div>
+						</div>
+						<div class="teams-showcase-content">
+							<h3 class="teams-showcase-title">Annotate Metrics & Incidents</h3>
+							<p class="teams-showcase-desc">Leave notes on metric spikes, deployments, and incidents. Build institutional knowledge that persists.</p>
+						</div>
+					</div>
+				</div>
+				</section>
+			<section class="pricing-section" id="pricing">
+				<div class="pricing-header">
+					<h2 class="pricing-title">Choose Your Path</h2>
+					<p class="pricing-subtitle">Start solo or scale with your team</p>
+				</div>
+				<div class="pricing-cards">
+					<div class="pricing-card">
+						<div class="pricing-card-header">
+							<h3 class="pricing-card-title">Open Source</h3>
+							<div class="pricing-card-price">Free</div>
+							<p class="pricing-card-desc">For individual builders exploring metrics</p>
+						</div>
+						<ul class="pricing-card-features">
+							<li>Full editor functionality</li>
+							<li>Prometheus & PromQL support</li>
+							<li>AI-powered query assistance</li>
+							<li>Codebase integration</li>
+							<li>Keyboard-driven workflows</li>
+							<li>Community support</li>
+						</ul>
+						<a href="#downloads" class="pricing-card-cta">Download</a>
+					</div>
+					<div class="pricing-card pricing-card-featured">
+						<div class="pricing-card-badge">For Teams</div>
+						<div class="pricing-card-header">
+							<h3 class="pricing-card-title">Teams</h3>
+							<div class="pricing-card-price">Custom</div>
+							<p class="pricing-card-desc">For teams that debug together</p>
+						</div>
+						<ul class="pricing-card-features">
+							<li>Everything in Open Source</li>
+							<li>Real-time collaboration</li>
+							<li>Shared dashboards & queries</li>
+							<li>Team annotations</li>
+							<li>Audit logging</li>
+							<li>Self-hosted or cloud</li>
+							<li>Direct founder access</li>
+						</ul>
+						<a href="mailto:teams@meldrumlabs.com" class="pricing-card-cta pricing-card-cta-primary">Talk to Us</a>
+					</div>
+				</div>
+			</section>
 			<footer class="footer">
 				<div class="footer-content">
 					<div class="copyright-wrapper">
@@ -1126,6 +1212,406 @@ async fn main() -> Result<()> {
 		}
 
 		.open-source-team {
+			font-size: 0.875rem;
+		}
+	}
+
+	.pricing-section {
+		width: 100%;
+		padding: 5rem 1.5rem;
+		background-color: var(--obsidian-base);
+		border-top: 1px solid var(--obsidian-border-subtle);
+	}
+
+	.pricing-header {
+		max-width: 700px;
+		margin: 0 auto 3rem auto;
+		text-align: center;
+	}
+
+	.pricing-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 2.5rem;
+		font-weight: bold;
+		color: var(--obsidian-text-primary);
+		margin: 0 0 1rem 0;
+	}
+
+	.pricing-subtitle {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.125rem;
+		color: var(--obsidian-text-secondary);
+		margin: 0;
+	}
+
+	.pricing-cards {
+		max-width: 800px;
+		margin: 0 auto;
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 2rem;
+	}
+
+	.pricing-card {
+		background-color: var(--obsidian-surface);
+		border: 2px solid var(--obsidian-border-default);
+		border-radius: 0.5rem;
+		padding: 2.5rem 2rem;
+		display: flex;
+		flex-direction: column;
+		transition: all 0.2s ease;
+		position: relative;
+	}
+
+	.pricing-card:hover {
+		border-color: var(--obsidian-accent);
+		transform: translateY(-4px);
+		box-shadow: 0 8px 24px var(--obsidian-accent-glow);
+	}
+
+	.pricing-card-featured {
+		border-color: var(--obsidian-accent);
+		background-color: var(--obsidian-accent-muted);
+		box-shadow: 0 0 20px var(--obsidian-accent-glow);
+	}
+
+	.pricing-card-featured:hover {
+		background-color: rgba(16, 185, 129, 0.12);
+		box-shadow: 0 0 30px rgba(16, 185, 129, 0.25), 0 8px 24px rgba(0, 0, 0, 0.3);
+	}
+
+	.pricing-card-badge {
+		position: absolute;
+		top: -0.75rem;
+		left: 50%;
+		transform: translateX(-50%);
+		background-color: var(--obsidian-accent);
+		color: var(--obsidian-base);
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.75rem;
+		font-weight: bold;
+		padding: 0.25rem 1rem;
+		border-radius: 1rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.pricing-card-header {
+		text-align: center;
+		margin-bottom: 2rem;
+		padding-bottom: 2rem;
+		border-bottom: 1px solid var(--obsidian-border-default);
+	}
+
+	.pricing-card-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.5rem;
+		font-weight: bold;
+		color: var(--obsidian-accent);
+		margin: 0 0 0.75rem 0;
+	}
+
+	.pricing-card-price {
+		font-family: 'Departure Mono', monospace;
+		font-size: 2.5rem;
+		font-weight: bold;
+		color: var(--obsidian-text-primary);
+		margin-bottom: 0.5rem;
+	}
+
+	.pricing-card-desc {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: var(--obsidian-text-secondary);
+		margin: 0;
+	}
+
+	.pricing-card-features {
+		list-style: none;
+		padding: 0;
+		margin: 0 0 2rem 0;
+		flex-grow: 1;
+	}
+
+	.pricing-card-features li {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: var(--obsidian-text-secondary);
+		padding: 0.5rem 0;
+		padding-left: 1.5rem;
+		position: relative;
+	}
+
+	.pricing-card-features li::before {
+		content: '→';
+		position: absolute;
+		left: 0;
+		color: var(--obsidian-accent);
+	}
+
+	.pricing-card-cta {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		padding: 0.875rem 2rem;
+		text-decoration: none;
+		border: 2px solid var(--obsidian-border-default);
+		color: var(--obsidian-text-primary);
+		background-color: transparent;
+		text-align: center;
+		transition: all 0.2s ease;
+		letter-spacing: 0.05em;
+		border-radius: 0.375rem;
+	}
+
+	.pricing-card-cta:hover {
+		border-color: var(--obsidian-accent);
+		color: var(--obsidian-accent);
+		box-shadow: 0 4px 12px var(--obsidian-accent-glow);
+	}
+
+	.pricing-card-cta-primary {
+		border-color: var(--obsidian-accent);
+		background-color: var(--obsidian-accent);
+		color: var(--obsidian-base);
+		font-weight: bold;
+	}
+
+	.pricing-card-cta-primary:hover {
+		background-color: var(--obsidian-accent-hover);
+		border-color: var(--obsidian-accent-hover);
+		color: var(--obsidian-base);
+		box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+	}
+
+	@media (max-width: 768px) {
+		.pricing-section {
+			padding: 3rem 1rem;
+		}
+
+		.pricing-title {
+			font-size: 1.75rem;
+		}
+
+		.pricing-subtitle {
+			font-size: 1rem;
+		}
+
+		.pricing-cards {
+			grid-template-columns: 1fr;
+			gap: 2rem;
+		}
+
+		.pricing-card {
+			padding: 2rem 1.5rem;
+		}
+
+		.pricing-card-featured {
+			order: -1;
+		}
+
+		.pricing-card-price {
+			font-size: 2rem;
+		}
+	}
+
+	.teams-section {
+		width: 100%;
+		padding: 5rem 1.5rem;
+		background-color: #050507;
+		border-top: 1px solid var(--obsidian-border-subtle);
+	}
+
+	.teams-header {
+		max-width: 700px;
+		margin: 0 auto 4rem auto;
+		text-align: center;
+	}
+
+	.teams-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 2.5rem;
+		font-weight: bold;
+		color: var(--obsidian-text-primary);
+		margin: 0 0 1rem 0;
+	}
+
+	.teams-text {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.125rem;
+		color: var(--obsidian-text-secondary);
+		margin: 0;
+		line-height: 1.6;
+	}
+
+	.teams-showcase {
+		max-width: 1000px;
+		margin: 0 auto;
+		display: flex;
+		flex-direction: column;
+		gap: 4rem;
+	}
+
+	.teams-showcase-item {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 3rem;
+		align-items: center;
+	}
+
+	.teams-showcase-item-alt {
+		direction: rtl;
+	}
+
+	.teams-showcase-item-alt > * {
+		direction: ltr;
+	}
+
+	.teams-showcase-media {
+		width: 100%;
+	}
+
+	.teams-placeholder {
+		width: 100%;
+		aspect-ratio: 16 / 10;
+		background-color: var(--obsidian-surface);
+		border: 2px dashed var(--obsidian-border-default);
+		border-radius: 0.5rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 1rem;
+		transition: all 0.2s ease;
+	}
+
+	.teams-placeholder:hover {
+		border-color: var(--obsidian-accent);
+		box-shadow: 0 0 20px var(--obsidian-accent-glow);
+	}
+
+	.teams-placeholder-icon {
+		font-size: 3rem;
+	}
+
+	.teams-placeholder-text {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		color: var(--obsidian-text-tertiary);
+	}
+
+	.teams-showcase-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.teams-showcase-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.5rem;
+		font-weight: bold;
+		color: var(--obsidian-text-primary);
+		margin: 0;
+	}
+
+	.teams-showcase-desc {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		color: var(--obsidian-text-secondary);
+		line-height: 1.7;
+		margin: 0;
+	}
+
+	.teams-footer {
+		max-width: 500px;
+		margin: 4rem auto 0 auto;
+		text-align: center;
+	}
+
+	.teams-features {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-bottom: 2rem;
+		text-align: left;
+	}
+
+	.teams-feature {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		color: var(--obsidian-text-secondary);
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.teams-feature-icon {
+		color: var(--obsidian-accent);
+		font-weight: bold;
+	}
+
+	.teams-cta {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		padding: 0.875rem 2rem;
+		text-decoration: none;
+		border: 2px solid var(--obsidian-accent);
+		color: var(--obsidian-accent);
+		background-color: transparent;
+		transition: all 0.2s ease;
+		letter-spacing: 0.05em;
+		display: inline-block;
+		border-radius: 0.375rem;
+	}
+
+	.teams-cta:hover {
+		background-color: var(--obsidian-accent);
+		color: var(--obsidian-base);
+		box-shadow: 0 4px 16px var(--obsidian-accent-glow);
+	}
+
+	@media (max-width: 768px) {
+		.teams-section {
+			padding: 3rem 1rem;
+		}
+
+		.teams-header {
+			margin-bottom: 2rem;
+		}
+
+		.teams-title {
+			font-size: 1.75rem;
+		}
+
+		.teams-text {
+			font-size: 1rem;
+		}
+
+		.teams-showcase {
+			gap: 3rem;
+		}
+
+		.teams-showcase-item {
+			grid-template-columns: 1fr;
+			gap: 1.5rem;
+		}
+
+		.teams-showcase-item-alt {
+			direction: ltr;
+		}
+
+		.teams-showcase-title {
+			font-size: 1.25rem;
+		}
+
+		.teams-showcase-desc {
+			font-size: 0.875rem;
+		}
+
+		.teams-footer {
+			margin-top: 3rem;
+		}
+
+		.teams-feature {
 			font-size: 0.875rem;
 		}
 	}

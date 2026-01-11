@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::auth::{AuthUser, github, jwt};
 use crate::db;
 use crate::error::ApiError;
+use crate::metrics;
 use crate::state::AppState;
 
 /// GitHub login response - returns the authorization URL.
@@ -98,6 +99,8 @@ pub async fn github_callback(
         &state.config.jwt_secret,
         state.config.jwt_expiry_secs,
     )?;
+
+    metrics::record_auth_success("github");
 
     Ok(Json(AuthResponseBody {
         access_token: token,
