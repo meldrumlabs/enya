@@ -774,7 +774,7 @@ impl LogsPane {
     /// Render error state.
     fn render_error(&self, ui: &mut egui::Ui, error: &str) {
         let text_col = text_color(self.theme);
-        let error_color = Color32::from_rgb(220, 80, 80);
+        let error_color = self.theme.semantic_error();
 
         ui.centered_and_justified(|ui| {
             ui.vertical_centered(|ui| {
@@ -1134,14 +1134,14 @@ fn format_timestamp_ns(timestamp_ns: i64) -> String {
     format!("{hours:02}:{minutes:02}:{seconds:02}.{millis:03}")
 }
 
-/// Get color for a log level.
+/// Get color for a log level using theme-aware semantic colors.
 fn level_color(level: LogLevel, theme: AppTheme) -> Color32 {
     match level {
         LogLevel::Trace => theme.text_tertiary(),
-        LogLevel::Debug => Color32::from_rgb(140, 140, 200),
-        LogLevel::Info => Color32::from_rgb(80, 170, 230),
-        LogLevel::Warn => Color32::from_rgb(230, 180, 80),
-        LogLevel::Error => Color32::from_rgb(230, 90, 90),
+        LogLevel::Debug => theme.text_secondary(),
+        LogLevel::Info => theme.semantic_info(),
+        LogLevel::Warn => theme.semantic_warning(),
+        LogLevel::Error => theme.semantic_error(),
     }
 }
 
@@ -1235,5 +1235,41 @@ mod tests {
         assert_eq!(level_to_short(LogLevel::Error), "ERR");
         assert_eq!(level_to_short(LogLevel::Info), "INF");
         assert_eq!(level_to_short(LogLevel::Debug), "DBG");
+    }
+
+    #[test]
+    fn test_theme_change() {
+        use crate::components::Component;
+
+        let start_ns = 1_609_459_200_000_000_000_i64;
+        let end_ns = start_ns + 3_600_000_000_000_i64;
+        let mut pane = LogsPane::new(start_ns, end_ns);
+
+        // Default is Dark
+        assert_eq!(pane.theme, AppTheme::Dark);
+
+        // Change to Light
+        pane.set_theme(AppTheme::Light);
+        assert_eq!(pane.theme, AppTheme::Light);
+
+        // Change to Nord
+        pane.set_theme(AppTheme::Nord);
+        assert_eq!(pane.theme, AppTheme::Nord);
+    }
+
+    #[test]
+    fn test_level_colors_theme_aware() {
+        // Verify level colors differ between themes
+        let dark_error = level_color(LogLevel::Error, AppTheme::Dark);
+        let light_error = level_color(LogLevel::Error, AppTheme::Light);
+
+        // Dark and Light themes should produce different error colors
+        assert_ne!(dark_error, light_error);
+
+        // Verify all semantic colors are used
+        let theme = AppTheme::Dark;
+        assert_eq!(level_color(LogLevel::Error, theme), theme.semantic_error());
+        assert_eq!(level_color(LogLevel::Warn, theme), theme.semantic_warning());
+        assert_eq!(level_color(LogLevel::Info, theme), theme.semantic_info());
     }
 }

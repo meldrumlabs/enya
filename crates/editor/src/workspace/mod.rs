@@ -361,7 +361,6 @@ impl Workspace {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let modal_open = self.style_picker.is_open()
-                || self.metrics_finder.is_open()
                 || self.workspace_finder.is_open()
                 || self.unified_finder.is_open()
                 || self.command_palette.is_open()
