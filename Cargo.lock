@@ -1658,6 +1658,7 @@ dependencies = [
  "enya-build-info",
  "enya-build-tools",
  "enya-client",
+ "enya-logql",
  "enya-promql",
  "enya-search",
  "enya-team-api",
@@ -1712,6 +1713,13 @@ dependencies = [
  "testcontainers-modules",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "enya-logql"
+version = "0.1.0"
+dependencies = [
+ "criterion",
 ]
 
 [[package]]

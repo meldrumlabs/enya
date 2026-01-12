@@ -342,6 +342,9 @@ impl EnyaApp {
                 None
             };
             workspace_action = self.workspace.show(ui, ctx, &self.state, chat_state);
+
+            // Poll for pane interactions (e.g., chart drilldown clicks)
+            self.workspace.poll_pane_interactions();
         });
 
         // Handle actions from the viewport (e.g., from command palette)

@@ -72,6 +72,10 @@ pub enum CommandResult {
     OpenTerminal,
     /// Error with message
     Error(String),
+    /// Open logs pane (demo mode)
+    OpenLogs,
+    /// Open logs pane connected to Loki
+    OpenLoki(String),
     /// No-op (command not recognized or cancelled)
     None,
 }
@@ -155,6 +159,18 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &["term"],
         description: "Open a terminal pane",
         kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "logs",
+        aliases: &["log"],
+        description: "Open logs pane (demo mode)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "loki",
+        aliases: &[],
+        description: "Connect to Loki server (e.g., :loki localhost:3100)",
+        kind: CommandKind::SingleArg,
     },
 ];
 
@@ -435,6 +451,16 @@ impl CommandPalette {
                 }
             }
             "terminal" => CommandResult::OpenTerminal,
+            "logs" | "log" => CommandResult::OpenLogs,
+            "loki" => {
+                if args.is_empty() {
+                    CommandResult::Error(
+                        "Usage: :loki <url> (e.g., :loki localhost:3100)".to_string(),
+                    )
+                } else {
+                    CommandResult::OpenLoki(args[0].to_string())
+                }
+            }
             _ => CommandResult::None,
         }
     }

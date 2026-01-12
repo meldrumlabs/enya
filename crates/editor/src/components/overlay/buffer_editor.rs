@@ -2,7 +2,7 @@ use egui::text::LayoutJob;
 use egui::{Color32, FontId, Key, RichText, TextFormat};
 
 use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticLevel};
-use crate::components::util::query_completion::{CompletionResult, QueryCompletion};
+use crate::components::util::query_completion::{CompletionResult, QueryCompletion, QueryLanguage};
 use crate::components::util::query_state::QueryState;
 use crate::components::util::query_validation::{ValidationResult, validate_query};
 use crate::ui::colors::text_color;
@@ -561,6 +561,22 @@ impl BufferEditor {
         self.original_metric_name = Self::extract_metric_name(query);
     }
 
+    /// Open the editor for a specific query language (PromQL or LogQL)
+    pub fn open_with_language(&mut self, query: &str, buffer_name: &str, language: QueryLanguage) {
+        self.completion.set_language(language);
+        self.open(query, buffer_name);
+    }
+
+    /// Set the query language for completion (PromQL or LogQL)
+    pub fn set_language(&mut self, language: QueryLanguage) {
+        self.completion.set_language(language);
+    }
+
+    /// Get the current query language
+    pub fn language(&self) -> QueryLanguage {
+        self.completion.language()
+    }
+
     /// Close the editor without saving
     pub fn close(&mut self) {
         self.is_open = false;
@@ -858,11 +874,19 @@ impl BufferEditor {
                                     Color32::from_rgba_unmultiplied(0, 0, 0, 15),
                                 );
 
+                                // Language-aware hint text
+                                let hint = match self.language() {
+                                    QueryLanguage::PromQL => "e.g., rate(http_requests_total[5m])",
+                                    QueryLanguage::LogQL => {
+                                        r#"e.g., {app="nginx"} |= "error" | json"#
+                                    }
+                                };
+
                                 egui::TextEdit::multiline(&mut self.query)
                                     .id(text_edit_id)
                                     .font(typography::code_lg())
                                     .hint_text(
-                                        RichText::new("e.g., rate(http_requests_total[5m])")
+                                        RichText::new(hint)
                                             .font(typography::code_lg())
                                             .color(text_color(self.theme).gamma_multiply(0.35)),
                                     )

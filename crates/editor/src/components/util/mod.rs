@@ -23,7 +23,9 @@ pub use finder_utils::{
 };
 pub use id_generator::{next_id, next_id_usize};
 pub use multi_buffer::{MultiBufferMode, MultiBufferState, Selection};
-pub use query_completion::{CompletionItem, CompletionKind, CompletionResult, QueryCompletion};
+pub use query_completion::{
+    CompletionItem, CompletionKind, CompletionResult, QueryCompletion, QueryLanguage,
+};
 pub use query_executor::{Backend, ExecuteParams, QueryExecutor, QueryPollResult};
 pub use query_state::{Granularity, QueryState};
 pub use query_validation::{ValidationResult, is_valid_query, validate_query};

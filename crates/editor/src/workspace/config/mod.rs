@@ -4,7 +4,7 @@
 //! - Panes with their queries and settings
 //! - View preferences (theme, panel visibility)
 //! - Time range settings
-//! - API connection settings
+//! - Metrics (Prometheus) and Logs (Loki) connection settings
 //!
 //! # File Format
 //!
@@ -15,7 +15,7 @@
 //! [workspace]
 //! name = "prod-api"
 //! description = "Production API monitoring"
-//! endpoint = "https://metrics.example.com"  # simple inline endpoint
+//! endpoint = "https://prometheus.example.com"  # simple inline metrics endpoint
 //!
 //! [view]
 //! theme = "dark"
@@ -31,12 +31,20 @@
 //! granularity = "5m"
 //! ```
 //!
-//! For advanced connection options (api_key, etc.), use a `[connection]` section:
+//! For metrics connection with API key:
 //!
 //! ```toml
-//! [connection]
-//! endpoint = "https://metrics.example.com"
+//! [metrics]
+//! endpoint = "https://prometheus.example.com"
 //! api_key = "sk-..."  # optional
+//! ```
+//!
+//! For logs (Loki) connection:
+//!
+//! ```toml
+//! [logs]
+//! endpoint = "https://loki.example.com"
+//! default_query = "{app=\"nginx\"}"  # optional
 //! ```
 //!
 //! Git integration for go-to-definition and commit markers:
@@ -127,9 +135,17 @@ pub struct WorkspaceConfig {
     /// Workspace metadata
     pub workspace: WorkspaceMeta,
 
-    /// API connection settings
-    #[serde(default, skip_serializing_if = "ConnectionConfig::is_empty")]
-    pub connection: ConnectionConfig,
+    /// Metrics (Prometheus) connection settings
+    #[serde(
+        default,
+        skip_serializing_if = "MetricsConfig::is_empty",
+        alias = "connection"
+    )]
+    pub metrics: MetricsConfig,
+
+    /// Logs (Loki) connection settings
+    #[serde(default, skip_serializing_if = "LogsConfig::is_empty")]
+    pub logs: LogsConfig,
 
     /// Git integration settings (repository for source code awareness)
     #[serde(default, skip_serializing_if = "GitConfig::is_empty")]
@@ -183,10 +199,10 @@ fn default_version() -> u32 {
     WORKSPACE_VERSION
 }
 
-/// API connection configuration
+/// Metrics (Prometheus) connection configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ConnectionConfig {
-    /// API endpoint URL (e.g., "https://metrics.example.com")
+pub struct MetricsConfig {
+    /// Prometheus API endpoint URL (e.g., "https://prometheus.example.com")
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub endpoint: String,
 
@@ -195,18 +211,59 @@ pub struct ConnectionConfig {
     pub api_key: String,
 }
 
-impl ConnectionConfig {
-    /// Check if this config has any connection settings
+impl MetricsConfig {
+    /// Check if this config has any settings
     pub fn is_empty(&self) -> bool {
         self.endpoint.is_empty() && self.api_key.is_empty()
     }
 
-    /// Create a new connection config with an endpoint
+    /// Create a new metrics config with an endpoint
     pub fn with_endpoint(endpoint: impl Into<String>) -> Self {
         Self {
             endpoint: endpoint.into(),
             api_key: String::new(),
         }
+    }
+}
+
+/// Backward compatibility alias
+pub type ConnectionConfig = MetricsConfig;
+
+/// Logs (Loki) connection configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LogsConfig {
+    /// Loki API endpoint URL (e.g., "https://loki.example.com")
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub endpoint: String,
+
+    /// API key (optional - often omitted for security, loaded from env instead)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub api_key: String,
+
+    /// Default LogQL query (optional)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub default_query: String,
+}
+
+impl LogsConfig {
+    /// Check if this config has any settings
+    pub fn is_empty(&self) -> bool {
+        self.endpoint.is_empty() && self.api_key.is_empty() && self.default_query.is_empty()
+    }
+
+    /// Create a new logs config with an endpoint
+    pub fn with_endpoint(endpoint: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            api_key: String::new(),
+            default_query: String::new(),
+        }
+    }
+
+    /// Set the default query
+    pub fn with_default_query(mut self, query: impl Into<String>) -> Self {
+        self.default_query = query.into();
+        self
     }
 }
 
@@ -758,7 +815,8 @@ impl WorkspaceConfig {
                 version: WORKSPACE_VERSION,
                 endpoint: String::new(),
             },
-            connection: ConnectionConfig::default(),
+            metrics: MetricsConfig::default(),
+            logs: LogsConfig::default(),
             git: GitConfig::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
@@ -774,10 +832,10 @@ impl WorkspaceConfig {
         ws
     }
 
-    /// Get the effective endpoint, preferring [connection].endpoint over workspace.endpoint
+    /// Get the effective metrics endpoint, preferring [metrics].endpoint over workspace.endpoint
     pub fn effective_endpoint(&self) -> Option<&str> {
-        if !self.connection.endpoint.is_empty() {
-            Some(&self.connection.endpoint)
+        if !self.metrics.endpoint.is_empty() {
+            Some(&self.metrics.endpoint)
         } else if !self.workspace.endpoint.is_empty() {
             Some(&self.workspace.endpoint)
         } else {
@@ -785,17 +843,32 @@ impl WorkspaceConfig {
         }
     }
 
-    /// Get the effective connection config, merging workspace.endpoint if needed
-    pub fn effective_connection(&self) -> ConnectionConfig {
-        if !self.connection.endpoint.is_empty() {
-            // [connection] section takes precedence
-            self.connection.clone()
+    /// Get the effective metrics config, merging workspace.endpoint if needed
+    pub fn effective_metrics(&self) -> MetricsConfig {
+        if !self.metrics.endpoint.is_empty() {
+            // [metrics] section takes precedence
+            self.metrics.clone()
         } else if !self.workspace.endpoint.is_empty() {
             // Use inline workspace.endpoint
-            ConnectionConfig::with_endpoint(&self.workspace.endpoint)
+            MetricsConfig::with_endpoint(&self.workspace.endpoint)
         } else {
-            ConnectionConfig::default()
+            MetricsConfig::default()
         }
+    }
+
+    /// Backward compatibility alias for effective_metrics
+    pub fn effective_connection(&self) -> MetricsConfig {
+        self.effective_metrics()
+    }
+
+    /// Get the effective logs config
+    pub fn effective_logs(&self) -> &LogsConfig {
+        &self.logs
+    }
+
+    /// Check if logs are configured
+    pub fn has_logs_config(&self) -> bool {
+        !self.logs.endpoint.is_empty()
     }
 
     /// Add a pane to the workspace
@@ -1151,49 +1224,110 @@ query = "test"
         assert_eq!(ws.panes[0].granularity, "5m");
         assert!(ws.panes[0].name.is_empty());
 
-        // Connection defaults (empty)
-        assert!(ws.connection.is_empty());
+        // Metrics defaults (empty)
+        assert!(ws.metrics.is_empty());
+
+        // Logs defaults (empty)
+        assert!(ws.logs.is_empty());
     }
 
     #[test]
-    fn test_connection_config() {
+    fn test_metrics_config() {
         let toml = r#"
 [workspace]
 name = "with-endpoint"
 
-[connection]
-endpoint = "https://metrics.example.com"
+[metrics]
+endpoint = "https://prometheus.example.com"
 
 [[panes]]
 query = "env:prod"
 "#;
         let ws = WorkspaceConfig::from_toml(toml).unwrap();
-        assert_eq!(ws.connection.endpoint, "https://metrics.example.com");
-        assert!(ws.connection.api_key.is_empty());
-        assert!(!ws.connection.is_empty());
+        assert_eq!(ws.metrics.endpoint, "https://prometheus.example.com");
+        assert!(ws.metrics.api_key.is_empty());
+        assert!(!ws.metrics.is_empty());
 
         // Test serialization - empty api_key should be omitted
         let serialized = ws.to_toml().unwrap();
-        assert!(serialized.contains("endpoint = \"https://metrics.example.com\""));
+        assert!(serialized.contains("endpoint = \"https://prometheus.example.com\""));
         assert!(!serialized.contains("api_key"));
     }
 
     #[test]
-    fn test_connection_with_api_key() {
+    fn test_metrics_with_api_key() {
         let toml = r#"
 [workspace]
 name = "with-key"
 
-[connection]
-endpoint = "https://metrics.example.com"
+[metrics]
+endpoint = "https://prometheus.example.com"
 api_key = "sk-test-123"
 
 [[panes]]
 query = "env:prod"
 "#;
         let ws = WorkspaceConfig::from_toml(toml).unwrap();
-        assert_eq!(ws.connection.endpoint, "https://metrics.example.com");
-        assert_eq!(ws.connection.api_key, "sk-test-123");
+        assert_eq!(ws.metrics.endpoint, "https://prometheus.example.com");
+        assert_eq!(ws.metrics.api_key, "sk-test-123");
+    }
+
+    #[test]
+    fn test_connection_backward_compat() {
+        // Test that old [connection] section still works via serde alias
+        let toml = r#"
+[workspace]
+name = "legacy"
+
+[connection]
+endpoint = "https://legacy.example.com"
+
+[[panes]]
+query = "env:prod"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.metrics.endpoint, "https://legacy.example.com");
+    }
+
+    #[test]
+    fn test_logs_config() {
+        let toml = r#"
+[workspace]
+name = "with-logs"
+
+[logs]
+endpoint = "https://loki.example.com"
+default_query = "{app=\"nginx\"}"
+
+[[panes]]
+query = "env:prod"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.logs.endpoint, "https://loki.example.com");
+        assert_eq!(ws.logs.default_query, "{app=\"nginx\"}");
+        assert!(ws.logs.api_key.is_empty());
+        assert!(!ws.logs.is_empty());
+        assert!(ws.has_logs_config());
+    }
+
+    #[test]
+    fn test_metrics_and_logs_config() {
+        let toml = r#"
+[workspace]
+name = "full-observability"
+
+[metrics]
+endpoint = "https://prometheus.example.com"
+
+[logs]
+endpoint = "https://loki.example.com"
+
+[[panes]]
+query = "env:prod"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.metrics.endpoint, "https://prometheus.example.com");
+        assert_eq!(ws.logs.endpoint, "https://loki.example.com");
     }
 
     // ==================== LayoutConfig Tests ====================
@@ -1542,27 +1676,27 @@ children = [0, { type = "vertical", children = [1, 2] }]
         }
     }
 
-    // ==================== ConnectionConfig Tests ====================
+    // ==================== MetricsConfig Tests ====================
 
     #[test]
-    fn test_connection_config_default() {
-        let config = ConnectionConfig::default();
+    fn test_metrics_config_default() {
+        let config = MetricsConfig::default();
         assert!(config.endpoint.is_empty());
         assert!(config.api_key.is_empty());
         assert!(config.is_empty());
     }
 
     #[test]
-    fn test_connection_config_with_endpoint() {
-        let config = ConnectionConfig::with_endpoint("https://api.example.com");
-        assert_eq!(config.endpoint, "https://api.example.com");
+    fn test_metrics_config_with_endpoint() {
+        let config = MetricsConfig::with_endpoint("https://prometheus.example.com");
+        assert_eq!(config.endpoint, "https://prometheus.example.com");
         assert!(config.api_key.is_empty());
         assert!(!config.is_empty());
     }
 
     #[test]
-    fn test_connection_config_is_empty() {
-        let mut config = ConnectionConfig::default();
+    fn test_metrics_config_is_empty() {
+        let mut config = MetricsConfig::default();
         assert!(config.is_empty());
 
         config.endpoint = "http://localhost".to_string();
@@ -1570,6 +1704,47 @@ children = [0, { type = "vertical", children = [1, 2] }]
 
         config.endpoint = String::new();
         config.api_key = "key".to_string();
+        assert!(!config.is_empty());
+    }
+
+    // ==================== LogsConfig Tests ====================
+
+    #[test]
+    fn test_logs_config_default() {
+        let config = LogsConfig::default();
+        assert!(config.endpoint.is_empty());
+        assert!(config.api_key.is_empty());
+        assert!(config.default_query.is_empty());
+        assert!(config.is_empty());
+    }
+
+    #[test]
+    fn test_logs_config_with_endpoint() {
+        let config = LogsConfig::with_endpoint("https://loki.example.com");
+        assert_eq!(config.endpoint, "https://loki.example.com");
+        assert!(config.api_key.is_empty());
+        assert!(config.default_query.is_empty());
+        assert!(!config.is_empty());
+    }
+
+    #[test]
+    fn test_logs_config_with_default_query() {
+        let config = LogsConfig::with_endpoint("https://loki.example.com")
+            .with_default_query("{app=\"nginx\"}");
+        assert_eq!(config.endpoint, "https://loki.example.com");
+        assert_eq!(config.default_query, "{app=\"nginx\"}");
+    }
+
+    #[test]
+    fn test_logs_config_is_empty() {
+        let mut config = LogsConfig::default();
+        assert!(config.is_empty());
+
+        config.endpoint = "http://localhost".to_string();
+        assert!(!config.is_empty());
+
+        config.endpoint = String::new();
+        config.default_query = "{job=\"test\"}".to_string();
         assert!(!config.is_empty());
     }
 
@@ -1680,7 +1855,8 @@ name = "no-version"
         assert_eq!(ws.workspace.name, "my-workspace");
         assert!(ws.workspace.description.is_empty());
         assert_eq!(ws.workspace.version, WORKSPACE_VERSION);
-        assert!(ws.connection.is_empty());
+        assert!(ws.metrics.is_empty());
+        assert!(ws.logs.is_empty());
         assert!(ws.panes.is_empty());
         assert!(ws.layout.is_none());
     }
@@ -1691,18 +1867,18 @@ name = "no-version"
         assert_eq!(ws.workspace.name, "test");
         // endpoint is now stored inline in workspace section
         assert_eq!(ws.workspace.endpoint, "https://api.example.com");
-        assert!(ws.connection.is_empty());
+        assert!(ws.metrics.is_empty());
         // effective_endpoint should return the inline endpoint
         assert_eq!(ws.effective_endpoint(), Some("https://api.example.com"));
     }
 
     #[test]
     fn test_workspace_config_effective_endpoint_precedence() {
-        // When both workspace.endpoint and connection.endpoint are set,
-        // connection takes precedence
+        // When both workspace.endpoint and metrics.endpoint are set,
+        // metrics takes precedence
         let mut ws = WorkspaceConfig::with_endpoint("test", "http://inline:9090");
-        ws.connection = ConnectionConfig::with_endpoint("http://connection:9090");
-        assert_eq!(ws.effective_endpoint(), Some("http://connection:9090"));
+        ws.metrics = MetricsConfig::with_endpoint("http://metrics:9090");
+        assert_eq!(ws.effective_endpoint(), Some("http://metrics:9090"));
 
         // When only workspace.endpoint is set
         let ws = WorkspaceConfig::with_endpoint("test", "http://inline:9090");
@@ -1803,7 +1979,8 @@ version = 999
         assert!(!toml.contains("theme")); // "dark" is default
         assert!(!toml.contains("zen_mode"));
         assert!(!toml.contains("preset")); // "15m" is default
-        assert!(!toml.contains("[connection]")); // Empty connection
+        assert!(!toml.contains("[metrics]")); // Empty metrics
+        assert!(!toml.contains("[logs]")); // Empty logs
         assert!(!toml.contains("[time]")); // Default time
         assert!(!toml.contains("[[panes]]")); // No panes
     }
@@ -1841,7 +2018,9 @@ version = 999
     fn test_snapshot_full_workspace_toml() {
         let mut ws = WorkspaceConfig::new("full-dashboard");
         ws.workspace.description = "A comprehensive monitoring dashboard".to_string();
-        ws.connection = ConnectionConfig::with_endpoint("https://metrics.example.com");
+        ws.metrics = MetricsConfig::with_endpoint("https://prometheus.example.com");
+        ws.logs = LogsConfig::with_endpoint("https://loki.example.com")
+            .with_default_query("{app=\"api\"}");
         ws.view.theme = "light".to_string();
         ws.time.preset = "1h".to_string();
         ws.add_pane(
@@ -1863,8 +2042,12 @@ version = 999
         name = "full-dashboard"
         description = "A comprehensive monitoring dashboard"
 
-        [connection]
-        endpoint = "https://metrics.example.com"
+        [metrics]
+        endpoint = "https://prometheus.example.com"
+
+        [logs]
+        endpoint = "https://loki.example.com"
+        default_query = '{app="api"}'
 
         [view]
         theme = "light"
