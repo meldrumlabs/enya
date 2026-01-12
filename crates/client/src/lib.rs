@@ -38,6 +38,7 @@ pub mod logs;
 pub mod prometheus;
 pub mod promise;
 pub mod request;
+pub mod tracing;
 pub mod types;
 
 pub use demo::DemoMetricsClient;

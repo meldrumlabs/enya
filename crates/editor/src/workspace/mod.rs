@@ -1503,6 +1503,10 @@ impl Workspace {
                 self.add_terminal_pane();
                 WorkspaceAction::None
             }
+            CommandResult::OpenTracing(trace_id) => {
+                self.add_tracing_pane(trace_id.as_deref());
+                WorkspaceAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
             }

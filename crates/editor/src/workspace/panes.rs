@@ -159,6 +159,32 @@ impl Workspace {
         None
     }
 
+    /// Add a tracing pane to the viewport.
+    ///
+    /// Creates a new tracing pane for visualizing distributed traces.
+    /// Optionally pre-fills a trace ID to load.
+    pub(super) fn add_tracing_pane(&mut self, trace_id: Option<&str>) -> Option<TileId> {
+        use crate::components::TracingPane;
+
+        let tracing_pane = if let Some(id) = trace_id {
+            TracingPane::with_trace_id(id)
+        } else {
+            TracingPane::new()
+        };
+
+        let pane: Box<dyn Component> = Box::new(tracing_pane);
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Added tracing pane");
+            Some(pane_tile)
+        } else {
+            None
+        }
+    }
+
     /// Enable or disable keyboard input for all terminal panes.
     ///
     /// Call this when modals open/close to prevent terminals from capturing

@@ -6,6 +6,21 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Tracing pane for distributed trace visualization**: New pane type for visualizing distributed traces from Grafana Tempo with a waterfall/timeline view:
+  - **TracingClient trait** in `enya-client` crate with `TempoClient` implementation for Grafana Tempo HTTP API
+  - **Waterfall chart** showing spans as horizontal bars on a timeline with hierarchy indentation
+  - **Service-based span coloring** using theme chart palettes for consistent visual identification
+  - **Error span highlighting** with semantic error colors
+  - **Span detail panel** showing service, operation, duration, status, tags, and logs
+  - **Hover tooltips** with quick span information
+  - **Demo mode** with sample trace data for testing without a backend
+  - **Command palette integration**: Use `:trace` (or `:tr`, `:tracing`) to open a tracing pane
+  - **Optional trace ID argument**: `:trace abc123def456` pre-fills and loads a specific trace
+  - Theme-aware styling that adapts to all 13 AppTheme variants
+  - WASM compatible (uses web_time for timestamps)
+  - Trace data models: `Trace`, `Span`, `SpanStatus`, `SpanLog`, `TraceSummary`, `TraceSearchParams`
+  - `TraceManager` for managing in-flight trace fetch requests
+
 - **Neovim-style intro message**: When a workspace has no panes, a centered intro screen displays "Enya" with tagline "A Neovim-inspired observability editor for builders", version number, and aligned command hints. Includes `~` tilde markers on every line (left margin) just like Neovim:
   - `type  Space+f    fuzzy finder`
   - `type  aa         ask AI agent` (native only)
@@ -40,6 +55,8 @@ All notable changes to the Enya editor will be documented in this file.
   - Native-only feature (requires Zig 0.14.1 toolchain for building ghostty)
 
 ### Changed
+
+- **Tracing module restructure in `enya-client`**: Reorganized the `tempo` module under a new `tracing` parent module to support future tracing backends. The module structure is now `enya_client::tracing` with `tempo` as a submodule (`enya_client::tracing::tempo`). Common types (`Trace`, `Span`, `SpanStatus`, etc.) are re-exported from the `tracing` module root for convenience.
 
 - **Viewport pane alignment**: Improved pane layout consistency to prevent bottom panes from overlapping the status line. The viewport tree now always renders at the exact viewport height, with `TreeBehavior::min_size()` (200px) preventing panes from becoming too small. Scrolling only activates when panes would be smaller than this absolute minimum. Added explicit clip rectangles and constrained child UI rendering to ensure content never overflows into the status bar area.
 
