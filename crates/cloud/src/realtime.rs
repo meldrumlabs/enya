@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use crate::auth::jwt;
 use crate::error::ApiError;
+use crate::metrics;
 use crate::state::AppState;
 
 /// Real-time event with routing info.
@@ -118,6 +119,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, user_id: Uuid, team_i
     // Subscribe to broadcast channel
     let mut rx = state.subscribe_realtime();
 
+    metrics::record_websocket_connected();
     tracing::info!("WebSocket connected: user={user_id}, team={team_id}");
 
     // Spawn task to forward broadcast events to this client
@@ -178,5 +180,6 @@ async fn handle_socket(socket: WebSocket, state: AppState, user_id: Uuid, team_i
 
     // Clean up
     send_task.abort();
+    metrics::record_websocket_disconnected();
     tracing::info!("WebSocket disconnected: user={user_id}, team={team_id}");
 }
