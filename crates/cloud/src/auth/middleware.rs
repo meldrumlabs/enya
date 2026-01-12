@@ -88,3 +88,15 @@ pub async fn require_team_member(
     }
     Ok(())
 }
+
+/// Require user to be an admin of a specific team.
+pub async fn require_team_admin(
+    state: &AppState,
+    team_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), ApiError> {
+    if !db::queries::is_team_admin(&state.db, team_id, user_id).await? {
+        return Err(ApiError::forbidden("Admin access required"));
+    }
+    Ok(())
+}

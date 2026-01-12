@@ -74,6 +74,10 @@ pub enum CommandResult {
     OpenTracing(Option<String>),
     /// Error with message
     Error(String),
+    /// Open logs pane (demo mode)
+    OpenLogs,
+    /// Open logs pane connected to Loki
+    OpenLoki(String),
     /// No-op (command not recognized or cancelled)
     None,
 }
@@ -162,6 +166,18 @@ const COMMANDS: &[PaletteCommand] = &[
         name: "trace",
         aliases: &["tr", "tracing"],
         description: "Open a tracing pane (optionally with trace ID)",
+        kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "logs",
+        aliases: &["log"],
+        description: "Open logs pane (demo mode)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "loki",
+        aliases: &[],
+        description: "Connect to Loki server (e.g., :loki localhost:3100)",
         kind: CommandKind::SingleArg,
     },
 ];
@@ -447,6 +463,16 @@ impl CommandPalette {
                 // Optional trace ID argument
                 let trace_id = args.first().map(|s| s.to_string());
                 CommandResult::OpenTracing(trace_id)
+            }
+            "logs" | "log" => CommandResult::OpenLogs,
+            "loki" => {
+                if args.is_empty() {
+                    CommandResult::Error(
+                        "Usage: :loki <url> (e.g., :loki localhost:3100)".to_string(),
+                    )
+                } else {
+                    CommandResult::OpenLoki(args[0].to_string())
+                }
             }
             _ => CommandResult::None,
         }

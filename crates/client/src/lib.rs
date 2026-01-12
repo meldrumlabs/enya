@@ -34,6 +34,7 @@
 
 pub mod demo;
 pub mod error;
+pub mod logs;
 pub mod prometheus;
 pub mod promise;
 pub mod request;
@@ -49,6 +50,12 @@ pub use types::{MetricsBucket, MetricsGroup, QueryResponse, ResultType, Timestam
 
 // Re-export MetricLabels for per-metric label data
 pub use prometheus::response::MetricLabels;
+
+// Re-export logs types for convenience
+pub use logs::{
+    DemoLogsClient, LogEntry, LogLevel, LogsClient, LogsQuery, LogsResponse, LogsResult,
+    LokiClient, QueryDirection, StreamsResult,
+};
 
 /// Get the current Unix timestamp in seconds.
 /// Works on both native and WASM platforms.
@@ -548,6 +555,163 @@ impl HealthCheckManager {
     }
 }
 
+/// Tracks a single in-flight logs query with its metadata.
+struct PendingLogsQuery {
+    /// The promise for this query.
+    promise: Promise<LogsResult>,
+    /// When the query started (Unix timestamp in seconds).
+    started_at: u64,
+}
+
+/// Manages multiple in-flight log queries in parallel using promises.
+///
+/// Similar to [`QueryManager`] but for log queries. Tracks queries by unique ID,
+/// enabling parallel log fetching for multiple time ranges or filters.
+///
+/// Includes timeout detection to prevent queries from hanging indefinitely.
+///
+/// # Example
+///
+/// ```ignore
+/// let mut manager = LogsQueryManager::new();
+///
+/// // Fire multiple log queries in parallel
+/// manager.execute(pane_id_1, &client, query1, &ctx);
+/// manager.execute(pane_id_2, &client, query2, &ctx);
+///
+/// // In update loop, poll for all completed results
+/// for (id, result) in manager.poll_all() {
+///     // Handle result for pane with this id
+/// }
+/// ```
+pub struct LogsQueryManager {
+    /// Pending queries keyed by their unique ID.
+    pending: rustc_hash::FxHashMap<usize, PendingLogsQuery>,
+    /// Timeout duration in seconds.
+    timeout_secs: u64,
+}
+
+impl Default for LogsQueryManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LogsQueryManager {
+    /// Create a new logs query manager with the default timeout.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            pending: rustc_hash::FxHashMap::default(),
+            timeout_secs: DEFAULT_QUERY_TIMEOUT_SECS,
+        }
+    }
+
+    /// Create a new logs query manager with a custom timeout.
+    #[must_use]
+    pub fn with_timeout(timeout_secs: u64) -> Self {
+        Self {
+            pending: rustc_hash::FxHashMap::default(),
+            timeout_secs,
+        }
+    }
+
+    /// Check if any queries are currently in flight.
+    #[must_use]
+    pub fn is_querying(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    /// Check if a specific query is in flight.
+    #[must_use]
+    pub fn is_querying_id(&self, id: usize) -> bool {
+        self.pending.contains_key(&id)
+    }
+
+    /// Get the number of queries currently in flight.
+    #[must_use]
+    pub fn pending_count(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// Execute a logs query for the given ID using the given client.
+    ///
+    /// If a query for this ID is already in flight, it is cancelled and replaced.
+    /// Call `poll_all()` each frame to check for results.
+    pub fn execute<C: LogsClient + ?Sized>(
+        &mut self,
+        id: usize,
+        client: &C,
+        query: LogsQuery,
+        ctx: &egui::Context,
+    ) {
+        let promise = client.query_logs(query, ctx);
+        self.pending.insert(
+            id,
+            PendingLogsQuery {
+                promise,
+                started_at: now_unix_secs(),
+            },
+        );
+    }
+
+    /// Poll for all completed query results.
+    ///
+    /// Returns a vector of `(id, result)` pairs for queries that completed or timed out.
+    /// Completed queries are removed from the pending set.
+    pub fn poll_all(&mut self) -> Vec<(usize, LogsResult)> {
+        let now = now_unix_secs();
+        let mut completed = Vec::new();
+        let mut to_remove = Vec::new();
+
+        for (&id, pending) in &self.pending {
+            // Check if completed
+            if let Some(result) = pending.promise.ready() {
+                completed.push((id, result.clone()));
+                to_remove.push(id);
+                continue;
+            }
+
+            // Check for timeout
+            let elapsed = now.saturating_sub(pending.started_at);
+            if elapsed >= self.timeout_secs {
+                log::warn!(
+                    "Logs query {id} timed out after {elapsed} seconds (timeout: {}s)",
+                    self.timeout_secs
+                );
+                completed.push((
+                    id,
+                    Err(ClientError::Timeout {
+                        elapsed_secs: elapsed,
+                        timeout_secs: self.timeout_secs,
+                    }),
+                ));
+                to_remove.push(id);
+            }
+        }
+
+        // Remove completed/timed-out queries
+        for id in to_remove {
+            self.pending.remove(&id);
+        }
+
+        completed
+    }
+
+    /// Cancel a specific query by ID.
+    ///
+    /// Note: This doesn't actually cancel the HTTP request, but it will ignore
+    /// the result when it arrives.
+    pub fn cancel(&mut self, id: usize) {
+        self.pending.remove(&id);
+    }
+
+    /// Cancel all pending queries.
+    pub fn cancel_all(&mut self) {
+        self.pending.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -575,6 +739,13 @@ mod tests {
     fn test_labels_manager_initial_state() {
         let manager = LabelsManager::new();
         assert!(!manager.is_fetching());
+    }
+
+    #[test]
+    fn test_logs_query_manager_initial_state() {
+        let manager = LogsQueryManager::new();
+        assert!(!manager.is_querying());
+        assert_eq!(manager.pending_count(), 0);
     }
 
     #[test]

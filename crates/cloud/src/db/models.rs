@@ -164,3 +164,45 @@ impl From<DbChannelThread> for enya_team_api::ChatThread {
         }
     }
 }
+
+/// Team invitation record from database.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct DbTeamInvitation {
+    pub id: Uuid,
+    pub team_id: Uuid,
+    pub email: Option<String>,
+    pub token: String,
+    pub role: String,
+    pub invited_by: Uuid,
+    pub expires_at: DateTime<Utc>,
+    pub accepted_at: Option<DateTime<Utc>>,
+    pub accepted_by: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl DbTeamInvitation {
+    /// Check if the invitation has expired.
+    pub fn is_expired(&self) -> bool {
+        self.expires_at < Utc::now()
+    }
+
+    /// Check if the invitation has been accepted.
+    pub fn is_accepted(&self) -> bool {
+        self.accepted_at.is_some()
+    }
+}
+
+/// Audit log record from database.
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct DbAuditLog {
+    pub id: Uuid,
+    pub team_id: Uuid,
+    pub actor_id: Uuid,
+    pub action: String,
+    pub resource_type: String,
+    pub resource_id: Option<Uuid>,
+    pub details: Option<serde_json::Value>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+    pub created_at: DateTime<Utc>,
+}

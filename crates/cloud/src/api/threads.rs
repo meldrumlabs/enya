@@ -11,6 +11,7 @@ use crate::api::responses::{FullThreadResponse, MessageResponse, ThreadResponseB
 use crate::auth::AuthUser;
 use crate::db;
 use crate::error::ApiError;
+use crate::metrics;
 use crate::realtime::RealtimeEvent;
 use crate::state::AppState;
 use enya_team_api::TeamEvent;
@@ -93,6 +94,8 @@ pub async fn send_message(
 
     let message =
         db::queries::create_message(&state.db, thread_id, user.id, &request.content).await?;
+
+    metrics::record_message_sent();
 
     // Get team_id for broadcasting (need to look up via annotation)
     let thread = db::queries::get_thread(&state.db, thread_id).await?;

@@ -17,7 +17,6 @@ use crate::ui::theme::AppTheme;
 /// visual-multi selection overlays, and viewport filtering.
 #[derive(Default, Clone)]
 pub struct TreeBehavior {
-    pub(super) add_child_to: Option<TileId>,
     /// Currently focused tile for vim-style navigation
     focused_tile_id: Option<TileId>,
     /// Selected tiles in visual-multi mode (empty when not in visual-multi mode)
@@ -152,18 +151,11 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     }
 
     fn tab_title_for_pane(&mut self, component: &Box<dyn Component>) -> egui::WidgetText {
-        let label = component.label().color(text_color(self.theme)).strong();
-        let description = component.description();
-
-        if description.is_empty() {
-            label.into()
-        } else {
-            // Add info icon to indicate description is available
-            egui::RichText::new(format!("{} ℹ", label.text()))
-                .color(text_color(self.theme))
-                .strong()
-                .into()
-        }
+        component
+            .label()
+            .color(text_color(self.theme))
+            .strong()
+            .into()
     }
 
     fn pane_ui(
@@ -322,19 +314,6 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                 );
                 painter.galley(text_pos, galley, text_color);
             }
-        }
-    }
-
-    fn top_bar_right_ui(
-        &mut self,
-        _tiles: &Tiles<Box<dyn Component>>,
-        ui: &mut egui::Ui,
-        tile_id: TileId,
-        _tabs: &egui_tiles::Tabs,
-        _scroll_offset: &mut f32,
-    ) {
-        if ui.button("➕").clicked() {
-            self.add_child_to = Some(tile_id);
         }
     }
 

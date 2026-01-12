@@ -11,8 +11,12 @@ use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
 use crate::components::InlineSource;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::pane::agent_pane::{InlineSearchResults, SearchResultItem};
+use crate::components::pane::logs_pane::LogsBackend;
+use crate::components::pane::query_pane::QueryPaneAction;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
-use crate::components::{AgentPane, Buffer, Component, InlineChart, InlineContent, QueryPane};
+use crate::components::{
+    AgentPane, Buffer, Component, InlineChart, InlineContent, LogsPane, QueryPane,
+};
 
 impl Workspace {
     // ==================== Pane Adding ====================
@@ -195,6 +199,59 @@ impl Workspace {
                     terminal.set_keyboard_enabled(enabled);
                 }
             }
+        }
+    }
+
+    /// Add a logs pane to the viewport with the demo backend.
+    ///
+    /// Creates a new logs pane that displays log entries for metric→log correlation.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_ns` - Start of time range in nanoseconds since Unix epoch
+    /// * `end_ns` - End of time range in nanoseconds since Unix epoch
+    pub(super) fn add_logs_pane(&mut self, start_ns: i64, end_ns: i64) -> Option<TileId> {
+        self.add_logs_pane_with_backend(start_ns, end_ns, LogsBackend::Demo)
+    }
+
+    /// Add a logs pane connected to a Loki server.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_ns` - Start of time range in nanoseconds since Unix epoch
+    /// * `end_ns` - End of time range in nanoseconds since Unix epoch
+    /// * `loki_url` - The Loki server URL (e.g., "http://localhost:3100")
+    pub(super) fn add_loki_pane(
+        &mut self,
+        start_ns: i64,
+        end_ns: i64,
+        loki_url: impl Into<String>,
+    ) -> Option<TileId> {
+        self.add_logs_pane_with_backend(start_ns, end_ns, LogsBackend::Loki(loki_url.into()))
+    }
+
+    /// Add a logs pane with a specific backend.
+    fn add_logs_pane_with_backend(
+        &mut self,
+        start_ns: i64,
+        end_ns: i64,
+        backend: LogsBackend,
+    ) -> Option<TileId> {
+        let backend_name = match &backend {
+            LogsBackend::Demo => "demo".to_string(),
+            LogsBackend::Loki(url) => format!("loki@{url}"),
+        };
+
+        let pane: Box<dyn Component> = Box::new(LogsPane::with_backend(start_ns, end_ns, backend));
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Added logs pane with backend: {backend_name}");
+            Some(pane_tile)
+        } else {
+            None
         }
     }
 
@@ -1405,6 +1462,50 @@ impl Workspace {
             query: query.to_string(),
             filter: filter.to_string(),
             results: items,
+        }
+    }
+
+    // ==================== Pane Interaction Polling ====================
+
+    /// Poll all QueryPanes for pending actions (like drilldown clicks).
+    /// Call this after rendering to handle chart interactions.
+    pub fn poll_pane_interactions(&mut self) {
+        // Collect actions first to avoid borrow issues
+        let mut drilldown_actions = Vec::new();
+
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(query_pane) = component.as_any_mut().downcast_mut::<QueryPane>() {
+                    if let Some(action) = query_pane.take_pending_action() {
+                        drilldown_actions.push(action);
+                    }
+                }
+            }
+        }
+
+        // Process collected actions
+        for action in drilldown_actions {
+            match action {
+                QueryPaneAction::DrilldownLogs {
+                    timestamp_secs,
+                    metric_name,
+                } => {
+                    // Convert timestamp to nanoseconds and create a 5-minute window around it
+                    let center_ns = (timestamp_secs * 1_000_000_000.0) as i64;
+                    let window_ns = 5 * 60 * 1_000_000_000_i64; // 5 minutes in nanoseconds
+                    let start_ns = center_ns - window_ns / 2;
+                    let end_ns = center_ns + window_ns / 2;
+
+                    log::info!(
+                        "Opening logs pane for drilldown at {timestamp_secs} (metric: {metric_name})"
+                    );
+
+                    self.add_logs_pane(start_ns, end_ns);
+                }
+                QueryPaneAction::QueryChanged | QueryPaneAction::None => {
+                    // These actions are handled elsewhere or are no-ops
+                }
+            }
         }
     }
 }
