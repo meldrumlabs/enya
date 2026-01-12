@@ -361,7 +361,6 @@ impl Workspace {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let modal_open = self.style_picker.is_open()
-                || self.metrics_finder.is_open()
                 || self.workspace_finder.is_open()
                 || self.unified_finder.is_open()
                 || self.command_palette.is_open()
@@ -1469,6 +1468,10 @@ impl Workspace {
             CommandResult::TeamDisconnect => WorkspaceAction::TeamDisconnect,
             CommandResult::OpenTerminal => {
                 self.add_terminal_pane();
+                WorkspaceAction::None
+            }
+            CommandResult::OpenTracing(trace_id) => {
+                self.add_tracing_pane(trace_id.as_deref());
                 WorkspaceAction::None
             }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {

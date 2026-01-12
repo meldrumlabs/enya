@@ -70,6 +70,8 @@ pub enum CommandResult {
     TeamDisconnect,
     /// Open a terminal pane (native only)
     OpenTerminal,
+    /// Open a tracing pane (optionally with a trace ID)
+    OpenTracing(Option<String>),
     /// Error with message
     Error(String),
     /// No-op (command not recognized or cancelled)
@@ -155,6 +157,12 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &["term"],
         description: "Open a terminal pane",
         kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "trace",
+        aliases: &["tr", "tracing"],
+        description: "Open a tracing pane (optionally with trace ID)",
+        kind: CommandKind::SingleArg,
     },
 ];
 
@@ -435,6 +443,11 @@ impl CommandPalette {
                 }
             }
             "terminal" => CommandResult::OpenTerminal,
+            "trace" | "tr" | "tracing" => {
+                // Optional trace ID argument
+                let trace_id = args.first().map(|s| s.to_string());
+                CommandResult::OpenTracing(trace_id)
+            }
             _ => CommandResult::None,
         }
     }

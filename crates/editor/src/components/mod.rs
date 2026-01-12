@@ -12,7 +12,7 @@ pub use pane::{
     AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, CommitMarker, DataPoint,
     GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSource,
     QueryPane, QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart,
-    Visualization, VisualizationType,
+    TracingPane, TracingPaneAction, Visualization, VisualizationType,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use pane::{TerminalPane, TerminalPaneAction};

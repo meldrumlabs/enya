@@ -56,10 +56,6 @@ pub struct StylePicker {
     last_theme_preview: Option<AppTheme>,
     /// Last preview font (to detect changes)
     last_font_preview: Option<EditorFont>,
-    /// Whether we need to scroll the selected theme into view
-    scroll_theme: bool,
-    /// Whether we need to scroll the selected font into view
-    scroll_font: bool,
     /// Animation progress for panel switch highlight (0.0 to 1.0)
     panel_switch_anim: f32,
 }
@@ -82,8 +78,6 @@ impl StylePicker {
             font_index: 0,
             last_theme_preview: None,
             last_font_preview: None,
-            scroll_theme: false,
-            scroll_font: false,
             panel_switch_anim: 0.0,
         }
     }
@@ -100,8 +94,6 @@ impl StylePicker {
         self.original_font = current_font;
         self.last_theme_preview = Some(current_theme);
         self.last_font_preview = Some(current_font);
-        self.scroll_theme = true;
-        self.scroll_font = true;
 
         // Set indices to current items
         let themes = AppTheme::all();
@@ -150,6 +142,7 @@ impl StylePicker {
         let bg_elevated = current_theme.bg_elevated();
 
         let mut result = StylePickerResult::None;
+        let mut needs_repaint = false;
 
         let themes = AppTheme::all();
         let fonts = EditorFont::all();
@@ -221,19 +214,19 @@ impl StylePicker {
             }
 
             // Navigation in focused panel - j/k and arrow keys
-            let (count, index, scroll) = match self.focused_panel {
-                StyleTab::Theme => (theme_count, &mut self.theme_index, &mut self.scroll_theme),
-                StyleTab::Font => (font_count, &mut self.font_index, &mut self.scroll_font),
+            let (count, index) = match self.focused_panel {
+                StyleTab::Theme => (theme_count, &mut self.theme_index),
+                StyleTab::Font => (font_count, &mut self.font_index),
             };
 
             if count > 0 {
+                let old_index = *index;
                 // Down: j, ArrowDown, Ctrl+N
                 if i.consume_key(egui::Modifiers::NONE, Key::ArrowDown)
                     || i.consume_key(egui::Modifiers::NONE, Key::J)
                     || i.consume_key(egui::Modifiers::CTRL, Key::N)
                 {
                     *index = (*index + 1) % count;
-                    *scroll = true;
                 }
                 // Up: k, ArrowUp, Ctrl+P
                 if i.consume_key(egui::Modifiers::NONE, Key::ArrowUp)
@@ -241,10 +234,18 @@ impl StylePicker {
                     || i.consume_key(egui::Modifiers::CTRL, Key::P)
                 {
                     *index = index.checked_sub(1).unwrap_or(count - 1);
-                    *scroll = true;
+                }
+                // Request repaint for scroll animation if index changed
+                if *index != old_index {
+                    needs_repaint = true;
                 }
             }
         });
+
+        // Request repaint for scroll animation
+        if needs_repaint {
+            ctx.request_repaint();
+        }
 
         // If already returning a result, skip rendering
         if result != StylePickerResult::None {
@@ -490,10 +491,6 @@ impl StylePicker {
                     });
             });
 
-        // Reset scroll flags after rendering
-        self.scroll_theme = false;
-        self.scroll_font = false;
-
         result
     }
 
@@ -552,28 +549,27 @@ impl StylePicker {
 
         // Theme list in scroll area
         egui::ScrollArea::vertical()
-            .id_salt("style_picker_theme_scroll")
+            .id_salt("theme_scroll")
             .max_height(panel_height - 30.0)
-            .auto_shrink([false, false])
+            .auto_shrink([false, true])
+            .animated(true)
             .show(ui, |ui| {
-                ui.vertical(|ui| {
-                    for (i, theme) in themes.iter().enumerate() {
-                        self.render_theme_row(
-                            ui,
-                            panel_width,
-                            row_height,
-                            i,
-                            *theme,
-                            accent,
-                            text,
-                            text_muted,
-                            bg_hover,
-                            style,
-                            result,
-                            is_focused,
-                        );
-                    }
-                });
+                for (i, theme) in themes.iter().enumerate() {
+                    self.render_theme_row(
+                        ui,
+                        panel_width,
+                        row_height,
+                        i,
+                        *theme,
+                        accent,
+                        text,
+                        text_muted,
+                        bg_hover,
+                        style,
+                        result,
+                        is_focused,
+                    );
+                }
             });
     }
 
@@ -600,9 +596,9 @@ impl StylePicker {
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(panel_width, row_height), egui::Sense::click());
 
-        // Scroll into view
-        if is_selected && self.scroll_theme {
-            response.scroll_to_me(Some(egui::Align::Center));
+        // Scroll into view when selected
+        if is_selected {
+            ui.scroll_to_rect(rect, Some(egui::Align::Center));
         }
 
         // Handle click
@@ -785,136 +781,135 @@ impl StylePicker {
 
         // Font list in scroll area
         egui::ScrollArea::vertical()
-            .id_salt("style_picker_font_scroll")
+            .id_salt("font_scroll")
             .max_height(panel_height - 30.0)
-            .auto_shrink([false, false])
+            .auto_shrink([false, true])
+            .animated(true)
             .show(ui, |ui| {
-                ui.vertical(|ui| {
-                    for (i, font) in fonts.iter().enumerate() {
-                        let is_selected = i == self.font_index;
-                        let is_current_font = *font == current_font;
+                for (i, font) in fonts.iter().enumerate() {
+                    let is_selected = i == self.font_index;
+                    let is_current_font = *font == current_font;
 
-                        let (rect, response) = ui.allocate_exact_size(
-                            Vec2::new(panel_width, row_height),
-                            egui::Sense::click(),
-                        );
+                    let (rect, response) = ui.allocate_exact_size(
+                        Vec2::new(panel_width, row_height),
+                        egui::Sense::click(),
+                    );
 
-                        // Scroll into view
-                        if is_selected && self.scroll_font {
-                            response.scroll_to_me(Some(egui::Align::Center));
-                        }
-
-                        // Handle click
-                        if response.clicked() {
-                            self.font_index = i;
-                            self.focused_panel = StyleTab::Font;
-                            let selected = fonts[i];
-                            self.close();
-                            *result = StylePickerResult::FontSelected(selected);
-                            return;
-                        }
-
-                        // Hover/selection background
-                        if is_selected && is_focused {
-                            ui.painter()
-                                .rect_filled(rect, 6.0, accent.gamma_multiply(0.20));
-                            ui.painter().rect_filled(
-                                egui::Rect::from_min_size(rect.min, Vec2::new(3.0, row_height)),
-                                2.0,
-                                accent,
-                            );
-                        } else if is_selected {
-                            ui.painter()
-                                .rect_filled(rect, 6.0, text.gamma_multiply(0.08));
-                        } else if response.hovered() {
-                            ui.painter().rect_filled(rect, 6.0, bg_hover);
-                        }
-
-                        // Font name
-                        let text_x = rect.min.x + 10.0;
-                        let top_y = rect.min.y + 14.0;
-                        ui.painter().text(
-                            egui::pos2(text_x, top_y),
-                            egui::Align2::LEFT_CENTER,
-                            font.name(),
-                            typography::proportional(typography::MD),
-                            if is_selected && is_focused {
-                                accent
-                            } else {
-                                text
-                            },
-                        );
-
-                        // "current" indicator
-                        if is_current_font {
-                            ui.painter().text(
-                                egui::pos2(rect.max.x - 6.0, top_y),
-                                egui::Align2::RIGHT_CENTER,
-                                "●",
-                                typography::monospace(typography::SM),
-                                accent,
-                            );
-                        }
-
-                        // Font description
-                        ui.painter().text(
-                            egui::pos2(text_x, top_y + 16.0),
-                            egui::Align2::LEFT_CENTER,
-                            font.description(),
-                            typography::proportional(typography::XS),
-                            text_muted,
-                        );
-
-                        // Font preview - sample text with background, using the actual font
-                        let preview_y = top_y + 34.0;
-                        let preview_rect = egui::Rect::from_min_size(
-                            egui::pos2(text_x, preview_y - 6.0),
-                            Vec2::new(panel_width - 20.0, 20.0),
-                        );
-                        ui.painter()
-                            .rect_filled(preview_rect, 4.0, text.gamma_multiply(0.05));
-
-                        // Create a FontId using this specific font's family
-                        let font_family = FontFamily::Name(font.font_family_name().into());
-                        let preview_font = FontId::new(typography::SM, font_family);
-
-                        // Draw Rust code preview with syntax highlighting colors
-                        // `let result: Option<i32> = Some(42);`
-                        let x = text_x + 8.0;
-                        let y = preview_y + 4.0;
-
-                        // Helper to draw text and return new x position
-                        let draw_token =
-                            |ui: &egui::Ui, x: f32, text_str: &str, color: Color32| -> f32 {
-                                let galley = ui.painter().layout_no_wrap(
-                                    text_str.to_string(),
-                                    preview_font.clone(),
-                                    color,
-                                );
-                                ui.painter()
-                                    .galley(egui::pos2(x, y - 6.0), galley.clone(), color);
-                                x + galley.rect.width()
-                            };
-
-                        // Rust syntax: `let result: Option<i32> = Some(42);`
-                        let keyword_color = accent; // Keywords in accent
-                        let normal_color = text.gamma_multiply(0.7);
-                        let type_color = accent.gamma_multiply(0.8); // Types slightly muted
-                        let number_color = text.gamma_multiply(0.9); // Numbers bright
-
-                        let x = draw_token(ui, x, "let ", keyword_color);
-                        let x = draw_token(ui, x, "x", normal_color);
-                        let x = draw_token(ui, x, ": ", normal_color);
-                        let x = draw_token(ui, x, "Option", type_color);
-                        let x = draw_token(ui, x, "<", normal_color);
-                        let x = draw_token(ui, x, "i32", type_color);
-                        let x = draw_token(ui, x, "> = ", normal_color);
-                        let x = draw_token(ui, x, "Some", type_color);
-                        let x = draw_token(ui, x, "(", normal_color);
-                        let x = draw_token(ui, x, "42", number_color);
-                        let _ = draw_token(ui, x, ");", normal_color);
+                    // Scroll into view when selected
+                    if is_selected {
+                        ui.scroll_to_rect(rect, Some(egui::Align::Center));
                     }
-                });
+
+                    // Handle click
+                    if response.clicked() {
+                        self.font_index = i;
+                        self.focused_panel = StyleTab::Font;
+                        let selected = fonts[i];
+                        self.close();
+                        *result = StylePickerResult::FontSelected(selected);
+                        return;
+                    }
+
+                    // Hover/selection background
+                    if is_selected && is_focused {
+                        ui.painter()
+                            .rect_filled(rect, 6.0, accent.gamma_multiply(0.20));
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(rect.min, Vec2::new(3.0, row_height)),
+                            2.0,
+                            accent,
+                        );
+                    } else if is_selected {
+                        ui.painter()
+                            .rect_filled(rect, 6.0, text.gamma_multiply(0.08));
+                    } else if response.hovered() {
+                        ui.painter().rect_filled(rect, 6.0, bg_hover);
+                    }
+
+                    // Font name
+                    let text_x = rect.min.x + 10.0;
+                    let top_y = rect.min.y + 14.0;
+                    ui.painter().text(
+                        egui::pos2(text_x, top_y),
+                        egui::Align2::LEFT_CENTER,
+                        font.name(),
+                        typography::proportional(typography::MD),
+                        if is_selected && is_focused {
+                            accent
+                        } else {
+                            text
+                        },
+                    );
+
+                    // "current" indicator
+                    if is_current_font {
+                        ui.painter().text(
+                            egui::pos2(rect.max.x - 6.0, top_y),
+                            egui::Align2::RIGHT_CENTER,
+                            "●",
+                            typography::monospace(typography::SM),
+                            accent,
+                        );
+                    }
+
+                    // Font description
+                    ui.painter().text(
+                        egui::pos2(text_x, top_y + 16.0),
+                        egui::Align2::LEFT_CENTER,
+                        font.description(),
+                        typography::proportional(typography::XS),
+                        text_muted,
+                    );
+
+                    // Font preview - sample text with background, using the actual font
+                    let preview_y = top_y + 34.0;
+                    let preview_rect = egui::Rect::from_min_size(
+                        egui::pos2(text_x, preview_y - 6.0),
+                        Vec2::new(panel_width - 20.0, 20.0),
+                    );
+                    ui.painter()
+                        .rect_filled(preview_rect, 4.0, text.gamma_multiply(0.05));
+
+                    // Create a FontId using this specific font's family
+                    let font_family = FontFamily::Name(font.font_family_name().into());
+                    let preview_font = FontId::new(typography::SM, font_family);
+
+                    // Draw Rust code preview with syntax highlighting colors
+                    // `let result: Option<i32> = Some(42);`
+                    let x = text_x + 8.0;
+                    let y = preview_y + 4.0;
+
+                    // Helper to draw text and return new x position
+                    let draw_token =
+                        |ui: &egui::Ui, x: f32, text_str: &str, color: Color32| -> f32 {
+                            let galley = ui.painter().layout_no_wrap(
+                                text_str.to_string(),
+                                preview_font.clone(),
+                                color,
+                            );
+                            ui.painter()
+                                .galley(egui::pos2(x, y - 6.0), galley.clone(), color);
+                            x + galley.rect.width()
+                        };
+
+                    // Rust syntax: `let result: Option<i32> = Some(42);`
+                    let keyword_color = accent; // Keywords in accent
+                    let normal_color = text.gamma_multiply(0.7);
+                    let type_color = accent.gamma_multiply(0.8); // Types slightly muted
+                    let number_color = text.gamma_multiply(0.9); // Numbers bright
+
+                    let x = draw_token(ui, x, "let ", keyword_color);
+                    let x = draw_token(ui, x, "x", normal_color);
+                    let x = draw_token(ui, x, ": ", normal_color);
+                    let x = draw_token(ui, x, "Option", type_color);
+                    let x = draw_token(ui, x, "<", normal_color);
+                    let x = draw_token(ui, x, "i32", type_color);
+                    let x = draw_token(ui, x, "> = ", normal_color);
+                    let x = draw_token(ui, x, "Some", type_color);
+                    let x = draw_token(ui, x, "(", normal_color);
+                    let x = draw_token(ui, x, "42", number_color);
+                    let _ = draw_token(ui, x, ");", normal_color);
+                }
             });
     }
 }
