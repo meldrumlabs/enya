@@ -18,6 +18,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Separate metrics and logs config**: Workspace config now has distinct `[metrics]` and `[logs]` sections for Prometheus and Loki connections respectively. The old `[connection]` section is still supported via serde alias for backward compatibility. New `LogsConfig` includes `endpoint`, `api_key`, and `default_query` fields.
 
+- **Premium LogsPane theme styling**: The LogsPane component now fully adapts to the current AppTheme with premium visual enhancements:
+  - Header with subtle accent-tinted background (dark themes) and accent line separator
+  - Table header text blended with theme accent color for visual cohesion
+  - Row selection with accent glow effect and enhanced hover states
+  - Level badges with theme-aware backgrounds and subtle borders for light themes
+  - Dropdown popups with accent-tinted borders and improved shadows
+  - Loading skeleton shimmer intensity adapts to light/dark themes
+  - All 13 themes (Dark, Light, Midnight, Nord, Catppuccin, Ayu, etc.) now provide unique accent tints
+
 - **Terminal pane (native-only)**: Embedded terminal emulator backed by ghostty's VT library for running shell commands while debugging incidents:
   - New `TerminalPane` component implementing the `Component` trait
   - Run commands like `kubectl logs`, `k9s`, or any shell command directly in the editor

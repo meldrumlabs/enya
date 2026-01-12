@@ -355,20 +355,33 @@ impl LogsPane {
     fn render_header(&mut self, ui: &mut egui::Ui) {
         let text_col = text_color(self.theme);
         let muted_text = text_col.gamma_multiply(0.6);
+        let accent = self.theme.accent_primary();
 
-        // Header frame with subtle background
-        egui::Frame::new()
-            .fill(self.theme.bg_surface())
+        // Header frame with premium styling - subtle accent tint for dark themes
+        let header_bg = if self.theme.is_dark() {
+            // Blend surface with a hint of accent for premium feel
+            let base = self.theme.bg_surface();
+            Color32::from_rgb(
+                base.r().saturating_add((accent.r() as u16 * 3 / 100) as u8),
+                base.g().saturating_add((accent.g() as u16 * 3 / 100) as u8),
+                base.b().saturating_add((accent.b() as u16 * 3 / 100) as u8),
+            )
+        } else {
+            self.theme.bg_surface()
+        };
+
+        let header_response = egui::Frame::new()
+            .fill(header_bg)
             .inner_margin(egui::Margin::symmetric(PADDING as i8, 8))
             .show(ui, |ui| {
                 ui.set_height(HEADER_HEIGHT);
                 ui.horizontal_centered(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
 
-                    // Pane icon and title
+                    // Pane icon with subtle glow effect
                     ui.label(
                         RichText::new(semantic_icons::file::TEXT)
-                            .color(self.theme.accent_primary())
+                            .color(accent)
                             .size(16.0),
                     );
 
@@ -454,6 +467,18 @@ impl LogsPane {
                     });
                 });
             });
+
+        // Premium accent line under header - subtle gradient effect
+        let header_rect = header_response.response.rect;
+        let painter = ui.painter();
+        let accent_line_rect = egui::Rect::from_min_size(
+            egui::pos2(header_rect.left(), header_rect.bottom()),
+            egui::vec2(header_rect.width(), 1.0),
+        );
+
+        // Create a subtle gradient effect using the accent color
+        let accent_alpha = if self.theme.is_dark() { 0.4 } else { 0.25 };
+        painter.rect_filled(accent_line_rect, 0.0, accent.gamma_multiply(accent_alpha));
     }
 
     /// Render the level filter dropdown.
@@ -495,19 +520,39 @@ impl LogsPane {
         // Show dropdown menu
         if self.level_dropdown_open {
             let popup_id = egui::Id::new(format!("logs_level_popup_{}", self.id));
+            let accent = self.theme.accent_primary();
+
+            // Premium popup styling with theme-aware colors
+            let popup_border = if self.theme.is_dark() {
+                // Subtle accent-tinted border for dark themes
+                let base = self.theme.border_subtle();
+                Color32::from_rgb(
+                    base.r()
+                        .saturating_add((accent.r() as u16 * 10 / 100) as u8),
+                    base.g()
+                        .saturating_add((accent.g() as u16 * 10 / 100) as u8),
+                    base.b()
+                        .saturating_add((accent.b() as u16 * 10 / 100) as u8),
+                )
+            } else {
+                self.theme.border_default()
+            };
+
+            let shadow_alpha = if self.theme.is_dark() { 60 } else { 30 };
+
             let area_response = egui::Area::new(popup_id)
                 .order(egui::Order::Foreground)
                 .fixed_pos(dropdown_rect.left_bottom() + egui::vec2(0.0, 4.0))
                 .show(ui.ctx(), |ui| {
                     egui::Frame::new()
                         .fill(self.theme.bg_elevated())
-                        .stroke(egui::Stroke::new(1.0, self.theme.bg_surface()))
+                        .stroke(egui::Stroke::new(1.0, popup_border))
                         .corner_radius(CORNER_RADIUS)
                         .shadow(egui::epaint::Shadow {
                             offset: [0, 4],
-                            blur: 12,
+                            blur: 16,
                             spread: 0,
-                            color: Color32::from_black_alpha(40),
+                            color: Color32::from_black_alpha(shadow_alpha),
                         })
                         .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
@@ -634,6 +679,24 @@ impl LogsPane {
         // Show dropdown menu
         if self.history_dropdown_open {
             let popup_id = egui::Id::new(format!("logs_history_popup_{}", self.id));
+            let accent = self.theme.accent_primary();
+
+            // Premium popup styling with theme-aware colors
+            let popup_border = if self.theme.is_dark() {
+                let base = self.theme.border_subtle();
+                Color32::from_rgb(
+                    base.r()
+                        .saturating_add((accent.r() as u16 * 10 / 100) as u8),
+                    base.g()
+                        .saturating_add((accent.g() as u16 * 10 / 100) as u8),
+                    base.b()
+                        .saturating_add((accent.b() as u16 * 10 / 100) as u8),
+                )
+            } else {
+                self.theme.border_default()
+            };
+
+            let shadow_alpha = if self.theme.is_dark() { 60 } else { 30 };
 
             // Clone history for use in closure
             let history_clone = self.query_history.clone();
@@ -645,13 +708,13 @@ impl LogsPane {
                 .show(ui.ctx(), |ui| {
                     egui::Frame::new()
                         .fill(self.theme.bg_elevated())
-                        .stroke(egui::Stroke::new(1.0, self.theme.bg_surface()))
+                        .stroke(egui::Stroke::new(1.0, popup_border))
                         .corner_radius(CORNER_RADIUS)
                         .shadow(egui::epaint::Shadow {
                             offset: [0, 4],
-                            blur: 12,
+                            blur: 16,
                             spread: 0,
-                            color: Color32::from_black_alpha(40),
+                            color: Color32::from_black_alpha(shadow_alpha),
                         })
                         .inner_margin(egui::Margin::same(6))
                         .show(ui, |ui| {
@@ -815,16 +878,32 @@ impl LogsPane {
         let time = ui.ctx().input(|i| i.time);
         let available = ui.available_size();
 
-        // Theme-aware skeleton colors
+        // Premium theme-aware skeleton colors - blend base with subtle accent
         let base = self.theme.bg_elevated();
         let accent = self.theme.accent_primary();
-        let skeleton_base = Color32::from_rgba_unmultiplied(
-            base.r().saturating_sub(5),
-            base.g().saturating_add(8),
-            base.b().saturating_add(3),
-            base.a(),
-        );
-        let shimmer_color = accent.gamma_multiply(0.3);
+
+        // Create skeleton base color with subtle accent tint
+        let skeleton_base = if self.theme.is_dark() {
+            Color32::from_rgb(
+                base.r().saturating_add((accent.r() as u16 * 3 / 100) as u8),
+                base.g().saturating_add((accent.g() as u16 * 3 / 100) as u8),
+                base.b().saturating_add((accent.b() as u16 * 3 / 100) as u8),
+            )
+        } else {
+            // Light themes: slightly darker base
+            Color32::from_rgb(
+                base.r().saturating_sub(8),
+                base.g().saturating_sub(8),
+                base.b().saturating_sub(6),
+            )
+        };
+
+        // Shimmer color intensity varies by theme
+        let shimmer_color = if self.theme.is_dark() {
+            accent.gamma_multiply(0.35)
+        } else {
+            accent.gamma_multiply(0.20)
+        };
 
         // Calculate shimmer position (sweeps left to right)
         let shimmer_progress = ((time * 0.8) % 2.0) as f32;
@@ -1046,7 +1125,27 @@ impl LogsPane {
     /// Render the logs table with premium styling.
     fn render_logs_table(&mut self, ui: &mut egui::Ui, response: &LogsResponse) {
         let text_col = text_color(self.theme);
-        let muted_text = text_col.gamma_multiply(0.4);
+        let accent = self.theme.accent_primary();
+
+        // Premium header text color - use accent-tinted muted text
+        let header_text = if self.theme.is_dark() {
+            // Blend muted text with accent for premium feel
+            let muted = text_col.gamma_multiply(0.5);
+            Color32::from_rgb(
+                muted
+                    .r()
+                    .saturating_add((accent.r() as u16 * 8 / 100) as u8),
+                muted
+                    .g()
+                    .saturating_add((accent.g() as u16 * 8 / 100) as u8),
+                muted
+                    .b()
+                    .saturating_add((accent.b() as u16 * 8 / 100) as u8),
+            )
+        } else {
+            text_col.gamma_multiply(0.5)
+        };
+
         let separator_color = self.theme.border_subtle();
 
         // Column layout - these are OFFSETS from the left edge of the content area
@@ -1057,9 +1156,21 @@ impl LogsPane {
         const LEVEL_COL_END: f32 = 160.0;
         const COL_PADDING: f32 = 12.0;
 
+        // Premium table header background - subtle accent tint
+        let table_header_bg = if self.theme.is_dark() {
+            let base = self.theme.bg_surface();
+            Color32::from_rgb(
+                base.r().saturating_add((accent.r() as u16 * 2 / 100) as u8),
+                base.g().saturating_add((accent.g() as u16 * 2 / 100) as u8),
+                base.b().saturating_add((accent.b() as u16 * 2 / 100) as u8),
+            )
+        } else {
+            self.theme.bg_surface()
+        };
+
         // Table header with bottom border
         let header_response = egui::Frame::new()
-            .fill(self.theme.bg_surface())
+            .fill(table_header_bg)
             .inner_margin(egui::Margin::symmetric(PADDING as i8, 8))
             .show(ui, |ui| {
                 let (rect, _) = ui.allocate_exact_size(
@@ -1076,7 +1187,7 @@ impl LogsPane {
                     egui::Align2::LEFT_CENTER,
                     "TIME",
                     egui::FontId::proportional(10.0),
-                    muted_text,
+                    header_text,
                 );
 
                 // Subtle vertical separator after TIME
@@ -1096,7 +1207,7 @@ impl LogsPane {
                     egui::Align2::CENTER_CENTER,
                     "LEVEL",
                     egui::FontId::proportional(10.0),
-                    muted_text,
+                    header_text,
                 );
 
                 // Subtle vertical separator after LEVEL
@@ -1115,19 +1226,24 @@ impl LogsPane {
                     egui::Align2::LEFT_CENTER,
                     "MESSAGE",
                     egui::FontId::proportional(10.0),
-                    muted_text,
+                    header_text,
                 );
 
                 rect
             });
 
-        // Bottom border line under header
+        // Premium accent line under table header
         let header_outer_rect = header_response.response.rect;
         let border_rect = egui::Rect::from_min_size(
             egui::pos2(header_outer_rect.left(), header_outer_rect.bottom()),
             egui::vec2(header_outer_rect.width(), 1.0),
         );
-        ui.painter().rect_filled(border_rect, 0.0, separator_color);
+        let accent_border = if self.theme.is_dark() {
+            accent.gamma_multiply(0.25)
+        } else {
+            separator_color
+        };
+        ui.painter().rect_filled(border_rect, 0.0, accent_border);
 
         // Reset hover state before rendering rows
         self.hovered_index = None;
@@ -1149,12 +1265,34 @@ impl LogsPane {
                     let is_selected = self.selected_index == Some(idx);
                     let is_hovered = self.hovered_index == Some(idx);
 
-                    // Row background
+                    // Premium row background with theme-aware styling
                     let bg_color = if is_selected {
-                        self.theme.accent_primary().gamma_multiply(0.2)
+                        // Selected: stronger accent background
+                        if self.theme.is_dark() {
+                            accent.gamma_multiply(0.18)
+                        } else {
+                            accent.gamma_multiply(0.12)
+                        }
                     } else if is_hovered {
-                        self.theme.bg_hover()
+                        // Hover: subtle accent tint
+                        if self.theme.is_dark() {
+                            let hover = self.theme.bg_hover();
+                            Color32::from_rgb(
+                                hover
+                                    .r()
+                                    .saturating_add((accent.r() as u16 * 4 / 100) as u8),
+                                hover
+                                    .g()
+                                    .saturating_add((accent.g() as u16 * 4 / 100) as u8),
+                                hover
+                                    .b()
+                                    .saturating_add((accent.b() as u16 * 4 / 100) as u8),
+                            )
+                        } else {
+                            self.theme.bg_hover()
+                        }
                     } else if idx % 2 == 1 {
+                        // Alternating rows: subtle zebra stripe
                         self.theme.bg_elevated().gamma_multiply(0.4)
                     } else {
                         Color32::TRANSPARENT
@@ -1179,12 +1317,21 @@ impl LogsPane {
                     painter.rect_filled(rect, 0.0, bg_color);
 
                     if is_selected {
-                        // Accent left border for selected row
+                        // Premium accent left border for selected row
                         let border_rect = egui::Rect::from_min_size(
                             rect.left_top(),
                             egui::vec2(3.0, rect.height()),
                         );
-                        painter.rect_filled(border_rect, 0.0, self.theme.accent_primary());
+                        painter.rect_filled(border_rect, 0.0, accent);
+
+                        // Optional: subtle glow effect for selected row (dark themes only)
+                        if self.theme.is_dark() {
+                            let glow_rect = egui::Rect::from_min_size(
+                                egui::pos2(rect.left() + 3.0, rect.top()),
+                                egui::vec2(8.0, rect.height()),
+                            );
+                            painter.rect_filled(glow_rect, 0.0, accent.gamma_multiply(0.08));
+                        }
                     }
 
                     // Draw row content - column layout must match header exactly
@@ -1220,7 +1367,7 @@ impl LogsPane {
                         egui::Stroke::new(1.0, separator_color),
                     );
 
-                    // Level badge column (centered in column)
+                    // Level badge column (centered in column) - premium theme-aware styling
                     if let Some(level) = entry.level {
                         let color = level_color(level, self.theme);
                         let level_text = level_to_short(level);
@@ -1241,12 +1388,25 @@ impl LogsPane {
                             egui::vec2(badge_width, badge_height),
                         );
 
-                        // Badge background
-                        painter.rect_filled(
-                            badge_rect,
-                            SMALL_CORNER_RADIUS,
-                            color.gamma_multiply(0.15),
-                        );
+                        // Premium badge styling - different for light/dark themes
+                        let badge_bg = if self.theme.is_dark() {
+                            color.gamma_multiply(0.15)
+                        } else {
+                            color.gamma_multiply(0.10)
+                        };
+
+                        // Badge background with subtle border for light themes
+                        painter.rect_filled(badge_rect, SMALL_CORNER_RADIUS, badge_bg);
+
+                        // Add subtle border for light themes for better definition
+                        if self.theme.is_light() {
+                            painter.rect_stroke(
+                                badge_rect,
+                                SMALL_CORNER_RADIUS,
+                                egui::Stroke::new(0.5, color.gamma_multiply(0.25)),
+                                egui::StrokeKind::Inside,
+                            );
+                        }
 
                         // Badge text (centered)
                         painter.galley(
