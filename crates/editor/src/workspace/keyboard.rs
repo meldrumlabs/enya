@@ -145,6 +145,7 @@ impl Workspace {
         let mut should_tab_pane_up = false;
         let mut should_tab_pane_down = false;
         let mut should_focus_channels_panel = false;
+        let mut should_float_focused_pane = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -353,6 +354,14 @@ impl Workspace {
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
                     log::debug!("gp shortcut triggered - showing definition demo");
                     should_show_definition_demo = true;
+                    self.leader_keys.clear_g();
+                    consumed = true;
+                    return;
+                }
+                // gf - float focused pane (detach to floating window)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+                    log::debug!("gf shortcut triggered - float focused pane");
+                    should_float_focused_pane = true;
                     self.leader_keys.clear_g();
                     consumed = true;
                     return;
@@ -833,6 +842,8 @@ impl Workspace {
             self.toggle_zen_mode();
         } else if should_toggle_fullscreen {
             self.toggle_fullscreen();
+        } else if should_float_focused_pane {
+            self.float_focused_pane(None);
         } else if should_close_focused {
             if let Some(tile_id) = current_focus {
                 self.close_tile(tile_id);
