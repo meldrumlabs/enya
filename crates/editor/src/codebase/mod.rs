@@ -570,6 +570,14 @@ impl CodebaseManager {
                 self.pending_history_range = None;
             }
         }
+
+        // Request periodic repaint while Tantivy indexing is in progress
+        // This must be at the END of poll() so it runs AFTER IndexComplete sets tantivy_progress
+        // This ensures the progress counter updates smoothly in immediate mode
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.tantivy_progress.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
+        }
     }
 
     /// Searches for metrics matching the given query.
