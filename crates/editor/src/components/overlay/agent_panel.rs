@@ -3,16 +3,16 @@
 //! Provides a chat interface to interact with Claude Code CLI, with streaming
 //! responses displayed in real-time. Styled with the Obsidian Glass design system.
 
-use egui::{Color32, Key, RichText, ScrollArea, TextEdit, Vec2};
+use egui::{Color32, CornerRadius, Key, RichText, ScrollArea, Stroke, TextEdit, Vec2};
 
 #[cfg(not(target_arch = "wasm32"))]
 use enya_ai::{AcpClient, AgentEvent};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Receiver;
 
+use crate::chat::ChatColors;
 use crate::components::pane::time_series_chart::TimeSeriesChart;
 use crate::components::pane::{InlineChart, InlineContent, InlineSearchResults, InlineSource};
-use crate::components::util::finder_utils::OverlayColors;
 use crate::components::util::{
     ActivityItem, ActivityType, AiModel, AiProvider, ConversationHandoff, MessageRole,
     ResponseStatus, normalize_unicode,
@@ -368,37 +368,55 @@ impl AgentPanel {
     }
 
     fn panel_frame(&self) -> egui::Frame {
-        // Use frosted glass style matching other overlays
-        let bg = self.theme.agent_panel_bg();
-        let border = self.theme.agent_panel_border();
+        // Premium frosted glass style matching channels panel
+        let bg = self.theme.bg_surface();
+        let border = self.theme.border_subtle();
 
         egui::Frame::NONE
             .fill(bg)
-            .stroke(egui::Stroke::new(1.0, border))
+            .stroke(Stroke::new(1.0, border))
             .inner_margin(egui::Margin::same(0))
     }
 
+    /// Get the chat colors helper for the current theme.
+    fn colors(&self) -> ChatColors {
+        ChatColors::new(self.theme)
+    }
+
+    /// Render a subtle divider between sections.
+    fn render_divider(&self, ui: &mut egui::Ui) {
+        ui.add_space(8.0);
+        let rect = ui.available_rect_before_wrap();
+        let y = rect.top();
+        ui.painter().hline(
+            (rect.left() + 12.0)..=(rect.right() - 12.0),
+            y,
+            Stroke::new(1.0, self.colors().divider()),
+        );
+        ui.add_space(8.0);
+    }
+
     fn render_content(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let colors = OverlayColors::new(self.theme);
-        let accent = colors.accent;
-        let text_primary = colors.text;
-        let text_muted = colors.muted_text;
-        let text_faint = colors.faint_text;
+        let colors = self.colors();
+        let accent = self.theme.accent_primary();
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
 
-        // Header - compact and clean
-        ui.add_space(10.0);
+        // Premium header with subtle depth
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
-            ui.add_space(14.0);
+            ui.add_space(16.0);
 
-            // Icon with accent color
+            // Icon with accent glow effect
             ui.label(
                 RichText::new(egui_nerdfonts::regular::ROBOT)
                     .color(accent)
-                    .size(16.0),
+                    .size(18.0),
             );
-            ui.add_space(6.0);
+            ui.add_space(8.0);
 
-            // Title - shows current provider
+            // Title - shows current provider with strong typography
             ui.label(
                 RichText::new(self.selected_provider.display_name())
                     .color(text_primary)
@@ -406,25 +424,25 @@ impl AgentPanel {
                     .strong(),
             );
 
-            // Model selector dropdown
-            ui.add_space(6.0);
+            // Model selector dropdown - premium styling
+            ui.add_space(8.0);
             let is_disabled = self.is_waiting;
             ui.add_enabled_ui(!is_disabled, |ui| {
-                // Style the combo box to match the panel theme
+                // Style the combo box to match the premium theme
                 let style = ui.style_mut();
-                style.visuals.widgets.inactive.bg_fill = colors.badge_bg;
-                style.visuals.widgets.hovered.bg_fill = colors.elevated_bg;
-                style.visuals.widgets.active.bg_fill = colors.elevated_bg;
-                style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, colors.separator);
-                style.visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(4);
+                style.visuals.widgets.inactive.bg_fill = colors.hover_bg();
+                style.visuals.widgets.hovered.bg_fill = colors.selection_bg();
+                style.visuals.widgets.active.bg_fill = colors.selection_bg();
+                style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, colors.divider());
+                style.visuals.widgets.inactive.corner_radius = CornerRadius::same(6);
 
                 egui::ComboBox::from_id_salt("model_selector")
                     .selected_text(
                         RichText::new(self.selected_model.display_name())
-                            .color(text_muted)
+                            .color(text_secondary)
                             .size(typography::SM),
                     )
-                    .width(90.0)
+                    .width(100.0)
                     .show_ui(ui, |ui| {
                         for &model in AiModel::for_provider(self.selected_provider) {
                             ui.selectable_value(
@@ -439,65 +457,73 @@ impl AgentPanel {
             });
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(14.0);
-                if ui
-                    .add(
-                        egui::Button::new(
-                            RichText::new(egui_nerdfonts::regular::CLOSE)
-                                .size(14.0)
-                                .color(text_faint),
-                        )
-                        .frame(false),
+                ui.add_space(16.0);
+
+                // Close button with hover effect
+                let close_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(egui_nerdfonts::regular::CLOSE)
+                            .size(14.0)
+                            .color(text_tertiary),
                     )
-                    .on_hover_text("Close (Esc)")
-                    .clicked()
-                {
+                    .frame(false),
+                );
+
+                if close_btn.hovered() {
+                    let rect = close_btn.rect.expand(4.0);
+                    ui.painter()
+                        .rect_filled(rect, CornerRadius::same(4), colors.hover_bg());
+                }
+
+                if close_btn.on_hover_text("Close (Esc)").clicked() {
                     self.is_open = false;
                 }
             });
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
 
-        // Separator
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, colors.separator),
-        );
+        // Premium divider
+        self.render_divider(ui);
 
         // Chat area (scrollable)
-        let available_height = ui.available_height() - 80.0; // Reserve space for input
+        let available_height = ui.available_height() - 90.0; // Reserve space for input
         ScrollArea::vertical()
             .id_salt("agent_chat_scroll")
             .max_height(available_height)
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
             .show(ui, |ui| {
-                ui.add_space(12.0);
+                ui.add_space(8.0);
 
                 if self.messages.is_empty() && self.current_activities.is_empty() {
-                    // Empty state - minimal and elegant
+                    // Empty state - premium and elegant
                     ui.vertical_centered(|ui| {
-                        ui.add_space(60.0);
+                        ui.add_space(80.0);
+
+                        // Icon with subtle accent
                         ui.label(
                             RichText::new(egui_nerdfonts::regular::COMMENT_TEXT)
-                                .color(text_faint)
-                                .size(32.0),
+                                .color(text_tertiary)
+                                .size(36.0),
                         );
-                        ui.add_space(12.0);
+                        ui.add_space(16.0);
+
+                        // Primary prompt
                         let prompt_text = match self.selected_provider {
                             AiProvider::Claude => "Ask Claude anything",
                             AiProvider::Codex => "Ask Codex anything",
                         };
                         ui.label(
                             RichText::new(prompt_text)
-                                .color(text_muted)
+                                .color(text_secondary)
                                 .size(typography::LG),
                         );
-                        ui.add_space(4.0);
+                        ui.add_space(8.0);
+
+                        // Suggestion with subtle styling
                         ui.label(
                             RichText::new("Try: \"Help me understand this dashboard\"")
-                                .color(text_faint)
+                                .color(text_tertiary)
                                 .size(typography::MD)
                                 .italics(),
                         );
@@ -540,36 +566,32 @@ impl AgentPanel {
                 }
             });
 
-        // Input separator
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, colors.separator),
-        );
+        // Premium input divider
+        self.render_divider(ui);
 
-        // Input area - cleaner styling
-        ui.add_space(10.0);
+        // Input area - premium styling
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.add_space(14.0);
+            ui.add_space(16.0);
 
-            // Input field with elevated background
-            let input_bg = colors.elevated_bg;
+            // Input field with elevated background and premium corners
+            let input_bg = self.theme.bg_elevated();
             egui::Frame::new()
                 .fill(input_bg)
-                .corner_radius(6.0)
-                .inner_margin(egui::Margin::symmetric(10, 6))
-                .stroke(egui::Stroke::new(1.0, colors.separator))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .stroke(Stroke::new(1.0, colors.divider()))
                 .show(ui, |ui| {
                     let hint_text = match self.selected_provider {
                         AiProvider::Claude => "Ask Claude...",
                         AiProvider::Codex => "Ask Codex...",
                     };
                     let response = ui.add_sized(
-                        Vec2::new(ui.available_width() - 50.0, 20.0),
+                        Vec2::new(ui.available_width() - 50.0, 22.0),
                         TextEdit::singleline(&mut self.input_text)
                             .hint_text(
                                 RichText::new(hint_text)
-                                    .color(text_faint)
+                                    .color(text_tertiary)
                                     .size(typography::MD),
                             )
                             .frame(false)
@@ -591,10 +613,10 @@ impl AgentPanel {
                     }
                 });
 
-            // Send button - accent colored when active
-            ui.add_space(6.0);
+            // Send button - premium styling with hover effect
+            ui.add_space(8.0);
             let can_send = !self.input_text.trim().is_empty() && !self.is_waiting;
-            let send_color = if can_send { accent } else { text_faint };
+            let send_color = if can_send { accent } else { text_tertiary };
 
             if ui
                 .add_enabled(
@@ -617,50 +639,63 @@ impl AgentPanel {
         ui.add_space(8.0);
     }
 
-    fn render_message(&mut self, ui: &mut egui::Ui, message: &ChatMessage, colors: &OverlayColors) {
-        let (role_label, role_color, msg_bg) = match message.role {
-            MessageRole::User => ("You", colors.accent, self.theme.chat_user_msg_bg()),
+    fn render_message(&mut self, ui: &mut egui::Ui, message: &ChatMessage, colors: &ChatColors) {
+        let text_tertiary = self.theme.text_tertiary();
+        let accent = self.theme.accent_primary();
+
+        let (role_label, role_color, msg_bg, show_accent_bar) = match message.role {
+            MessageRole::User => ("You", accent, colors.own_message_bg(), false),
             MessageRole::Assistant => (
                 self.selected_provider.display_name(),
-                self.theme.accent_primary(),
-                Color32::TRANSPARENT, // No background for assistant - cleaner
+                accent,
+                colors.agent_message_bg(),
+                true, // Show left accent bar for AI messages
             ),
-            MessageRole::System => ("System", colors.faint_text, Color32::TRANSPARENT),
+            MessageRole::System => ("System", text_tertiary, Color32::TRANSPARENT, false),
         };
 
+        // Full-width message row with proper padding
         ui.horizontal(|ui| {
-            ui.add_space(14.0);
-            ui.vertical(|ui| {
-                // Role label - small and subtle
-                ui.label(
-                    RichText::new(role_label)
-                        .color(role_color)
-                        .size(typography::SM)
-                        .strong(),
-                );
-                ui.add_space(3.0);
+            ui.add_space(16.0);
 
-                // Message content
-                if msg_bg != Color32::TRANSPARENT {
-                    // User messages get a subtle background
-                    egui::Frame::NONE
-                        .fill(msg_bg)
-                        .corner_radius(8.0)
-                        .inner_margin(egui::Margin::symmetric(12, 8))
-                        .show(ui, |ui| {
-                            ui.set_max_width(ui.available_width() - 28.0);
-                            self.render_message_content(ui, message, colors);
-                        });
-                } else {
-                    // Assistant messages - just text, no frame
-                    ui.add_space(2.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(2.0);
-                        ui.vertical(|ui| {
-                            ui.set_max_width(ui.available_width() - 20.0);
-                            self.render_message_content(ui, message, colors);
-                        });
+            ui.vertical(|ui| {
+                // Role label with icon
+                ui.horizontal(|ui| {
+                    let icon = match message.role {
+                        MessageRole::User => egui_nerdfonts::regular::ACCOUNT,
+                        MessageRole::Assistant => egui_nerdfonts::regular::ROBOT,
+                        MessageRole::System => egui_nerdfonts::regular::INFORMATION,
+                    };
+                    ui.label(RichText::new(icon).color(role_color).size(typography::SM));
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(role_label)
+                            .color(role_color)
+                            .size(typography::SM)
+                            .strong(),
+                    );
+                });
+                ui.add_space(4.0);
+
+                // Message content with premium styling
+                let content_response = egui::Frame::new()
+                    .fill(msg_bg)
+                    .corner_radius(CornerRadius::same(8))
+                    .inner_margin(egui::Margin::symmetric(12, 10))
+                    .show(ui, |ui| {
+                        ui.set_max_width(ui.available_width() - 32.0);
+                        self.render_message_content(ui, message, colors);
                     });
+
+                // Draw accent bar for assistant messages
+                if show_accent_bar {
+                    let rect = content_response.response.rect;
+                    let accent_rect = egui::Rect::from_min_size(
+                        egui::pos2(rect.left(), rect.top() + 4.0),
+                        egui::vec2(3.0, rect.height() - 8.0),
+                    );
+                    ui.painter()
+                        .rect_filled(accent_rect, CornerRadius::same(2), accent);
                 }
             });
         });
@@ -670,8 +705,10 @@ impl AgentPanel {
         &mut self,
         ui: &mut egui::Ui,
         message: &ChatMessage,
-        colors: &OverlayColors,
+        colors: &ChatColors,
     ) {
+        let text_primary = self.theme.text_primary();
+
         // Show content if we have any
         if !message.content.is_empty() {
             // For assistant messages, strip enya-command blocks from display
@@ -686,7 +723,7 @@ impl AgentPanel {
                 let normalized = normalize_unicode(&display_content);
                 ui.label(
                     RichText::new(normalized)
-                        .color(colors.text)
+                        .color(text_primary)
                         .size(typography::MD),
                 );
             }
@@ -710,10 +747,11 @@ impl AgentPanel {
 
         // Streaming indicator with timer
         if message.is_streaming {
-            ui.add_space(6.0);
+            let accent = self.theme.accent_primary();
+            ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.add(egui::Spinner::new().color(colors.accent).size(12.0));
-                ui.add_space(6.0);
+                ui.add(egui::Spinner::new().color(accent).size(14.0));
+                ui.add_space(8.0);
 
                 // Show elapsed time
                 if let Some(start) = self.request_start_time {
@@ -723,54 +761,48 @@ impl AgentPanel {
                     } else {
                         format!("{elapsed:.0}s")
                     };
-                    ui.label(
-                        RichText::new(time_str)
-                            .color(colors.accent)
-                            .size(typography::SM),
-                    );
+                    ui.label(RichText::new(time_str).color(accent).size(typography::SM));
                 }
             });
         }
     }
 
     /// Render an inline time series chart within a message.
-    fn render_inline_chart(
-        &mut self,
-        ui: &mut egui::Ui,
-        chart: &InlineChart,
-        colors: &OverlayColors,
-    ) {
-        let chart_height = chart.height.unwrap_or(120.0); // Slightly smaller for panel
+    fn render_inline_chart(&mut self, ui: &mut egui::Ui, chart: &InlineChart, colors: &ChatColors) {
+        let chart_height = chart.height.unwrap_or(120.0);
+        let accent = self.theme.accent_primary();
+        let text_primary = self.theme.text_primary();
+        let text_tertiary = self.theme.text_tertiary();
 
-        // Chart container with border
+        // Chart container with premium styling
         egui::Frame::new()
-            .fill(colors.elevated_bg)
-            .corner_radius(6.0)
-            .stroke(egui::Stroke::new(1.0, colors.separator))
-            .inner_margin(egui::Margin::symmetric(8, 6))
+            .fill(self.theme.bg_elevated())
+            .corner_radius(CornerRadius::same(8))
+            .stroke(Stroke::new(1.0, colors.chart_embed_border()))
+            .inner_margin(egui::Margin::symmetric(10, 8))
             .show(ui, |ui| {
                 // Title header
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(egui_nerdfonts::regular::CHART_LINE)
-                            .color(colors.accent)
-                            .size(12.0),
+                            .color(accent)
+                            .size(14.0),
                     );
-                    ui.add_space(4.0);
+                    ui.add_space(6.0);
                     ui.label(
                         RichText::new(&chart.title)
-                            .color(colors.text)
+                            .color(text_primary)
                             .size(typography::SM)
                             .strong(),
                     );
                 });
 
-                ui.add_space(4.0);
+                ui.add_space(6.0);
 
                 if chart.series.is_empty() {
                     ui.label(
                         RichText::new("No data")
-                            .color(colors.faint_text)
+                            .color(text_tertiary)
                             .size(typography::SM),
                     );
                 } else {
@@ -797,52 +829,51 @@ impl AgentPanel {
     }
 
     /// Render an inline source code preview within a message.
-    fn render_inline_source(
-        &self,
-        ui: &mut egui::Ui,
-        source: &InlineSource,
-        colors: &OverlayColors,
-    ) {
-        // Source container with border
+    fn render_inline_source(&self, ui: &mut egui::Ui, source: &InlineSource, colors: &ChatColors) {
+        let accent = self.theme.accent_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
+
+        // Source container with premium styling
         egui::Frame::new()
-            .fill(colors.elevated_bg)
-            .corner_radius(6.0)
-            .stroke(egui::Stroke::new(1.0, colors.separator))
-            .inner_margin(egui::Margin::symmetric(8, 6))
+            .fill(self.theme.bg_elevated())
+            .corner_radius(CornerRadius::same(8))
+            .stroke(Stroke::new(1.0, colors.chart_embed_border()))
+            .inner_margin(egui::Margin::symmetric(10, 8))
             .show(ui, |ui| {
                 // Header with file path and line number
                 ui.horizontal(|ui| {
                     ui.label(
                         RichText::new(egui_nerdfonts::regular::FILE_CODE)
-                            .color(colors.accent)
-                            .size(12.0),
+                            .color(accent)
+                            .size(14.0),
                     );
-                    ui.add_space(4.0);
+                    ui.add_space(6.0);
                     ui.label(
                         RichText::new(format!("{}:{}", source.file_path, source.line))
-                            .color(colors.accent)
+                            .color(accent)
                             .size(typography::SM)
                             .strong(),
                     );
 
-                    // Language badge
+                    // Language badge with premium styling
                     if !source.language.is_empty() {
                         ui.add_space(8.0);
                         egui::Frame::new()
-                            .fill(colors.badge_bg)
-                            .corner_radius(3.0)
-                            .inner_margin(egui::Margin::symmetric(4, 1))
+                            .fill(colors.hover_bg())
+                            .corner_radius(CornerRadius::same(4))
+                            .inner_margin(egui::Margin::symmetric(6, 2))
                             .show(ui, |ui| {
                                 ui.label(
                                     RichText::new(&source.language)
-                                        .color(colors.muted_text)
+                                        .color(text_secondary)
                                         .size(typography::XS),
                                 );
                             });
                     }
                 });
 
-                ui.add_space(6.0);
+                ui.add_space(8.0);
 
                 // Line number width
                 let max_line = source.start_line + source.lines.len();
@@ -856,7 +887,7 @@ impl AgentPanel {
                     let (line_color, bg_color) = if is_target {
                         (palette::semantic::WARNING, self.theme.highlight_line())
                     } else {
-                        (colors.faint_text, Color32::TRANSPARENT)
+                        (text_tertiary, Color32::TRANSPARENT)
                     };
 
                     let response = ui.horizontal(|ui| {
@@ -883,7 +914,8 @@ impl AgentPanel {
                     // Draw background for target line
                     if is_target {
                         let rect = response.response.rect.expand2(egui::vec2(2.0, 1.0));
-                        ui.painter().rect_filled(rect, 2.0, bg_color);
+                        ui.painter()
+                            .rect_filled(rect, CornerRadius::same(4), bg_color);
                     }
                 }
             });
@@ -894,43 +926,44 @@ impl AgentPanel {
         &self,
         ui: &mut egui::Ui,
         results: &InlineSearchResults,
-        colors: &OverlayColors,
+        colors: &ChatColors,
     ) {
         use egui_nerdfonts::regular;
 
-        // Search results container with border
+        let accent = self.theme.accent_primary();
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
+
+        // Search results container with premium styling
         egui::Frame::new()
-            .fill(colors.elevated_bg)
-            .corner_radius(6.0)
-            .stroke(egui::Stroke::new(1.0, colors.separator))
-            .inner_margin(egui::Margin::symmetric(8, 6))
+            .fill(self.theme.bg_elevated())
+            .corner_radius(CornerRadius::same(8))
+            .stroke(Stroke::new(1.0, colors.chart_embed_border()))
+            .inner_margin(egui::Margin::symmetric(10, 8))
             .show(ui, |ui| {
                 // Header with search query
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(regular::MAGNIFY)
-                            .color(colors.accent)
-                            .size(12.0),
-                    );
-                    ui.add_space(4.0);
+                    ui.label(RichText::new(regular::MAGNIFY).color(accent).size(14.0));
+                    ui.add_space(6.0);
                     ui.label(
                         RichText::new(format!("Search: \"{}\"", results.query))
-                            .color(colors.text)
+                            .color(text_primary)
                             .size(typography::SM)
                             .strong(),
                     );
 
-                    // Filter badge
+                    // Filter badge with premium styling
                     if results.filter != "all" {
                         ui.add_space(8.0);
                         egui::Frame::new()
-                            .fill(colors.badge_bg)
-                            .corner_radius(3.0)
-                            .inner_margin(egui::Margin::symmetric(4, 1))
+                            .fill(colors.hover_bg())
+                            .corner_radius(CornerRadius::same(4))
+                            .inner_margin(egui::Margin::symmetric(6, 2))
                             .show(ui, |ui| {
                                 ui.label(
                                     RichText::new(&results.filter)
-                                        .color(colors.muted_text)
+                                        .color(text_secondary)
                                         .size(typography::XS),
                                 );
                             });
@@ -940,19 +973,19 @@ impl AgentPanel {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(
                             RichText::new(format!("{} results", results.results.len()))
-                                .color(colors.faint_text)
+                                .color(text_tertiary)
                                 .size(typography::XS),
                         );
                     });
                 });
 
-                ui.add_space(6.0);
+                ui.add_space(8.0);
 
-                // Show up to 5 results in compact format
+                // Show up to 5 results in compact format with hover states
                 let max_results = 5;
                 for (i, result) in results.results.iter().take(max_results).enumerate() {
                     if i > 0 {
-                        ui.add_space(2.0);
+                        ui.add_space(4.0);
                     }
 
                     ui.horizontal(|ui| {
@@ -963,19 +996,19 @@ impl AgentPanel {
                             "commit" => regular::SOURCE_COMMIT,
                             _ => regular::FILE_DOCUMENT,
                         };
-                        ui.label(RichText::new(icon).color(colors.muted_text).size(10.0));
-                        ui.add_space(4.0);
+                        ui.label(RichText::new(icon).color(text_secondary).size(12.0));
+                        ui.add_space(6.0);
 
                         // Name
                         ui.label(
                             RichText::new(&result.name)
-                                .color(colors.text)
+                                .color(text_primary)
                                 .size(typography::SM),
                         );
 
                         // File path (truncated)
                         if !result.file_path.is_empty() {
-                            ui.add_space(4.0);
+                            ui.add_space(6.0);
                             let path_display = if result.file_path.len() > 30 {
                                 format!("...{}", &result.file_path[result.file_path.len() - 27..])
                             } else {
@@ -983,7 +1016,7 @@ impl AgentPanel {
                             };
                             ui.label(
                                 RichText::new(path_display)
-                                    .color(colors.faint_text)
+                                    .color(text_tertiary)
                                     .size(typography::XS),
                             );
                         }
@@ -992,13 +1025,13 @@ impl AgentPanel {
 
                 // "More results" indicator
                 if results.results.len() > max_results {
-                    ui.add_space(4.0);
+                    ui.add_space(6.0);
                     ui.label(
                         RichText::new(format!(
                             "... and {} more",
                             results.results.len() - max_results
                         ))
-                        .color(colors.faint_text)
+                        .color(text_tertiary)
                         .size(typography::XS)
                         .italics(),
                     );
@@ -1006,18 +1039,19 @@ impl AgentPanel {
             });
     }
 
-    /// Render an activity item (Claude Code style)
-    fn render_activity(&self, ui: &mut egui::Ui, activity: &ActivityItem, colors: &OverlayColors) {
+    /// Render an activity item with premium row styling (matching channels panel).
+    fn render_activity(&self, ui: &mut egui::Ui, activity: &ActivityItem, _colors: &ChatColors) {
         use egui_nerdfonts::regular;
+
+        let accent = self.theme.accent_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
 
         // Get icon and color based on activity type
         let (icon, label, summary, icon_color) = match &activity.activity_type {
-            ActivityType::Thinking(text) => (
-                regular::LIGHTBULB,
-                "Thinking",
-                text.clone(),
-                colors.muted_text,
-            ),
+            ActivityType::Thinking(text) => {
+                (regular::LIGHTBULB, "Thinking", text.clone(), text_secondary)
+            }
             ActivityType::ToolUse { tool, summary } => {
                 let icon = match tool.as_str() {
                     "Edit" => regular::PENCIL,
@@ -1030,7 +1064,7 @@ impl AgentPanel {
                     "WebFetch" | "WebSearch" => regular::WEB,
                     _ => regular::CUBE,
                 };
-                (icon, tool.as_str(), summary.clone(), colors.accent)
+                (icon, tool.as_str(), summary.clone(), accent)
             }
             ActivityType::Error(msg) => (
                 regular::CLOSE_CIRCLE,
@@ -1043,35 +1077,54 @@ impl AgentPanel {
             }
         };
 
-        ui.horizontal(|ui| {
-            ui.add_space(18.0);
+        // Premium row with hover background (matching channels panel style)
+        let row_height = 28.0;
+        let (rect, _response) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width(), row_height),
+            egui::Sense::hover(),
+        );
 
-            // Compact activity row with subtle styling
-            if activity.in_progress {
-                ui.add(egui::Spinner::new().color(colors.accent).size(12.0));
-            } else {
-                ui.label(RichText::new(icon).color(icon_color).size(12.0));
-            }
+        let content_rect = rect.shrink2(egui::vec2(16.0, 2.0));
 
-            ui.add_space(6.0);
+        // Draw activity content
+        let icon_pos = content_rect.left_center() + Vec2::new(4.0, 0.0);
+        let label_pos = content_rect.left_center() + Vec2::new(26.0, 0.0);
 
-            // Label - smaller and muted
-            ui.label(
-                RichText::new(label)
-                    .color(colors.muted_text)
-                    .size(typography::SM),
+        // Icon or spinner
+        if activity.in_progress {
+            // Draw spinner at icon position
+            let spinner_rect = egui::Rect::from_center_size(icon_pos, egui::vec2(14.0, 14.0));
+            ui.put(spinner_rect, egui::Spinner::new().color(accent).size(14.0));
+        } else {
+            ui.painter().text(
+                icon_pos,
+                egui::Align2::LEFT_CENTER,
+                icon,
+                typography::proportional(typography::SM),
+                icon_color,
             );
+        }
 
-            // Summary text
-            if !summary.is_empty() {
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new(&summary)
-                        .color(colors.faint_text)
-                        .size(typography::SM),
-                );
-            }
-        });
+        // Label
+        ui.painter().text(
+            label_pos,
+            egui::Align2::LEFT_CENTER,
+            label,
+            typography::proportional(typography::SM),
+            text_secondary,
+        );
+
+        // Summary text (if present)
+        if !summary.is_empty() {
+            let summary_pos = label_pos + Vec2::new(label.len() as f32 * 7.0 + 8.0, 0.0);
+            ui.painter().text(
+                summary_pos,
+                egui::Align2::LEFT_CENTER,
+                &summary,
+                typography::proportional(typography::SM),
+                text_tertiary,
+            );
+        }
     }
 
     /// Send the current input as a message

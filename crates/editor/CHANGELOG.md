@@ -124,6 +124,17 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Premium agent panel styling**: Improved the AgentPanel overlay UX to match the refined look of the team channels panel:
+  - Switched from `OverlayColors` to `ChatColors` for better theme integration and consistent styling across chat components
+  - Added premium dividers between header, chat area, and input sections
+  - Message bubbles now use `ChatColors` backgrounds (`own_message_bg`, `agent_message_bg`) with rounded corners
+  - Assistant messages feature a left accent bar indicator (matching channel selection style)
+  - Role labels now include icons (user account, robot, info) for visual clarity
+  - Inline content blocks (charts, source code, search results) use premium frame styling with accent-tinted borders
+  - Activity rows use allocate_exact_size rendering with proper typography positioning (matching channels panel rows)
+  - Input area has refined styling with larger corner radius and premium elevated background
+  - Consistent use of theme typography constants and proper spacing throughout
+
 - **Tracing module restructure in `enya-client`**: Reorganized the `tempo` module under a new `tracing` parent module to support future tracing backends. The module structure is now `enya_client::tracing` with `tempo` as a submodule (`enya_client::tracing::tempo`). Common types (`Trace`, `Span`, `SpanStatus`, etc.) are re-exported from the `tracing` module root for convenience.
 
 - **Viewport pane alignment**: Improved pane layout consistency to prevent bottom panes from overlapping the status line. The viewport tree now always renders at the exact viewport height, with `TreeBehavior::min_size()` (200px) preventing panes from becoming too small. Scrolling only activates when panes would be smaller than this absolute minimum. Added explicit clip rectangles and constrained child UI rendering to ensure content never overflows into the status bar area.
