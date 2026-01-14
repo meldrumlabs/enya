@@ -10,9 +10,12 @@ use enya_ai::{AcpClient, AgentEvent};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Receiver;
 
+use crate::components::pane::time_series_chart::TimeSeriesChart;
+use crate::components::pane::{InlineChart, InlineContent, InlineSearchResults, InlineSource};
 use crate::components::util::finder_utils::OverlayColors;
 use crate::components::util::{
-    ActivityItem, ActivityType, AiModel, AiProvider, MessageRole, ResponseStatus, normalize_unicode,
+    ActivityItem, ActivityType, AiModel, AiProvider, ConversationHandoff, MessageRole,
+    ResponseStatus, normalize_unicode,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::{truncate_first_line, truncate_path_suffix};
@@ -29,6 +32,8 @@ pub struct ChatMessage {
     pub content: String,
     /// Whether this message is still being streamed
     pub is_streaming: bool,
+    /// Inline content blocks (charts, source previews)
+    pub inline_blocks: Vec<InlineContent>,
 }
 
 /// Result of showing the agent panel
@@ -188,6 +193,72 @@ impl AgentPanel {
         self.input_text = query.to_string();
         self.is_open = true;
         self.pending_submit = true;
+    }
+
+    /// Import a conversation from the agent input bar (handoff).
+    ///
+    /// Opens the panel and populates it with the existing conversation,
+    /// allowing the user to continue in a persistent side panel.
+    pub fn import_from_handoff(&mut self, handoff: ConversationHandoff) {
+        // Clear existing conversation state
+        self.messages.clear();
+        self.current_activities.clear();
+        self.response_text.clear();
+        self.current_status = ResponseStatus::Complete;
+        self.is_waiting = false;
+
+        // Add user message from handoff
+        if !handoff.query.is_empty() {
+            self.messages.push(ChatMessage {
+                role: MessageRole::User,
+                content: handoff.query,
+                is_streaming: false,
+                inline_blocks: Vec::new(),
+            });
+        }
+
+        // Add assistant response from handoff
+        if !handoff.response.is_empty() {
+            self.messages.push(ChatMessage {
+                role: MessageRole::Assistant,
+                content: handoff.display_text,
+                is_streaming: false,
+                inline_blocks: Vec::new(),
+            });
+        }
+
+        // Import activities from the handoff
+        self.current_activities = handoff.activities;
+
+        // Open the panel and scroll to bottom
+        self.is_open = true;
+        self.scroll_to_bottom = true;
+        self.focus_input = true;
+
+        log::info!(
+            "Imported conversation handoff: {} messages",
+            self.messages.len()
+        );
+    }
+
+    /// Add inline content (chart, source, search results) to the last assistant message.
+    ///
+    /// This is used by the workspace to inject visualizations into the conversation
+    /// after parsing agent commands.
+    pub fn add_inline_content(&mut self, content: InlineContent) {
+        // Find the last assistant message and add the inline content
+        if let Some(msg) = self
+            .messages
+            .iter_mut()
+            .rev()
+            .find(|m| m.role == MessageRole::Assistant)
+        {
+            msg.inline_blocks.push(content);
+            self.scroll_to_bottom = true;
+            log::debug!("Added inline content to agent panel message");
+        } else {
+            log::warn!("No assistant message found to inject inline content");
+        }
     }
 
     /// Close the panel
@@ -441,14 +512,20 @@ impl AgentPanel {
                         .find(|(_, m)| m.role == MessageRole::User)
                         .map(|(i, _)| i);
 
-                    for (i, message) in self.messages.iter().enumerate() {
-                        self.render_message(ui, message, &colors);
+                    // Iterate by index to avoid borrow conflicts with &mut self methods
+                    let message_count = self.messages.len();
+                    for i in 0..message_count {
+                        // Clone the message to avoid borrow conflicts
+                        let message = self.messages[i].clone();
+                        self.render_message(ui, &message, &colors);
                         ui.add_space(6.0);
 
                         // Show activities right after the last user message
                         if Some(i) == last_user_idx && !self.current_activities.is_empty() {
                             ui.add_space(4.0);
-                            for activity in &self.current_activities {
+                            // Clone activities to avoid borrow conflicts
+                            let activities: Vec<_> = self.current_activities.clone();
+                            for activity in &activities {
                                 self.render_activity(ui, activity, &colors);
                                 ui.add_space(3.0);
                             }
@@ -540,7 +617,7 @@ impl AgentPanel {
         ui.add_space(8.0);
     }
 
-    fn render_message(&self, ui: &mut egui::Ui, message: &ChatMessage, colors: &OverlayColors) {
+    fn render_message(&mut self, ui: &mut egui::Ui, message: &ChatMessage, colors: &OverlayColors) {
         let (role_label, role_color, msg_bg) = match message.role {
             MessageRole::User => ("You", colors.accent, self.theme.chat_user_msg_bg()),
             MessageRole::Assistant => (
@@ -590,7 +667,7 @@ impl AgentPanel {
     }
 
     fn render_message_content(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         message: &ChatMessage,
         colors: &OverlayColors,
@@ -612,6 +689,22 @@ impl AgentPanel {
                         .color(colors.text)
                         .size(typography::MD),
                 );
+            }
+        }
+
+        // Render inline content blocks (charts, source, search results)
+        for block in &message.inline_blocks {
+            ui.add_space(8.0);
+            match block {
+                InlineContent::Chart(chart) => {
+                    self.render_inline_chart(ui, chart, colors);
+                }
+                InlineContent::Source(source) => {
+                    self.render_inline_source(ui, source, colors);
+                }
+                InlineContent::SearchResults(results) => {
+                    self.render_inline_search_results(ui, results, colors);
+                }
             }
         }
 
@@ -638,6 +731,279 @@ impl AgentPanel {
                 }
             });
         }
+    }
+
+    /// Render an inline time series chart within a message.
+    fn render_inline_chart(
+        &mut self,
+        ui: &mut egui::Ui,
+        chart: &InlineChart,
+        colors: &OverlayColors,
+    ) {
+        let chart_height = chart.height.unwrap_or(120.0); // Slightly smaller for panel
+
+        // Chart container with border
+        egui::Frame::new()
+            .fill(colors.elevated_bg)
+            .corner_radius(6.0)
+            .stroke(egui::Stroke::new(1.0, colors.separator))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                // Title header
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(egui_nerdfonts::regular::CHART_LINE)
+                            .color(colors.accent)
+                            .size(12.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(&chart.title)
+                            .color(colors.text)
+                            .size(typography::SM)
+                            .strong(),
+                    );
+                });
+
+                ui.add_space(4.0);
+
+                if chart.series.is_empty() {
+                    ui.label(
+                        RichText::new("No data")
+                            .color(colors.faint_text)
+                            .size(typography::SM),
+                    );
+                } else {
+                    // Create a TimeSeriesChart for consistent styling
+                    let mut ts_chart = TimeSeriesChart::new(&chart.title);
+                    ts_chart.set_theme(self.theme);
+                    ts_chart.set_show_legend(false); // Compact mode - no legend
+
+                    // Add all series from the inline chart
+                    for series in &chart.series {
+                        ts_chart.add_series(series.clone());
+                    }
+
+                    // Render within constrained height
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(ui.available_width(), chart_height),
+                        egui::Layout::top_down(egui::Align::LEFT),
+                        |ui| {
+                            ts_chart.show(ui);
+                        },
+                    );
+                }
+            });
+    }
+
+    /// Render an inline source code preview within a message.
+    fn render_inline_source(
+        &self,
+        ui: &mut egui::Ui,
+        source: &InlineSource,
+        colors: &OverlayColors,
+    ) {
+        // Source container with border
+        egui::Frame::new()
+            .fill(colors.elevated_bg)
+            .corner_radius(6.0)
+            .stroke(egui::Stroke::new(1.0, colors.separator))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                // Header with file path and line number
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(egui_nerdfonts::regular::FILE_CODE)
+                            .color(colors.accent)
+                            .size(12.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!("{}:{}", source.file_path, source.line))
+                            .color(colors.accent)
+                            .size(typography::SM)
+                            .strong(),
+                    );
+
+                    // Language badge
+                    if !source.language.is_empty() {
+                        ui.add_space(8.0);
+                        egui::Frame::new()
+                            .fill(colors.badge_bg)
+                            .corner_radius(3.0)
+                            .inner_margin(egui::Margin::symmetric(4, 1))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(&source.language)
+                                        .color(colors.muted_text)
+                                        .size(typography::XS),
+                                );
+                            });
+                    }
+                });
+
+                ui.add_space(6.0);
+
+                // Line number width
+                let max_line = source.start_line + source.lines.len();
+                let line_num_width = format!("{max_line}").len();
+
+                // Source lines with line numbers and tree-sitter syntax highlighting
+                for (i, line) in source.lines.iter().enumerate() {
+                    let line_num = source.start_line + i;
+                    let is_target = line_num == source.line;
+
+                    let (line_color, bg_color) = if is_target {
+                        (palette::semantic::WARNING, self.theme.highlight_line())
+                    } else {
+                        (colors.faint_text, Color32::TRANSPARENT)
+                    };
+
+                    let response = ui.horizontal(|ui| {
+                        // Line number
+                        let prefix = if is_target {
+                            format!("{line_num:>line_num_width$} →")
+                        } else {
+                            format!("{line_num:>line_num_width$}  ")
+                        };
+                        ui.label(
+                            RichText::new(prefix)
+                                .color(line_color)
+                                .font(typography::monospace(typography::SM)),
+                        );
+                        ui.add_space(4.0);
+
+                        // Code line with tree-sitter syntax highlighting
+                        let job = source
+                            .highlight_data
+                            .highlight_line(line_num, line, self.theme);
+                        ui.label(job);
+                    });
+
+                    // Draw background for target line
+                    if is_target {
+                        let rect = response.response.rect.expand2(egui::vec2(2.0, 1.0));
+                        ui.painter().rect_filled(rect, 2.0, bg_color);
+                    }
+                }
+            });
+    }
+
+    /// Render inline search results within a message.
+    fn render_inline_search_results(
+        &self,
+        ui: &mut egui::Ui,
+        results: &InlineSearchResults,
+        colors: &OverlayColors,
+    ) {
+        use egui_nerdfonts::regular;
+
+        // Search results container with border
+        egui::Frame::new()
+            .fill(colors.elevated_bg)
+            .corner_radius(6.0)
+            .stroke(egui::Stroke::new(1.0, colors.separator))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                // Header with search query
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::MAGNIFY)
+                            .color(colors.accent)
+                            .size(12.0),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!("Search: \"{}\"", results.query))
+                            .color(colors.text)
+                            .size(typography::SM)
+                            .strong(),
+                    );
+
+                    // Filter badge
+                    if results.filter != "all" {
+                        ui.add_space(8.0);
+                        egui::Frame::new()
+                            .fill(colors.badge_bg)
+                            .corner_radius(3.0)
+                            .inner_margin(egui::Margin::symmetric(4, 1))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(&results.filter)
+                                        .color(colors.muted_text)
+                                        .size(typography::XS),
+                                );
+                            });
+                    }
+
+                    // Result count
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{} results", results.results.len()))
+                                .color(colors.faint_text)
+                                .size(typography::XS),
+                        );
+                    });
+                });
+
+                ui.add_space(6.0);
+
+                // Show up to 5 results in compact format
+                let max_results = 5;
+                for (i, result) in results.results.iter().take(max_results).enumerate() {
+                    if i > 0 {
+                        ui.add_space(2.0);
+                    }
+
+                    ui.horizontal(|ui| {
+                        // Kind icon
+                        let icon = match result.kind.as_str() {
+                            "metric" => regular::CHART_LINE,
+                            "alert" => regular::ALERT,
+                            "commit" => regular::SOURCE_COMMIT,
+                            _ => regular::FILE_DOCUMENT,
+                        };
+                        ui.label(RichText::new(icon).color(colors.muted_text).size(10.0));
+                        ui.add_space(4.0);
+
+                        // Name
+                        ui.label(
+                            RichText::new(&result.name)
+                                .color(colors.text)
+                                .size(typography::SM),
+                        );
+
+                        // File path (truncated)
+                        if !result.file_path.is_empty() {
+                            ui.add_space(4.0);
+                            let path_display = if result.file_path.len() > 30 {
+                                format!("...{}", &result.file_path[result.file_path.len() - 27..])
+                            } else {
+                                result.file_path.clone()
+                            };
+                            ui.label(
+                                RichText::new(path_display)
+                                    .color(colors.faint_text)
+                                    .size(typography::XS),
+                            );
+                        }
+                    });
+                }
+
+                // "More results" indicator
+                if results.results.len() > max_results {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "... and {} more",
+                            results.results.len() - max_results
+                        ))
+                        .color(colors.faint_text)
+                        .size(typography::XS)
+                        .italics(),
+                    );
+                }
+            });
     }
 
     /// Render an activity item (Claude Code style)
@@ -721,6 +1087,7 @@ impl AgentPanel {
             role: MessageRole::User,
             content: prompt.clone(),
             is_streaming: false,
+            inline_blocks: Vec::new(),
         });
 
         // Add placeholder for assistant response
@@ -728,6 +1095,7 @@ impl AgentPanel {
             role: MessageRole::Assistant,
             content: String::new(),
             is_streaming: true,
+            inline_blocks: Vec::new(),
         });
 
         // Clear input and reset state
@@ -776,6 +1144,7 @@ impl AgentPanel {
             role: MessageRole::User,
             content: self.input_text.trim().to_string(),
             is_streaming: false,
+            inline_blocks: Vec::new(),
         });
 
         // WASM: Claude CLI not available
@@ -783,6 +1152,7 @@ impl AgentPanel {
             role: MessageRole::System,
             content: "Claude Code CLI is not available in the browser.".to_string(),
             is_streaming: false,
+            inline_blocks: Vec::new(),
         });
 
         self.input_text.clear();

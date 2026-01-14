@@ -29,6 +29,18 @@ All notable changes to the Enya editor will be documented in this file.
     - Draggable title bar for window movement
     - Click "pop in" button or close button (X) to return the pane to the main app
 
+- **Tab-to-panel handoff for agent input bar**: Seamlessly continue a conversation from the quick input bar in the persistent agent panel:
+  - Press `Tab` when viewing a response in the agent input bar to open it in the side panel
+  - Opens the three-panel layout: channels on left, viewport center, agent panel on right
+  - Conversation context (query, response, activities) is preserved during handoff
+  - Visual hint shows "Tab: open in panel" in the response state
+  - New `ConversationHandoff` type for transferring state between components
+  - `export_for_handoff()` and `import_from_handoff()` methods for clean state transfer
+  - Non-intrusive workflow that doesn't disrupt the existing pane layout
+  - Full inline content support: charts, source code previews, and search results render in the panel
+  - Agent commands (ShowInlineChart, ShowInlineSource, SearchCodebase) inject content into the panel when open
+  - `Space+a` now toggles the agent panel open/closed (previously created a new agent pane)
+
 - **Vim-style navigation for channels panel**: Added vim keybindings to navigate to and within the team channels panel:
   - Press `h` at the leftmost pane edge to transfer focus to the channels panel
   - Works in both section-based and tile-based workspace layouts
@@ -122,6 +134,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Dynamic pane addition in sections mode**: Fixed `:terminal`, `:trace`, and other dynamic pane commands not showing panes when collapsible sections were active. The `add_tile_to_viewport` method now automatically clears sections mode when adding dynamic panes, since they aren't part of any configured section. This ensures newly created panes are always visible.
+
 - **Visual-multi selection in sections**: Fixed visual-multi mode (Ctrl+V) not displaying selection indicators when using collapsible sections. Section render methods (horizontal, vertical, grid, tabs) now properly draw visual-multi selection highlights on selected panes. Also fixed navigation in visual-multi mode to work with flat pane lists in sections.
 
 - **Focus border alignment**: Fixed the focus border around selected panes not aligning with actual content. Changed from using `available_rect_before_wrap()` to `min_rect()` to get the actual content rectangle.
@@ -135,6 +149,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Style picker focus restoration**: Fixed vim navigation not working after closing the style picker (theme/font selector). The picker now clears egui framework focus when it closes, ensuring keyboard events are properly handled by vim navigation. Also fixed returning focus to viewport from channels panel to properly restore focus to the first pane if no pane was previously focused.
 
 ### Removed
+
+- **AgentPane component**: Removed the `AgentPane` viewport pane in favor of the `AgentPanel` overlay. AI agent conversations now use the right-side panel exclusively, providing a cleaner separation between observability content (viewport panes) and AI assistance (overlay panel). The inline content types (`InlineChart`, `InlineSource`, `InlineSearchResults`) have been moved to a new `inline_content.rs` module.
 
 - **Workspace tab bar**: Removed the workspace tab bar (barbar.nvim-style) at the top of the editor. The editor now manages a single workspace directly instead of multiple tabs. Related keyboard shortcuts (`Shift+N`, `Shift+P`, `Shift+T`, `Shift+X`) have been removed. The `:q` command now quits the application instead of closing the current tab.
 

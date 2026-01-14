@@ -2479,6 +2479,17 @@ impl Workspace {
             return;
         }
 
+        // Handle Tab to open in agent panel (side panel handoff)
+        if result.open_in_pane {
+            if let Some(handoff) = self.agent_input_bar.export_for_handoff() {
+                log::info!("Handing off conversation to agent panel");
+                self.agent_panel.import_from_handoff(handoff);
+                self.exit_agent_mode();
+                ctx.request_repaint();
+                return;
+            }
+        }
+
         // Handle context operations
         if result.add_pane_to_context {
             self.add_focused_to_agent_context();

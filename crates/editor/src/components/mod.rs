@@ -9,11 +9,11 @@ pub mod widget;
 
 // Re-export from pane
 pub use pane::{
-    AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, CommitMarker, DataPoint,
-    GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSource,
-    LogsBackend, LogsPane, LogsPaneAction, QueryPane, QueryPaneAction, Series, SparklineViz,
-    StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction, Visualization,
-    VisualizationType,
+    AgentAiProvider, Bar, BarChartViz, CommitMarker, DataPoint, GaugeChart, HeatmapCell,
+    HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSearchResults, InlineSource,
+    LogsBackend, LogsPane, LogsPaneAction, QueryPane, QueryPaneAction, SearchResultItem, Series,
+    SparklineViz, StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction,
+    Visualization, VisualizationType,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use pane::{TerminalPane, TerminalPaneAction};

@@ -29,10 +29,10 @@ use crate::components::overlay::AgentCommand;
 use crate::components::overlay::SlashCommandPopup;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::overlay::{parse_commands, strip_command_blocks};
-use crate::components::util::ActivityItem;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::ActivityType;
 use crate::components::util::finder_utils::{OverlayColors, OverlayStyle};
+use crate::components::util::{ActivityItem, ConversationHandoff, HandoffContextPane};
 
 /// State of the agent input bar
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -118,6 +118,8 @@ pub struct AgentInputBarResult {
     pub undo_requested: bool,
     /// Enya commands parsed from AI response (e.g., create_pane, set_time_range)
     pub commands: Vec<AgentCommand>,
+    /// Request to open the conversation in a full agent pane (Tab key handoff)
+    pub open_in_pane: bool,
 }
 
 /// Context pane information for display
@@ -268,6 +270,8 @@ pub struct AgentInputBar {
     context_panes: Vec<ContextPane>,
     /// Current AI provider name (e.g., "Claude", "Codex")
     provider_name: String,
+    /// Last query sent to the AI (for handoff)
+    last_query: String,
     /// Last response text (for display)
     response_text: String,
     /// Display text (response with command blocks stripped)
@@ -318,6 +322,7 @@ impl AgentInputBar {
             theme: AppTheme::default(),
             context_panes: Vec::new(),
             provider_name: "Claude".to_string(),
+            last_query: String::new(),
             response_text: String::new(),
             display_text: String::new(),
             response_expanded: false,
@@ -348,6 +353,7 @@ impl AgentInputBar {
             theme: AppTheme::default(),
             context_panes: Vec::new(),
             provider_name: "Claude".to_string(),
+            last_query: String::new(),
             response_text: String::new(),
             display_text: String::new(),
             response_expanded: false,
@@ -435,12 +441,44 @@ impl AgentInputBar {
         &self.display_text
     }
 
+    /// Export the current conversation state for handoff to an agent pane.
+    ///
+    /// This is used when the user presses Tab in response state to continue
+    /// the conversation in a full agent pane. Returns `None` if there's no
+    /// conversation to export (e.g., not in response state or empty query).
+    pub fn export_for_handoff(&self) -> Option<ConversationHandoff> {
+        // Only allow handoff from response state with actual content
+        if self.state != AgentInputState::Response {
+            return None;
+        }
+
+        if self.last_query.is_empty() && self.response_text.is_empty() {
+            return None;
+        }
+
+        Some(ConversationHandoff {
+            query: self.last_query.clone(),
+            response: self.response_text.clone(),
+            display_text: self.display_text.clone(),
+            context_panes: self
+                .context_panes
+                .iter()
+                .map(|p| HandoffContextPane {
+                    tile_id: p.tile_id,
+                    name: p.name.clone(),
+                })
+                .collect(),
+            activities: self.activities.clone(),
+        })
+    }
+
     /// Reset to ready state (for entering agent mode)
     pub fn reset(&mut self) {
         self.state = AgentInputState::Ready;
         self.input.clear();
         self.prev_input.clear();
         self.focus_input = true;
+        self.last_query.clear();
         self.response_text.clear();
         self.display_text.clear();
         self.response_expanded = false;
@@ -1308,6 +1346,20 @@ impl AgentInputBar {
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Tab hint for opening in panel - show with accent color
+            let accent = self.theme.accent_primary();
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.label(RichText::new("Tab").color(accent).size(typography::SM));
+                ui.label(
+                    RichText::new("open in panel")
+                        .color(colors.muted_text)
+                        .size(typography::SM),
+                );
+            });
+
+            ui.add_space(12.0);
+
             // Undo button if available
             if self.can_undo
                 && ui
@@ -1658,6 +1710,11 @@ impl AgentInputBar {
                     }
                 }
                 AgentInputState::Response => {
+                    // Tab to open in agent pane (handoff)
+                    if input.consume_key(egui::Modifiers::NONE, Key::Tab) {
+                        result.open_in_pane = true;
+                    }
+
                     // Enter to continue (new query)
                     if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
                         self.clear_response();
@@ -1708,6 +1765,9 @@ impl AgentInputBar {
     /// providing context about the editor state and available commands.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn send_query(&mut self, query: &str, system_context: Option<&str>) {
+        // Store the query for potential handoff
+        self.last_query = query.to_string();
+
         // Transition to processing state
         self.state = AgentInputState::Processing;
         self.processing_status = "Sending to agent...".to_string();
@@ -1733,9 +1793,11 @@ impl AgentInputBar {
 
     /// Send a query (WASM version - not supported)
     #[cfg(target_arch = "wasm32")]
-    pub fn send_query(&mut self, _query: &str, _context: Option<&str>) {
+    pub fn send_query(&mut self, query: &str, _context: Option<&str>) {
+        self.last_query = query.to_string();
         self.state = AgentInputState::Response;
         self.response_text = "Claude Code CLI is not available in the browser.".to_string();
+        self.display_text = self.response_text.clone();
         self.can_undo = false;
     }
 

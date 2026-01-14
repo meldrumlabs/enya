@@ -752,8 +752,8 @@ impl Workspace {
         }
 
         if should_toggle_agent_panel {
-            // Create or focus an agent pane instead of toggling the overlay
-            self.focus_or_create_agent_pane();
+            // Toggle the agent panel overlay (right-side drawer)
+            self.agent_panel.toggle();
             ctx.request_repaint();
         }
 

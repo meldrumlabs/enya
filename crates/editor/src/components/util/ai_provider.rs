@@ -1,7 +1,7 @@
 //! AI provider and model definitions.
 //!
 //! Provides shared types for AI provider and model selection,
-//! used by both the `AgentPanel` overlay and `AgentPane` pane.
+//! used by the `AgentPanel` overlay and `AgentInputBar` widget.
 
 /// Available AI providers for agent chat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

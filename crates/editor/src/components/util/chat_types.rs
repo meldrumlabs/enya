@@ -1,7 +1,9 @@
 //! Shared types for AI chat components.
 //!
-//! Provides common types used by both the `AgentPanel` overlay and `AgentPane` pane
+//! Provides common types used by the `AgentPanel` overlay and `AgentInputBar` widget
 //! for chat interactions with AI agents.
+
+use egui_tiles::TileId;
 
 /// Role of a message sender in a chat conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,4 +60,35 @@ pub enum ResponseStatus {
     Responding,
     /// Response is complete
     Complete,
+}
+
+/// Context pane reference for conversation handoff.
+///
+/// Contains the minimal information needed to reference a pane
+/// that was part of the conversation context.
+#[derive(Debug, Clone)]
+pub struct HandoffContextPane {
+    /// Tile ID for the pane
+    pub tile_id: TileId,
+    /// Display name
+    pub name: String,
+}
+
+/// State transferred when handing off a conversation from the input bar to the agent pane.
+///
+/// This allows seamless continuation of a conversation that started in the quick
+/// input bar mode, preserving the full context including the original query,
+/// response, and any pending commands.
+#[derive(Debug, Clone, Default)]
+pub struct ConversationHandoff {
+    /// The original user query
+    pub query: String,
+    /// The AI response text
+    pub response: String,
+    /// Display text (response with command blocks stripped)
+    pub display_text: String,
+    /// Context panes that were attached to the conversation
+    pub context_panes: Vec<HandoffContextPane>,
+    /// Activities from the conversation (tool use, thinking, etc.)
+    pub activities: Vec<ActivityItem>,
 }
