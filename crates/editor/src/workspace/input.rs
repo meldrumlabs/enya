@@ -262,6 +262,95 @@ impl VisualMultiState {
     }
 }
 
+/// Target of keyboard focus in section-based workspace navigation.
+///
+/// When using collapsible sections, focus can be either on a section header
+/// (for expand/collapse operations) or on a specific pane within a section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusTarget {
+    /// No focus (initial state or after clearing)
+    #[default]
+    None,
+    /// Focus is on a section header (by section index)
+    SectionHeader(usize),
+    /// Focus is on a specific pane within a section
+    Pane {
+        /// Index of the section containing the pane
+        section: usize,
+        /// Index of the pane within the section
+        pane: usize,
+    },
+}
+
+impl FocusTarget {
+    /// Create a focus target for the first pane of the first section
+    pub fn first() -> Self {
+        Self::Pane {
+            section: 0,
+            pane: 0,
+        }
+    }
+
+    /// Get the section index this focus target belongs to (if any)
+    pub fn section_index(&self) -> Option<usize> {
+        match self {
+            Self::None => None,
+            Self::SectionHeader(idx) => Some(*idx),
+            Self::Pane { section, .. } => Some(*section),
+        }
+    }
+
+    /// Check if focus is on a section header
+    pub fn is_section_header(&self) -> bool {
+        matches!(self, Self::SectionHeader(_))
+    }
+
+    /// Check if focus is on a pane
+    pub fn is_pane(&self) -> bool {
+        matches!(self, Self::Pane { .. })
+    }
+
+    /// Get the pane index if focus is on a pane
+    pub fn pane_index(&self) -> Option<usize> {
+        match self {
+            Self::Pane { pane, .. } => Some(*pane),
+            _ => None,
+        }
+    }
+}
+
+/// Runtime state for a section (separate from persisted config).
+///
+/// This tracks transient state like collapsed state that may differ
+/// from the initial config during a session.
+#[derive(Debug, Clone, Default)]
+pub struct SectionState {
+    /// Whether the section is currently collapsed
+    pub collapsed: bool,
+}
+
+impl SectionState {
+    /// Create a new section state with the given collapsed value
+    pub fn new(collapsed: bool) -> Self {
+        Self { collapsed }
+    }
+
+    /// Toggle the collapsed state
+    pub fn toggle(&mut self) {
+        self.collapsed = !self.collapsed;
+    }
+
+    /// Expand the section (set collapsed to false)
+    pub fn expand(&mut self) {
+        self.collapsed = false;
+    }
+
+    /// Collapse the section (set collapsed to true)
+    pub fn collapse(&mut self) {
+        self.collapsed = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -623,5 +712,161 @@ mod tests {
         assert_eq!(state.selection_count(), 3);
         state.toggle_selection(tile1);
         assert_eq!(state.selection_count(), 2);
+    }
+
+    // ==================== FocusTarget Tests ====================
+
+    #[test]
+    fn test_focus_target_default() {
+        let target = FocusTarget::default();
+        assert_eq!(target, FocusTarget::None);
+    }
+
+    #[test]
+    fn test_focus_target_first() {
+        let target = FocusTarget::first();
+        assert_eq!(
+            target,
+            FocusTarget::Pane {
+                section: 0,
+                pane: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_focus_target_section_index() {
+        assert_eq!(FocusTarget::None.section_index(), None);
+        assert_eq!(FocusTarget::SectionHeader(2).section_index(), Some(2));
+        assert_eq!(
+            FocusTarget::Pane {
+                section: 3,
+                pane: 1
+            }
+            .section_index(),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn test_focus_target_is_section_header() {
+        assert!(!FocusTarget::None.is_section_header());
+        assert!(FocusTarget::SectionHeader(0).is_section_header());
+        assert!(
+            !FocusTarget::Pane {
+                section: 0,
+                pane: 0
+            }
+            .is_section_header()
+        );
+    }
+
+    #[test]
+    fn test_focus_target_is_pane() {
+        assert!(!FocusTarget::None.is_pane());
+        assert!(!FocusTarget::SectionHeader(0).is_pane());
+        assert!(
+            FocusTarget::Pane {
+                section: 0,
+                pane: 0
+            }
+            .is_pane()
+        );
+    }
+
+    #[test]
+    fn test_focus_target_pane_index() {
+        assert_eq!(FocusTarget::None.pane_index(), None);
+        assert_eq!(FocusTarget::SectionHeader(0).pane_index(), None);
+        assert_eq!(
+            FocusTarget::Pane {
+                section: 2,
+                pane: 5
+            }
+            .pane_index(),
+            Some(5)
+        );
+    }
+
+    #[test]
+    fn test_focus_target_equality() {
+        assert_eq!(FocusTarget::None, FocusTarget::None);
+        assert_eq!(FocusTarget::SectionHeader(1), FocusTarget::SectionHeader(1));
+        assert_ne!(FocusTarget::SectionHeader(1), FocusTarget::SectionHeader(2));
+        assert_eq!(
+            FocusTarget::Pane {
+                section: 1,
+                pane: 2
+            },
+            FocusTarget::Pane {
+                section: 1,
+                pane: 2
+            }
+        );
+        assert_ne!(
+            FocusTarget::Pane {
+                section: 1,
+                pane: 2
+            },
+            FocusTarget::Pane {
+                section: 1,
+                pane: 3
+            }
+        );
+    }
+
+    // ==================== SectionState Tests ====================
+
+    #[test]
+    fn test_section_state_default() {
+        let state = SectionState::default();
+        assert!(!state.collapsed);
+    }
+
+    #[test]
+    fn test_section_state_new() {
+        let state = SectionState::new(true);
+        assert!(state.collapsed);
+
+        let state = SectionState::new(false);
+        assert!(!state.collapsed);
+    }
+
+    #[test]
+    fn test_section_state_toggle() {
+        let mut state = SectionState::new(false);
+        assert!(!state.collapsed);
+
+        state.toggle();
+        assert!(state.collapsed);
+
+        state.toggle();
+        assert!(!state.collapsed);
+    }
+
+    #[test]
+    fn test_section_state_expand() {
+        let mut state = SectionState::new(true);
+        assert!(state.collapsed);
+
+        state.expand();
+        assert!(!state.collapsed);
+
+        // Expand again is a no-op
+        state.expand();
+        assert!(!state.collapsed);
+    }
+
+    #[test]
+    fn test_section_state_collapse() {
+        let mut state = SectionState::new(false);
+        assert!(!state.collapsed);
+
+        state.collapse();
+        assert!(state.collapsed);
+
+        // Collapse again is a no-op
+        state.collapse();
+        assert!(state.collapsed);
     }
 }

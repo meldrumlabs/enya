@@ -579,7 +579,10 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
             {
-                if let Some(current_id) = current_focus {
+                // Use section navigation if sections are active
+                if self.has_sections() {
+                    self.navigate_sections(NavDirection::Left);
+                } else if let Some(current_id) = current_focus {
                     new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
                 } else {
                     new_tile_id = pane_ids.first().copied();
@@ -592,7 +595,10 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
             {
-                if let Some(current_id) = current_focus {
+                // Use section navigation if sections are active
+                if self.has_sections() {
+                    self.navigate_sections(NavDirection::Right);
+                } else if let Some(current_id) = current_focus {
                     new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
                 } else {
                     new_tile_id = pane_ids.first().copied();
@@ -605,7 +611,10 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
             {
-                if let Some(current_id) = current_focus {
+                // Use section navigation if sections are active
+                if self.has_sections() {
+                    self.navigate_sections(NavDirection::Down);
+                } else if let Some(current_id) = current_focus {
                     new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
                 } else {
                     new_tile_id = pane_ids.first().copied();
@@ -618,7 +627,10 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
             {
-                if let Some(current_id) = current_focus {
+                // Use section navigation if sections are active
+                if self.has_sections() {
+                    self.navigate_sections(NavDirection::Up);
+                } else if let Some(current_id) = current_focus {
                     new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
                 } else {
                     new_tile_id = pane_ids.first().copied();
@@ -889,11 +901,8 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
             {
-                if let Some(current_id) = cursor_tile_id {
-                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
-                } else {
-                    new_cursor_id = pane_ids.first().copied();
-                }
+                new_cursor_id =
+                    self.visual_multi_navigate(cursor_tile_id, NavDirection::Down, &pane_ids);
                 consumed = true;
                 return;
             }
@@ -902,11 +911,8 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
             {
-                if let Some(current_id) = cursor_tile_id {
-                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
-                } else {
-                    new_cursor_id = pane_ids.first().copied();
-                }
+                new_cursor_id =
+                    self.visual_multi_navigate(cursor_tile_id, NavDirection::Up, &pane_ids);
                 consumed = true;
                 return;
             }
@@ -915,11 +921,8 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
             {
-                if let Some(current_id) = cursor_tile_id {
-                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
-                } else {
-                    new_cursor_id = pane_ids.first().copied();
-                }
+                new_cursor_id =
+                    self.visual_multi_navigate(cursor_tile_id, NavDirection::Left, &pane_ids);
                 consumed = true;
                 return;
             }
@@ -928,11 +931,8 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
             {
-                if let Some(current_id) = cursor_tile_id {
-                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
-                } else {
-                    new_cursor_id = pane_ids.first().copied();
-                }
+                new_cursor_id =
+                    self.visual_multi_navigate(cursor_tile_id, NavDirection::Right, &pane_ids);
                 consumed = true;
             }
         });
@@ -1039,6 +1039,46 @@ impl Workspace {
             return self.find_sibling_recursive(root_id, current_id, direction);
         }
         None
+    }
+
+    /// Navigate in visual-multi mode, handling both sections and regular workspaces.
+    /// When sections are active, uses flat list navigation.
+    /// Otherwise, uses tree-based sibling navigation.
+    fn visual_multi_navigate(
+        &self,
+        cursor_tile_id: Option<TileId>,
+        direction: NavDirection,
+        pane_ids: &[TileId],
+    ) -> Option<TileId> {
+        if self.has_sections() {
+            // For sections, use flat list navigation (panes are ordered by section)
+            if let Some(current_id) = cursor_tile_id {
+                if let Some(current_idx) = pane_ids.iter().position(|&id| id == current_id) {
+                    let new_idx = match direction {
+                        NavDirection::Down | NavDirection::Right => {
+                            if current_idx + 1 < pane_ids.len() {
+                                current_idx + 1
+                            } else {
+                                current_idx
+                            }
+                        }
+                        NavDirection::Up | NavDirection::Left => current_idx.saturating_sub(1),
+                    };
+                    pane_ids.get(new_idx).copied()
+                } else {
+                    pane_ids.first().copied()
+                }
+            } else {
+                pane_ids.first().copied()
+            }
+        } else {
+            // For regular workspaces, use tree-based navigation
+            if let Some(current_id) = cursor_tile_id {
+                self.find_sibling_in_direction(current_id, direction)
+            } else {
+                pane_ids.first().copied()
+            }
+        }
     }
 
     /// Recursively search for a sibling in the given direction.

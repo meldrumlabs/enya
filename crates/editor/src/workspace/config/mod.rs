@@ -1,7 +1,7 @@
 //! Workspace serialization and deserialization
 //!
 //! Workspaces capture the state of an Enya dashboard:
-//! - Panes with their queries and settings
+//! - Sections with collapsible headers containing grouped panes
 //! - View preferences (theme, panel visibility)
 //! - Time range settings
 //! - Metrics (Prometheus) and Logs (Loki) connection settings
@@ -9,13 +9,13 @@
 //! # File Format
 //!
 //! Workspaces are stored as TOML files, designed to be human-readable and
-//! git-friendly. Example:
+//! git-friendly. Example with sections:
 //!
 //! ```toml
 //! [workspace]
 //! name = "prod-api"
 //! description = "Production API monitoring"
-//! endpoint = "https://prometheus.example.com"  # simple inline metrics endpoint
+//! endpoint = "https://prometheus.example.com"
 //!
 //! [view]
 //! theme = "dark"
@@ -23,11 +23,39 @@
 //! [time]
 //! preset = "1h"
 //!
+//! [[sections]]
+//! name = "API Performance"
+//! layout = "horizontal"
+//!
+//! [[sections.panes]]
+//! query = "rate(http_requests_total[5m])"
+//! name = "Request Rate"
+//!
+//! [[sections.panes]]
+//! query = "histogram_quantile(0.99, http_request_duration_seconds)"
+//! name = "Latency p99"
+//!
+//! [[sections]]
+//! name = "Infrastructure"
+//! layout = "grid"
+//! columns = 2
+//! collapsed = true
+//!
+//! [[sections.panes]]
+//! query = "avg(cpu_usage)"
+//! name = "CPU Usage"
+//! ```
+//!
+//! Legacy format (deprecated - use sections instead):
+//!
+//! ```toml
+//! [workspace]
+//! name = "prod-api"
+//!
 //! [[panes]]
 //! query = "env:prod AND service:api"
 //! name = "API Requests"
 //! tag = "Critical"
-//! aggregation = "avg"
 //! granularity = "5m"
 //! ```
 //!
@@ -159,11 +187,18 @@ pub struct WorkspaceConfig {
     #[serde(default, skip_serializing_if = "TimeConfig::is_default")]
     pub time: TimeConfig,
 
-    /// Pane definitions (queries and their settings)
+    /// Section definitions (groups of panes with collapsible headers)
+    /// If empty, falls back to legacy `panes` field for backward compatibility
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<SectionConfig>,
+
+    /// Legacy pane definitions (deprecated - use sections instead)
+    /// Only used when sections is empty for backward compatibility
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub panes: Vec<PaneConfig>,
 
-    /// Layout configuration (optional - defaults to tabs if omitted)
+    /// Legacy layout configuration (deprecated - sections manage their own layout)
+    /// Only used when sections is empty for backward compatibility
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutConfig>,
 }
@@ -530,6 +565,102 @@ impl std::fmt::Display for RefreshInterval {
 }
 
 // =============================================================================
+// Section Configuration
+// =============================================================================
+
+/// Layout type for sections (how panes within a section are arranged)
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SectionLayout {
+    /// Horizontal arrangement (panes side by side)
+    #[default]
+    Horizontal,
+    /// Vertical arrangement (panes stacked)
+    Vertical,
+    /// Grid arrangement (rows and columns)
+    Grid,
+    /// Tabbed arrangement
+    Tabs,
+}
+
+impl SectionLayout {
+    /// Check if this is the default layout (horizontal)
+    pub fn is_default(&self) -> bool {
+        *self == Self::Horizontal
+    }
+}
+
+/// A section grouping multiple panes with a collapsible header
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionConfig {
+    /// Section name displayed in the header
+    pub name: String,
+
+    /// Layout type for panes within this section
+    #[serde(default, skip_serializing_if = "SectionLayout::is_default")]
+    pub layout: SectionLayout,
+
+    /// Whether the section is collapsed
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub collapsed: bool,
+
+    /// Number of columns for grid layout
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<usize>,
+
+    /// Share ratios for panes (for horizontal/vertical layouts)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shares: Vec<f32>,
+
+    /// Panes within this section
+    #[serde(default)]
+    pub panes: Vec<PaneConfig>,
+}
+
+impl SectionConfig {
+    /// Create a new section with the given name
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            layout: SectionLayout::default(),
+            collapsed: false,
+            columns: None,
+            shares: Vec::new(),
+            panes: Vec::new(),
+        }
+    }
+
+    /// Set the layout type
+    pub fn with_layout(mut self, layout: SectionLayout) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    /// Set the collapsed state
+    pub fn with_collapsed(mut self, collapsed: bool) -> Self {
+        self.collapsed = collapsed;
+        self
+    }
+
+    /// Set the number of columns for grid layout
+    pub fn with_columns(mut self, columns: usize) -> Self {
+        self.columns = Some(columns);
+        self
+    }
+
+    /// Add a pane to this section
+    pub fn with_pane(mut self, pane: PaneConfig) -> Self {
+        self.panes.push(pane);
+        self
+    }
+
+    /// Get share for pane at index (defaults to 1.0 if not specified)
+    pub fn share_for(&self, index: usize) -> f32 {
+        self.shares.get(index).copied().unwrap_or(1.0)
+    }
+}
+
+// =============================================================================
 // Pane Configuration
 // =============================================================================
 
@@ -820,6 +951,7 @@ impl WorkspaceConfig {
             git: GitConfig::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
+            sections: Vec::new(),
             panes: Vec::new(),
             layout: None,
         }
@@ -871,9 +1003,47 @@ impl WorkspaceConfig {
         !self.logs.endpoint.is_empty()
     }
 
-    /// Add a pane to the workspace
+    /// Add a pane to the workspace (legacy - prefer add_section)
     pub fn add_pane(&mut self, pane: PaneConfig) {
         self.panes.push(pane);
+    }
+
+    /// Add a section to the workspace
+    pub fn add_section(&mut self, section: SectionConfig) {
+        self.sections.push(section);
+    }
+
+    /// Get all panes across all sections (flattened view)
+    /// If sections is empty, returns legacy panes
+    pub fn all_panes(&self) -> Vec<&PaneConfig> {
+        if !self.sections.is_empty() {
+            self.sections.iter().flat_map(|s| &s.panes).collect()
+        } else {
+            self.panes.iter().collect()
+        }
+    }
+
+    /// Check if using the new sections format
+    pub fn uses_sections(&self) -> bool {
+        !self.sections.is_empty()
+    }
+
+    /// Migrate legacy panes to a single default section
+    /// Returns the workspace unchanged if already using sections
+    pub fn migrate_to_sections(mut self) -> Self {
+        if self.sections.is_empty() && !self.panes.is_empty() {
+            let section = SectionConfig {
+                name: "Default".to_string(),
+                layout: SectionLayout::default(),
+                collapsed: false,
+                columns: None,
+                shares: Vec::new(),
+                panes: std::mem::take(&mut self.panes),
+            };
+            self.sections.push(section);
+            self.layout = None;
+        }
+        self
     }
 
     /// Parse a workspace from TOML string
@@ -2154,5 +2324,267 @@ version = 999
 
         let encoded = ws.to_base64().unwrap();
         insta::assert_snapshot!(encoded, @"pMwAAAPAkBnNoYXJlZAsBGnN1bShlbnY6cHJvZCkgYnkgKHNlcnZpY2UpAQpQcm9kdWN0aW9uAAEA");
+    }
+
+    // ==================== Section Configuration Tests ====================
+
+    #[test]
+    fn test_section_layout_default() {
+        let layout = SectionLayout::default();
+        assert_eq!(layout, SectionLayout::Horizontal);
+    }
+
+    #[test]
+    fn test_section_layout_serde() {
+        let toml = r#"
+[workspace]
+name = "section-test"
+
+[[sections]]
+name = "API"
+layout = "horizontal"
+
+[[sections.panes]]
+query = "test1"
+
+[[sections]]
+name = "Infra"
+layout = "grid"
+columns = 2
+
+[[sections.panes]]
+query = "test2"
+
+[[sections]]
+name = "Logs"
+layout = "vertical"
+
+[[sections.panes]]
+query = "test3"
+
+[[sections]]
+name = "Overview"
+layout = "tabs"
+
+[[sections.panes]]
+query = "test4"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.sections.len(), 4);
+        assert_eq!(ws.sections[0].layout, SectionLayout::Horizontal);
+        assert_eq!(ws.sections[1].layout, SectionLayout::Grid);
+        assert_eq!(ws.sections[1].columns, Some(2));
+        assert_eq!(ws.sections[2].layout, SectionLayout::Vertical);
+        assert_eq!(ws.sections[3].layout, SectionLayout::Tabs);
+    }
+
+    #[test]
+    fn test_section_config_new() {
+        let section = SectionConfig::new("Test Section");
+        assert_eq!(section.name, "Test Section");
+        assert_eq!(section.layout, SectionLayout::Horizontal);
+        assert!(!section.collapsed);
+        assert!(section.columns.is_none());
+        assert!(section.shares.is_empty());
+        assert!(section.panes.is_empty());
+    }
+
+    #[test]
+    fn test_section_config_builder() {
+        let section = SectionConfig::new("API Performance")
+            .with_layout(SectionLayout::Grid)
+            .with_columns(3)
+            .with_collapsed(true)
+            .with_pane(PaneConfig::new("query1").with_name("Pane 1"))
+            .with_pane(PaneConfig::new("query2").with_name("Pane 2"));
+
+        assert_eq!(section.name, "API Performance");
+        assert_eq!(section.layout, SectionLayout::Grid);
+        assert!(section.collapsed);
+        assert_eq!(section.columns, Some(3));
+        assert_eq!(section.panes.len(), 2);
+    }
+
+    #[test]
+    fn test_section_config_share_for() {
+        let mut section = SectionConfig::new("Test");
+        section.shares = vec![0.3, 0.7];
+
+        assert!((section.share_for(0) - 0.3).abs() < 0.001);
+        assert!((section.share_for(1) - 0.7).abs() < 0.001);
+        assert!((section.share_for(2) - 1.0).abs() < 0.001); // Default
+    }
+
+    #[test]
+    fn test_parse_sections_toml() {
+        let toml = r#"
+[workspace]
+name = "sections-dashboard"
+
+[[sections]]
+name = "API Performance"
+layout = "horizontal"
+
+[[sections.panes]]
+query = "rate(http_requests_total[5m])"
+name = "Request Rate"
+
+[[sections.panes]]
+query = "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"
+name = "Latency p99"
+
+[[sections]]
+name = "Infrastructure"
+layout = "grid"
+columns = 2
+collapsed = true
+
+[[sections.panes]]
+query = "avg(cpu_usage)"
+name = "CPU Usage"
+
+[[sections.panes]]
+query = "avg(memory_usage)"
+name = "Memory Usage"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.workspace.name, "sections-dashboard");
+        assert_eq!(ws.sections.len(), 2);
+
+        // First section
+        assert_eq!(ws.sections[0].name, "API Performance");
+        assert_eq!(ws.sections[0].layout, SectionLayout::Horizontal);
+        assert!(!ws.sections[0].collapsed);
+        assert_eq!(ws.sections[0].panes.len(), 2);
+        assert_eq!(ws.sections[0].panes[0].name, "Request Rate");
+
+        // Second section
+        assert_eq!(ws.sections[1].name, "Infrastructure");
+        assert_eq!(ws.sections[1].layout, SectionLayout::Grid);
+        assert_eq!(ws.sections[1].columns, Some(2));
+        assert!(ws.sections[1].collapsed);
+        assert_eq!(ws.sections[1].panes.len(), 2);
+    }
+
+    #[test]
+    fn test_workspace_uses_sections() {
+        let mut ws = WorkspaceConfig::new("test");
+        assert!(!ws.uses_sections());
+
+        ws.add_section(SectionConfig::new("Test").with_pane(PaneConfig::new("query")));
+        assert!(ws.uses_sections());
+    }
+
+    #[test]
+    fn test_workspace_all_panes_with_sections() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_section(
+            SectionConfig::new("Section 1")
+                .with_pane(PaneConfig::new("q1"))
+                .with_pane(PaneConfig::new("q2")),
+        );
+        ws.add_section(SectionConfig::new("Section 2").with_pane(PaneConfig::new("q3")));
+
+        let all = ws.all_panes();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].query, "q1");
+        assert_eq!(all[1].query, "q2");
+        assert_eq!(all[2].query, "q3");
+    }
+
+    #[test]
+    fn test_workspace_all_panes_legacy() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_pane(PaneConfig::new("q1"));
+        ws.add_pane(PaneConfig::new("q2"));
+
+        let all = ws.all_panes();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].query, "q1");
+        assert_eq!(all[1].query, "q2");
+    }
+
+    #[test]
+    fn test_workspace_migrate_to_sections() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_pane(PaneConfig::new("q1").with_name("Pane 1"));
+        ws.add_pane(PaneConfig::new("q2").with_name("Pane 2"));
+
+        assert!(!ws.uses_sections());
+        assert_eq!(ws.panes.len(), 2);
+
+        let ws = ws.migrate_to_sections();
+
+        assert!(ws.uses_sections());
+        assert_eq!(ws.sections.len(), 1);
+        assert_eq!(ws.sections[0].name, "Default");
+        assert_eq!(ws.sections[0].panes.len(), 2);
+        assert!(ws.panes.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_migrate_to_sections_noop() {
+        // Already using sections - should be a no-op
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_section(SectionConfig::new("Existing").with_pane(PaneConfig::new("q1")));
+
+        let ws = ws.migrate_to_sections();
+
+        assert_eq!(ws.sections.len(), 1);
+        assert_eq!(ws.sections[0].name, "Existing");
+    }
+
+    #[test]
+    fn test_snapshot_workspace_with_sections() {
+        let mut ws = WorkspaceConfig::new("sections-dashboard");
+        ws.add_section(
+            SectionConfig::new("API Performance")
+                .with_layout(SectionLayout::Horizontal)
+                .with_pane(
+                    PaneConfig::new("rate(http_requests_total[5m])").with_name("Request Rate"),
+                )
+                .with_pane(
+                    PaneConfig::new("histogram_quantile(0.99, latency)").with_name("Latency p99"),
+                ),
+        );
+        ws.add_section(
+            SectionConfig::new("Infrastructure")
+                .with_layout(SectionLayout::Grid)
+                .with_columns(2)
+                .with_collapsed(true)
+                .with_pane(PaneConfig::new("avg(cpu_usage)").with_name("CPU"))
+                .with_pane(PaneConfig::new("avg(memory_usage)").with_name("Memory")),
+        );
+
+        let toml = ws.to_toml().unwrap();
+        insta::assert_snapshot!(toml, @r#"
+        [workspace]
+        name = "sections-dashboard"
+
+        [[sections]]
+        name = "API Performance"
+
+        [[sections.panes]]
+        query = "rate(http_requests_total[5m])"
+        name = "Request Rate"
+
+        [[sections.panes]]
+        query = "histogram_quantile(0.99, latency)"
+        name = "Latency p99"
+
+        [[sections]]
+        name = "Infrastructure"
+        layout = "grid"
+        collapsed = true
+        columns = 2
+
+        [[sections.panes]]
+        query = "avg(cpu_usage)"
+        name = "CPU"
+
+        [[sections.panes]]
+        query = "avg(memory_usage)"
+        name = "Memory"
+        "#);
     }
 }
