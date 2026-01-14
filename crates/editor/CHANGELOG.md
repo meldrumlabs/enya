@@ -6,6 +6,17 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Vim-style navigation for channels panel**: Added vim keybindings to navigate to and within the team channels panel:
+  - Press `h` at the leftmost pane edge to transfer focus to the channels panel
+  - Works in both section-based and tile-based workspace layouts
+  - Use `j`/`k` to navigate up/down within the panel, including across sections (threads → channels → team)
+  - Press `Enter` to select the highlighted thread, channel, or team member
+  - In split view (chat open): press `l` to focus the chat input, `Escape` to return to sidebar
+  - In sidebar-only: press `l` to return focus to the viewport
+  - Accent border indicates when the panel has vim focus
+  - Focus state properly resets when panel is hidden via `Space+g` or team disconnect
+  - Keyboard input is blocked when overlays are open (style picker, command palette, finders), including chat input handling
+
 - **Tracing pane for distributed trace visualization**: New pane type for visualizing distributed traces from Grafana Tempo with a waterfall/timeline view:
   - **TracingClient trait** in `enya-client` crate with `TempoClient` implementation for Grafana Tempo HTTP API
   - **Waterfall chart** showing spans as horizontal bars on a timeline with hierarchy indentation
@@ -95,6 +106,10 @@ All notable changes to the Enya editor will be documented in this file.
 - **Single series legend**: Fixed time series charts not showing legends when only a single series is present. Changed condition from `self.series.len() > 1` to `!self.series.is_empty()`.
 
 - **Unified finder WASM freeze**: Fixed the unified fuzzy finder freezing on WASM by using `crate::util::Instant` (which uses `web_time::Instant` on WASM) instead of `std::time::Instant` which doesn't work properly in browsers.
+
+- **Chat input Escape focus release**: Fixed vim navigation not working after pressing Escape to exit the chat input. Four issues were fixed: (1) The text input now properly surrenders both widget-level and global egui focus when returning to sidebar navigation. (2) The channels panel Escape handler no longer closes the split view when the chat input is focused, allowing the chat view to properly handle Escape and return vim focus to the sidebar. (3) Added `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` to clear global focus state, ensuring the keyboard handler's focus check doesn't block vim keys. (4) When closing split view via Escape (e.g., when chat input lost focus due to clicking elsewhere), now properly restores vim focus to sidebar and clears egui focus.
+
+- **Style picker focus restoration**: Fixed vim navigation not working after closing the style picker (theme/font selector). The picker now clears egui framework focus when it closes, ensuring keyboard events are properly handled by vim navigation. Also fixed returning focus to viewport from channels panel to properly restore focus to the first pane if no pane was previously focused.
 
 ### Removed
 

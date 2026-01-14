@@ -6,7 +6,7 @@
 
 use egui_tiles::{Tile, TileId};
 
-use super::{NavDirection, Workspace, WorkspaceAction};
+use super::{FocusTarget, NavDirection, Workspace, WorkspaceAction};
 use crate::components::{
     Buffer, BufferMode, EditExcerpt, QueryPane, QuickCommand, TimeRangePreset,
 };
@@ -49,7 +49,16 @@ impl Workspace {
             return None;
         }
 
-        // Don't handle keys if a text field or modal has focus
+        // Don't handle keys if a text field or modal has focus.
+        //
+        // IMPORTANT: When closing overlays or text inputs that should return to vim navigation,
+        // you must clear BOTH widget-level AND global egui focus:
+        //   1. response.surrender_focus()  - clears widget-level focus
+        //   2. ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))  - clears global focus
+        //
+        // If only widget-level focus is cleared, this check still returns early and vim keys
+        // won't work until the user clicks elsewhere. See chat_view.rs and style_picker.rs
+        // for examples of the correct pattern.
         if ctx.memory(|mem| mem.focused().is_some()) {
             return None;
         }
@@ -85,6 +94,12 @@ impl Workspace {
         // Handle visual-multi mode keyboard shortcuts
         if self.visual_multi_state.is_some() {
             return self.handle_visual_multi_keyboard(ctx);
+        }
+
+        // When channels panel has focus, let it handle j/k/l navigation
+        // (viewport keyboard handling is skipped)
+        if self.channels_panel_focused {
+            return None;
         }
 
         // Check if any buffer is in insert mode - if so, don't handle navigation keys
@@ -129,6 +144,7 @@ impl Workspace {
         let mut should_tab_pane_right = false;
         let mut should_tab_pane_up = false;
         let mut should_tab_pane_down = false;
+        let mut should_focus_channels_panel = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -581,9 +597,24 @@ impl Workspace {
             {
                 // Use section navigation if sections are active
                 if self.has_sections() {
-                    self.navigate_sections(NavDirection::Left);
+                    // Check if at left edge and should transfer to channels panel
+                    let at_left_edge = self.is_at_section_left_edge();
+                    if at_left_edge && self.channels_panel_visible {
+                        should_focus_channels_panel = true;
+                    } else {
+                        self.navigate_sections(NavDirection::Left);
+                    }
                 } else if let Some(current_id) = current_focus {
-                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
+                    let sibling = self.find_sibling_in_direction(current_id, NavDirection::Left);
+                    if sibling.is_some() {
+                        new_tile_id = sibling;
+                    } else if self.channels_panel_visible {
+                        // At left edge with channels panel visible - focus the panel
+                        should_focus_channels_panel = true;
+                    }
+                } else if self.channels_panel_visible {
+                    // No focus and channels panel visible - focus the panel
+                    should_focus_channels_panel = true;
                 } else {
                     new_tile_id = pane_ids.first().copied();
                 }
@@ -758,6 +789,17 @@ impl Workspace {
             ctx.request_repaint();
         } else if should_tab_pane_down {
             self.move_pane_to_tab_with(NavDirection::Down);
+            ctx.request_repaint();
+        }
+
+        // Handle focus transfer to channels panel (vim h at left edge)
+        if should_focus_channels_panel {
+            self.channels_panel_focused = true;
+            self.channels_panel.set_focus(true);
+            // Clear viewport pane focus so it doesn't appear highlighted
+            self.behavior.set_focused_tile(None);
+            // Also clear section focus for section-based workspaces
+            self.section_focus = FocusTarget::None;
             ctx.request_repaint();
         }
 

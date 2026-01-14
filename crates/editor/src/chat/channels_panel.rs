@@ -80,6 +80,8 @@ pub enum ChannelsPanelAction {
         /// Full diff content.
         diff: String,
     },
+    /// User wants to return focus to the viewport (vim l key when panel is focused).
+    ReturnFocusToViewport,
 }
 
 /// Section collapse state.
@@ -114,6 +116,10 @@ pub struct ChannelsPanel {
     split_view_active: bool,
     /// Current user ID.
     current_user_id: Option<UserId>,
+    /// Whether this panel has keyboard focus (for vim j/k/l navigation).
+    has_focus: bool,
+    /// Whether an overlay (style picker, command palette, etc.) blocks keyboard input.
+    overlay_blocks_input: bool,
 }
 
 impl Default for ChannelsPanel {
@@ -137,7 +143,26 @@ impl ChannelsPanel {
             chat_view: ChatView::new(),
             split_view_active: false,
             current_user_id: None,
+            has_focus: false,
+            overlay_blocks_input: false,
         }
+    }
+
+    /// Set whether an overlay blocks keyboard input (style picker, command palette, etc.).
+    pub fn set_overlay_blocks_input(&mut self, blocks: bool) {
+        self.overlay_blocks_input = blocks;
+        // Also propagate to the chat view
+        self.chat_view.set_overlay_blocks_input(blocks);
+    }
+
+    /// Set whether this panel has keyboard focus.
+    pub fn set_focus(&mut self, focused: bool) {
+        self.has_focus = focused;
+    }
+
+    /// Check if this panel has keyboard focus.
+    pub fn has_focus(&self) -> bool {
+        self.has_focus
     }
 
     /// Set the theme.
@@ -261,27 +286,122 @@ impl ChannelsPanel {
         members: &[TeamMember],
         chat_state: &ChatState,
     ) -> ChannelsPanelAction {
-        // Handle keyboard navigation (only arrow keys - j/k are reserved for viewport navigation)
+        // Get section item counts for navigation bounds
+        let section_counts = [threads.len(), channels.len(), members.len()];
+
+        // Handle keyboard navigation
+        // Only handle navigation when:
+        // - No overlay is blocking input (style picker, command palette, etc.)
+        // - AND (Panel has vim focus OR not in split view for arrow keys)
+        // When in split view without vim focus, let the chat input handle keys
+        let handle_nav_keys =
+            !self.overlay_blocks_input && (self.has_focus || !self.split_view_active);
+
+        let mut return_focus = false;
+        let mut enter_pressed = false;
+        let mut should_close_split_view = false;
         ui.ctx().input(|input| {
-            // Section switching with Tab
-            if input.key_pressed(egui::Key::Tab) {
+            // Section switching with Tab (only when not in split view or has vim focus)
+            if handle_nav_keys && input.key_pressed(egui::Key::Tab) {
                 self.focused_section = (self.focused_section + 1) % 3;
                 self.nav_index = 0;
             }
 
-            // Navigate within section (arrow keys only)
-            if input.key_pressed(egui::Key::ArrowUp) && self.nav_index > 0 {
-                self.nav_index -= 1;
-            }
-            if input.key_pressed(egui::Key::ArrowDown) {
-                self.nav_index += 1;
+            // Navigate within section (only when handling nav keys)
+            if handle_nav_keys {
+                let up_pressed = input.key_pressed(egui::Key::ArrowUp)
+                    || (self.has_focus && input.key_pressed(egui::Key::K));
+                let down_pressed = input.key_pressed(egui::Key::ArrowDown)
+                    || (self.has_focus && input.key_pressed(egui::Key::J));
+
+                let current_section_count = section_counts[self.focused_section];
+
+                if up_pressed {
+                    if self.nav_index > 0 {
+                        self.nav_index -= 1;
+                    } else if self.focused_section > 0 {
+                        // Move to previous section
+                        self.focused_section -= 1;
+                        let prev_count = section_counts[self.focused_section];
+                        self.nav_index = prev_count.saturating_sub(1);
+                    }
+                }
+                if down_pressed {
+                    if self.nav_index + 1 < current_section_count {
+                        self.nav_index += 1;
+                    } else if self.focused_section < 2 {
+                        // Move to next section
+                        self.focused_section += 1;
+                        self.nav_index = 0;
+                    }
+                }
+
+                // Enter key to select current item (only in sidebar-only mode or with vim focus)
+                if input.key_pressed(egui::Key::Enter) {
+                    enter_pressed = true;
+                }
             }
 
-            // Escape to close split view
-            if input.key_pressed(egui::Key::Escape) && self.split_view_active {
-                self.close_split_view();
+            // l key navigation (vim-style, only when panel has focus and no overlay)
+            // In split view: l moves focus to chat input
+            // In sidebar-only: l returns focus to viewport
+            if self.has_focus && !self.overlay_blocks_input && input.key_pressed(egui::Key::L) {
+                if self.split_view_active {
+                    // Focus the chat input (to the right)
+                    self.chat_view.focus_input();
+                    self.has_focus = false; // Release vim focus from sidebar
+                } else {
+                    return_focus = true;
+                }
+            }
+
+            // Escape to close split view (only if chat input is NOT focused)
+            // When chat input has focus, let chat view handle Escape to return focus to sidebar
+            if input.key_pressed(egui::Key::Escape)
+                && self.split_view_active
+                && !self.chat_view.is_input_focused()
+            {
+                should_close_split_view = true;
             }
         });
+
+        // Close split view and clear egui focus so vim keys work immediately
+        if should_close_split_view {
+            self.close_split_view();
+            self.has_focus = true; // Restore vim focus to sidebar
+            ui.ctx()
+                .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+        }
+
+        // Handle Enter key selection
+        if enter_pressed {
+            match self.focused_section {
+                0 => {
+                    // Select thread
+                    if let Some(thread) = threads.get(self.nav_index) {
+                        return ChannelsPanelAction::SelectThread(thread.id);
+                    }
+                }
+                1 => {
+                    // Select channel
+                    if let Some(channel) = channels.get(self.nav_index) {
+                        return ChannelsPanelAction::SelectChannel(channel.id);
+                    }
+                }
+                2 => {
+                    // Select team member (start DM)
+                    if let Some(member) = members.get(self.nav_index) {
+                        return ChannelsPanelAction::StartDM(member.user.id);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Return focus action if l was pressed
+        if return_focus {
+            return ChannelsPanelAction::ReturnFocusToViewport;
+        }
 
         if self.split_view_active {
             // Split view layout
@@ -307,14 +427,22 @@ impl ChannelsPanel {
         let sidebar_width = self.sidebar_width.min(available_width * 0.35);
 
         // Use SidePanel for the sidebar to properly fill height
+        // Add accent border when panel has vim focus
+        let sidebar_frame = if self.has_focus {
+            egui::Frame::new()
+                .fill(self.theme.bg_surface())
+                .stroke(Stroke::new(2.0, self.theme.accent_primary()))
+                .inner_margin(egui::Margin::ZERO)
+        } else {
+            egui::Frame::new()
+                .fill(self.theme.bg_surface())
+                .inner_margin(egui::Margin::ZERO)
+        };
+
         egui::SidePanel::left("chat_split_sidebar")
             .resizable(false)
             .exact_width(sidebar_width)
-            .frame(
-                egui::Frame::new()
-                    .fill(self.theme.bg_surface())
-                    .inner_margin(egui::Margin::ZERO),
-            )
+            .frame(sidebar_frame)
             .show_inside(ui, |ui| {
                 action = self.render_sidebar_content(ui, threads, channels, members);
             });
@@ -366,6 +494,10 @@ impl ChannelsPanel {
                     ChatViewAction::OpenDiffViewer { hash, diff } => {
                         action = ChannelsPanelAction::OpenDiffViewer { hash, diff };
                     }
+                    ChatViewAction::ReturnFocusToSidebar => {
+                        // Escape pressed in chat input - return vim focus to sidebar
+                        self.has_focus = true;
+                    }
                     _ => {}
                 }
             });
@@ -382,12 +514,17 @@ impl ChannelsPanel {
         members: &[TeamMember],
     ) -> ChannelsPanelAction {
         // Premium panel frame with subtle inner shadow effect
+        // Use accent border when panel has vim focus
         let panel_bg = self.theme.bg_surface();
-        let border_color = self.theme.border_subtle();
+        let (border_color, border_width) = if self.has_focus {
+            (self.theme.accent_primary(), 2.0)
+        } else {
+            (self.theme.border_subtle(), 1.0)
+        };
 
         let frame = egui::Frame::new()
             .fill(panel_bg)
-            .stroke(Stroke::new(1.0, border_color))
+            .stroke(Stroke::new(border_width, border_color))
             .inner_margin(egui::Margin::symmetric(0, 8));
 
         // Add right border highlight for depth

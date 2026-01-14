@@ -58,6 +58,10 @@ pub struct StylePicker {
     last_font_preview: Option<EditorFont>,
     /// Animation progress for panel switch highlight (0.0 to 1.0)
     panel_switch_anim: f32,
+    /// Whether to scroll to the selected theme (set when navigating)
+    scroll_to_theme: bool,
+    /// Whether to scroll to the selected font (set when navigating)
+    scroll_to_font: bool,
 }
 
 impl Default for StylePicker {
@@ -79,6 +83,8 @@ impl StylePicker {
             last_theme_preview: None,
             last_font_preview: None,
             panel_switch_anim: 0.0,
+            scroll_to_theme: false,
+            scroll_to_font: false,
         }
     }
 
@@ -162,12 +168,16 @@ impl StylePicker {
             self.font_index = font_count - 1;
         }
 
+        // Track if picker is closing (to clear egui focus after input handling)
+        let mut should_clear_focus = false;
+
         // Handle keyboard input - use consume_key to prevent other components from handling
         ctx.input_mut(|i| {
             // Escape to cancel - restore both original theme and font
             if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 self.close();
                 result = StylePickerResult::Cancelled(self.original_theme, self.original_font);
+                should_clear_focus = true;
                 return;
             }
 
@@ -202,11 +212,13 @@ impl StylePicker {
                         let selected = themes[self.theme_index];
                         self.close();
                         result = StylePickerResult::ThemeSelected(selected);
+                        should_clear_focus = true;
                     }
                     StyleTab::Font if font_count > 0 => {
                         let selected = fonts[self.font_index];
                         self.close();
                         result = StylePickerResult::FontSelected(selected);
+                        should_clear_focus = true;
                     }
                     _ => {}
                 }
@@ -214,9 +226,9 @@ impl StylePicker {
             }
 
             // Navigation in focused panel - j/k and arrow keys
-            let (count, index) = match self.focused_panel {
-                StyleTab::Theme => (theme_count, &mut self.theme_index),
-                StyleTab::Font => (font_count, &mut self.font_index),
+            let (count, index, is_theme) = match self.focused_panel {
+                StyleTab::Theme => (theme_count, &mut self.theme_index, true),
+                StyleTab::Font => (font_count, &mut self.font_index, false),
             };
 
             if count > 0 {
@@ -235,12 +247,22 @@ impl StylePicker {
                 {
                     *index = index.checked_sub(1).unwrap_or(count - 1);
                 }
-                // Request repaint for scroll animation if index changed
+                // Request repaint and scroll for animation if index changed
                 if *index != old_index {
                     needs_repaint = true;
+                    if is_theme {
+                        self.scroll_to_theme = true;
+                    } else {
+                        self.scroll_to_font = true;
+                    }
                 }
             }
         });
+
+        // Clear egui focus when picker closes so vim keys work immediately
+        if should_clear_focus {
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+        }
 
         // Request repaint for scroll animation
         if needs_repaint {
@@ -596,9 +618,10 @@ impl StylePicker {
         let (rect, response) =
             ui.allocate_exact_size(Vec2::new(panel_width, row_height), egui::Sense::click());
 
-        // Scroll into view when selected
-        if is_selected {
+        // Scroll into view when navigating to this item (not every frame)
+        if is_selected && self.scroll_to_theme {
             ui.scroll_to_rect(rect, Some(egui::Align::Center));
+            self.scroll_to_theme = false;
         }
 
         // Handle click
@@ -795,9 +818,10 @@ impl StylePicker {
                         egui::Sense::click(),
                     );
 
-                    // Scroll into view when selected
-                    if is_selected {
+                    // Scroll into view when navigating to this item (not every frame)
+                    if is_selected && self.scroll_to_font {
                         ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                        self.scroll_to_font = false;
                     }
 
                     // Handle click

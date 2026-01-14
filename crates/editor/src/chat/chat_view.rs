@@ -387,6 +387,8 @@ pub enum ChatViewAction {
     },
     /// User is typing a commit search query (workspace should provide results).
     SearchCommits(String),
+    /// User pressed Escape in input to return focus to sidebar (vim navigation).
+    ReturnFocusToSidebar,
 }
 
 /// The view mode for the chat.
@@ -439,6 +441,10 @@ pub struct ChatView {
     commit_autocomplete_query: String,
     /// Commit autocomplete: position of the # in the input.
     commit_autocomplete_hash_position: usize,
+    /// Whether an overlay (style picker, command palette, etc.) blocks keyboard input.
+    overlay_blocks_input: bool,
+    /// Request focus on the input field next frame.
+    request_input_focus: bool,
 }
 
 impl Default for ChatView {
@@ -471,7 +477,24 @@ impl ChatView {
             commit_autocomplete_index: 0,
             commit_autocomplete_query: String::new(),
             commit_autocomplete_hash_position: 0,
+            overlay_blocks_input: false,
+            request_input_focus: false,
         }
+    }
+
+    /// Set whether an overlay blocks keyboard input (style picker, command palette, etc.).
+    pub fn set_overlay_blocks_input(&mut self, blocks: bool) {
+        self.overlay_blocks_input = blocks;
+    }
+
+    /// Request focus on the chat input field.
+    pub fn focus_input(&mut self) {
+        self.request_input_focus = true;
+    }
+
+    /// Check if the input field currently has focus.
+    pub fn is_input_focused(&self) -> bool {
+        self.input_focused
     }
 
     /// Set available commit results for # autocomplete.
@@ -1189,14 +1212,15 @@ impl ChatView {
         );
 
         // Handle keyboard input for autocomplete BEFORE text edit (to consume keys)
+        // Skip keyboard handling when an overlay is blocking input (style picker, etc.)
         let mut send_message = false;
         let mut escape_pressed = false;
         let mut select_pressed = false;
         let mut commit_escape_pressed = false;
         let mut commit_select_pressed = false;
 
-        // Handle @ autocomplete (panes)
-        if self.autocomplete_visible {
+        // Handle @ autocomplete (panes) - skip when overlay is blocking
+        if self.autocomplete_visible && !self.overlay_blocks_input {
             let filtered_count = self.filtered_panes().len();
             let autocomplete_index = &mut self.autocomplete_index;
             ui.ctx().input_mut(|input| {
@@ -1237,8 +1261,8 @@ impl ChatView {
                 }
             }
         }
-        // Handle commit autocomplete (#)
-        else if self.commit_autocomplete_visible {
+        // Handle commit autocomplete (#) - skip when overlay is blocking
+        else if self.commit_autocomplete_visible && !self.overlay_blocks_input {
             let filtered_count = self.filtered_commits().len();
             let commit_index = &mut self.commit_autocomplete_index;
             ui.ctx().input_mut(|input| {
@@ -1278,8 +1302,9 @@ impl ChatView {
                     self.complete_commit_reference(&selected_commit);
                 }
             }
-        } else {
+        } else if !self.overlay_blocks_input {
             // When autocomplete is not visible, check for Enter to send
+            // Skip when overlay is blocking input
             let input_not_empty = !self.input_text.trim().is_empty();
             ui.ctx().input_mut(|input| {
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) && input_not_empty {
@@ -1301,6 +1326,35 @@ impl ChatView {
 
         let response = ui.put(text_rect, text_edit);
         self.input_focused = response.has_focus();
+
+        // Request focus on input if flagged (vim l key from sidebar)
+        if self.request_input_focus {
+            response.request_focus();
+            self.request_input_focus = false;
+        }
+
+        // Handle Escape when input is focused (and no autocomplete visible)
+        // to return focus to sidebar for vim navigation
+        if self.input_focused
+            && !self.autocomplete_visible
+            && !self.commit_autocomplete_visible
+            && !self.overlay_blocks_input
+        {
+            let mut should_surrender = false;
+            ui.ctx().input_mut(|input| {
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    action = Some(ChatViewAction::ReturnFocusToSidebar);
+                    should_surrender = true;
+                }
+            });
+            // Surrender egui focus from text input so vim keys work in sidebar
+            if should_surrender {
+                response.surrender_focus();
+                // Also clear global egui focus so keyboard handler doesn't skip vim keys
+                ui.ctx()
+                    .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+            }
+        }
 
         // Detect @ and # for autocomplete (compare current vs previous input)
         if let Some(trigger_action) = self.check_input_triggers() {
