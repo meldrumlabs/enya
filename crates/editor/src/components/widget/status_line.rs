@@ -611,13 +611,34 @@ impl StatusLine {
                 else if status.is_tantivy_indexing && !status.is_error {
                     ui.add_space(16.0);
 
-                    // Show progress if available, otherwise static message
-                    let progress_msg = if let Some((current, total)) = status.tantivy_progress {
-                        if total > 0 && current > 0 {
-                            // Simple format without leading space padding
-                            format!("Indexing commits [{current}/{total}]")
+                    // Search icon for Tantivy indexing
+                    ui.label(
+                        egui::RichText::new(semantic_icons::action::SEARCH)
+                            .color(palette::text::SECONDARY)
+                            .size(typography::MD),
+                    );
+                    ui.add_space(4.0);
+
+                    // Build progress message with details
+                    let progress_msg = if let Some(phase) = &status.tantivy_phase {
+                        if let Some((current, total)) = status.tantivy_progress {
+                            // Show progress with count
+                            if let Some(item) = &status.tantivy_item {
+                                // Truncate item name for display
+                                let truncated = if item.len() > 30 {
+                                    format!("{}...", &item[..27])
+                                } else {
+                                    item.clone()
+                                };
+                                format!("{phase} [{current}/{total}] {truncated}")
+                            } else {
+                                format!("{phase} [{current}/{total}]")
+                            }
+                        } else if let Some(item) = &status.tantivy_item {
+                            // No count, just item name
+                            format!("{phase}: {item}")
                         } else {
-                            "Building search index...".to_string()
+                            phase.clone()
                         }
                     } else {
                         "Building search index...".to_string()
@@ -626,8 +647,7 @@ impl StatusLine {
                     ui.label(
                         egui::RichText::new(progress_msg)
                             .color(palette::text::SECONDARY)
-                            .size(typography::MD)
-                            .family(egui::FontFamily::Monospace),
+                            .size(typography::MD),
                     );
                 }
             }

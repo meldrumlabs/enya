@@ -481,11 +481,15 @@ impl CodebaseManager {
                     let pending_tantivy = Arc::clone(&self.pending_tantivy);
                     let ctx_clone = ctx.clone();
 
-                    // Create progress tracker - UI will read this at 60fps without extra repaints
+                    // Create progress tracker for Tantivy indexing
                     let progress = search::TantivyProgress::new();
                     self.tantivy_progress = Some(progress.clone());
 
                     std::thread::spawn(move || {
+                        // Phase 1: Fetch commit metadata (fast)
+                        progress.set_phase(search::TantivyPhase::FetchingCommits);
+                        progress.set_current_item(Some("Loading commit list...".to_string()));
+
                         log::info!(
                             "Fetching commits for Tantivy index from: {}",
                             repo_path.display()
@@ -498,29 +502,40 @@ impl CodebaseManager {
                                 Vec::new()
                             });
 
-                        // Set up progress for the slow phase (loading diffs)
-                        // This is the only phase we show progress for
-                        progress.set_phase(search::TantivyPhase::IndexingCommits);
-                        progress.set_total(commits.len());
+                        // Phase 2: Load diffs for each commit (slower - shows progress)
+                        if !commits.is_empty() {
+                            progress.set_phase(search::TantivyPhase::IndexingCommits);
+                            progress.set_total(commits.len());
+                            for (i, commit) in commits.iter_mut().enumerate() {
+                                // Update progress with commit info
+                                let short_hash = &commit.hash[..7.min(commit.hash.len())];
+                                let first_line = commit.message.lines().next().unwrap_or("");
+                                let truncated = if first_line.len() > 35 {
+                                    format!("{}...", &first_line[..32])
+                                } else {
+                                    first_line.to_string()
+                                };
+                                progress.increment(Some(format!("{short_hash} {truncated}")));
 
-                        // Load diffs for each commit (slower - this is where we show progress)
-                        for commit in commits.iter_mut() {
-                            progress.increment(None);
-
-                            // Fetch diff for this commit
-                            match enya_analyzer::fetch_commit_diff(&repo_path, &commit.hash) {
-                                Ok(diff) => {
-                                    commit.semantics = enya_analyzer::extract_semantics(&diff);
-                                    commit.diff = diff;
+                                // Fetch diff for this commit
+                                match enya_analyzer::fetch_commit_diff(&repo_path, &commit.hash) {
+                                    Ok(diff) => {
+                                        commit.semantics = enya_analyzer::extract_semantics(&diff);
+                                        commit.diff = diff;
+                                    }
+                                    Err(e) => {
+                                        log::warn!(
+                                            "Failed to fetch diff for {}: {e}",
+                                            &commit.hash[..8]
+                                        );
+                                    }
                                 }
-                                Err(e) => {
-                                    log::warn!(
-                                        "Failed to fetch diff for {}: {e}",
-                                        &commit.hash[..8]
-                                    );
+
+                                // Request repaint periodically for smooth updates
+                                if i % 10 == 0 {
+                                    ctx_clone.request_repaint();
                                 }
                             }
-                            // No repaint request here - UI reads progress at its own 60fps rate
                         }
 
                         log::info!(
@@ -528,10 +543,13 @@ impl CodebaseManager {
                             commits.len()
                         );
 
-                        // Build the Tantivy index (fast, no progress needed)
                         let result = TantivyCodebaseIndex::open_or_create(&repo_path).and_then(
                             |mut tantivy_index| {
-                                tantivy_index.rebuild_with_commits(&index_clone, &commits)?;
+                                tantivy_index.rebuild_with_progress(
+                                    &index_clone,
+                                    &commits,
+                                    Some(&progress),
+                                )?;
                                 Ok(tantivy_index)
                             },
                         );

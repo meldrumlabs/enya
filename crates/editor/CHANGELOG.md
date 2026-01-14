@@ -6,12 +6,11 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
-- **Cleaner Tantivy indexing status**: Improved the status line display during codebase search index building:
-  - Shows "Indexing commits [X/N]" progress during commit diff loading
-  - Shows "Building search index..." when progress details aren't available
-  - Uses monospace font for progress numbers to prevent text jumping
+- **Tantivy indexing status**: Search index building now shows detailed progress in the status line:
+  - Shows search icon with phase label and progress count (e.g., "Indexing commits [42/1000]")
+  - Displays current commit hash and truncated message during indexing
+  - Shows "Loading commit list..." during initial fetch phase
   - Uses gray secondary text color for consistency with file indexing
-  - Fixed timing issue where Tantivy progress wouldn't display on the first frame
 
 ### Added
 
