@@ -5,6 +5,10 @@
 //! - Reference panels (docs, runbooks) during investigations
 //! - Comparison views (yesterday's metrics over today's)
 //! - Scratch space that doesn't pollute saved layouts
+//!
+//! On native platforms, floating panes can be "popped out" to become separate
+//! OS windows that can be moved outside the main application, onto different
+//! monitors, etc.
 
 use egui::{Id, Pos2, Rect, Stroke, StrokeKind, Vec2};
 
@@ -95,6 +99,10 @@ pub struct FloatingPane {
     animation_target_height: f32,
     /// Start height for minimize/expand animations.
     animation_start_height: f32,
+    /// Whether this pane is popped out as a native OS window (native only).
+    /// When true, the pane renders in a separate viewport instead of inline.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub popped_out: bool,
 }
 
 impl FloatingPane {
@@ -136,6 +144,8 @@ impl FloatingPane {
             animation_progress: 0.0,
             animation_target_height: size.y,
             animation_start_height: size.y,
+            #[cfg(not(target_arch = "wasm32"))]
+            popped_out: false,
         }
     }
 
@@ -296,6 +306,12 @@ pub enum FloatingPaneAction {
     TogglePin,
     /// Toggle maximized state (needs viewport rect to be handled).
     ToggleMaximize,
+    /// Pop out to a native OS window (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    PopOut,
+    /// Pop back into the main window (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    PopIn,
 }
 
 /// Render a floating pane and return any resulting action.
@@ -499,6 +515,158 @@ pub fn show_floating_pane(
     action
 }
 
+/// Render a floating pane as a separate OS window (native only).
+///
+/// This creates a native window using egui's viewport system, allowing the pane
+/// to be moved outside the main application window, onto different monitors, etc.
+#[cfg(not(target_arch = "wasm32"))]
+fn show_floating_pane_as_viewport(
+    pane: &mut FloatingPane,
+    ctx: &egui::Context,
+    theme: AppTheme,
+) -> FloatingPaneAction {
+    let mut action = FloatingPaneAction::None;
+    let pane_id = pane.id;
+    let pane_name = pane.name();
+
+    // Create a unique viewport ID for this pane
+    let viewport_id = egui::ViewportId::from_hash_of(("floating_pane_viewport", pane_id.0));
+
+    // Build the viewport with the pane's current size and position
+    let viewport_builder = egui::ViewportBuilder::default()
+        .with_title(pane_name.clone())
+        .with_inner_size([pane.size.x, pane.size.y])
+        .with_min_inner_size([MIN_FLOATING_SIZE.x, MIN_FLOATING_SIZE.y])
+        .with_position([pane.position.x, pane.position.y])
+        .with_decorations(true) // Use native window chrome
+        .with_resizable(true)
+        .with_close_button(true);
+
+    // Use show_viewport_immediate for synchronous rendering
+    // The closure receives the viewport's context
+    ctx.show_viewport_immediate(viewport_id, viewport_builder, |viewport_ctx, _class| {
+        // Check if the viewport was closed by the user (clicked X button)
+        let close_requested = viewport_ctx.input(|i| i.viewport().close_requested());
+
+        // Set up the theme colors for this viewport
+        let bg_color = theme.bg_surface();
+        let visuals = egui::Visuals {
+            panel_fill: bg_color,
+            window_fill: bg_color,
+            ..egui::Visuals::dark()
+        };
+        viewport_ctx.set_visuals(visuals);
+
+        // Create a central panel that fills the viewport
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::NONE
+                    .fill(theme.bg_base())
+                    .inner_margin(0.0),
+            )
+            .show(viewport_ctx, |ui| {
+                // Apply theme styling
+                ui.style_mut().visuals.panel_fill = bg_color;
+
+                // Simple title bar for the popped-out window (in-app buttons)
+                let title_bar_height = 28.0;
+                let title_bar_rect = ui
+                    .allocate_space(Vec2::new(ui.available_width(), title_bar_height))
+                    .1;
+
+                // Draw title bar background
+                ui.painter().rect_filled(
+                    title_bar_rect,
+                    0.0,
+                    theme.bg_elevated(),
+                );
+
+                // Draw title bar bottom border
+                ui.painter().line_segment(
+                    [title_bar_rect.left_bottom(), title_bar_rect.right_bottom()],
+                    Stroke::new(1.0, theme.border_subtle()),
+                );
+
+                // Draw "pop in" button on the right side
+                let pop_in_rect = Rect::from_min_size(
+                    title_bar_rect.right_top() + Vec2::new(-32.0, 4.0),
+                    Vec2::splat(20.0),
+                );
+                let pop_in_response = ui.allocate_rect(pop_in_rect, egui::Sense::click());
+                let pop_in_color = if pop_in_response.hovered() {
+                    theme.text_primary()
+                } else {
+                    theme.text_secondary()
+                };
+
+                // Draw "pop in" icon (arrow pointing into box)
+                let icon_center = pop_in_rect.center();
+                ui.painter().rect_stroke(
+                    Rect::from_center_size(icon_center, Vec2::new(8.0, 8.0)),
+                    2.0,
+                    Stroke::new(1.5, pop_in_color),
+                    StrokeKind::Inside,
+                );
+                ui.painter().line_segment(
+                    [
+                        icon_center + Vec2::new(5.0, -5.0),
+                        icon_center,
+                    ],
+                    Stroke::new(1.5, pop_in_color),
+                );
+
+                // Show tooltip on hover and check for click
+                let pop_in_clicked = pop_in_response.clicked();
+                pop_in_response.on_hover_text("Return to main window");
+
+                // Render the component content
+                let content_rect = ui.available_rect_before_wrap();
+                let mut content_ui = ui.new_child(egui::UiBuilder::new().max_rect(content_rect));
+                content_ui.set_clip_rect(content_rect);
+                pane.component.show(&mut content_ui);
+
+                // Handle pop-in click - use a shared action since we can't return from closure
+                if pop_in_clicked || close_requested {
+                    // We need to signal to pop back in
+                    // Store in viewport memory that we want to pop in
+                    viewport_ctx.memory_mut(|mem| {
+                        mem.data.insert_temp(
+                            egui::Id::new(("floating_pane_action", pane_id.0)),
+                            true, // true = wants to pop in
+                        );
+                    });
+                }
+            });
+
+        // Sync the viewport's position back to the pane
+        if let Some(pos) = viewport_ctx.input(|i| i.viewport().outer_rect).map(|r| r.min) {
+            pane.position = pos;
+        }
+        if let Some(rect) = viewport_ctx.input(|i| i.viewport().inner_rect) {
+            pane.size = rect.size();
+        }
+    });
+
+    // Check if the viewport signaled to pop in (via memory)
+    let wants_pop_in: bool = ctx
+        .memory(|mem| {
+            mem.data
+                .get_temp(egui::Id::new(("floating_pane_action", pane_id.0)))
+        })
+        .unwrap_or(false);
+
+    if wants_pop_in {
+        // Clear the temp data
+        ctx.memory_mut(|mem| {
+            mem.data
+                .remove::<bool>(egui::Id::new(("floating_pane_action", pane_id.0)));
+        });
+        action = FloatingPaneAction::PopIn;
+    }
+
+    action
+}
+
 /// Show the title bar with buttons and return any action.
 fn show_title_bar(
     ui: &mut egui::Ui,
@@ -563,7 +731,12 @@ fn show_title_bar(
     // Title text - use relative offset from title bar left edge
     // Pin button: 8px margin + 24px button + 8px spacing = 40px
     let title_offset = 8.0 + BUTTON_SIZE + 8.0;
-    let buttons_width = 4.0 * (BUTTON_SIZE + 4.0) + 8.0; // 4 buttons with spacing
+    // On native: minimize, dock, pop-out, close (4 buttons)
+    // On WASM: minimize, dock, close (3 buttons)
+    #[cfg(not(target_arch = "wasm32"))]
+    let buttons_width = 4.0 * (BUTTON_SIZE + 4.0) + 8.0;
+    #[cfg(target_arch = "wasm32")]
+    let buttons_width = 3.0 * (BUTTON_SIZE + 4.0) + 8.0;
 
     let title_pos = Pos2::new(
         title_bar_rect.left() + title_offset,
@@ -644,9 +817,91 @@ fn show_title_bar(
         action = FloatingPaneAction::Dock;
     }
 
+    // Track button index for positioning (dock is at index 1)
+    #[allow(unused_mut)] // mut only needed on native for pop-out button
+    let mut button_index = 2.0;
+
+    // Pop-out button (native only) - between dock and close
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let popout_rect = Rect::from_min_size(
+            Pos2::new(buttons_start + button_index * (BUTTON_SIZE + 4.0), button_y),
+            Vec2::splat(BUTTON_SIZE),
+        );
+        let popout_response = ui.allocate_rect(popout_rect, egui::Sense::click());
+        let popout_color = if pane.popped_out {
+            theme.accent_primary()
+        } else if popout_response.hovered() {
+            theme.text_primary()
+        } else {
+            theme.text_tertiary()
+        };
+
+        // Draw pop-out icon (window with arrow going out, or arrow going in if popped out)
+        let popout_center = popout_rect.center();
+        if pane.popped_out {
+            // Draw "pop in" icon: arrow pointing into a box
+            ui.painter().rect_stroke(
+                Rect::from_center_size(popout_center, Vec2::new(10.0, 10.0)),
+                2.0,
+                Stroke::new(1.5, popout_color),
+                StrokeKind::Inside,
+            );
+            // Arrow pointing in (from top-right corner)
+            ui.painter().line_segment(
+                [
+                    popout_center + Vec2::new(6.0, -6.0),
+                    popout_center + Vec2::new(0.0, 0.0),
+                ],
+                Stroke::new(1.5, popout_color),
+            );
+        } else {
+            // Draw "pop out" icon: box with arrow going out to top-right
+            ui.painter().rect_stroke(
+                Rect::from_center_size(popout_center + Vec2::new(-1.0, 1.0), Vec2::new(8.0, 8.0)),
+                2.0,
+                Stroke::new(1.5, popout_color),
+                StrokeKind::Inside,
+            );
+            // Arrow pointing out to top-right
+            ui.painter().line_segment(
+                [
+                    popout_center + Vec2::new(0.0, 0.0),
+                    popout_center + Vec2::new(5.0, -5.0),
+                ],
+                Stroke::new(1.5, popout_color),
+            );
+            // Arrow head
+            ui.painter().line_segment(
+                [
+                    popout_center + Vec2::new(5.0, -5.0),
+                    popout_center + Vec2::new(2.0, -5.0),
+                ],
+                Stroke::new(1.5, popout_color),
+            );
+            ui.painter().line_segment(
+                [
+                    popout_center + Vec2::new(5.0, -5.0),
+                    popout_center + Vec2::new(5.0, -2.0),
+                ],
+                Stroke::new(1.5, popout_color),
+            );
+        }
+
+        if popout_response.clicked() {
+            action = if pane.popped_out {
+                FloatingPaneAction::PopIn
+            } else {
+                FloatingPaneAction::PopOut
+            };
+        }
+
+        button_index += 1.0;
+    }
+
     // Close button
     let close_rect = Rect::from_min_size(
-        Pos2::new(buttons_start + 2.0 * (BUTTON_SIZE + 4.0), button_y),
+        Pos2::new(buttons_start + button_index * (BUTTON_SIZE + 4.0), button_y),
         Vec2::splat(BUTTON_SIZE),
     );
     let close_response = ui.allocate_rect(close_rect, egui::Sense::click());
@@ -988,6 +1243,15 @@ impl FloatingPaneManager {
             let is_focused = self.focused == Some(pane.id);
             let pane_id = pane.id;
 
+            // On native, popped-out panes render in their own OS window
+            #[cfg(not(target_arch = "wasm32"))]
+            let action = if pane.popped_out {
+                show_floating_pane_as_viewport(pane, ctx, theme)
+            } else {
+                show_floating_pane(pane, ctx, theme, is_focused, viewport)
+            };
+
+            #[cfg(target_arch = "wasm32")]
             let action = show_floating_pane(pane, ctx, theme, is_focused, viewport);
 
             if action != FloatingPaneAction::None {
@@ -996,6 +1260,19 @@ impl FloatingPaneManager {
         }
 
         actions
+    }
+
+    /// Toggle pop-out state for a pane (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn toggle_pop_out(&mut self, id: FloatingPaneId) {
+        if let Some(pane) = self.panes.iter_mut().find(|p| p.id == id) {
+            pane.popped_out = !pane.popped_out;
+            log::info!(
+                "Floating pane {} popped {}",
+                pane.name(),
+                if pane.popped_out { "out" } else { "in" }
+            );
+        }
     }
 
     /// Toggle maximize state for a pane.

@@ -1016,6 +1016,10 @@ impl Workspace {
                     self.floating_panes
                         .toggle_maximize(pane_id, floating_viewport);
                 }
+                #[cfg(not(target_arch = "wasm32"))]
+                FloatingPaneAction::PopOut | FloatingPaneAction::PopIn => {
+                    self.floating_panes.toggle_pop_out(pane_id);
+                }
                 FloatingPaneAction::None => {}
             }
         }
