@@ -78,6 +78,12 @@ pub enum CommandResult {
     OpenLogs,
     /// Open logs pane connected to Loki
     OpenLoki(String),
+    /// Float the focused pane (detach to floating window)
+    FloatPane,
+    /// Dock all floating panes back to tile layout
+    DockAllPanes,
+    /// Auto-arrange all floating panes in a grid
+    ArrangeFloatingPanes,
     /// No-op (command not recognized or cancelled)
     None,
 }
@@ -179,6 +185,18 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &[],
         description: "Connect to Loki server (e.g., :loki localhost:3100)",
         kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "float",
+        aliases: &["fl"],
+        description: "Float focused pane (detach to floating window)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "dock",
+        aliases: &["dk"],
+        description: "Dock all floating panes back to tile layout",
+        kind: CommandKind::NoArgs,
     },
 ];
 
@@ -474,6 +492,14 @@ impl CommandPalette {
                     CommandResult::OpenLoki(args[0].to_string())
                 }
             }
+            "float" | "fl" => {
+                if !args.is_empty() && (args[0] == "arrange" || args[0] == "a") {
+                    CommandResult::ArrangeFloatingPanes
+                } else {
+                    CommandResult::FloatPane
+                }
+            }
+            "dock" | "dk" => CommandResult::DockAllPanes,
             _ => CommandResult::None,
         }
     }

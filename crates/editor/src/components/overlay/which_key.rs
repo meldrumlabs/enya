@@ -94,6 +94,10 @@ impl WhichKey {
                         description: "Zen mode",
                     },
                     Keybinding {
+                        key: "gf",
+                        description: "Float pane",
+                    },
+                    Keybinding {
                         key: "Ctrl+V",
                         description: "Multi-select",
                     },

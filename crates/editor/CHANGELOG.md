@@ -6,6 +6,29 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Floating panes** (zellij-inspired): Detachable panes that hover above the tile layout for quick investigations:
+  - Float any focused pane using `gf` (go-float) keyboard shortcut or `:float` command
+  - Floating panes render above tile layout but below modal overlays
+  - Custom title bar with pin, minimize, dock, and close buttons
+  - Drag title bar to reposition, resize from edges and corners
+  - **Double-click title bar to maximize/restore** (fills viewport with margin)
+  - **Screen edge snapping** when dragging within 20px of viewport edges
+  - **Smooth animations**: Fade/scale on appear, animated minimize/expand transitions
+  - **Auto-arrange**: `:float arrange` (or `:fl a`) tiles all floating panes in a grid
+  - **Glass effect**: Semi-transparent backdrop for modern appearance
+  - Dock back to tile layout via dock button or `:dock` command
+  - Pin toggle to keep floating pane on top
+  - Minimize toggle to collapse to title bar only (now animated)
+  - Scratch panes auto-close on Escape
+  - Tab cycling between floating panes (not yet implemented)
+  - Full theme support with focus indicators
+  - **Native breakout windows** (desktop only): Pop floating panes out to separate OS windows
+    - Click the pop-out button (arrow icon) in the title bar to detach to a native window
+    - Native windows can be moved outside the main app, onto different monitors
+    - Custom themed title bar matching the app's dark/light theme (no native chrome)
+    - Draggable title bar for window movement
+    - Click "pop in" button or close button (X) to return the pane to the main app
+
 - **Vim-style navigation for channels panel**: Added vim keybindings to navigate to and within the team channels panel:
   - Press `h` at the leftmost pane edge to transfer focus to the channels panel
   - Works in both section-based and tile-based workspace layouts

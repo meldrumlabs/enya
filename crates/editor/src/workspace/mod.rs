@@ -71,6 +71,10 @@ mod panes;
 // UI rendering (filtered view, scrollbar, scroll-to-focus)
 mod rendering;
 
+// Floating panes (detachable windows above the tile layout)
+mod floating;
+pub use floating::{FloatingPaneAction, FloatingPaneId, FloatingPaneManager};
+
 // Re-export config types for convenience
 pub use config::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
@@ -277,6 +281,10 @@ pub struct Workspace {
     section_focus: FocusTarget,
     /// Section renderer for drawing section headers and layouts
     section_renderer: SectionRenderer,
+
+    // ==================== Floating Panes ====================
+    /// Floating panes that hover above the tile layout
+    floating_panes: FloatingPaneManager,
 }
 
 impl Workspace {
@@ -369,6 +377,8 @@ impl Workspace {
             section_states: Vec::new(),
             section_focus: FocusTarget::default(),
             section_renderer: SectionRenderer::default(),
+            // Floating panes
+            floating_panes: FloatingPaneManager::new(),
         }
     }
 
@@ -962,6 +972,58 @@ impl Workspace {
         });
         } // end else (not chat_split_view_active)
 
+        // ==================== Floating Panes ====================
+        // Render floating panes above the tile layout but below modal overlays
+        self.floating_panes.set_theme(app_state.theme);
+        // Use the available rect as the viewport for floating pane snapping/maximize
+        let floating_viewport = ctx.available_rect();
+        let floating_actions = self
+            .floating_panes
+            .show(ctx, app_state.theme, floating_viewport);
+        for (pane_id, action) in floating_actions {
+            match action {
+                FloatingPaneAction::Close => {
+                    self.floating_panes.remove_pane(pane_id);
+                }
+                FloatingPaneAction::Dock => {
+                    // Dock the floating pane back into the tile layout
+                    if let Some(component) = self.floating_panes.remove_pane(pane_id) {
+                        let pane_tile = self.viewport_tree.tiles.insert_pane(component);
+                        if self.add_tile_to_viewport(pane_tile) {
+                            self.behavior.set_focused_tile(Some(pane_tile));
+                            self.show_landing = false;
+                        }
+                    }
+                }
+                FloatingPaneAction::BringToFront => {
+                    self.floating_panes.bring_to_front(pane_id);
+                    self.floating_panes.set_focus(Some(pane_id));
+                }
+                FloatingPaneAction::ToggleMinimize => {
+                    self.floating_panes.toggle_minimize(pane_id);
+                }
+                FloatingPaneAction::TogglePin => {
+                    if let Some(pane) = self
+                        .floating_panes
+                        .panes
+                        .iter_mut()
+                        .find(|p| p.id == pane_id)
+                    {
+                        pane.pinned = !pane.pinned;
+                    }
+                }
+                FloatingPaneAction::ToggleMaximize => {
+                    self.floating_panes
+                        .toggle_maximize(pane_id, floating_viewport);
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                FloatingPaneAction::PopOut | FloatingPaneAction::PopIn => {
+                    self.floating_panes.toggle_pop_out(pane_id);
+                }
+                FloatingPaneAction::None => {}
+            }
+        }
+
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
@@ -1248,7 +1310,7 @@ impl Workspace {
             }
         }
 
-        self.handle_command_result(cmd_result)
+        self.handle_command_result(cmd_result, ctx)
     }
 
     /// Show the landing page and handle its actions
@@ -1495,11 +1557,15 @@ impl Workspace {
             });
         }
 
-        self.handle_command_result(cmd_result)
+        self.handle_command_result(cmd_result, ctx)
     }
 
     /// Handle a command result from the command palette
-    fn handle_command_result(&mut self, result: CommandResult) -> WorkspaceAction {
+    fn handle_command_result(
+        &mut self,
+        result: CommandResult,
+        ctx: &egui::Context,
+    ) -> WorkspaceAction {
         match result {
             CommandResult::OpenStylePicker => {
                 // Style picker needs current theme and font - flag it to open on next show()
@@ -1573,6 +1639,20 @@ impl Workspace {
             }
             CommandResult::OpenTracing(trace_id) => {
                 self.add_tracing_pane(trace_id.as_deref());
+                WorkspaceAction::None
+            }
+            CommandResult::FloatPane => {
+                self.float_focused_pane(None);
+                WorkspaceAction::None
+            }
+            CommandResult::DockAllPanes => {
+                self.dock_all_floating_panes();
+                WorkspaceAction::None
+            }
+            CommandResult::ArrangeFloatingPanes => {
+                // Use the available rect as viewport for arrange
+                let viewport = ctx.available_rect();
+                self.floating_panes.arrange_panes(viewport);
                 WorkspaceAction::None
             }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {

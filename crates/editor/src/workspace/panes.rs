@@ -1508,4 +1508,74 @@ impl Workspace {
             }
         }
     }
+
+    // ==================== Floating Panes ====================
+
+    /// Dock all floating panes back into the tile layout.
+    ///
+    /// This removes all floating panes and adds them back to the tile tree.
+    pub(super) fn dock_all_floating_panes(&mut self) {
+        // Collect all floating pane IDs first to avoid borrow issues
+        let pane_ids: Vec<_> = self.floating_panes.panes.iter().map(|p| p.id).collect();
+
+        for pane_id in pane_ids {
+            if let Some(component) = self.floating_panes.remove_pane(pane_id) {
+                let pane_tile = self.viewport_tree.tiles.insert_pane(component);
+                if self.add_tile_to_viewport(pane_tile) {
+                    self.show_landing = false;
+                }
+            }
+        }
+
+        log::info!("Docked all floating panes");
+    }
+
+    /// Float the currently focused pane (detach from tile layout to floating window).
+    ///
+    /// This removes the pane from the tile tree and adds it to the floating pane manager.
+    /// The pane appears as a draggable, resizable window above the tile layout.
+    ///
+    /// If `tile_rect` is provided, the floating pane will use that size. Otherwise,
+    /// it will use a reasonable default.
+    pub(super) fn float_focused_pane(&mut self, tile_rect: Option<egui::Rect>) {
+        let focused_tile = match self.behavior.focused_tile() {
+            Some(tile_id) => tile_id,
+            None => {
+                log::debug!("No focused pane to float");
+                return;
+            }
+        };
+
+        // Remove the pane from the tile tree
+        if let Some(egui_tiles::Tile::Pane(component)) =
+            self.viewport_tree.tiles.remove(focused_tile)
+        {
+            // Use a default starting position, offset by floating pane count for stacking
+            let offset = (self.floating_panes.count() as f32) * 30.0;
+
+            // Use the tile rect if provided, otherwise use defaults
+            let (position, size) = if let Some(rect) = tile_rect {
+                // Use the original tile's position and size
+                (rect.min + egui::vec2(offset, offset), rect.size())
+            } else {
+                // Default position and size
+                (
+                    egui::pos2(100.0 + offset, 100.0 + offset),
+                    egui::vec2(500.0, 350.0),
+                )
+            };
+
+            // Add to floating pane manager with the determined size
+            self.floating_panes
+                .add_pane_with_size(component, position, size);
+
+            // Clear the focus from the tile tree since we removed the tile
+            self.behavior.set_focused_tile(None);
+
+            // Clean up the tree structure (remove empty containers)
+            self.viewport_tree.tiles.remove(focused_tile);
+
+            log::info!("Floated pane from tile tree with size {size:?}");
+        }
+    }
 }
