@@ -532,54 +532,53 @@ fn show_floating_pane_as_viewport(
     // Create a unique viewport ID for this pane
     let viewport_id = egui::ViewportId::from_hash_of(("floating_pane_viewport", pane_id.0));
 
-    // Build the viewport with the pane's current size and position
+    // Build the viewport with custom decorations (no native chrome) for consistent theming
+    // This matches how the main app window is styled
     let viewport_builder = egui::ViewportBuilder::default()
         .with_title(pane_name.clone())
         .with_inner_size([pane.size.x, pane.size.y])
         .with_min_inner_size([MIN_FLOATING_SIZE.x, MIN_FLOATING_SIZE.y])
-        .with_position([pane.position.x, pane.position.y])
-        .with_decorations(true) // Use native window chrome
+        .with_decorations(false) // Custom title bar for consistent theme
         .with_resizable(true)
-        .with_close_button(true);
+        .with_transparent(true);
+
+    // Clone the main app's style so the viewport looks consistent
+    let main_style = ctx.style();
 
     // Use show_viewport_immediate for synchronous rendering
-    // The closure receives the viewport's context
     ctx.show_viewport_immediate(viewport_id, viewport_builder, |viewport_ctx, _class| {
         // Check if the viewport was closed by the user (clicked X button)
         let close_requested = viewport_ctx.input(|i| i.viewport().close_requested());
 
-        // Set up the theme colors for this viewport
-        let bg_color = theme.bg_surface();
-        let visuals = egui::Visuals {
-            panel_fill: bg_color,
-            window_fill: bg_color,
-            ..egui::Visuals::dark()
-        };
-        viewport_ctx.set_visuals(visuals);
+        // Apply the main app's style to this viewport for consistent theming
+        viewport_ctx.set_style((*main_style).clone());
 
         // Create a central panel that fills the viewport
+        // Use a frame with border since we don't have native window decorations
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::NONE
                     .fill(theme.bg_base())
-                    .inner_margin(0.0),
+                    .inner_margin(0.0)
+                    .corner_radius(8.0)
+                    .stroke(Stroke::new(1.0, theme.border_subtle())),
             )
             .show(viewport_ctx, |ui| {
-                // Apply theme styling
-                ui.style_mut().visuals.panel_fill = bg_color;
-
-                // Simple title bar for the popped-out window (in-app buttons)
-                let title_bar_height = 28.0;
+                // Custom title bar (since we disabled native decorations for theming)
+                let title_bar_height = 32.0;
                 let title_bar_rect = ui
                     .allocate_space(Vec2::new(ui.available_width(), title_bar_height))
                     .1;
 
-                // Draw title bar background
-                ui.painter().rect_filled(
-                    title_bar_rect,
-                    0.0,
-                    theme.bg_elevated(),
-                );
+                // Draw title bar background with slight rounding at top
+                let title_rounding = egui::CornerRadius {
+                    nw: 8,
+                    ne: 8,
+                    sw: 0,
+                    se: 0,
+                };
+                ui.painter()
+                    .rect_filled(title_bar_rect, title_rounding, theme.bg_elevated());
 
                 // Draw title bar bottom border
                 ui.painter().line_segment(
@@ -587,9 +586,51 @@ fn show_floating_pane_as_viewport(
                     Stroke::new(1.0, theme.border_subtle()),
                 );
 
-                // Draw "pop in" button on the right side
+                // Make title bar draggable (for window movement)
+                let title_bar_response = ui.interact(
+                    title_bar_rect,
+                    Id::new(("viewport_title_bar", pane_id.0)),
+                    egui::Sense::drag(),
+                );
+                if title_bar_response.dragged() {
+                    viewport_ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+
+                // Close button (X) on the right
+                let close_rect = Rect::from_min_size(
+                    title_bar_rect.right_top() + Vec2::new(-32.0, 6.0),
+                    Vec2::splat(20.0),
+                );
+                let close_response = ui.allocate_rect(close_rect, egui::Sense::click());
+                let close_color = if close_response.hovered() {
+                    theme.semantic_error()
+                } else {
+                    theme.text_tertiary()
+                };
+
+                // Draw X icon
+                let close_center = close_rect.center();
+                let x_offset = 5.0;
+                ui.painter().line_segment(
+                    [
+                        close_center - Vec2::new(x_offset, x_offset),
+                        close_center + Vec2::new(x_offset, x_offset),
+                    ],
+                    Stroke::new(2.0, close_color),
+                );
+                ui.painter().line_segment(
+                    [
+                        close_center + Vec2::new(-x_offset, x_offset),
+                        close_center + Vec2::new(x_offset, -x_offset),
+                    ],
+                    Stroke::new(2.0, close_color),
+                );
+                let close_clicked = close_response.clicked();
+                close_response.on_hover_text("Close window");
+
+                // Pop-in button (arrow into box) - left of close
                 let pop_in_rect = Rect::from_min_size(
-                    title_bar_rect.right_top() + Vec2::new(-32.0, 4.0),
+                    title_bar_rect.right_top() + Vec2::new(-58.0, 6.0),
                     Vec2::splat(20.0),
                 );
                 let pop_in_response = ui.allocate_rect(pop_in_rect, egui::Sense::click());
@@ -608,16 +649,20 @@ fn show_floating_pane_as_viewport(
                     StrokeKind::Inside,
                 );
                 ui.painter().line_segment(
-                    [
-                        icon_center + Vec2::new(5.0, -5.0),
-                        icon_center,
-                    ],
+                    [icon_center + Vec2::new(5.0, -5.0), icon_center],
                     Stroke::new(1.5, pop_in_color),
                 );
-
-                // Show tooltip on hover and check for click
                 let pop_in_clicked = pop_in_response.clicked();
                 pop_in_response.on_hover_text("Return to main window");
+
+                // Draw pane name in title bar (left side)
+                ui.painter().text(
+                    Pos2::new(title_bar_rect.left() + 12.0, title_bar_rect.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    &pane_name,
+                    crate::ui::typography::body(),
+                    theme.text_primary(),
+                );
 
                 // Render the component content
                 let content_rect = ui.available_rect_before_wrap();
@@ -625,26 +670,15 @@ fn show_floating_pane_as_viewport(
                 content_ui.set_clip_rect(content_rect);
                 pane.component.show(&mut content_ui);
 
-                // Handle pop-in click - use a shared action since we can't return from closure
-                if pop_in_clicked || close_requested {
-                    // We need to signal to pop back in
-                    // Store in viewport memory that we want to pop in
+                // Handle close or pop-in click
+                if pop_in_clicked || close_clicked || close_requested {
+                    // Signal to pop back in via temp memory
                     viewport_ctx.memory_mut(|mem| {
-                        mem.data.insert_temp(
-                            egui::Id::new(("floating_pane_action", pane_id.0)),
-                            true, // true = wants to pop in
-                        );
+                        mem.data
+                            .insert_temp(egui::Id::new(("floating_pane_action", pane_id.0)), true);
                     });
                 }
             });
-
-        // Sync the viewport's position back to the pane
-        if let Some(pos) = viewport_ctx.input(|i| i.viewport().outer_rect).map(|r| r.min) {
-            pane.position = pos;
-        }
-        if let Some(rect) = viewport_ctx.input(|i| i.viewport().inner_rect) {
-            pane.size = rect.size();
-        }
     });
 
     // Check if the viewport signaled to pop in (via memory)

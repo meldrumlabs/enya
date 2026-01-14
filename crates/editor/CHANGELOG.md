@@ -25,9 +25,9 @@ All notable changes to the Enya editor will be documented in this file.
   - **Native breakout windows** (desktop only): Pop floating panes out to separate OS windows
     - Click the pop-out button (arrow icon) in the title bar to detach to a native window
     - Native windows can be moved outside the main app, onto different monitors
-    - Uses native window chrome with standard minimize/maximize/close buttons
-    - Click "pop in" button or close the window to return to the main app
-    - Window position and size sync back to the floating pane state
+    - Custom themed title bar matching the app's dark/light theme (no native chrome)
+    - Draggable title bar for window movement
+    - Click "pop in" button or close button (X) to return the pane to the main app
 
 - **Vim-style navigation for channels panel**: Added vim keybindings to navigate to and within the team channels panel:
   - Press `h` at the leftmost pane edge to transfer focus to the channels panel
