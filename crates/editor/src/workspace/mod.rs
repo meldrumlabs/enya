@@ -265,6 +265,8 @@ pub struct Workspace {
     channels_panel: ChannelsPanel,
     /// Whether the channels panel sidebar is visible
     channels_panel_visible: bool,
+    /// Whether the channels panel has keyboard focus (vim h/l to transfer)
+    channels_panel_focused: bool,
 
     // ==================== Collapsible Sections ====================
     /// Section configurations (when workspace uses sections format)
@@ -361,6 +363,7 @@ impl Workspace {
             annotation_editor: AnnotationEditor::new(),
             channels_panel: ChannelsPanel::new(),
             channels_panel_visible: false,
+            channels_panel_focused: false,
             // Section state
             section_configs: Vec::new(),
             section_states: Vec::new(),
@@ -602,6 +605,16 @@ impl Workspace {
         let mut pending_create_thread: Option<crate::chat::ChannelId> = None;
         let mut pending_commit_search: Option<String> = None;
         let mut pending_diff_viewer: Option<(String, String)> = None;
+
+        // Check if any overlay is open that should block channels panel keyboard input
+        let overlay_blocks_input = self.style_picker.is_open()
+            || self.workspace_finder.is_open()
+            || self.unified_finder.is_open()
+            || self.command_palette.is_open()
+            || self.which_key.is_open();
+        self.channels_panel
+            .set_overlay_blocks_input(overlay_blocks_input);
+
         if self.channels_panel_visible && self.team_status.is_some() && !chat_split_view_active {
             if let Some(chat_state) = chat_state {
                 // Update available panes for @-mention autocomplete
@@ -656,6 +669,17 @@ impl Workspace {
                             }
                             ChannelsPanelAction::OpenDiffViewer { hash, diff } => {
                                 pending_diff_viewer = Some((hash, diff));
+                            }
+                            ChannelsPanelAction::ReturnFocusToViewport => {
+                                // Vim l key pressed - return focus to viewport
+                                self.channels_panel_focused = false;
+                                self.channels_panel.set_focus(false);
+                                // Restore focus to first pane if nothing else has focus
+                                if self.behavior.focused_tile().is_none() {
+                                    if let Some(first_pane) = self.get_pane_tile_ids().first() {
+                                        self.behavior.set_focused_tile(Some(*first_pane));
+                                    }
+                                }
                             }
                             ChannelsPanelAction::None => {}
                         }
@@ -713,6 +737,17 @@ impl Workspace {
                         }
                         ChannelsPanelAction::OpenDiffViewer { hash, diff } => {
                             pending_diff_viewer = Some((hash, diff));
+                        }
+                        ChannelsPanelAction::ReturnFocusToViewport => {
+                            // Vim l key pressed - return focus to viewport
+                            self.channels_panel_focused = false;
+                            self.channels_panel.set_focus(false);
+                            // Restore focus to first pane if nothing else has focus
+                            if self.behavior.focused_tile().is_none() {
+                                if let Some(first_pane) = self.get_pane_tile_ids().first() {
+                                    self.behavior.set_focused_tile(Some(*first_pane));
+                                }
+                            }
                         }
                         ChannelsPanelAction::None => {}
                     }
@@ -1710,6 +1745,24 @@ impl Workspace {
         !self.section_configs.is_empty()
     }
 
+    /// Check if current section focus is at the left edge (for channels panel transfer)
+    ///
+    /// Returns true when:
+    /// - Focus is on section header 0 (first section)
+    /// - Focus is on pane 0 of section 0 (first pane of first section)
+    /// - No focus (will transfer to channels panel)
+    pub fn is_at_section_left_edge(&self) -> bool {
+        matches!(
+            self.section_focus,
+            FocusTarget::None
+                | FocusTarget::SectionHeader(0)
+                | FocusTarget::Pane {
+                    section: 0,
+                    pane: 0
+                }
+        )
+    }
+
     /// Navigate in a direction within sections (hjkl navigation)
     /// Returns true if navigation was handled, false if sections are not active
     pub fn navigate_sections(&mut self, direction: NavDirection) -> bool {
@@ -1970,11 +2023,18 @@ impl Workspace {
     /// Hide channels panel (called when disconnecting from team).
     pub fn hide_channels_panel(&mut self) {
         self.channels_panel_visible = false;
+        self.channels_panel_focused = false;
+        self.channels_panel.set_focus(false);
     }
 
     /// Toggle channels panel sidebar visibility
     pub fn toggle_channels_panel(&mut self) {
         self.channels_panel_visible = !self.channels_panel_visible;
+        // Reset focus state when hiding
+        if !self.channels_panel_visible {
+            self.channels_panel_focused = false;
+            self.channels_panel.set_focus(false);
+        }
     }
 
     /// Check if channels panel is visible
