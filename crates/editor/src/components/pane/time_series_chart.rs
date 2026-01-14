@@ -1033,8 +1033,8 @@ impl TimeSeriesChart {
         let grid_color = self.theme.border_subtle().gamma_multiply(0.25);
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
-        // Legend above the chart (only show if multiple series)
-        if self.show_legend && self.series.len() > 1 {
+        // Legend above the chart (show if any series exist)
+        if self.show_legend && !self.series.is_empty() {
             const MAX_VISIBLE_SERIES: usize = 5;
             let total_series = self.series.len();
             let show_overflow = total_series > MAX_VISIBLE_SERIES;

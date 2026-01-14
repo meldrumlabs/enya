@@ -9,9 +9,9 @@ use rustc_hash::FxHashMap;
 use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
-    ConnectionConfig, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig,
-    MetricsConfig, PaneConfig, RefreshInterval, TimeConfig, ViewConfig, WORKSPACE_VERSION,
-    Workspace, WorkspaceConfig, WorkspaceMeta,
+    ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
+    LayoutType, LogsConfig, MetricsConfig, PaneConfig, RefreshInterval, SectionState, TimeConfig,
+    ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
 
@@ -62,6 +62,7 @@ impl Workspace {
                 self.time_range_toolbar.time_range().preset,
                 self.refresh_interval.unwrap_or_default(),
             ),
+            sections: Vec::new(),
             panes,
             layout: self.extract_layout_from_tree(),
         }
@@ -88,10 +89,29 @@ impl Workspace {
         // Reset query counter for new workspace
         self.next_query_number = 1;
 
-        // Phase 1: Insert all panes and collect their TileIds
-        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(config.panes.len());
+        // Initialize section state if workspace uses sections
+        if config.uses_sections() {
+            self.section_configs = config.sections.clone();
+            self.section_states = config
+                .sections
+                .iter()
+                .map(|s| SectionState::new(s.collapsed))
+                .collect();
+            self.section_focus = FocusTarget::first();
+        } else {
+            self.section_configs.clear();
+            self.section_states.clear();
+            self.section_focus = FocusTarget::None;
+        }
 
-        for pane_config in &config.panes {
+        // Get all panes (from sections if present, otherwise from legacy panes field)
+        let all_panes = config.all_panes();
+        let pane_count = all_panes.len();
+
+        // Phase 1: Insert all panes and collect their TileIds
+        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(pane_count);
+
+        for pane_config in &all_panes {
             let query_number = self.next_query_number;
             self.next_query_number += 1;
 
@@ -128,7 +148,7 @@ impl Workspace {
         // Phase 2: Build the layout tree
         let root_id = if let Some(layout) = &config.layout {
             // Validate layout references before building
-            if let Err(e) = layout.validate(config.panes.len()) {
+            if let Err(e) = layout.validate(pane_count) {
                 log::warn!("Invalid layout config: {e}. Falling back to tabs.");
                 self.viewport_tree
                     .tiles
@@ -148,7 +168,7 @@ impl Workspace {
         self.viewport_tree.root = Some(root_id);
 
         // Hide landing page if we have panes
-        if !config.panes.is_empty() {
+        if !all_panes.is_empty() {
             self.show_landing = false;
         }
 
@@ -174,6 +194,13 @@ impl Workspace {
         } else {
             Some(effective_conn.endpoint.clone())
         };
+
+        // Sync behavior.focused_tile() with section_focus for compatibility
+        // with features that rely on tile-based focus (visual-multi, etc.)
+        if self.has_sections() {
+            let tile_id = self.section_focus_to_tile_id();
+            self.behavior.set_focused_tile(tile_id);
+        }
 
         // Return connection config if present (for logging/tracking in caller)
         if effective_conn.is_empty() {

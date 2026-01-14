@@ -318,6 +318,7 @@ impl GrafanaDashboard {
             git: Default::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
+            sections: Vec::new(),
             panes: Vec::new(),
             layout: None,
         };

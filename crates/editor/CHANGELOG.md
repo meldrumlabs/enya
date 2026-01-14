@@ -21,6 +21,28 @@ All notable changes to the Enya editor will be documented in this file.
   - Trace data models: `Trace`, `Span`, `SpanStatus`, `SpanLog`, `TraceSummary`, `TraceSearchParams`
   - `TraceManager` for managing in-flight trace fetch requests
 
+- **Collapsible sections**: Added Grafana-style collapsible sections for grouping panes with expandable/collapsible headers:
+  - New `SectionConfig` and `SectionLayout` types for TOML configuration
+  - Section layouts: horizontal, vertical, grid (with columns), and tabs
+  - New `FocusTarget` enum to track focus on section headers vs panes
+  - New `SectionState` for runtime collapsed state management
+  - `SectionRenderer` component for rendering section headers (with collapse indicator ▼/▶, name, pane count badge)
+  - Section content rendering with layout-specific pane arrangement
+  - Click-to-toggle collapse behavior on section headers
+  - Navigate between sections and panes using standard vim motions (hjkl)
+  - Helper methods: `migrate_to_sections()`, `all_panes()`, `uses_sections()`
+  - Demo workspace (`DEMO_WORKSPACE_TOML`) uses sections format to showcase the feature
+  - Example TOML format:
+    ```toml
+    [[sections]]
+    name = "API Performance"
+    layout = "horizontal"
+
+    [[sections.panes]]
+    query = "rate(http_requests_total[5m])"
+    name = "Request Rate"
+    ```
+
 - **Neovim-style intro message**: When a workspace has no panes, a centered intro screen displays "Enya" with tagline "A Neovim-inspired observability editor for builders", version number, and aligned command hints. Includes `~` tilde markers on every line (left margin) just like Neovim:
   - `type  Space+f    fuzzy finder`
   - `type  aa         ask AI agent` (native only)
@@ -65,6 +87,12 @@ All notable changes to the Enya editor will be documented in this file.
 - **WASM native app promo**: Changed from an intrusive auto-popup overlay to a subtle clickable link below the version badge in the landing page header. Users can click "Download Native App for full experience" to see detailed information about native-only features (git integration, AI agents, persistent workspaces). Less invasive while still informing users about the full desktop experience.
 
 ### Fixed
+
+- **Visual-multi selection in sections**: Fixed visual-multi mode (Ctrl+V) not displaying selection indicators when using collapsible sections. Section render methods (horizontal, vertical, grid, tabs) now properly draw visual-multi selection highlights on selected panes. Also fixed navigation in visual-multi mode to work with flat pane lists in sections.
+
+- **Focus border alignment**: Fixed the focus border around selected panes not aligning with actual content. Changed from using `available_rect_before_wrap()` to `min_rect()` to get the actual content rectangle.
+
+- **Single series legend**: Fixed time series charts not showing legends when only a single series is present. Changed condition from `self.series.len() > 1` to `!self.series.is_empty()`.
 
 - **Unified finder WASM freeze**: Fixed the unified fuzzy finder freezing on WASM by using `crate::util::Instant` (which uses `web_time::Instant` on WASM) instead of `std::time::Instant` which doesn't work properly in browsers.
 
