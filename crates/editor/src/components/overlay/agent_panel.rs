@@ -538,9 +538,9 @@ impl AgentPanel {
             .fill(bg)
             .stroke(Stroke::new(border_width, border_color))
             .inner_margin(egui::Margin::same(0))
-            // Add small left gap for visual separation from viewport (matches channels panel feel)
+            // Add left gap for visual separation from viewport (matches channels panel spacing)
             .outer_margin(egui::Margin {
-                left: 1,
+                left: 8,
                 ..Default::default()
             })
     }
