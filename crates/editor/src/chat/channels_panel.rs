@@ -336,8 +336,8 @@ impl ChannelsPanel {
                     }
                 }
 
-                // Enter key to select current item (only in sidebar-only mode or with vim focus)
-                if input.key_pressed(egui::Key::Enter) {
+                // Enter key to select current item (only when panel has vim focus)
+                if self.has_focus && input.key_pressed(egui::Key::Enter) {
                     enter_pressed = true;
                 }
             }

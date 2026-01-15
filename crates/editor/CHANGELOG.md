@@ -29,6 +29,16 @@ All notable changes to the Enya editor will be documented in this file.
     - Draggable title bar for window movement
     - Click "pop in" button or close button (X) to return the pane to the main app
 
+- **Agent panel as first-class layout participant**: The agent panel now participates in the layout flow like the channels panel:
+  - Viewport shrinks to accommodate the agent panel when open (instead of floating overlay)
+  - Left-edge highlight provides visual anchoring (symmetric with channels panel's right-edge highlight)
+  - Focus state tracking with 2px accent border when panel has vim focus
+  - `show_inside` method for rendering within the UI hierarchy (layout-aware)
+  - Matches the premium feel of the team channels panel on the left side
+  - **Vim navigation**: Press `l` at the rightmost pane edge to focus the agent panel, `h` to return to viewport
+  - Press `i` or `Enter` when panel has vim focus to enter the chat input, `Escape` to return to vim navigation
+  - Works in both section-based and tile-based workspace layouts
+
 - **Tab-to-panel handoff for agent input bar**: Seamlessly continue a conversation from the quick input bar in the persistent agent panel:
   - Press `Tab` when viewing a response in the agent input bar to open it in the side panel
   - Opens the three-panel layout: channels on left, viewport center, agent panel on right
@@ -144,6 +154,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **WASM native app promo**: Changed from an intrusive auto-popup overlay to a subtle clickable link below the version badge in the landing page header. Users can click "Download Native App for full experience" to see detailed information about native-only features (git integration, AI agents, persistent workspaces). Less invasive while still informing users about the full desktop experience.
 
 ### Fixed
+
+- **Agent panel vim navigation**: Fixed vim navigation not working in the agent panel and viewport after opening/returning from the panel. Multiple issues were addressed: (1) Removed the sync loop that was syncing `agent_panel_focused` with the panel's internal `has_focus` state every frame - this was causing focus to be lost unexpectedly. (2) Added `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` when toggling the agent panel open or transferring focus to it, ensuring no stale egui widget focus blocks vim keys. (3) Changed keyboard handling to use `ui.ctx().input()` with `key_pressed()` (matching the channels panel pattern). (4) Fixed text input focus detection to only release vim focus when the user actually clicks on the input, not when egui auto-restores focus. (5) Fixed `focus_input` flag to always clear regardless of vim focus state. (6) Added `skip_vim_keys_once` flag to prevent lingering keypresses from being detected as vim navigation immediately after panel gains focus (e.g., the 'a' from `Space+a` was being detected as 'h' navigation). (7) Fixed `ReturnFocusToViewport` to properly set `section_focus` (not just `behavior.focused_tile()`), which controls the visual focus indicator on viewport panes. (8) Removed `agent_panel.is_open()` from the keyboard handler's early-return condition - the agent panel can be open while viewport has navigation focus (only `agent_panel_focused` should block viewport keyboard handling). (9) Fixed `is_at_section_right_edge()` to return true for the rightmost pane of ANY section (not just the last section), allowing `l` to transfer focus to the agent panel from any section.
 
 - **Dynamic pane addition in sections mode**: Fixed `:terminal`, `:trace`, and other dynamic pane commands not showing panes when collapsible sections were active. The `add_tile_to_viewport` method now automatically clears sections mode when adding dynamic panes, since they aren't part of any configured section. This ensures newly created panes are always visible.
 

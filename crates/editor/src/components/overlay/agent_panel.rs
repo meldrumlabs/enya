@@ -45,6 +45,10 @@ pub enum AgentPanelResult {
     Closed,
     /// Commands parsed from agent response
     Commands(Vec<super::agent_context::AgentCommand>),
+    /// Return focus to the viewport (vim h key pressed)
+    ReturnFocusToViewport,
+    /// Entered input mode (vim i or Enter pressed) - workspace should release vim focus
+    EnteredInputMode,
 }
 
 /// The agent panel component for AI-assisted chat
@@ -52,6 +56,11 @@ pub enum AgentPanelResult {
 pub struct AgentPanel {
     /// Whether the panel is open
     is_open: bool,
+    /// Whether this panel has keyboard focus (for vim-style navigation)
+    has_focus: bool,
+    /// Skip vim key detection for one frame after gaining focus
+    /// (prevents immediate key detection from lingering keypresses)
+    skip_vim_keys_once: bool,
     /// Current theme
     theme: AppTheme,
     /// Chat message history
@@ -99,6 +108,8 @@ impl AgentPanel {
         let provider = AiProvider::default();
         Self {
             is_open: false,
+            has_focus: false,
+            skip_vim_keys_once: false,
             theme: AppTheme::default(),
             messages: Vec::new(),
             input_text: String::new(),
@@ -126,6 +137,8 @@ impl AgentPanel {
         let provider = AiProvider::default();
         Self {
             is_open: false,
+            has_focus: false,
+            skip_vim_keys_once: false,
             theme: AppTheme::default(),
             messages: Vec::new(),
             input_text: String::new(),
@@ -255,7 +268,7 @@ impl AgentPanel {
         {
             msg.inline_blocks.push(content);
             self.scroll_to_bottom = true;
-            log::debug!("Added inline content to agent panel message");
+            log::info!("Added inline content to agent panel message");
         } else {
             log::warn!("No assistant message found to inject inline content");
         }
@@ -278,6 +291,22 @@ impl AgentPanel {
     /// Check if the panel is open
     pub fn is_open(&self) -> bool {
         self.is_open
+    }
+
+    /// Set whether this panel has keyboard focus.
+    pub fn set_focus(&mut self, focused: bool) {
+        // When gaining focus, set flag to skip vim keys for one frame
+        // This prevents lingering keypresses (e.g., 'a' from Space+a) from
+        // being detected as vim navigation keys immediately
+        if focused && !self.has_focus {
+            self.skip_vim_keys_once = true;
+        }
+        self.has_focus = focused;
+    }
+
+    /// Check if this panel has keyboard focus.
+    pub fn has_focus(&self) -> bool {
+        self.has_focus
     }
 
     /// Check if the panel is currently waiting for a response
@@ -367,15 +396,145 @@ impl AgentPanel {
         result
     }
 
+    /// Show the panel within a layout hierarchy (participates in layout flow).
+    ///
+    /// Unlike `show()` which renders as an overlay, this method renders the panel
+    /// as a first-class layout participant. The viewport will shrink to accommodate
+    /// the panel when it's open, similar to the channels panel on the left.
+    #[profiling::function]
+    pub fn show_inside(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> AgentPanelResult {
+        if !self.is_open {
+            // Even when closed, check for pending commands
+            if !self.pending_commands.is_empty() {
+                let commands = std::mem::take(&mut self.pending_commands);
+                return AgentPanelResult::Commands(commands);
+            }
+            return AgentPanelResult::None;
+        }
+
+        // Poll streaming state
+        self.poll_streaming_response();
+
+        // Handle pending submit from external submit_query() call
+        if self.pending_submit && !self.is_waiting {
+            self.pending_submit = false;
+            self.send_message(ctx);
+        }
+
+        // Request repaint while timer is running (to update elapsed time)
+        if self.request_start_time.is_some() {
+            ctx.request_repaint();
+        }
+
+        // Check for pending commands to return
+        let mut result = if !self.pending_commands.is_empty() {
+            let commands = std::mem::take(&mut self.pending_commands);
+            AgentPanelResult::Commands(commands)
+        } else {
+            AgentPanelResult::None
+        };
+
+        // CRITICAL: When panel has vim focus, clear any egui widget focus FIRST
+        // This prevents TextEdit or other widgets from consuming vim navigation keys
+        // Must happen BEFORE we check for keyboard input
+        if self.has_focus {
+            ui.ctx()
+                .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+        }
+
+        // Handle keyboard input when panel has vim focus
+        let mut return_focus = false;
+        let mut enter_input_mode = false;
+        if self.has_focus {
+            // Skip vim key detection for one frame after gaining focus
+            // This prevents lingering keypresses from being detected immediately
+            if self.skip_vim_keys_once {
+                self.skip_vim_keys_once = false;
+                // Still consume any lingering keys so they don't affect other widgets
+                ui.ctx().input_mut(|input| {
+                    let _ = input.consume_key(egui::Modifiers::NONE, Key::H);
+                    let _ = input.consume_key(egui::Modifiers::NONE, Key::A);
+                });
+            } else {
+                // Panel has vim focus - handle vim navigation keys
+                // Use consume_key to ensure keys aren't processed by other widgets
+                ui.ctx().input_mut(|input| {
+                    // Escape or h or left arrow - return focus to viewport
+                    if input.consume_key(egui::Modifiers::NONE, Key::Escape)
+                        || input.consume_key(egui::Modifiers::NONE, Key::H)
+                        || input.consume_key(egui::Modifiers::NONE, Key::ArrowLeft)
+                    {
+                        return_focus = true;
+                    }
+                    // i or Enter - enter insert mode (focus the chat input)
+                    else if input.consume_key(egui::Modifiers::NONE, Key::I)
+                        || input.consume_key(egui::Modifiers::NONE, Key::Enter)
+                    {
+                        enter_input_mode = true;
+                    }
+                });
+            }
+        }
+
+        if return_focus {
+            self.has_focus = false;
+            result = AgentPanelResult::ReturnFocusToViewport;
+        }
+
+        if enter_input_mode {
+            self.has_focus = false;
+            self.focus_input = true;
+            result = AgentPanelResult::EnteredInputMode;
+        }
+
+        // Premium left border for visual anchoring (opposite of channels panel's right border)
+        let left_border = self.theme.border_subtle().gamma_multiply(0.6);
+
+        // Side panel on the right - participates in layout (viewport shrinks)
+        egui::SidePanel::right("agent_panel")
+            .resizable(true)
+            .default_width(400.0)
+            .min_width(300.0)
+            .max_width(800.0)
+            .frame(self.panel_frame())
+            .show_inside(ui, |ui| {
+                // Draw left edge highlight for visual anchoring
+                let panel_rect = ui.available_rect_before_wrap();
+                ui.painter().vline(
+                    panel_rect.left(),
+                    panel_rect.y_range(),
+                    Stroke::new(1.0, left_border),
+                );
+
+                self.render_content(ui, ctx);
+            });
+
+        if matches!(result, AgentPanelResult::Closed) {
+            self.close();
+        }
+
+        result
+    }
+
     fn panel_frame(&self) -> egui::Frame {
         // Premium frosted glass style matching channels panel
+        // Use accent border when panel has vim focus
         let bg = self.theme.bg_surface();
-        let border = self.theme.border_subtle();
+        let (border_color, border_width) = if self.has_focus {
+            (self.theme.accent_primary(), 2.0)
+        } else {
+            (self.theme.border_subtle(), 1.0)
+        };
 
         egui::Frame::NONE
             .fill(bg)
-            .stroke(Stroke::new(1.0, border))
+            .stroke(Stroke::new(border_width, border_color))
             .inner_margin(egui::Margin::same(0))
+            // Add small left gap for visual separation from viewport (matches channels panel feel)
+            .outer_margin(egui::Margin {
+                left: 1,
+                ..Default::default()
+            })
     }
 
     /// Get the chat colors helper for the current theme.
@@ -598,10 +757,46 @@ impl AgentPanel {
                             .font(typography::proportional(typography::MD)),
                     );
 
-                    // Focus input on open
+                    // Only focus input when explicitly requested AND panel doesn't have vim focus
+                    // This allows vim navigation to work by default, like channels panel
                     if self.focus_input {
-                        response.request_focus();
+                        if !self.has_focus {
+                            response.request_focus();
+                        }
+                        // Always clear the flag regardless of whether we focused
                         self.focus_input = false;
+                    }
+
+                    // CRITICAL: If panel has vim focus, ensure the TextEdit doesn't have egui focus
+                    // Otherwise the TextEdit will consume vim navigation keys (h, j, k, l)
+                    if self.has_focus && response.has_focus() {
+                        response.surrender_focus();
+                        ui.ctx()
+                            .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+                    }
+
+                    // When user clicks on text input, release vim focus
+                    // (similar to channels panel split view behavior)
+                    if response.clicked_by(egui::PointerButton::Primary) {
+                        self.has_focus = false;
+                    }
+
+                    // Handle Escape when text input is focused to return vim focus to panel
+                    // (matches ChatView pattern in channels panel)
+                    if response.has_focus() {
+                        let mut should_surrender = false;
+                        ui.ctx().input_mut(|input| {
+                            if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                                should_surrender = true;
+                            }
+                        });
+                        if should_surrender {
+                            self.has_focus = true;
+                            response.surrender_focus();
+                            // Also clear global egui focus so vim keys work immediately
+                            ui.ctx()
+                                .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+                        }
                     }
 
                     // Handle Enter to send

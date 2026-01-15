@@ -229,6 +229,8 @@ pub struct Workspace {
     agent_input_bar: AgentInputBar,
     /// Whether agent mode is active (vim-style modal interaction)
     agent_mode_active: bool,
+    /// Whether the agent panel has keyboard focus (vim h/l to transfer)
+    agent_panel_focused: bool,
     /// Panes in agent context (from visual mode selection or manual +/-)
     agent_context_panes: FxHashSet<TileId>,
     /// Codebase manager for git repo and metrics discovery (native only with codebase feature)
@@ -348,6 +350,7 @@ impl Workspace {
             #[cfg(target_arch = "wasm32")]
             agent_input_bar: AgentInputBar::new(),
             agent_mode_active: false,
+            agent_panel_focused: false,
             agent_context_panes: FxHashSet::default(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
@@ -806,6 +809,49 @@ impl Workspace {
             return WorkspaceAction::OpenDiffViewer { hash, diff };
         }
 
+        // Right sidebar: Agent panel (Claude Code integration)
+        // Rendered as a layout participant - viewport shrinks when panel is open
+        // Update context before showing so the agent has awareness of editor state
+        self.update_agent_context();
+        self.agent_panel.set_theme(app_state.theme);
+        self.agent_panel.set_focus(self.agent_panel_focused);
+        match self.agent_panel.show_inside(ui, ctx) {
+            AgentPanelResult::Closed => {
+                self.agent_panel_focused = false;
+                self.agent_panel.set_focus(false);
+                // Restore focus to last pane if nothing else has focus
+                if self.behavior.focused_tile().is_none() {
+                    if let Some(last_pane) = self.get_pane_tile_ids().last() {
+                        self.behavior.set_focused_tile(Some(*last_pane));
+                    }
+                }
+            }
+            AgentPanelResult::Commands(commands) => {
+                self.handle_agent_commands(commands, ctx);
+            }
+            AgentPanelResult::ReturnFocusToViewport => {
+                // Vim h key pressed - return focus to viewport
+                self.agent_panel_focused = false;
+                self.agent_panel.set_focus(false);
+                // Set section_focus to first focusable target (this controls visual focus)
+                self.section_focus = self.first_focusable_target();
+                // Sync behavior.focused_tile() with section_focus
+                let tile_id = self.section_focus_to_tile_id();
+                self.behavior.set_focused_tile(tile_id);
+            }
+            AgentPanelResult::EnteredInputMode => {
+                // User pressed i or Enter to enter chat input - release vim focus
+                // but keep panel open (user is now typing in the text input)
+                self.agent_panel_focused = false;
+            }
+            AgentPanelResult::None => {
+                // Don't sync - agent_panel_focused should only change via explicit actions
+                // (ReturnFocusToViewport, Closed, or keyboard transfer).
+                // The panel's internal has_focus tracks vim focus within the panel,
+                // while agent_panel_focused tracks whether the workspace considers the panel active.
+            }
+        }
+
         if chat_split_view_active {
             // Already rendered chat in central panel above
         } else {
@@ -1170,19 +1216,8 @@ impl Workspace {
             let _ = self.diff_viewer.show(ctx);
         }
 
-        // Show agent panel (Claude Code integration)
-        // Update context before showing so the agent has awareness of editor state
-        self.update_agent_context();
-        self.agent_panel.set_theme(app_state.theme);
-        match self.agent_panel.show(ctx) {
-            AgentPanelResult::Closed => {
-                log::debug!("Agent panel closed");
-            }
-            AgentPanelResult::Commands(commands) => {
-                self.handle_agent_commands(commands, ctx);
-            }
-            AgentPanelResult::None => {}
-        }
+        // Note: Agent panel is now rendered in the layout section (show_inside)
+        // to participate in layout flow like the channels panel
 
         // Note: agent_input_bar.poll() is now called at the start of show()
         // to ensure agent-created panes are available for immediate query execution
@@ -1841,6 +1876,25 @@ impl Workspace {
                     pane: 0
                 }
         )
+    }
+
+    /// Check if current section focus is at the right edge (for agent panel transfer)
+    ///
+    /// Returns true when:
+    /// - Focus is on any section header (section headers span the full width)
+    /// - Focus is on the last pane of ANY section (rightmost pane in that section)
+    pub fn is_at_section_right_edge(&self) -> bool {
+        match self.section_focus {
+            FocusTarget::None => false,
+            // Any section header is at the right edge (headers span full width)
+            FocusTarget::SectionHeader(_) => true,
+            // Check if we're on the last pane of the current section
+            FocusTarget::Pane { section, pane } => self
+                .section_configs
+                .get(section)
+                .map(|s| pane == s.panes.len().saturating_sub(1))
+                .unwrap_or(false),
+        }
     }
 
     /// Navigate in a direction within sections (hjkl navigation)
