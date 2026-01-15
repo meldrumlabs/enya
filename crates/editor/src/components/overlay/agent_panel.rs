@@ -567,12 +567,24 @@ impl AgentPanel {
         ui.horizontal(|ui| {
             ui.add_space(16.0);
 
-            // Icon with accent glow effect
-            ui.label(
-                RichText::new(egui_nerdfonts::regular::ROBOT)
-                    .color(accent)
-                    .size(18.0),
-            );
+            // Provider logo icon
+            let logo_size = 18.0;
+            match self.selected_provider {
+                AiProvider::Claude => {
+                    ui.add(
+                        egui::Image::new(egui::include_image!("../../../assets/claude.png"))
+                            .tint(accent)
+                            .max_size(egui::vec2(logo_size, logo_size)),
+                    );
+                }
+                AiProvider::Codex => {
+                    ui.add(
+                        egui::Image::new(egui::include_image!("../../../assets/openai.png"))
+                            .tint(accent)
+                            .max_size(egui::vec2(logo_size, logo_size)),
+                    );
+                }
+            }
             ui.add_space(8.0);
 
             // Title - shows current provider with strong typography
@@ -856,12 +868,46 @@ impl AgentPanel {
             ui.vertical(|ui| {
                 // Role label with icon
                 ui.horizontal(|ui| {
-                    let icon = match message.role {
-                        MessageRole::User => egui_nerdfonts::regular::ACCOUNT,
-                        MessageRole::Assistant => egui_nerdfonts::regular::ROBOT,
-                        MessageRole::System => egui_nerdfonts::regular::INFORMATION,
-                    };
-                    ui.label(RichText::new(icon).color(role_color).size(typography::SM));
+                    match message.role {
+                        MessageRole::User => {
+                            ui.label(
+                                RichText::new(egui_nerdfonts::regular::ACCOUNT)
+                                    .color(role_color)
+                                    .size(typography::SM),
+                            );
+                        }
+                        MessageRole::Assistant => {
+                            // Use provider logo for assistant messages
+                            let logo_size = typography::SM;
+                            match self.selected_provider {
+                                AiProvider::Claude => {
+                                    ui.add(
+                                        egui::Image::new(egui::include_image!(
+                                            "../../../assets/claude.png"
+                                        ))
+                                        .tint(role_color)
+                                        .max_size(egui::vec2(logo_size, logo_size)),
+                                    );
+                                }
+                                AiProvider::Codex => {
+                                    ui.add(
+                                        egui::Image::new(egui::include_image!(
+                                            "../../../assets/openai.png"
+                                        ))
+                                        .tint(role_color)
+                                        .max_size(egui::vec2(logo_size, logo_size)),
+                                    );
+                                }
+                            }
+                        }
+                        MessageRole::System => {
+                            ui.label(
+                                RichText::new(egui_nerdfonts::regular::INFORMATION)
+                                    .color(role_color)
+                                    .size(typography::SM),
+                            );
+                        }
+                    }
                     ui.add_space(4.0);
                     ui.label(
                         RichText::new(role_label)
