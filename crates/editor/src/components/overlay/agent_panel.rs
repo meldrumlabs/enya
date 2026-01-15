@@ -185,6 +185,14 @@ impl AgentPanel {
         self.selected_provider
     }
 
+    /// Get the current provider name as a string
+    pub fn provider_name(&self) -> String {
+        match self.selected_provider {
+            AiProvider::Claude => "Claude".to_string(),
+            AiProvider::Codex => "Codex".to_string(),
+        }
+    }
+
     /// Set the theme
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
@@ -649,6 +657,32 @@ impl AgentPanel {
                 if close_btn.on_hover_text("Close (Esc)").clicked() {
                     self.is_open = false;
                 }
+
+                ui.add_space(4.0);
+
+                // Clear conversation button (only show if there are messages)
+                if !self.messages.is_empty() {
+                    let clear_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(egui_nerdfonts::regular::TRASH_CAN_OUTLINE)
+                                .size(14.0)
+                                .color(text_tertiary),
+                        )
+                        .frame(false),
+                    );
+
+                    if clear_btn.hovered() {
+                        let rect = clear_btn.rect.expand(4.0);
+                        ui.painter()
+                            .rect_filled(rect, CornerRadius::same(4), colors.hover_bg());
+                    }
+
+                    if clear_btn.on_hover_text("Clear conversation").clicked() {
+                        self.messages.clear();
+                        self.current_activities.clear();
+                        self.response_text.clear();
+                    }
+                }
             });
         });
         ui.add_space(10.0);
@@ -669,7 +703,7 @@ impl AgentPanel {
                 if self.messages.is_empty() && self.current_activities.is_empty() {
                     // Empty state - premium and elegant
                     ui.vertical_centered(|ui| {
-                        ui.add_space(80.0);
+                        ui.add_space(60.0);
 
                         // Icon with subtle accent
                         ui.label(
@@ -697,6 +731,15 @@ impl AgentPanel {
                                 .color(text_tertiary)
                                 .size(typography::MD)
                                 .italics(),
+                        );
+
+                        ui.add_space(24.0);
+
+                        // Keyboard shortcuts hint
+                        ui.label(
+                            RichText::new("i  type  •  h  back")
+                                .color(text_tertiary)
+                                .size(typography::SM),
                         );
                     });
                 } else {
@@ -820,25 +863,49 @@ impl AgentPanel {
                     }
                 });
 
-            // Send button - premium styling with hover effect
+            // Send or Stop button - premium styling with hover effect
             ui.add_space(8.0);
-            let can_send = !self.input_text.trim().is_empty() && !self.is_waiting;
-            let send_color = if can_send { accent } else { text_tertiary };
 
-            if ui
-                .add_enabled(
-                    can_send,
+            if self.is_waiting {
+                // Stop button when waiting for response
+                let stop_btn = ui.add(
                     egui::Button::new(
-                        RichText::new(egui_nerdfonts::regular::SEND)
+                        RichText::new(egui_nerdfonts::regular::STOP_CIRCLE_OUTLINE)
                             .size(16.0)
-                            .color(send_color),
+                            .color(self.theme.semantic_error()),
                     )
                     .frame(false),
-                )
-                .on_hover_text("Send (Enter)")
-                .clicked()
-            {
-                self.send_message(ctx);
+                );
+
+                if stop_btn.hovered() {
+                    let rect = stop_btn.rect.expand(4.0);
+                    ui.painter()
+                        .rect_filled(rect, CornerRadius::same(4), colors.hover_bg());
+                }
+
+                if stop_btn.on_hover_text("Stop generation").clicked() {
+                    self.cancel_request();
+                }
+            } else {
+                // Send button
+                let can_send = !self.input_text.trim().is_empty();
+                let send_color = if can_send { accent } else { text_tertiary };
+
+                if ui
+                    .add_enabled(
+                        can_send,
+                        egui::Button::new(
+                            RichText::new(egui_nerdfonts::regular::SEND)
+                                .size(16.0)
+                                .color(send_color),
+                        )
+                        .frame(false),
+                    )
+                    .on_hover_text("Send (Enter)")
+                    .clicked()
+                {
+                    self.send_message(ctx);
+                }
             }
 
             ui.add_space(10.0);
@@ -866,8 +933,8 @@ impl AgentPanel {
             ui.add_space(16.0);
 
             ui.vertical(|ui| {
-                // Role label with icon
-                ui.horizontal(|ui| {
+                // Role label with icon and copy button
+                let header_response = ui.horizontal(|ui| {
                     match message.role {
                         MessageRole::User => {
                             ui.label(
@@ -916,6 +983,38 @@ impl AgentPanel {
                             .strong(),
                     );
                 });
+
+                // Show copy button on hover (to the right of the header)
+                let header_rect = header_response.response.rect;
+                let hover_area = header_rect.expand2(egui::vec2(100.0, 4.0));
+                let is_hovering = ui.rect_contains_pointer(hover_area);
+
+                if is_hovering && !message.content.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(header_rect.width() + 8.0);
+                        let copy_btn = ui.add(
+                            egui::Button::new(
+                                RichText::new(egui_nerdfonts::regular::CONTENT_COPY)
+                                    .size(12.0)
+                                    .color(text_tertiary),
+                            )
+                            .frame(false),
+                        );
+
+                        if copy_btn.hovered() {
+                            let rect = copy_btn.rect.expand(3.0);
+                            ui.painter().rect_filled(
+                                rect,
+                                CornerRadius::same(3),
+                                colors.hover_bg(),
+                            );
+                        }
+
+                        if copy_btn.on_hover_text("Copy message").clicked() {
+                            ui.ctx().copy_text(message.content.clone());
+                        }
+                    });
+                }
                 ui.add_space(4.0);
 
                 // Message content with premium styling
@@ -1451,6 +1550,34 @@ impl AgentPanel {
 
         self.input_text.clear();
         self.scroll_to_bottom = true;
+    }
+
+    /// Cancel the current request
+    fn cancel_request(&mut self) {
+        // Drop the event receiver to stop processing
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.event_receiver = None;
+        }
+
+        // Update the last assistant message to indicate it was stopped
+        if let Some(last_msg) = self.messages.last_mut() {
+            if last_msg.role == MessageRole::Assistant && last_msg.is_streaming {
+                last_msg.is_streaming = false;
+                if last_msg.content.is_empty() {
+                    last_msg.content = "(Generation stopped)".to_string();
+                } else {
+                    last_msg.content.push_str("\n\n_(Generation stopped)_");
+                }
+            }
+        }
+
+        // Reset state
+        self.is_waiting = false;
+        self.response_text.clear();
+        self.current_status = ResponseStatus::Complete;
+        self.current_activities.clear();
+        self.request_start_time = None;
     }
 
     /// Poll the event receiver and update UI state

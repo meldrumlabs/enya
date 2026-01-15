@@ -2340,6 +2340,16 @@ impl Workspace {
         self.agent_mode_active
     }
 
+    /// Get the current agent provider name (e.g., "Claude", "Codex")
+    pub fn agent_provider_name(&self) -> String {
+        self.agent_panel.provider_name()
+    }
+
+    /// Send a query to the agent (public wrapper for inline input)
+    pub fn send_agent_query(&mut self, query: &str, ctx: &egui::Context) {
+        self.send_agent_query_with_context(query, ctx);
+    }
+
     /// Enter agent mode, optionally with panes from visual selection.
     /// Shows quick command hints in the input bar.
     pub fn enter_agent_mode(&mut self) {
@@ -2507,6 +2517,30 @@ impl Workspace {
         self.agent_input_bar.set_available_metrics(metric_names);
 
         let result = self.agent_input_bar.show(ui);
+        self.handle_agent_input_result(result, ctx);
+    }
+
+    /// Show the agent input bar in inline mode (for status line embedding)
+    /// Called from the app's bottom panel to render within the status line.
+    pub fn show_agent_input_bar_inline(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        theme: AppTheme,
+    ) {
+        if !self.agent_mode_active {
+            return;
+        }
+
+        self.agent_input_bar.set_theme(theme);
+        self.agent_input_bar
+            .set_provider_name(self.agent_panel.provider().display_name());
+
+        // Provide available metrics for @ mention autocomplete
+        let metric_names = self.query_executor.metric_names().to_vec();
+        self.agent_input_bar.set_available_metrics(metric_names);
+
+        let result = self.agent_input_bar.show_inline(ui);
         self.handle_agent_input_result(result, ctx);
     }
 

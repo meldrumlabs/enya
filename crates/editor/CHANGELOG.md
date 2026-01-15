@@ -153,6 +153,16 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **WASM native app promo**: Changed from an intrusive auto-popup overlay to a subtle clickable link below the version badge in the landing page header. Users can click "Download Native App for full experience" to see detailed information about native-only features (git integration, AI agents, persistent workspaces). Less invasive while still informing users about the full desktop experience.
 
+- **Provider-as-mode UX for agent input bar**: Redesigned the agent mode status line for a premium, uncluttered experience:
+  - Provider (Claude/OpenAI logo + name) now appears directly in the mode badge position - the provider IS the mode
+  - Removed redundant "AGENT" label and duplicate provider badge
+  - Response state now shows a preview of the AI's response (first line, truncated) instead of generic "Response ready"
+  - Processing state now shows contextual activity with appropriate icons: Sending (→), Thinking (spinner), tool use (file/search/edit icons), Responding
+  - Tool use shows the tool name and a preview of what it's doing (e.g., "Read" + "main.rs", "Grep" + "error handling")
+  - Thinking state shows a preview of the AI's thought process
+  - Response state shows `Tab expand` and `Esc clear` hints side by side (both with accent key styling)
+  - Wider input field (500px max) with cleaner placeholder: "Ask anything... / commands @ metrics"
+
 ### Fixed
 
 - **Agent panel vim navigation**: Fixed vim navigation not working in the agent panel and viewport after opening/returning from the panel. Multiple issues were addressed: (1) Removed the sync loop that was syncing `agent_panel_focused` with the panel's internal `has_focus` state every frame - this was causing focus to be lost unexpectedly. (2) Added `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` when toggling the agent panel open or transferring focus to it, ensuring no stale egui widget focus blocks vim keys. (3) Changed keyboard handling to use `ui.ctx().input()` with `key_pressed()` (matching the channels panel pattern). (4) Fixed text input focus detection to only release vim focus when the user actually clicks on the input, not when egui auto-restores focus. (5) Fixed `focus_input` flag to always clear regardless of vim focus state. (6) Added `skip_vim_keys_once` flag to prevent lingering keypresses from being detected as vim navigation immediately after panel gains focus (e.g., the 'a' from `Space+a` was being detected as 'h' navigation). (7) Fixed `ReturnFocusToViewport` to properly set `section_focus` (not just `behavior.focused_tile()`), which controls the visual focus indicator on viewport panes. (8) Removed `agent_panel.is_open()` from the keyboard handler's early-return condition - the agent panel can be open while viewport has navigation focus (only `agent_panel_focused` should block viewport keyboard handling). (9) Fixed `is_at_section_right_edge()` to return true for the rightmost pane of ANY section (not just the last section), allowing `l` to transfer focus to the agent panel from any section.
