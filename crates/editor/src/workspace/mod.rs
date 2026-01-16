@@ -1344,6 +1344,9 @@ impl Workspace {
         #[cfg(target_arch = "wasm32")]
         let codebase_finder_open = false;
 
+        // Don't intercept '/' when any text widget has focus (e.g., SQL pane input)
+        let text_widget_focused = ctx.memory(|mem| mem.focused().is_some());
+
         if !self.which_key.is_open()
             && !self.unified_finder.is_open()
             && !self.command_palette.is_open()
@@ -1353,6 +1356,7 @@ impl Workspace {
             && !self.is_any_buffer_in_insert_mode()
             && !self.agent_mode_active
             && !self.is_visual_multi_mode()
+            && !text_widget_focused
         {
             ctx.input_mut(|input| {
                 // Check for '/' character in text input (works across keyboard layouts)
@@ -1370,7 +1374,7 @@ impl Workspace {
             });
         }
 
-        // Handle ? key for which-key overlay (bypasses focus check so it works even with chart focus)
+        // Handle ? key for which-key overlay (don't intercept when text widget has focus)
         if !self.which_key.is_open()
             && !self.unified_finder.is_open()
             && !self.command_palette.is_open()
@@ -1378,6 +1382,7 @@ impl Workspace {
             && !self.viewport_filter.is_open()
             && !codebase_finder_open
             && !self.agent_mode_active
+            && !text_widget_focused
         {
             ctx.input_mut(|input| {
                 // Check for '?' character in text input (works across keyboard layouts)
@@ -1733,6 +1738,10 @@ impl Workspace {
             }
             CommandResult::OpenTracing(trace_id) => {
                 self.add_tracing_pane(trace_id.as_deref());
+                WorkspaceAction::None
+            }
+            CommandResult::OpenSql => {
+                self.add_sql_pane();
                 WorkspaceAction::None
             }
             CommandResult::FloatPane => {

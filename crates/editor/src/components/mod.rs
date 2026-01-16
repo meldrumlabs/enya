@@ -16,7 +16,7 @@ pub use pane::{
     Visualization, VisualizationType,
 };
 #[cfg(not(target_arch = "wasm32"))]
-pub use pane::{TerminalPane, TerminalPaneAction};
+pub use pane::{SqlPane, SqlPaneAction, TerminalPane, TerminalPaneAction};
 
 // Re-export from overlay
 #[cfg(target_arch = "wasm32")]

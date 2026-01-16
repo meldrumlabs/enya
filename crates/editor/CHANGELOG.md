@@ -99,6 +99,77 @@ All notable changes to the Enya editor will be documented in this file.
     name = "Request Rate"
     ```
 
+- **SQL pane with Arrow Flight SQL (native-only)**: REPL-style SQL client for connecting to Flight SQL servers (DataFusion, DuckDB, InfluxDB IOx, etc.):
+  - New `SqlPane` component implementing the `Component` trait
+  - **OpenCode-style command interface**: Centered, minimal input with suggestions:
+    - `SQL >` prompt with mode indicator (SQL, DIFF, EXPLAIN, PROFILE)
+    - Inline connection pill showing active database
+    - Suggestions popup above input (command palette style)
+    - Centered content with max-width for readability
+  - **Command system** (type `/` to see commands):
+    - `/diff` - Compare query results across environments
+    - `/explain` - Show query execution plan
+    - `/profile` - Profile with detailed timing
+    - `/schema` - Show table structure
+    - `/connect` - Switch active connection
+    - `/export` - Export results
+    - `/history` - Query history
+    - `/help` - Show available commands
+  - **Smart suggestions**: Context-aware completions appearing above input:
+    - Commands when typing `/`
+    - Tables after FROM, JOIN, etc.
+    - Fuzzy matching on partial names
+    - Keyboard navigation (↑↓) and Tab to insert
+  - **Connection management** via inline pill or `/connect`:
+    - Status dot (green=connected, gray=disconnected)
+    - Click pill to see connection dropdown
+    - Add, remove, switch connections
+  - **Multi-connection management**: Save and manage multiple database connections
+    - Add connections via "Add Connection" dialog
+    - Click connected item to set as active
+    - Click disconnected item to connect
+    - Context menu for disconnect, remove
+    - Connections show status indicator (●) - green=connected, gray=disconnected
+  - REPL interface with query history displayed as cells
+  - Results rendered as tables with schema-aware column formatting
+  - **SQL syntax highlighting** in both input area and query history using theme-aware colors:
+    - Keywords (SELECT, FROM, WHERE, etc.) highlighted in keyword color
+    - Functions (COUNT, SUM, AVG, etc.) highlighted in function color
+    - Strings, numbers, comments highlighted appropriately
+    - Dot-commands (`.help`, `.open`, etc.) highlighted in accent color
+  - DuckDB/SQLite-style dot-commands: `.open`, `.close`, `.tables`, `.explain`, `.analyze`, `.plan`, `.demo`, `.help`
+  - New `enya-datafusion` crate providing:
+    - `FlightClient` for Arrow Flight SQL connections with auth support
+    - Async query execution with streaming results
+    - Metadata queries (catalogs, schemas, tables, columns)
+    - Local DataFusion session for file-based queries (Parquet, CSV, JSON)
+    - Query plan extraction and visualization utilities
+  - Open with `:sql` or `:datafusion` command
+  - Execute queries with `Ctrl+Enter` or click the play button
+
+- **Query Plan Visualization (native-only)**: Interactive query plan analysis with three visualization modes:
+  - **Tree View**: Vim-navigable hierarchical plan tree with:
+    - `j/k` for up/down navigation between operators
+    - `h/l` for collapse/expand nodes
+    - `b` to jump to bottleneck operator
+    - `Space` to toggle expand/collapse
+    - `G` to jump to bottom, `g` to jump to top
+    - Color-coded operators by type (scans=blue, filters=green, joins=orange, etc.)
+    - Bottleneck highlighting with warning icon for slowest operators
+    - Inline metrics showing execution time, row counts, and memory usage
+  - **Timeline View**: Horizontal bar chart (egui_plot) showing:
+    - Operator execution times as horizontal bars
+    - Color-coded by operator type
+    - Sorted by execution time descending
+    - Legend with timing breakdown
+  - **Diff View**: Side-by-side plan comparison for:
+    - Comparing logical vs physical plans
+    - Analyzing optimization effects
+    - Each side has independent vim navigation
+  - Commands: `.explain <query>` for logical plan, `.analyze <query>` for EXPLAIN ANALYZE
+  - `.plan [tree|timeline|diff|hide]` to switch between views or toggle visibility
+  - Plan viewer toggle button in SQL pane header
+
 - **Neovim-style intro message**: When a workspace has no panes, a centered intro screen displays "Enya" with tagline "A Neovim-inspired observability editor for builders", version number, and aligned command hints. Includes `~` tilde markers on every line (left margin) just like Neovim:
   - `type  Space+f    fuzzy finder`
   - `type  aa         ask AI agent` (native only)
@@ -187,6 +258,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Chat input Escape focus release**: Fixed vim navigation not working after pressing Escape to exit the chat input. Four issues were fixed: (1) The text input now properly surrenders both widget-level and global egui focus when returning to sidebar navigation. (2) The channels panel Escape handler no longer closes the split view when the chat input is focused, allowing the chat view to properly handle Escape and return vim focus to the sidebar. (3) Added `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` to clear global focus state, ensuring the keyboard handler's focus check doesn't block vim keys. (4) When closing split view via Escape (e.g., when chat input lost focus due to clicking elsewhere), now properly restores vim focus to sidebar and clears egui focus.
 
 - **Style picker focus restoration**: Fixed vim navigation not working after closing the style picker (theme/font selector). The picker now clears egui framework focus when it closes, ensuring keyboard events are properly handled by vim navigation. Also fixed returning focus to viewport from channels panel to properly restore focus to the first pane if no pane was previously focused.
+
+- **SQL pane runtime crash**: Fixed a crash when opening the SQL pane (`:sql` command) with "there is no reactor running" error. The DataFusion session's `init_executor()` now accepts a tokio runtime handle, matching the pattern used by `AgentPane`.
 
 ### Removed
 
