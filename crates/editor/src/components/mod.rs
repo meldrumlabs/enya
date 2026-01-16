@@ -15,6 +15,8 @@ pub use pane::{
     SparklineViz, StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction,
     Visualization, VisualizationType,
 };
+#[cfg(target_arch = "wasm32")]
+pub use pane::{SqlPane, SqlPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
 pub use pane::{SqlPane, SqlPaneAction, TerminalPane, TerminalPaneAction};
 
