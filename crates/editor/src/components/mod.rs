@@ -12,13 +12,11 @@ pub use pane::{
     AgentAiProvider, Bar, BarChartViz, CommitMarker, DataPoint, GaugeChart, HeatmapCell,
     HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSearchResults, InlineSource,
     LogsBackend, LogsPane, LogsPaneAction, QueryPane, QueryPaneAction, SearchResultItem, Series,
-    SparklineViz, StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction,
-    Visualization, VisualizationType,
+    SparklineViz, SqlPane, SqlPaneAction, StatChart, Threshold, TimeSeriesChart, TracingPane,
+    TracingPaneAction, Visualization, VisualizationType,
 };
-#[cfg(target_arch = "wasm32")]
-pub use pane::{SqlPane, SqlPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
-pub use pane::{SqlPane, SqlPaneAction, TerminalPane, TerminalPaneAction};
+pub use pane::{TerminalPane, TerminalPaneAction};
 
 // Re-export from overlay
 #[cfg(target_arch = "wasm32")]

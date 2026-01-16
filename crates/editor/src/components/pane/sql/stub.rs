@@ -3,8 +3,6 @@
 //! SQL panes require Flight SQL connectivity which is only available
 //! in the native desktop app.
 
-#![cfg(target_arch = "wasm32")]
-
 use egui::RichText;
 
 use crate::components::Component;

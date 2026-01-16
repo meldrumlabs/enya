@@ -6,10 +6,7 @@ pub mod logs_pane;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod plan_view;
 pub mod query_pane;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod sql_pane;
-#[cfg(target_arch = "wasm32")]
-pub mod sql_pane_stub;
+pub mod sql;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod terminal_pane;
 pub mod time_series_chart;
@@ -23,10 +20,7 @@ pub use inline_content::{
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
 pub use plan_view::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, TimelineView};
-#[cfg(not(target_arch = "wasm32"))]
-pub use sql_pane::{SqlPane, SqlPaneAction};
-#[cfg(target_arch = "wasm32")]
-pub use sql_pane_stub::{SqlPane, SqlPaneAction};
+pub use sql::{SqlPane, SqlPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
 pub use terminal_pane::{TerminalPane, TerminalPaneAction};
 pub use tracing_pane::{TracingPane, TracingPaneAction};
