@@ -16,14 +16,24 @@ enya-team-api = { path = "../team-api" }
 
 # Web framework
 axum = { workspace = true, features = ["ws", "macros", "json", "query"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip"] }
+tower-http = { version = "0.6", features = [
+  "cors",
+  "trace",
+  "compression-gzip",
+] }
 futures-util = "0.3"
 
 # Async runtime
 tokio = { workspace = true, features = ["full"] }
 
 # Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono"] }
+sqlx = { version = "0.8", features = [
+  "runtime-tokio",
+  "tls-rustls",
+  "postgres",
+  "uuid",
+  "chrono",
+] }
 
 # Auth
 jsonwebtoken = "9.3"

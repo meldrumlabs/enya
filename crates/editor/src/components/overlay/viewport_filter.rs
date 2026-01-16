@@ -300,10 +300,8 @@ impl ViewportFilter {
         let container_width = if self.is_open { 220.0 } else { 160.0 };
 
         // Allocate rect for the filter container
-        let (rect, response) = ui.allocate_exact_size(
-            egui::vec2(container_width, 22.0),
-            egui::Sense::click(),
-        );
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(container_width, 22.0), egui::Sense::click());
 
         // Click anywhere in container to focus
         if response.clicked() && !self.is_open {
@@ -376,7 +374,8 @@ impl ViewportFilter {
 
             // Auto-focus when opened
             if self.needs_focus {
-                ui.ctx().memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+                ui.ctx()
+                    .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
                 text_response.request_focus();
                 self.needs_focus = false;
             }
@@ -423,18 +422,23 @@ impl ViewportFilter {
         if self.is_active() || (self.is_open && !self.pattern.is_empty()) {
             ui.add_space(8.0);
 
-            let (count_color, count_bg) = if self.match_count == 0 && !self.current_pattern().is_empty() {
-                (palette::semantic::WARNING, palette::semantic::WARNING.gamma_multiply(0.15))
-            } else {
-                (text_secondary, bg_subtle)
-            };
+            let (count_color, count_bg) =
+                if self.match_count == 0 && !self.current_pattern().is_empty() {
+                    (
+                        palette::semantic::WARNING,
+                        palette::semantic::WARNING.gamma_multiply(0.15),
+                    )
+                } else {
+                    (text_secondary, bg_subtle)
+                };
 
             let count_text = format!("{}/{}", self.match_count, self.total_count);
             let text_size = 11.0;
 
             // Badge background
             let badge_width = 36.0;
-            let (badge_rect, _) = ui.allocate_exact_size(egui::vec2(badge_width, 18.0), egui::Sense::hover());
+            let (badge_rect, _) =
+                ui.allocate_exact_size(egui::vec2(badge_width, 18.0), egui::Sense::hover());
 
             if ui.is_rect_visible(badge_rect) {
                 ui.painter().rect_filled(badge_rect, 3.0, count_bg);

@@ -1,8 +1,8 @@
 # Disallow std::sync locks in favor of parking_lot
 # Disallow std::collections hash types in favor of rustc-hash (FxHashMap/FxHashSet)
 disallowed-types = [
-    { path = "std::sync::Mutex", reason = "use parking_lot::Mutex instead" },
-    { path = "std::sync::RwLock", reason = "use parking_lot::RwLock instead" },
-    { path = "std::collections::HashMap", reason = "use rustc_hash::FxHashMap instead for better performance" },
-    { path = "std::collections::HashSet", reason = "use rustc_hash::FxHashSet instead for better performance" },
+  { path = "std::sync::Mutex", reason = "use parking_lot::Mutex instead" },
+  { path = "std::sync::RwLock", reason = "use parking_lot::RwLock instead" },
+  { path = "std::collections::HashMap", reason = "use rustc_hash::FxHashMap instead for better performance" },
+  { path = "std::collections::HashSet", reason = "use rustc_hash::FxHashSet instead for better performance" },
 ]
