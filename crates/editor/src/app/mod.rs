@@ -237,8 +237,7 @@ impl EnyaApp {
         egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(false)
             .show(ctx, |ui| {
-                // Show viewport filter bar above status line (if filter is open)
-                self.workspace.show_viewport_filter_bar(ui);
+                // Note: viewport filter is now inline in the top toolbar
 
                 // Status line with embedded agent input when in agent mode
                 if is_agent_mode {

@@ -29,7 +29,6 @@ use crate::components::overlay::AgentCommand;
 use crate::components::overlay::SlashCommandPopup;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::overlay::{parse_commands, strip_command_blocks};
-#[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::ActivityType;
 use crate::components::util::finder_utils::{OverlayColors, OverlayStyle};
 use crate::components::util::{ActivityItem, ConversationHandoff, HandoffContextPane};

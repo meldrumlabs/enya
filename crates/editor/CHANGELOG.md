@@ -163,6 +163,13 @@ All notable changes to the Enya editor will be documented in this file.
   - Response state shows `Tab expand` and `Esc clear` hints side by side (both with accent key styling)
   - Wider input field (500px max) with cleaner placeholder: "Ask anything... / commands @ metrics"
 
+- **Toolbar UX: filter left, time right**: Redesigned the top toolbar for better visual balance:
+  - Pane filter input now appears on the left side (always visible, expands when focused)
+  - Time range controls pushed to the right side (Grafana-style placement)
+  - Filter shows match count (e.g., "2/4") when active
+  - Click filter icon or start typing to activate, Enter to apply, Esc to clear
+  - Fills the previously empty toolbar space with useful functionality
+
 ### Fixed
 
 - **Agent panel vim navigation**: Fixed vim navigation not working in the agent panel and viewport after opening/returning from the panel. Multiple issues were addressed: (1) Removed the sync loop that was syncing `agent_panel_focused` with the panel's internal `has_focus` state every frame - this was causing focus to be lost unexpectedly. (2) Added `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` when toggling the agent panel open or transferring focus to it, ensuring no stale egui widget focus blocks vim keys. (3) Changed keyboard handling to use `ui.ctx().input()` with `key_pressed()` (matching the channels panel pattern). (4) Fixed text input focus detection to only release vim focus when the user actually clicks on the input, not when egui auto-restores focus. (5) Fixed `focus_input` flag to always clear regardless of vim focus state. (6) Added `skip_vim_keys_once` flag to prevent lingering keypresses from being detected as vim navigation immediately after panel gains focus (e.g., the 'a' from `Space+a` was being detected as 'h' navigation). (7) Fixed `ReturnFocusToViewport` to properly set `section_focus` (not just `behavior.focused_tile()`), which controls the visual focus indicator on viewport panes. (8) Removed `agent_panel.is_open()` from the keyboard handler's early-return condition - the agent panel can be open while viewport has navigation focus (only `agent_panel_focused` should block viewport keyboard handling). (9) Fixed `is_at_section_right_edge()` to return true for the rightmost pane of ANY section (not just the last section), allowing `l` to transfer focus to the agent panel from any section.

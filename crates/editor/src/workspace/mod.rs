@@ -857,19 +857,78 @@ impl Workspace {
         } else {
             // Main area with toolbar and viewport
             egui::CentralPanel::default().show_inside(ui, |ui| {
-            // Top toolbar with time range controls (hidden in zen mode)
-            if !self.zen_mode {
+            // Top toolbar with filter (left) and time range controls (right)
+            // Hidden in zen mode or when workspace is empty (landing page shows its own hints)
+            let total_panes = self.get_pane_tile_ids().len();
+            if !self.zen_mode && total_panes > 0 {
                 // Get countdown before borrowing self mutably
                 let countdown = self.time_until_refresh();
+                let matching_panes = if self.viewport_filter.is_active() {
+                    self.get_pane_tile_ids()
+                        .iter()
+                        .filter(|tile_id| {
+                            if let Some(egui_tiles::Tile::Pane(pane)) =
+                                self.viewport_tree.tiles.get(**tile_id)
+                            {
+                                self.viewport_filter.matches(&pane.name())
+                            } else {
+                                true
+                            }
+                        })
+                        .count()
+                } else {
+                    total_panes
+                };
+                self.viewport_filter.update_counts(matching_panes, total_panes);
+                self.viewport_filter.set_theme(app_state.theme);
 
                 egui::TopBottomPanel::top("time_range_toolbar")
                     .resizable(false)
                     .show_inside(ui, |ui| {
                         ui.add_space(4.0);
+
+                        let toolbar_rect = ui.available_rect_before_wrap();
+
+                        // Only show keyboard hints when there are panes open
+                        // (landing page already shows hints when workspace is empty)
+                        if total_panes > 0 {
+                            let hint_color = app_state.theme.text_tertiary();
+                            let hint_text = "hjkl navigate   : cmd   ? help";
+                            let font = egui::FontId::proportional(11.0);
+                            let hint_galley = ui.painter().layout_no_wrap(
+                                hint_text.to_string(),
+                                font.clone(),
+                                hint_color,
+                            );
+                            let hint_pos = egui::pos2(
+                                toolbar_rect.center().x - hint_galley.size().x / 2.0,
+                                toolbar_rect.center().y - hint_galley.size().y / 2.0,
+                            );
+                            ui.painter().galley(hint_pos, hint_galley, hint_color);
+                        }
+
+                        // Now draw the interactive elements on top
                         ui.horizontal(|ui| {
-                            // Time range controls with refresh countdown
-                            self.time_range_toolbar.show_with_countdown(ui, countdown);
+                            // Left side: Filter input
+                            match self.viewport_filter.show_inline(ui) {
+                                ViewportFilterResult::Applied(pattern) => {
+                                    log::debug!("Toolbar filter applied: {pattern}");
+                                }
+                                ViewportFilterResult::Cleared => {
+                                    log::debug!("Toolbar filter cleared");
+                                }
+                                ViewportFilterResult::None => {}
+                            }
+
+                            // Flexible spacer to push time controls to the right
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    self.time_range_toolbar.show_with_countdown(ui, countdown);
+                                },
+                            );
                         });
+
                         ui.add_space(4.0);
                     });
             }
