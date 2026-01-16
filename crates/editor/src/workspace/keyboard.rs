@@ -78,9 +78,10 @@ impl Workspace {
             || self.viewport_filter.is_open()
             || self.tutorial_overlay.is_open()
             || self.source_preview.is_open()
-            || self.agent_panel.is_open()
             || self.style_picker.is_open()
             || codebase_finder_open
+        // Note: agent_panel.is_open() intentionally NOT checked here.
+        // The agent panel can be open while viewport has focus (agent_panel_focused is checked separately).
         {
             return None;
         }
@@ -99,6 +100,12 @@ impl Workspace {
         // When channels panel has focus, let it handle j/k/l navigation
         // (viewport keyboard handling is skipped)
         if self.channels_panel_focused {
+            return None;
+        }
+
+        // When agent panel has focus, let it handle h/j/k/l navigation
+        // (viewport keyboard handling is skipped)
+        if self.agent_panel_focused {
             return None;
         }
 
@@ -146,6 +153,7 @@ impl Workspace {
         let mut should_tab_pane_down = false;
         let mut should_focus_channels_panel = false;
         let mut should_float_focused_pane = false;
+        let mut should_focus_agent_panel = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -229,6 +237,9 @@ impl Workspace {
 
                 // Space+a - open/focus agent pane (Claude Code)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                    log::info!(
+                        "Keyboard: Space+a pressed, setting should_toggle_agent_panel = true"
+                    );
                     should_toggle_agent_panel = true;
                     self.leader_keys.clear_space();
                     consumed = true;
@@ -466,6 +477,7 @@ impl Workspace {
 
             // a - agent operator (aw, ae, ay, ac, ar, af, as, ah) or just enter agent mode
             if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                log::info!("Keyboard: standalone 'a' pressed (agent operator), NOT Space+a");
                 // Record 'a' press time for agent operator detection
                 self.leader_keys.press_a();
                 consumed = true;
@@ -637,9 +649,24 @@ impl Workspace {
             {
                 // Use section navigation if sections are active
                 if self.has_sections() {
-                    self.navigate_sections(NavDirection::Right);
+                    // Check if at right edge and should transfer to agent panel
+                    let at_right_edge = self.is_at_section_right_edge();
+                    if at_right_edge && self.agent_panel.is_open() {
+                        should_focus_agent_panel = true;
+                    } else {
+                        self.navigate_sections(NavDirection::Right);
+                    }
                 } else if let Some(current_id) = current_focus {
-                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
+                    let sibling = self.find_sibling_in_direction(current_id, NavDirection::Right);
+                    if sibling.is_some() {
+                        new_tile_id = sibling;
+                    } else if self.agent_panel.is_open() {
+                        // At right edge with agent panel open - focus the panel
+                        should_focus_agent_panel = true;
+                    }
+                } else if self.agent_panel.is_open() {
+                    // No focus and agent panel open - focus the panel
+                    should_focus_agent_panel = true;
                 } else {
                     new_tile_id = pane_ids.first().copied();
                 }
@@ -752,8 +779,25 @@ impl Workspace {
         }
 
         if should_toggle_agent_panel {
-            // Create or focus an agent pane instead of toggling the overlay
-            self.focus_or_create_agent_pane();
+            // Toggle the agent panel (right-side layout panel)
+            log::info!("Keyboard: toggling agent panel");
+            self.agent_panel.toggle();
+            // Set focus state based on whether panel is now open
+            if self.agent_panel.is_open() {
+                log::info!("Keyboard: agent panel opened, setting agent_panel_focused = true");
+                self.agent_panel_focused = true;
+                self.agent_panel.set_focus(true);
+                // Clear viewport pane focus so it doesn't appear highlighted
+                self.behavior.set_focused_tile(None);
+                self.section_focus = FocusTarget::None;
+                // Clear egui widget focus so vim keys work immediately in the panel
+                // (otherwise a TextEdit or ComboBox from viewport might still consume keys)
+                ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+            } else {
+                log::info!("Keyboard: agent panel closed, setting agent_panel_focused = false");
+                self.agent_panel_focused = false;
+                self.agent_panel.set_focus(false);
+            }
             ctx.request_repaint();
         }
 
@@ -809,6 +853,19 @@ impl Workspace {
             self.behavior.set_focused_tile(None);
             // Also clear section focus for section-based workspaces
             self.section_focus = FocusTarget::None;
+            ctx.request_repaint();
+        }
+
+        // Handle focus transfer to agent panel (vim l at right edge)
+        if should_focus_agent_panel {
+            self.agent_panel_focused = true;
+            self.agent_panel.set_focus(true);
+            // Clear viewport pane focus so it doesn't appear highlighted
+            self.behavior.set_focused_tile(None);
+            // Also clear section focus for section-based workspaces
+            self.section_focus = FocusTarget::None;
+            // Clear egui widget focus so vim keys work immediately in the panel
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             ctx.request_repaint();
         }
 

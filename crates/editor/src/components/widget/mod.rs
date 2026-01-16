@@ -15,7 +15,7 @@ pub use agent_input_bar::{
 pub use buffer::{Buffer, BufferAction, BufferMode};
 pub use landing_page::{LandingPage, LandingPageAction};
 pub use notifications::{Notification, NotificationLevel, NotificationManager};
-pub use status_line::{Sparkline, StatusLine, StatusMode};
+pub use status_line::{InlineAgentInput, Sparkline, StatusLine, StatusLineResult, StatusMode};
 pub use team_menu::{MemberPresence, TeamMember, TeamMenu, TeamMenuAction};
 pub use team_status::{TeamStatusInfo, TeamStatusWidget, WsState};
 pub use time_range::{TimeRange, TimeRangePreset, TimeRangeToolbar};

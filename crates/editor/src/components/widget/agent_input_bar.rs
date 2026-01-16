@@ -29,10 +29,9 @@ use crate::components::overlay::AgentCommand;
 use crate::components::overlay::SlashCommandPopup;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::overlay::{parse_commands, strip_command_blocks};
-use crate::components::util::ActivityItem;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::ActivityType;
 use crate::components::util::finder_utils::{OverlayColors, OverlayStyle};
+use crate::components::util::{ActivityItem, ConversationHandoff, HandoffContextPane};
 
 /// State of the agent input bar
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -118,6 +117,8 @@ pub struct AgentInputBarResult {
     pub undo_requested: bool,
     /// Enya commands parsed from AI response (e.g., create_pane, set_time_range)
     pub commands: Vec<AgentCommand>,
+    /// Request to open the conversation in a full agent pane (Tab key handoff)
+    pub open_in_pane: bool,
 }
 
 /// Context pane information for display
@@ -268,6 +269,8 @@ pub struct AgentInputBar {
     context_panes: Vec<ContextPane>,
     /// Current AI provider name (e.g., "Claude", "Codex")
     provider_name: String,
+    /// Last query sent to the AI (for handoff)
+    last_query: String,
     /// Last response text (for display)
     response_text: String,
     /// Display text (response with command blocks stripped)
@@ -318,6 +321,7 @@ impl AgentInputBar {
             theme: AppTheme::default(),
             context_panes: Vec::new(),
             provider_name: "Claude".to_string(),
+            last_query: String::new(),
             response_text: String::new(),
             display_text: String::new(),
             response_expanded: false,
@@ -348,6 +352,7 @@ impl AgentInputBar {
             theme: AppTheme::default(),
             context_panes: Vec::new(),
             provider_name: "Claude".to_string(),
+            last_query: String::new(),
             response_text: String::new(),
             display_text: String::new(),
             response_expanded: false,
@@ -435,12 +440,44 @@ impl AgentInputBar {
         &self.display_text
     }
 
+    /// Export the current conversation state for handoff to an agent pane.
+    ///
+    /// This is used when the user presses Tab in response state to continue
+    /// the conversation in a full agent pane. Returns `None` if there's no
+    /// conversation to export (e.g., not in response state or empty query).
+    pub fn export_for_handoff(&self) -> Option<ConversationHandoff> {
+        // Only allow handoff from response state with actual content
+        if self.state != AgentInputState::Response {
+            return None;
+        }
+
+        if self.last_query.is_empty() && self.response_text.is_empty() {
+            return None;
+        }
+
+        Some(ConversationHandoff {
+            query: self.last_query.clone(),
+            response: self.response_text.clone(),
+            display_text: self.display_text.clone(),
+            context_panes: self
+                .context_panes
+                .iter()
+                .map(|p| HandoffContextPane {
+                    tile_id: p.tile_id,
+                    name: p.name.clone(),
+                })
+                .collect(),
+            activities: self.activities.clone(),
+        })
+    }
+
     /// Reset to ready state (for entering agent mode)
     pub fn reset(&mut self) {
         self.state = AgentInputState::Ready;
         self.input.clear();
         self.prev_input.clear();
         self.focus_input = true;
+        self.last_query.clear();
         self.response_text.clear();
         self.display_text.clear();
         self.response_expanded = false;
@@ -553,6 +590,11 @@ impl AgentInputBar {
             .backdrop_accent_glow()
             .unwrap_or(Color32::TRANSPARENT);
 
+        // Max width for compact, centered input bar (OpenCode-style)
+        let max_width = 680.0;
+        let available_width = ui.available_width();
+        let bar_width = available_width.min(max_width);
+
         // Create frame with premium glass styling
         let frame = style
             .frame()
@@ -565,212 +607,229 @@ impl AgentInputBar {
                 color: Color32::from_black_alpha(60), // Subtle shadow for depth
             });
 
-        let frame_response = frame.show(ui, |ui| {
-            ui.set_min_height(height);
-            ui.set_width(ui.available_width());
+        // Center the input bar horizontally
+        let centered_response = ui.allocate_ui_with_layout(
+            egui::vec2(available_width, height + 30.0),
+            egui::Layout::top_down(egui::Align::Center),
+            |ui| {
+                let frame_response = frame.show(ui, |ui| {
+                    ui.set_min_height(height);
+                    ui.set_width(bar_width);
 
-            ui.vertical(|ui| {
-                // Top row: Provider badge + Context + Input
-                ui.horizontal(|ui| {
-                    // Provider badge with accent
-                    let badge_bg = accent.gamma_multiply(0.18);
+                    ui.vertical(|ui| {
+                        // Top row: Provider badge + Context + Input
+                        ui.horizontal(|ui| {
+                            // Provider badge with accent
+                            let badge_bg = accent.gamma_multiply(0.18);
 
-                    egui::Frame::new()
-                        .fill(badge_bg)
-                        .corner_radius(4.0)
-                        .inner_margin(egui::Margin::symmetric(8, 3))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 4.0;
-                                // Show provider logo based on name
-                                let logo_size = typography::SM + 2.0;
-                                let provider_lower = self.provider_name.to_lowercase();
-                                if provider_lower.contains("claude") {
-                                    ui.add(
-                                        egui::Image::new(egui::include_image!(
-                                            "../../../assets/claude.png"
-                                        ))
-                                        .tint(accent)
-                                        .max_size(egui::vec2(logo_size, logo_size)),
-                                    );
-                                } else if provider_lower.contains("openai")
-                                    || provider_lower.contains("codex")
-                                    || provider_lower.contains("gpt")
+                            egui::Frame::new()
+                                .fill(badge_bg)
+                                .corner_radius(4.0)
+                                .inner_margin(egui::Margin::symmetric(8, 3))
+                                .show(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 4.0;
+                                        // Show provider logo based on name
+                                        let logo_size = typography::SM + 2.0;
+                                        let provider_lower = self.provider_name.to_lowercase();
+                                        if provider_lower.contains("claude") {
+                                            ui.add(
+                                                egui::Image::new(egui::include_image!(
+                                                    "../../../assets/claude.png"
+                                                ))
+                                                .tint(accent)
+                                                .max_size(egui::vec2(logo_size, logo_size)),
+                                            );
+                                        } else if provider_lower.contains("openai")
+                                            || provider_lower.contains("codex")
+                                            || provider_lower.contains("gpt")
+                                        {
+                                            ui.add(
+                                                egui::Image::new(egui::include_image!(
+                                                    "../../../assets/openai.png"
+                                                ))
+                                                .tint(accent)
+                                                .max_size(egui::vec2(logo_size, logo_size)),
+                                            );
+                                        }
+                                        ui.label(
+                                            RichText::new(&self.provider_name)
+                                                .color(accent)
+                                                .size(typography::SM)
+                                                .strong(),
+                                        );
+                                    });
+                                });
+
+                            ui.add_space(12.0);
+
+                            // Context panes indicator (if any)
+                            if !self.context_panes.is_empty() {
+                                let context_text = if self.context_panes.len() == 1 {
+                                    self.context_panes[0].name.clone()
+                                } else if self.context_panes.len() <= 3 {
+                                    self.context_panes
+                                        .iter()
+                                        .map(|p| p.name.as_str())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                } else {
+                                    format!(
+                                        "{}, +{} more",
+                                        self.context_panes[0].name,
+                                        self.context_panes.len() - 1
+                                    )
+                                };
+
+                                // Context badge
+                                let ctx_badge_bg = colors.badge_bg.gamma_multiply(0.9);
+
+                                egui::Frame::new()
+                                    .fill(ctx_badge_bg)
+                                    .corner_radius(4.0)
+                                    .inner_margin(egui::Margin::symmetric(6, 2))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new(semantic_icons::nav::PANES)
+                                                    .color(colors.muted_text)
+                                                    .size(typography::SM),
+                                            );
+                                            ui.add_space(4.0);
+                                            ui.label(
+                                                RichText::new(&context_text)
+                                                    .color(colors.muted_text)
+                                                    .size(typography::SM),
+                                            );
+                                        });
+                                    });
+
+                                ui.add_space(4.0);
+
+                                // Minimal context buttons
+                                let btn_color = colors.faint_text;
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new("+")
+                                                .color(btn_color)
+                                                .size(typography::SM),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .on_hover_text("Add focused pane")
+                                    .clicked()
                                 {
-                                    ui.add(
-                                        egui::Image::new(egui::include_image!(
-                                            "../../../assets/openai.png"
-                                        ))
-                                        .tint(accent)
-                                        .max_size(egui::vec2(logo_size, logo_size)),
-                                    );
+                                    result.add_pane_to_context = true;
                                 }
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new("−")
+                                                .color(btn_color)
+                                                .size(typography::SM),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .on_hover_text("Remove focused pane")
+                                    .clicked()
+                                {
+                                    result.remove_pane_from_context = true;
+                                }
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            RichText::new("×")
+                                                .color(btn_color)
+                                                .size(typography::SM),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .on_hover_text("Clear context")
+                                    .clicked()
+                                {
+                                    result.clear_context = true;
+                                }
+
+                                ui.add_space(8.0);
+
+                                // Subtle separator
                                 ui.label(
-                                    RichText::new(&self.provider_name)
-                                        .color(accent)
-                                        .size(typography::SM)
-                                        .strong(),
+                                    RichText::new("·")
+                                        .color(colors.separator)
+                                        .size(typography::MD),
                                 );
-                            });
+                                ui.add_space(8.0);
+                            }
+
+                            // Main content based on state
+                            match self.state {
+                                AgentInputState::Ready => {
+                                    self.show_ready_state(ui, &colors, &mut result);
+                                }
+                                AgentInputState::Typing => {
+                                    self.show_typing_state(ui, &colors, &mut result);
+                                }
+                                AgentInputState::Processing => {
+                                    self.show_processing_state(ui, &colors, accent);
+                                }
+                                AgentInputState::Response => {
+                                    self.show_response_state(ui, &colors, &mut result);
+                                }
+                            }
                         });
 
-                    ui.add_space(12.0);
+                        // Additional rows for expanded content
+                        if self.state == AgentInputState::Typing && !self.input.is_empty() {
+                            ui.add_space(8.0);
+                            self.show_suggestions(ui, &colors);
+                        }
 
-                    // Context panes indicator (if any)
-                    if !self.context_panes.is_empty() {
-                        let context_text = if self.context_panes.len() == 1 {
-                            self.context_panes[0].name.clone()
-                        } else if self.context_panes.len() <= 3 {
-                            self.context_panes
-                                .iter()
-                                .map(|p| p.name.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        } else {
-                            format!(
-                                "{}, +{} more",
-                                self.context_panes[0].name,
-                                self.context_panes.len() - 1
-                            )
-                        };
-
-                        // Context badge
-                        let ctx_badge_bg = colors.badge_bg.gamma_multiply(0.9);
-
-                        egui::Frame::new()
-                            .fill(ctx_badge_bg)
-                            .corner_radius(4.0)
-                            .inner_margin(egui::Margin::symmetric(6, 2))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(
-                                        RichText::new(semantic_icons::nav::PANES)
-                                            .color(colors.muted_text)
-                                            .size(typography::SM),
-                                    );
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        RichText::new(&context_text)
-                                            .color(colors.muted_text)
-                                            .size(typography::SM),
-                                    );
-                                });
-                            });
-
-                        ui.add_space(4.0);
-
-                        // Minimal context buttons
-                        let btn_color = colors.faint_text;
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    RichText::new("+").color(btn_color).size(typography::SM),
-                                )
-                                .frame(false),
-                            )
-                            .on_hover_text("Add focused pane")
-                            .clicked()
+                        if self.state == AgentInputState::Processing && !self.activities.is_empty()
                         {
-                            result.add_pane_to_context = true;
-                        }
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    RichText::new("−").color(btn_color).size(typography::SM),
-                                )
-                                .frame(false),
-                            )
-                            .on_hover_text("Remove focused pane")
-                            .clicked()
-                        {
-                            result.remove_pane_from_context = true;
-                        }
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    RichText::new("×").color(btn_color).size(typography::SM),
-                                )
-                                .frame(false),
-                            )
-                            .on_hover_text("Clear context")
-                            .clicked()
-                        {
-                            result.clear_context = true;
+                            ui.add_space(4.0);
+                            self.show_activities(ui, &colors);
                         }
 
-                        ui.add_space(8.0);
-
-                        // Subtle separator
-                        ui.label(
-                            RichText::new("·")
-                                .color(colors.separator)
-                                .size(typography::MD),
-                        );
-                        ui.add_space(8.0);
-                    }
-
-                    // Main content based on state
-                    match self.state {
-                        AgentInputState::Ready => {
-                            self.show_ready_state(ui, &colors, &mut result);
+                        if self.state == AgentInputState::Response && self.response_expanded {
+                            ui.add_space(8.0);
+                            self.show_expanded_response(ui, &colors);
                         }
-                        AgentInputState::Typing => {
-                            self.show_typing_state(ui, &colors, &mut result);
-                        }
-                        AgentInputState::Processing => {
-                            self.show_processing_state(ui, &colors, accent);
-                        }
-                        AgentInputState::Response => {
-                            self.show_response_state(ui, &colors, &mut result);
-                        }
-                    }
+                    });
                 });
 
-                // Additional rows for expanded content
-                if self.state == AgentInputState::Typing && !self.input.is_empty() {
-                    ui.add_space(8.0);
-                    self.show_suggestions(ui, &colors);
+                // Draw premium glass effects
+                let rect = frame_response.response.rect;
+                if style.inner_highlight().is_some() {
+                    // Top edge highlight for glass reflection
+                    let highlight_rect = egui::Rect::from_min_size(
+                        rect.left_top() + egui::vec2(1.0, 1.0),
+                        egui::vec2(rect.width() - 2.0, 1.5),
+                    );
+                    ui.painter().rect_filled(highlight_rect, 12.0, inner_glow);
+
+                    // Subtle bottom edge glow (emerald accent in dark mode)
+                    if bottom_glow != Color32::TRANSPARENT {
+                        let bottom_rect = egui::Rect::from_min_size(
+                            egui::pos2(rect.left() + 1.0, rect.bottom() - 2.0),
+                            egui::vec2(rect.width() - 2.0, 1.0),
+                        );
+                        ui.painter().rect_filled(bottom_rect, 12.0, bottom_glow);
+                    }
                 }
 
-                if self.state == AgentInputState::Processing && !self.activities.is_empty() {
-                    ui.add_space(4.0);
-                    self.show_activities(ui, &colors);
-                }
-
-                if self.state == AgentInputState::Response && self.response_expanded {
-                    ui.add_space(8.0);
-                    self.show_expanded_response(ui, &colors);
-                }
-            });
-        });
-
-        // Draw premium glass effects
-        let rect = frame_response.response.rect;
-        if style.inner_highlight().is_some() {
-            // Top edge highlight for glass reflection
-            let highlight_rect = egui::Rect::from_min_size(
-                rect.left_top() + egui::vec2(1.0, 1.0),
-                egui::vec2(rect.width() - 2.0, 1.5),
-            );
-            ui.painter().rect_filled(highlight_rect, 12.0, inner_glow);
-
-            // Subtle bottom edge glow (emerald accent in dark mode)
-            if bottom_glow != Color32::TRANSPARENT {
-                let bottom_rect = egui::Rect::from_min_size(
-                    egui::pos2(rect.left() + 1.0, rect.bottom() - 2.0),
-                    egui::vec2(rect.width() - 2.0, 1.0),
-                );
-                ui.painter().rect_filled(bottom_rect, 12.0, bottom_glow);
-            }
-        }
+                rect
+            },
+        );
 
         // Check for / and @ triggers (order matters - slash first, then mention, then update prev_input)
         self.check_input_triggers();
 
         // Calculate cursor position for popup alignment
         let cursor_x = self.calculate_cursor_x(ui);
+        let rect = centered_response.inner;
 
-        // Show mention popup if active (positioned above cursor)
+        // Show mention popup if active (positioned above cursor) - also outside for Area rendering
         if self.mention_popup.active {
             self.show_mention_popup(ui, &colors, rect, cursor_x);
         }
@@ -789,6 +848,298 @@ impl AgentInputBar {
         }
 
         result
+    }
+
+    /// Show the agent input bar in inline mode (for status line embedding)
+    /// Returns the input bar result with commands and exit request
+    #[profiling::function]
+    pub fn show_inline(&mut self, ui: &mut egui::Ui) -> AgentInputBarResult {
+        let mut result = AgentInputBarResult::default();
+        let colors = OverlayColors::new(self.theme);
+        let accent = self.theme.accent_primary();
+
+        // Match status line height
+        let height = 26.0;
+
+        // Separator after the mode badge (provider is now shown there)
+        let separator_width = 20.0;
+        let (sep_rect, _) =
+            ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
+        if ui.is_rect_visible(sep_rect) {
+            let line_color = self.theme.text_secondary().gamma_multiply(0.15);
+            ui.painter().vline(
+                sep_rect.center().x,
+                egui::Rangef::new(sep_rect.min.y + 6.0, sep_rect.max.y - 6.0),
+                egui::Stroke::new(1.0, line_color),
+            );
+        }
+
+        // Different UI based on state
+        match self.state {
+            AgentInputState::Ready | AgentInputState::Typing => {
+                // Text input - clean placeholder that hints at capabilities
+                let hint_text = "Ask anything...  / commands  @ metrics";
+                let max_input_width = 500.0;
+                let available = ui.available_width() - 50.0;
+                let input_width = available.min(max_input_width).max(200.0);
+
+                let text_edit_id = ui.make_persistent_id("agent_input_inline");
+                let response = ui.add(
+                    TextEdit::singleline(&mut self.input)
+                        .id(text_edit_id)
+                        .hint_text(hint_text)
+                        .desired_width(input_width)
+                        .font(typography::proportional(typography::MD))
+                        .text_color(colors.text)
+                        .frame(false),
+                );
+
+                // Store the text edit rect for popup positioning
+                self.text_edit_rect = Some(response.rect);
+
+                if self.focus_input {
+                    response.request_focus();
+                    self.focus_input = false;
+                }
+
+                // Transition states based on input
+                if !self.input.is_empty() && self.state == AgentInputState::Ready {
+                    self.state = AgentInputState::Typing;
+                }
+
+                // Handle Enter to submit
+                if response.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    && !self.input.is_empty()
+                {
+                    // Submit the query
+                    self.last_query = self.input.clone();
+                    result.query = Some(self.input.clone());
+                    self.input.clear();
+                    self.state = AgentInputState::Ready;
+                    self.focus_input = true;
+                }
+
+                // Move cursor to end if requested
+                if self.cursor_to_end {
+                    self.cursor_to_end = false;
+                    if let Some(mut state) =
+                        egui::text_edit::TextEditState::load(ui.ctx(), text_edit_id)
+                    {
+                        let ccursor = egui::text::CCursor::new(self.input.len());
+                        state
+                            .cursor
+                            .set_char_range(Some(egui::text::CCursorRange::one(ccursor)));
+                        state.store(ui.ctx(), text_edit_id);
+                    }
+                }
+            }
+            AgentInputState::Processing => {
+                let elapsed = self
+                    .processing_start
+                    .map(|t| t.elapsed().as_secs())
+                    .unwrap_or(0);
+
+                // Determine icon and status based on current activity
+                let (icon, status, detail) = if let Some(activity) = self.activities.last() {
+                    match &activity.activity_type {
+                        ActivityType::Thinking(text) => {
+                            let preview = if text.len() > 40 {
+                                format!("{}...", &text[..37])
+                            } else {
+                                text.clone()
+                            };
+                            (semantic_icons::status::LOADING, "Thinking", Some(preview))
+                        }
+                        ActivityType::ToolUse { tool, summary } => {
+                            let icon = match tool.as_str() {
+                                "Read" => semantic_icons::file::GENERIC,
+                                "Grep" | "Glob" => semantic_icons::action::SEARCH,
+                                "Bash" => semantic_icons::file::CODE,
+                                "Edit" | "Write" => semantic_icons::action::EDIT,
+                                "Task" => semantic_icons::action::ROBOT,
+                                "WebFetch" | "WebSearch" => semantic_icons::action::LINK,
+                                _ => semantic_icons::action::TOOL,
+                            };
+                            let detail = if summary.is_empty() || summary == "{}" {
+                                None
+                            } else {
+                                let truncated = if summary.len() > 35 {
+                                    format!("{}...", &summary[..32])
+                                } else {
+                                    summary.clone()
+                                };
+                                Some(truncated)
+                            };
+                            (icon, tool.as_str(), detail)
+                        }
+                        ActivityType::Error(msg) => {
+                            let preview = if msg.len() > 40 {
+                                format!("{}...", &msg[..37])
+                            } else {
+                                msg.clone()
+                            };
+                            (semantic_icons::diagnostic::ERROR, "Error", Some(preview))
+                        }
+                        ActivityType::Response(_) => {
+                            (semantic_icons::status::LOADING, "Responding", None)
+                        }
+                    }
+                } else if self.processing_status.contains("Sending") {
+                    (semantic_icons::nav::RIGHT, "Sending", None)
+                } else if self.processing_status.contains("Responding") {
+                    (semantic_icons::status::LOADING, "Responding", None)
+                } else {
+                    (semantic_icons::status::LOADING, "Thinking", None)
+                };
+
+                // Icon
+                ui.label(RichText::new(icon).color(accent).size(typography::MD));
+                ui.add_space(6.0);
+
+                // Status label
+                ui.label(
+                    RichText::new(status)
+                        .color(colors.text)
+                        .size(typography::MD),
+                );
+
+                // Detail (tool summary, thinking preview, etc.)
+                if let Some(ref detail_text) = detail {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(detail_text)
+                            .color(colors.muted_text)
+                            .size(typography::SM),
+                    );
+                }
+
+                // Elapsed time on the right
+                ui.add_space(12.0);
+                ui.label(
+                    RichText::new(format!("{elapsed}s"))
+                        .color(colors.muted_text)
+                        .size(typography::SM),
+                );
+
+                // Request repaint to update elapsed time
+                ui.ctx().request_repaint();
+            }
+            AgentInputState::Response => {
+                // Success indicator
+                ui.label(
+                    RichText::new(semantic_icons::status::SUCCESS)
+                        .color(accent)
+                        .size(typography::MD),
+                );
+                ui.add_space(6.0);
+
+                // Show what happened (truncated response or action summary)
+                let summary = if !self.display_text.is_empty() {
+                    // Get first line, truncated
+                    let first_line = self.display_text.lines().next().unwrap_or("");
+                    if first_line.len() > 50 {
+                        format!("{}...", &first_line[..47])
+                    } else if first_line.is_empty() {
+                        "Response ready".to_string()
+                    } else {
+                        first_line.to_string()
+                    }
+                } else {
+                    "Response ready".to_string()
+                };
+
+                ui.label(
+                    RichText::new(summary)
+                        .color(colors.text)
+                        .size(typography::MD),
+                );
+
+                ui.add_space(16.0);
+
+                // Keyboard hints
+                Self::render_key_hint(ui, "Tab", "expand", accent, colors.muted_text);
+                ui.add_space(10.0);
+                Self::render_key_hint(ui, "Esc", "clear", accent, colors.muted_text);
+
+                // Handle Tab key to open in panel
+                ui.ctx().input_mut(|input| {
+                    if input.consume_key(egui::Modifiers::NONE, Key::Tab) {
+                        result.open_in_pane = true;
+                    }
+                });
+            }
+        }
+
+        // Check for / and @ triggers
+        self.check_input_triggers();
+
+        // Calculate cursor position for popup alignment
+        let cursor_x = self.calculate_cursor_x(ui);
+
+        // Get rect for popup positioning (use text_edit_rect or fallback)
+        let rect = self
+            .text_edit_rect
+            .unwrap_or_else(|| ui.available_rect_before_wrap());
+
+        // Show mention popup if active
+        if self.mention_popup.active {
+            self.show_mention_popup(ui, &colors, rect, cursor_x);
+        }
+
+        // Show slash command popup if active
+        if self.slash_command_popup.active {
+            self.slash_command_popup.show(ui, rect, cursor_x);
+        }
+
+        // Handle all keyboard input including popup navigation
+        self.handle_keyboard(ui.ctx(), &mut result);
+
+        // For inline mode, also handle Escape to clear or exit when no popup is active
+        if !self.mention_popup.active && !self.slash_command_popup.active {
+            ui.ctx().input_mut(|input| {
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    if !self.input.is_empty() {
+                        self.input.clear();
+                    } else {
+                        result.exit_requested = true;
+                    }
+                }
+            });
+        }
+
+        // Drain any pending commands into the result
+        if !self.pending_commands.is_empty() {
+            result.commands = std::mem::take(&mut self.pending_commands);
+        }
+
+        result
+    }
+
+    /// Render a keyboard hint like "Tab expand" with proper styling
+    fn render_key_hint(
+        ui: &mut egui::Ui,
+        key: &str,
+        action: &str,
+        key_color: Color32,
+        action_color: Color32,
+    ) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            // Key in a subtle badge style
+            ui.label(
+                RichText::new(key)
+                    .color(key_color)
+                    .size(typography::SM)
+                    .strong(),
+            );
+            // Action text
+            ui.label(
+                RichText::new(action)
+                    .color(action_color)
+                    .size(typography::SM),
+            );
+        });
     }
 
     /// Check for / and @ triggers in the input text.
@@ -1308,6 +1659,20 @@ impl AgentInputBar {
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Tab hint for opening in panel - show with accent color
+            let accent = self.theme.accent_primary();
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.label(RichText::new("Tab").color(accent).size(typography::SM));
+                ui.label(
+                    RichText::new("open in panel")
+                        .color(colors.muted_text)
+                        .size(typography::SM),
+                );
+            });
+
+            ui.add_space(12.0);
+
             // Undo button if available
             if self.can_undo
                 && ui
@@ -1658,6 +2023,11 @@ impl AgentInputBar {
                     }
                 }
                 AgentInputState::Response => {
+                    // Tab to open in agent pane (handoff)
+                    if input.consume_key(egui::Modifiers::NONE, Key::Tab) {
+                        result.open_in_pane = true;
+                    }
+
                     // Enter to continue (new query)
                     if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
                         self.clear_response();
@@ -1708,6 +2078,9 @@ impl AgentInputBar {
     /// providing context about the editor state and available commands.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn send_query(&mut self, query: &str, system_context: Option<&str>) {
+        // Store the query for potential handoff
+        self.last_query = query.to_string();
+
         // Transition to processing state
         self.state = AgentInputState::Processing;
         self.processing_status = "Sending to agent...".to_string();
@@ -1733,9 +2106,11 @@ impl AgentInputBar {
 
     /// Send a query (WASM version - not supported)
     #[cfg(target_arch = "wasm32")]
-    pub fn send_query(&mut self, _query: &str, _context: Option<&str>) {
+    pub fn send_query(&mut self, query: &str, _context: Option<&str>) {
+        self.last_query = query.to_string();
         self.state = AgentInputState::Response;
         self.response_text = "Claude Code CLI is not available in the browser.".to_string();
+        self.display_text = self.response_text.clone();
         self.can_undo = false;
     }
 

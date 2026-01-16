@@ -1,7 +1,7 @@
 //! Pane components - tile content types that implement the Component trait.
 
-pub mod agent_pane;
 pub mod annotation;
+pub mod inline_content;
 pub mod logs_pane;
 pub mod query_pane;
 #[cfg(not(target_arch = "wasm32"))]
@@ -11,7 +11,9 @@ pub mod tracing;
 pub mod tracing_pane;
 pub mod visualization;
 
-pub use agent_pane::{AgentPane, AgentPaneAction, InlineChart, InlineContent, InlineSource};
+pub use inline_content::{
+    InlineChart, InlineContent, InlineSearchResults, InlineSource, SearchResultItem,
+};
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
 pub use terminal_pane::{TerminalPane, TerminalPaneAction};

@@ -229,6 +229,8 @@ pub struct Workspace {
     agent_input_bar: AgentInputBar,
     /// Whether agent mode is active (vim-style modal interaction)
     agent_mode_active: bool,
+    /// Whether the agent panel has keyboard focus (vim h/l to transfer)
+    agent_panel_focused: bool,
     /// Panes in agent context (from visual mode selection or manual +/-)
     agent_context_panes: FxHashSet<TileId>,
     /// Codebase manager for git repo and metrics discovery (native only with codebase feature)
@@ -348,6 +350,7 @@ impl Workspace {
             #[cfg(target_arch = "wasm32")]
             agent_input_bar: AgentInputBar::new(),
             agent_mode_active: false,
+            agent_panel_focused: false,
             agent_context_panes: FxHashSet::default(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_manager: CodebaseManager::new(),
@@ -806,24 +809,126 @@ impl Workspace {
             return WorkspaceAction::OpenDiffViewer { hash, diff };
         }
 
+        // Right sidebar: Agent panel (Claude Code integration)
+        // Rendered as a layout participant - viewport shrinks when panel is open
+        // Update context before showing so the agent has awareness of editor state
+        self.update_agent_context();
+        self.agent_panel.set_theme(app_state.theme);
+        self.agent_panel.set_focus(self.agent_panel_focused);
+        match self.agent_panel.show_inside(ui, ctx) {
+            AgentPanelResult::Closed => {
+                self.agent_panel_focused = false;
+                self.agent_panel.set_focus(false);
+                // Restore focus to last pane if nothing else has focus
+                if self.behavior.focused_tile().is_none() {
+                    if let Some(last_pane) = self.get_pane_tile_ids().last() {
+                        self.behavior.set_focused_tile(Some(*last_pane));
+                    }
+                }
+            }
+            AgentPanelResult::Commands(commands) => {
+                self.handle_agent_commands(commands, ctx);
+            }
+            AgentPanelResult::ReturnFocusToViewport => {
+                // Vim h key pressed - return focus to viewport
+                self.agent_panel_focused = false;
+                self.agent_panel.set_focus(false);
+                // Set section_focus to first focusable target (this controls visual focus)
+                self.section_focus = self.first_focusable_target();
+                // Sync behavior.focused_tile() with section_focus
+                let tile_id = self.section_focus_to_tile_id();
+                self.behavior.set_focused_tile(tile_id);
+            }
+            AgentPanelResult::EnteredInputMode => {
+                // User pressed i or Enter to enter chat input - release vim focus
+                // but keep panel open (user is now typing in the text input)
+                self.agent_panel_focused = false;
+            }
+            AgentPanelResult::None => {
+                // Don't sync - agent_panel_focused should only change via explicit actions
+                // (ReturnFocusToViewport, Closed, or keyboard transfer).
+                // The panel's internal has_focus tracks vim focus within the panel,
+                // while agent_panel_focused tracks whether the workspace considers the panel active.
+            }
+        }
+
         if chat_split_view_active {
             // Already rendered chat in central panel above
         } else {
             // Main area with toolbar and viewport
             egui::CentralPanel::default().show_inside(ui, |ui| {
-            // Top toolbar with time range controls (hidden in zen mode)
-            if !self.zen_mode {
+            // Top toolbar with filter (left) and time range controls (right)
+            // Hidden in zen mode or when workspace is empty (landing page shows its own hints)
+            let total_panes = self.get_pane_tile_ids().len();
+            if !self.zen_mode && total_panes > 0 {
                 // Get countdown before borrowing self mutably
                 let countdown = self.time_until_refresh();
+                let matching_panes = if self.viewport_filter.is_active() {
+                    self.get_pane_tile_ids()
+                        .iter()
+                        .filter(|tile_id| {
+                            if let Some(egui_tiles::Tile::Pane(pane)) =
+                                self.viewport_tree.tiles.get(**tile_id)
+                            {
+                                self.viewport_filter.matches(&pane.name())
+                            } else {
+                                true
+                            }
+                        })
+                        .count()
+                } else {
+                    total_panes
+                };
+                self.viewport_filter.update_counts(matching_panes, total_panes);
+                self.viewport_filter.set_theme(app_state.theme);
 
                 egui::TopBottomPanel::top("time_range_toolbar")
                     .resizable(false)
                     .show_inside(ui, |ui| {
                         ui.add_space(4.0);
+
+                        let toolbar_rect = ui.available_rect_before_wrap();
+
+                        // Only show keyboard hints when there are panes open
+                        // (landing page already shows hints when workspace is empty)
+                        if total_panes > 0 {
+                            let hint_color = app_state.theme.text_tertiary();
+                            let hint_text = "hjkl navigate   : cmd   ? help";
+                            let font = egui::FontId::proportional(11.0);
+                            let hint_galley = ui.painter().layout_no_wrap(
+                                hint_text.to_string(),
+                                font.clone(),
+                                hint_color,
+                            );
+                            let hint_pos = egui::pos2(
+                                toolbar_rect.center().x - hint_galley.size().x / 2.0,
+                                toolbar_rect.center().y - hint_galley.size().y / 2.0,
+                            );
+                            ui.painter().galley(hint_pos, hint_galley, hint_color);
+                        }
+
+                        // Now draw the interactive elements on top
                         ui.horizontal(|ui| {
-                            // Time range controls with refresh countdown
-                            self.time_range_toolbar.show_with_countdown(ui, countdown);
+                            // Left side: Filter input
+                            match self.viewport_filter.show_inline(ui) {
+                                ViewportFilterResult::Applied(pattern) => {
+                                    log::debug!("Toolbar filter applied: {pattern}");
+                                }
+                                ViewportFilterResult::Cleared => {
+                                    log::debug!("Toolbar filter cleared");
+                                }
+                                ViewportFilterResult::None => {}
+                            }
+
+                            // Flexible spacer to push time controls to the right
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    self.time_range_toolbar.show_with_countdown(ui, countdown);
+                                },
+                            );
                         });
+
                         ui.add_space(4.0);
                     });
             }
@@ -1170,19 +1275,8 @@ impl Workspace {
             let _ = self.diff_viewer.show(ctx);
         }
 
-        // Show agent panel (Claude Code integration)
-        // Update context before showing so the agent has awareness of editor state
-        self.update_agent_context();
-        self.agent_panel.set_theme(app_state.theme);
-        match self.agent_panel.show(ctx) {
-            AgentPanelResult::Closed => {
-                log::debug!("Agent panel closed");
-            }
-            AgentPanelResult::Commands(commands) => {
-                self.handle_agent_commands(commands, ctx);
-            }
-            AgentPanelResult::None => {}
-        }
+        // Note: Agent panel is now rendered in the layout section (show_inside)
+        // to participate in layout flow like the channels panel
 
         // Note: agent_input_bar.poll() is now called at the start of show()
         // to ensure agent-created panes are available for immediate query execution
@@ -1843,6 +1937,25 @@ impl Workspace {
         )
     }
 
+    /// Check if current section focus is at the right edge (for agent panel transfer)
+    ///
+    /// Returns true when:
+    /// - Focus is on any section header (section headers span the full width)
+    /// - Focus is on the last pane of ANY section (rightmost pane in that section)
+    pub fn is_at_section_right_edge(&self) -> bool {
+        match self.section_focus {
+            FocusTarget::None => false,
+            // Any section header is at the right edge (headers span full width)
+            FocusTarget::SectionHeader(_) => true,
+            // Check if we're on the last pane of the current section
+            FocusTarget::Pane { section, pane } => self
+                .section_configs
+                .get(section)
+                .map(|s| pane == s.panes.len().saturating_sub(1))
+                .unwrap_or(false),
+        }
+    }
+
     /// Navigate in a direction within sections (hjkl navigation)
     /// Returns true if navigation was handled, false if sections are not active
     pub fn navigate_sections(&mut self, direction: NavDirection) -> bool {
@@ -2286,6 +2399,16 @@ impl Workspace {
         self.agent_mode_active
     }
 
+    /// Get the current agent provider name (e.g., "Claude", "Codex")
+    pub fn agent_provider_name(&self) -> String {
+        self.agent_panel.provider_name()
+    }
+
+    /// Send a query to the agent (public wrapper for inline input)
+    pub fn send_agent_query(&mut self, query: &str, ctx: &egui::Context) {
+        self.send_agent_query_with_context(query, ctx);
+    }
+
     /// Enter agent mode, optionally with panes from visual selection.
     /// Shows quick command hints in the input bar.
     pub fn enter_agent_mode(&mut self) {
@@ -2456,6 +2579,30 @@ impl Workspace {
         self.handle_agent_input_result(result, ctx);
     }
 
+    /// Show the agent input bar in inline mode (for status line embedding)
+    /// Called from the app's bottom panel to render within the status line.
+    pub fn show_agent_input_bar_inline(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        theme: AppTheme,
+    ) {
+        if !self.agent_mode_active {
+            return;
+        }
+
+        self.agent_input_bar.set_theme(theme);
+        self.agent_input_bar
+            .set_provider_name(self.agent_panel.provider().display_name());
+
+        // Provide available metrics for @ mention autocomplete
+        let metric_names = self.query_executor.metric_names().to_vec();
+        self.agent_input_bar.set_available_metrics(metric_names);
+
+        let result = self.agent_input_bar.show_inline(ui);
+        self.handle_agent_input_result(result, ctx);
+    }
+
     /// Show the viewport filter bar and handle its results.
     /// Called from the app's bottom panel to render above the status line.
     pub fn show_viewport_filter_bar(&mut self, ui: &mut egui::Ui) {
@@ -2477,6 +2624,17 @@ impl Workspace {
             self.exit_agent_mode();
             ctx.request_repaint();
             return;
+        }
+
+        // Handle Tab to open in agent panel (side panel handoff)
+        if result.open_in_pane {
+            if let Some(handoff) = self.agent_input_bar.export_for_handoff() {
+                log::info!("Handing off conversation to agent panel");
+                self.agent_panel.import_from_handoff(handoff);
+                self.exit_agent_mode();
+                ctx.request_repaint();
+                return;
+            }
         }
 
         // Handle context operations

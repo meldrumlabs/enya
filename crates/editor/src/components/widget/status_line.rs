@@ -14,6 +14,25 @@ use crate::ui::typography;
 
 use super::team_status::TeamStatusInfo;
 
+/// State for inline agent input in the status line
+pub struct InlineAgentInput<'a> {
+    /// The input text buffer
+    pub text: &'a mut String,
+    /// Whether the input should be focused
+    pub focus: &'a mut bool,
+    /// Provider name (e.g., "Claude", "Codex")
+    pub provider_name: &'a str,
+}
+
+/// Result from showing the status line with agent input
+#[derive(Debug, Clone, Default)]
+pub struct StatusLineResult {
+    /// User submitted a query (pressed Enter)
+    pub query_submitted: Option<String>,
+    /// User wants to exit agent mode (pressed Escape)
+    pub exit_requested: bool,
+}
+
 /// Unicode block characters for sparkline rendering (1/8 to 8/8 height)
 const SPARKLINE_BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -264,6 +283,8 @@ pub struct StatusLine {
     theme: AppTheme,
     /// Current mode
     mode: StatusMode,
+    /// Agent provider name (e.g., "Claude", "Codex") - shown as mode badge when in Agent mode
+    agent_provider_name: Option<String>,
     /// Connection status
     is_connected: bool,
     /// Number of open charts/tabs
@@ -297,6 +318,7 @@ impl Default for StatusLine {
         Self {
             theme: AppTheme::default(),
             mode: StatusMode::Normal,
+            agent_provider_name: None,
             is_connected: false,
             open_tabs: 0,
             selected_metric: None,
@@ -328,6 +350,11 @@ impl StatusLine {
     /// Set the current mode
     pub fn set_mode(&mut self, mode: StatusMode) {
         self.mode = mode;
+    }
+
+    /// Set the agent provider name (shown as mode badge when in Agent mode)
+    pub fn set_agent_provider_name(&mut self, name: Option<String>) {
+        self.agent_provider_name = name;
     }
 
     /// Set the connection status
@@ -431,7 +458,18 @@ impl StatusLine {
 
     /// Render the status line
     #[profiling::function]
-    pub fn show(&self, ui: &mut Ui) {
+    pub fn show(&self, ui: &mut Ui) -> StatusLineResult {
+        self.show_with_extra_content(ui, |_| {})
+    }
+
+    /// Render the status line with custom content after the mode badge
+    /// The closure is called right after the mode badge to render inline content
+    #[profiling::function]
+    pub fn show_with_extra_content<F>(&self, ui: &mut Ui, render_after_mode: F) -> StatusLineResult
+    where
+        F: FnOnce(&mut Ui),
+    {
+        let result = StatusLineResult::default();
         let height = 26.0; // Slightly taller for breathing room
         let padding = 8.0; // More generous padding
 
@@ -456,8 +494,14 @@ impl StatusLine {
             let bar_rect = ui.available_rect_before_wrap();
             ui.painter().rect_filled(bar_rect, 0.0, status_bg);
 
-            // === LEFT SECTION ===
-            self.render_left_section(ui, height, padding);
+            // === LEFT SECTION (mode badge only when extra content provided) ===
+            self.render_mode_badge(ui, height, padding);
+
+            // === CUSTOM CONTENT (e.g., agent input bar) ===
+            render_after_mode(ui);
+
+            // === REST OF LEFT SECTION ===
+            self.render_left_section_after_mode(ui, height, padding);
 
             // === CENTER SECTION (fills remaining space) ===
             self.render_center_section(ui, height, padding);
@@ -465,11 +509,21 @@ impl StatusLine {
             // === RIGHT SECTION ===
             self.render_right_section(ui, height, padding);
         });
+
+        result
     }
 
-    /// Render the left section of the status line
-    fn render_left_section(&self, ui: &mut Ui, height: f32, padding: f32) {
-        // Mode indicator (like vim mode in lualine)
+    /// Render just the mode badge (used when extra content is being injected)
+    fn render_mode_badge(&self, ui: &mut Ui, height: f32, padding: f32) {
+        // In Agent mode with a provider name, show the provider as the mode badge
+        if self.mode == StatusMode::Agent {
+            if let Some(ref provider_name) = self.agent_provider_name {
+                self.render_agent_provider_badge(ui, provider_name, height, padding);
+                return;
+            }
+        }
+
+        // Default mode badge for all other modes
         let mode_color = self.mode.color(self.theme);
         let mode_text_color = self.mode.text_color(self.theme);
 
@@ -483,7 +537,95 @@ impl StatusLine {
             padding,
             true,
         );
+    }
 
+    /// Render the agent provider badge (logo + name) as the mode indicator
+    fn render_agent_provider_badge(
+        &self,
+        ui: &mut Ui,
+        provider_name: &str,
+        height: f32,
+        padding: f32,
+    ) {
+        let mode_color = self.mode.color(self.theme);
+        let mode_text_color = self.mode.text_color(self.theme);
+        let logo_size = typography::MD;
+        let provider_lower = provider_name.to_lowercase();
+
+        // Calculate badge width: logo + space + text + padding
+        let icon_width = logo_size + 6.0;
+        let text_galley = ui.painter().layout_no_wrap(
+            provider_name.to_string(),
+            typography::proportional(typography::MD),
+            mode_text_color,
+        );
+        let badge_width = icon_width + text_galley.size().x + padding * 2.0;
+
+        // Allocate badge rect
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(badge_width, height), egui::Sense::hover());
+
+        if ui.is_rect_visible(rect) {
+            // Premium primary segment styling with rounded right edge
+            let corner_radius = egui::CornerRadius {
+                nw: 0,
+                ne: 4,
+                sw: 0,
+                se: 4,
+            };
+
+            // Subtle glow behind
+            let glow_rect = rect.expand(1.0);
+            ui.painter()
+                .rect_filled(glow_rect, corner_radius, mode_color.gamma_multiply(0.3));
+            ui.painter().rect_filled(rect, corner_radius, mode_color);
+
+            // Inner top highlight for 3D effect
+            let highlight_rect = egui::Rect::from_min_size(
+                rect.left_top() + egui::vec2(0.0, 1.0),
+                egui::vec2(rect.width(), 1.0),
+            );
+            ui.painter().rect_filled(
+                highlight_rect,
+                0.0,
+                Color32::from_rgba_unmultiplied(255, 255, 255, 20),
+            );
+
+            // Draw provider logo
+            let logo_rect = egui::Rect::from_min_size(
+                egui::pos2(rect.min.x + padding, rect.center().y - logo_size / 2.0),
+                egui::vec2(logo_size, logo_size),
+            );
+
+            let image_source = if provider_lower.contains("claude") {
+                Some(egui::include_image!("../../../assets/claude.png"))
+            } else if provider_lower.contains("openai")
+                || provider_lower.contains("codex")
+                || provider_lower.contains("gpt")
+            {
+                Some(egui::include_image!("../../../assets/openai.png"))
+            } else {
+                None
+            };
+
+            if let Some(source) = image_source {
+                let image = egui::Image::new(source).tint(mode_text_color);
+                image.paint_at(ui, logo_rect);
+            }
+
+            // Draw provider name text
+            ui.painter().text(
+                egui::pos2(rect.min.x + padding + icon_width, rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                provider_name,
+                typography::proportional(typography::MD),
+                mode_text_color,
+            );
+        }
+    }
+
+    /// Render the left section after the mode badge (zen/fullscreen badges, branch, metric, sparkline)
+    fn render_left_section_after_mode(&self, ui: &mut Ui, height: f32, padding: f32) {
         // Display preference badges (zen/fullscreen) - use distinct colors
         if self.is_zen_mode {
             let (bg, fg) = (self.theme.badge_zen_bg(), self.theme.badge_zen_fg());
@@ -502,9 +644,7 @@ impl StatusLine {
 
         // Git branch / project info (if available)
         if let Some(ref branch) = self.branch_info {
-            // Separator
             self.render_separator(ui, height);
-
             self.render_segment(
                 ui,
                 branch,
@@ -519,10 +659,7 @@ impl StatusLine {
 
         // Selected metric
         if let Some(ref metric) = self.selected_metric {
-            // Separator
             self.render_separator(ui, height);
-
-            // Truncate long metric names
             let display_name = if metric.len() > 30 {
                 format!("{}...", &metric[..27])
             } else {
@@ -540,12 +677,12 @@ impl StatusLine {
             );
         }
 
-        // Sparkline with current value
-        if let Some(ref sparkline) = self.sparkline {
-            // Separator
-            self.render_separator(ui, height);
-
-            self.render_sparkline_segment(ui, sparkline, height, padding);
+        // Sparkline with current value (hidden in agent mode to save space)
+        if self.mode != StatusMode::Agent {
+            if let Some(ref sparkline) = self.sparkline {
+                self.render_separator(ui, height);
+                self.render_sparkline_segment(ui, sparkline, height, padding);
+            }
         }
     }
 

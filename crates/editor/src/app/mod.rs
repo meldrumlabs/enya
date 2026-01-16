@@ -178,6 +178,14 @@ impl EnyaApp {
         };
         self.status_line.set_mode(mode);
 
+        // Set agent provider name (shown as mode badge when in Agent mode)
+        if mode == StatusMode::Agent {
+            self.status_line
+                .set_agent_provider_name(Some(self.workspace.agent_provider_name()));
+        } else {
+            self.status_line.set_agent_provider_name(None);
+        }
+
         // Set open tabs count from workspace
         self.status_line
             .set_open_tabs(self.workspace.open_tabs_count());
@@ -224,17 +232,22 @@ impl EnyaApp {
         }
 
         let theme = self.state.theme;
+        let is_agent_mode = self.workspace.is_agent_mode();
+
         egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(false)
             .show(ctx, |ui| {
-                // Show agent input bar above status line (if in agent mode)
-                self.workspace.show_agent_input_bar(ui, ctx, theme);
+                // Note: viewport filter is now inline in the top toolbar
 
-                // Show viewport filter bar above status line (if filter is open)
-                self.workspace.show_viewport_filter_bar(ui);
-
-                // Status line at the bottom
-                self.status_line.show(ui);
+                // Status line with embedded agent input when in agent mode
+                if is_agent_mode {
+                    self.status_line.show_with_extra_content(ui, |ui| {
+                        // Render the agent input bar inline within the status line
+                        self.workspace.show_agent_input_bar_inline(ui, ctx, theme);
+                    });
+                } else {
+                    self.status_line.show(ui);
+                }
             });
     }
 

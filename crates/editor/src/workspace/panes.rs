@@ -10,13 +10,11 @@ use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::InlineSource;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::components::pane::agent_pane::{InlineSearchResults, SearchResultItem};
+use crate::components::pane::inline_content::{InlineSearchResults, SearchResultItem};
 use crate::components::pane::logs_pane::LogsBackend;
 use crate::components::pane::query_pane::QueryPaneAction;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
-use crate::components::{
-    AgentPane, Buffer, Component, InlineChart, InlineContent, LogsPane, QueryPane,
-};
+use crate::components::{Buffer, Component, InlineChart, InlineContent, LogsPane, QueryPane};
 
 impl Workspace {
     // ==================== Pane Adding ====================
@@ -86,40 +84,6 @@ impl Workspace {
             self.show_landing = false;
             log::info!("Agent created query pane: {}", title.unwrap_or(query));
         }
-    }
-
-    /// Add an agent pane to the viewport.
-    ///
-    /// Creates a new AI chat pane that can run in parallel with query panes.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn add_agent_pane(&mut self) -> Option<TileId> {
-        let runtime_handle = self.query_executor.runtime_handle();
-        let mut agent_pane = AgentPane::new(runtime_handle);
-
-        // Set editor context for the agent
-        self.update_agent_context();
-        if let Some(context) = self.build_editor_context() {
-            agent_pane.set_context(context);
-        }
-
-        let pane: Box<dyn Component> = Box::new(agent_pane);
-        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-
-        if self.add_tile_to_viewport(pane_tile) {
-            self.behavior.set_focused_tile(Some(pane_tile));
-            self.show_landing = false;
-            log::info!("Added agent pane");
-            Some(pane_tile)
-        } else {
-            None
-        }
-    }
-
-    /// Add an agent pane (WASM stub - agents not supported in browser).
-    #[cfg(target_arch = "wasm32")]
-    pub(super) fn add_agent_pane(&mut self) -> Option<TileId> {
-        log::warn!("Agent panes are not available in the browser");
-        None
     }
 
     /// Add a terminal pane to the viewport.
@@ -253,25 +217,6 @@ impl Workspace {
         } else {
             None
         }
-    }
-
-    /// Find or create an agent pane. Returns the tile ID.
-    ///
-    /// If an agent pane already exists, focuses it. Otherwise creates a new one.
-    pub(super) fn focus_or_create_agent_pane(&mut self) -> Option<TileId> {
-        // Check if we already have an agent pane
-        for tile_id in self.get_pane_tile_ids() {
-            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                if component.as_any().downcast_ref::<AgentPane>().is_some() {
-                    // Found an existing agent pane, focus it
-                    self.behavior.set_focused_tile(Some(tile_id));
-                    return Some(tile_id);
-                }
-            }
-        }
-
-        // No agent pane found, create a new one
-        self.add_agent_pane()
     }
 
     /// Handle commands from the AI agent.
@@ -437,43 +382,16 @@ impl Workspace {
 
     /// Poll all agent panes for pending commands and execute them.
     ///
+    /// Poll for commands from the agent panel.
+    ///
     /// This should be called during the workspace's show() method to ensure
-    /// commands from agent panes are processed.
-    pub(super) fn poll_agent_pane_commands(&mut self, ctx: &egui::Context) {
-        // Build context once before iterating (avoids borrow issues)
-        let context = self.build_editor_context();
-
-        let mut all_commands = Vec::new();
-        let pane_ids = self.get_pane_tile_ids();
-
-        // Iterate through all panes and collect commands from agent panes
-        for tile_id in pane_ids {
-            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
-                if let Some(agent_pane) = component.as_any_mut().downcast_mut::<AgentPane>() {
-                    // Update context for the agent
-                    if let Some(ref ctx) = context {
-                        agent_pane.set_context(ctx.clone());
-                    }
-
-                    // Poll for pending commands from this agent pane
-                    let commands = agent_pane.poll_pending_commands();
-                    if !commands.is_empty() {
-                        log::info!(
-                            "Agent pane {} produced {} commands",
-                            agent_pane.id(),
-                            commands.len()
-                        );
-                    }
-                    all_commands.extend(commands);
-                }
-            }
-        }
-
-        // Execute all collected commands
-        if !all_commands.is_empty() {
-            log::info!("Executing {} agent commands", all_commands.len());
-            self.handle_agent_commands(all_commands, ctx);
-        }
+    /// commands from the agent panel are processed.
+    ///
+    /// Note: This was previously used for polling AgentPane instances as well,
+    /// but AgentPane has been removed in favor of the AgentPanel overlay.
+    pub(super) fn poll_agent_pane_commands(&mut self, _ctx: &egui::Context) {
+        // Agent panel commands are handled directly in show() via AgentPanelResult::Commands
+        // This function is kept for potential future use or can be removed
     }
 
     /// Parse a time range preset string into the enum.
@@ -495,7 +413,22 @@ impl Workspace {
 
     /// Add a tile to the viewport, handling different container types
     /// Returns true if the tile was successfully added
+    ///
+    /// If sections mode is active, this clears sections mode so the new pane
+    /// is visible. Sections mode renders panes defined in the TOML config,
+    /// but dynamically added panes aren't in any section.
     pub(super) fn add_tile_to_viewport(&mut self, tile_id: TileId) -> bool {
+        // Clear sections mode if active - dynamically added panes aren't in any section
+        // and need tile-based rendering to be visible
+        if !self.section_configs.is_empty() {
+            log::info!(
+                "Clearing {} sections to show dynamically added pane in tile mode",
+                self.section_configs.len()
+            );
+            self.section_configs.clear();
+            self.section_states.clear();
+        }
+
         let tiles_before = self.viewport_tree.tiles.len();
         let Some(root_id) = self.viewport_tree.root() else {
             // No root exists (all panes were closed), create a new tabs container
@@ -1384,20 +1317,14 @@ impl Workspace {
         })
     }
 
-    /// Inject inline content into the first agent pane's last assistant message.
+    /// Inject inline content into the agent panel's last assistant message.
     fn inject_inline_content_to_agent_pane(&mut self, content: InlineContent) {
-        let pane_ids = self.get_pane_tile_ids();
-
-        for tile_id in pane_ids {
-            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
-                if let Some(agent_pane) = component.as_any_mut().downcast_mut::<AgentPane>() {
-                    agent_pane.add_inline_content(content);
-                    return;
-                }
-            }
+        if self.agent_panel.is_open() {
+            self.agent_panel.add_inline_content(content);
+            log::debug!("Injected inline content into agent panel");
+        } else {
+            log::warn!("Agent panel not open, cannot inject inline content");
         }
-
-        log::warn!("No agent pane found to inject inline content");
     }
 
     /// Search the codebase using Tantivy full-text search.

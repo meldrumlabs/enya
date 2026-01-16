@@ -29,6 +29,28 @@ All notable changes to the Enya editor will be documented in this file.
     - Draggable title bar for window movement
     - Click "pop in" button or close button (X) to return the pane to the main app
 
+- **Agent panel as first-class layout participant**: The agent panel now participates in the layout flow like the channels panel:
+  - Viewport shrinks to accommodate the agent panel when open (instead of floating overlay)
+  - Left-edge highlight provides visual anchoring (symmetric with channels panel's right-edge highlight)
+  - Focus state tracking with 2px accent border when panel has vim focus
+  - `show_inside` method for rendering within the UI hierarchy (layout-aware)
+  - Matches the premium feel of the team channels panel on the left side
+  - **Vim navigation**: Press `l` at the rightmost pane edge to focus the agent panel, `h` to return to viewport
+  - Press `i` or `Enter` when panel has vim focus to enter the chat input, `Escape` to return to vim navigation
+  - Works in both section-based and tile-based workspace layouts
+
+- **Tab-to-panel handoff for agent input bar**: Seamlessly continue a conversation from the quick input bar in the persistent agent panel:
+  - Press `Tab` when viewing a response in the agent input bar to open it in the side panel
+  - Opens the three-panel layout: channels on left, viewport center, agent panel on right
+  - Conversation context (query, response, activities) is preserved during handoff
+  - Visual hint shows "Tab: open in panel" in the response state
+  - New `ConversationHandoff` type for transferring state between components
+  - `export_for_handoff()` and `import_from_handoff()` methods for clean state transfer
+  - Non-intrusive workflow that doesn't disrupt the existing pane layout
+  - Full inline content support: charts, source code previews, and search results render in the panel
+  - Agent commands (ShowInlineChart, ShowInlineSource, SearchCodebase) inject content into the panel when open
+  - `Space+a` now toggles the agent panel open/closed (previously created a new agent pane)
+
 - **Vim-style navigation for channels panel**: Added vim keybindings to navigate to and within the team channels panel:
   - Press `h` at the leftmost pane edge to transfer focus to the channels panel
   - Works in both section-based and tile-based workspace layouts
@@ -112,6 +134,17 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Premium agent panel styling**: Improved the AgentPanel overlay UX to match the refined look of the team channels panel:
+  - Switched from `OverlayColors` to `ChatColors` for better theme integration and consistent styling across chat components
+  - Added premium dividers between header, chat area, and input sections
+  - Message bubbles now use `ChatColors` backgrounds (`own_message_bg`, `agent_message_bg`) with rounded corners
+  - Assistant messages feature a left accent bar indicator (matching channel selection style)
+  - Role labels now include icons (user account, robot, info) for visual clarity
+  - Inline content blocks (charts, source code, search results) use premium frame styling with accent-tinted borders
+  - Activity rows use allocate_exact_size rendering with proper typography positioning (matching channels panel rows)
+  - Input area has refined styling with larger corner radius and premium elevated background
+  - Consistent use of theme typography constants and proper spacing throughout
+
 - **Tracing module restructure in `enya-client`**: Reorganized the `tempo` module under a new `tracing` parent module to support future tracing backends. The module structure is now `enya_client::tracing` with `tempo` as a submodule (`enya_client::tracing::tempo`). Common types (`Trace`, `Span`, `SpanStatus`, etc.) are re-exported from the `tracing` module root for convenience.
 
 - **Viewport pane alignment**: Improved pane layout consistency to prevent bottom panes from overlapping the status line. The viewport tree now always renders at the exact viewport height, with `TreeBehavior::min_size()` (200px) preventing panes from becoming too small. Scrolling only activates when panes would be smaller than this absolute minimum. Added explicit clip rectangles and constrained child UI rendering to ensure content never overflows into the status bar area.
@@ -120,7 +153,28 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **WASM native app promo**: Changed from an intrusive auto-popup overlay to a subtle clickable link below the version badge in the landing page header. Users can click "Download Native App for full experience" to see detailed information about native-only features (git integration, AI agents, persistent workspaces). Less invasive while still informing users about the full desktop experience.
 
+- **Provider-as-mode UX for agent input bar**: Redesigned the agent mode status line for a premium, uncluttered experience:
+  - Provider (Claude/OpenAI logo + name) now appears directly in the mode badge position - the provider IS the mode
+  - Removed redundant "AGENT" label and duplicate provider badge
+  - Response state now shows a preview of the AI's response (first line, truncated) instead of generic "Response ready"
+  - Processing state now shows contextual activity with appropriate icons: Sending (→), Thinking (spinner), tool use (file/search/edit icons), Responding
+  - Tool use shows the tool name and a preview of what it's doing (e.g., "Read" + "main.rs", "Grep" + "error handling")
+  - Thinking state shows a preview of the AI's thought process
+  - Response state shows `Tab expand` and `Esc clear` hints side by side (both with accent key styling)
+  - Wider input field (500px max) with cleaner placeholder: "Ask anything... / commands @ metrics"
+
+- **Toolbar UX: filter left, time right**: Redesigned the top toolbar for better visual balance:
+  - Pane filter input now appears on the left side (always visible, expands when focused)
+  - Time range controls pushed to the right side (Grafana-style placement)
+  - Filter shows match count (e.g., "2/4") when active
+  - Click filter icon or start typing to activate, Enter to apply, Esc to clear
+  - Fills the previously empty toolbar space with useful functionality
+
 ### Fixed
+
+- **Agent panel vim navigation**: Fixed vim navigation not working in the agent panel and viewport after opening/returning from the panel. Multiple issues were addressed: (1) Removed the sync loop that was syncing `agent_panel_focused` with the panel's internal `has_focus` state every frame - this was causing focus to be lost unexpectedly. (2) Added `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` when toggling the agent panel open or transferring focus to it, ensuring no stale egui widget focus blocks vim keys. (3) Changed keyboard handling to use `ui.ctx().input()` with `key_pressed()` (matching the channels panel pattern). (4) Fixed text input focus detection to only release vim focus when the user actually clicks on the input, not when egui auto-restores focus. (5) Fixed `focus_input` flag to always clear regardless of vim focus state. (6) Added `skip_vim_keys_once` flag to prevent lingering keypresses from being detected as vim navigation immediately after panel gains focus (e.g., the 'a' from `Space+a` was being detected as 'h' navigation). (7) Fixed `ReturnFocusToViewport` to properly set `section_focus` (not just `behavior.focused_tile()`), which controls the visual focus indicator on viewport panes. (8) Removed `agent_panel.is_open()` from the keyboard handler's early-return condition - the agent panel can be open while viewport has navigation focus (only `agent_panel_focused` should block viewport keyboard handling). (9) Fixed `is_at_section_right_edge()` to return true for the rightmost pane of ANY section (not just the last section), allowing `l` to transfer focus to the agent panel from any section.
+
+- **Dynamic pane addition in sections mode**: Fixed `:terminal`, `:trace`, and other dynamic pane commands not showing panes when collapsible sections were active. The `add_tile_to_viewport` method now automatically clears sections mode when adding dynamic panes, since they aren't part of any configured section. This ensures newly created panes are always visible.
 
 - **Visual-multi selection in sections**: Fixed visual-multi mode (Ctrl+V) not displaying selection indicators when using collapsible sections. Section render methods (horizontal, vertical, grid, tabs) now properly draw visual-multi selection highlights on selected panes. Also fixed navigation in visual-multi mode to work with flat pane lists in sections.
 
@@ -135,6 +189,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Style picker focus restoration**: Fixed vim navigation not working after closing the style picker (theme/font selector). The picker now clears egui framework focus when it closes, ensuring keyboard events are properly handled by vim navigation. Also fixed returning focus to viewport from channels panel to properly restore focus to the first pane if no pane was previously focused.
 
 ### Removed
+
+- **AgentPane component**: Removed the `AgentPane` viewport pane in favor of the `AgentPanel` overlay. AI agent conversations now use the right-side panel exclusively, providing a cleaner separation between observability content (viewport panes) and AI assistance (overlay panel). The inline content types (`InlineChart`, `InlineSource`, `InlineSearchResults`) have been moved to a new `inline_content.rs` module.
 
 - **Workspace tab bar**: Removed the workspace tab bar (barbar.nvim-style) at the top of the editor. The editor now manages a single workspace directly instead of multiple tabs. Related keyboard shortcuts (`Shift+N`, `Shift+P`, `Shift+T`, `Shift+X`) have been removed. The `:q` command now quits the application instead of closing the current tab.
 

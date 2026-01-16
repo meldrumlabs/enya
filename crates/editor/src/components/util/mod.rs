@@ -14,7 +14,10 @@ pub mod syntax_highlight;
 pub mod text_formatting;
 
 pub use ai_provider::{AiModel, AiProvider};
-pub use chat_types::{ActivityItem, ActivityType, MessageRole, ResponseStatus};
+pub use chat_types::{
+    ActivityItem, ActivityType, ConversationHandoff, HandoffContextPane, MessageRole,
+    ResponseStatus,
+};
 pub use finder::{Finder, FinderConfig, FinderItem, FinderResult};
 pub use finder_utils::{
     FinderColors, FinderKeyboardInput, OverlayColors, OverlayStyle, OverlayStyleVariant,

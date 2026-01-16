@@ -9,11 +9,11 @@ pub mod widget;
 
 // Re-export from pane
 pub use pane::{
-    AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, CommitMarker, DataPoint,
-    GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSource,
-    LogsBackend, LogsPane, LogsPaneAction, QueryPane, QueryPaneAction, Series, SparklineViz,
-    StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction, Visualization,
-    VisualizationType,
+    AgentAiProvider, Bar, BarChartViz, CommitMarker, DataPoint, GaugeChart, HeatmapCell,
+    HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSearchResults, InlineSource,
+    LogsBackend, LogsPane, LogsPaneAction, QueryPane, QueryPaneAction, SearchResultItem, Series,
+    SparklineViz, StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction,
+    Visualization, VisualizationType,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use pane::{TerminalPane, TerminalPaneAction};
@@ -35,9 +35,10 @@ pub use overlay::{
 // Re-export from widget
 pub use widget::{
     AgentInputBar, AgentInputBarResult, AgentInputState, Buffer, BufferAction, BufferMode,
-    ContextPane, LandingPage, LandingPageAction, MemberPresence, Notification, NotificationLevel,
-    NotificationManager, QuickCommand, Sparkline, StatusLine, StatusMode, TeamMember, TeamMenu,
-    TeamMenuAction, TeamStatusInfo, TimeRange, TimeRangePreset, TimeRangeToolbar,
+    ContextPane, InlineAgentInput, LandingPage, LandingPageAction, MemberPresence, Notification,
+    NotificationLevel, NotificationManager, QuickCommand, Sparkline, StatusLine, StatusLineResult,
+    StatusMode, TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRange, TimeRangePreset,
+    TimeRangeToolbar,
 };
 
 // Re-export from util
