@@ -6,6 +6,12 @@
 // Syntax highlighting (shared)
 pub mod highlighting;
 
+// Query plan visualization (native-only)
+#[cfg(not(target_arch = "wasm32"))]
+mod plan_view;
+#[cfg(not(target_arch = "wasm32"))]
+pub use plan_view::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, TimelineView};
+
 // Native implementation
 #[cfg(not(target_arch = "wasm32"))]
 mod pane;

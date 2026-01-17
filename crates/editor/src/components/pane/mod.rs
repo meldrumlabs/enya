@@ -3,8 +3,6 @@
 pub mod annotation;
 pub mod inline_content;
 pub mod logs_pane;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod plan_view;
 pub mod query_pane;
 pub mod sql;
 #[cfg(not(target_arch = "wasm32"))]
@@ -19,7 +17,7 @@ pub use inline_content::{
 };
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
-pub use plan_view::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, TimelineView};
+pub use sql::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, TimelineView};
 pub use sql::{SqlPane, SqlPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
 pub use terminal_pane::{TerminalPane, TerminalPaneAction};

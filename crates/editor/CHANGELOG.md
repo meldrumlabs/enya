@@ -170,6 +170,23 @@ All notable changes to the Enya editor will be documented in this file.
   - `.plan [tree|timeline|diff|hide]` to switch between views or toggle visibility
   - Plan viewer toggle button in SQL pane header
 
+- **SQL pane overlay system**: Minimal result display with expandable overlay views for detailed inspection:
+  - **Compact preview**: Most recent result shown inline with dynamic column fitting based on available width
+  - **Table overlay** (press `t` or `Enter`): Full paginated table view with diff-viewer-inspired UX:
+    - Header with table icon, accent-colored title, and stat badges (row count, column count, execution time)
+    - Row number gutter with darker background matching diff viewer line numbers
+    - Fixed-width columns ensuring proper header/body alignment during horizontal scroll
+    - Vim-style keyboard navigation: `h/l` horizontal scroll, `j/k` vertical scroll, `[/]` page navigation
+    - Keyboard events consumed to prevent propagation to underlying panes
+    - Consistent overlay sizing with other modals (85% screen width/height, clamped 700-1400px × 500-900px)
+    - Frosted glass styling matching unified finder and diff viewer
+    - Long values truncated with ellipsis to fit column width
+    - NULL values shown in muted text, alternating row backgrounds
+  - **Plan overlay** (press `p`): Query execution plan visualization
+  - Press `Esc` to close any overlay and return to compact view
+  - Press `c` to clear results from the compact preview
+  - Overlay renders centered on screen with dimmed backdrop
+
 - **Neovim-style intro message**: When a workspace has no panes, a centered intro screen displays "Enya" with tagline "A Neovim-inspired observability editor for builders", version number, and aligned command hints. Includes `~` tilde markers on every line (left margin) just like Neovim:
   - `type  Space+f    fuzzy finder`
   - `type  aa         ask AI agent` (native only)

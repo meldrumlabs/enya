@@ -5,8 +5,6 @@
 //! - **TimelineView**: Horizontal bar chart showing operator execution times
 //! - **DiffView**: Side-by-side comparison of two plans (optimized vs unoptimized)
 
-#![cfg(not(target_arch = "wasm32"))]
-
 use std::time::Duration;
 
 use egui::{Color32, Key, RichText, Stroke, StrokeKind};

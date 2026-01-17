@@ -33,10 +33,13 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use tokio::sync::mpsc;
 
 use super::highlighting::highlight_sql;
-use crate::components::pane::plan_view::{PlanViewMode, PlanViewer};
+use super::plan_view::{PlanViewMode, PlanViewer};
+use crate::components::{OverlayColors, OverlayStyle};
 use crate::components::util::id_generator::next_id_usize;
 use crate::ui::semantic_icons::{action, category, file, nav, status, time};
 use crate::ui::theme::AppTheme;
+use crate::ui::typography;
+use crate::util::Instant;
 // ============================================================================
 // SQL Pane Types
 // ============================================================================
@@ -149,6 +152,21 @@ pub enum SqlMode {
     Explain,
     /// Profile mode - detailed execution stats.
     Profile,
+}
+
+/// Active overlay for viewing results in expanded mode.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum ResultOverlay {
+    /// No overlay shown - compact preview mode.
+    #[default]
+    None,
+    /// Full table view with pagination and filtering.
+    Table,
+    /// Query execution plan tree.
+    Plan,
+    /// Diff comparison between two results.
+    #[allow(dead_code)] // Will be used for diff view feature
+    Diff { other_idx: usize },
 }
 
 /// A suggestion item for the completion popup.
@@ -283,6 +301,8 @@ struct QueryCell {
     id: QueryId,
     /// Current status of the query.
     status: QueryStatus,
+    /// When the query started executing.
+    started_at: Instant,
     /// Schema of results (if available).
     schema: Option<SchemaRef>,
     /// Result batches.
@@ -378,6 +398,17 @@ pub struct SqlPane {
     prev_input: String,
     /// Nucleo fuzzy matcher for suggestions.
     matcher: Matcher,
+    // ========================
+    // Result overlay system
+    // ========================
+    /// Currently active overlay (None = compact preview mode).
+    active_overlay: ResultOverlay,
+    /// Index of the result being viewed in the overlay.
+    overlay_result_idx: Option<usize>,
+    /// Current page in table overlay (0-indexed).
+    overlay_table_page: usize,
+    /// Filter text for table overlay.
+    overlay_filter: String,
 }
 
 impl SqlPane {
@@ -415,6 +446,10 @@ impl SqlPane {
             suggestions: SuggestionState::default(),
             prev_input: String::new(),
             matcher: Matcher::new(Config::DEFAULT),
+            active_overlay: ResultOverlay::None,
+            overlay_result_idx: None,
+            overlay_table_page: 0,
+            overlay_filter: String::new(),
         }
     }
 
@@ -994,6 +1029,7 @@ Keyboard Shortcuts:
             sql: sql.to_string(),
             id: query_id,
             status: QueryStatus::Running,
+            started_at: Instant::now(),
             schema: None,
             batches: Vec::new(),
             stats: None,
@@ -1058,6 +1094,7 @@ Keyboard Shortcuts:
             sql: String::new(),
             id: QueryId::new(),
             status: QueryStatus::Failed,
+            started_at: Instant::now(),
             schema: None,
             batches: Vec::new(),
             stats: None,
@@ -1073,6 +1110,7 @@ Keyboard Shortcuts:
             sql: message.to_string(),
             id: QueryId::new(),
             status: QueryStatus::Completed,
+            started_at: Instant::now(),
             schema: None,
             batches: Vec::new(),
             stats: None,
@@ -1080,6 +1118,15 @@ Keyboard Shortcuts:
             is_info: true,
         });
         self.scroll_to_bottom = true;
+    }
+
+    /// Clear all query results from history.
+    fn clear_results(&mut self) {
+        // Remove all non-running query results (keep running queries)
+        self.history
+            .retain(|cell| cell.status == QueryStatus::Running);
+        self.active_overlay = ResultOverlay::None;
+        self.overlay_result_idx = None;
     }
 
     /// Poll for async operation results.
@@ -1638,47 +1685,34 @@ Keyboard Shortcuts:
                 let available_height = ui.available_height();
                 let content_width = available_width.min(max_width);
 
-                if has_results {
-                    // With results: top-aligned layout, input at top, results scroll below
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(available_width, available_height),
-                        egui::Layout::top_down(egui::Align::Center),
-                        |ui| {
-                            ui.set_max_width(content_width);
-                            ui.vertical(|ui| {
-                                self.render_mode_badge(ui);
-                                self.render_suggestions_popup(ui, accent);
-                                self.render_input_bar(ui, accent);
-                                self.render_input_hints(ui, text_secondary);
-                                ui.add_space(24.0);
+                // Always keep input bar centered, with results appearing below
+                // Estimate input section height: input ~48px + hints ~24px + results ~200px
+                let input_section_height = 80.0;
+                let results_height = if has_results { 180.0 } else { 0.0 };
+                let total_content_height = input_section_height + results_height;
+                let vertical_offset = ((available_height - total_content_height) / 2.0).max(32.0);
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(available_width, available_height),
+                    egui::Layout::top_down(egui::Align::Center),
+                    |ui| {
+                        // Add space to push content toward center
+                        ui.add_space(vertical_offset);
+
+                        ui.set_max_width(content_width);
+                        ui.vertical(|ui| {
+                            self.render_mode_badge(ui);
+                            self.render_suggestions_popup(ui, accent);
+                            self.render_input_bar(ui, accent);
+                            self.render_input_hints(ui, text_secondary);
+
+                            if has_results {
+                                ui.add_space(16.0);
                                 self.render_results(ui);
-                            });
-                        },
-                    );
-                } else {
-                    // Empty state: vertically centered input bar
-                    // Estimate input section height: input ~48px + hints ~24px ≈ 80px
-                    let estimated_content_height = 80.0;
-                    let vertical_offset =
-                        ((available_height - estimated_content_height) / 2.0).max(0.0);
-
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(available_width, available_height),
-                        egui::Layout::top_down(egui::Align::Center),
-                        |ui| {
-                            // Add space to push content to vertical center
-                            ui.add_space(vertical_offset);
-
-                            ui.set_max_width(content_width);
-                            ui.vertical(|ui| {
-                                self.render_mode_badge(ui);
-                                self.render_suggestions_popup(ui, accent);
-                                self.render_input_bar(ui, accent);
-                                self.render_input_hints(ui, text_secondary);
-                            });
-                        },
-                    );
-                }
+                            }
+                        });
+                    },
+                );
             });
 
         // Render add connection dialog if open
@@ -1690,6 +1724,713 @@ Keyboard Shortcuts:
                 accent,
             );
         }
+
+        // Render result overlay if active
+        if self.active_overlay != ResultOverlay::None {
+            self.render_result_overlay(ui);
+        }
+    }
+
+    // ========================================================================
+    // Result Overlay System
+    // ========================================================================
+
+    /// Open an overlay for the specified result.
+    fn open_overlay(&mut self, overlay: ResultOverlay, result_idx: usize) {
+        self.active_overlay = overlay;
+        self.overlay_result_idx = Some(result_idx);
+        self.overlay_table_page = 0;
+        self.overlay_filter.clear();
+    }
+
+    /// Close the active overlay.
+    fn close_overlay(&mut self) {
+        self.active_overlay = ResultOverlay::None;
+        self.overlay_result_idx = None;
+        self.overlay_table_page = 0;
+        self.overlay_filter.clear();
+    }
+
+    /// Render the result overlay.
+    fn render_result_overlay(&mut self, ui: &mut egui::Ui) {
+        let Some(result_idx) = self.overlay_result_idx else {
+            return;
+        };
+
+        // Get result - need to check bounds
+        if result_idx >= self.history.len() {
+            self.close_overlay();
+            return;
+        }
+
+        let screen_rect = ui.ctx().available_rect();
+
+        // Handle Esc to close (before drawing anything)
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.close_overlay();
+            return;
+        }
+
+        // Draw dimmed backdrop
+        ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(180));
+
+        // Calculate popup dimensions - consistent with diff viewer and other overlays
+        let popup_width = (screen_rect.width() * 0.85).clamp(700.0, 1400.0);
+        let popup_height = (screen_rect.height() * 0.85).clamp(500.0, 900.0);
+
+        // Render overlay content in a centered Area
+        egui::Area::new(egui::Id::new("result_overlay"))
+            .order(egui::Order::Foreground)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ui.ctx(), |ui| {
+                let overlay_style = OverlayStyle::frosted_glass(self.theme);
+
+                overlay_style.frame().inner_margin(0.0).show(ui, |ui| {
+                    ui.set_width(popup_width);
+                    ui.set_max_width(popup_width);
+                    ui.set_max_height(popup_height);
+
+                    match &self.active_overlay {
+                        ResultOverlay::None => {}
+                        ResultOverlay::Table => {
+                            self.render_table_overlay(ui, result_idx);
+                        }
+                        ResultOverlay::Plan => {
+                            self.render_plan_overlay(ui, result_idx);
+                        }
+                        ResultOverlay::Diff { other_idx } => {
+                            let other = *other_idx;
+                            self.render_diff_overlay(ui, result_idx, other);
+                        }
+                    }
+                });
+            });
+    }
+
+    /// Render the table overlay view.
+    fn render_table_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize) {
+        let colors = OverlayColors::new(self.theme);
+        let bg_surface = self.theme.bg_surface();
+        let bg_base = self.theme.bg_base();
+        let rows_per_page = 50;
+
+        // Extract data from cell first to avoid borrow conflicts
+        let (total_rows, num_cols, execution_time_ms, sql_query, has_schema, column_widths) = {
+            let cell = &self.history[result_idx];
+            let total: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+            let cols = cell.schema.as_ref().map(|s| s.fields().len()).unwrap_or(0);
+            let time_ms = cell.stats.as_ref().map(|s| s.total_time.as_millis());
+
+            // Calculate column widths based on header names and data types
+            let widths: Vec<f32> = if let Some(schema) = &cell.schema {
+                schema
+                    .fields()
+                    .iter()
+                    .map(|field| {
+                        // Base width on column name length (monospace ~7px per char)
+                        let name_width = field.name().len() as f32 * 7.0;
+                        let type_width = format!("{}", field.data_type()).len() as f32 * 6.0;
+                        // Use max of name/type width, with min 80 and max 200
+                        name_width.max(type_width).clamp(80.0, 200.0)
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            (
+                total,
+                cols,
+                time_ms,
+                cell.sql.clone(),
+                cell.schema.is_some(),
+                widths,
+            )
+        };
+
+        let total_pages = total_rows.div_ceil(rows_per_page);
+        let mut should_close = false;
+        let mut next_page = false;
+        let mut prev_page = false;
+        let mut scroll_delta = egui::Vec2::ZERO;
+
+        // Handle keyboard navigation and consume events to prevent propagation to underlying panes
+        ui.ctx().input_mut(|i| {
+            // Vim-style scrolling: h/l horizontal, j/k vertical
+            let scroll_step = 50.0;
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::L) {
+                scroll_delta.x += scroll_step;
+            }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::H) {
+                scroll_delta.x -= scroll_step;
+            }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::J) {
+                scroll_delta.y += scroll_step;
+            }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::K) {
+                scroll_delta.y -= scroll_step;
+            }
+
+            // Page navigation: [ ] or arrow keys
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)
+                || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+            {
+                next_page = true;
+            }
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::OpenBracket)
+                || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+            {
+                prev_page = true;
+            }
+
+            // Close on Escape
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                should_close = true;
+            }
+        });
+
+        // ===== Header with icon and stats badges =====
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // Table icon
+            ui.label(RichText::new(file::DATA).color(colors.accent).size(16.0));
+            ui.add_space(6.0);
+
+            // Title
+            ui.label(
+                RichText::new("Table View")
+                    .color(colors.accent)
+                    .font(typography::proportional(typography::XL))
+                    .strong(),
+            );
+
+            // Right side: stats badges
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+
+                // Row count badge
+                self.render_stat_badge(ui, &format!("{total_rows} rows"), &colors);
+                ui.add_space(4.0);
+
+                // Column count badge
+                self.render_stat_badge(ui, &format!("{num_cols} cols"), &colors);
+
+                // Execution time badge
+                if let Some(ms) = execution_time_ms {
+                    ui.add_space(4.0);
+                    self.render_time_badge(ui, ms, &colors);
+                }
+            });
+        });
+        ui.add_space(8.0);
+
+        // Separator below header
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
+
+        // Table content
+        if !has_schema {
+            ui.add_space(24.0);
+            ui.horizontal(|ui| {
+                ui.add_space(16.0);
+                ui.label(
+                    RichText::new("No schema available")
+                        .color(colors.faint_text)
+                        .font(typography::proportional(typography::MD)),
+                );
+            });
+            ui.add_space(24.0);
+            if should_close {
+                self.close_overlay();
+            }
+            return;
+        }
+
+        // Now we can safely access cell data for rendering the table
+        let cell = &self.history[result_idx];
+        let schema = cell.schema.as_ref().unwrap(); // Safe because has_schema is true
+
+        // Calculate row number width for alignment
+        let max_row_num = (self.overlay_table_page + 1) * rows_per_page;
+        let row_num_width = max_row_num.to_string().len().max(3);
+        let row_num_gutter_width = (row_num_width + 2) as f32 * 8.0;
+
+        let header_height = typography::SM + typography::XS + 8.0;
+        let row_height = typography::SM + 8.0;
+        let start_row = self.overlay_table_page * rows_per_page;
+
+        // Single ScrollArea for both header and body - ensures aligned scrolling
+        egui::Frame::new()
+            .fill(bg_base)
+            .inner_margin(0.0)
+            .show(ui, |ui| {
+                let scroll_id = egui::Id::new("table_overlay_scroll");
+
+                // Apply keyboard scroll delta
+                if scroll_delta != egui::Vec2::ZERO {
+                    let current_offset = ui
+                        .ctx()
+                        .memory(|m| m.data.get_temp::<egui::Vec2>(scroll_id))
+                        .unwrap_or(egui::Vec2::ZERO);
+                    let new_offset = (current_offset + scroll_delta).max(egui::Vec2::ZERO);
+                    ui.ctx()
+                        .memory_mut(|m| m.data.insert_temp(scroll_id, new_offset));
+                }
+
+                let stored_offset = ui
+                    .ctx()
+                    .memory(|m| m.data.get_temp::<egui::Vec2>(scroll_id))
+                    .unwrap_or(egui::Vec2::ZERO);
+
+                let scroll_output = egui::ScrollArea::both()
+                    .id_salt("overlay_table")
+                    .scroll_offset(stored_offset)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.style_mut().spacing.item_spacing = egui::Vec2::ZERO;
+
+                        // ===== Column headers row =====
+                        ui.horizontal(|ui| {
+                            ui.style_mut().spacing.item_spacing.x = 0.0;
+
+                            // Row number gutter placeholder
+                            let (gutter_rect, _) = ui.allocate_exact_size(
+                                egui::vec2(row_num_gutter_width, header_height),
+                                egui::Sense::hover(),
+                            );
+                            ui.painter()
+                                .rect_filled(gutter_rect, 0.0, self.theme.bg_base());
+                            ui.painter().text(
+                                gutter_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "#",
+                                typography::monospace(typography::XS),
+                                colors.faint_text,
+                            );
+
+                            // Column headers with fixed widths
+                            for (idx, field) in schema.fields().iter().enumerate() {
+                                let col_width = column_widths.get(idx).copied().unwrap_or(100.0);
+                                let col_spacing = 16.0;
+
+                                // Allocate fixed-width cell
+                                let (col_rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(col_width + col_spacing, header_height),
+                                    egui::Sense::hover(),
+                                );
+
+                                // Header background
+                                ui.painter().rect_filled(col_rect, 0.0, bg_surface);
+
+                                // Draw column name
+                                ui.painter().text(
+                                    col_rect.left_center() + egui::vec2(8.0, -6.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    field.name(),
+                                    typography::monospace(typography::SM),
+                                    colors.text,
+                                );
+
+                                // Draw data type below
+                                ui.painter().text(
+                                    col_rect.left_center() + egui::vec2(8.0, 6.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    format!("{}", field.data_type()),
+                                    typography::monospace(typography::XS),
+                                    colors.faint_text,
+                                );
+                            }
+                        });
+
+                        // ===== Data rows =====
+                        let mut rows_shown = 0;
+                        let mut current_row = 0;
+
+                        'outer: for batch in &cell.batches {
+                            for row_idx in 0..batch.num_rows() {
+                                if current_row < start_row {
+                                    current_row += 1;
+                                    continue;
+                                }
+                                if rows_shown >= rows_per_page {
+                                    break 'outer;
+                                }
+
+                                let absolute_row = start_row + rows_shown + 1;
+
+                                // Alternate row background
+                                let row_bg = if rows_shown % 2 == 0 {
+                                    Color32::TRANSPARENT
+                                } else {
+                                    self.theme.bg_hover().gamma_multiply(0.3)
+                                };
+
+                                ui.horizontal(|ui| {
+                                    ui.style_mut().spacing.item_spacing.x = 0.0;
+
+                                    // Row number gutter
+                                    let (gutter_rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(row_num_gutter_width, row_height),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().rect_filled(
+                                        gutter_rect,
+                                        0.0,
+                                        self.theme.bg_base(),
+                                    );
+                                    let row_num_str = format!("{absolute_row:>row_num_width$}");
+                                    ui.painter().text(
+                                        gutter_rect.left_center() + egui::vec2(8.0, 0.0),
+                                        egui::Align2::LEFT_CENTER,
+                                        row_num_str,
+                                        typography::monospace(typography::XS),
+                                        colors.faint_text,
+                                    );
+
+                                    // Cell values with fixed widths
+                                    for col_idx in 0..batch.num_columns() {
+                                        let col_width =
+                                            column_widths.get(col_idx).copied().unwrap_or(100.0);
+                                        let col_spacing = 16.0;
+
+                                        // Allocate fixed-width cell
+                                        let (cell_rect, _) = ui.allocate_exact_size(
+                                            egui::vec2(col_width + col_spacing, row_height),
+                                            egui::Sense::hover(),
+                                        );
+
+                                        // Draw row background
+                                        ui.painter().rect_filled(cell_rect, 0.0, row_bg);
+
+                                        let col = batch.column(col_idx);
+                                        let value = format_array_value(col.as_ref(), row_idx);
+
+                                        let (display_val, color) = if value == "NULL" {
+                                            ("null".to_string(), colors.faint_text)
+                                        } else {
+                                            // Truncate long values
+                                            let max_chars = ((col_width - 8.0) / 7.0) as usize;
+                                            if value.len() > max_chars && max_chars > 3 {
+                                                (
+                                                    format!(
+                                                        "{}…",
+                                                        &value[..max_chars.saturating_sub(1)]
+                                                    ),
+                                                    colors.muted_text,
+                                                )
+                                            } else {
+                                                (value, colors.muted_text)
+                                            }
+                                        };
+
+                                        ui.painter().text(
+                                            cell_rect.left_center() + egui::vec2(8.0, 0.0),
+                                            egui::Align2::LEFT_CENTER,
+                                            display_val,
+                                            typography::monospace(typography::SM),
+                                            color,
+                                        );
+                                    }
+                                });
+
+                                rows_shown += 1;
+                                current_row += 1;
+                            }
+                        }
+                    });
+
+                // Store the new scroll offset after user interaction
+                ui.ctx().memory_mut(|m| {
+                    m.data.insert_temp(scroll_id, scroll_output.state.offset);
+                });
+            });
+
+        // ===== Footer with query and pagination =====
+        // Separator above footer
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
+        ui.add_space(6.0);
+
+        let current_page = self.overlay_table_page;
+
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // SQL query preview (truncated)
+            let sql_preview = if sql_query.len() > 60 {
+                format!("{}...", &sql_query[..60])
+            } else {
+                sql_query.clone()
+            };
+            ui.label(
+                RichText::new(&sql_preview)
+                    .color(colors.faint_text)
+                    .font(typography::monospace(typography::XS)),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+
+                // Keyboard hint
+                ui.label(
+                    RichText::new("hjkl scroll • [/] page • Esc")
+                        .color(colors.faint_text.gamma_multiply(0.7))
+                        .font(typography::proportional(typography::XS)),
+                );
+
+                ui.add_space(12.0);
+
+                // Next page button
+                let can_next = current_page < total_pages.saturating_sub(1);
+                if ui
+                    .add_enabled(
+                        can_next,
+                        egui::Button::new(RichText::new(nav::FORWARD).color(if can_next {
+                            colors.accent
+                        } else {
+                            colors.faint_text.gamma_multiply(0.3)
+                        }))
+                        .frame(false),
+                    )
+                    .clicked()
+                {
+                    next_page = true;
+                }
+
+                // Page indicator
+                ui.label(
+                    RichText::new(format!("{} / {}", current_page + 1, total_pages.max(1)))
+                        .color(colors.muted_text)
+                        .font(typography::proportional(typography::SM)),
+                );
+
+                // Previous page button
+                let can_prev = current_page > 0;
+                if ui
+                    .add_enabled(
+                        can_prev,
+                        egui::Button::new(RichText::new(nav::BACK).color(if can_prev {
+                            colors.accent
+                        } else {
+                            colors.faint_text.gamma_multiply(0.3)
+                        }))
+                        .frame(false),
+                    )
+                    .clicked()
+                {
+                    prev_page = true;
+                }
+            });
+        });
+        ui.add_space(8.0);
+
+        // Apply page changes
+        if next_page && self.overlay_table_page < total_pages.saturating_sub(1) {
+            self.overlay_table_page += 1;
+        }
+        if prev_page && self.overlay_table_page > 0 {
+            self.overlay_table_page -= 1;
+        }
+        if should_close {
+            self.close_overlay();
+        }
+    }
+
+    /// Renders a stat badge (e.g., "128 rows", "5 cols").
+    fn render_stat_badge(&self, ui: &mut egui::Ui, text: &str, colors: &OverlayColors) {
+        egui::Frame::new()
+            .fill(colors.badge_bg)
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::symmetric(6, 2))
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new(text)
+                        .color(colors.muted_text)
+                        .font(typography::proportional(typography::XS)),
+                );
+            });
+    }
+
+    /// Renders a time badge with clock icon.
+    fn render_time_badge(&self, ui: &mut egui::Ui, ms: u128, colors: &OverlayColors) {
+        egui::Frame::new()
+            .fill(colors.badge_bg)
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::symmetric(6, 2))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 3.0;
+                    ui.label(
+                        RichText::new(time::TIMER)
+                            .color(colors.faint_text)
+                            .size(10.0),
+                    );
+                    ui.label(
+                        RichText::new(format!("{ms}ms"))
+                            .color(colors.muted_text)
+                            .font(typography::proportional(typography::XS)),
+                    );
+                });
+            });
+    }
+
+    /// Render the plan overlay view.
+    fn render_plan_overlay(&mut self, ui: &mut egui::Ui, _result_idx: usize) {
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+
+        // Header bar
+        egui::Frame::new()
+            .fill(self.theme.bg_surface())
+            .inner_margin(egui::Margin::symmetric(16, 12))
+            .corner_radius(egui::CornerRadius {
+                nw: 12,
+                ne: 12,
+                sw: 0,
+                se: 0,
+            })
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // Back button
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new(format!("{} Back", nav::BACK))
+                                    .color(text_secondary)
+                                    .size(12.0),
+                            )
+                            .frame(false),
+                        )
+                        .clicked()
+                    {
+                        self.close_overlay();
+                    }
+
+                    ui.add_space(16.0);
+                    ui.separator();
+                    ui.add_space(16.0);
+
+                    // Title
+                    ui.label(
+                        RichText::new("Execution Plan")
+                            .color(text_primary)
+                            .size(14.0)
+                            .strong(),
+                    );
+                });
+            });
+
+        // Plan viewer content
+        egui::Frame::new()
+            .fill(self.theme.bg_base())
+            .inner_margin(16.0)
+            .show(ui, |ui| {
+                // Use the existing plan_viewer
+                self.plan_viewer.show(ui);
+            });
+
+        // Footer
+        egui::Frame::new()
+            .fill(self.theme.bg_surface())
+            .inner_margin(egui::Margin::symmetric(16, 12))
+            .corner_radius(egui::CornerRadius {
+                nw: 0,
+                ne: 0,
+                sw: 12,
+                se: 12,
+            })
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new("Esc close · h/j/k/l navigate · Enter select")
+                        .color(text_secondary.gamma_multiply(0.6))
+                        .size(10.0),
+                );
+            });
+    }
+
+    /// Render the diff overlay view.
+    fn render_diff_overlay(&mut self, ui: &mut egui::Ui, _left_idx: usize, _right_idx: usize) {
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+
+        // Header bar
+        egui::Frame::new()
+            .fill(self.theme.bg_surface())
+            .inner_margin(egui::Margin::symmetric(16, 12))
+            .corner_radius(egui::CornerRadius {
+                nw: 12,
+                ne: 12,
+                sw: 0,
+                se: 0,
+            })
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new(format!("{} Back", nav::BACK))
+                                    .color(text_secondary)
+                                    .size(12.0),
+                            )
+                            .frame(false),
+                        )
+                        .clicked()
+                    {
+                        self.close_overlay();
+                    }
+
+                    ui.add_space(16.0);
+                    ui.separator();
+                    ui.add_space(16.0);
+
+                    ui.label(
+                        RichText::new("Diff View")
+                            .color(text_primary)
+                            .size(14.0)
+                            .strong(),
+                    );
+                });
+            });
+
+        // Placeholder content
+        egui::Frame::new()
+            .fill(self.theme.bg_base())
+            .inner_margin(16.0)
+            .show(ui, |ui| {
+                ui.centered_and_justified(|ui| {
+                    ui.label(
+                        RichText::new("Diff view coming soon...")
+                            .color(text_secondary)
+                            .size(14.0),
+                    );
+                });
+            });
+
+        // Footer
+        egui::Frame::new()
+            .fill(self.theme.bg_surface())
+            .inner_margin(egui::Margin::symmetric(16, 12))
+            .corner_radius(egui::CornerRadius {
+                nw: 0,
+                ne: 0,
+                sw: 12,
+                se: 12,
+            })
+            .show(ui, |ui| {
+                ui.label(
+                    RichText::new("Esc close")
+                        .color(text_secondary.gamma_multiply(0.6))
+                        .size(10.0),
+                );
+            });
     }
 
     // ========================================================================
@@ -2929,41 +3670,427 @@ Keyboard Shortcuts:
         });
     }
 
-    /// Render query results (only called when history is non-empty).
+    /// Render query results - compact preview with overlay expansion.
     fn render_results(&mut self, ui: &mut egui::Ui) {
         let text_primary = self.theme.text_primary();
         let text_secondary = self.theme.text_secondary();
         let accent = self.theme.accent_primary();
 
-        // Separator line
-        ui.add_space(8.0);
-        let rect = ui.available_rect_before_wrap();
-        ui.painter().hline(
-            rect.x_range(),
-            rect.top(),
-            egui::Stroke::new(1.0, self.theme.border_default().gamma_multiply(0.5)),
-        );
-        ui.add_space(16.0);
+        // Check for running query and extract elapsed time (to avoid borrow issues)
+        let running_elapsed_secs = self
+            .history
+            .iter()
+            .find(|cell| !cell.is_info && cell.status == QueryStatus::Running)
+            .map(|cell| cell.started_at.elapsed().as_secs_f32());
 
-        // Results scroll area
-        let scroll_id = egui::Id::new(format!("sql_results_{}", self.id));
-        egui::ScrollArea::vertical()
-            .id_salt(scroll_id)
-            .auto_shrink([false, false])
+        // Show loading badge if query is running
+        if let Some(elapsed_secs) = running_elapsed_secs {
+            egui::Frame::new()
+                .fill(self.theme.bg_elevated())
+                .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.3)))
+                .corner_radius(6.0)
+                .inner_margin(egui::Margin::symmetric(12, 8))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Running").color(accent).size(11.0));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                RichText::new(format!("{elapsed_secs:.1}s"))
+                                    .color(text_secondary.gamma_multiply(0.7))
+                                    .size(10.0)
+                                    .monospace(),
+                            );
+                        });
+                    });
+                });
+
+            ui.add_space(12.0);
+
+            // Request repaint to update timer
+            ui.ctx().request_repaint();
+        }
+
+        // Find the most recent non-info result
+        let latest_result_idx = self
+            .history
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, cell)| !cell.is_info && cell.status != QueryStatus::Running)
+            .map(|(idx, _)| idx);
+
+        // Handle keyboard shortcuts for overlay (only when not in overlay and input not focused)
+        let input_focused = ui.ctx().memory(|m| m.focused().is_some());
+        let mut should_clear = false;
+        if self.active_overlay == ResultOverlay::None && !input_focused {
+            if let Some(idx) = latest_result_idx {
+                let cell = &self.history[idx];
+                let has_data = !cell.batches.is_empty();
+
+                ui.input(|i| {
+                    // 't' or Enter to open table view
+                    if has_data && (i.key_pressed(egui::Key::T) || i.key_pressed(egui::Key::Enter))
+                    {
+                        self.open_overlay(ResultOverlay::Table, idx);
+                    }
+                    // 'p' to open plan view
+                    if i.key_pressed(egui::Key::P) {
+                        self.open_overlay(ResultOverlay::Plan, idx);
+                    }
+                    // 'c' to clear results
+                    if i.key_pressed(egui::Key::C) {
+                        should_clear = true;
+                    }
+                });
+            }
+        }
+        if should_clear {
+            self.clear_results();
+            return; // Skip rendering since history was just cleared
+        }
+
+        // Render compact preview
+        if let Some(idx) = latest_result_idx {
+            self.render_compact_preview(ui, idx, text_primary, text_secondary, accent);
+        } else if running_elapsed_secs.is_none() {
+            // Show info messages only
+            for cell in self.history.iter().filter(|c| c.is_info) {
+                if let Some(error) = &cell.error {
+                    ui.label(
+                        RichText::new(error)
+                            .color(self.theme.semantic_error())
+                            .size(12.0),
+                    );
+                } else {
+                    ui.label(RichText::new(&cell.sql).color(text_secondary).size(12.0));
+                }
+                ui.add_space(8.0);
+            }
+        }
+    }
+
+    /// Render a compact preview of a single result with expand hints.
+    fn render_compact_preview(
+        &mut self,
+        ui: &mut egui::Ui,
+        idx: usize,
+        text_primary: Color32,
+        text_secondary: Color32,
+        accent: Color32,
+    ) {
+        let cell = &self.history[idx];
+        let max_preview_rows = 3;
+        let max_value_len = 16; // Truncate long values for compactness
+
+        // Result container
+        egui::Frame::new()
+            .fill(self.theme.bg_elevated())
+            .stroke(egui::Stroke::new(1.0, self.theme.border_default()))
+            .corner_radius(8.0)
+            .inner_margin(0.0)
             .show(ui, |ui| {
-                for (idx, cell) in self.history.iter().enumerate() {
-                    self.render_result_cell(ui, cell, idx, text_primary, text_secondary, accent);
-                    ui.add_space(16.0);
+                // Header: status and stats
+                egui::Frame::new()
+                    .fill(self.theme.bg_surface())
+                    .inner_margin(egui::Margin::symmetric(12, 8))
+                    .corner_radius(egui::CornerRadius {
+                        nw: 8,
+                        ne: 8,
+                        sw: 0,
+                        se: 0,
+                    })
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| match &cell.status {
+                            QueryStatus::Running => {
+                                ui.spinner();
+                                ui.add_space(8.0);
+                                ui.label(RichText::new("Running...").color(accent).size(11.0));
+                            }
+                            QueryStatus::Completed => {
+                                ui.label(
+                                    RichText::new(status::SUCCESS)
+                                        .color(self.theme.semantic_success())
+                                        .size(11.0),
+                                );
+                                ui.add_space(6.0);
+
+                                let row_count: usize =
+                                    cell.batches.iter().map(|b| b.num_rows()).sum();
+                                ui.label(
+                                    RichText::new(format!("{row_count} rows"))
+                                        .color(text_primary)
+                                        .size(11.0),
+                                );
+
+                                if let Some(stats) = &cell.stats {
+                                    ui.label(
+                                        RichText::new("·")
+                                            .color(text_secondary.gamma_multiply(0.5))
+                                            .size(11.0),
+                                    );
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{}ms",
+                                            stats.total_time.as_millis()
+                                        ))
+                                        .color(text_secondary)
+                                        .size(11.0),
+                                    );
+                                }
+                            }
+                            QueryStatus::Failed => {
+                                ui.label(
+                                    RichText::new(status::ERROR)
+                                        .color(self.theme.semantic_error())
+                                        .size(11.0),
+                                );
+                                ui.add_space(6.0);
+                                ui.label(
+                                    RichText::new("Error")
+                                        .color(self.theme.semantic_error())
+                                        .size(11.0),
+                                );
+                            }
+                            QueryStatus::Cancelled => {
+                                ui.label(
+                                    RichText::new("Cancelled")
+                                        .color(text_secondary)
+                                        .size(11.0)
+                                        .italics(),
+                                );
+                            }
+                        });
+                    });
+
+                // Error message if failed
+                if let Some(error) = &cell.error {
+                    egui::Frame::new()
+                        .fill(self.theme.semantic_error().gamma_multiply(0.1))
+                        .inner_margin(egui::Margin::symmetric(12, 8))
+                        .show(ui, |ui| {
+                            // Truncate long errors
+                            let display_error = if error.len() > 100 {
+                                format!("{}...", &error[..100])
+                            } else {
+                                error.clone()
+                            };
+                            ui.label(
+                                RichText::new(display_error)
+                                    .color(self.theme.semantic_error())
+                                    .size(11.0)
+                                    .monospace(),
+                            );
+                        });
                 }
 
-                if self.scroll_to_bottom {
-                    ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
-                    self.scroll_to_bottom = false;
+                // Compact table preview (if has data)
+                if !cell.batches.is_empty() {
+                    if let Some(schema) = &cell.schema {
+                        let total_cols = schema.fields().len();
+
+                        // Calculate how many columns fit in available width
+                        // Available width is ~700px max minus frame margins (~24px)
+                        let available_width = ui.available_width() - 24.0;
+                        let col_spacing = 16.0; // Space between columns
+                        let char_width = 6.5; // Approximate width per monospace char at 10pt
+                        let overflow_indicator_width = 40.0; // Space for "+N" indicator
+
+                        // Calculate column widths based on header names (capped at max_value_len)
+                        let col_widths: Vec<f32> = schema
+                            .fields()
+                            .iter()
+                            .map(|f| {
+                                let name_len = f.name().len().min(max_value_len);
+                                (name_len as f32 * char_width).max(40.0) // Min 40px per column
+                            })
+                            .collect();
+
+                        // Determine how many columns fit
+                        let mut total_width = 0.0;
+                        let mut show_cols = 0;
+                        for (i, &width) in col_widths.iter().enumerate() {
+                            let needed = if i == 0 { width } else { col_spacing + width };
+                            // Reserve space for overflow indicator if not showing all
+                            let reserve = if i + 1 < total_cols {
+                                overflow_indicator_width
+                            } else {
+                                0.0
+                            };
+                            if total_width + needed + reserve <= available_width {
+                                total_width += needed;
+                                show_cols = i + 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        // Show at least 1 column
+                        show_cols = show_cols.max(1);
+
+                        egui::Frame::new()
+                            .inner_margin(egui::Margin::symmetric(12, 8))
+                            .show(ui, |ui| {
+                                // Table header
+                                ui.horizontal(|ui| {
+                                    for (col_idx, field) in
+                                        schema.fields().iter().take(show_cols).enumerate()
+                                    {
+                                        if col_idx > 0 {
+                                            ui.add_space(col_spacing);
+                                        }
+                                        let name = field.name();
+                                        let display_name = if name.len() > max_value_len {
+                                            format!("{}…", &name[..max_value_len - 1])
+                                        } else {
+                                            name.to_string()
+                                        };
+                                        ui.label(
+                                            RichText::new(display_name)
+                                                .color(text_primary)
+                                                .size(10.0)
+                                                .strong()
+                                                .monospace(),
+                                        );
+                                    }
+                                    if total_cols > show_cols {
+                                        ui.add_space(8.0);
+                                        ui.label(
+                                            RichText::new(format!("+{}", total_cols - show_cols))
+                                                .color(text_secondary.gamma_multiply(0.5))
+                                                .size(10.0),
+                                        );
+                                    }
+                                });
+
+                                ui.add_space(2.0);
+
+                                // Preview rows
+                                let mut rows_shown = 0;
+                                'outer: for batch in &cell.batches {
+                                    for row_idx in 0..batch.num_rows() {
+                                        if rows_shown >= max_preview_rows {
+                                            break 'outer;
+                                        }
+
+                                        ui.horizontal(|ui| {
+                                            for col_idx in 0..batch.num_columns().min(show_cols) {
+                                                if col_idx > 0 {
+                                                    ui.add_space(col_spacing);
+                                                }
+                                                let col = batch.column(col_idx);
+                                                let value =
+                                                    format_array_value(col.as_ref(), row_idx);
+
+                                                let (display_val, color) = if value == "NULL" {
+                                                    (
+                                                        "null".to_string(),
+                                                        text_secondary.gamma_multiply(0.4),
+                                                    )
+                                                } else if value.len() > max_value_len {
+                                                    (
+                                                        format!("{}…", &value[..max_value_len - 1]),
+                                                        text_secondary,
+                                                    )
+                                                } else {
+                                                    (value, text_secondary)
+                                                };
+
+                                                ui.label(
+                                                    RichText::new(display_val)
+                                                        .color(color)
+                                                        .size(10.0)
+                                                        .monospace(),
+                                                );
+                                            }
+                                        });
+
+                                        rows_shown += 1;
+                                    }
+                                }
+
+                                // "More rows" indicator
+                                let total_rows: usize =
+                                    cell.batches.iter().map(|b| b.num_rows()).sum();
+                                if total_rows > max_preview_rows {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "… {} more",
+                                            total_rows - max_preview_rows
+                                        ))
+                                        .color(text_secondary.gamma_multiply(0.5))
+                                        .size(10.0)
+                                        .italics(),
+                                    );
+                                }
+                            });
+                    }
                 }
+
+                // Footer with expand hints
+                egui::Frame::new()
+                    .fill(self.theme.bg_surface())
+                    .inner_margin(egui::Margin::symmetric(12, 6))
+                    .corner_radius(egui::CornerRadius {
+                        nw: 0,
+                        ne: 0,
+                        sw: 8,
+                        se: 8,
+                    })
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let has_data = !cell.batches.is_empty();
+
+                            // Expand hints - more compact
+                            if has_data {
+                                ui.label(RichText::new("t").color(accent).size(10.0).monospace());
+                                ui.label(
+                                    RichText::new("table")
+                                        .color(text_secondary.gamma_multiply(0.6))
+                                        .size(9.0),
+                                );
+
+                                ui.add_space(8.0);
+                            }
+
+                            ui.label(RichText::new("p").color(accent).size(10.0).monospace());
+                            ui.label(
+                                RichText::new("plan")
+                                    .color(text_secondary.gamma_multiply(0.6))
+                                    .size(9.0),
+                            );
+
+                            ui.add_space(8.0);
+
+                            ui.label(RichText::new("c").color(accent).size(10.0).monospace());
+                            ui.label(
+                                RichText::new("clear")
+                                    .color(text_secondary.gamma_multiply(0.6))
+                                    .size(9.0),
+                            );
+
+                            // History hint on the right
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let query_count =
+                                        self.history.iter().filter(|c| !c.is_info).count();
+                                    if query_count > 1 {
+                                        ui.label(
+                                            RichText::new(format!("↑↓ {query_count}"))
+                                                .color(text_secondary.gamma_multiply(0.4))
+                                                .size(9.0),
+                                        );
+                                    }
+                                },
+                            );
+                        });
+                    });
             });
     }
 
-    /// Render a single result cell.
+    /// Render a single result cell (legacy, kept for reference).
+    #[allow(dead_code)]
     #[allow(clippy::too_many_arguments)]
     fn render_result_cell(
         &self,
