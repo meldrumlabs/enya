@@ -71,6 +71,10 @@ pub trait Component: Any {
         ""
     }
 
+    /// Set whether a workspace overlay is blocking keyboard input.
+    /// Default implementation does nothing - components can override if needed.
+    fn set_overlay_blocks_input(&mut self, _blocks: bool) {}
+
     /// Get a reference to self as Any (for downcasting)
     fn as_any(&self) -> &dyn Any;
     /// Get a mutable reference to self as Any (for downcasting)

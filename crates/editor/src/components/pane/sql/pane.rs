@@ -34,8 +34,8 @@ use tokio::sync::mpsc;
 
 use super::highlighting::highlight_sql;
 use super::plan_view::{PlanViewMode, PlanViewer};
-use crate::components::{OverlayColors, OverlayStyle};
 use crate::components::util::id_generator::next_id_usize;
+use crate::components::{OverlayColors, OverlayStyle};
 use crate::ui::semantic_icons::{action, category, file, nav, status, time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -60,8 +60,10 @@ pub enum SqlPaneAction {
 pub enum SqlCommand {
     /// Compare query results across two environments.
     Diff,
-    /// Show query execution plan.
+    /// Show query execution plan (EXPLAIN).
     Explain,
+    /// Show query execution plan with timing (EXPLAIN ANALYZE).
+    Analyze,
     /// Profile query with detailed timing.
     Profile,
     /// Show table schema/structure.
@@ -76,6 +78,10 @@ pub enum SqlCommand {
     Watch,
     /// Quick sample of a table.
     Sample,
+    /// Load demo query plan.
+    Demo,
+    /// Toggle/set plan viewer mode.
+    Plan,
     /// Show available commands.
     Help,
 }
@@ -84,11 +90,14 @@ impl SqlCommand {
     /// All available commands.
     fn all() -> &'static [SqlCommand] {
         &[
-            SqlCommand::Diff,
             SqlCommand::Explain,
-            SqlCommand::Profile,
+            SqlCommand::Analyze,
+            SqlCommand::Demo,
+            SqlCommand::Plan,
             SqlCommand::Schema,
             SqlCommand::Connect,
+            SqlCommand::Diff,
+            SqlCommand::Profile,
             SqlCommand::Export,
             SqlCommand::History,
             SqlCommand::Watch,
@@ -102,6 +111,7 @@ impl SqlCommand {
         match self {
             SqlCommand::Diff => "diff",
             SqlCommand::Explain => "explain",
+            SqlCommand::Analyze => "analyze",
             SqlCommand::Profile => "profile",
             SqlCommand::Schema => "schema",
             SqlCommand::Connect => "connect",
@@ -109,6 +119,8 @@ impl SqlCommand {
             SqlCommand::History => "history",
             SqlCommand::Watch => "watch",
             SqlCommand::Sample => "sample",
+            SqlCommand::Demo => "demo",
+            SqlCommand::Plan => "plan",
             SqlCommand::Help => "help",
         }
     }
@@ -117,7 +129,8 @@ impl SqlCommand {
     fn description(&self) -> &'static str {
         match self {
             SqlCommand::Diff => "Compare across envs",
-            SqlCommand::Explain => "Show query plan",
+            SqlCommand::Explain => "Show query plan (EXPLAIN)",
+            SqlCommand::Analyze => "Query plan with timing (EXPLAIN ANALYZE)",
             SqlCommand::Profile => "Profile execution",
             SqlCommand::Schema => "Table structure",
             SqlCommand::Connect => "Connect to database",
@@ -125,6 +138,8 @@ impl SqlCommand {
             SqlCommand::History => "Query history",
             SqlCommand::Watch => "Auto-refresh query",
             SqlCommand::Sample => "Sample table rows",
+            SqlCommand::Demo => "Load demo query plan",
+            SqlCommand::Plan => "Toggle plan viewer",
             SqlCommand::Help => "Show commands",
         }
     }
@@ -149,6 +164,7 @@ pub enum SqlMode {
         right: ConnectionId,
     },
     /// Explain mode - showing query plan.
+    #[allow(dead_code)] // Used for UI rendering, may be set in future workflows
     Explain,
     /// Profile mode - detailed execution stats.
     Profile,
@@ -409,6 +425,8 @@ pub struct SqlPane {
     overlay_table_page: usize,
     /// Filter text for table overlay.
     overlay_filter: String,
+    /// Whether a workspace overlay is open that should block our keyboard input.
+    overlay_blocks_input: bool,
 }
 
 impl SqlPane {
@@ -450,6 +468,7 @@ impl SqlPane {
             overlay_result_idx: None,
             overlay_table_page: 0,
             overlay_filter: String::new(),
+            overlay_blocks_input: false,
         }
     }
 
@@ -457,6 +476,11 @@ impl SqlPane {
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
         self.plan_viewer.set_theme(theme);
+    }
+
+    /// Set whether a workspace overlay is blocking keyboard input.
+    pub fn set_overlay_blocks_input(&mut self, blocks: bool) {
+        self.overlay_blocks_input = blocks;
     }
 
     /// Connect to a Flight SQL server.
@@ -653,22 +677,27 @@ impl SqlPane {
             "help" => {
                 let help_text = r#"SQL Pane Commands:
 
-Slash Commands (type / to see suggestions):
-  /help              Show this help message
-  /diff <e1> <e2>    Compare query results across two environments
-  /explain           Show query execution plan
-  /profile           Profile query with detailed timing
+Query Execution:
+  /explain <query>   Show query execution plan (EXPLAIN)
+  /analyze <query>   Show execution plan with timing (EXPLAIN ANALYZE)
   /schema <table>    Show table structure
-  /connect <endpoint> Connect to Flight SQL (e.g., localhost:50051)
-  /export <format>   Export results to file
-  /history           Show query history
 
-Dot Commands (DuckDB/SQLite style):
-  .open <endpoint>   Connect to a Flight SQL server
-  .close             Disconnect from the server
-  .tables            List all tables
-  .explain <sql>     Show logical plan for query
-  .analyze <sql>     Show physical plan with timing
+Plan Viewer:
+  /demo              Load a demo plan for testing
+  /plan              Toggle plan viewer
+  /plan tree         Show tree view
+  /plan timeline     Show timeline view
+  /plan waterfall    Show waterfall view
+  /plan hide         Hide plan viewer
+
+Connections:
+  /connect <endpoint> Connect to Flight SQL (e.g., localhost:50051)
+  /diff <e1> <e2>    Compare query results across two environments
+
+Other:
+  /help              Show this help message
+  /history           Show query history
+  /export <format>   Export results to file
 
 Keyboard Shortcuts:
   ⌘↵ or Ctrl+Enter   Execute query
@@ -718,8 +747,67 @@ Keyboard Shortcuts:
                 }
             }
             "explain" => {
-                self.mode = SqlMode::Explain;
-                self.add_info_cell("Explain mode: Enter a query to see its execution plan.");
+                // /explain <query> - run EXPLAIN on the query
+                let sql = parts[1..].join(" ");
+                if sql.is_empty() {
+                    self.add_info_cell(
+                        "Usage: /explain <query>\nExample: /explain SELECT * FROM users",
+                    );
+                } else {
+                    self.execute_explain(&sql, false);
+                }
+            }
+            "analyze" => {
+                // /analyze <query> - run EXPLAIN ANALYZE on the query
+                let sql = parts[1..].join(" ");
+                if sql.is_empty() {
+                    self.add_info_cell(
+                        "Usage: /analyze <query>\nExample: /analyze SELECT * FROM users",
+                    );
+                } else {
+                    self.execute_explain(&sql, true);
+                }
+            }
+            "demo" => {
+                // Load a demo plan for testing the visualization
+                self.load_demo_plan();
+                // Add a placeholder result so we can open the overlay
+                self.history.push(QueryCell {
+                    sql: "-- Demo Query Plan".to_string(),
+                    id: enya_datafusion::QueryId::new(),
+                    status: QueryStatus::Completed,
+                    started_at: Instant::now(),
+                    schema: None,
+                    batches: Vec::new(),
+                    stats: None,
+                    error: None,
+                    is_info: false,
+                });
+                let idx = self.history.len() - 1;
+                self.open_overlay(ResultOverlay::Plan, idx);
+            }
+            "plan" => {
+                // Toggle or set plan viewer mode
+                match parts.get(1).copied() {
+                    Some("tree") => {
+                        self.plan_viewer.mode = PlanViewMode::Tree;
+                        self.show_plan_viewer = true;
+                    }
+                    Some("stats") => {
+                        self.plan_viewer.mode = PlanViewMode::Stats;
+                        self.show_plan_viewer = true;
+                    }
+                    Some("waterfall") => {
+                        self.plan_viewer.mode = PlanViewMode::Waterfall;
+                        self.show_plan_viewer = true;
+                    }
+                    Some("hide") => {
+                        self.show_plan_viewer = false;
+                    }
+                    _ => {
+                        self.show_plan_viewer = !self.show_plan_viewer;
+                    }
+                }
             }
             "profile" => {
                 self.mode = SqlMode::Profile;
@@ -913,12 +1001,12 @@ Keyboard Shortcuts:
                         self.plan_viewer.mode = PlanViewMode::Tree;
                         self.show_plan_viewer = true;
                     }
-                    Some("timeline") => {
-                        self.plan_viewer.mode = PlanViewMode::Timeline;
+                    Some("stats") => {
+                        self.plan_viewer.mode = PlanViewMode::Stats;
                         self.show_plan_viewer = true;
                     }
-                    Some("diff") => {
-                        self.plan_viewer.mode = PlanViewMode::Diff;
+                    Some("waterfall") => {
+                        self.plan_viewer.mode = PlanViewMode::Waterfall;
                         self.show_plan_viewer = true;
                     }
                     Some("hide") => {
@@ -942,7 +1030,7 @@ Keyboard Shortcuts:
                      .tables           - List available tables\n\
                      .explain <query>  - Show query plan (EXPLAIN)\n\
                      .analyze <query>  - Show query plan with timing (EXPLAIN ANALYZE)\n\
-                     .plan [tree|timeline|diff|hide] - Toggle plan viewer\n\
+                     .plan [tree|timeline|waterfall|hide] - Toggle plan viewer\n\
                      .demo             - Load a demo query plan\n\
                      .help             - Show this help\n\n\
                      Enter SQL queries directly and press Ctrl+Enter to execute.\n\n\
@@ -1265,7 +1353,21 @@ Keyboard Shortcuts:
                     let plan = self.parse_plan_text(&plan_text);
                     self.plan_viewer.load_plan(&plan);
                     self.show_plan_viewer = true;
-                    self.add_info_cell("Query plan loaded. Use j/k/h/l to navigate.");
+
+                    // Add a result cell and open the Plan overlay
+                    self.history.push(QueryCell {
+                        sql: format!("EXPLAIN {}", plan_text.lines().next().unwrap_or("...")),
+                        id: enya_datafusion::QueryId::new(),
+                        status: QueryStatus::Completed,
+                        started_at: Instant::now(),
+                        schema: None,
+                        batches: Vec::new(),
+                        stats: None,
+                        error: None,
+                        is_info: false,
+                    });
+                    let idx = self.history.len() - 1;
+                    self.open_overlay(ResultOverlay::Plan, idx);
                 }
                 Ok(Err(e)) => {
                     self.add_error_cell(&format!("EXPLAIN failed: {e}"));
@@ -1427,10 +1529,12 @@ Keyboard Shortcuts:
     }
 
     /// Parse metrics from a description string.
+    ///
+    /// Handles formats like:
+    /// - `metrics=[output_rows=5, elapsed_compute=52.06µs, output_bytes=1920.0 B]`
+    /// - `[rows=100, time=5.2ms, mem=1KB]`
     fn parse_metrics(description: &str) -> Option<enya_datafusion::OperatorMetrics> {
-        use std::time::Duration;
-
-        // Look for patterns like [rows=100, time=5.2ms]
+        // Look for metrics section
         if !description.contains('[') {
             return None;
         }
@@ -1438,63 +1542,115 @@ Keyboard Shortcuts:
         let mut metrics = enya_datafusion::OperatorMetrics::default();
         let mut found = false;
 
-        // Parse rows
-        if let Some(start) = description.find("rows=") {
-            let rest = &description[start + 5..];
-            if let Some(end) = rest.find(|c: char| !c.is_ascii_digit()) {
-                if let Ok(rows) = rest[..end].parse::<usize>() {
-                    metrics.output_rows = rows;
-                    found = true;
-                }
-            }
+        // Parse output_rows (new format) or rows (old format)
+        if let Some(rows) = Self::parse_metric_usize(description, "output_rows=")
+            .or_else(|| Self::parse_metric_usize(description, "rows="))
+        {
+            metrics.output_rows = rows;
+            found = true;
         }
 
-        // Parse time
-        if let Some(start) = description.find("time=") {
-            let rest = &description[start + 5..];
-            let end = rest
-                .find(|c: char| !c.is_ascii_digit() && c != '.')
-                .unwrap_or(rest.len());
-            if let Ok(time_val) = rest[..end].parse::<f64>() {
-                // Check unit
-                let unit = &rest[end..];
-                let duration = if unit.starts_with("ms") {
-                    Duration::from_secs_f64(time_val / 1000.0)
-                } else if unit.starts_with("µs") || unit.starts_with("us") {
-                    Duration::from_secs_f64(time_val / 1_000_000.0)
-                } else if unit.starts_with('s') {
-                    Duration::from_secs_f64(time_val)
-                } else {
-                    Duration::from_secs_f64(time_val / 1000.0) // Default to ms
-                };
-                metrics.elapsed_time = duration;
-                found = true;
-            }
+        // Parse elapsed_compute (new format) or time (old format)
+        if let Some(duration) = Self::parse_metric_duration(description, "elapsed_compute=")
+            .or_else(|| Self::parse_metric_duration(description, "time="))
+        {
+            metrics.elapsed_time = duration;
+            found = true;
         }
 
-        // Parse memory
-        if let Some(start) = description.find("mem=") {
-            let rest = &description[start + 4..];
-            let end = rest
-                .find(|c: char| !c.is_ascii_digit() && c != '.')
-                .unwrap_or(rest.len());
-            if let Ok(mem_val) = rest[..end].parse::<f64>() {
-                let unit = &rest[end..];
-                let bytes = if unit.starts_with("KB") {
-                    (mem_val * 1024.0) as usize
-                } else if unit.starts_with("MB") {
-                    (mem_val * 1024.0 * 1024.0) as usize
-                } else if unit.starts_with("GB") {
-                    (mem_val * 1024.0 * 1024.0 * 1024.0) as usize
-                } else {
-                    mem_val as usize
-                };
-                metrics.memory_bytes = bytes;
-                found = true;
-            }
+        // Parse output_bytes (new format) or mem (old format)
+        if let Some(bytes) = Self::parse_metric_bytes(description, "output_bytes=")
+            .or_else(|| Self::parse_metric_bytes(description, "mem="))
+        {
+            metrics.memory_bytes = bytes;
+            found = true;
+        }
+
+        // Parse spill metrics
+        if let Some(spill_count) = Self::parse_metric_usize(description, "spill_count=") {
+            metrics.spill_count = spill_count;
+            found = true;
+        }
+        if let Some(spill_bytes) = Self::parse_metric_bytes(description, "spilled_bytes=") {
+            metrics.spill_bytes = spill_bytes;
+            found = true;
         }
 
         if found { Some(metrics) } else { None }
+    }
+
+    /// Parse a usize metric value.
+    fn parse_metric_usize(description: &str, key: &str) -> Option<usize> {
+        let start = description.find(key)?;
+        let rest = &description[start + key.len()..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        rest[..end].parse().ok()
+    }
+
+    /// Parse a duration metric value (e.g., "52.06µs", "5.2ms", "1.5s").
+    fn parse_metric_duration(description: &str, key: &str) -> Option<std::time::Duration> {
+        use std::time::Duration;
+
+        let start = description.find(key)?;
+        let rest = &description[start + key.len()..];
+
+        // Find end of numeric part
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit() && c != '.')
+            .unwrap_or(rest.len());
+
+        let time_val: f64 = rest[..end].parse().ok()?;
+        let unit = &rest[end..];
+
+        let duration = if unit.starts_with("ms") {
+            Duration::from_secs_f64(time_val / 1000.0)
+        } else if unit.starts_with("µs") || unit.starts_with("us") {
+            Duration::from_secs_f64(time_val / 1_000_000.0)
+        } else if unit.starts_with("ns") {
+            Duration::from_nanos(time_val as u64)
+        } else if unit.starts_with('s') {
+            Duration::from_secs_f64(time_val)
+        } else {
+            // Default to microseconds for elapsed_compute
+            Duration::from_secs_f64(time_val / 1_000_000.0)
+        };
+
+        Some(duration)
+    }
+
+    /// Parse a bytes metric value (e.g., "1920.0 B", "1.5 KB", "256 MB").
+    fn parse_metric_bytes(description: &str, key: &str) -> Option<usize> {
+        let start = description.find(key)?;
+        let rest = &description[start + key.len()..];
+
+        // Find end of numeric part (allow spaces before unit)
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit() && c != '.' && c != ' ')
+            .unwrap_or(rest.len());
+
+        // Parse the number, handling potential spaces
+        let num_str = rest[..end].trim();
+        let mem_val: f64 = num_str.parse().ok()?;
+
+        // Get the unit (skip any spaces)
+        let unit = rest[end..].trim_start();
+
+        let bytes = if unit.starts_with("KB") || unit.starts_with("KiB") {
+            (mem_val * 1024.0) as usize
+        } else if unit.starts_with("MB") || unit.starts_with("MiB") {
+            (mem_val * 1024.0 * 1024.0) as usize
+        } else if unit.starts_with("GB") || unit.starts_with("GiB") {
+            (mem_val * 1024.0 * 1024.0 * 1024.0) as usize
+        } else if unit.starts_with('B') {
+            mem_val as usize
+        } else {
+            // Default to bytes
+            mem_val as usize
+        };
+
+        Some(bytes)
     }
 
     /// Load a demo query plan for testing the visualization.
@@ -1772,7 +1928,8 @@ Keyboard Shortcuts:
         }
 
         // Draw dimmed backdrop
-        ui.painter().rect_filled(screen_rect, 0.0, Color32::from_black_alpha(180));
+        ui.painter()
+            .rect_filled(screen_rect, 0.0, Color32::from_black_alpha(180));
 
         // Calculate popup dimensions - consistent with diff viewer and other overlays
         let popup_width = (screen_rect.width() * 0.85).clamp(700.0, 1400.0);
@@ -2283,77 +2440,159 @@ Keyboard Shortcuts:
     }
 
     /// Render the plan overlay view.
-    fn render_plan_overlay(&mut self, ui: &mut egui::Ui, _result_idx: usize) {
-        let text_primary = self.theme.text_primary();
-        let text_secondary = self.theme.text_secondary();
+    fn render_plan_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize) {
+        // Clear egui focus so vim navigation works and ':' can open command palette.
+        // Without this, the SQL input TextEdit might retain focus, causing
+        // listen_for_kb_shortcut() to return early before processing ':'.
+        ui.ctx()
+            .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
 
-        // Header bar
-        egui::Frame::new()
-            .fill(self.theme.bg_surface())
-            .inner_margin(egui::Margin::symmetric(16, 12))
-            .corner_radius(egui::CornerRadius {
-                nw: 12,
-                ne: 12,
-                sw: 0,
-                se: 0,
-            })
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    // Back button
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new(format!("{} Back", nav::BACK))
-                                    .color(text_secondary)
-                                    .size(12.0),
-                            )
-                            .frame(false),
-                        )
-                        .clicked()
-                    {
-                        self.close_overlay();
-                    }
+        // Propagate overlay_blocks_input to plan_viewer
+        self.plan_viewer
+            .set_overlay_blocks_input(self.overlay_blocks_input);
 
-                    ui.add_space(16.0);
-                    ui.separator();
-                    ui.add_space(16.0);
+        let colors = OverlayColors::new(self.theme);
+        let bg_base = self.theme.bg_base();
 
-                    // Title
-                    ui.label(
-                        RichText::new("Execution Plan")
-                            .color(text_primary)
-                            .size(14.0)
-                            .strong(),
-                    );
-                });
+        // Extract query for footer
+        let sql_query = self
+            .history
+            .get(result_idx)
+            .map(|c| c.sql.clone())
+            .unwrap_or_default();
+
+        // Get plan stats
+        let (total_time, operator_count, bottleneck_count) = self.plan_viewer.stats();
+
+        let mut should_close = false;
+
+        // Handle keyboard navigation
+        ui.ctx().input_mut(|i| {
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                should_close = true;
+            }
+        });
+
+        // ===== Header with icon and stats badges =====
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // Plan icon
+            ui.label(RichText::new(nav::TREE).color(colors.accent).size(16.0));
+            ui.add_space(6.0);
+
+            // Title
+            ui.label(
+                RichText::new("Execution Plan")
+                    .color(colors.accent)
+                    .font(typography::proportional(typography::XL))
+                    .strong(),
+            );
+
+            // Right side: stats badges
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+
+                // Execution time badge
+                if !total_time.is_zero() {
+                    self.render_time_badge(ui, total_time.as_millis(), &colors);
+                    ui.add_space(4.0);
+                }
+
+                // Operator count badge
+                self.render_stat_badge(ui, &format!("{operator_count} ops"), &colors);
+
+                // Bottleneck badge
+                if bottleneck_count > 0 {
+                    ui.add_space(4.0);
+                    egui::Frame::new()
+                        .fill(self.theme.semantic_warning().gamma_multiply(0.2))
+                        .corner_radius(4.0)
+                        .inner_margin(egui::Margin::symmetric(6, 2))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 3.0;
+                                ui.label(
+                                    RichText::new(status::WARNING)
+                                        .color(self.theme.semantic_warning())
+                                        .size(10.0),
+                                );
+                                ui.label(
+                                    RichText::new(format!("{bottleneck_count} bottleneck"))
+                                        .color(self.theme.semantic_warning())
+                                        .font(typography::proportional(typography::XS)),
+                                );
+                            });
+                        });
+                }
             });
+        });
+        ui.add_space(8.0);
+
+        // Separator below header
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
 
         // Plan viewer content
         egui::Frame::new()
-            .fill(self.theme.bg_base())
-            .inner_margin(16.0)
+            .fill(bg_base)
+            .inner_margin(12.0)
             .show(ui, |ui| {
-                // Use the existing plan_viewer
-                self.plan_viewer.show(ui);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        self.plan_viewer.show(ui);
+                    });
             });
 
-        // Footer
-        egui::Frame::new()
-            .fill(self.theme.bg_surface())
-            .inner_margin(egui::Margin::symmetric(16, 12))
-            .corner_radius(egui::CornerRadius {
-                nw: 0,
-                ne: 0,
-                sw: 12,
-                se: 12,
-            })
-            .show(ui, |ui| {
+        // ===== Footer with query and keyboard hints =====
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
+        ui.add_space(6.0);
+
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // SQL query preview (truncated)
+            let sql_preview = if sql_query.len() > 50 {
+                format!("{}...", &sql_query[..50])
+            } else {
+                sql_query.clone()
+            };
+            ui.label(
+                RichText::new(&sql_preview)
+                    .color(colors.faint_text)
+                    .font(typography::monospace(typography::XS)),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+
+                // Keyboard hints based on current mode
+                let hints = match self.plan_viewer.mode {
+                    PlanViewMode::Tree => "j/k nav • h/l fold • b bottleneck • Esc",
+                    PlanViewMode::Stats => "scroll to explore • Esc",
+                    PlanViewMode::Waterfall => "j/k nav • b bottleneck • Esc",
+                };
                 ui.label(
-                    RichText::new("Esc close · h/j/k/l navigate · Enter select")
-                        .color(text_secondary.gamma_multiply(0.6))
-                        .size(10.0),
+                    RichText::new(hints)
+                        .color(colors.faint_text.gamma_multiply(0.7))
+                        .font(typography::proportional(typography::XS)),
                 );
             });
+        });
+        ui.add_space(8.0);
+
+        if should_close {
+            self.close_overlay();
+        }
     }
 
     /// Render the diff overlay view.
@@ -2452,6 +2691,44 @@ Keyboard Shortcuts:
 
         // Check if typing a command (starts with /)
         if let Some(cmd_query) = input.strip_prefix('/') {
+            // Special handling for /explain and /analyze - show table suggestions for SQL part
+            let sql_part = cmd_query
+                .strip_prefix("explain ")
+                .or_else(|| cmd_query.strip_prefix("analyze "));
+
+            if let Some(sql_part) = sql_part {
+                // Check for table completion in the SQL part
+                let upper = sql_part.to_uppercase();
+                let needs_table = upper.ends_with("FROM ")
+                    || upper.ends_with("JOIN ")
+                    || upper.ends_with("UPDATE ")
+                    || upper.ends_with("INTO ")
+                    || upper.ends_with("TABLE ");
+
+                if needs_table {
+                    self.suggestions.items = self.get_schema_suggestions("");
+                    self.suggestions.visible = !self.suggestions.items.is_empty();
+                    self.suggestions.selected = 0;
+                    return;
+                }
+
+                // Check for partial table/schema name
+                let words: Vec<&str> = sql_part.split_whitespace().collect();
+                if words.len() >= 2 {
+                    let second_last = words[words.len() - 2].to_uppercase();
+                    let last = words[words.len() - 1];
+
+                    if ["FROM", "JOIN", "UPDATE", "INTO", "TABLE"].contains(&second_last.as_str()) {
+                        self.suggestions.items = self.get_schema_suggestions(last);
+                        self.suggestions.visible = !self.suggestions.items.is_empty();
+                        self.suggestions.selected = 0;
+                        return;
+                    }
+                }
+
+                // No SQL suggestions, fall through to command matching
+            }
+
             // Special handling for /connect - show endpoint suggestions
             if cmd_query == "connect" || cmd_query.starts_with("connect ") {
                 let partial = cmd_query.strip_prefix("connect").unwrap_or("").trim_start();
@@ -4729,7 +5006,8 @@ Keyboard Shortcuts:
                                         // Mode selector buttons
                                         let modes = [
                                             (PlanViewMode::Tree, "Tree"),
-                                            (PlanViewMode::Timeline, "Timeline"),
+                                            (PlanViewMode::Stats, "Stats"),
+                                            (PlanViewMode::Waterfall, "Waterfall"),
                                         ];
 
                                         for (mode, label) in modes {
@@ -5658,6 +5936,10 @@ impl crate::components::Component for SqlPane {
 
     fn description(&self) -> &str {
         &self.description
+    }
+
+    fn set_overlay_blocks_input(&mut self, blocks: bool) {
+        SqlPane::set_overlay_blocks_input(self, blocks);
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

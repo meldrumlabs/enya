@@ -619,7 +619,7 @@ impl Workspace {
         let mut pending_commit_search: Option<String> = None;
         let mut pending_diff_viewer: Option<(String, String)> = None;
 
-        // Check if any overlay is open that should block channels panel keyboard input
+        // Check if any overlay is open that should block keyboard input
         let overlay_blocks_input = self.style_picker.is_open()
             || self.workspace_finder.is_open()
             || self.unified_finder.is_open()
@@ -627,6 +627,13 @@ impl Workspace {
             || self.which_key.is_open();
         self.channels_panel
             .set_overlay_blocks_input(overlay_blocks_input);
+
+        // Propagate overlay_blocks_input to all pane components
+        for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
+            if let egui_tiles::Tile::Pane(component) = tile {
+                component.set_overlay_blocks_input(overlay_blocks_input);
+            }
+        }
 
         if self.channels_panel_visible && self.team_status.is_some() && !chat_split_view_active {
             if let Some(chat_state) = chat_state {

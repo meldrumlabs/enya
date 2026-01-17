@@ -6,6 +6,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **SQL Plan View**: Query execution plan visualization with three view modes:
+  - **Tree View**: Vim-navigable hierarchical tree with expand/collapse, bottleneck highlighting
+  - **Stats View**: Aggregate dashboard showing total time, operator count, rows, memory, bottleneck warning, category breakdown, and top slowest operators
+  - **Waterfall View**: Gantt-style visualization showing parallel execution timing
+  - Tab key cycles between view modes, Shift+Tab cycles backward
+  - Navigation keys (j/k, g/G, b for bottleneck) work in Tree/Waterfall views without propagating to underlying viewport
+  - Proper metrics parsing for real execution output (`output_rows=`, `elapsed_compute=`, `output_bytes=`)
+  - **Dedicated 12-color plan palette**: Each theme has a unique 12-color palette optimized for execution plan visualization with maximally distinct colors for: Scan/Read (blue), Filter/Limit (green), Join (orange), Aggregate/Group (purple), Sort/Order (red), Project (teal), Hash (yellow), Remote/Exchange (cyan), Union/Interleave (pink), Cooperative/Yield (lime), and other Exec operators (amber)
+
 - **Floating panes** (zellij-inspired): Detachable panes that hover above the tile layout for quick investigations:
   - Float any focused pane using `gf` (go-float) keyboard shortcut or `:float` command
   - Floating panes render above tile layout but below modal overlays
@@ -222,6 +231,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Plan viewer UX overhaul**: Premium visual refresh for the execution plan viewer:
+  - **Pill-style tab bar**: Replaced plain selectable labels with styled pill tabs in a subtle container
+  - **Key badge hints**: Mode-specific keybindings now shown with premium key badges (like keyboard keys) instead of plain text
+  - **Tree connection lines**: Vertical and horizontal guide lines showing parent-child relationships in the tree view
+  - **Mini progress bars**: Inline percentage bars next to execution time showing relative cost at a glance
+  - **Waterfall grid lines**: Vertical grid lines at time markers (0%, 25%, 50%, 75%, 100%) for easier time reading
+  - **Premium stat cards**: Cards now have accent-colored icons and a left edge accent stripe
+  - Removed redundant sub-headers from each view since the main header and tabs establish context
+
 - **Premium agent panel styling**: Improved the AgentPanel overlay UX to match the refined look of the team channels panel:
   - Switched from `OverlayColors` to `ChatColors` for better theme integration and consistent styling across chat components
   - Added premium dividers between header, chat area, and input sections
@@ -277,6 +295,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Style picker focus restoration**: Fixed vim navigation not working after closing the style picker (theme/font selector). The picker now clears egui framework focus when it closes, ensuring keyboard events are properly handled by vim navigation. Also fixed returning focus to viewport from channels panel to properly restore focus to the first pane if no pane was previously focused.
 
 - **SQL pane runtime crash**: Fixed a crash when opening the SQL pane (`:sql` command) with "there is no reactor running" error. The DataFusion session's `init_executor()` now accepts a tokio runtime handle, matching the pattern used by `AgentPane`.
+
+- **Command palette always accessible**: Fixed `:` not opening the command palette after navigating in certain views (e.g., SQL execution plan viewer). The `listen_for_kb_shortcut()` function was returning early when any widget had focus, even if that widget wasn't actively consuming input. Now `:` is handled before the focus check using `consume_shortcut`, which will only fail if a widget (like a TextEdit) actually consumed the keystroke. This ensures the command palette can always be opened from anywhere in the editor.
 
 ### Removed
 

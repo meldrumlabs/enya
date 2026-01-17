@@ -17,7 +17,7 @@ pub use inline_content::{
 };
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
-pub use sql::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, TimelineView};
+pub use sql::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, StatsView};
 pub use sql::{SqlPane, SqlPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
 pub use terminal_pane::{TerminalPane, TerminalPaneAction};

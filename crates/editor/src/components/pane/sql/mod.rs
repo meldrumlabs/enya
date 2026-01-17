@@ -10,7 +10,7 @@ pub mod highlighting;
 #[cfg(not(target_arch = "wasm32"))]
 mod plan_view;
 #[cfg(not(target_arch = "wasm32"))]
-pub use plan_view::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, TimelineView};
+pub use plan_view::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, StatsView};
 
 // Native implementation
 #[cfg(not(target_arch = "wasm32"))]
