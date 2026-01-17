@@ -23,7 +23,7 @@ pub enum Error {
 
     /// Object store error (S3, GCS, etc.).
     #[error("object store error: {0}")]
-    ObjectStore(#[from] object_store::Error),
+    ObjectStore(String),
 
     /// Arrow/data conversion error.
     #[error("data conversion error: {0}")]

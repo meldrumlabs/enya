@@ -28,7 +28,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             memory_limit: None,
-            target_partitions: num_cpus::get(),
+            target_partitions: std::thread::available_parallelism()
+                .map(|p| p.get())
+                .unwrap_or(4),
             enable_cache: true,
         }
     }

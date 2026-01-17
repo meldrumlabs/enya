@@ -5,18 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 license.workspace = true
-description = "DataFusion integration for SQL query execution on local files and object stores"
+description = "DataFusion integration for SQL query execution via Flight SQL"
 
 [dependencies]
-# DataFusion - minimal features for SQL on local files
-# Disabling: crypto_expressions, encoding_expressions, unicode_expressions, regex_expressions
+# DataFusion - minimal features for SQL execution
 datafusion = { version = "51", default-features = false, features = [
     "parquet",
     "sql",
     "datetime_expressions",
     "string_expressions",
     "nested_expressions",
-    "recursive_protection",
 ] }
 
 # Arrow - minimal features (csv/json for file format support)
@@ -34,17 +32,6 @@ tonic = { version = "0.14", default-features = false, features = [
     "codegen",
 ] }
 
-# Parquet - minimal with common compression codecs
-parquet = { version = "57", default-features = false, features = [
-    "arrow",
-    "snap",      # Snappy - very common
-    "zstd",      # Zstandard - modern, good compression
-    "lz4",       # LZ4 - fast decompression
-] }
-
-# Object store - local filesystem only for now (no cloud features)
-object_store = { version = "0.12", default-features = false }
-
 # Async runtime and channels
 tokio = { workspace = true, features = ["sync", "rt"] }
 futures = "0.3"
@@ -58,14 +45,9 @@ log = { workspace = true }
 # Utilities
 parking_lot = { workspace = true }
 rustc-hash = { workspace = true }
-num_cpus = "1.16"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [lints]
 workspace = true
-
-# Parquet is needed for compression codec features even though we don't import it directly
-[package.metadata.cargo-machete]
-ignored = ["parquet"]
