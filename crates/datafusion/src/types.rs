@@ -192,6 +192,50 @@ pub struct PlanNode {
     pub metrics: Option<OperatorMetrics>,
 }
 
+impl PlanNode {
+    /// Calculate the total execution time for this plan subtree.
+    ///
+    /// Returns the maximum of this node's time and its children's time,
+    /// since children typically run in parallel in a pull-based execution model.
+    #[must_use]
+    pub fn total_time(&self) -> Duration {
+        let self_time = self
+            .metrics
+            .as_ref()
+            .map_or(Duration::ZERO, |m| m.elapsed_time);
+        let child_time: Duration = self.children.iter().map(Self::total_time).sum();
+        self_time.max(child_time)
+    }
+
+    /// Find the bottleneck time (maximum elapsed time) in this plan subtree.
+    ///
+    /// Returns the duration of the slowest operator in the tree.
+    #[must_use]
+    pub fn bottleneck_time(&self) -> Duration {
+        let self_time = self
+            .metrics
+            .as_ref()
+            .map_or(Duration::ZERO, |m| m.elapsed_time);
+        let max_child = self
+            .children
+            .iter()
+            .map(Self::bottleneck_time)
+            .max()
+            .unwrap_or(Duration::ZERO);
+        self_time.max(max_child)
+    }
+
+    /// Count the total number of operators in this plan subtree.
+    #[must_use]
+    pub fn operator_count(&self) -> usize {
+        1 + self
+            .children
+            .iter()
+            .map(Self::operator_count)
+            .sum::<usize>()
+    }
+}
+
 /// Execution metrics for a single operator.
 #[derive(Debug, Clone, Default)]
 pub struct OperatorMetrics {

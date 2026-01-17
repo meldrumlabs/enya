@@ -89,8 +89,8 @@ impl PlanTreeView {
     pub fn new(root: &PlanNode, theme: AppTheme) -> Self {
         let mut nodes = Vec::new();
         let mut expanded = FxHashSet::default();
-        let total_time = Self::calculate_total_time(root);
-        let bottleneck_time = Self::find_bottleneck_time(root);
+        let total_time = root.total_time();
+        let bottleneck_time = root.bottleneck_time();
 
         Self::flatten_node(root, 0, None, &mut nodes, &mut expanded, bottleneck_time);
 
@@ -111,31 +111,6 @@ impl PlanTreeView {
     /// Set whether a workspace overlay is blocking keyboard input.
     pub fn set_overlay_blocks_input(&mut self, blocks: bool) {
         self.overlay_blocks_input = blocks;
-    }
-
-    /// Calculate total execution time from a plan tree.
-    fn calculate_total_time(node: &PlanNode) -> Duration {
-        let self_time = node
-            .metrics
-            .as_ref()
-            .map_or(Duration::ZERO, |m| m.elapsed_time);
-        let child_time: Duration = node.children.iter().map(Self::calculate_total_time).sum();
-        self_time.max(child_time) // Use max since children run in parallel
-    }
-
-    /// Find the maximum elapsed time (bottleneck) in the tree.
-    fn find_bottleneck_time(node: &PlanNode) -> Duration {
-        let self_time = node
-            .metrics
-            .as_ref()
-            .map_or(Duration::ZERO, |m| m.elapsed_time);
-        let max_child = node
-            .children
-            .iter()
-            .map(Self::find_bottleneck_time)
-            .max()
-            .unwrap_or(Duration::ZERO);
-        self_time.max(max_child)
     }
 
     /// Flatten a plan node tree into a navigable list.
@@ -624,7 +599,7 @@ impl StatsView {
     /// Create a new stats view from a plan node.
     pub fn new(root: &PlanNode, theme: AppTheme) -> Self {
         let mut entries = Vec::new();
-        let bottleneck_time = Self::find_bottleneck_time(root);
+        let bottleneck_time = root.bottleneck_time();
         Self::collect_entries(root, &mut entries, bottleneck_time);
 
         // Sort by time descending
@@ -668,20 +643,6 @@ impl StatsView {
             peak_memory,
             bottleneck,
         }
-    }
-
-    fn find_bottleneck_time(node: &PlanNode) -> Duration {
-        let self_time = node
-            .metrics
-            .as_ref()
-            .map_or(Duration::ZERO, |m| m.elapsed_time);
-        let max_child = node
-            .children
-            .iter()
-            .map(Self::find_bottleneck_time)
-            .max()
-            .unwrap_or(Duration::ZERO);
-        self_time.max(max_child)
     }
 
     fn collect_entries(node: &PlanNode, entries: &mut Vec<StatsEntry>, bottleneck_time: Duration) {
@@ -1072,8 +1033,8 @@ impl WaterfallView {
     /// Create a new waterfall view from a plan node.
     pub fn new(root: &PlanNode, theme: AppTheme) -> Self {
         let mut nodes = Vec::new();
-        let total_time = Self::calculate_total_time(root);
-        let bottleneck_time = Self::find_bottleneck_time(root);
+        let total_time = root.total_time();
+        let bottleneck_time = root.bottleneck_time();
 
         // Collect nodes with timing estimation
         Self::collect_nodes(root, 0, Duration::ZERO, &mut nodes, bottleneck_time);
@@ -1090,31 +1051,6 @@ impl WaterfallView {
     /// Set whether a workspace overlay is blocking keyboard input.
     pub fn set_overlay_blocks_input(&mut self, blocks: bool) {
         self.overlay_blocks_input = blocks;
-    }
-
-    /// Calculate total execution time from a plan tree.
-    fn calculate_total_time(node: &PlanNode) -> Duration {
-        let self_time = node
-            .metrics
-            .as_ref()
-            .map_or(Duration::ZERO, |m| m.elapsed_time);
-        let child_time: Duration = node.children.iter().map(Self::calculate_total_time).sum();
-        self_time.max(child_time)
-    }
-
-    /// Find the maximum elapsed time (bottleneck) in the tree.
-    fn find_bottleneck_time(node: &PlanNode) -> Duration {
-        let self_time = node
-            .metrics
-            .as_ref()
-            .map_or(Duration::ZERO, |m| m.elapsed_time);
-        let max_child = node
-            .children
-            .iter()
-            .map(Self::find_bottleneck_time)
-            .max()
-            .unwrap_or(Duration::ZERO);
-        self_time.max(max_child)
     }
 
     /// Collect nodes in execution order (children first, then parent).
@@ -1626,8 +1562,8 @@ impl PlanViewer {
         self.waterfall_view = Some(WaterfallView::new(plan, self.theme));
 
         // Calculate stats
-        self.total_time = Self::calculate_total_time(plan);
-        self.operator_count = Self::count_operators(plan);
+        self.total_time = plan.total_time();
+        self.operator_count = plan.operator_count();
         self.bottleneck_count = if self
             .tree_view
             .as_ref()
@@ -1637,25 +1573,6 @@ impl PlanViewer {
         } else {
             0
         };
-    }
-
-    /// Calculate total execution time from a plan tree.
-    fn calculate_total_time(node: &PlanNode) -> Duration {
-        let self_time = node
-            .metrics
-            .as_ref()
-            .map_or(Duration::ZERO, |m| m.elapsed_time);
-        let child_time: Duration = node.children.iter().map(Self::calculate_total_time).sum();
-        self_time.max(child_time)
-    }
-
-    /// Count operators in the plan tree.
-    fn count_operators(node: &PlanNode) -> usize {
-        1 + node
-            .children
-            .iter()
-            .map(Self::count_operators)
-            .sum::<usize>()
     }
 
     /// Check if a plan is loaded.
