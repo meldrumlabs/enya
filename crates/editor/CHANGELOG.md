@@ -233,6 +233,14 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Plan view functions moved to shared crate**: The `format_duration`, `format_bytes`, and `format_rows` functions, along with `total_time()`, `bottleneck_time()`, and `operator_count()` methods on `PlanNode`, are now in `enya_datafusion` instead of being duplicated across plan view types. This consolidates plan analysis logic in the shared crate alongside related types like `OperatorMetrics` and `OperatorCategory`.
 
+- **SQL pane module reorganization**: Split the 6000-line `pane.rs` into focused modules following idiomatic Rust practices:
+  - `command.rs` - SQL pane commands (`SqlCommand` enum and parsing)
+  - `connections.rs` - Connection management types (`ConnectionId`, `SavedConnection`, `SqlBackend`)
+  - `suggestions.rs` - Autocomplete types (`Suggestion`, `SuggestionIcon`, `SuggestionState`)
+  - `types.rs` - Core types (`SqlMode`, `ResultOverlay`, `QueryCell`, `QueryStatus`)
+  - `pane.rs` - Main `SqlPane` struct (reduced to ~5600 lines)
+  - Native-only modules properly gated with `#[cfg(not(target_arch = "wasm32"))]` for WASM compatibility
+
 - **Plan viewer UX overhaul**: Premium visual refresh for the execution plan viewer:
   - **Pill-style tab bar**: Replaced plain selectable labels with styled pill tabs in a subtle container
   - **Key badge hints**: Mode-specific keybindings now shown with premium key badges (like keyboard keys) instead of plain text
