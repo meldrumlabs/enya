@@ -40,44 +40,106 @@ fn format_bytes(bytes: usize) -> String {
     }
 }
 
-/// Get color for an operator type.
+/// Operator category for plan visualization.
 ///
-/// Uses the theme's plan palette which has 12 distinct colors optimized for
-/// execution plan visualization:
+/// Each category maps to a specific color index in the theme's plan palette:
 /// 0: Scan/Read, 1: Filter/Limit, 2: Join, 3: Aggregate/Group,
 /// 4: Sort/Order, 5: Project, 6: Hash, 7: Remote/Exchange,
-/// 8: Union/Interleave, 9: Cooperative/Yield, 10: Other Exec, 11: Reserved
+/// 8: Union/Interleave, 9: Cooperative/Yield, 10: Other Exec, 11: Other
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OperatorCategory {
+    Scan,
+    Filter,
+    Join,
+    Aggregate,
+    Sort,
+    Project,
+    Hash,
+    Remote,
+    Union,
+    Cooperative,
+    Exec,
+    Other,
+}
+
+impl OperatorCategory {
+    /// Categorize an operator by its name.
+    fn from_operator(operator: &str) -> Self {
+        if operator.contains("Scan") || operator.contains("Read") {
+            Self::Scan
+        } else if operator.contains("Filter") || operator.contains("Limit") {
+            Self::Filter
+        } else if operator.contains("Join") {
+            Self::Join
+        } else if operator.contains("Aggregate") || operator.contains("Group") {
+            Self::Aggregate
+        } else if operator.contains("Sort") || operator.contains("Order") {
+            Self::Sort
+        } else if operator.contains("Project") {
+            Self::Project
+        } else if operator.contains("Hash") {
+            Self::Hash
+        } else if operator.contains("Remote")
+            || operator.contains("Exchange")
+            || operator.contains("Coalesce")
+            || operator.contains("Repartition")
+        {
+            Self::Remote
+        } else if operator.contains("Union") || operator.contains("Interleave") {
+            Self::Union
+        } else if operator.contains("Cooperative") || operator.contains("Yield") {
+            Self::Cooperative
+        } else if operator.ends_with("Exec") {
+            Self::Exec
+        } else {
+            Self::Other
+        }
+    }
+
+    /// Get the color index for this category in the plan palette.
+    const fn color_index(self) -> usize {
+        match self {
+            Self::Scan => 0,
+            Self::Filter => 1,
+            Self::Join => 2,
+            Self::Aggregate => 3,
+            Self::Sort => 4,
+            Self::Project => 5,
+            Self::Hash => 6,
+            Self::Remote => 7,
+            Self::Union => 8,
+            Self::Cooperative => 9,
+            Self::Exec => 10,
+            Self::Other => 11,
+        }
+    }
+
+    /// Get the display name for this category.
+    const fn display_name(self) -> &'static str {
+        match self {
+            Self::Scan => "Scan/Read",
+            Self::Filter => "Filter",
+            Self::Join => "Join",
+            Self::Aggregate => "Aggregate",
+            Self::Sort => "Sort",
+            Self::Project => "Project",
+            Self::Hash => "Hash",
+            Self::Remote => "Remote/Exchange",
+            Self::Union => "Union",
+            Self::Cooperative => "Cooperative",
+            Self::Exec => "Exec",
+            Self::Other => "Other",
+        }
+    }
+}
+
+/// Get color for an operator type using the theme's plan palette.
 fn operator_color(operator: &str, theme: &AppTheme) -> Color32 {
-    // Color-code operators by category using the plan palette
-    if operator.contains("Scan") || operator.contains("Read") {
-        theme.plan_color(0) // Blue - I/O operations
-    } else if operator.contains("Filter") || operator.contains("Limit") {
-        theme.plan_color(1) // Green - filtering
-    } else if operator.contains("Join") {
-        theme.plan_color(2) // Orange - joins (often expensive)
-    } else if operator.contains("Aggregate") || operator.contains("Group") {
-        theme.plan_color(3) // Purple - aggregations
-    } else if operator.contains("Sort") || operator.contains("Order") {
-        theme.plan_color(4) // Red - sorting
-    } else if operator.contains("Project") {
-        theme.plan_color(5) // Teal - projections
-    } else if operator.contains("Hash") {
-        theme.plan_color(6) // Yellow - hash operations
-    } else if operator.contains("Remote")
-        || operator.contains("Exchange")
-        || operator.contains("Coalesce")
-        || operator.contains("Repartition")
-    {
-        theme.plan_color(7) // Cyan - distributed/exchange operations
-    } else if operator.contains("Union") || operator.contains("Interleave") {
-        theme.plan_color(8) // Pink - union operations
-    } else if operator.contains("Cooperative") || operator.contains("Yield") {
-        theme.plan_color(9) // Lime - cooperative/yield operations
-    } else if operator.ends_with("Exec") {
-        // Any other *Exec operator gets a distinct color
-        theme.plan_color(10) // Amber - other execution operators
-    } else {
+    let category = OperatorCategory::from_operator(operator);
+    if category == OperatorCategory::Other {
         theme.text_secondary() // Default for non-Exec nodes
+    } else {
+        theme.plan_color(category.color_index())
     }
 }
 
@@ -757,35 +819,9 @@ impl StatsView {
     }
 
     fn categorize_operator(operator: &str) -> String {
-        if operator.contains("Scan") || operator.contains("Read") {
-            "Scan/Read".to_string()
-        } else if operator.contains("Filter") || operator.contains("Limit") {
-            "Filter".to_string()
-        } else if operator.contains("Join") {
-            "Join".to_string()
-        } else if operator.contains("Aggregate") || operator.contains("Group") {
-            "Aggregate".to_string()
-        } else if operator.contains("Sort") || operator.contains("Order") {
-            "Sort".to_string()
-        } else if operator.contains("Project") {
-            "Project".to_string()
-        } else if operator.contains("Hash") {
-            "Hash".to_string()
-        } else if operator.contains("Remote")
-            || operator.contains("Exchange")
-            || operator.contains("Coalesce")
-            || operator.contains("Repartition")
-        {
-            "Remote/Exchange".to_string()
-        } else if operator.contains("Union") || operator.contains("Interleave") {
-            "Union".to_string()
-        } else if operator.contains("Cooperative") || operator.contains("Yield") {
-            "Cooperative".to_string()
-        } else if operator.ends_with("Exec") {
-            "Exec".to_string()
-        } else {
-            "Other".to_string()
-        }
+        OperatorCategory::from_operator(operator)
+            .display_name()
+            .to_string()
     }
 
     /// Set the theme.
