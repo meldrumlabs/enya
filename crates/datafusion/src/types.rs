@@ -207,6 +207,77 @@ pub struct OperatorMetrics {
     pub spill_bytes: usize,
 }
 
+impl OperatorMetrics {
+    /// Format elapsed time as a human-readable string.
+    ///
+    /// Returns values like "123µs", "45.67ms", or "1.23s" depending on magnitude.
+    #[must_use]
+    pub fn format_elapsed_time(&self) -> String {
+        format_duration(self.elapsed_time)
+    }
+
+    /// Format memory usage as a human-readable string.
+    ///
+    /// Returns values like "512 B", "1.5 KB", "128.0 MB", or "2.1 GB".
+    #[must_use]
+    pub fn format_memory(&self) -> String {
+        format_bytes(self.memory_bytes)
+    }
+
+    /// Format output rows as a human-readable string.
+    ///
+    /// Returns values like "123", "1.5K", or "2.3M" for large counts.
+    #[must_use]
+    pub fn format_output_rows(&self) -> String {
+        format_rows(self.output_rows)
+    }
+}
+
+/// Format a duration as a human-readable string.
+///
+/// Automatically selects appropriate units (µs, ms, s) based on magnitude.
+#[must_use]
+pub fn format_duration(d: Duration) -> String {
+    let micros = d.as_micros();
+    if micros < 1000 {
+        format!("{micros}µs")
+    } else if micros < 1_000_000 {
+        format!("{:.2}ms", micros as f64 / 1000.0)
+    } else {
+        format!("{:.2}s", micros as f64 / 1_000_000.0)
+    }
+}
+
+/// Format bytes as a human-readable string.
+///
+/// Automatically selects appropriate units (B, KB, MB, GB) based on magnitude.
+#[must_use]
+pub fn format_bytes(bytes: usize) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
+/// Format a row count as a human-readable string.
+///
+/// Returns compact notation like "1.5K" or "2.3M" for large counts.
+#[must_use]
+pub fn format_rows(rows: usize) -> String {
+    if rows < 1000 {
+        rows.to_string()
+    } else if rows < 1_000_000 {
+        format!("{:.1}K", rows as f64 / 1000.0)
+    } else {
+        format!("{:.1}M", rows as f64 / 1_000_000.0)
+    }
+}
+
 /// Operator category for plan visualization.
 ///
 /// Categorizes DataFusion operators by their function for visualization purposes.

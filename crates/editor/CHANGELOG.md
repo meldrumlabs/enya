@@ -231,6 +231,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Plan view formatting functions moved to shared crate**: The `format_duration`, `format_bytes`, and `format_rows` functions are now imported from `enya_datafusion` instead of being defined locally in the plan view. This consolidates formatting logic in the shared crate alongside related types like `OperatorMetrics` and `OperatorCategory`.
+
 - **Plan viewer UX overhaul**: Premium visual refresh for the execution plan viewer:
   - **Pill-style tab bar**: Replaced plain selectable labels with styled pill tabs in a subtle container
   - **Key badge hints**: Mode-specific keybindings now shown with premium key badges (like keyboard keys) instead of plain text

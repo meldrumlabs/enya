@@ -8,37 +8,14 @@
 use std::time::Duration;
 
 use egui::{Color32, Key, RichText, Stroke, StrokeKind};
-use enya_datafusion::{OperatorCategory, OperatorMetrics, PlanNode};
+use enya_datafusion::{
+    OperatorCategory, OperatorMetrics, PlanNode, format_bytes, format_duration, format_rows,
+};
 use rustc_hash::FxHashSet;
 
 use crate::components::util::render_key_badge;
 use crate::ui::semantic_icons::{action, diff, nav, status, time};
 use crate::ui::theme::AppTheme;
-
-/// Format a duration as a human-readable string.
-fn format_duration(d: Duration) -> String {
-    let micros = d.as_micros();
-    if micros < 1000 {
-        format!("{micros}µs")
-    } else if micros < 1_000_000 {
-        format!("{:.2}ms", micros as f64 / 1000.0)
-    } else {
-        format!("{:.2}s", micros as f64 / 1_000_000.0)
-    }
-}
-
-/// Format bytes as a human-readable string.
-fn format_bytes(bytes: usize) -> String {
-    if bytes < 1024 {
-        format!("{bytes} B")
-    } else if bytes < 1024 * 1024 {
-        format!("{:.1} KB", bytes as f64 / 1024.0)
-    } else if bytes < 1024 * 1024 * 1024 {
-        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
-    } else {
-        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
-    }
-}
 
 /// Get color for an operator type using the theme's plan palette.
 fn operator_color(operator: &str, theme: &AppTheme) -> Color32 {
@@ -1056,17 +1033,6 @@ impl StatsView {
         let stripe_rect =
             egui::Rect::from_min_size(rect.left_top(), egui::vec2(3.0, rect.height()));
         ui.painter().rect_filled(stripe_rect, 3.0, accent);
-    }
-}
-
-/// Format row count with K/M suffixes.
-fn format_rows(rows: usize) -> String {
-    if rows < 1000 {
-        rows.to_string()
-    } else if rows < 1_000_000 {
-        format!("{:.1}K", rows as f64 / 1000.0)
-    } else {
-        format!("{:.1}M", rows as f64 / 1_000_000.0)
     }
 }
 
