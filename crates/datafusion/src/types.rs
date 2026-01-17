@@ -207,6 +207,117 @@ pub struct OperatorMetrics {
     pub spill_bytes: usize,
 }
 
+/// Operator category for plan visualization.
+///
+/// Categorizes DataFusion operators by their function for visualization purposes.
+/// Each category maps to a specific color index in visualization palettes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OperatorCategory {
+    /// I/O operations (TableScan, ParquetScan, CsvScan, etc.)
+    Scan,
+    /// Filtering operations (Filter, Limit)
+    Filter,
+    /// Join operations (HashJoin, MergeJoin, NestedLoopJoin, etc.)
+    Join,
+    /// Aggregation operations (Aggregate, GroupBy, Window)
+    Aggregate,
+    /// Sorting operations (Sort, SortPreservingMerge)
+    Sort,
+    /// Projection operations (Projection)
+    Project,
+    /// Hash operations (HashBuild, HashProbe)
+    Hash,
+    /// Distribution operations (Repartition, Coalesce, Exchange)
+    Remote,
+    /// Union/combination operations (Union, Interleave)
+    Union,
+    /// Cooperative scheduling (CooperativeExec, Yield)
+    Cooperative,
+    /// Other execution operators ending in "Exec"
+    Exec,
+    /// Non-execution operators
+    Other,
+}
+
+impl OperatorCategory {
+    /// Categorize an operator by its name.
+    ///
+    /// Uses pattern matching on operator names to determine the category.
+    /// DataFusion operators typically end in "Exec" (e.g., "FilterExec", "HashJoinExec").
+    #[must_use]
+    pub fn from_operator(operator: &str) -> Self {
+        if operator.contains("Scan") || operator.contains("Read") {
+            Self::Scan
+        } else if operator.contains("Filter") || operator.contains("Limit") {
+            Self::Filter
+        } else if operator.contains("Join") {
+            Self::Join
+        } else if operator.contains("Aggregate") || operator.contains("Group") {
+            Self::Aggregate
+        } else if operator.contains("Sort") || operator.contains("Order") {
+            Self::Sort
+        } else if operator.contains("Project") {
+            Self::Project
+        } else if operator.contains("Hash") {
+            Self::Hash
+        } else if operator.contains("Remote")
+            || operator.contains("Exchange")
+            || operator.contains("Coalesce")
+            || operator.contains("Repartition")
+        {
+            Self::Remote
+        } else if operator.contains("Union") || operator.contains("Interleave") {
+            Self::Union
+        } else if operator.contains("Cooperative") || operator.contains("Yield") {
+            Self::Cooperative
+        } else if operator.ends_with("Exec") {
+            Self::Exec
+        } else {
+            Self::Other
+        }
+    }
+
+    /// Get the color index for this category in visualization palettes.
+    ///
+    /// Returns a stable index (0-11) that can be used with color palettes.
+    #[must_use]
+    pub const fn color_index(self) -> usize {
+        match self {
+            Self::Scan => 0,
+            Self::Filter => 1,
+            Self::Join => 2,
+            Self::Aggregate => 3,
+            Self::Sort => 4,
+            Self::Project => 5,
+            Self::Hash => 6,
+            Self::Remote => 7,
+            Self::Union => 8,
+            Self::Cooperative => 9,
+            Self::Exec => 10,
+            Self::Other => 11,
+        }
+    }
+
+    /// Get the display name for this category.
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Scan => "Scan/Read",
+            Self::Filter => "Filter",
+            Self::Join => "Join",
+            Self::Aggregate => "Aggregate",
+            Self::Sort => "Sort",
+            Self::Project => "Project",
+            Self::Hash => "Hash",
+            Self::Remote => "Remote/Exchange",
+            Self::Union => "Union",
+            Self::Cooperative => "Cooperative",
+            Self::Exec => "Exec",
+            Self::Other => "Other",
+        }
+    }
+}
+
 /// Information about a registered table.
 #[derive(Debug, Clone)]
 pub struct TableInfo {

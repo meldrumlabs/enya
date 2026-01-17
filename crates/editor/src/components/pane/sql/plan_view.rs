@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use egui::{Color32, Key, RichText, Stroke, StrokeKind};
-use enya_datafusion::{OperatorMetrics, PlanNode};
+use enya_datafusion::{OperatorCategory, OperatorMetrics, PlanNode};
 use rustc_hash::FxHashSet;
 
 use crate::components::util::render_key_badge;
@@ -37,99 +37,6 @@ fn format_bytes(bytes: usize) -> String {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     } else {
         format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
-    }
-}
-
-/// Operator category for plan visualization.
-///
-/// Each category maps to a specific color index in the theme's plan palette:
-/// 0: Scan/Read, 1: Filter/Limit, 2: Join, 3: Aggregate/Group,
-/// 4: Sort/Order, 5: Project, 6: Hash, 7: Remote/Exchange,
-/// 8: Union/Interleave, 9: Cooperative/Yield, 10: Other Exec, 11: Other
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OperatorCategory {
-    Scan,
-    Filter,
-    Join,
-    Aggregate,
-    Sort,
-    Project,
-    Hash,
-    Remote,
-    Union,
-    Cooperative,
-    Exec,
-    Other,
-}
-
-impl OperatorCategory {
-    /// Categorize an operator by its name.
-    fn from_operator(operator: &str) -> Self {
-        if operator.contains("Scan") || operator.contains("Read") {
-            Self::Scan
-        } else if operator.contains("Filter") || operator.contains("Limit") {
-            Self::Filter
-        } else if operator.contains("Join") {
-            Self::Join
-        } else if operator.contains("Aggregate") || operator.contains("Group") {
-            Self::Aggregate
-        } else if operator.contains("Sort") || operator.contains("Order") {
-            Self::Sort
-        } else if operator.contains("Project") {
-            Self::Project
-        } else if operator.contains("Hash") {
-            Self::Hash
-        } else if operator.contains("Remote")
-            || operator.contains("Exchange")
-            || operator.contains("Coalesce")
-            || operator.contains("Repartition")
-        {
-            Self::Remote
-        } else if operator.contains("Union") || operator.contains("Interleave") {
-            Self::Union
-        } else if operator.contains("Cooperative") || operator.contains("Yield") {
-            Self::Cooperative
-        } else if operator.ends_with("Exec") {
-            Self::Exec
-        } else {
-            Self::Other
-        }
-    }
-
-    /// Get the color index for this category in the plan palette.
-    const fn color_index(self) -> usize {
-        match self {
-            Self::Scan => 0,
-            Self::Filter => 1,
-            Self::Join => 2,
-            Self::Aggregate => 3,
-            Self::Sort => 4,
-            Self::Project => 5,
-            Self::Hash => 6,
-            Self::Remote => 7,
-            Self::Union => 8,
-            Self::Cooperative => 9,
-            Self::Exec => 10,
-            Self::Other => 11,
-        }
-    }
-
-    /// Get the display name for this category.
-    const fn display_name(self) -> &'static str {
-        match self {
-            Self::Scan => "Scan/Read",
-            Self::Filter => "Filter",
-            Self::Join => "Join",
-            Self::Aggregate => "Aggregate",
-            Self::Sort => "Sort",
-            Self::Project => "Project",
-            Self::Hash => "Hash",
-            Self::Remote => "Remote/Exchange",
-            Self::Union => "Union",
-            Self::Cooperative => "Cooperative",
-            Self::Exec => "Exec",
-            Self::Other => "Other",
-        }
     }
 }
 
