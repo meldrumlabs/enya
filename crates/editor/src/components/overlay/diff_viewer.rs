@@ -98,6 +98,8 @@ pub struct DiffViewerOverlay {
     scroll_offset_y: f32,
     /// Whether to show split (side-by-side) view instead of unified view.
     split_view: bool,
+    /// Disable keyboard handling (when another overlay is on top).
+    keyboard_disabled: bool,
 }
 
 impl Default for DiffViewerOverlay {
@@ -119,7 +121,13 @@ impl DiffViewerOverlay {
             scroll_offset_x: 0.0,
             scroll_offset_y: 0.0,
             split_view: false,
+            keyboard_disabled: false,
         }
+    }
+
+    /// Disable keyboard handling (call when another overlay is on top).
+    pub fn set_keyboard_disabled(&mut self, disabled: bool) {
+        self.keyboard_disabled = disabled;
     }
 
     /// Sets the UI theme.
@@ -163,54 +171,57 @@ impl DiffViewerOverlay {
 
         let mut should_close = false;
 
-        // Handle keyboard input
-        ctx.input(|i| {
-            // Escape to close
-            if i.key_pressed(Key::Escape) {
-                should_close = true;
-            }
-
-            // File navigation: n/p
-            if !self.file_diffs.is_empty() {
-                // N - next file
-                if i.key_pressed(Key::N) && !i.modifiers.shift {
-                    self.current_file_index = (self.current_file_index + 1) % self.file_diffs.len();
-                    self.scroll_offset_x = 0.0;
-                    self.scroll_offset_y = 0.0;
+        // Handle keyboard input (unless another overlay is on top)
+        if !self.keyboard_disabled {
+            ctx.input(|i| {
+                // Escape to close
+                if i.key_pressed(Key::Escape) {
+                    should_close = true;
                 }
-                // P or Shift+N - previous file
-                if i.key_pressed(Key::P) || (i.key_pressed(Key::N) && i.modifiers.shift) {
-                    self.current_file_index = if self.current_file_index == 0 {
-                        self.file_diffs.len() - 1
-                    } else {
-                        self.current_file_index - 1
-                    };
-                    self.scroll_offset_x = 0.0;
-                    self.scroll_offset_y = 0.0;
+
+                // File navigation: n/p
+                if !self.file_diffs.is_empty() {
+                    // N - next file
+                    if i.key_pressed(Key::N) && !i.modifiers.shift {
+                        self.current_file_index =
+                            (self.current_file_index + 1) % self.file_diffs.len();
+                        self.scroll_offset_x = 0.0;
+                        self.scroll_offset_y = 0.0;
+                    }
+                    // P or Shift+N - previous file
+                    if i.key_pressed(Key::P) || (i.key_pressed(Key::N) && i.modifiers.shift) {
+                        self.current_file_index = if self.current_file_index == 0 {
+                            self.file_diffs.len() - 1
+                        } else {
+                            self.current_file_index - 1
+                        };
+                        self.scroll_offset_x = 0.0;
+                        self.scroll_offset_y = 0.0;
+                    }
                 }
-            }
 
-            // S - toggle split/unified view
-            if i.key_pressed(Key::S) {
-                self.split_view = !self.split_view;
-            }
+                // S - toggle split/unified view
+                if i.key_pressed(Key::S) {
+                    self.split_view = !self.split_view;
+                }
 
-            // Vim-style scrolling
-            let scroll_step = 40.0;
-            let h_scroll_step = 50.0;
-            if i.key_pressed(Key::J) {
-                self.scroll_offset_y += scroll_step;
-            }
-            if i.key_pressed(Key::K) {
-                self.scroll_offset_y = (self.scroll_offset_y - scroll_step).max(0.0);
-            }
-            if i.key_pressed(Key::H) {
-                self.scroll_offset_x = (self.scroll_offset_x - h_scroll_step).max(0.0);
-            }
-            if i.key_pressed(Key::L) {
-                self.scroll_offset_x += h_scroll_step;
-            }
-        });
+                // Vim-style scrolling
+                let scroll_step = 40.0;
+                let h_scroll_step = 50.0;
+                if i.key_pressed(Key::J) {
+                    self.scroll_offset_y += scroll_step;
+                }
+                if i.key_pressed(Key::K) {
+                    self.scroll_offset_y = (self.scroll_offset_y - scroll_step).max(0.0);
+                }
+                if i.key_pressed(Key::H) {
+                    self.scroll_offset_x = (self.scroll_offset_x - h_scroll_step).max(0.0);
+                }
+                if i.key_pressed(Key::L) {
+                    self.scroll_offset_x += h_scroll_step;
+                }
+            });
+        }
 
         if should_close {
             self.close();

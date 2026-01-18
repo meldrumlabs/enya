@@ -201,6 +201,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Style picker focus restoration**: Fixed vim navigation not working after closing the style picker (theme/font selector). The picker now clears egui framework focus when it closes, ensuring keyboard events are properly handled by vim navigation. Also fixed returning focus to viewport from channels panel to properly restore focus to the first pane if no pane was previously focused.
 
+- **Command palette accessible from any overlay**: Fixed the command palette (`:` key) not being openable when overlays like the diff viewer were active. The `:` handler is now processed globally before checking for blocking overlays, allowing commands like `:style` to be opened on top of any overlay (except when a text field has focus or the command palette is already open).
+
+- **Style picker z-order over diff viewer**: Fixed the style picker appearing behind the diff viewer when opened on top of it, and keyboard navigation (j/k) in the style picker causing the diff viewer to scroll and come to the foreground. The diff viewer now renders earlier in the z-order (before style_picker and command_palette) and disables keyboard handling when another overlay is on top.
+
 ### Removed
 
 - **AgentPane component**: Removed the `AgentPane` viewport pane in favor of the `AgentPanel` overlay. AI agent conversations now use the right-side panel exclusively, providing a cleaner separation between observability content (viewport panes) and AI assistance (overlay panel). The inline content types (`InlineChart`, `InlineSource`, `InlineSearchResults`) have been moved to a new `inline_content.rs` module.

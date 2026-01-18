@@ -1145,6 +1145,18 @@ impl Workspace {
             }
         }
 
+        // Show diff viewer overlay modal (native only)
+        // NOTE: This is rendered BEFORE style_picker and command_palette so they appear on top
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.diff_viewer.set_theme(app_state.theme);
+            // Disable keyboard when another overlay is on top
+            self.diff_viewer.set_keyboard_disabled(
+                self.style_picker.is_open() || self.command_palette.is_open(),
+            );
+            let _ = self.diff_viewer.show(ctx);
+        }
+
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
@@ -1284,12 +1296,7 @@ impl Workspace {
             SourcePreviewResult::None => {}
         }
 
-        // Show diff viewer overlay modal (native only)
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.diff_viewer.set_theme(app_state.theme);
-            let _ = self.diff_viewer.show(ctx);
-        }
+        // Note: diff_viewer is now rendered earlier (before style_picker) to ensure proper z-order
 
         // Note: Agent panel is now rendered in the layout section (show_inside)
         // to participate in layout flow like the channels panel

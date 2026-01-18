@@ -16,17 +16,28 @@ impl Workspace {
     /// Returns an optional WorkspaceAction if a key triggered an action.
     #[profiling::function]
     pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<WorkspaceAction> {
-        // When chat split view is active, handle ':' and 'Space+g' even if something has focus
-        // (unless the chat text input specifically has focus - checked via input consumption)
-        if self.channels_panel_visible && self.channels_panel.is_split_view_active() {
-            let mut close_chat = false;
+        // Global ':' handler - command palette should ALWAYS be openable on top of any overlay
+        // (except when command palette itself is already open, or a text field has focus)
+        // This is checked FIRST, before any overlay blocks, so :style works on top of diff viewer, etc.
+        if !self.command_palette.is_open() && !ctx.memory(|mem| mem.focused().is_some()) {
             let mut open_command_palette = false;
             ctx.input_mut(|input| {
-                // ':' - open command palette
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Colon) {
                     open_command_palette = true;
                 }
+            });
+            if open_command_palette {
+                self.command_palette.open();
+                ctx.request_repaint();
+                return None;
+            }
+        }
 
+        // When chat split view is active, handle 'Space+g' even if something has focus
+        // (unless the chat text input specifically has focus - checked via input consumption)
+        if self.channels_panel_visible && self.channels_panel.is_split_view_active() {
+            let mut close_chat = false;
+            ctx.input_mut(|input| {
                 // Space - leader key for sequences
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
                     self.leader_keys.press_space();
@@ -40,9 +51,6 @@ impl Workspace {
                     self.leader_keys.clear_space();
                 }
             });
-            if open_command_palette {
-                self.command_palette.open();
-            }
             if close_chat {
                 self.toggle_channels_panel();
             }
