@@ -21,8 +21,9 @@ pub use chat_types::{
 pub use finder::{Finder, FinderConfig, FinderItem, FinderResult};
 pub use finder_utils::{
     FinderColors, FinderKeyboardInput, OverlayColors, OverlayStyle, OverlayStyleVariant,
-    draw_backdrop, draw_separator, draw_separator_colored, render_key_badge,
-    render_key_badge_large,
+    draw_backdrop, draw_separator, draw_separator_colored, render_colored_badge, render_key_badge,
+    render_key_badge_large, render_split_header, render_split_panels, render_stat_badge,
+    render_stat_badge_with_icon,
 };
 pub use id_generator::{next_id, next_id_usize};
 pub use multi_buffer::{MultiBufferMode, MultiBufferState, Selection};

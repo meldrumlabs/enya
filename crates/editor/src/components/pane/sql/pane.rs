@@ -46,6 +46,10 @@ use super::types::{
     SqlMode, SqlPaneAction,
 };
 use crate::components::util::id_generator::next_id_usize;
+use crate::components::util::{
+    render_colored_badge, render_split_header, render_split_panels, render_stat_badge,
+    render_stat_badge_with_icon,
+};
 use crate::components::{OverlayColors, OverlayStyle};
 use crate::ui::semantic_icons::{action, category, file, nav, status, time};
 use crate::ui::theme::AppTheme;
@@ -2874,16 +2878,16 @@ Keyboard Shortcuts:
                 ui.add_space(16.0);
 
                 // Row count badge
-                self.render_stat_badge(ui, &format!("{total_rows} rows"), &colors);
+                render_stat_badge(ui, &format!("{total_rows} rows"), &colors);
                 ui.add_space(4.0);
 
                 // Column count badge
-                self.render_stat_badge(ui, &format!("{num_cols} cols"), &colors);
+                render_stat_badge(ui, &format!("{num_cols} cols"), &colors);
 
                 // Execution time badge
                 if let Some(ms) = execution_time_ms {
                     ui.add_space(4.0);
-                    self.render_time_badge(ui, ms, &colors);
+                    render_stat_badge_with_icon(ui, time::TIMER, &format!("{ms}ms"), &colors);
                 }
             });
         });
@@ -3207,44 +3211,6 @@ Keyboard Shortcuts:
         }
     }
 
-    /// Renders a stat badge (e.g., "128 rows", "5 cols").
-    fn render_stat_badge(&self, ui: &mut egui::Ui, text: &str, colors: &OverlayColors) {
-        egui::Frame::new()
-            .fill(colors.badge_bg)
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::symmetric(6, 2))
-            .show(ui, |ui| {
-                ui.label(
-                    RichText::new(text)
-                        .color(colors.muted_text)
-                        .font(typography::proportional(typography::XS)),
-                );
-            });
-    }
-
-    /// Renders a time badge with clock icon.
-    fn render_time_badge(&self, ui: &mut egui::Ui, ms: u128, colors: &OverlayColors) {
-        egui::Frame::new()
-            .fill(colors.badge_bg)
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::symmetric(6, 2))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 3.0;
-                    ui.label(
-                        RichText::new(time::TIMER)
-                            .color(colors.faint_text)
-                            .size(10.0),
-                    );
-                    ui.label(
-                        RichText::new(format!("{ms}ms"))
-                            .color(colors.muted_text)
-                            .font(typography::proportional(typography::XS)),
-                    );
-                });
-            });
-    }
-
     /// Render the plan overlay view.
     fn render_plan_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize) {
         // Clear egui focus so vim navigation works and ':' can open command palette.
@@ -3302,12 +3268,17 @@ Keyboard Shortcuts:
 
                 // Execution time badge
                 if !total_time.is_zero() {
-                    self.render_time_badge(ui, total_time.as_millis(), &colors);
+                    render_stat_badge_with_icon(
+                        ui,
+                        time::TIMER,
+                        &format!("{}ms", total_time.as_millis()),
+                        &colors,
+                    );
                     ui.add_space(4.0);
                 }
 
                 // Operator count badge
-                self.render_stat_badge(ui, &format!("{operator_count} ops"), &colors);
+                render_stat_badge(ui, &format!("{operator_count} ops"), &colors);
 
                 // Bottleneck badge
                 if bottleneck_count > 0 {
@@ -3538,7 +3509,7 @@ Keyboard Shortcuts:
 
                 // For schema diff, use schema_diff stats
                 if let Some(sd) = &schema_diff {
-                    Self::render_diff_stat_badge_static(
+                    render_colored_badge(
                         ui,
                         &format!("{} matching", sd.matching),
                         theme.semantic_success(),
@@ -3546,7 +3517,7 @@ Keyboard Shortcuts:
                     ui.add_space(4.0);
 
                     if sd.changed > 0 {
-                        Self::render_diff_stat_badge_static(
+                        render_colored_badge(
                             ui,
                             &format!("{} changed", sd.changed),
                             theme.semantic_warning(),
@@ -3555,7 +3526,7 @@ Keyboard Shortcuts:
                     }
 
                     if sd.left_only > 0 {
-                        Self::render_diff_stat_badge_static(
+                        render_colored_badge(
                             ui,
                             &format!("{} removed", sd.left_only),
                             theme.semantic_error(),
@@ -3564,7 +3535,7 @@ Keyboard Shortcuts:
                     }
 
                     if sd.right_only > 0 {
-                        Self::render_diff_stat_badge_static(
+                        render_colored_badge(
                             ui,
                             &format!("{} added", sd.right_only),
                             theme.accent_muted(),
@@ -3572,7 +3543,7 @@ Keyboard Shortcuts:
                     }
                 } else if let Some(stats) = &diff_stats {
                     // Matching badge
-                    Self::render_diff_stat_badge_static(
+                    render_colored_badge(
                         ui,
                         &format!("{} matching", stats.matching),
                         theme.semantic_success(),
@@ -3580,7 +3551,7 @@ Keyboard Shortcuts:
                     ui.add_space(4.0);
 
                     if stats.left_only > 0 {
-                        Self::render_diff_stat_badge_static(
+                        render_colored_badge(
                             ui,
                             &format!("{} left only", stats.left_only),
                             theme.semantic_warning(),
@@ -3589,7 +3560,7 @@ Keyboard Shortcuts:
                     }
 
                     if stats.right_only > 0 {
-                        Self::render_diff_stat_badge_static(
+                        render_colored_badge(
                             ui,
                             &format!("{} right only", stats.right_only),
                             theme.accent_muted(),
@@ -3598,18 +3569,14 @@ Keyboard Shortcuts:
                     }
 
                     if stats.different > 0 {
-                        Self::render_diff_stat_badge_static(
+                        render_colored_badge(
                             ui,
                             &format!("{} different", stats.different),
                             theme.semantic_error(),
                         );
                     }
                 } else if !schemas_match && has_left_schema && has_right_schema {
-                    Self::render_diff_stat_badge_static(
-                        ui,
-                        "Schema mismatch",
-                        theme.semantic_warning(),
-                    );
+                    render_colored_badge(ui, "Schema mismatch", theme.semantic_warning());
                 }
 
                 // Profile diff timing summary
@@ -3636,7 +3603,7 @@ Keyboard Shortcuts:
                             (format!("{left_ms}ms"), text_secondary)
                         };
 
-                        Self::render_diff_stat_badge_static(ui, &text, color);
+                        render_colored_badge(ui, &text, color);
                     }
                 }
             });
@@ -3738,123 +3705,56 @@ Keyboard Shortcuts:
         }
     }
 
-    /// Static version of render_diff_stat_badge that doesn't borrow self.
-    fn render_diff_stat_badge_static(ui: &mut egui::Ui, text: &str, color: Color32) {
-        egui::Frame::new()
-            .fill(color.gamma_multiply(0.15))
-            .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.5)))
-            .corner_radius(4.0)
-            .inner_margin(egui::Margin::symmetric(6, 2))
-            .show(ui, |ui| {
-                ui.label(RichText::new(text).color(color).size(11.0));
-            });
-    }
-
     /// Render plan diff content (side-by-side plan trees).
     fn render_plan_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
         let text_primary = self.theme.text_primary();
         let text_secondary = self.theme.text_secondary();
-        let available_width = ui.available_width();
         let available_height = ui.available_height().max(300.0);
-        let side_width = (available_width - 12.0) / 2.0;
         let colors = OverlayColors::new(self.theme);
 
-        // Column headers
-        ui.horizontal(|ui| {
-            ui.allocate_ui_with_layout(
-                egui::vec2(side_width, 20.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(&diff_result.left_name)
-                            .color(text_primary)
-                            .strong(),
-                    );
-                },
-            );
-            ui.add_space(4.0);
-            ui.allocate_ui_with_layout(
-                egui::vec2(side_width, 20.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(&diff_result.right_name)
-                            .color(text_primary)
-                            .strong(),
-                    );
-                },
-            );
-        });
-
-        // Separator below headers
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, colors.separator),
+        // Header with connection names
+        render_split_header(
+            ui,
+            &diff_result.left_name,
+            &diff_result.right_name,
+            text_primary,
+            text_primary,
+            colors.separator,
         );
-        ui.add_space(4.0);
 
-        // Side-by-side content
+        // Side-by-side plan trees
         let content_height = (available_height - 40.0).max(200.0);
+        let left_plan = diff_result.left_plan.clone();
+        let right_plan = diff_result.right_plan.clone();
 
-        ui.horizontal(|ui| {
-            // Left plan panel
-            ui.allocate_ui_with_layout(
-                egui::vec2(side_width, content_height),
-                egui::Layout::top_down(egui::Align::LEFT),
-                |ui| {
-                    ui.set_max_width(side_width);
-                    egui::ScrollArea::vertical()
-                        .id_salt("sql_diff_left_plan")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            if let Some(plan) = &diff_result.left_plan {
-                                self.render_plan_tree(ui, plan, 0);
-                            } else {
-                                ui.label(
-                                    RichText::new("No plan data")
-                                        .color(text_secondary)
-                                        .italics(),
-                                );
-                            }
-                        });
-                },
-            );
-
-            // Center separator
-            let separator_rect = ui.available_rect_before_wrap();
-            ui.painter().vline(
-                separator_rect.left(),
-                separator_rect.y_range(),
-                egui::Stroke::new(1.0, colors.separator),
-            );
-            ui.add_space(4.0);
-
-            // Right plan panel
-            ui.allocate_ui_with_layout(
-                egui::vec2(side_width, content_height),
-                egui::Layout::top_down(egui::Align::LEFT),
-                |ui| {
-                    ui.set_max_width(side_width);
-                    egui::ScrollArea::vertical()
-                        .id_salt("sql_diff_right_plan")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            if let Some(plan) = &diff_result.right_plan {
-                                self.render_plan_tree(ui, plan, 0);
-                            } else {
-                                ui.label(
-                                    RichText::new("No plan data")
-                                        .color(text_secondary)
-                                        .italics(),
-                                );
-                            }
-                        });
-                },
-            );
-        });
+        render_split_panels(
+            ui,
+            content_height,
+            colors.separator,
+            "sql_diff_plan",
+            |ui| {
+                if let Some(plan) = &left_plan {
+                    self.render_plan_tree(ui, plan, 0);
+                } else {
+                    ui.label(
+                        RichText::new("No plan data")
+                            .color(text_secondary)
+                            .italics(),
+                    );
+                }
+            },
+            |ui| {
+                if let Some(plan) = &right_plan {
+                    self.render_plan_tree(ui, plan, 0);
+                } else {
+                    ui.label(
+                        RichText::new("No plan data")
+                            .color(text_secondary)
+                            .italics(),
+                    );
+                }
+            },
+        );
     }
 
     /// Render a simple plan tree (non-interactive, for diff view).
