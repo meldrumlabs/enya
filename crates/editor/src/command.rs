@@ -101,6 +101,17 @@ impl UICommand {
 
     #[must_use = "Returns the Command that was triggered by some keyboard shortcut"]
     pub fn listen_for_kb_shortcut(egui_ctx: &egui::Context) -> Option<Self> {
+        // Handle ':' for command palette BEFORE checking focus.
+        // This allows ':' to work even when widgets have focus (e.g., SQL plan viewer),
+        // as long as no widget actually consumed the key. The consume_shortcut will
+        // fail if a TextEdit or other input widget already processed the keystroke.
+        let colon_shortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Colon);
+        let command_palette_triggered =
+            egui_ctx.input_mut(|input| input.consume_shortcut(&colon_shortcut));
+        if command_palette_triggered {
+            return Some(Self::OpenCommandPalette);
+        }
+
         let anything_has_focus = egui_ctx.memory(|mem| mem.focused().is_some());
         if anything_has_focus {
             return None; // e.g. we're typing in a TextField

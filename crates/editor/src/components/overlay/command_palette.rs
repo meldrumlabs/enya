@@ -72,6 +72,8 @@ pub enum CommandResult {
     OpenTerminal,
     /// Open a tracing pane (optionally with a trace ID)
     OpenTracing(Option<String>),
+    /// Open a SQL pane (native only)
+    OpenSql,
     /// Error with message
     Error(String),
     /// Open logs pane (demo mode)
@@ -173,6 +175,12 @@ const COMMANDS: &[PaletteCommand] = &[
         aliases: &["tr", "tracing"],
         description: "Open a tracing pane (optionally with trace ID)",
         kind: CommandKind::SingleArg,
+    },
+    PaletteCommand {
+        name: "sql",
+        aliases: &["datafusion"],
+        description: "Open a SQL pane (DataFusion)",
+        kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "logs",
@@ -482,6 +490,7 @@ impl CommandPalette {
                 let trace_id = args.first().map(|s| s.to_string());
                 CommandResult::OpenTracing(trace_id)
             }
+            "sql" | "datafusion" => CommandResult::OpenSql,
             "logs" | "log" => CommandResult::OpenLogs,
             "loki" => {
                 if args.is_empty() {

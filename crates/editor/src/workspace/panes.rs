@@ -149,6 +149,49 @@ impl Workspace {
         }
     }
 
+    /// Add a SQL pane to the viewport.
+    ///
+    /// Creates a new SQL pane for running DataFusion queries on local files.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
+        use crate::components::SqlPane;
+        use crate::ui::theme::AppTheme;
+
+        let runtime_handle = self.query_executor.runtime_handle();
+        let sql_pane = SqlPane::new(AppTheme::default(), runtime_handle);
+        let pane: Box<dyn Component> = Box::new(sql_pane);
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Added SQL pane");
+            Some(pane_tile)
+        } else {
+            None
+        }
+    }
+
+    /// Add a SQL pane (WASM version shows "Native App Required" message).
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
+        use crate::components::SqlPane;
+        use crate::ui::theme::AppTheme;
+
+        let sql_pane = SqlPane::new(AppTheme::default());
+        let pane: Box<dyn Component> = Box::new(sql_pane);
+        let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+        if self.add_tile_to_viewport(pane_tile) {
+            self.behavior.set_focused_tile(Some(pane_tile));
+            self.show_landing = false;
+            log::info!("Added SQL pane stub (WASM)");
+            Some(pane_tile)
+        } else {
+            None
+        }
+    }
+
     /// Enable or disable keyboard input for all terminal panes.
     ///
     /// Call this when modals open/close to prevent terminals from capturing

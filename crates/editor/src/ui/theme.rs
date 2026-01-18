@@ -1628,6 +1628,210 @@ impl AppTheme {
         palette[index % palette.len()]
     }
 
+    /// Execution plan palette for query plan visualization.
+    ///
+    /// Returns 12 distinct colors optimized for execution plan operators:
+    /// 0: Scan/Read (I/O), 1: Filter/Limit, 2: Join, 3: Aggregate/Group,
+    /// 4: Sort/Order, 5: Project, 6: Hash, 7: Remote/Exchange,
+    /// 8: Union/Interleave, 9: Cooperative/Yield, 10: Other Exec, 11: Reserved
+    ///
+    /// These colors are designed to be maximally distinct within each theme.
+    pub fn plan_palette(&self) -> [Color32; 12] {
+        match self {
+            // === Dark Themes ===
+            Self::Dark => [
+                Color32::from_rgb(96, 165, 250),  // 0: Scan - Sky blue
+                Color32::from_rgb(52, 211, 153),  // 1: Filter - Emerald
+                Color32::from_rgb(251, 146, 60),  // 2: Join - Orange
+                Color32::from_rgb(192, 132, 252), // 3: Aggregate - Violet
+                Color32::from_rgb(248, 113, 113), // 4: Sort - Red
+                Color32::from_rgb(45, 212, 191),  // 5: Project - Teal
+                Color32::from_rgb(250, 204, 21),  // 6: Hash - Yellow
+                Color32::from_rgb(34, 211, 238),  // 7: Remote - Cyan
+                Color32::from_rgb(244, 114, 182), // 8: Union - Pink
+                Color32::from_rgb(163, 230, 53),  // 9: Cooperative - Lime
+                Color32::from_rgb(251, 191, 36),  // 10: Other Exec - Amber
+                Color32::from_rgb(156, 163, 175), // 11: Reserved - Gray
+            ],
+            Self::Nord => [
+                Color32::from_rgb(129, 161, 193), // 0: Scan - Frost blue (nord9)
+                Color32::from_rgb(163, 190, 140), // 1: Filter - Aurora green (nord14)
+                Color32::from_rgb(208, 135, 112), // 2: Join - Aurora orange (nord12)
+                Color32::from_rgb(180, 142, 173), // 3: Aggregate - Aurora purple (nord15)
+                Color32::from_rgb(191, 97, 106),  // 4: Sort - Aurora red (nord11)
+                Color32::from_rgb(143, 188, 187), // 5: Project - Frost teal (nord7)
+                Color32::from_rgb(235, 203, 139), // 6: Hash - Aurora yellow (nord13)
+                Color32::from_rgb(136, 192, 208), // 7: Remote - Frost cyan (nord8)
+                Color32::from_rgb(200, 160, 190), // 8: Union - Soft pink
+                Color32::from_rgb(183, 210, 140), // 9: Cooperative - Light green
+                Color32::from_rgb(220, 180, 130), // 10: Other Exec - Warm amber
+                Color32::from_rgb(147, 161, 176), // 11: Reserved - Polar gray
+            ],
+            Self::Midnight => [
+                Color32::from_rgb(96, 165, 250),  // 0: Scan - Electric blue
+                Color32::from_rgb(52, 211, 153),  // 1: Filter - Cyber teal
+                Color32::from_rgb(251, 146, 60),  // 2: Join - Neon orange
+                Color32::from_rgb(192, 132, 252), // 3: Aggregate - Neon purple
+                Color32::from_rgb(248, 113, 113), // 4: Sort - Neon red
+                Color32::from_rgb(34, 197, 194),  // 5: Project - Deep teal
+                Color32::from_rgb(251, 191, 36),  // 6: Hash - Neon amber
+                Color32::from_rgb(34, 211, 238),  // 7: Remote - Bright cyan
+                Color32::from_rgb(244, 114, 182), // 8: Union - Hot pink
+                Color32::from_rgb(190, 242, 100), // 9: Cooperative - Neon lime
+                Color32::from_rgb(253, 224, 71),  // 10: Other Exec - Bright yellow
+                Color32::from_rgb(148, 163, 184), // 11: Reserved - Slate
+            ],
+            Self::Catppuccin => [
+                Color32::from_rgb(137, 180, 250), // 0: Scan - Blue
+                Color32::from_rgb(166, 227, 161), // 1: Filter - Green
+                Color32::from_rgb(250, 179, 135), // 2: Join - Peach
+                Color32::from_rgb(203, 166, 247), // 3: Aggregate - Mauve
+                Color32::from_rgb(243, 139, 168), // 4: Sort - Red
+                Color32::from_rgb(148, 226, 213), // 5: Project - Teal
+                Color32::from_rgb(249, 226, 175), // 6: Hash - Yellow
+                Color32::from_rgb(137, 220, 235), // 7: Remote - Sky
+                Color32::from_rgb(245, 194, 231), // 8: Union - Pink
+                Color32::from_rgb(179, 238, 165), // 9: Cooperative - Light green
+                Color32::from_rgb(245, 169, 127), // 10: Other Exec - Marmalade
+                Color32::from_rgb(147, 153, 178), // 11: Reserved - Overlay
+            ],
+            Self::Ayu => [
+                Color32::from_rgb(127, 193, 202), // 0: Scan - Blue
+                Color32::from_rgb(149, 230, 203), // 1: Filter - Mint
+                Color32::from_rgb(255, 180, 84),  // 2: Join - Orange
+                Color32::from_rgb(172, 128, 255), // 3: Aggregate - Purple
+                Color32::from_rgb(247, 118, 142), // 4: Sort - Magenta
+                Color32::from_rgb(89, 186, 163),  // 5: Project - Cyan
+                Color32::from_rgb(255, 238, 153), // 6: Hash - Yellow
+                Color32::from_rgb(95, 215, 255),  // 7: Remote - Bright cyan
+                Color32::from_rgb(255, 150, 200), // 8: Union - Pink
+                Color32::from_rgb(200, 240, 130), // 9: Cooperative - Lime
+                Color32::from_rgb(255, 200, 120), // 10: Other Exec - Light orange
+                Color32::from_rgb(140, 150, 165), // 11: Reserved - Gray
+            ],
+            Self::Bergman => [
+                Color32::from_rgb(143, 162, 192), // 0: Scan - Slate blue
+                Color32::from_rgb(160, 185, 165), // 1: Filter - Sage
+                Color32::from_rgb(200, 160, 140), // 2: Join - Warm tan
+                Color32::from_rgb(175, 155, 180), // 3: Aggregate - Dusty lavender
+                Color32::from_rgb(195, 140, 140), // 4: Sort - Muted rose
+                Color32::from_rgb(150, 175, 175), // 5: Project - Sea gray
+                Color32::from_rgb(200, 190, 150), // 6: Hash - Warm cream
+                Color32::from_rgb(130, 165, 185), // 7: Remote - Steel blue
+                Color32::from_rgb(190, 160, 175), // 8: Union - Mauve
+                Color32::from_rgb(175, 195, 155), // 9: Cooperative - Moss
+                Color32::from_rgb(210, 175, 145), // 10: Other Exec - Sand
+                Color32::from_rgb(160, 160, 165), // 11: Reserved - Neutral
+            ],
+            Self::Aurora => [
+                Color32::from_rgb(100, 180, 200), // 0: Scan - Sky blue
+                Color32::from_rgb(130, 200, 160), // 1: Filter - Aurora green
+                Color32::from_rgb(220, 170, 130), // 2: Join - Warm amber
+                Color32::from_rgb(175, 160, 210), // 3: Aggregate - Soft purple
+                Color32::from_rgb(210, 140, 150), // 4: Sort - Dusty rose
+                Color32::from_rgb(139, 198, 198), // 5: Project - Teal
+                Color32::from_rgb(210, 200, 140), // 6: Hash - Pale gold
+                Color32::from_rgb(120, 190, 210), // 7: Remote - Light cyan
+                Color32::from_rgb(200, 160, 180), // 8: Union - Pink
+                Color32::from_rgb(170, 210, 150), // 9: Cooperative - Light green
+                Color32::from_rgb(230, 185, 130), // 10: Other Exec - Peach
+                Color32::from_rgb(160, 165, 175), // 11: Reserved - Cool gray
+            ],
+            Self::Graphite => [
+                Color32::from_rgb(140, 160, 180), // 0: Scan - Gunmetal
+                Color32::from_rgb(145, 175, 145), // 1: Filter - Patina green
+                Color32::from_rgb(255, 149, 0),   // 2: Join - Industrial orange
+                Color32::from_rgb(160, 140, 170), // 3: Aggregate - Steel purple
+                Color32::from_rgb(200, 130, 120), // 4: Sort - Rust
+                Color32::from_rgb(120, 155, 165), // 5: Project - Slate teal
+                Color32::from_rgb(200, 175, 110), // 6: Hash - Brass
+                Color32::from_rgb(130, 165, 190), // 7: Remote - Steel blue
+                Color32::from_rgb(180, 145, 160), // 8: Union - Dusty pink
+                Color32::from_rgb(165, 185, 130), // 9: Cooperative - Olive
+                Color32::from_rgb(220, 160, 100), // 10: Other Exec - Copper
+                Color32::from_rgb(150, 155, 160), // 11: Reserved - Graphite
+            ],
+            Self::Ink => [
+                Color32::from_rgb(130, 145, 170), // 0: Scan - Slate
+                Color32::from_rgb(140, 160, 145), // 1: Filter - Sage gray
+                Color32::from_rgb(175, 150, 130), // 2: Join - Warm gray
+                Color32::from_rgb(155, 145, 165), // 3: Aggregate - Lavender gray
+                Color32::from_rgb(170, 135, 140), // 4: Sort - Dusty rose
+                Color32::from_rgb(135, 155, 160), // 5: Project - Cool teal
+                Color32::from_rgb(175, 170, 140), // 6: Hash - Khaki
+                Color32::from_rgb(140, 160, 175), // 7: Remote - Steel
+                Color32::from_rgb(165, 145, 160), // 8: Union - Mauve gray
+                Color32::from_rgb(155, 170, 145), // 9: Cooperative - Moss
+                Color32::from_rgb(180, 160, 135), // 10: Other Exec - Sand
+                Color32::from_rgb(145, 150, 155), // 11: Reserved - Charcoal
+            ],
+            Self::Skargard => [
+                Color32::from_rgb(100, 160, 190), // 0: Scan - Baltic blue
+                Color32::from_rgb(130, 180, 160), // 1: Filter - Sea foam
+                Color32::from_rgb(190, 150, 120), // 2: Join - Driftwood
+                Color32::from_rgb(145, 150, 175), // 3: Aggregate - Storm purple
+                Color32::from_rgb(175, 130, 135), // 4: Sort - Muted coral
+                Color32::from_rgb(110, 165, 165), // 5: Project - Deep teal
+                Color32::from_rgb(185, 175, 130), // 6: Hash - Sand
+                Color32::from_rgb(90, 155, 180),  // 7: Remote - Ocean blue
+                Color32::from_rgb(165, 145, 165), // 8: Union - Sea lavender
+                Color32::from_rgb(145, 180, 145), // 9: Cooperative - Kelp
+                Color32::from_rgb(200, 165, 125), // 10: Other Exec - Amber
+                Color32::from_rgb(140, 150, 160), // 11: Reserved - Stone
+            ],
+
+            // === Light Themes ===
+            Self::Light => [
+                Color32::from_rgb(37, 99, 235),   // 0: Scan - Blue
+                Color32::from_rgb(22, 163, 74),   // 1: Filter - Green
+                Color32::from_rgb(234, 88, 12),   // 2: Join - Orange
+                Color32::from_rgb(147, 51, 234),  // 3: Aggregate - Purple
+                Color32::from_rgb(220, 38, 38),   // 4: Sort - Red
+                Color32::from_rgb(20, 184, 166),  // 5: Project - Teal
+                Color32::from_rgb(202, 138, 4),   // 6: Hash - Yellow
+                Color32::from_rgb(6, 182, 212),   // 7: Remote - Cyan
+                Color32::from_rgb(219, 39, 119),  // 8: Union - Pink
+                Color32::from_rgb(132, 204, 22),  // 9: Cooperative - Lime
+                Color32::from_rgb(245, 158, 11),  // 10: Other Exec - Amber
+                Color32::from_rgb(107, 114, 128), // 11: Reserved - Gray
+            ],
+            Self::Stockholm => [
+                Color32::from_rgb(30, 64, 175),  // 0: Scan - Indigo
+                Color32::from_rgb(21, 128, 61),  // 1: Filter - Green
+                Color32::from_rgb(180, 83, 9),   // 2: Join - Amber
+                Color32::from_rgb(126, 34, 206), // 3: Aggregate - Violet
+                Color32::from_rgb(185, 28, 28),  // 4: Sort - Red
+                Color32::from_rgb(17, 94, 89),   // 5: Project - Teal
+                Color32::from_rgb(161, 98, 7),   // 6: Hash - Yellow
+                Color32::from_rgb(14, 116, 144), // 7: Remote - Cyan
+                Color32::from_rgb(190, 24, 93),  // 8: Union - Pink
+                Color32::from_rgb(101, 163, 13), // 9: Cooperative - Lime
+                Color32::from_rgb(217, 119, 6),  // 10: Other Exec - Orange
+                Color32::from_rgb(75, 85, 99),   // 11: Reserved - Gray
+            ],
+            Self::Midsommar => [
+                Color32::from_rgb(55, 90, 130),  // 0: Scan - Slate blue
+                Color32::from_rgb(60, 120, 80),  // 1: Filter - Forest
+                Color32::from_rgb(165, 100, 55), // 2: Join - Sienna
+                Color32::from_rgb(110, 70, 135), // 3: Aggregate - Plum
+                Color32::from_rgb(155, 60, 60),  // 4: Sort - Brick
+                Color32::from_rgb(50, 115, 110), // 5: Project - Teal
+                Color32::from_rgb(145, 115, 45), // 6: Hash - Olive
+                Color32::from_rgb(50, 110, 135), // 7: Remote - Steel blue
+                Color32::from_rgb(145, 70, 100), // 8: Union - Mauve
+                Color32::from_rgb(95, 135, 55),  // 9: Cooperative - Moss
+                Color32::from_rgb(175, 120, 60), // 10: Other Exec - Copper
+                Color32::from_rgb(100, 95, 90),  // 11: Reserved - Warm gray
+            ],
+        }
+    }
+
+    /// Get a plan operator color by index (wraps around)
+    pub fn plan_color(&self, index: usize) -> Color32 {
+        let palette = self.plan_palette();
+        palette[index % palette.len()]
+    }
+
     /// Terminal palette for ANSI color mapping in the embedded terminal.
     ///
     /// Returns 6 colors for the 6 chromatic ANSI colors: Red, Green, Yellow, Blue, Magenta, Cyan.
