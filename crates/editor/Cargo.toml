@@ -71,6 +71,8 @@ enya-ai = { workspace = true }
 enya-search = { workspace = true }
 # Terminal emulator for running shell commands (kubectl, k9s, etc.)
 egui_ghostty = { workspace = true }
+# DataFusion SQL engine for local file queries
+enya-datafusion = { workspace = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]

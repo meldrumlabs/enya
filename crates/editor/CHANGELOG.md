@@ -6,6 +6,47 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
+  - **Data comparison**: `/diff staging prod SELECT * FROM users LIMIT 10` - compare query results in one command
+  - **Plan comparison**: `/diff analyze staging prod SELECT * FROM users` - compare EXPLAIN ANALYZE plans
+  - **Schema comparison**: `/diff schema staging prod users` - compare table schemas between connections
+    - Unified table view showing column name, left type, right type, and status
+    - Status highlighting: matching (✓), changed (yellow), removed (red), added (green)
+    - Statistics: matching, changed, removed, added column counts
+  - **Profile comparison**: `/diff profile staging prod SELECT * FROM orders` - compare EXPLAIN ANALYZE with premium visual design
+    - Hero summary card with big timing numbers, visual time bars, and verdict badge (Faster/Slower)
+    - Unified operator tree with visual time bars showing relative execution time
+    - Delta chips with color-coded timing changes (+/-ms)
+    - Row count and memory chips for significant metric differences
+    - Bottleneck warning indicators for operators with >50ms regression
+    - Tree guide lines with proper visual hierarchy
+    - Strikethrough styling on slower timings with color-coded highlights
+  - **Demo modes**:
+    - `/diff demo` - preview data diff with sample data
+    - `/diff schema demo` - preview schema diff with sample column differences
+    - `/diff profile demo` - preview profile diff with sample timing differences
+  - **Side-by-side data view**: Tables rendered in split columns with row counts and schema validation
+  - **Row-level highlighting**: Rows are highlighted based on diff status using theme diff colors:
+    - Matching rows: neutral styling
+    - Left-only rows: red/removed background (rows only in source connection)
+    - Right-only rows: green/added background (rows only in target connection)
+  - **Side-by-side plan view**: Execution plan trees for both connections with operator metrics
+  - **Diff statistics**: Shows matching rows, left-only rows, right-only rows at a glance
+  - **Schema mismatch detection**: Warns when schemas don't match between connections
+  - **Error handling**: Gracefully shows errors from either connection while displaying successful results
+  - **Concurrent execution**: Both queries run in parallel via `tokio::join!` for faster comparisons
+  - New types: `DiffType`, `DiffQueryResult`, `DiffStats`, `DiffRow`, `DiffRowPair`, `TableDiff`, `RowDiffStatus`, `ColumnDiffStatus`, `SchemaDiffColumn`, `SchemaDiffResult` for structured diff data
+  - New module: `diff.rs` with `compute_table_diff()`, `compute_detailed_diff()`, `compute_schema_diff()`, and `schemas_compatible()` utilities
+
+- **SQL Plan View**: Query execution plan visualization with three view modes:
+  - **Tree View**: Vim-navigable hierarchical tree with expand/collapse, bottleneck highlighting
+  - **Stats View**: Aggregate dashboard showing total time, operator count, rows, memory, bottleneck warning, category breakdown, and top slowest operators
+  - **Waterfall View**: Gantt-style visualization showing parallel execution timing
+  - Tab key cycles between view modes, Shift+Tab cycles backward
+  - Navigation keys (j/k, g/G, b for bottleneck) work in Tree/Waterfall views without propagating to underlying viewport
+  - Proper metrics parsing for real execution output (`output_rows=`, `elapsed_compute=`, `output_bytes=`)
+  - **Dedicated 12-color plan palette**: Each theme has a unique 12-color palette optimized for execution plan visualization with maximally distinct colors for: Scan/Read (blue), Filter/Limit (green), Join (orange), Aggregate/Group (purple), Sort/Order (red), Project (teal), Hash (yellow), Remote/Exchange (cyan), Union/Interleave (pink), Cooperative/Yield (lime), and other Exec operators (amber)
+
 - **Floating panes** (zellij-inspired): Detachable panes that hover above the tile layout for quick investigations:
   - Float any focused pane using `gf` (go-float) keyboard shortcut or `:float` command
   - Floating panes render above tile layout but below modal overlays
@@ -99,6 +140,94 @@ All notable changes to the Enya editor will be documented in this file.
     name = "Request Rate"
     ```
 
+- **SQL pane with Arrow Flight SQL (native-only)**: REPL-style SQL client for connecting to Flight SQL servers (DataFusion, DuckDB, InfluxDB IOx, etc.):
+  - New `SqlPane` component implementing the `Component` trait
+  - **OpenCode-style command interface**: Centered, minimal input with suggestions:
+    - `SQL >` prompt with mode indicator (SQL, DIFF, EXPLAIN, PROFILE)
+    - Inline connection pill showing active database
+    - Suggestions popup above input (command palette style)
+    - Centered content with max-width for readability
+  - **Command system** (type `/` to see commands):
+    - `/diff` - Compare query results across environments
+    - `/explain` - Show query execution plan
+    - `/profile` - Profile with detailed timing
+    - `/schema` - Show table structure
+    - `/connect` - Switch active connection
+    - `/export` - Export results
+    - `/history` - Query history
+    - `/help` - Show available commands
+  - **Smart suggestions**: Context-aware completions appearing above input:
+    - Commands when typing `/`
+    - Tables after FROM, JOIN, etc.
+    - Fuzzy matching on partial names
+    - Keyboard navigation (↑↓) and Tab to insert
+  - **Connection management** via inline pill or `/connect`:
+    - Status dot (green=connected, gray=disconnected)
+    - Click pill to see connection dropdown
+    - Add, remove, switch connections
+  - **Multi-connection management**: Save and manage multiple database connections
+    - Add connections via "Add Connection" dialog
+    - Click connected item to set as active
+    - Click disconnected item to connect
+    - Context menu for disconnect, remove
+    - Connections show status indicator (●) - green=connected, gray=disconnected
+  - REPL interface with query history displayed as cells
+  - Results rendered as tables with schema-aware column formatting
+  - **SQL syntax highlighting** in both input area and query history using theme-aware colors:
+    - Keywords (SELECT, FROM, WHERE, etc.) highlighted in keyword color
+    - Functions (COUNT, SUM, AVG, etc.) highlighted in function color
+    - Strings, numbers, comments highlighted appropriately
+    - Dot-commands (`.help`, `.open`, etc.) highlighted in accent color
+  - DuckDB/SQLite-style dot-commands: `.open`, `.close`, `.tables`, `.explain`, `.analyze`, `.plan`, `.demo`, `.help`
+  - New `enya-datafusion` crate providing:
+    - `FlightClient` for Arrow Flight SQL connections with auth support
+    - Async query execution with streaming results
+    - Metadata queries (catalogs, schemas, tables, columns)
+    - Local DataFusion session for file-based queries (Parquet, CSV, JSON)
+    - Query plan extraction and visualization utilities
+  - Open with `:sql` or `:datafusion` command
+  - Execute queries with `Ctrl+Enter` or click the play button
+
+- **Query Plan Visualization (native-only)**: Interactive query plan analysis with three visualization modes:
+  - **Tree View**: Vim-navigable hierarchical plan tree with:
+    - `j/k` for up/down navigation between operators
+    - `h/l` for collapse/expand nodes
+    - `b` to jump to bottleneck operator
+    - `Space` to toggle expand/collapse
+    - `G` to jump to bottom, `g` to jump to top
+    - Color-coded operators by type (scans=blue, filters=green, joins=orange, etc.)
+    - Bottleneck highlighting with warning icon for slowest operators
+    - Inline metrics showing execution time, row counts, and memory usage
+  - **Timeline View**: Horizontal bar chart (egui_plot) showing:
+    - Operator execution times as horizontal bars
+    - Color-coded by operator type
+    - Sorted by execution time descending
+    - Legend with timing breakdown
+  - **Diff View**: Side-by-side plan comparison for:
+    - Comparing logical vs physical plans
+    - Analyzing optimization effects
+    - Each side has independent vim navigation
+  - Commands: `.explain <query>` for logical plan, `.analyze <query>` for EXPLAIN ANALYZE
+  - `.plan [tree|timeline|diff|hide]` to switch between views or toggle visibility
+  - Plan viewer toggle button in SQL pane header
+
+- **SQL pane overlay system**: Minimal result display with expandable overlay views for detailed inspection:
+  - **Compact preview**: Most recent result shown inline with dynamic column fitting based on available width
+  - **Table overlay** (press `t` or `Enter`): Full paginated table view with diff-viewer-inspired UX:
+    - Header with table icon, accent-colored title, and stat badges (row count, column count, execution time)
+    - Row number gutter with darker background matching diff viewer line numbers
+    - Fixed-width columns ensuring proper header/body alignment during horizontal scroll
+    - Vim-style keyboard navigation: `h/l` horizontal scroll, `j/k` vertical scroll, `[/]` page navigation
+    - Keyboard events consumed to prevent propagation to underlying panes
+    - Consistent overlay sizing with other modals (85% screen width/height, clamped 700-1400px × 500-900px)
+    - Frosted glass styling matching unified finder and diff viewer
+    - Long values truncated with ellipsis to fit column width
+    - NULL values shown in muted text, alternating row backgrounds
+  - **Plan overlay** (press `p`): Query execution plan visualization
+  - Press `Esc` to close any overlay and return to compact view
+  - Press `c` to clear results from the compact preview
+  - Overlay renders centered on screen with dimmed backdrop
+
 - **Neovim-style intro message**: When a workspace has no panes, a centered intro screen displays "Enya" with tagline "A Neovim-inspired observability editor for builders", version number, and aligned command hints. Includes `~` tilde markers on every line (left margin) just like Neovim:
   - `type  Space+f    fuzzy finder`
   - `type  aa         ask AI agent` (native only)
@@ -146,6 +275,31 @@ All notable changes to the Enya editor will be documented in this file.
 ### Changed
 
 - **Full git history indexing**: The codebase search index now indexes the complete git history instead of only the last 1000 commits. This ensures all historical commits are searchable, improving codebase search accuracy for repositories with long histories. Added new `fetch_all_commits()` and `count_commits()` functions in `enya-analyzer` for efficient full-history operations. **Parallelized diff fetching** using rayon for 4-8x faster indexing on multi-core systems - diff extraction and semantic analysis now run concurrently across all CPU cores.
+
+- **Arrow/DataFusion utilities consolidated**: Moved `format_array_value()` and plan text parsing functions (`parse_plan_text`, `parse_metrics`, `parse_metric_usize`, `parse_metric_duration`, `parse_metric_bytes`) to the `enya_datafusion` crate. The editor now imports these from the shared crate instead of having local copies. The `plan_parsing.rs` module is now focused on demo data generation.
+
+- **Plan view functions moved to shared crate**: The `format_duration`, `format_bytes`, and `format_rows` functions, along with `total_time()`, `bottleneck_time()`, and `operator_count()` methods on `PlanNode`, are now in `enya_datafusion` instead of being duplicated across plan view types. This consolidates plan analysis logic in the shared crate alongside related types like `OperatorMetrics` and `OperatorCategory`.
+
+- **SQL pane module reorganization**: Split the 6000-line `pane.rs` into focused modules following idiomatic Rust practices:
+  - `command.rs` - SQL pane commands (`SqlCommand` enum and parsing)
+  - `connections.rs` - Connection management types and UI rendering (`ConnectionId`, `SavedConnection`, `ConnectionAction`, `ConnectionSnapshot`, plus `render_connection_popup`, `render_connection_tree`, `render_add_connection_dialog`)
+  - `suggestions.rs` - Autocomplete types (`Suggestion`, `SuggestionIcon`, `SuggestionState`)
+  - `types.rs` - Core types (`SqlMode`, `ResultOverlay`, `QueryCell`, `QueryStatus`)
+  - `pane.rs` - Main `SqlPane` struct (reduced to ~5700 lines)
+  - Native-only modules properly gated with `#[cfg(not(target_arch = "wasm32"))]` for WASM compatibility
+
+- **SQL commands streamlined**: Removed unused/stub commands (`/help`, `/plan`, `/profile`, `/export`, `/watch`, `/sample`) - kept only working commands: `/explain`, `/analyze`, `/diff`, `/schema`, `/connect`, `/history`, `/demo`. The `/` trigger now shows all available commands in the fuzzy finder, making `/help` redundant.
+
+- **Connection saving with names**: The `/connect` command now supports saving connections with custom names: `/connect <endpoint> <name>`. For example, `/connect localhost:50051 local` saves and connects with the name "local". Previous behavior (switching to existing or connecting to endpoint directly) still works.
+
+- **Plan viewer UX overhaul**: Premium visual refresh for the execution plan viewer:
+  - **Pill-style tab bar**: Replaced plain selectable labels with styled pill tabs in a subtle container
+  - **Key badge hints**: Mode-specific keybindings now shown with premium key badges (like keyboard keys) instead of plain text
+  - **Tree connection lines**: Vertical and horizontal guide lines showing parent-child relationships in the tree view
+  - **Mini progress bars**: Inline percentage bars next to execution time showing relative cost at a glance
+  - **Waterfall grid lines**: Vertical grid lines at time markers (0%, 25%, 50%, 75%, 100%) for easier time reading
+  - **Premium stat cards**: Cards now have accent-colored icons and a left edge accent stripe
+  - Removed redundant sub-headers from each view since the main header and tabs establish context
 
 - **Premium agent panel styling**: Improved the AgentPanel overlay UX to match the refined look of the team channels panel:
   - Switched from `OverlayColors` to `ChatColors` for better theme integration and consistent styling across chat components
@@ -201,7 +355,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Style picker focus restoration**: Fixed vim navigation not working after closing the style picker (theme/font selector). The picker now clears egui framework focus when it closes, ensuring keyboard events are properly handled by vim navigation. Also fixed returning focus to viewport from channels panel to properly restore focus to the first pane if no pane was previously focused.
 
-- **Command palette accessible from any overlay**: Fixed the command palette (`:` key) not being openable when overlays like the diff viewer were active. The `:` handler is now processed globally before checking for blocking overlays, allowing commands like `:style` to be opened on top of any overlay (except when a text field has focus or the command palette is already open).
+- **SQL pane runtime crash**: Fixed a crash when opening the SQL pane (`:sql` command) with "there is no reactor running" error. The DataFusion session's `init_executor()` now accepts a tokio runtime handle, matching the pattern used by `AgentPane`.
+
+- **Command palette always accessible**: Fixed `:` not opening the command palette after navigating in certain views (e.g., SQL execution plan viewer, diff viewer). The `:` handler is now processed globally at the start of `handle_viewport_keyboard()` before any overlay blocking checks, allowing commands like `:style` to be opened on top of any overlay (except when a text field has focus or the command palette is already open).
 
 - **Style picker z-order over diff viewer**: Fixed the style picker appearing behind the diff viewer when opened on top of it, and keyboard navigation (j/k) in the style picker causing the diff viewer to scroll and come to the foreground. The diff viewer now renders earlier in the z-order (before style_picker and command_palette) and disables keyboard handling when another overlay is on top.
 

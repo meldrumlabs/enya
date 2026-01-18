@@ -12,8 +12,8 @@ pub use pane::{
     AgentAiProvider, Bar, BarChartViz, CommitMarker, DataPoint, GaugeChart, HeatmapCell,
     HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSearchResults, InlineSource,
     LogsBackend, LogsPane, LogsPaneAction, QueryPane, QueryPaneAction, SearchResultItem, Series,
-    SparklineViz, StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction,
-    Visualization, VisualizationType,
+    SparklineViz, SqlPane, SqlPaneAction, StatChart, Threshold, TimeSeriesChart, TracingPane,
+    TracingPaneAction, Visualization, VisualizationType,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use pane::{TerminalPane, TerminalPaneAction};
@@ -70,6 +70,10 @@ pub trait Component: Any {
     fn description(&self) -> &str {
         ""
     }
+
+    /// Set whether a workspace overlay is blocking keyboard input.
+    /// Default implementation does nothing - components can override if needed.
+    fn set_overlay_blocks_input(&mut self, _blocks: bool) {}
 
     /// Get a reference to self as Any (for downcasting)
     fn as_any(&self) -> &dyn Any;

@@ -4,6 +4,7 @@ pub mod annotation;
 pub mod inline_content;
 pub mod logs_pane;
 pub mod query_pane;
+pub mod sql;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod terminal_pane;
 pub mod time_series_chart;
@@ -15,6 +16,9 @@ pub use inline_content::{
     InlineChart, InlineContent, InlineSearchResults, InlineSource, SearchResultItem,
 };
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
+#[cfg(not(target_arch = "wasm32"))]
+pub use sql::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, StatsView};
+pub use sql::{SqlPane, SqlPaneAction};
 #[cfg(not(target_arch = "wasm32"))]
 pub use terminal_pane::{TerminalPane, TerminalPaneAction};
 pub use tracing_pane::{TracingPane, TracingPaneAction};
