@@ -205,6 +205,225 @@ Creates a terminal pane for running shell commands. **Native app only** - not av
 
 ---
 
+### `set_visualization`
+
+Changes the visualization type for a pane. Useful for suggesting better visualizations based on the data.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `viz_type` | string | Yes | Visualization type (see below) |
+| `pane` | string | No | Pane title/name, or omit for currently focused pane |
+
+**Valid visualization types:**
+- `"time_series"` (or `"line"`, `"chart"`) - Line chart for time-based data
+- `"stat"` (or `"big_number"`, `"single"`) - Big number display with optional sparkline
+- `"gauge"` (or `"dial"`, `"meter"`) - Circular gauge for percentages/utilization
+- `"bar_chart"` (or `"bar"`, `"bars"`) - Horizontal bar chart for comparisons
+- `"sparkline"` (or `"spark"`, `"mini"`) - Compact inline trend line
+- `"heatmap"` (or `"heat"`, `"matrix"`) - Heat map for distributions
+
+**Example:**
+```json
+{"action": "set_visualization", "viz_type": "gauge", "pane": "CPU Usage"}
+```
+
+**Example (focused pane):**
+```json
+{"action": "set_visualization", "viz_type": "stat"}
+```
+
+---
+
+### `set_absolute_time_range`
+
+Sets a specific time range using Unix timestamps. Essential for investigating specific incidents ("look at 2pm yesterday").
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `start` | number | Yes | Start timestamp in Unix seconds |
+| `end` | number | Yes | End timestamp in Unix seconds |
+
+**Example:**
+```json
+{"action": "set_absolute_time_range", "start": 1705593600, "end": 1705597200}
+```
+
+**Note:** Use Unix timestamps. For example, `1705593600` = 2024-01-18 12:00:00 UTC.
+
+---
+
+### `refresh_pane`
+
+Refreshes panes to reload data with the current time range. Useful after changing time ranges or when data may have changed.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pane` | string | No | Pane title/name to refresh, or omit to refresh all panes |
+
+**Example (refresh specific pane):**
+```json
+{"action": "refresh_pane", "pane": "Request Rate"}
+```
+
+**Example (refresh all panes):**
+```json
+{"action": "refresh_pane"}
+```
+
+---
+
+### `close_pane`
+
+Closes a pane. Useful for cleaning up the dashboard after investigation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pane` | string | Yes | Pane title/name, or `"focused"` for the currently focused pane |
+
+**Example:**
+```json
+{"action": "close_pane", "pane": "CPU Usage"}
+```
+
+**Example (close focused pane):**
+```json
+{"action": "close_pane", "pane": "focused"}
+```
+
+---
+
+### `create_section`
+
+Creates a collapsible section for organizing panes (Grafana-style). Useful for grouping related metrics.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | Yes | Section name displayed in the header |
+| `collapsed` | boolean | No | Whether section starts collapsed (default: false) |
+
+**Example:**
+```json
+{"action": "create_section", "name": "API Performance"}
+```
+
+**Example (collapsed):**
+```json
+{"action": "create_section", "name": "Infrastructure", "collapsed": true}
+```
+
+---
+
+### `create_floating_pane`
+
+Creates a floating pane that hovers above the main layout. Perfect for investigation workflows where you need to compare data without disrupting the dashboard layout.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | PromQL expression to visualize |
+| `title` | string | No | Display title for the pane |
+| `position` | [number, number] | No | Position as [x, y] pixels from top-left |
+
+**Example:**
+```json
+{"action": "create_floating_pane", "query": "rate(http_errors_total[5m])", "title": "Error Investigation"}
+```
+
+**Example (positioned):**
+```json
+{"action": "create_floating_pane", "query": "up", "title": "Service Health", "position": [200, 150]}
+```
+
+---
+
+### `maximize_pane`
+
+Maximizes a pane to fullscreen view. Press the same keybinding again or use this command to exit.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pane` | string | Yes | Pane title/name, or `"focused"` for the currently focused pane |
+
+**Example:**
+```json
+{"action": "maximize_pane", "pane": "Request Rate"}
+```
+
+**Example (focused pane):**
+```json
+{"action": "maximize_pane", "pane": "focused"}
+```
+
+---
+
+### `rename_pane`
+
+Renames a pane. Useful for giving panes meaningful names during investigation.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pane` | string | Yes | Current pane title/name, or `"focused"` for the currently focused pane |
+| `new_name` | string | Yes | The new name for the pane |
+
+**Example:**
+```json
+{"action": "rename_pane", "pane": "Query 1", "new_name": "Error Rate Analysis"}
+```
+
+---
+
+### `duplicate_pane`
+
+Duplicates a pane with the same query. Useful for creating comparison views or making variations.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pane` | string | Yes | Pane title/name to duplicate, or `"focused"` for the currently focused pane |
+| `new_name` | string | No | Name for the duplicated pane (defaults to "original name (copy)") |
+
+**Example:**
+```json
+{"action": "duplicate_pane", "pane": "Request Rate", "new_name": "Request Rate (yesterday)"}
+```
+
+---
+
+### `focus_pane`
+
+Focuses a specific pane. Useful for directing user attention to a particular metric.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `pane` | string | Yes | Pane title/name to focus |
+
+**Example:**
+```json
+{"action": "focus_pane", "pane": "Error Rate"}
+```
+
+---
+
+### `toggle_zen_mode`
+
+Toggles zen mode (minimal UI). Hides toolbars and other UI elements for distraction-free viewing.
+
+**Example:**
+```json
+{"action": "toggle_zen_mode"}
+```
+
+---
+
+### `exit_fullscreen`
+
+Exits fullscreen/maximized mode. Returns to normal multi-pane view.
+
+**Example:**
+```json
+{"action": "exit_fullscreen"}
+```
+
+---
+
 ## Command Preferences
 
 When responding to users:
@@ -213,6 +432,12 @@ When responding to users:
 2. **Modal commands** (`show_metric_source`, `show_alert_source`) should only be used when the user explicitly asks to "open", "go to", or "navigate to" something
 3. **Search**: Use `search_codebase` instead of `git log --grep` for faster full-text search with relevance ranking
 4. **Pane commands** (`add_logs_pane`, `add_tracing_pane`, `add_terminal_pane`) are useful for incident investigation workflows - correlate metrics with logs and traces
+5. **Visualization**: Use `set_visualization` to suggest better chart types based on the data (e.g., gauge for percentages, stat for single values)
+6. **Time ranges**: Use `set_time_range` for relative ranges and `set_absolute_time_range` for specific incidents
+7. **Pane lifecycle**: Use `refresh_pane` after time range changes, and `close_pane` to clean up after investigations
+8. **Organization**: Use `create_section` for Grafana-style collapsible sections to organize related metrics
+9. **Investigation**: Use `create_floating_pane` for temporary investigation panes that don't disrupt the layout
+10. **Focus**: Use `maximize_pane` to fullscreen important metrics during incident response
 
 ## Implementation
 

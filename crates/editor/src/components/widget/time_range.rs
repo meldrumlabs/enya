@@ -239,6 +239,17 @@ impl TimeRangeToolbar {
         self.changed = true;
     }
 
+    /// Set a custom absolute time range.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_secs` - Start timestamp in seconds (Unix epoch)
+    /// * `end_secs` - End timestamp in seconds (Unix epoch)
+    pub fn set_custom_range(&mut self, start_secs: f64, end_secs: f64) {
+        self.time_range = TimeRange::custom(start_secs, end_secs);
+        self.changed = true;
+    }
+
     /// Check if the time range changed this frame
     pub fn changed(&self) -> bool {
         self.changed

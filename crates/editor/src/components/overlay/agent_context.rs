@@ -251,6 +251,49 @@ impl EditorContext {
         parts.push("  - Optional: `trace_id` (pre-load a specific trace), `title`\n".to_string());
         parts.push("- `add_terminal_pane`: Create a terminal pane for running shell commands (native app only)\n".to_string());
         parts.push("  - Optional: `title`\n".to_string());
+        parts.push("- `set_visualization`: Change the visualization type for a pane\n".to_string());
+        parts.push("  - Required: `viz_type` (\"time_series\", \"stat\", \"gauge\", \"bar_chart\", \"sparkline\", \"heatmap\")\n".to_string());
+        parts
+            .push("  - Optional: `pane` (pane title/name, or omit for focused pane)\n".to_string());
+        parts.push("- `set_absolute_time_range`: Set a specific time range (e.g., \"look at 2pm yesterday\")\n".to_string());
+        parts.push("  - Required: `start` (Unix timestamp in seconds), `end` (Unix timestamp in seconds)\n".to_string());
+        parts.push("- `refresh_pane`: Refresh panes to reload data\n".to_string());
+        parts.push(
+            "  - Optional: `pane` (pane title/name, or omit to refresh all panes)\n".to_string(),
+        );
+        parts.push("- `close_pane`: Close a pane\n".to_string());
+        parts.push(
+            "  - Required: `pane` (pane title/name or \"focused\" for current pane)\n".to_string(),
+        );
+        parts.push(
+            "- `create_section`: Create a collapsible section (Grafana-style organization)\n"
+                .to_string(),
+        );
+        parts.push("  - Required: `name` (section name)\n".to_string());
+        parts.push("  - Optional: `collapsed` (start collapsed, default: false)\n".to_string());
+        parts.push(
+            "- `create_floating_pane`: Create a floating pane for investigation (detached)\n"
+                .to_string(),
+        );
+        parts.push("  - Required: `query` (PromQL expression)\n".to_string());
+        parts.push("  - Optional: `title`, `position` ([x, y] pixels from top-left)\n".to_string());
+        parts.push("- `maximize_pane`: Maximize a pane to fullscreen\n".to_string());
+        parts.push(
+            "  - Required: `pane` (pane title/name or \"focused\" for current pane)\n".to_string(),
+        );
+        parts.push("- `rename_pane`: Rename a pane\n".to_string());
+        parts.push(
+            "  - Required: `pane` (current title/name or \"focused\"), `new_name`\n".to_string(),
+        );
+        parts.push("- `duplicate_pane`: Duplicate a pane with same query\n".to_string());
+        parts.push(
+            "  - Required: `pane` (title/name or \"focused\")\n  - Optional: `new_name`\n"
+                .to_string(),
+        );
+        parts.push("- `focus_pane`: Focus a specific pane\n".to_string());
+        parts.push("  - Required: `pane` (title/name)\n".to_string());
+        parts.push("- `toggle_zen_mode`: Toggle minimal UI mode\n".to_string());
+        parts.push("- `exit_fullscreen`: Exit fullscreen/maximized mode\n".to_string());
         parts.push("\n**Preference**: When showing source code or charts, prefer `show_inline_source` and `show_inline_chart` \n".to_string());
         parts.push("to keep content in the conversation flow. Only use `show_metric_source` or `show_alert_source` when the user \n".to_string());
         parts.push(
@@ -355,6 +398,80 @@ pub enum AgentCommand {
         #[serde(default)]
         title: Option<String>,
     },
+    /// Set the visualization type for a pane
+    SetVisualization {
+        /// The pane to modify (by title/name or "focused" for current pane)
+        #[serde(default)]
+        pane: Option<String>,
+        /// The visualization type: "time_series", "stat", "gauge", "bar_chart", "sparkline", "heatmap"
+        viz_type: String,
+    },
+    /// Set an absolute time range (for looking at specific time periods)
+    SetAbsoluteTimeRange {
+        /// Start timestamp in Unix seconds (e.g., 1705593600 for 2024-01-18 12:00:00 UTC)
+        start: f64,
+        /// End timestamp in Unix seconds
+        end: f64,
+    },
+    /// Refresh panes to reload data
+    RefreshPane {
+        /// Optional pane to refresh (by title/name), or omit to refresh all panes
+        #[serde(default)]
+        pane: Option<String>,
+    },
+    /// Close a pane
+    ClosePane {
+        /// The pane to close (by title/name or "focused" for current pane)
+        pane: String,
+    },
+    /// Create a collapsible section (Grafana-style)
+    CreateSection {
+        /// Section name
+        name: String,
+        /// Whether the section starts collapsed (default: false)
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    /// Create a floating pane for investigation (detached from main layout)
+    CreateFloatingPane {
+        /// PromQL query for the pane
+        query: String,
+        /// Optional title for the pane
+        #[serde(default)]
+        title: Option<String>,
+        /// Optional position as [x, y] pixels from top-left
+        #[serde(default)]
+        position: Option<[f32; 2]>,
+    },
+    /// Maximize a pane to fullscreen
+    MaximizePane {
+        /// The pane to maximize (by title/name or "focused" for current pane)
+        pane: String,
+    },
+    /// Rename a pane
+    RenamePane {
+        /// The pane to rename (by current title/name or "focused" for current pane)
+        pane: String,
+        /// The new name for the pane
+        new_name: String,
+    },
+    /// Duplicate a pane (clone with same query)
+    DuplicatePane {
+        /// The pane to duplicate (by title/name or "focused" for current pane)
+        pane: String,
+        /// Optional new name for the duplicated pane
+        #[serde(default)]
+        new_name: Option<String>,
+    },
+    /// Focus a specific pane
+    FocusPane {
+        /// The pane to focus (by title/name)
+        pane: String,
+    },
+    /// Toggle zen mode (minimal UI)
+    ToggleZenMode,
+    /// Exit fullscreen mode
+    ExitFullscreen,
 }
 
 /// Parse agent commands from a response text.
@@ -754,6 +871,340 @@ Let me search for that.
                 assert!(limit.is_none());
             }
             _ => panic!("Expected SearchCodebase command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rename_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "rename_pane", "pane": "Query 1", "new_name": "Error Rate"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::RenamePane { pane, new_name } => {
+                assert_eq!(pane, "Query 1");
+                assert_eq!(new_name, "Error Rate");
+            }
+            _ => panic!("Expected RenamePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_duplicate_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "duplicate_pane", "pane": "focused", "new_name": "Copy"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::DuplicatePane { pane, new_name } => {
+                assert_eq!(pane, "focused");
+                assert_eq!(new_name.as_deref(), Some("Copy"));
+            }
+            _ => panic!("Expected DuplicatePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_duplicate_pane_command_minimal() {
+        let text = r#"
+```enya-command
+{"action": "duplicate_pane", "pane": "CPU Usage"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::DuplicatePane { pane, new_name } => {
+                assert_eq!(pane, "CPU Usage");
+                assert!(new_name.is_none());
+            }
+            _ => panic!("Expected DuplicatePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_focus_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "focus_pane", "pane": "Error Rate"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::FocusPane { pane } => {
+                assert_eq!(pane, "Error Rate");
+            }
+            _ => panic!("Expected FocusPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_toggle_zen_mode_command() {
+        let text = r#"
+```enya-command
+{"action": "toggle_zen_mode"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(&commands[0], AgentCommand::ToggleZenMode));
+    }
+
+    #[test]
+    fn test_parse_exit_fullscreen_command() {
+        let text = r#"
+```enya-command
+{"action": "exit_fullscreen"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(&commands[0], AgentCommand::ExitFullscreen));
+    }
+
+    #[test]
+    fn test_parse_set_visualization_command() {
+        let text = r#"
+```enya-command
+{"action": "set_visualization", "viz_type": "gauge", "pane": "CPU Usage"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::SetVisualization { pane, viz_type } => {
+                assert_eq!(pane.as_deref(), Some("CPU Usage"));
+                assert_eq!(viz_type, "gauge");
+            }
+            _ => panic!("Expected SetVisualization command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_set_visualization_command_minimal() {
+        let text = r#"
+```enya-command
+{"action": "set_visualization", "viz_type": "stat"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::SetVisualization { pane, viz_type } => {
+                assert!(pane.is_none());
+                assert_eq!(viz_type, "stat");
+            }
+            _ => panic!("Expected SetVisualization command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_set_absolute_time_range_command() {
+        let text = r#"
+```enya-command
+{"action": "set_absolute_time_range", "start": 1705593600.0, "end": 1705597200.0}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::SetAbsoluteTimeRange { start, end } => {
+                assert!((start - 1705593600.0).abs() < 0.001);
+                assert!((end - 1705597200.0).abs() < 0.001);
+            }
+            _ => panic!("Expected SetAbsoluteTimeRange command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refresh_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "refresh_pane", "pane": "CPU Usage"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::RefreshPane { pane } => {
+                assert_eq!(pane.as_deref(), Some("CPU Usage"));
+            }
+            _ => panic!("Expected RefreshPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refresh_pane_command_all() {
+        let text = r#"
+```enya-command
+{"action": "refresh_pane"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::RefreshPane { pane } => {
+                assert!(pane.is_none());
+            }
+            _ => panic!("Expected RefreshPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_close_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "close_pane", "pane": "focused"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::ClosePane { pane } => {
+                assert_eq!(pane, "focused");
+            }
+            _ => panic!("Expected ClosePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_section_command() {
+        let text = r#"
+```enya-command
+{"action": "create_section", "name": "Infrastructure", "collapsed": true}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::CreateSection { name, collapsed } => {
+                assert_eq!(name, "Infrastructure");
+                assert_eq!(*collapsed, Some(true));
+            }
+            _ => panic!("Expected CreateSection command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_floating_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "create_floating_pane", "query": "up", "title": "Health", "position": [100.0, 200.0]}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::CreateFloatingPane {
+                query,
+                title,
+                position,
+            } => {
+                assert_eq!(query, "up");
+                assert_eq!(title.as_deref(), Some("Health"));
+                assert_eq!(*position, Some([100.0, 200.0]));
+            }
+            _ => panic!("Expected CreateFloatingPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_maximize_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "maximize_pane", "pane": "Error Rate"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::MaximizePane { pane } => {
+                assert_eq!(pane, "Error Rate");
+            }
+            _ => panic!("Expected MaximizePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_logs_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "add_logs_pane", "query": "{app=\"nginx\"}", "loki_url": "http://localhost:3100"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::AddLogsPane {
+                query,
+                loki_url,
+                title,
+            } => {
+                assert_eq!(query.as_deref(), Some("{app=\"nginx\"}"));
+                assert_eq!(loki_url.as_deref(), Some("http://localhost:3100"));
+                assert!(title.is_none());
+            }
+            _ => panic!("Expected AddLogsPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_tracing_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "add_tracing_pane", "trace_id": "abc123"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::AddTracingPane { trace_id, title } => {
+                assert_eq!(trace_id.as_deref(), Some("abc123"));
+                assert!(title.is_none());
+            }
+            _ => panic!("Expected AddTracingPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_terminal_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "add_terminal_pane"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::AddTerminalPane { title } => {
+                assert!(title.is_none());
+            }
+            _ => panic!("Expected AddTerminalPane command"),
         }
     }
 }
