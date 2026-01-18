@@ -21,6 +21,8 @@ pub mod command;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod connections;
 #[cfg(not(target_arch = "wasm32"))]
+mod diff;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod suggestions;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod types;

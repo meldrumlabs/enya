@@ -35,10 +35,16 @@ use super::command::SqlCommand;
 use super::connections::{
     ConnectionId, ConnectionTreeState, SavedConnection, SqlBackend, TreeSelection,
 };
+use super::diff::{
+    DiffRow, RowDiffStatus, compute_detailed_diff, compute_table_diff, schemas_compatible,
+};
 use super::highlighting::highlight_sql;
 use super::plan_view::{PlanViewMode, PlanViewer};
 use super::suggestions::{Suggestion, SuggestionIcon, SuggestionState};
-use super::types::{QueryCell, QueryStatus, ResultOverlay, SqlMode, SqlPaneAction};
+use super::types::{
+    DiffQueryResult, DiffType, ProfileRow, QueryCell, QueryStatus, ResultOverlay, SchemaDiffResult,
+    SqlMode, SqlPaneAction,
+};
 use crate::components::util::id_generator::next_id_usize;
 use crate::components::{OverlayColors, OverlayStyle};
 use crate::ui::semantic_icons::{action, category, file, nav, status, time};
@@ -95,6 +101,32 @@ pub struct SqlPane {
     pending_tables: Option<tokio::sync::oneshot::Receiver<Result<Vec<TableInfo>, String>>>,
     /// ID of connection for pending table fetch.
     pending_tables_id: Option<ConnectionId>,
+    /// Pending diff query result receiver.
+    /// Contains: query_id, left_name, right_name, is_analyze, receiver for (left_result, right_result)
+    #[allow(clippy::type_complexity)]
+    pending_diff: Option<(
+        QueryId,
+        String,   // left_name
+        String,   // right_name
+        DiffType, // diff type (Data, Plan, Profile)
+        tokio::sync::oneshot::Receiver<(
+            Result<(SchemaRef, Vec<RecordBatch>, Option<String>), String>, // left: schema, batches, plan_text
+            Result<(SchemaRef, Vec<RecordBatch>, Option<String>), String>, // right: schema, batches, plan_text
+        )>,
+    )>,
+    /// Pending schema diff result receiver.
+    /// Contains: query_id, left_name, right_name, table_name, receiver for (left_columns, right_columns)
+    #[allow(clippy::type_complexity)]
+    pending_schema_diff: Option<(
+        QueryId,
+        String, // left_name
+        String, // right_name
+        String, // table_name
+        tokio::sync::oneshot::Receiver<(
+            Result<Vec<enya_datafusion::ColumnInfo>, String>, // left columns
+            Result<Vec<enya_datafusion::ColumnInfo>, String>, // right columns
+        )>,
+    )>,
     // ========================
     // New connection management
     // ========================
@@ -159,6 +191,8 @@ impl SqlPane {
             pending_connect_id: None,
             pending_tables: None,
             pending_tables_id: None,
+            pending_diff: None,
+            pending_schema_diff: None,
             connections: Vec::new(),
             tree_state: ConnectionTreeState::default(),
             sidebar_width: 0.0, // Used as popup visibility flag (0.0 = closed, 1.0 = open)
@@ -394,7 +428,15 @@ Plan Viewer:
 
 Connections:
   /connect <endpoint> Connect to Flight SQL (e.g., localhost:50051)
-  /diff <e1> <e2>    Compare query results across two environments
+
+Diff Comparison:
+  /diff <e1> <e2> <q>          Compare query results
+  /diff analyze <e1> <e2> <q>  Compare EXPLAIN ANALYZE plans
+  /diff schema <e1> <e2> <t>   Compare table schemas
+  /diff profile <e1> <e2> <q>  Compare execution profiles
+  /diff demo                   Demo data diff
+  /diff schema demo            Demo schema diff
+  /diff profile demo           Demo profile diff
 
 Other:
   /help              Show this help message
@@ -409,42 +451,113 @@ Keyboard Shortcuts:
                 self.add_info_cell(help_text);
             }
             "diff" => {
-                // /diff <left> <right> - Compare query across environments
-                if parts.len() < 3 {
-                    self.add_info_cell(
-                        "Usage: /diff <left-connection> <right-connection>\n\
-                         Example: /diff staging production\n\n\
-                         After setting diff mode, run a query to compare results.",
-                    );
-                } else {
-                    let left_name = parts[1];
-                    let right_name = parts[2];
+                // /diff [demo|analyze|schema|profile] <left> <right> <query|table>
+                // Check if it's a demo request
+                match parts.get(1).copied() {
+                    Some("demo") => {
+                        self.load_diff_demo();
+                    }
+                    Some("schema") => {
+                        // /diff schema [demo] <left> <right> <table>
+                        if parts.get(2) == Some(&"demo") {
+                            self.load_schema_diff_demo();
+                        } else if parts.len() < 5 {
+                            self.add_info_cell(
+                                "Usage: /diff schema <left> <right> <table>\n\
+                                 Example: /diff schema staging prod users\n\n\
+                                 Compares table schema between two connections.\n\
+                                 Use /diff schema demo to preview with sample data.",
+                            );
+                        } else {
+                            let left_name = parts[2];
+                            let right_name = parts[3];
+                            let table = parts[4];
+                            self.execute_schema_diff(left_name, right_name, table);
+                        }
+                    }
+                    Some("profile") => {
+                        // /diff profile [demo] <left> <right> <query>
+                        if parts.get(2) == Some(&"demo") {
+                            self.load_profile_diff_demo();
+                        } else if parts.len() < 5 {
+                            self.add_info_cell(
+                                "Usage: /diff profile <left> <right> <query>\n\
+                                 Example: /diff profile staging prod SELECT * FROM orders\n\n\
+                                 Compares EXPLAIN ANALYZE profiles with metric highlighting.\n\
+                                 Use /diff profile demo to preview with sample data.",
+                            );
+                        } else {
+                            let left_name = parts[2];
+                            let right_name = parts[3];
+                            let sql = parts[4..].join(" ");
+                            self.execute_profile_diff(left_name, right_name, &sql);
+                        }
+                    }
+                    Some("analyze") => {
+                        // /diff analyze <left> <right> <query>
+                        if parts.len() < 5 {
+                            self.add_info_cell(
+                                "Usage: /diff analyze <left> <right> <query>\n\
+                                 Example: /diff analyze staging prod SELECT * FROM users\n\n\
+                                 Compares EXPLAIN ANALYZE plans between two connections.",
+                            );
+                        } else {
+                            let left_name = parts[2];
+                            let right_name = parts[3];
+                            let sql = parts[4..].join(" ");
+                            self.execute_diff_query(left_name, right_name, &sql, true);
+                        }
+                    }
+                    Some(left_name) if parts.len() >= 4 => {
+                        // /diff <left> <right> <query> - inline execution
+                        let right_name = parts[2];
+                        let sql = parts[3..].join(" ");
+                        self.execute_diff_query(left_name, right_name, &sql, false);
+                    }
+                    Some(left_name) if parts.len() == 3 => {
+                        // /diff <left> <right> - set diff mode (legacy)
+                        let right_name = parts[2];
 
-                    // Find connections by name
-                    let left_conn = self
-                        .connections
-                        .iter()
-                        .find(|c| c.name.eq_ignore_ascii_case(left_name))
-                        .map(|c| c.id);
-                    let right_conn = self
-                        .connections
-                        .iter()
-                        .find(|c| c.name.eq_ignore_ascii_case(right_name))
-                        .map(|c| c.id);
+                        // Find connections by name
+                        let left_conn = self
+                            .connections
+                            .iter()
+                            .find(|c| c.name.eq_ignore_ascii_case(left_name))
+                            .map(|c| c.id);
+                        let right_conn = self
+                            .connections
+                            .iter()
+                            .find(|c| c.name.eq_ignore_ascii_case(right_name))
+                            .map(|c| c.id);
 
-                    match (left_conn, right_conn) {
-                        (Some(left), Some(right)) => {
-                            self.mode = SqlMode::Diff { left, right };
-                            self.add_info_cell(&format!(
-                                "Diff mode: {left_name} ↔ {right_name}\nEnter a query to compare results."
-                            ));
+                        match (left_conn, right_conn) {
+                            (Some(left), Some(right)) => {
+                                self.mode = SqlMode::Diff { left, right };
+                                self.add_info_cell(&format!(
+                                    "Diff mode: {left_name} ↔ {right_name}\nEnter a query to compare results.\n\n\
+                                     Tip: Use inline syntax: /diff {left_name} {right_name} SELECT * FROM table"
+                                ));
+                            }
+                            (None, _) => {
+                                self.add_error_cell(&format!("Connection not found: {left_name}"));
+                            }
+                            (_, None) => {
+                                self.add_error_cell(&format!("Connection not found: {right_name}"));
+                            }
                         }
-                        (None, _) => {
-                            self.add_error_cell(&format!("Connection not found: {left_name}"));
-                        }
-                        (_, None) => {
-                            self.add_error_cell(&format!("Connection not found: {right_name}"));
-                        }
+                    }
+                    _ => {
+                        self.add_info_cell(
+                            "Usage:\n\
+                             /diff <left> <right> <query>           Compare query results\n\
+                             /diff analyze <left> <right> <query>   Compare EXPLAIN ANALYZE plans\n\
+                             /diff schema <left> <right> <table>    Compare table schemas\n\
+                             /diff profile <left> <right> <query>   Compare execution profiles\n\
+                             /diff demo                             Show demo data diff\n\
+                             /diff schema demo                      Show demo schema diff\n\
+                             /diff profile demo                     Show demo profile diff\n\n\
+                             Example: /diff staging prod SELECT * FROM users LIMIT 10",
+                        );
                     }
                 }
             }
@@ -484,6 +597,7 @@ Keyboard Shortcuts:
                     stats: None,
                     error: None,
                     is_info: false,
+                    diff_result: None,
                 });
                 let idx = self.history.len() - 1;
                 self.open_overlay(ResultOverlay::Plan, idx);
@@ -825,6 +939,7 @@ Keyboard Shortcuts:
             stats: None,
             error: None,
             is_info: false,
+            diff_result: None,
         });
 
         match &mut self.backend {
@@ -878,6 +993,286 @@ Keyboard Shortcuts:
         }
     }
 
+    /// Execute a diff query comparing results between two connections.
+    /// If is_analyze is true, compare EXPLAIN ANALYZE plans instead of data.
+    fn execute_diff_query(
+        &mut self,
+        left_name: &str,
+        right_name: &str,
+        sql: &str,
+        is_analyze: bool,
+    ) {
+        let diff_type = if is_analyze {
+            DiffType::Plan
+        } else {
+            DiffType::Data
+        };
+        self.execute_diff_query_with_type(left_name, right_name, sql, diff_type);
+    }
+
+    /// Execute a diff query with explicit diff type.
+    fn execute_diff_query_with_type(
+        &mut self,
+        left_name: &str,
+        right_name: &str,
+        sql: &str,
+        diff_type: DiffType,
+    ) {
+        // Find both connections by name
+        let left_conn = self
+            .connections
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(left_name));
+        let right_conn = self
+            .connections
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(right_name));
+
+        // Validate connections exist and are connected
+        let (left_endpoint, left_name_owned) = match left_conn {
+            Some(c) if matches!(c.state, ConnectionState::Connected) => {
+                (c.endpoint.clone(), c.name.clone())
+            }
+            Some(c) => {
+                self.add_error_cell(&format!(
+                    "Connection '{}' is not connected. Use /connect {} first.",
+                    c.name, c.name
+                ));
+                return;
+            }
+            None => {
+                self.add_error_cell(&format!("Connection not found: {left_name}"));
+                return;
+            }
+        };
+
+        let (right_endpoint, right_name_owned) = match right_conn {
+            Some(c) if matches!(c.state, ConnectionState::Connected) => {
+                (c.endpoint.clone(), c.name.clone())
+            }
+            Some(c) => {
+                self.add_error_cell(&format!(
+                    "Connection '{}' is not connected. Use /connect {} first.",
+                    c.name, c.name
+                ));
+                return;
+            }
+            None => {
+                self.add_error_cell(&format!("Connection not found: {right_name}"));
+                return;
+            }
+        };
+
+        let query_id = QueryId::new();
+        let is_analyze = matches!(diff_type, DiffType::Plan | DiffType::Profile);
+        let display_sql = match diff_type {
+            DiffType::Plan => format!("/diff analyze {left_name} {right_name} {sql}"),
+            DiffType::Profile => format!("/diff profile {left_name} {right_name} {sql}"),
+            _ => format!("/diff {left_name} {right_name} {sql}"),
+        };
+
+        // Add to history with Running status
+        self.history.push(QueryCell {
+            sql: display_sql,
+            id: query_id,
+            status: QueryStatus::Running,
+            started_at: Instant::now(),
+            schema: None,
+            batches: Vec::new(),
+            stats: None,
+            error: None,
+            is_info: false,
+            diff_result: None,
+        });
+
+        // Spawn async task to run both queries
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_diff = Some((
+            query_id,
+            left_name_owned.clone(),
+            right_name_owned.clone(),
+            diff_type,
+            rx,
+        ));
+
+        let sql_owned = sql.to_string();
+        let runtime = self.runtime_handle.clone();
+
+        runtime.spawn(async move {
+            // Prepare the SQL - wrap in EXPLAIN ANALYZE if needed
+            let execute_sql = if is_analyze {
+                format!("EXPLAIN ANALYZE {sql_owned}")
+            } else {
+                sql_owned.clone()
+            };
+
+            // Run both queries concurrently
+            let (left_result, right_result) = tokio::join!(
+                Self::run_diff_query(&left_endpoint, &execute_sql, is_analyze),
+                Self::run_diff_query(&right_endpoint, &execute_sql, is_analyze),
+            );
+
+            let _ = tx.send((left_result, right_result));
+        });
+
+        self.scroll_to_bottom = true;
+    }
+
+    /// Execute a profile diff (EXPLAIN ANALYZE with metric highlighting).
+    fn execute_profile_diff(&mut self, left_name: &str, right_name: &str, sql: &str) {
+        self.execute_diff_query_with_type(left_name, right_name, sql, DiffType::Profile);
+    }
+
+    /// Helper function to run a query on a specific endpoint for diff comparison.
+    async fn run_diff_query(
+        endpoint: &str,
+        sql: &str,
+        is_analyze: bool,
+    ) -> Result<(SchemaRef, Vec<RecordBatch>, Option<String>), String> {
+        let mut client = FlightClient::connect(endpoint)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let mut stream = client.execute(sql).await.map_err(|e| e.to_string())?;
+
+        let schema = stream.schema();
+        let batches = stream.collect().await.map_err(|e| e.to_string())?;
+
+        // If this is an analyze query, extract the plan text from the result
+        let plan_text = if is_analyze {
+            // EXPLAIN ANALYZE typically returns a single column with the plan text
+            if let Some(batch) = batches.first() {
+                if batch.num_columns() > 0 {
+                    use enya_datafusion::arrow::array::StringArray;
+                    if let Some(arr) = batch.column(0).as_any().downcast_ref::<StringArray>() {
+                        let mut plan_lines = Vec::new();
+                        for i in 0..arr.len() {
+                            if !arr.is_null(i) {
+                                plan_lines.push(arr.value(i).to_string());
+                            }
+                        }
+                        Some(plan_lines.join("\n"))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        Ok((schema, batches, plan_text))
+    }
+
+    /// Execute a schema diff between two connections.
+    fn execute_schema_diff(&mut self, left_name: &str, right_name: &str, table: &str) {
+        // Find both connections by name
+        let left_conn = self
+            .connections
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(left_name));
+        let right_conn = self
+            .connections
+            .iter()
+            .find(|c| c.name.eq_ignore_ascii_case(right_name));
+
+        // Validate connections exist and are connected
+        let (left_endpoint, left_name_owned) = match left_conn {
+            Some(c) if matches!(c.state, ConnectionState::Connected) => {
+                (c.endpoint.clone(), c.name.clone())
+            }
+            Some(c) => {
+                self.add_error_cell(&format!(
+                    "Connection '{}' is not connected. Use /connect {} first.",
+                    c.name, c.name
+                ));
+                return;
+            }
+            None => {
+                self.add_error_cell(&format!("Connection not found: {left_name}"));
+                return;
+            }
+        };
+
+        let (right_endpoint, right_name_owned) = match right_conn {
+            Some(c) if matches!(c.state, ConnectionState::Connected) => {
+                (c.endpoint.clone(), c.name.clone())
+            }
+            Some(c) => {
+                self.add_error_cell(&format!(
+                    "Connection '{}' is not connected. Use /connect {} first.",
+                    c.name, c.name
+                ));
+                return;
+            }
+            None => {
+                self.add_error_cell(&format!("Connection not found: {right_name}"));
+                return;
+            }
+        };
+
+        let query_id = QueryId::new();
+        let display_sql = format!("/diff schema {left_name} {right_name} {table}");
+        let table_owned = table.to_string();
+
+        // Add to history with Running status
+        self.history.push(QueryCell {
+            sql: display_sql,
+            id: query_id,
+            status: QueryStatus::Running,
+            started_at: Instant::now(),
+            schema: None,
+            batches: Vec::new(),
+            stats: None,
+            error: None,
+            is_info: false,
+            diff_result: None,
+        });
+
+        // Spawn async task to fetch schemas from both connections
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.pending_schema_diff = Some((
+            query_id,
+            left_name_owned.clone(),
+            right_name_owned.clone(),
+            table_owned.clone(),
+            rx,
+        ));
+
+        let runtime = self.runtime_handle.clone();
+
+        runtime.spawn(async move {
+            // Run both schema fetches concurrently
+            let (left_result, right_result) = tokio::join!(
+                Self::fetch_table_schema(&left_endpoint, &table_owned),
+                Self::fetch_table_schema(&right_endpoint, &table_owned),
+            );
+
+            let _ = tx.send((left_result, right_result));
+        });
+
+        self.scroll_to_bottom = true;
+    }
+
+    /// Helper function to fetch table schema from an endpoint.
+    async fn fetch_table_schema(
+        endpoint: &str,
+        table: &str,
+    ) -> Result<Vec<enya_datafusion::ColumnInfo>, String> {
+        let mut client = FlightClient::connect(endpoint)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        client
+            .get_columns(None, None, table)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
     /// Add an error message cell to history.
     fn add_error_cell(&mut self, message: &str) {
         self.history.push(QueryCell {
@@ -890,6 +1285,7 @@ Keyboard Shortcuts:
             stats: None,
             error: Some(message.to_string()),
             is_info: true, // Error messages are system info, not user queries
+            diff_result: None,
         });
         self.scroll_to_bottom = true;
     }
@@ -906,6 +1302,7 @@ Keyboard Shortcuts:
             stats: None,
             error: None,
             is_info: true,
+            diff_result: None,
         });
         self.scroll_to_bottom = true;
     }
@@ -1067,6 +1464,7 @@ Keyboard Shortcuts:
                         stats: None,
                         error: None,
                         is_info: false,
+                        diff_result: None,
                     });
                     let idx = self.history.len() - 1;
                     self.open_overlay(ResultOverlay::Plan, idx);
@@ -1113,6 +1511,204 @@ Keyboard Shortcuts:
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     // Task dropped
                     self.pending_tables_id = None;
+                }
+            }
+        }
+
+        // Poll pending diff query
+        if let Some((query_id, left_name, right_name, diff_type, mut rx)) = self.pending_diff.take()
+        {
+            match rx.try_recv() {
+                Ok((left_result, right_result)) => {
+                    let is_analyze = matches!(diff_type, DiffType::Plan | DiffType::Profile);
+
+                    // Build the diff result
+                    let mut diff_result = DiffQueryResult {
+                        left_name: left_name.clone(),
+                        right_name: right_name.clone(),
+                        left_schema: None,
+                        left_batches: Vec::new(),
+                        left_error: None,
+                        right_schema: None,
+                        right_batches: Vec::new(),
+                        right_error: None,
+                        schemas_match: false,
+                        diff_stats: None,
+                        left_plan: None,
+                        right_plan: None,
+                        diff_type: diff_type.clone(),
+                        schema_diff: None,
+                    };
+
+                    // Process left result
+                    match left_result {
+                        Ok((schema, batches, plan_text)) => {
+                            diff_result.left_schema = Some(schema);
+                            diff_result.left_batches = batches;
+                            if is_analyze {
+                                if let Some(text) = plan_text {
+                                    diff_result.left_plan = Some(self.parse_plan_text(&text));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            diff_result.left_error = Some(e);
+                        }
+                    }
+
+                    // Process right result
+                    match right_result {
+                        Ok((schema, batches, plan_text)) => {
+                            diff_result.right_schema = Some(schema);
+                            diff_result.right_batches = batches;
+                            if is_analyze {
+                                if let Some(text) = plan_text {
+                                    diff_result.right_plan = Some(self.parse_plan_text(&text));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            diff_result.right_error = Some(e);
+                        }
+                    }
+
+                    // Check schema compatibility and compute diff stats if both succeeded
+                    if let (Some(left_schema), Some(right_schema)) =
+                        (&diff_result.left_schema, &diff_result.right_schema)
+                    {
+                        diff_result.schemas_match = schemas_compatible(left_schema, right_schema);
+
+                        if diff_result.schemas_match && !is_analyze {
+                            diff_result.diff_stats = Some(compute_table_diff(
+                                &diff_result.left_batches,
+                                &diff_result.right_batches,
+                            ));
+                        }
+                    }
+
+                    // Determine final status
+                    let has_error =
+                        diff_result.left_error.is_some() || diff_result.right_error.is_some();
+
+                    // Update the cell
+                    if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
+                        if has_error {
+                            cell.status = QueryStatus::Failed;
+                            // Combine errors for display
+                            let mut errors = Vec::new();
+                            if let Some(e) = &diff_result.left_error {
+                                errors.push(format!("{left_name}: {e}"));
+                            }
+                            if let Some(e) = &diff_result.right_error {
+                                errors.push(format!("{right_name}: {e}"));
+                            }
+                            cell.error = Some(errors.join("\n"));
+                        } else {
+                            cell.status = QueryStatus::Completed;
+                        }
+                        cell.diff_result = Some(diff_result);
+                    }
+
+                    // Open the diff overlay
+                    let idx = self.history.iter().position(|c| c.id == query_id);
+                    if let Some(idx) = idx {
+                        // For plan diff, use a different overlay approach if desired
+                        // For now, use the Diff overlay for both
+                        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
+                    }
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    // Still running
+                    self.pending_diff = Some((query_id, left_name, right_name, diff_type, rx));
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    // Task dropped
+                    if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
+                        cell.status = QueryStatus::Failed;
+                        cell.error = Some("Diff query task dropped".to_string());
+                    }
+                }
+            }
+        }
+
+        // Poll pending schema diff
+        if let Some((query_id, left_name, right_name, table_name, mut rx)) =
+            self.pending_schema_diff.take()
+        {
+            match rx.try_recv() {
+                Ok((left_result, right_result)) => {
+                    // Build the schema diff result
+                    let mut diff_result = DiffQueryResult {
+                        left_name: left_name.clone(),
+                        right_name: right_name.clone(),
+                        left_schema: None,
+                        left_batches: Vec::new(),
+                        left_error: None,
+                        right_schema: None,
+                        right_batches: Vec::new(),
+                        right_error: None,
+                        schemas_match: true,
+                        diff_stats: None,
+                        left_plan: None,
+                        right_plan: None,
+                        diff_type: DiffType::Schema,
+                        schema_diff: None,
+                    };
+
+                    // Process results and build schema diff
+                    match (&left_result, &right_result) {
+                        (Ok(left_cols), Ok(right_cols)) => {
+                            let schema_diff =
+                                SchemaDiffResult::from_columns(&table_name, left_cols, right_cols);
+                            diff_result.schema_diff = Some(schema_diff);
+                        }
+                        (Err(e), _) => {
+                            diff_result.left_error = Some(e.clone());
+                        }
+                        (_, Err(e)) => {
+                            diff_result.right_error = Some(e.clone());
+                        }
+                    }
+
+                    // Determine final status
+                    let has_error =
+                        diff_result.left_error.is_some() || diff_result.right_error.is_some();
+
+                    // Update the cell
+                    if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
+                        if has_error {
+                            cell.status = QueryStatus::Failed;
+                            let mut errors = Vec::new();
+                            if let Some(e) = &diff_result.left_error {
+                                errors.push(format!("{left_name}: {e}"));
+                            }
+                            if let Some(e) = &diff_result.right_error {
+                                errors.push(format!("{right_name}: {e}"));
+                            }
+                            cell.error = Some(errors.join("\n"));
+                        } else {
+                            cell.status = QueryStatus::Completed;
+                        }
+                        cell.diff_result = Some(diff_result);
+                    }
+
+                    // Open the diff overlay
+                    let idx = self.history.iter().position(|c| c.id == query_id);
+                    if let Some(idx) = idx {
+                        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
+                    }
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    // Still running
+                    self.pending_schema_diff =
+                        Some((query_id, left_name, right_name, table_name, rx));
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    // Task dropped
+                    if let Some(cell) = self.history.iter_mut().find(|c| c.id == query_id) {
+                        cell.status = QueryStatus::Failed;
+                        cell.error = Some("Schema diff task dropped".to_string());
+                    }
                 }
             }
         }
@@ -1452,6 +2048,514 @@ Keyboard Shortcuts:
 
         self.plan_viewer.load_plan(&plan);
         self.show_plan_viewer = true;
+    }
+
+    /// Load a demo diff result for testing the diff overlay.
+    fn load_diff_demo(&mut self) {
+        use enya_datafusion::arrow::array::{Int32Array, StringArray};
+        use enya_datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
+
+        // Create schema for demo data - realistic users table
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("email", DataType::Utf8, true),
+            Field::new("name", DataType::Utf8, true),
+            Field::new("role", DataType::Utf8, true),
+        ]));
+
+        // STAGING environment - includes test users and some synced production users
+        // Test users (staging-only): test@, qa@, demo@
+        // Synced from prod: alice@, bob@, carol@
+        let left_batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3, 100, 101, 102])),
+                Arc::new(StringArray::from(vec![
+                    "alice@acme.com",
+                    "bob@acme.com",
+                    "carol@acme.com",
+                    "test@staging.local",
+                    "qa@staging.local",
+                    "demo@staging.local",
+                ])),
+                Arc::new(StringArray::from(vec![
+                    "Alice Chen",
+                    "Bob Smith",
+                    "Carol Jones",
+                    "Test User",
+                    "QA Engineer",
+                    "Demo Account",
+                ])),
+                Arc::new(StringArray::from(vec![
+                    "admin", "editor", "viewer", "admin", "editor", "viewer",
+                ])),
+            ],
+        )
+        .unwrap();
+
+        // PRODUCTION environment - real users only
+        // Synced users: alice@, bob@, carol@ (same as staging)
+        // Production-only: dave@, emma@, frank@ (new users since staging snapshot)
+        let right_batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5, 6])),
+                Arc::new(StringArray::from(vec![
+                    "alice@acme.com",
+                    "bob@acme.com",
+                    "carol@acme.com",
+                    "dave@acme.com",
+                    "emma@acme.com",
+                    "frank@acme.com",
+                ])),
+                Arc::new(StringArray::from(vec![
+                    "Alice Chen",
+                    "Bob Smith",
+                    "Carol Jones",
+                    "Dave Wilson",
+                    "Emma Brown",
+                    "Frank Garcia",
+                ])),
+                Arc::new(StringArray::from(vec![
+                    "admin", "editor", "viewer", "editor", "viewer", "viewer",
+                ])),
+            ],
+        )
+        .unwrap();
+
+        // Create the diff result (no plans - to show data diff view)
+        let diff_result = DiffQueryResult {
+            left_name: "staging".to_string(),
+            right_name: "production".to_string(),
+            left_schema: Some(schema.clone()),
+            left_batches: vec![left_batch],
+            left_error: None,
+            right_schema: Some(schema),
+            right_batches: vec![right_batch],
+            right_error: None,
+            schemas_match: true,
+            diff_stats: Some(super::types::DiffStats {
+                matching: 3,   // Alice, Bob, Carol (same in both)
+                left_only: 3,  // Test User, QA Engineer, Demo Account (staging only)
+                right_only: 3, // Dave, Emma, Frank (production only)
+                different: 0,
+            }),
+            left_plan: None,
+            right_plan: None,
+            diff_type: DiffType::Data,
+            schema_diff: None,
+        };
+
+        // Create a query cell with the diff result
+        let query_id = QueryId::new();
+        self.history.push(QueryCell {
+            sql: "/diff demo (staging vs production)".to_string(),
+            id: query_id,
+            status: QueryStatus::Completed,
+            started_at: Instant::now(),
+            schema: None,
+            batches: Vec::new(),
+            stats: None,
+            error: None,
+            is_info: false,
+            diff_result: Some(diff_result),
+        });
+
+        // Open the diff overlay
+        let idx = self.history.len() - 1;
+        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
+        self.scroll_to_bottom = true;
+    }
+
+    /// Load a demo schema diff result for testing the schema diff overlay.
+    fn load_schema_diff_demo(&mut self) {
+        use super::types::{ColumnDiffStatus, SchemaDiffColumn, SchemaDiffResult};
+
+        // Create a realistic schema diff scenario:
+        // - staging has some test columns, missing some production columns
+        // - production has evolved with new columns, some type changes
+        let schema_diff = SchemaDiffResult {
+            table_name: "users".to_string(),
+            columns: vec![
+                // Matching columns
+                SchemaDiffColumn {
+                    name: "id".to_string(),
+                    left_type: Some("INT".to_string()),
+                    left_nullable: Some(false),
+                    right_type: Some("INT".to_string()),
+                    right_nullable: Some(false),
+                    status: ColumnDiffStatus::Matching,
+                },
+                SchemaDiffColumn {
+                    name: "email".to_string(),
+                    left_type: Some("VARCHAR(255)".to_string()),
+                    left_nullable: Some(false),
+                    right_type: Some("VARCHAR(255)".to_string()),
+                    right_nullable: Some(false),
+                    status: ColumnDiffStatus::Matching,
+                },
+                SchemaDiffColumn {
+                    name: "name".to_string(),
+                    left_type: Some("VARCHAR(100)".to_string()),
+                    left_nullable: Some(true),
+                    right_type: Some("VARCHAR(100)".to_string()),
+                    right_nullable: Some(true),
+                    status: ColumnDiffStatus::Matching,
+                },
+                // Changed column - type difference
+                SchemaDiffColumn {
+                    name: "status".to_string(),
+                    left_type: Some("VARCHAR(20)".to_string()),
+                    left_nullable: Some(true),
+                    right_type: Some("INT".to_string()),
+                    right_nullable: Some(false),
+                    status: ColumnDiffStatus::Changed,
+                },
+                // Left-only column (staging has it, production doesn't)
+                SchemaDiffColumn {
+                    name: "test_flag".to_string(),
+                    left_type: Some("BOOLEAN".to_string()),
+                    left_nullable: Some(true),
+                    right_type: None,
+                    right_nullable: None,
+                    status: ColumnDiffStatus::LeftOnly,
+                },
+                SchemaDiffColumn {
+                    name: "debug_info".to_string(),
+                    left_type: Some("TEXT".to_string()),
+                    left_nullable: Some(true),
+                    right_type: None,
+                    right_nullable: None,
+                    status: ColumnDiffStatus::LeftOnly,
+                },
+                // Right-only columns (production has them, staging doesn't)
+                SchemaDiffColumn {
+                    name: "created_at".to_string(),
+                    left_type: None,
+                    left_nullable: None,
+                    right_type: Some("TIMESTAMP".to_string()),
+                    right_nullable: Some(false),
+                    status: ColumnDiffStatus::RightOnly,
+                },
+                SchemaDiffColumn {
+                    name: "updated_at".to_string(),
+                    left_type: None,
+                    left_nullable: None,
+                    right_type: Some("TIMESTAMP".to_string()),
+                    right_nullable: Some(true),
+                    status: ColumnDiffStatus::RightOnly,
+                },
+                SchemaDiffColumn {
+                    name: "deleted_at".to_string(),
+                    left_type: None,
+                    left_nullable: None,
+                    right_type: Some("TIMESTAMP".to_string()),
+                    right_nullable: Some(true),
+                    status: ColumnDiffStatus::RightOnly,
+                },
+            ],
+            matching: 3,
+            left_only: 2,
+            right_only: 3,
+            changed: 1,
+        };
+
+        // Create the diff result
+        let diff_result = DiffQueryResult {
+            left_name: "staging".to_string(),
+            right_name: "production".to_string(),
+            left_schema: None,
+            left_batches: Vec::new(),
+            left_error: None,
+            right_schema: None,
+            right_batches: Vec::new(),
+            right_error: None,
+            schemas_match: false,
+            diff_stats: None,
+            left_plan: None,
+            right_plan: None,
+            diff_type: DiffType::Schema,
+            schema_diff: Some(schema_diff),
+        };
+
+        // Create a query cell with the diff result
+        let query_id = QueryId::new();
+        self.history.push(QueryCell {
+            sql: "/diff schema demo (staging vs production users)".to_string(),
+            id: query_id,
+            status: QueryStatus::Completed,
+            started_at: Instant::now(),
+            schema: None,
+            batches: Vec::new(),
+            stats: None,
+            error: None,
+            is_info: false,
+            diff_result: Some(diff_result),
+        });
+
+        // Open the diff overlay
+        let idx = self.history.len() - 1;
+        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
+        self.scroll_to_bottom = true;
+    }
+
+    /// Load a demo profile diff result for testing the profile diff overlay.
+    fn load_profile_diff_demo(&mut self) {
+        use enya_datafusion::{OperatorMetrics, PlanNode};
+        use std::time::Duration;
+
+        // Realistic query plan for:
+        // SELECT c.name, COUNT(*) as order_count, SUM(o.total) as revenue
+        // FROM orders o JOIN customers c ON o.customer_id = c.id
+        // WHERE o.status = 'completed' AND o.created_at > '2024-01-01'
+        // GROUP BY c.name ORDER BY revenue DESC LIMIT 100
+
+        // Staging: slower - full table scans, no partition pruning, memory pressure
+        let left_plan = PlanNode {
+            operator: "GlobalLimitExec".to_string(),
+            description: "limit=100".to_string(),
+            properties: Default::default(),
+            metrics: Some(OperatorMetrics {
+                output_rows: 100,
+                elapsed_time: Duration::from_micros(850),
+                memory_bytes: 8192,
+                spill_count: 0,
+                spill_bytes: 0,
+            }),
+            children: vec![PlanNode {
+                operator: "SortExec".to_string(),
+                description: "revenue DESC".to_string(),
+                properties: Default::default(),
+                metrics: Some(OperatorMetrics {
+                    output_rows: 2847,
+                    elapsed_time: Duration::from_millis(45),
+                    memory_bytes: 524288,
+                    spill_count: 0,
+                    spill_bytes: 0,
+                }),
+                children: vec![PlanNode {
+                    operator: "AggregateExec".to_string(),
+                    description: "GROUP BY c.name, SUM(total), COUNT(*)".to_string(),
+                    properties: Default::default(),
+                    metrics: Some(OperatorMetrics {
+                        output_rows: 2847,
+                        elapsed_time: Duration::from_millis(125),
+                        memory_bytes: 4194304,
+                        spill_count: 2,
+                        spill_bytes: 8388608,
+                    }),
+                    children: vec![PlanNode {
+                        operator: "CoalesceBatchesExec".to_string(),
+                        description: "target_batch_size=8192".to_string(),
+                        properties: Default::default(),
+                        metrics: Some(OperatorMetrics {
+                            output_rows: 156420,
+                            elapsed_time: Duration::from_millis(12),
+                            memory_bytes: 262144,
+                            spill_count: 0,
+                            spill_bytes: 0,
+                        }),
+                        children: vec![PlanNode {
+                            operator: "HashJoinExec".to_string(),
+                            description: "INNER JOIN on customer_id = id".to_string(),
+                            properties: Default::default(),
+                            metrics: Some(OperatorMetrics {
+                                output_rows: 156420,
+                                elapsed_time: Duration::from_millis(340),
+                                memory_bytes: 67108864,
+                                spill_count: 0,
+                                spill_bytes: 0,
+                            }),
+                            children: vec![
+                                PlanNode {
+                                    operator: "FilterExec".to_string(),
+                                    description:
+                                        "status = 'completed' AND created_at > '2024-01-01'"
+                                            .to_string(),
+                                    properties: Default::default(),
+                                    metrics: Some(OperatorMetrics {
+                                        output_rows: 156420,
+                                        elapsed_time: Duration::from_millis(85),
+                                        memory_bytes: 131072,
+                                        spill_count: 0,
+                                        spill_bytes: 0,
+                                    }),
+                                    children: vec![PlanNode {
+                                        operator: "ParquetExec".to_string(),
+                                        description: "orders.parquet [full scan, 48 partitions]"
+                                            .to_string(),
+                                        properties: Default::default(),
+                                        metrics: Some(OperatorMetrics {
+                                            output_rows: 1250000,
+                                            elapsed_time: Duration::from_millis(420),
+                                            memory_bytes: 134217728,
+                                            spill_count: 0,
+                                            spill_bytes: 0,
+                                        }),
+                                        children: vec![],
+                                    }],
+                                },
+                                PlanNode {
+                                    operator: "ParquetExec".to_string(),
+                                    description: "customers.parquet [full scan, 4 partitions]"
+                                        .to_string(),
+                                    properties: Default::default(),
+                                    metrics: Some(OperatorMetrics {
+                                        output_rows: 50000,
+                                        elapsed_time: Duration::from_millis(65),
+                                        memory_bytes: 16777216,
+                                        spill_count: 0,
+                                        spill_bytes: 0,
+                                    }),
+                                    children: vec![],
+                                },
+                            ],
+                        }],
+                    }],
+                }],
+            }],
+        };
+
+        // Production: faster - partition pruning, bloom filters, optimized join
+        let right_plan = PlanNode {
+            operator: "GlobalLimitExec".to_string(),
+            description: "limit=100".to_string(),
+            properties: Default::default(),
+            metrics: Some(OperatorMetrics {
+                output_rows: 100,
+                elapsed_time: Duration::from_micros(420),
+                memory_bytes: 8192,
+                spill_count: 0,
+                spill_bytes: 0,
+            }),
+            children: vec![PlanNode {
+                operator: "SortExec".to_string(),
+                description: "revenue DESC".to_string(),
+                properties: Default::default(),
+                metrics: Some(OperatorMetrics {
+                    output_rows: 2891,
+                    elapsed_time: Duration::from_millis(28),
+                    memory_bytes: 524288,
+                    spill_count: 0,
+                    spill_bytes: 0,
+                }),
+                children: vec![PlanNode {
+                    operator: "AggregateExec".to_string(),
+                    description: "GROUP BY c.name, SUM(total), COUNT(*)".to_string(),
+                    properties: Default::default(),
+                    metrics: Some(OperatorMetrics {
+                        output_rows: 2891,
+                        elapsed_time: Duration::from_millis(42),
+                        memory_bytes: 2097152,
+                        spill_count: 0,
+                        spill_bytes: 0,
+                    }),
+                    children: vec![PlanNode {
+                        operator: "CoalesceBatchesExec".to_string(),
+                        description: "target_batch_size=8192".to_string(),
+                        properties: Default::default(),
+                        metrics: Some(OperatorMetrics {
+                            output_rows: 162350,
+                            elapsed_time: Duration::from_millis(8),
+                            memory_bytes: 262144,
+                            spill_count: 0,
+                            spill_bytes: 0,
+                        }),
+                        children: vec![PlanNode {
+                            operator: "HashJoinExec".to_string(),
+                            description: "INNER JOIN on customer_id = id".to_string(),
+                            properties: Default::default(),
+                            metrics: Some(OperatorMetrics {
+                                output_rows: 162350,
+                                elapsed_time: Duration::from_millis(95),
+                                memory_bytes: 33554432,
+                                spill_count: 0,
+                                spill_bytes: 0,
+                            }),
+                            children: vec![
+                                PlanNode {
+                                    operator: "FilterExec".to_string(),
+                                    description: "status = 'completed' AND created_at > '2024-01-01'".to_string(),
+                                    properties: Default::default(),
+                                    metrics: Some(OperatorMetrics {
+                                        output_rows: 162350,
+                                        elapsed_time: Duration::from_millis(22),
+                                        memory_bytes: 131072,
+                                        spill_count: 0,
+                                        spill_bytes: 0,
+                                    }),
+                                    children: vec![PlanNode {
+                                        operator: "ParquetExec".to_string(),
+                                        description: "orders.parquet [pruned: 12/48 partitions, bloom filter]".to_string(),
+                                        properties: Default::default(),
+                                        metrics: Some(OperatorMetrics {
+                                            output_rows: 312500,
+                                            elapsed_time: Duration::from_millis(78),
+                                            memory_bytes: 33554432,
+                                            spill_count: 0,
+                                            spill_bytes: 0,
+                                        }),
+                                        children: vec![],
+                                    }],
+                                },
+                                PlanNode {
+                                    operator: "ParquetExec".to_string(),
+                                    description: "customers.parquet [cached, 4 partitions]".to_string(),
+                                    properties: Default::default(),
+                                    metrics: Some(OperatorMetrics {
+                                        output_rows: 50000,
+                                        elapsed_time: Duration::from_millis(12),
+                                        memory_bytes: 16777216,
+                                        spill_count: 0,
+                                        spill_bytes: 0,
+                                    }),
+                                    children: vec![],
+                                },
+                            ],
+                        }],
+                    }],
+                }],
+            }],
+        };
+
+        // Create the diff result
+        let diff_result = DiffQueryResult {
+            left_name: "staging".to_string(),
+            right_name: "production".to_string(),
+            left_schema: None,
+            left_batches: Vec::new(),
+            left_error: None,
+            right_schema: None,
+            right_batches: Vec::new(),
+            right_error: None,
+            schemas_match: true,
+            diff_stats: None,
+            left_plan: Some(left_plan),
+            right_plan: Some(right_plan),
+            diff_type: DiffType::Profile,
+            schema_diff: None,
+        };
+
+        // Create a query cell with the diff result
+        let query_id = QueryId::new();
+        self.history.push(QueryCell {
+            sql: "/diff profile demo (staging vs production)".to_string(),
+            id: query_id,
+            status: QueryStatus::Completed,
+            started_at: Instant::now(),
+            schema: None,
+            batches: Vec::new(),
+            stats: None,
+            error: None,
+            is_info: false,
+            diff_result: Some(diff_result),
+        });
+
+        // Open the diff overlay
+        let idx = self.history.len() - 1;
+        self.open_overlay(ResultOverlay::Diff { other_idx: idx }, idx);
+        self.scroll_to_bottom = true;
     }
 
     /// Fetch table list from connected server.
@@ -2298,80 +3402,1373 @@ Keyboard Shortcuts:
     }
 
     /// Render the diff overlay view.
-    fn render_diff_overlay(&mut self, ui: &mut egui::Ui, _left_idx: usize, _right_idx: usize) {
+    fn render_diff_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize, _other_idx: usize) {
+        use crate::ui::semantic_icons::diff;
+
         let text_primary = self.theme.text_primary();
         let text_secondary = self.theme.text_secondary();
+        let colors = OverlayColors::new(self.theme);
+        let theme = self.theme;
 
-        // Header bar
-        egui::Frame::new()
-            .fill(self.theme.bg_surface())
-            .inner_margin(egui::Margin::symmetric(16, 12))
-            .corner_radius(egui::CornerRadius {
-                nw: 12,
-                ne: 12,
-                sw: 0,
-                se: 0,
-            })
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new(format!("{} Back", nav::BACK))
-                                    .color(text_secondary)
-                                    .size(12.0),
-                            )
-                            .frame(false),
-                        )
-                        .clicked()
-                    {
-                        self.close_overlay();
+        // Handle Escape to close
+        let mut should_close = false;
+        ui.ctx().input_mut(|i| {
+            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                should_close = true;
+            }
+        });
+
+        // Helper to calculate total time from a plan tree
+        fn calc_plan_time(node: &PlanNode) -> u64 {
+            let self_time = node
+                .metrics
+                .as_ref()
+                .map(|m| m.elapsed_time.as_micros() as u64)
+                .unwrap_or(0);
+            let children_time: u64 = node.children.iter().map(calc_plan_time).sum();
+            self_time + children_time
+        }
+
+        // Extract data from diff result to avoid borrow conflicts in closures
+        let diff_data = self
+            .history
+            .get(result_idx)
+            .and_then(|c| c.diff_result.as_ref())
+            .map(|d| {
+                // Calculate profile timing if plans are available
+                let left_time_ms = d.left_plan.as_ref().map(|p| calc_plan_time(p) / 1000);
+                let right_time_ms = d.right_plan.as_ref().map(|p| calc_plan_time(p) / 1000);
+
+                (
+                    d.left_name.clone(),
+                    d.right_name.clone(),
+                    d.diff_type.clone(),
+                    d.diff_stats.clone(),
+                    d.schemas_match,
+                    d.left_schema.is_some(),
+                    d.right_schema.is_some(),
+                    d.left_error.clone(),
+                    d.right_error.clone(),
+                    d.schema_diff.clone(),
+                    left_time_ms,
+                    right_time_ms,
+                )
+            });
+
+        let Some((
+            left_name,
+            right_name,
+            diff_type,
+            diff_stats,
+            schemas_match,
+            has_left_schema,
+            has_right_schema,
+            left_error,
+            right_error,
+            schema_diff,
+            left_time_ms,
+            right_time_ms,
+        )) = diff_data
+        else {
+            // No diff result - show placeholder
+            egui::Frame::new()
+                .fill(theme.bg_surface())
+                .inner_margin(16.0)
+                .corner_radius(12.0)
+                .show(ui, |ui| {
+                    ui.centered_and_justified(|ui| {
+                        ui.label(
+                            RichText::new("No diff data available")
+                                .color(text_secondary)
+                                .size(14.0),
+                        );
+                    });
+                });
+            if should_close {
+                self.close_overlay();
+            }
+            return;
+        };
+
+        // ===== Header with icon, title, and stats badges =====
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // Back button
+            if ui
+                .add(
+                    egui::Button::new(
+                        RichText::new(format!("{} Back", nav::BACK))
+                            .color(text_secondary)
+                            .size(12.0),
+                    )
+                    .frame(false),
+                )
+                .clicked()
+            {
+                should_close = true;
+            }
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(12.0);
+
+            // Diff icon and title
+            ui.label(RichText::new(diff::DIFF).color(colors.accent).size(16.0));
+            ui.add_space(4.0);
+
+            let title = match &diff_type {
+                DiffType::Plan => format!("{left_name} vs {right_name} (Plan)"),
+                DiffType::Profile => format!("{left_name} vs {right_name} (Profile)"),
+                DiffType::Schema => {
+                    let table = schema_diff
+                        .as_ref()
+                        .map(|s| s.table_name.as_str())
+                        .unwrap_or("table");
+                    format!("{left_name} vs {right_name} ({table} Schema)")
+                }
+                DiffType::Data => format!("{left_name} vs {right_name}"),
+            };
+            ui.label(RichText::new(title).color(text_primary).size(14.0).strong());
+
+            // Stats badges on the right
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+
+                // For schema diff, use schema_diff stats
+                if let Some(sd) = &schema_diff {
+                    Self::render_diff_stat_badge_static(
+                        ui,
+                        &format!("{} matching", sd.matching),
+                        theme.semantic_success(),
+                    );
+                    ui.add_space(4.0);
+
+                    if sd.changed > 0 {
+                        Self::render_diff_stat_badge_static(
+                            ui,
+                            &format!("{} changed", sd.changed),
+                            theme.semantic_warning(),
+                        );
+                        ui.add_space(4.0);
                     }
 
-                    ui.add_space(16.0);
-                    ui.separator();
-                    ui.add_space(16.0);
+                    if sd.left_only > 0 {
+                        Self::render_diff_stat_badge_static(
+                            ui,
+                            &format!("{} removed", sd.left_only),
+                            theme.semantic_error(),
+                        );
+                        ui.add_space(4.0);
+                    }
 
+                    if sd.right_only > 0 {
+                        Self::render_diff_stat_badge_static(
+                            ui,
+                            &format!("{} added", sd.right_only),
+                            theme.accent_muted(),
+                        );
+                    }
+                } else if let Some(stats) = &diff_stats {
+                    // Matching badge
+                    Self::render_diff_stat_badge_static(
+                        ui,
+                        &format!("{} matching", stats.matching),
+                        theme.semantic_success(),
+                    );
+                    ui.add_space(4.0);
+
+                    if stats.left_only > 0 {
+                        Self::render_diff_stat_badge_static(
+                            ui,
+                            &format!("{} left only", stats.left_only),
+                            theme.semantic_warning(),
+                        );
+                        ui.add_space(4.0);
+                    }
+
+                    if stats.right_only > 0 {
+                        Self::render_diff_stat_badge_static(
+                            ui,
+                            &format!("{} right only", stats.right_only),
+                            theme.accent_muted(),
+                        );
+                        ui.add_space(4.0);
+                    }
+
+                    if stats.different > 0 {
+                        Self::render_diff_stat_badge_static(
+                            ui,
+                            &format!("{} different", stats.different),
+                            theme.semantic_error(),
+                        );
+                    }
+                } else if !schemas_match && has_left_schema && has_right_schema {
+                    Self::render_diff_stat_badge_static(
+                        ui,
+                        "Schema mismatch",
+                        theme.semantic_warning(),
+                    );
+                }
+
+                // Profile diff timing summary
+                if matches!(diff_type, DiffType::Profile | DiffType::Plan) {
+                    if let (Some(left_ms), Some(right_ms)) = (left_time_ms, right_time_ms) {
+                        let delta = right_ms as i64 - left_ms as i64;
+                        let pct = if left_ms > 0 {
+                            ((right_ms as f64 - left_ms as f64) / left_ms as f64) * 100.0
+                        } else {
+                            0.0
+                        };
+
+                        let (text, color) = if delta < 0 {
+                            (
+                                format!("{left_ms}ms → {right_ms}ms ({pct:.0}%)"),
+                                theme.semantic_success(),
+                            )
+                        } else if delta > 0 {
+                            (
+                                format!("{left_ms}ms → {right_ms}ms (+{pct:.0}%)"),
+                                theme.semantic_error(),
+                            )
+                        } else {
+                            (format!("{left_ms}ms"), text_secondary)
+                        };
+
+                        Self::render_diff_stat_badge_static(ui, &text, color);
+                    }
+                }
+            });
+        });
+        ui.add_space(8.0);
+
+        // Separator below header
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
+
+        // Main content - side by side view
+        egui::Frame::new()
+            .fill(theme.bg_base())
+            .inner_margin(8.0)
+            .show(ui, |ui| {
+                // Error display if either side failed
+                if left_error.is_some() || right_error.is_some() {
+                    if let Some(err) = &left_error {
+                        egui::Frame::new()
+                            .fill(theme.semantic_error().gamma_multiply(0.1))
+                            .stroke(egui::Stroke::new(1.0, theme.semantic_error()))
+                            .corner_radius(4.0)
+                            .inner_margin(8.0)
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(format!("{left_name}: {err}"))
+                                        .color(theme.semantic_error()),
+                                );
+                            });
+                        ui.add_space(4.0);
+                    }
+                    if let Some(err) = &right_error {
+                        egui::Frame::new()
+                            .fill(theme.semantic_error().gamma_multiply(0.1))
+                            .stroke(egui::Stroke::new(1.0, theme.semantic_error()))
+                            .corner_radius(4.0)
+                            .inner_margin(8.0)
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(format!("{right_name}: {err}"))
+                                        .color(theme.semantic_error()),
+                                );
+                            });
+                    }
+                } else {
+                    // Re-borrow diff_result for content rendering (no mutable self access here)
+                    if let Some(diff_result) = self
+                        .history
+                        .get(result_idx)
+                        .and_then(|c| c.diff_result.as_ref())
+                    {
+                        match diff_type {
+                            DiffType::Schema => {
+                                // Schema diff view - column comparison table
+                                self.render_schema_diff_content(ui, diff_result);
+                            }
+                            DiffType::Profile => {
+                                // Profile diff view - side by side trees with metric highlighting
+                                self.render_profile_diff_content(ui, diff_result);
+                            }
+                            DiffType::Plan => {
+                                // Plan diff view - side by side trees
+                                self.render_plan_diff_content(ui, diff_result);
+                            }
+                            DiffType::Data => {
+                                // Data diff view - side by side tables
+                                self.render_data_diff_content(ui, diff_result);
+                            }
+                        }
+                    }
+                }
+            });
+
+        // ===== Footer with keyboard hints =====
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
+        ui.add_space(6.0);
+
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+            let key_bg = theme.bg_elevated();
+            crate::components::util::render_key_badge(ui, "Esc", key_bg, text_secondary);
+            ui.label(
+                RichText::new("close")
+                    .color(text_secondary.gamma_multiply(0.7))
+                    .size(10.0),
+            );
+        });
+        ui.add_space(8.0);
+
+        if should_close {
+            self.close_overlay();
+        }
+    }
+
+    /// Static version of render_diff_stat_badge that doesn't borrow self.
+    fn render_diff_stat_badge_static(ui: &mut egui::Ui, text: &str, color: Color32) {
+        egui::Frame::new()
+            .fill(color.gamma_multiply(0.15))
+            .stroke(egui::Stroke::new(1.0, color.gamma_multiply(0.5)))
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin::symmetric(6, 2))
+            .show(ui, |ui| {
+                ui.label(RichText::new(text).color(color).size(11.0));
+            });
+    }
+
+    /// Render plan diff content (side-by-side plan trees).
+    fn render_plan_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let available_width = ui.available_width();
+        let available_height = ui.available_height().max(300.0);
+        let side_width = (available_width - 12.0) / 2.0;
+        let colors = OverlayColors::new(self.theme);
+
+        // Column headers
+        ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(side_width, 20.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.add_space(8.0);
                     ui.label(
-                        RichText::new("Diff View")
+                        RichText::new(&diff_result.left_name)
                             .color(text_primary)
-                            .size(14.0)
                             .strong(),
                     );
-                });
-            });
-
-        // Placeholder content
-        egui::Frame::new()
-            .fill(self.theme.bg_base())
-            .inner_margin(16.0)
-            .show(ui, |ui| {
-                ui.centered_and_justified(|ui| {
+                },
+            );
+            ui.add_space(4.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(side_width, 20.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.add_space(8.0);
                     ui.label(
-                        RichText::new("Diff view coming soon...")
-                            .color(text_secondary)
-                            .size(14.0),
+                        RichText::new(&diff_result.right_name)
+                            .color(text_primary)
+                            .strong(),
                     );
-                });
-            });
+                },
+            );
+        });
 
-        // Footer
-        egui::Frame::new()
-            .fill(self.theme.bg_surface())
-            .inner_margin(egui::Margin::symmetric(16, 12))
-            .corner_radius(egui::CornerRadius {
-                nw: 0,
-                ne: 0,
-                sw: 12,
-                se: 12,
-            })
-            .show(ui, |ui| {
+        // Separator below headers
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
+        ui.add_space(4.0);
+
+        // Side-by-side content
+        let content_height = (available_height - 40.0).max(200.0);
+
+        ui.horizontal(|ui| {
+            // Left plan panel
+            ui.allocate_ui_with_layout(
+                egui::vec2(side_width, content_height),
+                egui::Layout::top_down(egui::Align::LEFT),
+                |ui| {
+                    ui.set_max_width(side_width);
+                    egui::ScrollArea::vertical()
+                        .id_salt("sql_diff_left_plan")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            if let Some(plan) = &diff_result.left_plan {
+                                self.render_plan_tree(ui, plan, 0);
+                            } else {
+                                ui.label(
+                                    RichText::new("No plan data")
+                                        .color(text_secondary)
+                                        .italics(),
+                                );
+                            }
+                        });
+                },
+            );
+
+            // Center separator
+            let separator_rect = ui.available_rect_before_wrap();
+            ui.painter().vline(
+                separator_rect.left(),
+                separator_rect.y_range(),
+                egui::Stroke::new(1.0, colors.separator),
+            );
+            ui.add_space(4.0);
+
+            // Right plan panel
+            ui.allocate_ui_with_layout(
+                egui::vec2(side_width, content_height),
+                egui::Layout::top_down(egui::Align::LEFT),
+                |ui| {
+                    ui.set_max_width(side_width);
+                    egui::ScrollArea::vertical()
+                        .id_salt("sql_diff_right_plan")
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            if let Some(plan) = &diff_result.right_plan {
+                                self.render_plan_tree(ui, plan, 0);
+                            } else {
+                                ui.label(
+                                    RichText::new("No plan data")
+                                        .color(text_secondary)
+                                        .italics(),
+                                );
+                            }
+                        });
+                },
+            );
+        });
+    }
+
+    /// Render a simple plan tree (non-interactive, for diff view).
+    fn render_plan_tree(&self, ui: &mut egui::Ui, node: &PlanNode, depth: usize) {
+        let text_secondary = self.theme.text_secondary();
+        let indent = depth as f32 * 16.0;
+
+        ui.horizontal(|ui| {
+            ui.add_space(indent);
+
+            // Operator name with color based on category
+            let category = enya_datafusion::OperatorCategory::from_operator(&node.operator);
+            let color = self.theme.plan_color(category.color_index());
+
+            ui.label(
+                RichText::new(&node.operator)
+                    .color(color)
+                    .strong()
+                    .size(12.0),
+            );
+
+            // Metrics if available
+            if let Some(metrics) = &node.metrics {
                 ui.label(
-                    RichText::new("Esc close")
-                        .color(text_secondary.gamma_multiply(0.6))
+                    RichText::new(format!(
+                        " ({}, {}r)",
+                        enya_datafusion::format_duration(metrics.elapsed_time),
+                        metrics.output_rows
+                    ))
+                    .color(text_secondary)
+                    .size(10.0),
+                );
+            }
+        });
+
+        // Description
+        if !node.description.is_empty() {
+            ui.horizontal(|ui| {
+                ui.add_space(indent + 16.0);
+                ui.label(
+                    RichText::new(&node.description)
+                        .color(text_secondary)
                         .size(10.0),
                 );
             });
+        }
+
+        // Recursively render children
+        for child in &node.children {
+            self.render_plan_tree(ui, child, depth + 1);
+        }
+    }
+
+    /// Render schema diff content (unified table showing column differences).
+    fn render_schema_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
+        use super::types::ColumnDiffStatus;
+
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let available_width = ui.available_width();
+        let available_height = ui.available_height().max(300.0);
+        let colors = OverlayColors::new(self.theme);
+
+        let Some(schema_diff) = &diff_result.schema_diff else {
+            ui.label(
+                RichText::new("No schema diff data available")
+                    .color(text_secondary)
+                    .italics(),
+            );
+            return;
+        };
+
+        // Stats summary
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(format!(
+                    "{} matching  {} changed  {} removed  {} added",
+                    schema_diff.matching,
+                    schema_diff.changed,
+                    schema_diff.left_only,
+                    schema_diff.right_only
+                ))
+                .color(text_secondary)
+                .size(10.0),
+            );
+        });
+        ui.add_space(4.0);
+
+        // Column widths - proportional to available width (25%, 30%, 30%, 15%)
+        let usable_width = (available_width - 24.0).max(400.0); // Account for padding
+        let col_widths = [
+            usable_width * 0.25, // Column name
+            usable_width * 0.30, // Left type
+            usable_width * 0.30, // Right type
+            usable_width * 0.15, // Status
+        ];
+        let row_height = 22.0;
+
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            ui.add_sized(
+                [col_widths[0], row_height],
+                egui::Label::new(
+                    RichText::new("Column")
+                        .color(text_primary)
+                        .strong()
+                        .size(11.0),
+                ),
+            );
+            ui.add_sized(
+                [col_widths[1], row_height],
+                egui::Label::new(
+                    RichText::new(&diff_result.left_name)
+                        .color(self.theme.diff_removed_text())
+                        .strong()
+                        .size(11.0),
+                ),
+            );
+            ui.add_sized(
+                [col_widths[2], row_height],
+                egui::Label::new(
+                    RichText::new(&diff_result.right_name)
+                        .color(self.theme.diff_added_text())
+                        .strong()
+                        .size(11.0),
+                ),
+            );
+            ui.add_sized(
+                [col_widths[3], row_height],
+                egui::Label::new(
+                    RichText::new("Status")
+                        .color(text_primary)
+                        .strong()
+                        .size(11.0),
+                ),
+            );
+        });
+
+        // Separator
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
+        ui.add_space(2.0);
+
+        // Scrollable column rows
+        let content_height = (available_height - 80.0).max(200.0);
+        egui::ScrollArea::vertical()
+            .id_salt("sql_schema_diff_rows")
+            .max_height(content_height)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.style_mut().spacing.item_spacing.y = 0.0;
+
+                for col in &schema_diff.columns {
+                    // Determine row background and status display based on column status
+                    let (bg_color, status_text, status_color) = match &col.status {
+                        ColumnDiffStatus::Matching => {
+                            (Color32::TRANSPARENT, "✓", self.theme.semantic_success())
+                        }
+                        ColumnDiffStatus::Changed => (
+                            self.theme.semantic_warning().gamma_multiply(0.1),
+                            "changed",
+                            self.theme.semantic_warning(),
+                        ),
+                        ColumnDiffStatus::LeftOnly => (
+                            self.theme.diff_removed_bg(),
+                            "removed",
+                            self.theme.diff_removed_text(),
+                        ),
+                        ColumnDiffStatus::RightOnly => (
+                            self.theme.diff_added_bg(),
+                            "added",
+                            self.theme.diff_added_text(),
+                        ),
+                    };
+
+                    // Row frame
+                    egui::Frame::new()
+                        .fill(bg_color)
+                        .inner_margin(egui::Margin::symmetric(0, 2))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.add_space(8.0);
+
+                                // Column name
+                                ui.add_sized(
+                                    [col_widths[0], row_height],
+                                    egui::Label::new(
+                                        RichText::new(&col.name).color(text_primary).size(11.0),
+                                    ),
+                                );
+
+                                // Left type
+                                let left_type = col
+                                    .left_type
+                                    .as_ref()
+                                    .map(|t| {
+                                        let nullable = col
+                                            .left_nullable
+                                            .map(|n| if n { " NULL" } else { " NOT NULL" })
+                                            .unwrap_or("");
+                                        format!("{t}{nullable}")
+                                    })
+                                    .unwrap_or_else(|| "—".to_string());
+                                ui.add_sized(
+                                    [col_widths[1], row_height],
+                                    egui::Label::new(
+                                        RichText::new(&left_type)
+                                            .color(if col.left_type.is_some() {
+                                                text_secondary
+                                            } else {
+                                                text_secondary.gamma_multiply(0.5)
+                                            })
+                                            .size(10.0),
+                                    ),
+                                );
+
+                                // Right type
+                                let right_type = col
+                                    .right_type
+                                    .as_ref()
+                                    .map(|t| {
+                                        let nullable = col
+                                            .right_nullable
+                                            .map(|n| if n { " NULL" } else { " NOT NULL" })
+                                            .unwrap_or("");
+                                        format!("{t}{nullable}")
+                                    })
+                                    .unwrap_or_else(|| "—".to_string());
+                                ui.add_sized(
+                                    [col_widths[2], row_height],
+                                    egui::Label::new(
+                                        RichText::new(&right_type)
+                                            .color(if col.right_type.is_some() {
+                                                text_secondary
+                                            } else {
+                                                text_secondary.gamma_multiply(0.5)
+                                            })
+                                            .size(10.0),
+                                    ),
+                                );
+
+                                // Status
+                                ui.add_sized(
+                                    [col_widths[3], row_height],
+                                    egui::Label::new(
+                                        RichText::new(status_text).color(status_color).size(10.0),
+                                    ),
+                                );
+                            });
+                        });
+                }
+            });
+    }
+
+    /// Render profile diff content (side-by-side trees with timing deltas).
+    fn render_profile_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
+        let text_secondary = self.theme.text_secondary();
+        let available_height = ui.available_height().max(300.0);
+        let available_width = ui.available_width();
+
+        // Side-by-side layout
+        let separator_width = 2.0;
+        let side_width = (available_width - separator_width) / 2.0;
+
+        // Side-by-side scrolling content
+        let content_height = (available_height - 80.0).max(200.0);
+
+        egui::ScrollArea::vertical()
+            .id_salt("sql_profile_diff_split")
+            .max_height(content_height)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.set_min_width(available_width);
+                ui.set_max_width(available_width);
+
+                if let Some(left_plan) = &diff_result.left_plan {
+                    self.render_split_profile_tree(
+                        ui,
+                        left_plan,
+                        diff_result.right_plan.as_ref(),
+                        side_width,
+                    );
+                } else if let Some(right_plan) = &diff_result.right_plan {
+                    self.render_split_profile_tree(ui, right_plan, None, side_width);
+                } else {
+                    ui.label(
+                        RichText::new("No plan data available")
+                            .color(text_secondary)
+                            .italics(),
+                    );
+                }
+            });
+    }
+
+    /// Render side-by-side profile trees like git diff.
+    fn render_split_profile_tree(
+        &self,
+        ui: &mut egui::Ui,
+        left_node: &PlanNode,
+        right_root: Option<&PlanNode>,
+        side_width: f32,
+    ) {
+        let mut paired_rows: Vec<(Option<ProfileRow>, Option<ProfileRow>)> = Vec::new();
+        Self::build_paired_profile_rows(left_node, right_root, 0, &mut paired_rows);
+
+        let text_secondary = self.theme.text_secondary();
+        let row_height = 28.0;
+        let separator_width = 2.0;
+        let total_width = side_width * 2.0 + separator_width;
+
+        for (left_row, right_row) in &paired_rows {
+            // Main operator row
+            ui.horizontal(|ui| {
+                ui.set_min_width(total_width);
+                ui.set_max_width(total_width);
+
+                // Left side panel
+                egui::Frame::new()
+                    .fill(Color32::TRANSPARENT)
+                    .show(ui, |ui| {
+                        ui.set_min_size(egui::vec2(side_width, row_height));
+                        ui.set_max_width(side_width);
+                        ui.horizontal(|ui| {
+                            self.render_profile_row(ui, left_row.as_ref(), true, side_width);
+                        });
+                    });
+
+                // Center separator line
+                let rect = ui.available_rect_before_wrap();
+                ui.painter().vline(
+                    rect.left() + 1.0,
+                    rect.y_range(),
+                    egui::Stroke::new(1.0, self.theme.border_default()),
+                );
+                ui.add_space(separator_width);
+
+                // Right side panel
+                egui::Frame::new()
+                    .fill(Color32::TRANSPARENT)
+                    .show(ui, |ui| {
+                        ui.set_min_size(egui::vec2(side_width, row_height));
+                        ui.set_max_width(side_width);
+                        ui.horizontal(|ui| {
+                            self.render_profile_row(ui, right_row.as_ref(), false, side_width);
+                        });
+                    });
+            });
+
+            // Description row (if present) - show on both sides
+            let left_desc = left_row
+                .as_ref()
+                .filter(|r| !r.description.is_empty())
+                .map(|r| (r.description.as_str(), r.depth));
+            let right_desc = right_row
+                .as_ref()
+                .filter(|r| !r.description.is_empty())
+                .map(|r| r.description.as_str());
+
+            if left_desc.is_some() || right_desc.is_some() {
+                let depth = left_desc.map(|(_, d)| d).unwrap_or(0);
+                let indent = 16.0 + depth as f32 * 16.0;
+
+                ui.horizontal(|ui| {
+                    ui.set_min_width(total_width);
+                    ui.set_max_width(total_width);
+
+                    // Left description
+                    egui::Frame::new()
+                        .fill(Color32::TRANSPARENT)
+                        .show(ui, |ui| {
+                            ui.set_min_size(egui::vec2(side_width, 16.0));
+                            ui.set_max_width(side_width);
+                            ui.add_space(indent);
+                            if let Some((desc_text, _)) = left_desc {
+                                ui.label(
+                                    RichText::new(desc_text)
+                                        .color(text_secondary.gamma_multiply(0.6))
+                                        .size(10.0),
+                                );
+                            }
+                        });
+
+                    ui.add_space(separator_width);
+
+                    // Right description
+                    egui::Frame::new()
+                        .fill(Color32::TRANSPARENT)
+                        .show(ui, |ui| {
+                            ui.set_min_size(egui::vec2(side_width, 16.0));
+                            ui.set_max_width(side_width);
+                            ui.add_space(indent);
+                            if let Some(desc_text) = right_desc {
+                                ui.label(
+                                    RichText::new(desc_text)
+                                        .color(text_secondary.gamma_multiply(0.6))
+                                        .size(10.0),
+                                );
+                            }
+                        });
+                });
+            }
+        }
+    }
+
+    /// Render a single row in the split profile view.
+    fn render_profile_row(
+        &self,
+        ui: &mut egui::Ui,
+        row: Option<&ProfileRow>,
+        is_left: bool,
+        side_width: f32,
+    ) {
+        let text_secondary = self.theme.text_secondary();
+
+        let Some(row) = row else {
+            // Empty row placeholder
+            let (rect, _) =
+                ui.allocate_exact_size(egui::vec2(side_width - 8.0, 24.0), egui::Sense::hover());
+            ui.painter()
+                .rect_filled(rect, 0.0, self.theme.bg_base().gamma_multiply(0.3));
+            return;
+        };
+
+        let indent = row.depth as f32 * 16.0;
+
+        // Delta calculation: how much slower/faster is THIS side compared to OTHER side
+        // delta > 0 means other side is slower (I am faster)
+        // delta < 0 means other side is faster (I am slower)
+        let delta_ms = row
+            .other_time_ms
+            .map(|other| other as i64 - row.time_ms as i64);
+
+        // For left side (staging): negative delta = staging slower = bad (red)
+        // For right side (production): positive delta = production faster = good (green)
+        let is_this_side_slower = delta_ms.map(|d| d < -5).unwrap_or(false); // other is faster
+        let is_this_side_faster = delta_ms.map(|d| d > 5).unwrap_or(false); // other is slower
+
+        // Determine highlighting based on which side and whether it's significant
+        let (should_highlight_red, should_highlight_green) = if is_left {
+            // Left side: highlight red if this side is slower
+            (is_this_side_slower, false)
+        } else {
+            // Right side: highlight green if this side is faster
+            (false, is_this_side_faster)
+        };
+
+        // Background color
+        let bg_color = if should_highlight_red {
+            self.theme.diff_removed_bg().gamma_multiply(0.4)
+        } else if should_highlight_green {
+            self.theme.diff_added_bg().gamma_multiply(0.4)
+        } else {
+            Color32::TRANSPARENT
+        };
+
+        // Gutter stripe color
+        let gutter_color = if should_highlight_red {
+            self.theme.diff_removed_text()
+        } else if should_highlight_green {
+            self.theme.diff_added_text()
+        } else if is_left {
+            self.theme.diff_removed_bg().gamma_multiply(0.3)
+        } else {
+            self.theme.diff_added_bg().gamma_multiply(0.3)
+        };
+
+        // Draw row background
+        let row_rect = ui.available_rect_before_wrap();
+        let bg_rect = egui::Rect::from_min_size(row_rect.min, egui::vec2(side_width - 4.0, 24.0));
+        ui.painter().rect_filled(bg_rect, 2.0, bg_color);
+
+        // Draw gutter stripe
+        let gutter_rect = egui::Rect::from_min_size(row_rect.min, egui::vec2(3.0, 24.0));
+        ui.painter().rect_filled(gutter_rect, 0.0, gutter_color);
+
+        ui.add_space(8.0 + indent);
+
+        // Tree connector
+        if row.depth > 0 {
+            ui.label(
+                RichText::new("└")
+                    .color(text_secondary.gamma_multiply(0.3))
+                    .size(10.0),
+            );
+            ui.add_space(2.0);
+        }
+
+        // Operator name with category color
+        let category = enya_datafusion::OperatorCategory::from_operator(&row.operator);
+        let op_color = self.theme.plan_color(category.color_index());
+        ui.label(
+            RichText::new(&row.operator)
+                .color(op_color)
+                .strong()
+                .size(11.0),
+        );
+
+        ui.add_space(8.0);
+
+        // Timing display - always neutral color, only delta is highlighted
+        ui.label(
+            RichText::new(format!("{}ms", row.time_ms))
+                .color(text_secondary)
+                .size(11.0),
+        );
+
+        // Delta badge - only show on the SLOWER side
+        if let Some(delta) = delta_ms {
+            // Only show badge if this side is slower and the difference is significant
+            if is_this_side_slower && delta.abs() > 5 {
+                ui.add_space(6.0);
+                let diff = delta.abs();
+                ui.label(
+                    RichText::new(format!("+{diff}ms"))
+                        .color(self.theme.semantic_error())
+                        .size(10.0)
+                        .strong(),
+                );
+            }
+        }
+
+        // Row count (compact)
+        if row.rows > 0 {
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new(format!("{}rows", enya_datafusion::format_rows(row.rows)))
+                    .color(text_secondary.gamma_multiply(0.5))
+                    .size(9.0),
+            );
+        }
+    }
+
+    /// Build paired rows from two plan trees for side-by-side rendering.
+    fn build_paired_profile_rows(
+        left_node: &PlanNode,
+        right_root: Option<&PlanNode>,
+        depth: usize,
+        rows: &mut Vec<(Option<ProfileRow>, Option<ProfileRow>)>,
+    ) {
+        let right_node = Self::find_matching_node(left_node, right_root, depth);
+
+        let left_time_ms = left_node
+            .metrics
+            .as_ref()
+            .map(|m| m.elapsed_time.as_millis() as u64)
+            .unwrap_or(0);
+        let right_time_ms = right_node
+            .and_then(|n| n.metrics.as_ref())
+            .map(|m| m.elapsed_time.as_millis() as u64);
+
+        let left_rows = left_node
+            .metrics
+            .as_ref()
+            .map(|m| m.output_rows)
+            .unwrap_or(0);
+        let right_rows = right_node
+            .and_then(|n| n.metrics.as_ref())
+            .map(|m| m.output_rows)
+            .unwrap_or(0);
+
+        let left_row = ProfileRow {
+            operator: left_node.operator.clone(),
+            description: left_node.description.clone(),
+            depth,
+            time_ms: left_time_ms,
+            other_time_ms: right_time_ms,
+            rows: left_rows,
+        };
+
+        let right_row = right_node.map(|rn| ProfileRow {
+            operator: rn.operator.clone(),
+            description: rn.description.clone(),
+            depth,
+            time_ms: right_time_ms.unwrap_or(0),
+            other_time_ms: Some(left_time_ms),
+            rows: right_rows,
+        });
+
+        rows.push((Some(left_row), right_row));
+
+        for child in &left_node.children {
+            let right_child = right_node
+                .and_then(|rn| rn.children.iter().find(|rc| rc.operator == child.operator));
+            Self::build_paired_profile_rows(child, right_child, depth + 1, rows);
+        }
+    }
+
+    /// Find matching node in the other plan tree by operator name.
+    /// Note: When called recursively, `other` is already the matched child from the parent level.
+    fn find_matching_node<'a>(
+        node: &PlanNode,
+        other: Option<&'a PlanNode>,
+        _depth: usize,
+    ) -> Option<&'a PlanNode> {
+        let other = other?;
+        if other.operator == node.operator {
+            Some(other)
+        } else {
+            None
+        }
+    }
+
+    /// Render data diff content (side-by-side tables with row highlighting).
+    fn render_data_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let available_width = ui.available_width();
+        let available_height = ui.available_height().max(300.0);
+        let side_width = (available_width - 12.0) / 2.0;
+        let colors = OverlayColors::new(self.theme);
+
+        // Compute detailed diff with paired rows
+        let table_diff = compute_detailed_diff(
+            diff_result.left_schema.as_ref(),
+            &diff_result.left_batches,
+            diff_result.right_schema.as_ref(),
+            &diff_result.right_batches,
+        );
+
+        // Schema mismatch warning
+        if !diff_result.schemas_match
+            && diff_result.left_schema.is_some()
+            && diff_result.right_schema.is_some()
+        {
+            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(format!("{} Schemas don't match", status::WARNING))
+                        .color(self.theme.semantic_warning())
+                        .size(11.0),
+                );
+            });
+            ui.add_space(4.0);
+        }
+
+        // Row counts for headers
+        let left_rows: usize = diff_result.left_batches.iter().map(|b| b.num_rows()).sum();
+        let right_rows: usize = diff_result.right_batches.iter().map(|b| b.num_rows()).sum();
+
+        // Diff stats summary
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new(format!(
+                    "{} matching  {} left only  {} right only",
+                    table_diff.stats.matching,
+                    table_diff.stats.left_only,
+                    table_diff.stats.right_only
+                ))
+                .color(text_secondary)
+                .size(10.0),
+            );
+        });
+        ui.add_space(4.0);
+
+        // Column headers with connection names
+        ui.horizontal(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(side_width, 20.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(&diff_result.left_name)
+                            .color(self.theme.diff_removed_text())
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new(format!("({left_rows} rows)"))
+                            .color(text_secondary)
+                            .size(10.0),
+                    );
+                },
+            );
+            ui.add_space(4.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(side_width, 20.0),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(&diff_result.right_name)
+                            .color(self.theme.diff_added_text())
+                            .strong(),
+                    );
+                    ui.label(
+                        RichText::new(format!("({right_rows} rows)"))
+                            .color(text_secondary)
+                            .size(10.0),
+                    );
+                },
+            );
+        });
+
+        // Separator below headers
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, colors.separator),
+        );
+        ui.add_space(2.0);
+
+        // Calculate dimensions
+        let content_height = (available_height - 80.0).max(200.0);
+        let num_cols = table_diff.columns.len().max(1);
+        let col_width = ((side_width - 16.0) / num_cols as f32).clamp(60.0, 120.0);
+        let row_height = 18.0;
+
+        // Render column headers
+        ui.horizontal(|ui| {
+            // Left header
+            ui.allocate_ui_with_layout(
+                egui::vec2(side_width, row_height),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.add_space(4.0);
+                    for col in &table_diff.columns {
+                        let display_name = if col.len() > 12 {
+                            format!("{}…", &col[..11])
+                        } else {
+                            col.clone()
+                        };
+                        ui.add_sized(
+                            [col_width, row_height],
+                            egui::Label::new(
+                                RichText::new(display_name)
+                                    .color(text_primary)
+                                    .strong()
+                                    .size(10.0),
+                            ),
+                        );
+                    }
+                },
+            );
+            // Right header
+            ui.allocate_ui_with_layout(
+                egui::vec2(side_width, row_height),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.add_space(4.0);
+                    for col in &table_diff.columns {
+                        let display_name = if col.len() > 12 {
+                            format!("{}…", &col[..11])
+                        } else {
+                            col.clone()
+                        };
+                        ui.add_sized(
+                            [col_width, row_height],
+                            egui::Label::new(
+                                RichText::new(display_name)
+                                    .color(text_primary)
+                                    .strong()
+                                    .size(10.0),
+                            ),
+                        );
+                    }
+                },
+            );
+        });
+
+        // Separator below column headers
+        ui.painter().hline(
+            ui.available_rect_before_wrap().x_range(),
+            ui.cursor().top(),
+            egui::Stroke::new(1.0, self.theme.border_default()),
+        );
+
+        // Scrollable paired rows
+        egui::ScrollArea::vertical()
+            .id_salt("sql_diff_paired_rows")
+            .max_height(content_height)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.style_mut().spacing.item_spacing.y = 0.0;
+
+                let max_rows = 100;
+                for pair in table_diff.rows.iter().take(max_rows) {
+                    self.render_diff_row_pair(ui, pair, side_width, col_width, row_height);
+                }
+
+                if table_diff.rows.len() > max_rows {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!("… {}+ rows", table_diff.rows.len()))
+                            .color(text_secondary)
+                            .italics()
+                            .size(9.0),
+                    );
+                }
+            });
+    }
+
+    /// Render a single paired row in the diff view.
+    fn render_diff_row_pair(
+        &self,
+        ui: &mut egui::Ui,
+        pair: &super::diff::DiffRowPair,
+        side_width: f32,
+        col_width: f32,
+        row_height: f32,
+    ) {
+        let text_secondary = self.theme.text_secondary();
+        let empty_bg = self.theme.bg_base().gamma_multiply(0.7);
+
+        // Determine colors based on row status
+        let (left_bg, left_text, right_bg, right_text) = match (&pair.left, &pair.right) {
+            (Some(left), Some(_right)) => {
+                // Both present - matching rows
+                if left.status == RowDiffStatus::Matching {
+                    (None, text_secondary, None, text_secondary)
+                } else {
+                    // Hash collision or mismatch - treat as different
+                    (
+                        Some(self.theme.diff_removed_bg()),
+                        self.theme.diff_removed_text(),
+                        Some(self.theme.diff_added_bg()),
+                        self.theme.diff_added_text(),
+                    )
+                }
+            }
+            (Some(_), None) => {
+                // Left only - red/removed, right empty
+                (
+                    Some(self.theme.diff_removed_bg()),
+                    self.theme.diff_removed_text(),
+                    Some(empty_bg),
+                    text_secondary,
+                )
+            }
+            (None, Some(_)) => {
+                // Right only - green/added, left empty
+                (
+                    Some(empty_bg),
+                    text_secondary,
+                    Some(self.theme.diff_added_bg()),
+                    self.theme.diff_added_text(),
+                )
+            }
+            (None, None) => return, // Shouldn't happen
+        };
+
+        // Allocate the full row first to get proper rect for backgrounds
+        let (row_rect, _) = ui.allocate_exact_size(
+            egui::vec2(side_width * 2.0 + 8.0, row_height),
+            egui::Sense::hover(),
+        );
+
+        // Draw backgrounds first (behind content)
+        let left_rect = egui::Rect::from_min_size(row_rect.min, egui::vec2(side_width, row_height));
+        let right_rect = egui::Rect::from_min_size(
+            egui::pos2(row_rect.min.x + side_width + 8.0, row_rect.min.y),
+            egui::vec2(side_width, row_height),
+        );
+
+        if let Some(bg) = left_bg {
+            ui.painter().rect_filled(left_rect, 0.0, bg);
+        }
+        if let Some(bg) = right_bg {
+            ui.painter().rect_filled(right_rect, 0.0, bg);
+        }
+
+        // Draw vertical separator
+        ui.painter().vline(
+            row_rect.min.x + side_width + 4.0,
+            egui::Rangef::new(row_rect.top(), row_rect.bottom()),
+            egui::Stroke::new(1.0, self.theme.border_default().gamma_multiply(0.5)),
+        );
+
+        // Render left side content
+        if let Some(row) = &pair.left {
+            self.render_diff_row_cells_at(ui, row, left_rect, col_width, left_text);
+        }
+
+        // Render right side content
+        if let Some(row) = &pair.right {
+            self.render_diff_row_cells_at(ui, row, right_rect, col_width, right_text);
+        }
+    }
+
+    /// Render cells for a single diff row at a specific position.
+    fn render_diff_row_cells_at(
+        &self,
+        ui: &mut egui::Ui,
+        row: &DiffRow,
+        rect: egui::Rect,
+        col_width: f32,
+        text_color: egui::Color32,
+    ) {
+        let mut x = rect.left() + 4.0;
+        let y_center = rect.center().y;
+
+        for value in &row.values {
+            let max_chars = (col_width / 7.0) as usize;
+            let display_value = if value.chars().count() > max_chars && max_chars > 3 {
+                let truncated: String = value.chars().take(max_chars - 1).collect();
+                format!("{truncated}…")
+            } else {
+                value.clone()
+            };
+
+            ui.painter().text(
+                egui::pos2(x, y_center),
+                egui::Align2::LEFT_CENTER,
+                display_value,
+                egui::FontId::monospace(9.0),
+                text_color,
+            );
+
+            x += col_width;
+        }
     }
 
     // ========================================================================

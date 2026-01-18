@@ -6,6 +6,38 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
+  - **Data comparison**: `/diff staging prod SELECT * FROM users LIMIT 10` - compare query results in one command
+  - **Plan comparison**: `/diff analyze staging prod SELECT * FROM users` - compare EXPLAIN ANALYZE plans
+  - **Schema comparison**: `/diff schema staging prod users` - compare table schemas between connections
+    - Unified table view showing column name, left type, right type, and status
+    - Status highlighting: matching (✓), changed (yellow), removed (red), added (green)
+    - Statistics: matching, changed, removed, added column counts
+  - **Profile comparison**: `/diff profile staging prod SELECT * FROM orders` - compare EXPLAIN ANALYZE with premium visual design
+    - Hero summary card with big timing numbers, visual time bars, and verdict badge (Faster/Slower)
+    - Unified operator tree with visual time bars showing relative execution time
+    - Delta chips with color-coded timing changes (+/-ms)
+    - Row count and memory chips for significant metric differences
+    - Bottleneck warning indicators for operators with >50ms regression
+    - Tree guide lines with proper visual hierarchy
+    - Strikethrough styling on slower timings with color-coded highlights
+  - **Demo modes**:
+    - `/diff demo` - preview data diff with sample data
+    - `/diff schema demo` - preview schema diff with sample column differences
+    - `/diff profile demo` - preview profile diff with sample timing differences
+  - **Side-by-side data view**: Tables rendered in split columns with row counts and schema validation
+  - **Row-level highlighting**: Rows are highlighted based on diff status using theme diff colors:
+    - Matching rows: neutral styling
+    - Left-only rows: red/removed background (rows only in source connection)
+    - Right-only rows: green/added background (rows only in target connection)
+  - **Side-by-side plan view**: Execution plan trees for both connections with operator metrics
+  - **Diff statistics**: Shows matching rows, left-only rows, right-only rows at a glance
+  - **Schema mismatch detection**: Warns when schemas don't match between connections
+  - **Error handling**: Gracefully shows errors from either connection while displaying successful results
+  - **Concurrent execution**: Both queries run in parallel via `tokio::join!` for faster comparisons
+  - New types: `DiffType`, `DiffQueryResult`, `DiffStats`, `DiffRow`, `DiffRowPair`, `TableDiff`, `RowDiffStatus`, `ColumnDiffStatus`, `SchemaDiffColumn`, `SchemaDiffResult` for structured diff data
+  - New module: `diff.rs` with `compute_table_diff()`, `compute_detailed_diff()`, `compute_schema_diff()`, and `schemas_compatible()` utilities
+
 - **SQL Plan View**: Query execution plan visualization with three view modes:
   - **Tree View**: Vim-navigable hierarchical tree with expand/collapse, bottleneck highlighting
   - **Stats View**: Aggregate dashboard showing total time, operator count, rows, memory, bottleneck warning, category breakdown, and top slowest operators
