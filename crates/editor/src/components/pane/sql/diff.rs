@@ -3,8 +3,9 @@
 //! Uses the `similar` crate for word-level diff highlighting,
 //! matching the style of the git diff viewer.
 
-use enya_datafusion::arrow::array::{Array, RecordBatch};
+use enya_datafusion::arrow::array::RecordBatch;
 use enya_datafusion::arrow::datatypes::SchemaRef;
+use enya_datafusion::format_array_value;
 use rustc_hash::FxHashMap;
 use similar::{ChangeTag, TextDiff};
 
@@ -306,83 +307,6 @@ fn hash_row(batch: &RecordBatch, row_idx: usize) -> u64 {
     }
 
     hasher.finish()
-}
-
-/// Format an array value at a specific index as a string.
-fn format_array_value(array: &dyn Array, idx: usize) -> String {
-    use enya_datafusion::arrow::array::*;
-
-    if array.is_null(idx) {
-        return "NULL".to_string();
-    }
-
-    // Handle common array types
-    if let Some(arr) = array.as_any().downcast_ref::<StringArray>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<LargeStringArray>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Int8Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Int16Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Int32Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Int64Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<UInt8Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<UInt16Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<UInt32Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<UInt64Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Float32Array>() {
-        return format!("{:.6}", arr.value(idx));
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Float64Array>() {
-        return format!("{:.6}", arr.value(idx));
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<BooleanArray>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Date32Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Date64Array>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<TimestampSecondArray>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<TimestampMillisecondArray>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<TimestampMicrosecondArray>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<TimestampNanosecondArray>() {
-        return arr.value(idx).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<BinaryArray>() {
-        return format!("{:?}", arr.value(idx));
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<LargeBinaryArray>() {
-        return format!("{:?}", arr.value(idx));
-    }
-
-    // Fallback for other types
-    format!("{:?}", array.slice(idx, 1))
 }
 
 /// Compute table diff statistics between two result sets.

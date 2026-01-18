@@ -2,11 +2,15 @@
 
 use std::time::Duration;
 
-use rustc_hash::FxHashMap;
-
-use arrow::array::RecordBatch;
+use arrow::array::{
+    Array, BinaryArray, BooleanArray, Date32Array, Date64Array, Float32Array, Float64Array,
+    Int8Array, Int16Array, Int32Array, Int64Array, LargeBinaryArray, LargeStringArray, RecordBatch,
+    StringArray, TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+    TimestampSecondArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
+};
 use arrow::datatypes::SchemaRef;
 use datafusion::scalar::ScalarValue;
+use rustc_hash::FxHashMap;
 
 pub use crate::error::QueryId;
 
@@ -320,6 +324,97 @@ pub fn format_rows(rows: usize) -> String {
     } else {
         format!("{:.1}M", rows as f64 / 1_000_000.0)
     }
+}
+
+/// Format an arrow array value at a specific index as a string.
+///
+/// Handles common arrow array types (strings, integers, floats, booleans,
+/// timestamps, dates, binary). Returns "NULL" for null values.
+#[must_use]
+pub fn format_array_value(array: &dyn Array, idx: usize) -> String {
+    if array.is_null(idx) {
+        return "NULL".to_string();
+    }
+
+    // String types
+    if let Some(arr) = array.as_any().downcast_ref::<StringArray>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<LargeStringArray>() {
+        return arr.value(idx).to_string();
+    }
+
+    // Integer types
+    if let Some(arr) = array.as_any().downcast_ref::<Int8Array>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<Int16Array>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<Int32Array>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<Int64Array>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<UInt8Array>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<UInt16Array>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<UInt32Array>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<UInt64Array>() {
+        return arr.value(idx).to_string();
+    }
+
+    // Float types
+    if let Some(arr) = array.as_any().downcast_ref::<Float32Array>() {
+        return format!("{:.6}", arr.value(idx));
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<Float64Array>() {
+        return format!("{:.6}", arr.value(idx));
+    }
+
+    // Boolean
+    if let Some(arr) = array.as_any().downcast_ref::<BooleanArray>() {
+        return arr.value(idx).to_string();
+    }
+
+    // Date types
+    if let Some(arr) = array.as_any().downcast_ref::<Date32Array>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<Date64Array>() {
+        return arr.value(idx).to_string();
+    }
+
+    // Timestamp types
+    if let Some(arr) = array.as_any().downcast_ref::<TimestampSecondArray>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<TimestampMillisecondArray>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<TimestampMicrosecondArray>() {
+        return arr.value(idx).to_string();
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<TimestampNanosecondArray>() {
+        return arr.value(idx).to_string();
+    }
+
+    // Binary types
+    if let Some(arr) = array.as_any().downcast_ref::<BinaryArray>() {
+        return format!("{:?}", arr.value(idx));
+    }
+    if let Some(arr) = array.as_any().downcast_ref::<LargeBinaryArray>() {
+        return format!("{:?}", arr.value(idx));
+    }
+
+    // Fallback for other types
+    format!("{:?}", array.slice(idx, 1))
 }
 
 /// Operator category for plan visualization.

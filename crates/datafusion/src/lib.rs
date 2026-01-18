@@ -43,6 +43,9 @@ pub mod types;
 
 pub use error::Error;
 pub use flight::{ConnectionState, FlightClient, FlightConfig, QueryStream};
+pub use plan::{
+    parse_metric_bytes, parse_metric_duration, parse_metric_usize, parse_metrics, parse_plan_text,
+};
 pub use session::{Config, Session};
 pub use types::*;
 

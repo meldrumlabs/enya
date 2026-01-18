@@ -173,6 +173,215 @@ fn find_bottleneck_inner<'a>(
     best
 }
 
+// =============================================================================
+// Plan Text Parsing
+// =============================================================================
+
+/// Parse EXPLAIN output text into a PlanNode structure.
+///
+/// Format is typically:
+/// ```text
+/// ProjectionExec: ...
+///   FilterExec: ...
+///     TableScan: ...
+/// ```
+pub fn parse_plan_text(text: &str) -> PlanNode {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    if lines.is_empty() {
+        return PlanNode {
+            operator: "EmptyPlan".to_string(),
+            description: String::new(),
+            properties: FxHashMap::default(),
+            children: vec![],
+            metrics: None,
+        };
+    }
+
+    // Parse with a stack-based approach
+    let mut root: Option<PlanNode> = None;
+    let mut stack: Vec<(usize, PlanNode)> = Vec::new();
+
+    for line in lines {
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        let depth = indent / 2; // Assume 2-space indentation
+
+        // Parse operator and description
+        let (operator, description) = if let Some(colon_pos) = trimmed.find(':') {
+            let op = trimmed[..colon_pos].trim().to_string();
+            let desc = trimmed[colon_pos + 1..].trim().to_string();
+            (op, desc)
+        } else {
+            (trimmed.to_string(), String::new())
+        };
+
+        // Parse metrics if present
+        let metrics = parse_metrics(&description);
+
+        let node = PlanNode {
+            operator,
+            description: description.clone(),
+            properties: FxHashMap::default(),
+            children: vec![],
+            metrics,
+        };
+
+        // Pop nodes from stack that are at same or deeper level
+        while let Some((d, _)) = stack.last() {
+            if *d >= depth {
+                let (_, child) = stack.pop().unwrap();
+                if let Some((_, parent)) = stack.last_mut() {
+                    parent.children.insert(0, child);
+                } else {
+                    root = Some(child);
+                }
+            } else {
+                break;
+            }
+        }
+
+        stack.push((depth, node));
+    }
+
+    // Pop remaining nodes
+    while let Some((_, child)) = stack.pop() {
+        if let Some((_, parent)) = stack.last_mut() {
+            parent.children.insert(0, child);
+        } else {
+            root = Some(child);
+        }
+    }
+
+    root.unwrap_or(PlanNode {
+        operator: "Unknown".to_string(),
+        description: String::new(),
+        properties: FxHashMap::default(),
+        children: vec![],
+        metrics: None,
+    })
+}
+
+/// Parse metrics from a description string.
+///
+/// Handles formats like:
+/// - `metrics=[output_rows=5, elapsed_compute=52.06µs, output_bytes=1920.0 B]`
+/// - `[rows=100, time=5.2ms, mem=1KB]`
+pub fn parse_metrics(description: &str) -> Option<OperatorMetrics> {
+    if !description.contains('[') {
+        return None;
+    }
+
+    let mut metrics = OperatorMetrics::default();
+    let mut found = false;
+
+    // Parse output_rows (new format) or rows (old format)
+    if let Some(rows) = parse_metric_usize(description, "output_rows=")
+        .or_else(|| parse_metric_usize(description, "rows="))
+    {
+        metrics.output_rows = rows;
+        found = true;
+    }
+
+    // Parse elapsed_compute (new format) or time (old format)
+    if let Some(duration) = parse_metric_duration(description, "elapsed_compute=")
+        .or_else(|| parse_metric_duration(description, "time="))
+    {
+        metrics.elapsed_time = duration;
+        found = true;
+    }
+
+    // Parse output_bytes (new format) or mem (old format)
+    if let Some(bytes) = parse_metric_bytes(description, "output_bytes=")
+        .or_else(|| parse_metric_bytes(description, "mem="))
+    {
+        metrics.memory_bytes = bytes;
+        found = true;
+    }
+
+    // Parse spill metrics
+    if let Some(spill_count) = parse_metric_usize(description, "spill_count=") {
+        metrics.spill_count = spill_count;
+        found = true;
+    }
+    if let Some(spill_bytes) = parse_metric_bytes(description, "spilled_bytes=") {
+        metrics.spill_bytes = spill_bytes;
+        found = true;
+    }
+
+    if found { Some(metrics) } else { None }
+}
+
+/// Parse a usize metric value from a string.
+pub fn parse_metric_usize(description: &str, key: &str) -> Option<usize> {
+    let start = description.find(key)?;
+    let rest = &description[start + key.len()..];
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..end].parse().ok()
+}
+
+/// Parse a duration metric value (e.g., "52.06µs", "5.2ms", "1.5s").
+pub fn parse_metric_duration(description: &str, key: &str) -> Option<Duration> {
+    let start = description.find(key)?;
+    let rest = &description[start + key.len()..];
+
+    // Find end of numeric part
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit() && c != '.')
+        .unwrap_or(rest.len());
+
+    let time_val: f64 = rest[..end].parse().ok()?;
+    let unit = &rest[end..];
+
+    let duration = if unit.starts_with("ms") {
+        Duration::from_secs_f64(time_val / 1000.0)
+    } else if unit.starts_with("µs") || unit.starts_with("us") {
+        Duration::from_secs_f64(time_val / 1_000_000.0)
+    } else if unit.starts_with("ns") {
+        Duration::from_nanos(time_val as u64)
+    } else if unit.starts_with('s') {
+        Duration::from_secs_f64(time_val)
+    } else {
+        // Default to microseconds
+        Duration::from_secs_f64(time_val / 1_000_000.0)
+    };
+
+    Some(duration)
+}
+
+/// Parse a bytes metric value (e.g., "1920.0 B", "1.5 KB", "256 MB").
+pub fn parse_metric_bytes(description: &str, key: &str) -> Option<usize> {
+    let start = description.find(key)?;
+    let rest = &description[start + key.len()..];
+
+    // Find end of numeric part (allow spaces before unit)
+    let end = rest
+        .find(|c: char| !c.is_ascii_digit() && c != '.' && c != ' ')
+        .unwrap_or(rest.len());
+
+    let num_str = rest[..end].trim();
+    let mem_val: f64 = num_str.parse().ok()?;
+
+    // Get the unit (skip any spaces)
+    let unit = rest[end..].trim_start();
+
+    let bytes = if unit.starts_with("KB") || unit.starts_with("KiB") {
+        (mem_val * 1024.0) as usize
+    } else if unit.starts_with("MB") || unit.starts_with("MiB") {
+        (mem_val * 1024.0 * 1024.0) as usize
+    } else if unit.starts_with("GB") || unit.starts_with("GiB") {
+        (mem_val * 1024.0 * 1024.0 * 1024.0) as usize
+    } else if unit.starts_with('B') {
+        mem_val as usize
+    } else {
+        // Default to bytes
+        mem_val as usize
+    };
+
+    Some(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

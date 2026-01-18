@@ -23,32 +23,37 @@ use enya_datafusion::arrow::array::{Array, RecordBatch};
 use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::{
     ConnectionState, ExecutionStats, FlightClient, PlanNode, QueryEvent, QueryId, QueryRequest,
-    TableInfo,
+    TableInfo, format_array_value,
 };
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
-use rustc_hash::FxHashMap;
 
 use super::command::SqlCommand;
 use super::connections::{
-    ConnectionId, ConnectionTreeState, SavedConnection, SqlBackend, TreeSelection,
+    ConnectionAction, ConnectionId, ConnectionTreeState, SavedConnection, SqlBackend,
+    TreeSelection, render_add_connection_dialog,
 };
-use super::diff::{
-    DiffRow, RowDiffStatus, compute_detailed_diff, compute_table_diff, schemas_compatible,
+use super::diff::{compute_table_diff, schemas_compatible};
+use super::diff_rendering::{
+    render_data_diff_content, render_plan_diff_content, render_profile_diff_content,
+    render_schema_diff_content,
 };
 use super::highlighting::highlight_sql;
+use super::plan_parsing::{
+    create_demo_plan, create_diff_demo, create_profile_diff_demo, create_schema_diff_demo,
+    parse_plan_text,
+};
 use super::plan_view::{PlanViewMode, PlanViewer};
 use super::suggestions::{Suggestion, SuggestionIcon, SuggestionState};
 use super::types::{
-    DiffQueryResult, DiffType, ProfileRow, QueryCell, QueryStatus, ResultOverlay, SchemaDiffResult,
-    SqlMode, SqlPaneAction,
+    DiffQueryResult, DiffType, QueryCell, QueryStatus, ResultOverlay, SchemaDiffResult, SqlMode,
+    SqlPaneAction,
 };
 use crate::components::util::id_generator::next_id_usize;
 use crate::components::util::{
-    render_colored_badge, render_split_header, render_split_panels, render_stat_badge,
-    render_stat_badge_with_icon,
+    render_colored_badge, render_stat_badge, render_stat_badge_with_icon,
 };
 use crate::components::{OverlayColors, OverlayStyle};
 use crate::ui::semantic_icons::{action, category, file, nav, status, time};
@@ -381,6 +386,50 @@ impl SqlPane {
         }
     }
 
+    /// Handle a connection action from the connection UI.
+    fn handle_connection_action(&mut self, action: ConnectionAction) {
+        match action {
+            ConnectionAction::Connect(id) => {
+                self.connect_saved(id);
+            }
+            ConnectionAction::Disconnect(id) => {
+                self.disconnect_saved(id);
+            }
+            ConnectionAction::SetActive(id) => {
+                self.set_active_connection(id);
+            }
+            ConnectionAction::Remove(id) => {
+                self.remove_connection(id);
+            }
+            ConnectionAction::ToggleExpanded(id) => {
+                self.toggle_connection_expanded(id);
+            }
+            ConnectionAction::OpenAddDialog => {
+                self.tree_state.show_add_dialog = true;
+                self.tree_state.new_conn_name.clear();
+                self.tree_state.new_conn_endpoint.clear();
+            }
+            ConnectionAction::CloseAddDialog => {
+                self.tree_state.show_add_dialog = false;
+            }
+            ConnectionAction::AddConnection { name, endpoint } => {
+                self.add_connection(&name, &endpoint);
+            }
+            ConnectionAction::ClosePopup => {
+                self.sidebar_width = 0.0;
+            }
+            ConnectionAction::TogglePlanViewer => {
+                self.show_plan_viewer = !self.show_plan_viewer;
+            }
+            ConnectionAction::InsertTableName(table_name) => {
+                if !self.input.is_empty() && !self.input.ends_with(' ') {
+                    self.input.push(' ');
+                }
+                self.input.push_str(&table_name);
+            }
+        }
+    }
+
     /// Execute the current input as a SQL query or command.
     fn execute_input(&mut self) {
         let input = self.input.trim().to_string();
@@ -388,7 +437,7 @@ impl SqlPane {
             return;
         }
 
-        // Check for slash-commands (/help, /diff, etc.)
+        // Check for slash-commands (/diff, /explain, etc.)
         if let Some(cmd) = input.strip_prefix('/') {
             self.handle_slash_command(cmd);
             self.input.clear();
@@ -408,52 +457,12 @@ impl SqlPane {
         self.scroll_to_bottom = true;
     }
 
-    /// Handle a slash-command (/help, /diff, etc.).
+    /// Handle a slash-command (/diff, /explain, etc.).
     fn handle_slash_command(&mut self, cmd: &str) {
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         let command = parts.first().copied().unwrap_or("");
 
         match command {
-            "help" => {
-                let help_text = r#"SQL Pane Commands:
-
-Query Execution:
-  /explain <query>   Show query execution plan (EXPLAIN)
-  /analyze <query>   Show execution plan with timing (EXPLAIN ANALYZE)
-  /schema <table>    Show table structure
-
-Plan Viewer:
-  /demo              Load a demo plan for testing
-  /plan              Toggle plan viewer
-  /plan tree         Show tree view
-  /plan timeline     Show timeline view
-  /plan waterfall    Show waterfall view
-  /plan hide         Hide plan viewer
-
-Connections:
-  /connect <endpoint> Connect to Flight SQL (e.g., localhost:50051)
-
-Diff Comparison:
-  /diff <e1> <e2> <q>          Compare query results
-  /diff analyze <e1> <e2> <q>  Compare EXPLAIN ANALYZE plans
-  /diff schema <e1> <e2> <t>   Compare table schemas
-  /diff profile <e1> <e2> <q>  Compare execution profiles
-  /diff demo                   Demo data diff
-  /diff schema demo            Demo schema diff
-  /diff profile demo           Demo profile diff
-
-Other:
-  /help              Show this help message
-  /history           Show query history
-  /export <format>   Export results to file
-
-Keyboard Shortcuts:
-  ⌘↵ or Ctrl+Enter   Execute query
-  Tab                Insert suggestion
-  ↑↓                 Navigate suggestions
-  Escape             Close suggestions / release focus"#;
-                self.add_info_cell(help_text);
-            }
             "diff" => {
                 // /diff [demo|analyze|schema|profile] <left> <right> <query|table>
                 // Check if it's a demo request
@@ -606,33 +615,6 @@ Keyboard Shortcuts:
                 let idx = self.history.len() - 1;
                 self.open_overlay(ResultOverlay::Plan, idx);
             }
-            "plan" => {
-                // Toggle or set plan viewer mode
-                match parts.get(1).copied() {
-                    Some("tree") => {
-                        self.plan_viewer.mode = PlanViewMode::Tree;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("stats") => {
-                        self.plan_viewer.mode = PlanViewMode::Stats;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("waterfall") => {
-                        self.plan_viewer.mode = PlanViewMode::Waterfall;
-                        self.show_plan_viewer = true;
-                    }
-                    Some("hide") => {
-                        self.show_plan_viewer = false;
-                    }
-                    _ => {
-                        self.show_plan_viewer = !self.show_plan_viewer;
-                    }
-                }
-            }
-            "profile" => {
-                self.mode = SqlMode::Profile;
-                self.add_info_cell("Profile mode: Enter a query to see detailed execution timing.");
-            }
             "schema" => {
                 if let Some(table_name) = parts.get(1) {
                     // Show table schema
@@ -642,97 +624,114 @@ Keyboard Shortcuts:
                 }
             }
             "connect" => {
-                if let Some(arg) = parts.get(1) {
-                    // Check if it looks like an endpoint (contains : or is an IP/hostname)
-                    let is_endpoint = arg.contains(':')
-                        || arg.starts_with("localhost")
-                        || arg.starts_with("127.")
-                        || arg.parse::<std::net::IpAddr>().is_ok();
-
-                    if is_endpoint {
-                        // Connect to a new endpoint directly
-                        self.connect(arg);
-                    } else {
-                        // Try to find connection by name and make it active
-                        let conn_id = self
+                match (parts.get(1), parts.get(2)) {
+                    // /connect <endpoint> <name> - save and connect with name
+                    (Some(endpoint), Some(name)) => {
+                        self.add_connection(name, endpoint);
+                        // Find the newly added connection and connect to it
+                        if let Some(conn) = self
                             .connections
                             .iter()
-                            .find(|c| c.name.eq_ignore_ascii_case(arg))
-                            .map(|c| c.id);
+                            .find(|c| c.name.eq_ignore_ascii_case(name))
+                        {
+                            let id = conn.id;
+                            self.connect_saved(id);
+                            self.add_info_cell(&format!(
+                                "Saved connection '{name}' and connecting to {endpoint}"
+                            ));
+                        }
+                    }
+                    // /connect <endpoint|name> - connect or switch
+                    (Some(arg), None) => {
+                        // Check if it looks like an endpoint
+                        let is_endpoint = arg.contains(':')
+                            || arg.starts_with("localhost")
+                            || arg.starts_with("127.")
+                            || arg.parse::<std::net::IpAddr>().is_ok();
 
-                        if let Some(id) = conn_id {
-                            let is_connected = self
+                        if is_endpoint {
+                            // Connect directly (unnamed)
+                            self.connect(arg);
+                        } else {
+                            // Try to find connection by name
+                            let conn_id = self
                                 .connections
                                 .iter()
-                                .find(|c| c.id == id)
-                                .map(|c| matches!(c.state, ConnectionState::Connected))
-                                .unwrap_or(false);
+                                .find(|c| c.name.eq_ignore_ascii_case(arg))
+                                .map(|c| c.id);
 
-                            if is_connected {
-                                self.set_active_connection(id);
-                                self.add_info_cell(&format!("Switched to connection: {arg}"));
+                            if let Some(id) = conn_id {
+                                let is_connected = self
+                                    .connections
+                                    .iter()
+                                    .find(|c| c.id == id)
+                                    .map(|c| matches!(c.state, ConnectionState::Connected))
+                                    .unwrap_or(false);
+
+                                if is_connected {
+                                    self.set_active_connection(id);
+                                    self.add_info_cell(&format!("Switched to connection: {arg}"));
+                                } else {
+                                    self.connect_saved(id);
+                                    self.add_info_cell(&format!("Connecting to: {arg}"));
+                                }
                             } else {
-                                self.connect_saved(id);
-                                self.add_info_cell(&format!("Connecting to: {arg}"));
-                            }
-                        } else {
-                            // Show available connections
-                            let available: Vec<_> =
-                                self.connections.iter().map(|c| c.name.as_str()).collect();
-                            if available.is_empty() {
-                                self.add_info_cell(
-                                    "No connections available.\n\
-                                     Use /connect <endpoint> to connect (e.g., /connect localhost:50051)",
-                                );
-                            } else {
-                                self.add_error_cell(&format!(
-                                    "Connection not found: {}\nAvailable: {}",
-                                    arg,
-                                    available.join(", ")
-                                ));
+                                // Show available connections
+                                let available: Vec<_> =
+                                    self.connections.iter().map(|c| c.name.as_str()).collect();
+                                if available.is_empty() {
+                                    self.add_info_cell(
+                                        "No connections available.\n\
+                                         Use /connect <endpoint> <name> to save a connection.",
+                                    );
+                                } else {
+                                    self.add_error_cell(&format!(
+                                        "Connection not found: {}\nAvailable: {}",
+                                        arg,
+                                        available.join(", ")
+                                    ));
+                                }
                             }
                         }
                     }
-                } else {
-                    // Show usage and available connections
-                    let available: Vec<_> = self
-                        .connections
-                        .iter()
-                        .map(|c| {
-                            let status = if matches!(c.state, ConnectionState::Connected) {
-                                "●"
-                            } else {
-                                "○"
-                            };
-                            format!(
-                                "{} {} {}",
-                                status,
-                                c.name,
-                                if c.active { "(active)" } else { "" }
-                            )
-                        })
-                        .collect();
+                    // /connect - show usage
+                    (None, _) => {
+                        let available: Vec<_> = self
+                            .connections
+                            .iter()
+                            .map(|c| {
+                                let status = if matches!(c.state, ConnectionState::Connected) {
+                                    "●"
+                                } else {
+                                    "○"
+                                };
+                                format!(
+                                    "{} {} {}",
+                                    status,
+                                    c.name,
+                                    if c.active { "(active)" } else { "" }
+                                )
+                            })
+                            .collect();
 
-                    if available.is_empty() {
-                        self.add_info_cell(
-                            "Usage: /connect <endpoint>\n\
-                             Example: /connect localhost:50051\n\n\
-                             No existing connections.",
-                        );
-                    } else {
-                        self.add_info_cell(&format!(
-                            "Usage: /connect <endpoint|name>\n\
-                             Example: /connect localhost:50051\n\n\
-                             Existing connections:\n{}",
-                            available.join("\n")
-                        ));
+                        if available.is_empty() {
+                            self.add_info_cell(
+                                "Usage:\n\
+                                 /connect <endpoint> <name>  Save and connect\n\
+                                 /connect <name>             Switch to saved connection\n\n\
+                                 Example: /connect localhost:50051 local",
+                            );
+                        } else {
+                            self.add_info_cell(&format!(
+                                "Usage:\n\
+                                 /connect <endpoint> <name>  Save and connect\n\
+                                 /connect <name>             Switch to saved connection\n\n\
+                                 Saved connections:\n{}",
+                                available.join("\n")
+                            ));
+                        }
                     }
                 }
-            }
-            "export" => {
-                self.add_info_cell(
-                    "Export not yet implemented.\nUsage: /export csv or /export json",
-                );
             }
             "history" => {
                 if self.history.is_empty() {
@@ -769,7 +768,7 @@ Keyboard Shortcuts:
             }
             _ => {
                 self.add_error_cell(&format!(
-                    "Unknown command: /{command}\nType /help to see available commands."
+                    "Unknown command: /{command}\nType / to see available commands."
                 ));
             }
         }
@@ -1453,7 +1452,7 @@ Keyboard Shortcuts:
             match rx.try_recv() {
                 Ok(Ok(plan_text)) => {
                     // Parse plan text and load into viewer
-                    let plan = self.parse_plan_text(&plan_text);
+                    let plan = parse_plan_text(&plan_text);
                     self.plan_viewer.load_plan(&plan);
                     self.show_plan_viewer = true;
 
@@ -1551,7 +1550,7 @@ Keyboard Shortcuts:
                             diff_result.left_batches = batches;
                             if is_analyze {
                                 if let Some(text) = plan_text {
-                                    diff_result.left_plan = Some(self.parse_plan_text(&text));
+                                    diff_result.left_plan = Some(parse_plan_text(&text));
                                 }
                             }
                         }
@@ -1567,7 +1566,7 @@ Keyboard Shortcuts:
                             diff_result.right_batches = batches;
                             if is_analyze {
                                 if let Some(text) = plan_text {
-                                    diff_result.right_plan = Some(self.parse_plan_text(&text));
+                                    diff_result.right_plan = Some(parse_plan_text(&text));
                                 }
                             }
                         }
@@ -1746,410 +1745,16 @@ Keyboard Shortcuts:
             }
         }
     }
-
-    /// Parse EXPLAIN output text into a PlanNode structure.
-    fn parse_plan_text(&self, text: &str) -> PlanNode {
-        // Parse indented plan text into a tree structure.
-        // Format is typically:
-        // ProjectionExec: ...
-        //   FilterExec: ...
-        //     TableScan: ...
-
-        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-        if lines.is_empty() {
-            return PlanNode {
-                operator: "EmptyPlan".to_string(),
-                description: String::new(),
-                properties: FxHashMap::default(),
-                children: vec![],
-                metrics: None,
-            };
-        }
-
-        // Parse with a stack-based approach
-        let mut root: Option<PlanNode> = None;
-        let mut stack: Vec<(usize, PlanNode)> = Vec::new();
-
-        for line in lines {
-            let trimmed = line.trim_start();
-            let indent = line.len() - trimmed.len();
-            let depth = indent / 2; // Assume 2-space indentation
-
-            // Parse operator and description
-            let (operator, description) = if let Some(colon_pos) = trimmed.find(':') {
-                let op = trimmed[..colon_pos].trim().to_string();
-                let desc = trimmed[colon_pos + 1..].trim().to_string();
-                (op, desc)
-            } else {
-                (trimmed.to_string(), String::new())
-            };
-
-            // Parse metrics if present (format: [rows=N, time=Xms])
-            let metrics = Self::parse_metrics(&description);
-
-            let node = PlanNode {
-                operator,
-                description: description.clone(),
-                properties: FxHashMap::default(),
-                children: vec![],
-                metrics,
-            };
-
-            // Pop nodes from stack that are at same or deeper level
-            while let Some((d, _)) = stack.last() {
-                if *d >= depth {
-                    let (_, child) = stack.pop().unwrap();
-                    if let Some((_, parent)) = stack.last_mut() {
-                        parent.children.insert(0, child);
-                    } else {
-                        root = Some(child);
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            stack.push((depth, node));
-        }
-
-        // Pop remaining nodes
-        while let Some((_, child)) = stack.pop() {
-            if let Some((_, parent)) = stack.last_mut() {
-                parent.children.insert(0, child);
-            } else {
-                root = Some(child);
-            }
-        }
-
-        root.unwrap_or(PlanNode {
-            operator: "Unknown".to_string(),
-            description: String::new(),
-            properties: FxHashMap::default(),
-            children: vec![],
-            metrics: None,
-        })
-    }
-
-    /// Parse metrics from a description string.
-    ///
-    /// Handles formats like:
-    /// - `metrics=[output_rows=5, elapsed_compute=52.06µs, output_bytes=1920.0 B]`
-    /// - `[rows=100, time=5.2ms, mem=1KB]`
-    fn parse_metrics(description: &str) -> Option<enya_datafusion::OperatorMetrics> {
-        // Look for metrics section
-        if !description.contains('[') {
-            return None;
-        }
-
-        let mut metrics = enya_datafusion::OperatorMetrics::default();
-        let mut found = false;
-
-        // Parse output_rows (new format) or rows (old format)
-        if let Some(rows) = Self::parse_metric_usize(description, "output_rows=")
-            .or_else(|| Self::parse_metric_usize(description, "rows="))
-        {
-            metrics.output_rows = rows;
-            found = true;
-        }
-
-        // Parse elapsed_compute (new format) or time (old format)
-        if let Some(duration) = Self::parse_metric_duration(description, "elapsed_compute=")
-            .or_else(|| Self::parse_metric_duration(description, "time="))
-        {
-            metrics.elapsed_time = duration;
-            found = true;
-        }
-
-        // Parse output_bytes (new format) or mem (old format)
-        if let Some(bytes) = Self::parse_metric_bytes(description, "output_bytes=")
-            .or_else(|| Self::parse_metric_bytes(description, "mem="))
-        {
-            metrics.memory_bytes = bytes;
-            found = true;
-        }
-
-        // Parse spill metrics
-        if let Some(spill_count) = Self::parse_metric_usize(description, "spill_count=") {
-            metrics.spill_count = spill_count;
-            found = true;
-        }
-        if let Some(spill_bytes) = Self::parse_metric_bytes(description, "spilled_bytes=") {
-            metrics.spill_bytes = spill_bytes;
-            found = true;
-        }
-
-        if found { Some(metrics) } else { None }
-    }
-
-    /// Parse a usize metric value.
-    fn parse_metric_usize(description: &str, key: &str) -> Option<usize> {
-        let start = description.find(key)?;
-        let rest = &description[start + key.len()..];
-        let end = rest
-            .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(rest.len());
-        rest[..end].parse().ok()
-    }
-
-    /// Parse a duration metric value (e.g., "52.06µs", "5.2ms", "1.5s").
-    fn parse_metric_duration(description: &str, key: &str) -> Option<std::time::Duration> {
-        use std::time::Duration;
-
-        let start = description.find(key)?;
-        let rest = &description[start + key.len()..];
-
-        // Find end of numeric part
-        let end = rest
-            .find(|c: char| !c.is_ascii_digit() && c != '.')
-            .unwrap_or(rest.len());
-
-        let time_val: f64 = rest[..end].parse().ok()?;
-        let unit = &rest[end..];
-
-        let duration = if unit.starts_with("ms") {
-            Duration::from_secs_f64(time_val / 1000.0)
-        } else if unit.starts_with("µs") || unit.starts_with("us") {
-            Duration::from_secs_f64(time_val / 1_000_000.0)
-        } else if unit.starts_with("ns") {
-            Duration::from_nanos(time_val as u64)
-        } else if unit.starts_with('s') {
-            Duration::from_secs_f64(time_val)
-        } else {
-            // Default to microseconds for elapsed_compute
-            Duration::from_secs_f64(time_val / 1_000_000.0)
-        };
-
-        Some(duration)
-    }
-
-    /// Parse a bytes metric value (e.g., "1920.0 B", "1.5 KB", "256 MB").
-    fn parse_metric_bytes(description: &str, key: &str) -> Option<usize> {
-        let start = description.find(key)?;
-        let rest = &description[start + key.len()..];
-
-        // Find end of numeric part (allow spaces before unit)
-        let end = rest
-            .find(|c: char| !c.is_ascii_digit() && c != '.' && c != ' ')
-            .unwrap_or(rest.len());
-
-        // Parse the number, handling potential spaces
-        let num_str = rest[..end].trim();
-        let mem_val: f64 = num_str.parse().ok()?;
-
-        // Get the unit (skip any spaces)
-        let unit = rest[end..].trim_start();
-
-        let bytes = if unit.starts_with("KB") || unit.starts_with("KiB") {
-            (mem_val * 1024.0) as usize
-        } else if unit.starts_with("MB") || unit.starts_with("MiB") {
-            (mem_val * 1024.0 * 1024.0) as usize
-        } else if unit.starts_with("GB") || unit.starts_with("GiB") {
-            (mem_val * 1024.0 * 1024.0 * 1024.0) as usize
-        } else if unit.starts_with('B') {
-            mem_val as usize
-        } else {
-            // Default to bytes
-            mem_val as usize
-        };
-
-        Some(bytes)
-    }
-
     /// Load a demo query plan for testing the visualization.
     fn load_demo_plan(&mut self) {
-        use std::time::Duration;
-
-        // Create a realistic demo query plan
-        let plan = PlanNode {
-            operator: "ProjectionExec".to_string(),
-            description: "user_id, name, total_orders, last_order_date".to_string(),
-            properties: FxHashMap::default(),
-            metrics: Some(enya_datafusion::OperatorMetrics {
-                output_rows: 1000,
-                elapsed_time: Duration::from_millis(5),
-                memory_bytes: 32768,
-                spill_count: 0,
-                spill_bytes: 0,
-            }),
-            children: vec![PlanNode {
-                operator: "SortExec".to_string(),
-                description: "total_orders DESC".to_string(),
-                properties: FxHashMap::default(),
-                metrics: Some(enya_datafusion::OperatorMetrics {
-                    output_rows: 1000,
-                    elapsed_time: Duration::from_millis(25),
-                    memory_bytes: 65536,
-                    spill_count: 0,
-                    spill_bytes: 0,
-                }),
-                children: vec![PlanNode {
-                    operator: "HashAggregateExec".to_string(),
-                    description: "group_by=[user_id], aggr=[COUNT(*), MAX(order_date)]".to_string(),
-                    properties: FxHashMap::default(),
-                    metrics: Some(enya_datafusion::OperatorMetrics {
-                        output_rows: 1000,
-                        elapsed_time: Duration::from_millis(45),
-                        memory_bytes: 131072,
-                        spill_count: 0,
-                        spill_bytes: 0,
-                    }),
-                    children: vec![PlanNode {
-                        operator: "HashJoinExec".to_string(),
-                        description: "users.id = orders.user_id, type=Inner".to_string(),
-                        properties: FxHashMap::default(),
-                        metrics: Some(enya_datafusion::OperatorMetrics {
-                            output_rows: 50000,
-                            elapsed_time: Duration::from_millis(120),
-                            memory_bytes: 524288,
-                            spill_count: 0,
-                            spill_bytes: 0,
-                        }),
-                        children: vec![
-                            PlanNode {
-                                operator: "ParquetExec".to_string(),
-                                description: "users.parquet, projection=[id, name]".to_string(),
-                                properties: FxHashMap::default(),
-                                metrics: Some(enya_datafusion::OperatorMetrics {
-                                    output_rows: 10000,
-                                    elapsed_time: Duration::from_millis(85),
-                                    memory_bytes: 262144,
-                                    spill_count: 0,
-                                    spill_bytes: 0,
-                                }),
-                                children: vec![],
-                            },
-                            PlanNode {
-                                operator: "FilterExec".to_string(),
-                                description: "order_date >= '2024-01-01'".to_string(),
-                                properties: FxHashMap::default(),
-                                metrics: Some(enya_datafusion::OperatorMetrics {
-                                    output_rows: 50000,
-                                    elapsed_time: Duration::from_millis(15),
-                                    memory_bytes: 8192,
-                                    spill_count: 0,
-                                    spill_bytes: 0,
-                                }),
-                                children: vec![PlanNode {
-                                    operator: "ParquetExec".to_string(),
-                                    description: "orders.parquet, projection=[user_id, order_date]"
-                                        .to_string(),
-                                    properties: FxHashMap::default(),
-                                    metrics: Some(enya_datafusion::OperatorMetrics {
-                                        output_rows: 100000,
-                                        elapsed_time: Duration::from_millis(150),
-                                        memory_bytes: 1048576,
-                                        spill_count: 0,
-                                        spill_bytes: 0,
-                                    }),
-                                    children: vec![],
-                                }],
-                            },
-                        ],
-                    }],
-                }],
-            }],
-        };
-
+        let plan = create_demo_plan();
         self.plan_viewer.load_plan(&plan);
         self.show_plan_viewer = true;
     }
 
     /// Load a demo diff result for testing the diff overlay.
     fn load_diff_demo(&mut self) {
-        use enya_datafusion::arrow::array::{Int32Array, StringArray};
-        use enya_datafusion::arrow::datatypes::{DataType, Field, Schema};
-        use std::sync::Arc;
-
-        // Create schema for demo data - realistic users table
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("id", DataType::Int32, false),
-            Field::new("email", DataType::Utf8, true),
-            Field::new("name", DataType::Utf8, true),
-            Field::new("role", DataType::Utf8, true),
-        ]));
-
-        // STAGING environment - includes test users and some synced production users
-        // Test users (staging-only): test@, qa@, demo@
-        // Synced from prod: alice@, bob@, carol@
-        let left_batch = RecordBatch::try_new(
-            schema.clone(),
-            vec![
-                Arc::new(Int32Array::from(vec![1, 2, 3, 100, 101, 102])),
-                Arc::new(StringArray::from(vec![
-                    "alice@acme.com",
-                    "bob@acme.com",
-                    "carol@acme.com",
-                    "test@staging.local",
-                    "qa@staging.local",
-                    "demo@staging.local",
-                ])),
-                Arc::new(StringArray::from(vec![
-                    "Alice Chen",
-                    "Bob Smith",
-                    "Carol Jones",
-                    "Test User",
-                    "QA Engineer",
-                    "Demo Account",
-                ])),
-                Arc::new(StringArray::from(vec![
-                    "admin", "editor", "viewer", "admin", "editor", "viewer",
-                ])),
-            ],
-        )
-        .unwrap();
-
-        // PRODUCTION environment - real users only
-        // Synced users: alice@, bob@, carol@ (same as staging)
-        // Production-only: dave@, emma@, frank@ (new users since staging snapshot)
-        let right_batch = RecordBatch::try_new(
-            schema.clone(),
-            vec![
-                Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5, 6])),
-                Arc::new(StringArray::from(vec![
-                    "alice@acme.com",
-                    "bob@acme.com",
-                    "carol@acme.com",
-                    "dave@acme.com",
-                    "emma@acme.com",
-                    "frank@acme.com",
-                ])),
-                Arc::new(StringArray::from(vec![
-                    "Alice Chen",
-                    "Bob Smith",
-                    "Carol Jones",
-                    "Dave Wilson",
-                    "Emma Brown",
-                    "Frank Garcia",
-                ])),
-                Arc::new(StringArray::from(vec![
-                    "admin", "editor", "viewer", "editor", "viewer", "viewer",
-                ])),
-            ],
-        )
-        .unwrap();
-
-        // Create the diff result (no plans - to show data diff view)
-        let diff_result = DiffQueryResult {
-            left_name: "staging".to_string(),
-            right_name: "production".to_string(),
-            left_schema: Some(schema.clone()),
-            left_batches: vec![left_batch],
-            left_error: None,
-            right_schema: Some(schema),
-            right_batches: vec![right_batch],
-            right_error: None,
-            schemas_match: true,
-            diff_stats: Some(super::types::DiffStats {
-                matching: 3,   // Alice, Bob, Carol (same in both)
-                left_only: 3,  // Test User, QA Engineer, Demo Account (staging only)
-                right_only: 3, // Dave, Emma, Frank (production only)
-                different: 0,
-            }),
-            left_plan: None,
-            right_plan: None,
-            diff_type: DiffType::Data,
-            schema_diff: None,
-        };
+        let diff_result = create_diff_demo();
 
         // Create a query cell with the diff result
         let query_id = QueryId::new();
@@ -2174,114 +1779,7 @@ Keyboard Shortcuts:
 
     /// Load a demo schema diff result for testing the schema diff overlay.
     fn load_schema_diff_demo(&mut self) {
-        use super::types::{ColumnDiffStatus, SchemaDiffColumn, SchemaDiffResult};
-
-        // Create a realistic schema diff scenario:
-        // - staging has some test columns, missing some production columns
-        // - production has evolved with new columns, some type changes
-        let schema_diff = SchemaDiffResult {
-            table_name: "users".to_string(),
-            columns: vec![
-                // Matching columns
-                SchemaDiffColumn {
-                    name: "id".to_string(),
-                    left_type: Some("INT".to_string()),
-                    left_nullable: Some(false),
-                    right_type: Some("INT".to_string()),
-                    right_nullable: Some(false),
-                    status: ColumnDiffStatus::Matching,
-                },
-                SchemaDiffColumn {
-                    name: "email".to_string(),
-                    left_type: Some("VARCHAR(255)".to_string()),
-                    left_nullable: Some(false),
-                    right_type: Some("VARCHAR(255)".to_string()),
-                    right_nullable: Some(false),
-                    status: ColumnDiffStatus::Matching,
-                },
-                SchemaDiffColumn {
-                    name: "name".to_string(),
-                    left_type: Some("VARCHAR(100)".to_string()),
-                    left_nullable: Some(true),
-                    right_type: Some("VARCHAR(100)".to_string()),
-                    right_nullable: Some(true),
-                    status: ColumnDiffStatus::Matching,
-                },
-                // Changed column - type difference
-                SchemaDiffColumn {
-                    name: "status".to_string(),
-                    left_type: Some("VARCHAR(20)".to_string()),
-                    left_nullable: Some(true),
-                    right_type: Some("INT".to_string()),
-                    right_nullable: Some(false),
-                    status: ColumnDiffStatus::Changed,
-                },
-                // Left-only column (staging has it, production doesn't)
-                SchemaDiffColumn {
-                    name: "test_flag".to_string(),
-                    left_type: Some("BOOLEAN".to_string()),
-                    left_nullable: Some(true),
-                    right_type: None,
-                    right_nullable: None,
-                    status: ColumnDiffStatus::LeftOnly,
-                },
-                SchemaDiffColumn {
-                    name: "debug_info".to_string(),
-                    left_type: Some("TEXT".to_string()),
-                    left_nullable: Some(true),
-                    right_type: None,
-                    right_nullable: None,
-                    status: ColumnDiffStatus::LeftOnly,
-                },
-                // Right-only columns (production has them, staging doesn't)
-                SchemaDiffColumn {
-                    name: "created_at".to_string(),
-                    left_type: None,
-                    left_nullable: None,
-                    right_type: Some("TIMESTAMP".to_string()),
-                    right_nullable: Some(false),
-                    status: ColumnDiffStatus::RightOnly,
-                },
-                SchemaDiffColumn {
-                    name: "updated_at".to_string(),
-                    left_type: None,
-                    left_nullable: None,
-                    right_type: Some("TIMESTAMP".to_string()),
-                    right_nullable: Some(true),
-                    status: ColumnDiffStatus::RightOnly,
-                },
-                SchemaDiffColumn {
-                    name: "deleted_at".to_string(),
-                    left_type: None,
-                    left_nullable: None,
-                    right_type: Some("TIMESTAMP".to_string()),
-                    right_nullable: Some(true),
-                    status: ColumnDiffStatus::RightOnly,
-                },
-            ],
-            matching: 3,
-            left_only: 2,
-            right_only: 3,
-            changed: 1,
-        };
-
-        // Create the diff result
-        let diff_result = DiffQueryResult {
-            left_name: "staging".to_string(),
-            right_name: "production".to_string(),
-            left_schema: None,
-            left_batches: Vec::new(),
-            left_error: None,
-            right_schema: None,
-            right_batches: Vec::new(),
-            right_error: None,
-            schemas_match: false,
-            diff_stats: None,
-            left_plan: None,
-            right_plan: None,
-            diff_type: DiffType::Schema,
-            schema_diff: Some(schema_diff),
-        };
+        let diff_result = create_schema_diff_demo();
 
         // Create a query cell with the diff result
         let query_id = QueryId::new();
@@ -2306,222 +1804,7 @@ Keyboard Shortcuts:
 
     /// Load a demo profile diff result for testing the profile diff overlay.
     fn load_profile_diff_demo(&mut self) {
-        use enya_datafusion::{OperatorMetrics, PlanNode};
-        use std::time::Duration;
-
-        // Realistic query plan for:
-        // SELECT c.name, COUNT(*) as order_count, SUM(o.total) as revenue
-        // FROM orders o JOIN customers c ON o.customer_id = c.id
-        // WHERE o.status = 'completed' AND o.created_at > '2024-01-01'
-        // GROUP BY c.name ORDER BY revenue DESC LIMIT 100
-
-        // Staging: slower - full table scans, no partition pruning, memory pressure
-        let left_plan = PlanNode {
-            operator: "GlobalLimitExec".to_string(),
-            description: "limit=100".to_string(),
-            properties: Default::default(),
-            metrics: Some(OperatorMetrics {
-                output_rows: 100,
-                elapsed_time: Duration::from_micros(850),
-                memory_bytes: 8192,
-                spill_count: 0,
-                spill_bytes: 0,
-            }),
-            children: vec![PlanNode {
-                operator: "SortExec".to_string(),
-                description: "revenue DESC".to_string(),
-                properties: Default::default(),
-                metrics: Some(OperatorMetrics {
-                    output_rows: 2847,
-                    elapsed_time: Duration::from_millis(45),
-                    memory_bytes: 524288,
-                    spill_count: 0,
-                    spill_bytes: 0,
-                }),
-                children: vec![PlanNode {
-                    operator: "AggregateExec".to_string(),
-                    description: "GROUP BY c.name, SUM(total), COUNT(*)".to_string(),
-                    properties: Default::default(),
-                    metrics: Some(OperatorMetrics {
-                        output_rows: 2847,
-                        elapsed_time: Duration::from_millis(125),
-                        memory_bytes: 4194304,
-                        spill_count: 2,
-                        spill_bytes: 8388608,
-                    }),
-                    children: vec![PlanNode {
-                        operator: "CoalesceBatchesExec".to_string(),
-                        description: "target_batch_size=8192".to_string(),
-                        properties: Default::default(),
-                        metrics: Some(OperatorMetrics {
-                            output_rows: 156420,
-                            elapsed_time: Duration::from_millis(12),
-                            memory_bytes: 262144,
-                            spill_count: 0,
-                            spill_bytes: 0,
-                        }),
-                        children: vec![PlanNode {
-                            operator: "HashJoinExec".to_string(),
-                            description: "INNER JOIN on customer_id = id".to_string(),
-                            properties: Default::default(),
-                            metrics: Some(OperatorMetrics {
-                                output_rows: 156420,
-                                elapsed_time: Duration::from_millis(340),
-                                memory_bytes: 67108864,
-                                spill_count: 0,
-                                spill_bytes: 0,
-                            }),
-                            children: vec![
-                                PlanNode {
-                                    operator: "FilterExec".to_string(),
-                                    description:
-                                        "status = 'completed' AND created_at > '2024-01-01'"
-                                            .to_string(),
-                                    properties: Default::default(),
-                                    metrics: Some(OperatorMetrics {
-                                        output_rows: 156420,
-                                        elapsed_time: Duration::from_millis(85),
-                                        memory_bytes: 131072,
-                                        spill_count: 0,
-                                        spill_bytes: 0,
-                                    }),
-                                    children: vec![PlanNode {
-                                        operator: "ParquetExec".to_string(),
-                                        description: "orders.parquet [full scan, 48 partitions]"
-                                            .to_string(),
-                                        properties: Default::default(),
-                                        metrics: Some(OperatorMetrics {
-                                            output_rows: 1250000,
-                                            elapsed_time: Duration::from_millis(420),
-                                            memory_bytes: 134217728,
-                                            spill_count: 0,
-                                            spill_bytes: 0,
-                                        }),
-                                        children: vec![],
-                                    }],
-                                },
-                                PlanNode {
-                                    operator: "ParquetExec".to_string(),
-                                    description: "customers.parquet [full scan, 4 partitions]"
-                                        .to_string(),
-                                    properties: Default::default(),
-                                    metrics: Some(OperatorMetrics {
-                                        output_rows: 50000,
-                                        elapsed_time: Duration::from_millis(65),
-                                        memory_bytes: 16777216,
-                                        spill_count: 0,
-                                        spill_bytes: 0,
-                                    }),
-                                    children: vec![],
-                                },
-                            ],
-                        }],
-                    }],
-                }],
-            }],
-        };
-
-        // Production: faster - partition pruning, bloom filters, optimized join
-        let right_plan = PlanNode {
-            operator: "GlobalLimitExec".to_string(),
-            description: "limit=100".to_string(),
-            properties: Default::default(),
-            metrics: Some(OperatorMetrics {
-                output_rows: 100,
-                elapsed_time: Duration::from_micros(420),
-                memory_bytes: 8192,
-                spill_count: 0,
-                spill_bytes: 0,
-            }),
-            children: vec![PlanNode {
-                operator: "SortExec".to_string(),
-                description: "revenue DESC".to_string(),
-                properties: Default::default(),
-                metrics: Some(OperatorMetrics {
-                    output_rows: 2891,
-                    elapsed_time: Duration::from_millis(28),
-                    memory_bytes: 524288,
-                    spill_count: 0,
-                    spill_bytes: 0,
-                }),
-                children: vec![PlanNode {
-                    operator: "AggregateExec".to_string(),
-                    description: "GROUP BY c.name, SUM(total), COUNT(*)".to_string(),
-                    properties: Default::default(),
-                    metrics: Some(OperatorMetrics {
-                        output_rows: 2891,
-                        elapsed_time: Duration::from_millis(42),
-                        memory_bytes: 2097152,
-                        spill_count: 0,
-                        spill_bytes: 0,
-                    }),
-                    children: vec![PlanNode {
-                        operator: "CoalesceBatchesExec".to_string(),
-                        description: "target_batch_size=8192".to_string(),
-                        properties: Default::default(),
-                        metrics: Some(OperatorMetrics {
-                            output_rows: 162350,
-                            elapsed_time: Duration::from_millis(8),
-                            memory_bytes: 262144,
-                            spill_count: 0,
-                            spill_bytes: 0,
-                        }),
-                        children: vec![PlanNode {
-                            operator: "HashJoinExec".to_string(),
-                            description: "INNER JOIN on customer_id = id".to_string(),
-                            properties: Default::default(),
-                            metrics: Some(OperatorMetrics {
-                                output_rows: 162350,
-                                elapsed_time: Duration::from_millis(95),
-                                memory_bytes: 33554432,
-                                spill_count: 0,
-                                spill_bytes: 0,
-                            }),
-                            children: vec![
-                                PlanNode {
-                                    operator: "FilterExec".to_string(),
-                                    description: "status = 'completed' AND created_at > '2024-01-01'".to_string(),
-                                    properties: Default::default(),
-                                    metrics: Some(OperatorMetrics {
-                                        output_rows: 162350,
-                                        elapsed_time: Duration::from_millis(22),
-                                        memory_bytes: 131072,
-                                        spill_count: 0,
-                                        spill_bytes: 0,
-                                    }),
-                                    children: vec![PlanNode {
-                                        operator: "ParquetExec".to_string(),
-                                        description: "orders.parquet [pruned: 12/48 partitions, bloom filter]".to_string(),
-                                        properties: Default::default(),
-                                        metrics: Some(OperatorMetrics {
-                                            output_rows: 312500,
-                                            elapsed_time: Duration::from_millis(78),
-                                            memory_bytes: 33554432,
-                                            spill_count: 0,
-                                            spill_bytes: 0,
-                                        }),
-                                        children: vec![],
-                                    }],
-                                },
-                                PlanNode {
-                                    operator: "ParquetExec".to_string(),
-                                    description: "customers.parquet [cached, 4 partitions]".to_string(),
-                                    properties: Default::default(),
-                                    metrics: Some(OperatorMetrics {
-                                        output_rows: 50000,
-                                        elapsed_time: Duration::from_millis(12),
-                                        memory_bytes: 16777216,
-                                        spill_count: 0,
-                                        spill_bytes: 0,
-                                    }),
-                                    children: vec![],
-                                },
-                            ],
-                        }],
-                    }],
-                }],
-            }],
-        };
+        let (left_plan, right_plan) = create_profile_diff_demo();
 
         // Create the diff result
         let diff_result = DiffQueryResult {
@@ -2683,12 +1966,15 @@ Keyboard Shortcuts:
 
         // Render add connection dialog if open
         if self.tree_state.show_add_dialog {
-            self.render_add_connection_dialog(
+            let actions = render_add_connection_dialog(
                 ui,
-                self.theme.text_primary(),
-                text_secondary,
-                accent,
+                self.theme,
+                &mut self.tree_state.new_conn_name,
+                &mut self.tree_state.new_conn_endpoint,
             );
+            for action in actions {
+                self.handle_connection_action(action);
+            }
         }
 
         // Render result overlay if active
@@ -3660,20 +2946,16 @@ Keyboard Shortcuts:
                     {
                         match diff_type {
                             DiffType::Schema => {
-                                // Schema diff view - column comparison table
-                                self.render_schema_diff_content(ui, diff_result);
+                                render_schema_diff_content(ui, self.theme, diff_result);
                             }
                             DiffType::Profile => {
-                                // Profile diff view - side by side trees with metric highlighting
-                                self.render_profile_diff_content(ui, diff_result);
+                                render_profile_diff_content(ui, self.theme, diff_result);
                             }
                             DiffType::Plan => {
-                                // Plan diff view - side by side trees
-                                self.render_plan_diff_content(ui, diff_result);
+                                render_plan_diff_content(ui, self.theme, diff_result);
                             }
                             DiffType::Data => {
-                                // Data diff view - side by side tables
-                                self.render_data_diff_content(ui, diff_result);
+                                render_data_diff_content(ui, self.theme, diff_result);
                             }
                         }
                     }
@@ -3702,972 +2984,6 @@ Keyboard Shortcuts:
 
         if should_close {
             self.close_overlay();
-        }
-    }
-
-    /// Render plan diff content (side-by-side plan trees).
-    fn render_plan_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
-        let text_primary = self.theme.text_primary();
-        let text_secondary = self.theme.text_secondary();
-        let available_height = ui.available_height().max(300.0);
-        let colors = OverlayColors::new(self.theme);
-
-        // Header with connection names
-        render_split_header(
-            ui,
-            &diff_result.left_name,
-            &diff_result.right_name,
-            text_primary,
-            text_primary,
-            colors.separator,
-        );
-
-        // Side-by-side plan trees
-        let content_height = (available_height - 40.0).max(200.0);
-        let left_plan = diff_result.left_plan.clone();
-        let right_plan = diff_result.right_plan.clone();
-
-        render_split_panels(
-            ui,
-            content_height,
-            colors.separator,
-            "sql_diff_plan",
-            |ui| {
-                if let Some(plan) = &left_plan {
-                    self.render_plan_tree(ui, plan, 0);
-                } else {
-                    ui.label(
-                        RichText::new("No plan data")
-                            .color(text_secondary)
-                            .italics(),
-                    );
-                }
-            },
-            |ui| {
-                if let Some(plan) = &right_plan {
-                    self.render_plan_tree(ui, plan, 0);
-                } else {
-                    ui.label(
-                        RichText::new("No plan data")
-                            .color(text_secondary)
-                            .italics(),
-                    );
-                }
-            },
-        );
-    }
-
-    /// Render a simple plan tree (non-interactive, for diff view).
-    fn render_plan_tree(&self, ui: &mut egui::Ui, node: &PlanNode, depth: usize) {
-        let text_secondary = self.theme.text_secondary();
-        let indent = depth as f32 * 16.0;
-
-        ui.horizontal(|ui| {
-            ui.add_space(indent);
-
-            // Operator name with color based on category
-            let category = enya_datafusion::OperatorCategory::from_operator(&node.operator);
-            let color = self.theme.plan_color(category.color_index());
-
-            ui.label(
-                RichText::new(&node.operator)
-                    .color(color)
-                    .strong()
-                    .size(12.0),
-            );
-
-            // Metrics if available
-            if let Some(metrics) = &node.metrics {
-                ui.label(
-                    RichText::new(format!(
-                        " ({}, {}r)",
-                        enya_datafusion::format_duration(metrics.elapsed_time),
-                        metrics.output_rows
-                    ))
-                    .color(text_secondary)
-                    .size(10.0),
-                );
-            }
-        });
-
-        // Description
-        if !node.description.is_empty() {
-            ui.horizontal(|ui| {
-                ui.add_space(indent + 16.0);
-                ui.label(
-                    RichText::new(&node.description)
-                        .color(text_secondary)
-                        .size(10.0),
-                );
-            });
-        }
-
-        // Recursively render children
-        for child in &node.children {
-            self.render_plan_tree(ui, child, depth + 1);
-        }
-    }
-
-    /// Render schema diff content (unified table showing column differences).
-    fn render_schema_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
-        use super::types::ColumnDiffStatus;
-
-        let text_primary = self.theme.text_primary();
-        let text_secondary = self.theme.text_secondary();
-        let available_width = ui.available_width();
-        let available_height = ui.available_height().max(300.0);
-        let colors = OverlayColors::new(self.theme);
-
-        let Some(schema_diff) = &diff_result.schema_diff else {
-            ui.label(
-                RichText::new("No schema diff data available")
-                    .color(text_secondary)
-                    .italics(),
-            );
-            return;
-        };
-
-        // Stats summary
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new(format!(
-                    "{} matching  {} changed  {} removed  {} added",
-                    schema_diff.matching,
-                    schema_diff.changed,
-                    schema_diff.left_only,
-                    schema_diff.right_only
-                ))
-                .color(text_secondary)
-                .size(10.0),
-            );
-        });
-        ui.add_space(4.0);
-
-        // Column widths - proportional to available width (25%, 30%, 30%, 15%)
-        let usable_width = (available_width - 24.0).max(400.0); // Account for padding
-        let col_widths = [
-            usable_width * 0.25, // Column name
-            usable_width * 0.30, // Left type
-            usable_width * 0.30, // Right type
-            usable_width * 0.15, // Status
-        ];
-        let row_height = 22.0;
-
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.add_sized(
-                [col_widths[0], row_height],
-                egui::Label::new(
-                    RichText::new("Column")
-                        .color(text_primary)
-                        .strong()
-                        .size(11.0),
-                ),
-            );
-            ui.add_sized(
-                [col_widths[1], row_height],
-                egui::Label::new(
-                    RichText::new(&diff_result.left_name)
-                        .color(self.theme.diff_removed_text())
-                        .strong()
-                        .size(11.0),
-                ),
-            );
-            ui.add_sized(
-                [col_widths[2], row_height],
-                egui::Label::new(
-                    RichText::new(&diff_result.right_name)
-                        .color(self.theme.diff_added_text())
-                        .strong()
-                        .size(11.0),
-                ),
-            );
-            ui.add_sized(
-                [col_widths[3], row_height],
-                egui::Label::new(
-                    RichText::new("Status")
-                        .color(text_primary)
-                        .strong()
-                        .size(11.0),
-                ),
-            );
-        });
-
-        // Separator
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, colors.separator),
-        );
-        ui.add_space(2.0);
-
-        // Scrollable column rows
-        let content_height = (available_height - 80.0).max(200.0);
-        egui::ScrollArea::vertical()
-            .id_salt("sql_schema_diff_rows")
-            .max_height(content_height)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.style_mut().spacing.item_spacing.y = 0.0;
-
-                for col in &schema_diff.columns {
-                    // Determine row background and status display based on column status
-                    let (bg_color, status_text, status_color) = match &col.status {
-                        ColumnDiffStatus::Matching => {
-                            (Color32::TRANSPARENT, "✓", self.theme.semantic_success())
-                        }
-                        ColumnDiffStatus::Changed => (
-                            self.theme.semantic_warning().gamma_multiply(0.1),
-                            "changed",
-                            self.theme.semantic_warning(),
-                        ),
-                        ColumnDiffStatus::LeftOnly => (
-                            self.theme.diff_removed_bg(),
-                            "removed",
-                            self.theme.diff_removed_text(),
-                        ),
-                        ColumnDiffStatus::RightOnly => (
-                            self.theme.diff_added_bg(),
-                            "added",
-                            self.theme.diff_added_text(),
-                        ),
-                    };
-
-                    // Row frame
-                    egui::Frame::new()
-                        .fill(bg_color)
-                        .inner_margin(egui::Margin::symmetric(0, 2))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.add_space(8.0);
-
-                                // Column name
-                                ui.add_sized(
-                                    [col_widths[0], row_height],
-                                    egui::Label::new(
-                                        RichText::new(&col.name).color(text_primary).size(11.0),
-                                    ),
-                                );
-
-                                // Left type
-                                let left_type = col
-                                    .left_type
-                                    .as_ref()
-                                    .map(|t| {
-                                        let nullable = col
-                                            .left_nullable
-                                            .map(|n| if n { " NULL" } else { " NOT NULL" })
-                                            .unwrap_or("");
-                                        format!("{t}{nullable}")
-                                    })
-                                    .unwrap_or_else(|| "—".to_string());
-                                ui.add_sized(
-                                    [col_widths[1], row_height],
-                                    egui::Label::new(
-                                        RichText::new(&left_type)
-                                            .color(if col.left_type.is_some() {
-                                                text_secondary
-                                            } else {
-                                                text_secondary.gamma_multiply(0.5)
-                                            })
-                                            .size(10.0),
-                                    ),
-                                );
-
-                                // Right type
-                                let right_type = col
-                                    .right_type
-                                    .as_ref()
-                                    .map(|t| {
-                                        let nullable = col
-                                            .right_nullable
-                                            .map(|n| if n { " NULL" } else { " NOT NULL" })
-                                            .unwrap_or("");
-                                        format!("{t}{nullable}")
-                                    })
-                                    .unwrap_or_else(|| "—".to_string());
-                                ui.add_sized(
-                                    [col_widths[2], row_height],
-                                    egui::Label::new(
-                                        RichText::new(&right_type)
-                                            .color(if col.right_type.is_some() {
-                                                text_secondary
-                                            } else {
-                                                text_secondary.gamma_multiply(0.5)
-                                            })
-                                            .size(10.0),
-                                    ),
-                                );
-
-                                // Status
-                                ui.add_sized(
-                                    [col_widths[3], row_height],
-                                    egui::Label::new(
-                                        RichText::new(status_text).color(status_color).size(10.0),
-                                    ),
-                                );
-                            });
-                        });
-                }
-            });
-    }
-
-    /// Render profile diff content (side-by-side trees with timing deltas).
-    fn render_profile_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
-        let text_secondary = self.theme.text_secondary();
-        let available_height = ui.available_height().max(300.0);
-        let available_width = ui.available_width();
-
-        // Side-by-side layout
-        let separator_width = 2.0;
-        let side_width = (available_width - separator_width) / 2.0;
-
-        // Side-by-side scrolling content
-        let content_height = (available_height - 80.0).max(200.0);
-
-        egui::ScrollArea::vertical()
-            .id_salt("sql_profile_diff_split")
-            .max_height(content_height)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_min_width(available_width);
-                ui.set_max_width(available_width);
-
-                if let Some(left_plan) = &diff_result.left_plan {
-                    self.render_split_profile_tree(
-                        ui,
-                        left_plan,
-                        diff_result.right_plan.as_ref(),
-                        side_width,
-                    );
-                } else if let Some(right_plan) = &diff_result.right_plan {
-                    self.render_split_profile_tree(ui, right_plan, None, side_width);
-                } else {
-                    ui.label(
-                        RichText::new("No plan data available")
-                            .color(text_secondary)
-                            .italics(),
-                    );
-                }
-            });
-    }
-
-    /// Render side-by-side profile trees like git diff.
-    fn render_split_profile_tree(
-        &self,
-        ui: &mut egui::Ui,
-        left_node: &PlanNode,
-        right_root: Option<&PlanNode>,
-        side_width: f32,
-    ) {
-        let mut paired_rows: Vec<(Option<ProfileRow>, Option<ProfileRow>)> = Vec::new();
-        Self::build_paired_profile_rows(left_node, right_root, 0, &mut paired_rows);
-
-        let text_secondary = self.theme.text_secondary();
-        let row_height = 28.0;
-        let separator_width = 2.0;
-        let total_width = side_width * 2.0 + separator_width;
-
-        for (left_row, right_row) in &paired_rows {
-            // Main operator row
-            ui.horizontal(|ui| {
-                ui.set_min_width(total_width);
-                ui.set_max_width(total_width);
-
-                // Left side panel
-                egui::Frame::new()
-                    .fill(Color32::TRANSPARENT)
-                    .show(ui, |ui| {
-                        ui.set_min_size(egui::vec2(side_width, row_height));
-                        ui.set_max_width(side_width);
-                        ui.horizontal(|ui| {
-                            self.render_profile_row(ui, left_row.as_ref(), true, side_width);
-                        });
-                    });
-
-                // Center separator line
-                let rect = ui.available_rect_before_wrap();
-                ui.painter().vline(
-                    rect.left() + 1.0,
-                    rect.y_range(),
-                    egui::Stroke::new(1.0, self.theme.border_default()),
-                );
-                ui.add_space(separator_width);
-
-                // Right side panel
-                egui::Frame::new()
-                    .fill(Color32::TRANSPARENT)
-                    .show(ui, |ui| {
-                        ui.set_min_size(egui::vec2(side_width, row_height));
-                        ui.set_max_width(side_width);
-                        ui.horizontal(|ui| {
-                            self.render_profile_row(ui, right_row.as_ref(), false, side_width);
-                        });
-                    });
-            });
-
-            // Description row (if present) - show on both sides
-            let left_desc = left_row
-                .as_ref()
-                .filter(|r| !r.description.is_empty())
-                .map(|r| (r.description.as_str(), r.depth));
-            let right_desc = right_row
-                .as_ref()
-                .filter(|r| !r.description.is_empty())
-                .map(|r| r.description.as_str());
-
-            if left_desc.is_some() || right_desc.is_some() {
-                let depth = left_desc.map(|(_, d)| d).unwrap_or(0);
-                let indent = 16.0 + depth as f32 * 16.0;
-
-                ui.horizontal(|ui| {
-                    ui.set_min_width(total_width);
-                    ui.set_max_width(total_width);
-
-                    // Left description
-                    egui::Frame::new()
-                        .fill(Color32::TRANSPARENT)
-                        .show(ui, |ui| {
-                            ui.set_min_size(egui::vec2(side_width, 16.0));
-                            ui.set_max_width(side_width);
-                            ui.add_space(indent);
-                            if let Some((desc_text, _)) = left_desc {
-                                ui.label(
-                                    RichText::new(desc_text)
-                                        .color(text_secondary.gamma_multiply(0.6))
-                                        .size(10.0),
-                                );
-                            }
-                        });
-
-                    ui.add_space(separator_width);
-
-                    // Right description
-                    egui::Frame::new()
-                        .fill(Color32::TRANSPARENT)
-                        .show(ui, |ui| {
-                            ui.set_min_size(egui::vec2(side_width, 16.0));
-                            ui.set_max_width(side_width);
-                            ui.add_space(indent);
-                            if let Some(desc_text) = right_desc {
-                                ui.label(
-                                    RichText::new(desc_text)
-                                        .color(text_secondary.gamma_multiply(0.6))
-                                        .size(10.0),
-                                );
-                            }
-                        });
-                });
-            }
-        }
-    }
-
-    /// Render a single row in the split profile view.
-    fn render_profile_row(
-        &self,
-        ui: &mut egui::Ui,
-        row: Option<&ProfileRow>,
-        is_left: bool,
-        side_width: f32,
-    ) {
-        let text_secondary = self.theme.text_secondary();
-
-        let Some(row) = row else {
-            // Empty row placeholder
-            let (rect, _) =
-                ui.allocate_exact_size(egui::vec2(side_width - 8.0, 24.0), egui::Sense::hover());
-            ui.painter()
-                .rect_filled(rect, 0.0, self.theme.bg_base().gamma_multiply(0.3));
-            return;
-        };
-
-        let indent = row.depth as f32 * 16.0;
-
-        // Delta calculation: how much slower/faster is THIS side compared to OTHER side
-        // delta > 0 means other side is slower (I am faster)
-        // delta < 0 means other side is faster (I am slower)
-        let delta_ms = row
-            .other_time_ms
-            .map(|other| other as i64 - row.time_ms as i64);
-
-        // For left side (staging): negative delta = staging slower = bad (red)
-        // For right side (production): positive delta = production faster = good (green)
-        let is_this_side_slower = delta_ms.map(|d| d < -5).unwrap_or(false); // other is faster
-        let is_this_side_faster = delta_ms.map(|d| d > 5).unwrap_or(false); // other is slower
-
-        // Determine highlighting based on which side and whether it's significant
-        let (should_highlight_red, should_highlight_green) = if is_left {
-            // Left side: highlight red if this side is slower
-            (is_this_side_slower, false)
-        } else {
-            // Right side: highlight green if this side is faster
-            (false, is_this_side_faster)
-        };
-
-        // Background color
-        let bg_color = if should_highlight_red {
-            self.theme.diff_removed_bg().gamma_multiply(0.4)
-        } else if should_highlight_green {
-            self.theme.diff_added_bg().gamma_multiply(0.4)
-        } else {
-            Color32::TRANSPARENT
-        };
-
-        // Gutter stripe color
-        let gutter_color = if should_highlight_red {
-            self.theme.diff_removed_text()
-        } else if should_highlight_green {
-            self.theme.diff_added_text()
-        } else if is_left {
-            self.theme.diff_removed_bg().gamma_multiply(0.3)
-        } else {
-            self.theme.diff_added_bg().gamma_multiply(0.3)
-        };
-
-        // Draw row background
-        let row_rect = ui.available_rect_before_wrap();
-        let bg_rect = egui::Rect::from_min_size(row_rect.min, egui::vec2(side_width - 4.0, 24.0));
-        ui.painter().rect_filled(bg_rect, 2.0, bg_color);
-
-        // Draw gutter stripe
-        let gutter_rect = egui::Rect::from_min_size(row_rect.min, egui::vec2(3.0, 24.0));
-        ui.painter().rect_filled(gutter_rect, 0.0, gutter_color);
-
-        ui.add_space(8.0 + indent);
-
-        // Tree connector
-        if row.depth > 0 {
-            ui.label(
-                RichText::new("└")
-                    .color(text_secondary.gamma_multiply(0.3))
-                    .size(10.0),
-            );
-            ui.add_space(2.0);
-        }
-
-        // Operator name with category color
-        let category = enya_datafusion::OperatorCategory::from_operator(&row.operator);
-        let op_color = self.theme.plan_color(category.color_index());
-        ui.label(
-            RichText::new(&row.operator)
-                .color(op_color)
-                .strong()
-                .size(11.0),
-        );
-
-        ui.add_space(8.0);
-
-        // Timing display - always neutral color, only delta is highlighted
-        ui.label(
-            RichText::new(format!("{}ms", row.time_ms))
-                .color(text_secondary)
-                .size(11.0),
-        );
-
-        // Delta badge - only show on the SLOWER side
-        if let Some(delta) = delta_ms {
-            // Only show badge if this side is slower and the difference is significant
-            if is_this_side_slower && delta.abs() > 5 {
-                ui.add_space(6.0);
-                let diff = delta.abs();
-                ui.label(
-                    RichText::new(format!("+{diff}ms"))
-                        .color(self.theme.semantic_error())
-                        .size(10.0)
-                        .strong(),
-                );
-            }
-        }
-
-        // Row count (compact)
-        if row.rows > 0 {
-            ui.add_space(6.0);
-            ui.label(
-                RichText::new(format!("{}rows", enya_datafusion::format_rows(row.rows)))
-                    .color(text_secondary.gamma_multiply(0.5))
-                    .size(9.0),
-            );
-        }
-    }
-
-    /// Build paired rows from two plan trees for side-by-side rendering.
-    fn build_paired_profile_rows(
-        left_node: &PlanNode,
-        right_root: Option<&PlanNode>,
-        depth: usize,
-        rows: &mut Vec<(Option<ProfileRow>, Option<ProfileRow>)>,
-    ) {
-        let right_node = Self::find_matching_node(left_node, right_root, depth);
-
-        let left_time_ms = left_node
-            .metrics
-            .as_ref()
-            .map(|m| m.elapsed_time.as_millis() as u64)
-            .unwrap_or(0);
-        let right_time_ms = right_node
-            .and_then(|n| n.metrics.as_ref())
-            .map(|m| m.elapsed_time.as_millis() as u64);
-
-        let left_rows = left_node
-            .metrics
-            .as_ref()
-            .map(|m| m.output_rows)
-            .unwrap_or(0);
-        let right_rows = right_node
-            .and_then(|n| n.metrics.as_ref())
-            .map(|m| m.output_rows)
-            .unwrap_or(0);
-
-        let left_row = ProfileRow {
-            operator: left_node.operator.clone(),
-            description: left_node.description.clone(),
-            depth,
-            time_ms: left_time_ms,
-            other_time_ms: right_time_ms,
-            rows: left_rows,
-        };
-
-        let right_row = right_node.map(|rn| ProfileRow {
-            operator: rn.operator.clone(),
-            description: rn.description.clone(),
-            depth,
-            time_ms: right_time_ms.unwrap_or(0),
-            other_time_ms: Some(left_time_ms),
-            rows: right_rows,
-        });
-
-        rows.push((Some(left_row), right_row));
-
-        for child in &left_node.children {
-            let right_child = right_node
-                .and_then(|rn| rn.children.iter().find(|rc| rc.operator == child.operator));
-            Self::build_paired_profile_rows(child, right_child, depth + 1, rows);
-        }
-    }
-
-    /// Find matching node in the other plan tree by operator name.
-    /// Note: When called recursively, `other` is already the matched child from the parent level.
-    fn find_matching_node<'a>(
-        node: &PlanNode,
-        other: Option<&'a PlanNode>,
-        _depth: usize,
-    ) -> Option<&'a PlanNode> {
-        let other = other?;
-        if other.operator == node.operator {
-            Some(other)
-        } else {
-            None
-        }
-    }
-
-    /// Render data diff content (side-by-side tables with row highlighting).
-    fn render_data_diff_content(&self, ui: &mut egui::Ui, diff_result: &DiffQueryResult) {
-        let text_primary = self.theme.text_primary();
-        let text_secondary = self.theme.text_secondary();
-        let available_width = ui.available_width();
-        let available_height = ui.available_height().max(300.0);
-        let side_width = (available_width - 12.0) / 2.0;
-        let colors = OverlayColors::new(self.theme);
-
-        // Compute detailed diff with paired rows
-        let table_diff = compute_detailed_diff(
-            diff_result.left_schema.as_ref(),
-            &diff_result.left_batches,
-            diff_result.right_schema.as_ref(),
-            &diff_result.right_batches,
-        );
-
-        // Schema mismatch warning
-        if !diff_result.schemas_match
-            && diff_result.left_schema.is_some()
-            && diff_result.right_schema.is_some()
-        {
-            ui.horizontal(|ui| {
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new(format!("{} Schemas don't match", status::WARNING))
-                        .color(self.theme.semantic_warning())
-                        .size(11.0),
-                );
-            });
-            ui.add_space(4.0);
-        }
-
-        // Row counts for headers
-        let left_rows: usize = diff_result.left_batches.iter().map(|b| b.num_rows()).sum();
-        let right_rows: usize = diff_result.right_batches.iter().map(|b| b.num_rows()).sum();
-
-        // Diff stats summary
-        ui.horizontal(|ui| {
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new(format!(
-                    "{} matching  {} left only  {} right only",
-                    table_diff.stats.matching,
-                    table_diff.stats.left_only,
-                    table_diff.stats.right_only
-                ))
-                .color(text_secondary)
-                .size(10.0),
-            );
-        });
-        ui.add_space(4.0);
-
-        // Column headers with connection names
-        ui.horizontal(|ui| {
-            ui.allocate_ui_with_layout(
-                egui::vec2(side_width, 20.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(&diff_result.left_name)
-                            .color(self.theme.diff_removed_text())
-                            .strong(),
-                    );
-                    ui.label(
-                        RichText::new(format!("({left_rows} rows)"))
-                            .color(text_secondary)
-                            .size(10.0),
-                    );
-                },
-            );
-            ui.add_space(4.0);
-            ui.allocate_ui_with_layout(
-                egui::vec2(side_width, 20.0),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(&diff_result.right_name)
-                            .color(self.theme.diff_added_text())
-                            .strong(),
-                    );
-                    ui.label(
-                        RichText::new(format!("({right_rows} rows)"))
-                            .color(text_secondary)
-                            .size(10.0),
-                    );
-                },
-            );
-        });
-
-        // Separator below headers
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, colors.separator),
-        );
-        ui.add_space(2.0);
-
-        // Calculate dimensions
-        let content_height = (available_height - 80.0).max(200.0);
-        let num_cols = table_diff.columns.len().max(1);
-        let col_width = ((side_width - 16.0) / num_cols as f32).clamp(60.0, 120.0);
-        let row_height = 18.0;
-
-        // Render column headers
-        ui.horizontal(|ui| {
-            // Left header
-            ui.allocate_ui_with_layout(
-                egui::vec2(side_width, row_height),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.add_space(4.0);
-                    for col in &table_diff.columns {
-                        let display_name = if col.len() > 12 {
-                            format!("{}…", &col[..11])
-                        } else {
-                            col.clone()
-                        };
-                        ui.add_sized(
-                            [col_width, row_height],
-                            egui::Label::new(
-                                RichText::new(display_name)
-                                    .color(text_primary)
-                                    .strong()
-                                    .size(10.0),
-                            ),
-                        );
-                    }
-                },
-            );
-            // Right header
-            ui.allocate_ui_with_layout(
-                egui::vec2(side_width, row_height),
-                egui::Layout::left_to_right(egui::Align::Center),
-                |ui| {
-                    ui.add_space(4.0);
-                    for col in &table_diff.columns {
-                        let display_name = if col.len() > 12 {
-                            format!("{}…", &col[..11])
-                        } else {
-                            col.clone()
-                        };
-                        ui.add_sized(
-                            [col_width, row_height],
-                            egui::Label::new(
-                                RichText::new(display_name)
-                                    .color(text_primary)
-                                    .strong()
-                                    .size(10.0),
-                            ),
-                        );
-                    }
-                },
-            );
-        });
-
-        // Separator below column headers
-        ui.painter().hline(
-            ui.available_rect_before_wrap().x_range(),
-            ui.cursor().top(),
-            egui::Stroke::new(1.0, self.theme.border_default()),
-        );
-
-        // Scrollable paired rows
-        egui::ScrollArea::vertical()
-            .id_salt("sql_diff_paired_rows")
-            .max_height(content_height)
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.style_mut().spacing.item_spacing.y = 0.0;
-
-                let max_rows = 100;
-                for pair in table_diff.rows.iter().take(max_rows) {
-                    self.render_diff_row_pair(ui, pair, side_width, col_width, row_height);
-                }
-
-                if table_diff.rows.len() > max_rows {
-                    ui.add_space(4.0);
-                    ui.label(
-                        RichText::new(format!("… {}+ rows", table_diff.rows.len()))
-                            .color(text_secondary)
-                            .italics()
-                            .size(9.0),
-                    );
-                }
-            });
-    }
-
-    /// Render a single paired row in the diff view.
-    fn render_diff_row_pair(
-        &self,
-        ui: &mut egui::Ui,
-        pair: &super::diff::DiffRowPair,
-        side_width: f32,
-        col_width: f32,
-        row_height: f32,
-    ) {
-        let text_secondary = self.theme.text_secondary();
-        let empty_bg = self.theme.bg_base().gamma_multiply(0.7);
-
-        // Determine colors based on row status
-        let (left_bg, left_text, right_bg, right_text) = match (&pair.left, &pair.right) {
-            (Some(left), Some(_right)) => {
-                // Both present - matching rows
-                if left.status == RowDiffStatus::Matching {
-                    (None, text_secondary, None, text_secondary)
-                } else {
-                    // Hash collision or mismatch - treat as different
-                    (
-                        Some(self.theme.diff_removed_bg()),
-                        self.theme.diff_removed_text(),
-                        Some(self.theme.diff_added_bg()),
-                        self.theme.diff_added_text(),
-                    )
-                }
-            }
-            (Some(_), None) => {
-                // Left only - red/removed, right empty
-                (
-                    Some(self.theme.diff_removed_bg()),
-                    self.theme.diff_removed_text(),
-                    Some(empty_bg),
-                    text_secondary,
-                )
-            }
-            (None, Some(_)) => {
-                // Right only - green/added, left empty
-                (
-                    Some(empty_bg),
-                    text_secondary,
-                    Some(self.theme.diff_added_bg()),
-                    self.theme.diff_added_text(),
-                )
-            }
-            (None, None) => return, // Shouldn't happen
-        };
-
-        // Allocate the full row first to get proper rect for backgrounds
-        let (row_rect, _) = ui.allocate_exact_size(
-            egui::vec2(side_width * 2.0 + 8.0, row_height),
-            egui::Sense::hover(),
-        );
-
-        // Draw backgrounds first (behind content)
-        let left_rect = egui::Rect::from_min_size(row_rect.min, egui::vec2(side_width, row_height));
-        let right_rect = egui::Rect::from_min_size(
-            egui::pos2(row_rect.min.x + side_width + 8.0, row_rect.min.y),
-            egui::vec2(side_width, row_height),
-        );
-
-        if let Some(bg) = left_bg {
-            ui.painter().rect_filled(left_rect, 0.0, bg);
-        }
-        if let Some(bg) = right_bg {
-            ui.painter().rect_filled(right_rect, 0.0, bg);
-        }
-
-        // Draw vertical separator
-        ui.painter().vline(
-            row_rect.min.x + side_width + 4.0,
-            egui::Rangef::new(row_rect.top(), row_rect.bottom()),
-            egui::Stroke::new(1.0, self.theme.border_default().gamma_multiply(0.5)),
-        );
-
-        // Render left side content
-        if let Some(row) = &pair.left {
-            self.render_diff_row_cells_at(ui, row, left_rect, col_width, left_text);
-        }
-
-        // Render right side content
-        if let Some(row) = &pair.right {
-            self.render_diff_row_cells_at(ui, row, right_rect, col_width, right_text);
-        }
-    }
-
-    /// Render cells for a single diff row at a specific position.
-    fn render_diff_row_cells_at(
-        &self,
-        ui: &mut egui::Ui,
-        row: &DiffRow,
-        rect: egui::Rect,
-        col_width: f32,
-        text_color: egui::Color32,
-    ) {
-        let mut x = rect.left() + 4.0;
-        let y_center = rect.center().y;
-
-        for value in &row.values {
-            let max_chars = (col_width / 7.0) as usize;
-            let display_value = if value.chars().count() > max_chars && max_chars > 3 {
-                let truncated: String = value.chars().take(max_chars - 1).collect();
-                format!("{truncated}…")
-            } else {
-                value.clone()
-            };
-
-            ui.painter().text(
-                egui::pos2(x, y_center),
-                egui::Align2::LEFT_CENTER,
-                display_value,
-                egui::FontId::monospace(9.0),
-                text_color,
-            );
-
-            x += col_width;
         }
     }
 
@@ -5366,17 +3682,6 @@ Keyboard Shortcuts:
                     });
                 ui.add_space(8.0);
             }
-            SqlMode::Profile => {
-                egui::Frame::new()
-                    .fill(accent.gamma_multiply(0.1))
-                    .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.3)))
-                    .corner_radius(4.0)
-                    .inner_margin(egui::Margin::symmetric(12, 6))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new("PROFILE").color(accent).size(10.0).strong());
-                    });
-                ui.add_space(8.0);
-            }
         }
     }
 
@@ -5543,7 +3848,6 @@ Keyboard Shortcuts:
                         SqlMode::Normal => "SQL",
                         SqlMode::Diff { .. } => "DIFF",
                         SqlMode::Explain => "EXPLAIN",
-                        SqlMode::Profile => "PROFILE",
                     };
                     ui.label(RichText::new(prompt).color(accent).size(11.0).strong());
 
@@ -5606,7 +3910,7 @@ Keyboard Shortcuts:
                             .frame(false)
                             .layouter(&mut layouter)
                             .hint_text(
-                                RichText::new("SELECT * FROM ... or /help")
+                                RichText::new("SELECT * FROM ... or / for commands")
                                     .color(text_secondary.gamma_multiply(0.4))
                                     .monospace(),
                             ),
@@ -5729,7 +4033,7 @@ Keyboard Shortcuts:
                     .size(10.0),
             );
             ui.label(
-                RichText::new("/help commands")
+                RichText::new("/ for commands")
                     .color(text_secondary.gamma_multiply(0.5))
                     .size(10.0),
             );
@@ -6481,472 +4785,6 @@ Keyboard Shortcuts:
         }
     }
 
-    /// Render connection dropdown popup.
-    #[allow(dead_code)]
-    fn render_connection_popup(&mut self, ui: &mut egui::Ui) {
-        // sidebar_width == 1.0 means popup is open (repurposed field)
-        if self.sidebar_width != 1.0 {
-            return;
-        }
-
-        let text_primary = self.theme.text_primary();
-        let text_secondary = self.theme.text_secondary();
-        let accent = self.theme.accent_primary();
-
-        // Popup area
-        egui::Area::new(egui::Id::new("connection_popup"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(egui::pos2(ui.available_width() - 250.0, 60.0))
-            .show(ui.ctx(), |ui| {
-                egui::Frame::new()
-                    .fill(self.theme.bg_elevated())
-                    .stroke(egui::Stroke::new(1.0, self.theme.border_default()))
-                    .corner_radius(8.0)
-                    .shadow(egui::epaint::Shadow {
-                        spread: 0,
-                        blur: 16,
-                        color: Color32::from_black_alpha(40),
-                        offset: [0, 4],
-                    })
-                    .inner_margin(8.0)
-                    .show(ui, |ui| {
-                        ui.set_min_width(220.0);
-
-                        // Header
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new("Connections")
-                                    .color(text_secondary)
-                                    .size(11.0)
-                                    .strong(),
-                            );
-                        });
-
-                        ui.add_space(8.0);
-
-                        // Connection list
-                        if self.connections.is_empty() {
-                            ui.label(
-                                RichText::new("No connections yet")
-                                    .color(text_secondary.gamma_multiply(0.6))
-                                    .size(11.0),
-                            );
-                        } else {
-                            let connections_snapshot: Vec<_> = self
-                                .connections
-                                .iter()
-                                .map(|c| (c.id, c.name.clone(), c.state.clone(), c.active))
-                                .collect();
-
-                            for (id, name, state, active) in connections_snapshot {
-                                let is_connected = matches!(state, ConnectionState::Connected);
-                                let is_connecting = matches!(state, ConnectionState::Connecting);
-
-                                let status_color = if is_connected {
-                                    self.theme.semantic_success()
-                                } else if is_connecting {
-                                    accent
-                                } else {
-                                    text_secondary.gamma_multiply(0.4)
-                                };
-
-                                let row_bg = if active {
-                                    accent.gamma_multiply(0.1)
-                                } else {
-                                    Color32::TRANSPARENT
-                                };
-
-                                let row = egui::Frame::new()
-                                    .fill(row_bg)
-                                    .corner_radius(4.0)
-                                    .inner_margin(egui::Margin::symmetric(8, 6))
-                                    .show(ui, |ui| {
-                                        ui.horizontal(|ui| {
-                                            if is_connecting {
-                                                ui.spinner();
-                                            } else {
-                                                ui.label(
-                                                    RichText::new("●")
-                                                        .color(status_color)
-                                                        .size(8.0),
-                                                );
-                                            }
-                                            ui.add_space(8.0);
-
-                                            let name_color =
-                                                if active { accent } else { text_primary };
-                                            ui.label(
-                                                RichText::new(&name).color(name_color).size(12.0),
-                                            );
-                                        });
-                                    });
-
-                                if row.response.clicked() {
-                                    if is_connected {
-                                        self.set_active_connection(id);
-                                    } else if !is_connecting {
-                                        self.connect_saved(id);
-                                    }
-                                    self.sidebar_width = 0.0; // Close popup
-                                }
-
-                                row.response.context_menu(|ui| {
-                                    if is_connected && ui.button("Disconnect").clicked() {
-                                        self.disconnect_saved(id);
-                                        ui.close();
-                                    }
-                                    if ui.button("Remove").clicked() {
-                                        self.remove_connection(id);
-                                        ui.close();
-                                    }
-                                });
-                            }
-                        }
-
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(4.0);
-
-                        // Add connection button
-                        let add_btn = ui.add(
-                            egui::Button::new(
-                                RichText::new(format!("{} Add Connection", action::ADD))
-                                    .color(accent)
-                                    .size(11.0),
-                            )
-                            .fill(Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE)
-                            .min_size(egui::vec2(200.0, 24.0)),
-                        );
-                        if add_btn.clicked() {
-                            self.tree_state.show_add_dialog = true;
-                            self.tree_state.new_conn_name.clear();
-                            self.tree_state.new_conn_endpoint.clear();
-                            self.sidebar_width = 0.0; // Close popup
-                        }
-                    });
-
-                // Close popup when clicking outside
-                if ui.input(|i| i.pointer.any_click()) {
-                    let popup_rect = ui.min_rect();
-                    if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
-                        if !popup_rect.contains(pos) {
-                            self.sidebar_width = 0.0;
-                        }
-                    }
-                }
-            });
-    }
-
-    // ========================================================================
-    // Legacy Panel Components (kept for reference, will be removed)
-    // ========================================================================
-
-    /// Render the connection tree sidebar (left panel).
-    #[allow(dead_code)]
-    fn render_connection_tree(
-        &mut self,
-        ui: &mut egui::Ui,
-        _height: f32,
-        text_primary: Color32,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        // Fill available space - StripBuilder handles sizing
-        let available = ui.available_size();
-
-        egui::Frame::new()
-            .fill(self.theme.bg_elevated())
-            .inner_margin(0.0)
-            .show(ui, |ui| {
-                ui.set_min_size(available);
-
-                ui.vertical(|ui| {
-                    // Header
-                    egui::Frame::new()
-                        .fill(self.theme.bg_surface())
-                        .inner_margin(egui::Margin::symmetric(12, 8))
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    RichText::new("CONNECTIONS")
-                                        .color(text_secondary)
-                                        .size(10.0)
-                                        .strong(),
-                                );
-
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        // Plan viewer toggle
-                                        let plan_color = if self.show_plan_viewer {
-                                            accent
-                                        } else {
-                                            text_secondary
-                                        };
-                                        let plan_btn = ui.add(
-                                            egui::Button::new(
-                                                RichText::new(nav::TREE)
-                                                    .color(plan_color)
-                                                    .size(12.0),
-                                            )
-                                            .fill(if self.show_plan_viewer {
-                                                accent.gamma_multiply(0.15)
-                                            } else {
-                                                Color32::TRANSPARENT
-                                            })
-                                            .stroke(egui::Stroke::NONE)
-                                            .corner_radius(4.0)
-                                            .min_size(egui::vec2(24.0, 20.0)),
-                                        );
-                                        if plan_btn.clicked() {
-                                            self.show_plan_viewer = !self.show_plan_viewer;
-                                        }
-                                        plan_btn.on_hover_text("Toggle plan viewer");
-                                    },
-                                );
-                            });
-                        });
-
-                    // Connection list
-                    egui::ScrollArea::vertical()
-                        .id_salt("connection_tree")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            ui.set_min_width(self.sidebar_width - 16.0);
-                            ui.add_space(8.0);
-
-                            if self.connections.is_empty() {
-                                // Empty state
-                                ui.vertical_centered(|ui| {
-                                    ui.add_space(40.0);
-                                    ui.label(
-                                        RichText::new(category::DATAFUSION)
-                                            .color(text_secondary.gamma_multiply(0.5))
-                                            .size(32.0),
-                                    );
-                                    ui.add_space(8.0);
-                                    ui.label(
-                                        RichText::new("No connections")
-                                            .color(text_secondary)
-                                            .size(12.0),
-                                    );
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        RichText::new("Add a connection to get started")
-                                            .color(text_secondary.gamma_multiply(0.7))
-                                            .size(10.0),
-                                    );
-                                });
-                            } else {
-                                // Render each connection
-                                let connections_snapshot: Vec<_> = self
-                                    .connections
-                                    .iter()
-                                    .map(|c| {
-                                        (
-                                            c.id,
-                                            c.name.clone(),
-                                            c.state.clone(),
-                                            c.active,
-                                            c.tables.clone(),
-                                        )
-                                    })
-                                    .collect();
-
-                                for (id, name, state, active, tables) in connections_snapshot {
-                                    self.render_connection_item(
-                                        ui,
-                                        id,
-                                        &name,
-                                        &state,
-                                        active,
-                                        &tables,
-                                        text_primary,
-                                        text_secondary,
-                                        accent,
-                                    );
-                                }
-                            }
-
-                            ui.add_space(16.0);
-                        });
-
-                    // Add connection button at bottom
-                    ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                        egui::Frame::new()
-                            .fill(self.theme.bg_surface())
-                            .inner_margin(egui::Margin::symmetric(8, 8))
-                            .show(ui, |ui| {
-                                let add_btn = ui.add(
-                                    egui::Button::new(
-                                        RichText::new(format!("{} Add Connection", action::ADD))
-                                            .color(accent)
-                                            .size(11.0),
-                                    )
-                                    .fill(Color32::TRANSPARENT)
-                                    .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.3)))
-                                    .corner_radius(4.0)
-                                    .min_size(egui::vec2(self.sidebar_width - 24.0, 28.0)),
-                                );
-                                if add_btn.clicked() {
-                                    self.tree_state.show_add_dialog = true;
-                                    self.tree_state.new_conn_name.clear();
-                                    self.tree_state.new_conn_endpoint.clear();
-                                }
-                            });
-                    });
-                });
-            });
-    }
-
-    /// Render a single connection item in the tree.
-    #[allow(clippy::too_many_arguments)]
-    fn render_connection_item(
-        &mut self,
-        ui: &mut egui::Ui,
-        id: ConnectionId,
-        name: &str,
-        state: &ConnectionState,
-        active: bool,
-        tables: &[TableInfo],
-        text_primary: Color32,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        let is_expanded = self.tree_state.expanded.contains(&id);
-        let is_connected = matches!(state, ConnectionState::Connected);
-        let is_connecting = matches!(state, ConnectionState::Connecting);
-
-        // Connection row
-        let row_bg = if active {
-            accent.gamma_multiply(0.1)
-        } else {
-            Color32::TRANSPARENT
-        };
-
-        egui::Frame::new()
-            .fill(row_bg)
-            .inner_margin(egui::Margin::symmetric(8, 4))
-            .corner_radius(4.0)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    // Expand/collapse arrow
-                    let arrow = if is_expanded {
-                        nav::EXPAND
-                    } else {
-                        nav::COLLAPSE
-                    };
-                    let arrow_btn = ui.add(
-                        egui::Button::new(RichText::new(arrow).color(text_secondary).size(10.0))
-                            .fill(Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE)
-                            .min_size(egui::vec2(16.0, 16.0)),
-                    );
-                    if arrow_btn.clicked() {
-                        self.toggle_connection_expanded(id);
-                    }
-
-                    // Connection status indicator
-                    let status_color = if is_connected {
-                        self.theme.semantic_success()
-                    } else if is_connecting {
-                        accent
-                    } else {
-                        text_secondary.gamma_multiply(0.5)
-                    };
-
-                    if is_connecting {
-                        ui.spinner();
-                    } else {
-                        ui.label(RichText::new("●").color(status_color).size(8.0));
-                    }
-
-                    ui.add_space(4.0);
-
-                    // Connection name (clickable to select/activate)
-                    let name_color = if active { accent } else { text_primary };
-                    let name_response = ui.add(
-                        egui::Label::new(RichText::new(name).color(name_color).size(12.0))
-                            .selectable(false)
-                            .sense(egui::Sense::click()),
-                    );
-
-                    if name_response.clicked() && is_connected {
-                        self.set_active_connection(id);
-                    }
-
-                    if name_response.double_clicked() && !is_connected && !is_connecting {
-                        self.connect_saved(id);
-                    }
-
-                    // Context menu
-                    name_response.context_menu(|ui| {
-                        if is_connected {
-                            if ui.button("Disconnect").clicked() {
-                                self.disconnect_saved(id);
-                                ui.close();
-                            }
-                            if !active && ui.button("Set as Active").clicked() {
-                                self.set_active_connection(id);
-                                ui.close();
-                            }
-                        } else if !is_connecting && ui.button("Connect").clicked() {
-                            self.connect_saved(id);
-                            ui.close();
-                        }
-                        ui.separator();
-                        if ui.button("Remove").clicked() {
-                            self.remove_connection(id);
-                            ui.close();
-                        }
-                    });
-                });
-            });
-
-        // Expanded tables
-        if is_expanded && is_connected {
-            ui.indent(format!("tables_{id:?}"), |ui| {
-                if tables.is_empty() {
-                    ui.horizontal(|ui| {
-                        ui.add_space(20.0);
-                        ui.label(
-                            RichText::new("No tables")
-                                .color(text_secondary.gamma_multiply(0.7))
-                                .size(10.0)
-                                .italics(),
-                        );
-                    });
-                } else {
-                    for table in tables {
-                        ui.horizontal(|ui| {
-                            ui.add_space(4.0);
-                            ui.label(RichText::new(file::DATA).color(text_secondary).size(10.0));
-                            ui.add_space(4.0);
-
-                            let table_response = ui.add(
-                                egui::Label::new(
-                                    RichText::new(&table.name).color(text_secondary).size(11.0),
-                                )
-                                .selectable(false)
-                                .sense(egui::Sense::click()),
-                            );
-
-                            // Double-click to insert table name into query
-                            if table_response.double_clicked() {
-                                if !self.input.is_empty() && !self.input.ends_with(' ') {
-                                    self.input.push(' ');
-                                }
-                                self.input.push_str(&table.name);
-                            }
-                            table_response.on_hover_text("Double-click to insert into query");
-                        });
-                    }
-                }
-            });
-        }
-    }
-
     /// Render the plan viewer panel (right side).
     #[allow(dead_code)]
     fn render_plan_viewer_panel(
@@ -7086,95 +4924,6 @@ Keyboard Shortcuts:
                                 });
                             }
                         });
-                });
-            });
-    }
-
-    /// Render the add connection dialog.
-    fn render_add_connection_dialog(
-        &mut self,
-        ui: &mut egui::Ui,
-        _text_primary: Color32,
-        text_secondary: Color32,
-        accent: Color32,
-    ) {
-        egui::Window::new("Add Connection")
-            .collapsible(false)
-            .resizable(false)
-            .default_width(350.0)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ui.ctx(), |ui| {
-                ui.vertical(|ui| {
-                    ui.add_space(8.0);
-
-                    // Name field
-                    ui.label(RichText::new("Name").color(text_secondary).size(11.0));
-                    ui.add_space(4.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.tree_state.new_conn_name)
-                            .hint_text("e.g., Production, Staging, Local")
-                            .desired_width(320.0),
-                    );
-
-                    ui.add_space(12.0);
-
-                    // Endpoint field
-                    ui.label(RichText::new("Endpoint").color(text_secondary).size(11.0));
-                    ui.add_space(4.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.tree_state.new_conn_endpoint)
-                            .hint_text("e.g., localhost:50051")
-                            .desired_width(320.0)
-                            .font(egui::TextStyle::Monospace),
-                    );
-
-                    ui.add_space(16.0);
-
-                    // Buttons
-                    ui.horizontal(|ui| {
-                        let cancel_btn = ui.add(
-                            egui::Button::new(
-                                RichText::new("Cancel").color(text_secondary).size(12.0),
-                            )
-                            .fill(Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::new(1.0, self.theme.border_default())),
-                        );
-                        if cancel_btn.clicked() {
-                            self.tree_state.show_add_dialog = false;
-                        }
-
-                        ui.add_space(8.0);
-
-                        let can_add = !self.tree_state.new_conn_name.trim().is_empty()
-                            && !self.tree_state.new_conn_endpoint.trim().is_empty();
-
-                        let add_btn = ui.add_enabled(
-                            can_add,
-                            egui::Button::new(
-                                RichText::new("Add Connection")
-                                    .color(if can_add {
-                                        self.theme.bg_base()
-                                    } else {
-                                        text_secondary
-                                    })
-                                    .size(12.0),
-                            )
-                            .fill(if can_add {
-                                accent
-                            } else {
-                                self.theme.bg_surface()
-                            }),
-                        );
-
-                        if add_btn.clicked() && can_add {
-                            let name = self.tree_state.new_conn_name.trim().to_string();
-                            let endpoint = self.tree_state.new_conn_endpoint.trim().to_string();
-                            self.add_connection(&name, &endpoint);
-                            self.tree_state.show_add_dialog = false;
-                        }
-                    });
-
-                    ui.add_space(8.0);
                 });
             });
     }
@@ -7861,47 +5610,6 @@ Keyboard Shortcuts:
     pub fn take_action(&mut self) -> SqlPaneAction {
         SqlPaneAction::None
     }
-}
-
-/// Format an array value at a given row index.
-fn format_array_value(array: &dyn enya_datafusion::arrow::array::Array, row: usize) -> String {
-    use enya_datafusion::arrow::array::*;
-
-    if array.is_null(row) {
-        return "NULL".to_string();
-    }
-
-    // Handle common types
-    if let Some(arr) = array.as_any().downcast_ref::<StringArray>() {
-        return arr.value(row).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<LargeStringArray>() {
-        return arr.value(row).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Int64Array>() {
-        return arr.value(row).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Int32Array>() {
-        return arr.value(row).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Float64Array>() {
-        return format!("{:.4}", arr.value(row));
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<Float32Array>() {
-        return format!("{:.4}", arr.value(row));
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<BooleanArray>() {
-        return arr.value(row).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<TimestampMicrosecondArray>() {
-        return arr.value(row).to_string();
-    }
-    if let Some(arr) = array.as_any().downcast_ref::<TimestampNanosecondArray>() {
-        return arr.value(row).to_string();
-    }
-
-    // Fallback: use debug format
-    format!("{:?}", array.slice(row, 1))
 }
 
 impl crate::components::Component for SqlPane {

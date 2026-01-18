@@ -11,26 +11,14 @@ pub enum SqlCommand {
     Explain,
     /// Show query execution plan with timing (EXPLAIN ANALYZE).
     Analyze,
-    /// Profile query with detailed timing.
-    Profile,
     /// Show table schema/structure.
     Schema,
     /// Switch active connection.
     Connect,
-    /// Export results to file.
-    Export,
     /// Show query history.
     History,
-    /// Watch mode - re-run query periodically.
-    Watch,
-    /// Quick sample of a table.
-    Sample,
     /// Load demo query plan.
     Demo,
-    /// Toggle/set plan viewer mode.
-    Plan,
-    /// Show available commands.
-    Help,
 }
 
 impl SqlCommand {
@@ -40,16 +28,10 @@ impl SqlCommand {
             SqlCommand::Explain,
             SqlCommand::Analyze,
             SqlCommand::Demo,
-            SqlCommand::Plan,
             SqlCommand::Schema,
             SqlCommand::Connect,
             SqlCommand::Diff,
-            SqlCommand::Profile,
-            SqlCommand::Export,
             SqlCommand::History,
-            SqlCommand::Watch,
-            SqlCommand::Sample,
-            SqlCommand::Help,
         ]
     }
 
@@ -59,16 +41,10 @@ impl SqlCommand {
             SqlCommand::Diff => "diff",
             SqlCommand::Explain => "explain",
             SqlCommand::Analyze => "analyze",
-            SqlCommand::Profile => "profile",
             SqlCommand::Schema => "schema",
             SqlCommand::Connect => "connect",
-            SqlCommand::Export => "export",
             SqlCommand::History => "history",
-            SqlCommand::Watch => "watch",
-            SqlCommand::Sample => "sample",
             SqlCommand::Demo => "demo",
-            SqlCommand::Plan => "plan",
-            SqlCommand::Help => "help",
         }
     }
 
@@ -78,16 +54,10 @@ impl SqlCommand {
             SqlCommand::Diff => "Compare across envs",
             SqlCommand::Explain => "Show query plan (EXPLAIN)",
             SqlCommand::Analyze => "Query plan with timing (EXPLAIN ANALYZE)",
-            SqlCommand::Profile => "Profile execution",
             SqlCommand::Schema => "Table structure",
-            SqlCommand::Connect => "Connect to database",
-            SqlCommand::Export => "Export results",
+            SqlCommand::Connect => "Connect or save connection",
             SqlCommand::History => "Query history",
-            SqlCommand::Watch => "Auto-refresh query",
-            SqlCommand::Sample => "Sample table rows",
             SqlCommand::Demo => "Load demo query plan",
-            SqlCommand::Plan => "Toggle plan viewer",
-            SqlCommand::Help => "Show commands",
         }
     }
 

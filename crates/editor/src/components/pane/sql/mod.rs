@@ -23,6 +23,10 @@ pub mod connections;
 #[cfg(not(target_arch = "wasm32"))]
 mod diff;
 #[cfg(not(target_arch = "wasm32"))]
+mod diff_rendering;
+#[cfg(not(target_arch = "wasm32"))]
+mod plan_parsing;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod suggestions;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod types;
@@ -31,7 +35,10 @@ pub mod types;
 #[cfg(not(target_arch = "wasm32"))]
 pub use command::SqlCommand;
 #[cfg(not(target_arch = "wasm32"))]
-pub use connections::{ConnectionId, ConnectionTreeState, SavedConnection, TreeSelection};
+pub use connections::{
+    ConnectionAction, ConnectionId, ConnectionSnapshot, ConnectionTreeState, SavedConnection,
+    TreeSelection,
+};
 #[cfg(not(target_arch = "wasm32"))]
 pub use suggestions::{Suggestion, SuggestionIcon, SuggestionState};
 #[cfg(not(target_arch = "wasm32"))]

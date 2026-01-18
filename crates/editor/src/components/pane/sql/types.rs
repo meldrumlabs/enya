@@ -163,8 +163,6 @@ pub enum SqlMode {
     /// Explain mode - showing query plan.
     #[allow(dead_code)] // Used for UI rendering, may be set in future workflows
     Explain,
-    /// Profile mode - detailed execution stats.
-    Profile,
 }
 
 /// Active overlay for viewing results in expanded mode.

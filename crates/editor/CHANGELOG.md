@@ -263,15 +263,21 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Arrow/DataFusion utilities consolidated**: Moved `format_array_value()` and plan text parsing functions (`parse_plan_text`, `parse_metrics`, `parse_metric_usize`, `parse_metric_duration`, `parse_metric_bytes`) to the `enya_datafusion` crate. The editor now imports these from the shared crate instead of having local copies. The `plan_parsing.rs` module is now focused on demo data generation.
+
 - **Plan view functions moved to shared crate**: The `format_duration`, `format_bytes`, and `format_rows` functions, along with `total_time()`, `bottleneck_time()`, and `operator_count()` methods on `PlanNode`, are now in `enya_datafusion` instead of being duplicated across plan view types. This consolidates plan analysis logic in the shared crate alongside related types like `OperatorMetrics` and `OperatorCategory`.
 
 - **SQL pane module reorganization**: Split the 6000-line `pane.rs` into focused modules following idiomatic Rust practices:
   - `command.rs` - SQL pane commands (`SqlCommand` enum and parsing)
-  - `connections.rs` - Connection management types (`ConnectionId`, `SavedConnection`, `SqlBackend`)
+  - `connections.rs` - Connection management types and UI rendering (`ConnectionId`, `SavedConnection`, `ConnectionAction`, `ConnectionSnapshot`, plus `render_connection_popup`, `render_connection_tree`, `render_add_connection_dialog`)
   - `suggestions.rs` - Autocomplete types (`Suggestion`, `SuggestionIcon`, `SuggestionState`)
   - `types.rs` - Core types (`SqlMode`, `ResultOverlay`, `QueryCell`, `QueryStatus`)
-  - `pane.rs` - Main `SqlPane` struct (reduced to ~5600 lines)
+  - `pane.rs` - Main `SqlPane` struct (reduced to ~5700 lines)
   - Native-only modules properly gated with `#[cfg(not(target_arch = "wasm32"))]` for WASM compatibility
+
+- **SQL commands streamlined**: Removed unused/stub commands (`/help`, `/plan`, `/profile`, `/export`, `/watch`, `/sample`) - kept only working commands: `/explain`, `/analyze`, `/diff`, `/schema`, `/connect`, `/history`, `/demo`. The `/` trigger now shows all available commands in the fuzzy finder, making `/help` redundant.
+
+- **Connection saving with names**: The `/connect` command now supports saving connections with custom names: `/connect <endpoint> <name>`. For example, `/connect localhost:50051 local` saves and connects with the name "local". Previous behavior (switching to existing or connecting to endpoint directly) still works.
 
 - **Plan viewer UX overhaul**: Premium visual refresh for the execution plan viewer:
   - **Pill-style tab bar**: Replaced plain selectable labels with styled pill tabs in a subtle container
