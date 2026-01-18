@@ -6,6 +6,11 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **ENYA.md project context**: AI agents now automatically load project-specific context from `ENYA.md` or `.enya/context.md` in the repository root:
+  - Custom instructions, conventions, and context are injected into every agent prompt
+  - Supports documenting metric naming conventions, important SLOs, common queries, and team workflows
+  - Search order: `ENYA.md` in repo root, then `.enya/context.md` as fallback
+
 - **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
   - **Data comparison**: `/diff staging prod SELECT * FROM users LIMIT 10` - compare query results in one command
   - **Plan comparison**: `/diff analyze staging prod SELECT * FROM users` - compare EXPLAIN ANALYZE plans

@@ -23,6 +23,9 @@ pub struct EditorContext {
     /// Current dashboard state
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dashboard: Option<DashboardContext>,
+    /// Project-specific context loaded from ENYA.md
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_context: Option<String>,
 }
 
 /// Connection context
@@ -106,6 +109,12 @@ impl EditorContext {
         self
     }
 
+    /// Set the project-specific context (loaded from ENYA.md).
+    pub fn with_project_context(mut self, context: String) -> Self {
+        self.project_context = Some(context);
+        self
+    }
+
     /// Generate the context block to inject into the prompt.
     ///
     /// Returns a formatted string that will be prepended to user prompts.
@@ -167,6 +176,17 @@ impl EditorContext {
                     parts.push(format!("  - {query}\n"));
                 }
             }
+        }
+
+        // Project Context (from ENYA.md)
+        if let Some(ref project_context) = self.project_context {
+            parts.push("\n## Project Context\n".to_string());
+            parts.push(
+                "The following project-specific context was provided by the user in ENYA.md:\n\n"
+                    .to_string(),
+            );
+            parts.push(project_context.clone());
+            parts.push("\n".to_string());
         }
 
         // Commands
@@ -465,6 +485,52 @@ pub fn build_codebase_context(
         file_count,
         recent_commits,
     }
+}
+
+/// Load project-specific context from ENYA.md or .enya/context.md (native only).
+///
+/// This function looks for a project context file in the repository root,
+/// allowing users to provide custom instructions, conventions, and context
+/// that will be injected into every AI agent prompt.
+///
+/// # Search Order
+/// 1. `ENYA.md` in the repository root
+/// 2. `.enya/context.md` in the repository root
+///
+/// # Arguments
+/// * `repo_path` - Path to the repository root
+///
+/// # Returns
+/// The file contents if found, `None` otherwise.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_project_context(repo_path: &std::path::Path) -> Option<String> {
+    use std::fs;
+
+    // Try ENYA.md first
+    let enya_md = repo_path.join("ENYA.md");
+    if enya_md.exists() {
+        if let Ok(content) = fs::read_to_string(&enya_md) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                log::info!("Loaded project context from {}", enya_md.display());
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    // Try .enya/context.md as fallback
+    let enya_context = repo_path.join(".enya").join("context.md");
+    if enya_context.exists() {
+        if let Ok(content) = fs::read_to_string(&enya_context) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                log::info!("Loaded project context from {}", enya_context.display());
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
