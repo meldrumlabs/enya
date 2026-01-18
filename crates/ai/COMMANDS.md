@@ -145,6 +145,66 @@ Performs full-text search over the indexed codebase using Tantivy. Returns ranke
 
 ---
 
+### `add_logs_pane`
+
+Creates a logs pane for viewing logs. Useful for incident investigation and correlating metrics with log events. Supports demo mode or connecting to a Loki server.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | No | LogQL query to pre-fill |
+| `loki_url` | string | No | Loki server URL (e.g., "http://localhost:3100"). Uses demo backend if omitted |
+| `title` | string | No | Display title for the pane |
+
+**Example (demo mode):**
+```json
+{"action": "add_logs_pane", "query": "{app=\"nginx\"} |= \"error\""}
+```
+
+**Example (Loki backend):**
+```json
+{"action": "add_logs_pane", "loki_url": "http://localhost:3100", "query": "{job=\"varlogs\"}"}
+```
+
+---
+
+### `add_tracing_pane`
+
+Creates a tracing pane for viewing distributed traces. Useful for investigating request latency and understanding service dependencies.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `trace_id` | string | No | Trace ID to pre-load |
+| `title` | string | No | Display title for the pane |
+
+**Example:**
+```json
+{"action": "add_tracing_pane", "trace_id": "abc123def456"}
+```
+
+**Example (empty pane for manual entry):**
+```json
+{"action": "add_tracing_pane"}
+```
+
+---
+
+### `add_terminal_pane`
+
+Creates a terminal pane for running shell commands. **Native app only** - not available in browser/WASM.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `title` | string | No | Display title for the pane |
+
+**Example:**
+```json
+{"action": "add_terminal_pane"}
+```
+
+**Note:** This command will fail silently in the browser version of Enya.
+
+---
+
 ## Command Preferences
 
 When responding to users:
@@ -152,13 +212,14 @@ When responding to users:
 1. **Inline commands** (`show_inline_chart`, `show_inline_source`) are preferred for keeping content in the conversation flow
 2. **Modal commands** (`show_metric_source`, `show_alert_source`) should only be used when the user explicitly asks to "open", "go to", or "navigate to" something
 3. **Search**: Use `search_codebase` instead of `git log --grep` for faster full-text search with relevance ranking
+4. **Pane commands** (`add_logs_pane`, `add_tracing_pane`, `add_terminal_pane`) are useful for incident investigation workflows - correlate metrics with logs and traces
 
 ## Implementation
 
 Commands are defined in:
 - **Enum:** `crates/editor/src/components/overlay/agent_context.rs` → `AgentCommand`
 - **Parser:** `crates/editor/src/components/overlay/agent_context.rs` → `parse_commands()`
-- **Executor:** `crates/editor/src/workspace/mod.rs` → `handle_agent_commands()`
+- **Executor:** `crates/editor/src/workspace/panes.rs` → `handle_agent_commands()`
 
 ## Adding New Commands
 

@@ -11,6 +11,11 @@ All notable changes to the Enya editor will be documented in this file.
   - Supports documenting metric naming conventions, important SLOs, common queries, and team workflows
   - Search order: `ENYA.md` in repo root, then `.enya/context.md` as fallback
 
+- **New AI agent commands** for incident investigation workflows:
+  - `add_logs_pane`: Create a logs pane with optional LogQL query and Loki backend support
+  - `add_tracing_pane`: Create a tracing pane with optional trace ID to pre-load
+  - `add_terminal_pane`: Create a terminal pane for running shell commands (native only)
+
 - **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
   - **Data comparison**: `/diff staging prod SELECT * FROM users LIMIT 10` - compare query results in one command
   - **Plan comparison**: `/diff analyze staging prod SELECT * FROM users` - compare EXPLAIN ANALYZE plans

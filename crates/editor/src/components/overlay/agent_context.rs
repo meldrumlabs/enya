@@ -242,6 +242,15 @@ impl EditorContext {
             "  - Use this for finding: metrics by name, alert rules, commit messages, file paths\n"
                 .to_string(),
         );
+        parts.push("- `add_logs_pane`: Create a logs pane for viewing logs (useful for incident investigation)\n".to_string());
+        parts.push("  - Optional: `query` (LogQL query), `loki_url` (Loki server URL, uses demo if omitted), `title`\n".to_string());
+        parts.push(
+            "- `add_tracing_pane`: Create a tracing pane for viewing distributed traces\n"
+                .to_string(),
+        );
+        parts.push("  - Optional: `trace_id` (pre-load a specific trace), `title`\n".to_string());
+        parts.push("- `add_terminal_pane`: Create a terminal pane for running shell commands (native app only)\n".to_string());
+        parts.push("  - Optional: `title`\n".to_string());
         parts.push("\n**Preference**: When showing source code or charts, prefer `show_inline_source` and `show_inline_chart` \n".to_string());
         parts.push("to keep content in the conversation flow. Only use `show_metric_source` or `show_alert_source` when the user \n".to_string());
         parts.push(
@@ -318,6 +327,33 @@ pub enum AgentCommand {
         /// Maximum results to return (default: 10)
         #[serde(default)]
         limit: Option<usize>,
+    },
+    /// Add a logs pane for viewing logs (demo or Loki backend)
+    AddLogsPane {
+        /// Optional LogQL query to pre-fill
+        #[serde(default)]
+        query: Option<String>,
+        /// Optional Loki server URL (uses demo backend if not provided)
+        #[serde(default)]
+        loki_url: Option<String>,
+        /// Optional title for the pane
+        #[serde(default)]
+        title: Option<String>,
+    },
+    /// Add a tracing pane for viewing distributed traces
+    AddTracingPane {
+        /// Optional trace ID to pre-load
+        #[serde(default)]
+        trace_id: Option<String>,
+        /// Optional title for the pane
+        #[serde(default)]
+        title: Option<String>,
+    },
+    /// Add a terminal pane for running shell commands (native only)
+    AddTerminalPane {
+        /// Optional title for the pane
+        #[serde(default)]
+        title: Option<String>,
     },
 }
 

@@ -412,6 +412,60 @@ impl Workspace {
                         log::warn!("SearchCodebase not available in WASM");
                     }
                 }
+                AgentCommand::AddLogsPane {
+                    query,
+                    loki_url,
+                    title: _,
+                } => {
+                    // Use current time range for logs (in nanoseconds)
+                    let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
+                    let start_ns = start_ns as i64;
+                    let end_ns = end_ns as i64;
+
+                    // Create logs pane with appropriate backend
+                    let tile_id = if let Some(url) = loki_url {
+                        self.add_loki_pane(start_ns, end_ns, url)
+                    } else {
+                        self.add_logs_pane(start_ns, end_ns)
+                    };
+
+                    // Set query if provided
+                    if let (Some(tile_id), Some(query)) = (tile_id, query) {
+                        if let Some(egui_tiles::Tile::Pane(component)) =
+                            self.viewport_tree.tiles.get_mut(tile_id)
+                        {
+                            if let Some(logs_pane) =
+                                component.as_any_mut().downcast_mut::<LogsPane>()
+                            {
+                                logs_pane.set_query(&query);
+                            }
+                        }
+                    }
+
+                    log::info!("Agent created logs pane");
+                    executed_any = true;
+                }
+                AgentCommand::AddTracingPane { trace_id, title: _ } => {
+                    self.add_tracing_pane(trace_id.as_deref());
+                    log::info!(
+                        "Agent created tracing pane{}",
+                        trace_id
+                            .as_ref()
+                            .map(|id| format!(" with trace_id: {id}"))
+                            .unwrap_or_default()
+                    );
+                    executed_any = true;
+                }
+                AgentCommand::AddTerminalPane { title: _ } => {
+                    if self.add_terminal_pane().is_some() {
+                        log::info!("Agent created terminal pane");
+                        executed_any = true;
+                    } else {
+                        log::warn!(
+                            "Agent failed to create terminal pane (not available on this platform)"
+                        );
+                    }
+                }
             }
         }
 
