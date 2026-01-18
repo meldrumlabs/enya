@@ -283,15 +283,13 @@ impl Workspace {
                 None
             }
             #[cfg(not(target_arch = "wasm32"))]
-            UnifiedFinderAction::OpenDiffViewer { hash, diff } => {
+            UnifiedFinderAction::OpenDiffViewer {
+                hash,
+                message,
+                diff,
+            } => {
                 log::info!("Opening diff viewer for commit: {hash}");
-                // We need the commit message for the title - just use the hash for now
-                self.diff_viewer.open(
-                    &hash,
-                    &format!("Commit {}", &hash[..7.min(hash.len())]),
-                    0,
-                    &diff,
-                );
+                self.diff_viewer.open(&hash, &message, 0, &diff);
                 None
             }
         }

@@ -25,9 +25,11 @@ pub mod scanner;
 pub use diff::extract_semantics;
 pub use index::{CodebaseIndex, IndexProgress, build_index_with_progress};
 pub use parser::ParseError;
+#[allow(deprecated)]
 pub use repo::{
-    CommitInfo, DiffSemantics, fetch_commit_diff, fetch_commit_history, fetch_recent_commits,
-    fetch_recent_commits_with_diffs,
+    CommitInfo, DiffSemantics, ProgressCallback, count_commits, fetch_all_commits,
+    fetch_all_commits_with_diffs_batch, fetch_all_commits_with_diffs_parallel, fetch_commit_diff,
+    fetch_commit_history, fetch_recent_commits, fetch_recent_commits_with_diffs,
 };
 pub use scanner::{AlertRule, MetricInstrumentation, MetricKind, Scanner, ScannerRegistry};
 

@@ -382,6 +382,8 @@ pub enum ChatViewAction {
     OpenDiffViewer {
         /// Commit hash.
         hash: String,
+        /// Commit message (for title).
+        message: String,
         /// Full diff content.
         diff: String,
     },
@@ -1144,12 +1146,14 @@ impl ChatView {
                             {
                                 action = Some(ChatViewAction::OpenDiffViewer {
                                     hash: commit.full_hash.clone(),
+                                    message: commit.message.clone(),
                                     diff: commit.diff.clone(),
                                 });
                             } else {
-                                // Commit not in current list, just use the hash
+                                // Commit not in current list, just use the hash as fallback
                                 action = Some(ChatViewAction::OpenDiffViewer {
                                     hash: hash.clone(),
+                                    message: format!("Commit {}", &hash[..7.min(hash.len())]),
                                     diff: String::new(),
                                 });
                             }

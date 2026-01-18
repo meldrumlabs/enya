@@ -143,7 +143,11 @@ pub enum WorkspaceAction {
     /// Search commits for # autocomplete in chat
     SearchChatCommits { query: String },
     /// Open diff viewer from a commit reference in chat
-    OpenDiffViewer { hash: String, diff: String },
+    OpenDiffViewer {
+        hash: String,
+        message: String,
+        diff: String,
+    },
 }
 
 /// The main viewport layout with a flexible tile tree for views/charts.
@@ -617,7 +621,7 @@ impl Workspace {
         let mut pending_create_channel = false;
         let mut pending_create_thread: Option<crate::chat::ChannelId> = None;
         let mut pending_commit_search: Option<String> = None;
-        let mut pending_diff_viewer: Option<(String, String)> = None;
+        let mut pending_diff_viewer: Option<(String, String, String)> = None;
 
         // Check if any overlay is open that should block keyboard input
         let overlay_blocks_input = self.style_picker.is_open()
@@ -687,8 +691,12 @@ impl Workspace {
                             ChannelsPanelAction::SearchCommits(query) => {
                                 pending_commit_search = Some(query);
                             }
-                            ChannelsPanelAction::OpenDiffViewer { hash, diff } => {
-                                pending_diff_viewer = Some((hash, diff));
+                            ChannelsPanelAction::OpenDiffViewer {
+                                hash,
+                                message,
+                                diff,
+                            } => {
+                                pending_diff_viewer = Some((hash, message, diff));
                             }
                             ChannelsPanelAction::ReturnFocusToViewport => {
                                 // Vim l key pressed - return focus to viewport
@@ -755,8 +763,12 @@ impl Workspace {
                         ChannelsPanelAction::SearchCommits(query) => {
                             pending_commit_search = Some(query);
                         }
-                        ChannelsPanelAction::OpenDiffViewer { hash, diff } => {
-                            pending_diff_viewer = Some((hash, diff));
+                        ChannelsPanelAction::OpenDiffViewer {
+                            hash,
+                            message,
+                            diff,
+                        } => {
+                            pending_diff_viewer = Some((hash, message, diff));
                         }
                         ChannelsPanelAction::ReturnFocusToViewport => {
                             // Vim l key pressed - return focus to viewport
@@ -812,8 +824,12 @@ impl Workspace {
         }
 
         // Handle pending diff viewer request (from commit click in chat)
-        if let Some((hash, diff)) = pending_diff_viewer {
-            return WorkspaceAction::OpenDiffViewer { hash, diff };
+        if let Some((hash, message, diff)) = pending_diff_viewer {
+            return WorkspaceAction::OpenDiffViewer {
+                hash,
+                message,
+                diff,
+            };
         }
 
         // Right sidebar: Agent panel (Claude Code integration)
@@ -1136,6 +1152,18 @@ impl Workspace {
             }
         }
 
+        // Show diff viewer overlay modal (native only)
+        // NOTE: This is rendered BEFORE style_picker and command_palette so they appear on top
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.diff_viewer.set_theme(app_state.theme);
+            // Disable keyboard when another overlay is on top
+            self.diff_viewer.set_keyboard_disabled(
+                self.style_picker.is_open() || self.command_palette.is_open(),
+            );
+            let _ = self.diff_viewer.show(ctx);
+        }
+
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(app_state.theme);
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
@@ -1275,12 +1303,7 @@ impl Workspace {
             SourcePreviewResult::None => {}
         }
 
-        // Show diff viewer overlay modal (native only)
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.diff_viewer.set_theme(app_state.theme);
-            let _ = self.diff_viewer.show(ctx);
-        }
+        // Note: diff_viewer is now rendered earlier (before style_picker) to ensure proper z-order
 
         // Note: Agent panel is now rendered in the layout section (show_inside)
         // to participate in layout flow like the channels panel
