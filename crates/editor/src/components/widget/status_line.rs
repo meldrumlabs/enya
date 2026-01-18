@@ -718,77 +718,6 @@ impl StatusLine {
                 );
             }
 
-            // Codebase indexing status (shown in center to avoid layout jumping from varying file names)
-            if let Some(ref status) = self.codebase_status {
-                // Show loading status (cloning, indexing tree-sitter)
-                if status.is_loading && !status.is_error {
-                    ui.add_space(16.0);
-
-                    // Language icon (if available) or loading spinner
-                    let icon = status
-                        .language
-                        .as_ref()
-                        .and_then(|lang| semantic_icons::language::from_name(lang))
-                        .unwrap_or(semantic_icons::status::LOADING);
-
-                    ui.label(
-                        egui::RichText::new(icon)
-                            .color(self.theme.accent_primary())
-                            .size(typography::MD),
-                    );
-                    ui.add_space(4.0);
-                    // Status text in accent color
-                    ui.label(
-                        egui::RichText::new(&status.message)
-                            .color(self.theme.accent_primary())
-                            .size(typography::MD),
-                    );
-                }
-                // Show Tantivy indexing status (background task after tree-sitter completes)
-                else if status.is_tantivy_indexing && !status.is_error {
-                    ui.add_space(16.0);
-
-                    // Search icon for Tantivy indexing
-                    ui.label(
-                        egui::RichText::new(semantic_icons::action::SEARCH)
-                            .color(palette::text::SECONDARY)
-                            .size(typography::MD),
-                    );
-                    ui.add_space(4.0);
-
-                    // Build progress message with details
-                    let progress_msg = if let Some(phase) = &status.tantivy_phase {
-                        if let Some((current, total)) = status.tantivy_progress {
-                            // Show progress with count
-                            if let Some(item) = &status.tantivy_item {
-                                // Truncate item name for display
-                                let truncated = if item.len() > 30 {
-                                    format!("{}...", &item[..27])
-                                } else {
-                                    item.clone()
-                                };
-                                format!("{phase} [{current}/{total}] {truncated}")
-                            } else {
-                                format!("{phase} [{current}/{total}]")
-                            }
-                        } else if let Some(item) = &status.tantivy_item {
-                            // No count, just item name
-                            format!("{phase}: {item}")
-                        } else {
-                            phase.clone()
-                        }
-                    } else {
-                        "Building search index...".to_string()
-                    };
-
-                    ui.label(
-                        egui::RichText::new(progress_msg)
-                            .color(palette::text::SECONDARY)
-                            .size(typography::MD),
-                    );
-                }
-            }
-
             ui.add_space(ui.available_width());
         });
     }
@@ -893,52 +822,48 @@ impl StatusLine {
                 self.render_separator_rtl(ui, height);
             }
 
-            // Codebase status (Cloning..., Ready, Error - but NOT Indexing which is in center)
+            // Codebase status (indexing spinner, repo name, metrics count, or error)
             if let Some(ref status) = self.codebase_status {
-                // Skip loading status here - it's shown in center section to avoid layout jumping
-                if !status.is_loading {
-                    if status.is_error {
-                        // Error state
-                        self.render_segment_rtl(
-                            ui,
-                            &status.message,
-                            Some(semantic_icons::diagnostic::ERROR),
-                            self.segment_bg(),
-                            palette::semantic::ERROR,
-                            height,
-                            padding,
-                            false,
-                        );
-                    } else if let Some(ref repo_name) = status.repo_name {
-                        // Ready state - show repo name and metrics count with language icon
-                        let metrics_text = status
-                            .metrics_count
-                            .map(|c| format!("{c} metrics"))
-                            .unwrap_or_default();
+                let is_indexing =
+                    (status.is_loading || status.is_tantivy_indexing) && !status.is_error;
 
-                        // Get language icon if available
+                if status.is_error {
+                    // Error state
+                    self.render_segment_rtl(
+                        ui,
+                        &status.message,
+                        Some(semantic_icons::diagnostic::ERROR),
+                        self.segment_bg(),
+                        palette::semantic::ERROR,
+                        height,
+                        padding,
+                        false,
+                    );
+                    self.render_separator_rtl(ui, height);
+                } else if is_indexing {
+                    // Indexing state - show spinner + "Indexing" in accent color
+                    let accent = self.theme.accent_primary();
+
+                    // Render "Indexing" text (RTL, so this appears on the right)
+                    ui.label(
+                        egui::RichText::new("Indexing")
+                            .color(accent)
+                            .size(typography::MD),
+                    );
+                    ui.add_space(6.0);
+
+                    // Animated spinner
+                    ui.add(egui::Spinner::new().color(accent).size(14.0));
+                    ui.add_space(8.0);
+
+                    // Show repo name if available (appears to the left of spinner)
+                    if let Some(ref repo_name) = status.repo_name {
                         let icon = status
                             .language
                             .as_ref()
                             .and_then(|lang| semantic_icons::language::from_name(lang))
                             .unwrap_or(semantic_icons::file::CODE);
 
-                        // Render metrics count segment first (RTL order)
-                        if !metrics_text.is_empty() {
-                            self.render_segment_rtl(
-                                ui,
-                                &metrics_text,
-                                Some(semantic_icons::file::METRIC),
-                                Color32::TRANSPARENT,
-                                palette::text::SECONDARY,
-                                height,
-                                padding,
-                                false,
-                            );
-                            self.render_separator_rtl(ui, height);
-                        }
-
-                        // Render repo name with language icon
                         self.render_segment_rtl(
                             ui,
                             repo_name,
@@ -949,21 +874,62 @@ impl StatusLine {
                             padding,
                             false,
                         );
-                    } else {
-                        // Fallback - just show message
+                    }
+
+                    self.render_separator_rtl(ui, height);
+                } else if let Some(ref repo_name) = status.repo_name {
+                    // Ready state - show repo name and metrics count with language icon
+                    let metrics_text = status
+                        .metrics_count
+                        .map(|c| format!("{c} metrics"))
+                        .unwrap_or_default();
+
+                    // Get language icon if available
+                    let icon = status
+                        .language
+                        .as_ref()
+                        .and_then(|lang| semantic_icons::language::from_name(lang))
+                        .unwrap_or(semantic_icons::file::CODE);
+
+                    // Render metrics count segment first (RTL order)
+                    if !metrics_text.is_empty() {
                         self.render_segment_rtl(
                             ui,
-                            &status.message,
-                            Some(semantic_icons::file::CODE),
+                            &metrics_text,
+                            Some(semantic_icons::file::METRIC),
                             Color32::TRANSPARENT,
                             palette::text::SECONDARY,
                             height,
                             padding,
                             false,
                         );
+                        self.render_separator_rtl(ui, height);
                     }
 
-                    // Separator
+                    // Render repo name with language icon
+                    self.render_segment_rtl(
+                        ui,
+                        repo_name,
+                        Some(icon),
+                        Color32::TRANSPARENT,
+                        palette::text::SECONDARY,
+                        height,
+                        padding,
+                        false,
+                    );
+                    self.render_separator_rtl(ui, height);
+                } else {
+                    // Fallback - just show message
+                    self.render_segment_rtl(
+                        ui,
+                        &status.message,
+                        Some(semantic_icons::file::CODE),
+                        Color32::TRANSPARENT,
+                        palette::text::SECONDARY,
+                        height,
+                        padding,
+                        false,
+                    );
                     self.render_separator_rtl(ui, height);
                 }
             }

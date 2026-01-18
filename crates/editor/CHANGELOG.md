@@ -109,6 +109,17 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **LogsPane query history**: Added query history feature to the LogsPane component. Users can now recall previous LogQL queries from a dropdown menu in the header. The history stores up to 20 most recent unique queries, with the most recent appearing first. Duplicate queries are automatically deduplicated and moved to the front.
 
+- **Full git history indexing with incremental updates**: Improved git integration to index the complete repository history instead of just the last 1000 commits:
+  - Batch diff fetching using `git log -p` instead of individual `git show` commands (significantly faster)
+  - Parallel semantic extraction using rayon for CPU-bound parsing operations
+  - Incremental indexing on restarts: only fetches and indexes new commits since the last indexed commit
+  - Skip merge commits and follow only main branch history (`--no-merges --first-parent`)
+  - Progress tracking via atomic counters for accurate status updates during parallel operations
+  - Large diffs (>100KB) are truncated after semantic extraction to prevent memory bloat
+  - Semantic analysis preserved even for truncated diffs (functions added/removed, metrics changed)
+  - Regression tests ensure diff content is preserved (not just file names)
+  - Premium status line UX: animated spinner in accent color with simple "Indexing" text
+
 - **Separate metrics and logs config**: Workspace config now has distinct `[metrics]` and `[logs]` sections for Prometheus and Loki connections respectively. The old `[connection]` section is still supported via serde alias for backward compatibility. New `LogsConfig` includes `endpoint`, `api_key`, and `default_query` fields.
 
 - **Premium LogsPane theme styling**: The LogsPane component now fully adapts to the current AppTheme with premium visual enhancements:
@@ -133,6 +144,8 @@ All notable changes to the Enya editor will be documented in this file.
   - Native-only feature (requires Zig 0.14.1 toolchain for building ghostty)
 
 ### Changed
+
+- **Full git history indexing**: The codebase search index now indexes the complete git history instead of only the last 1000 commits. This ensures all historical commits are searchable, improving codebase search accuracy for repositories with long histories. Added new `fetch_all_commits()` and `count_commits()` functions in `enya-analyzer` for efficient full-history operations. **Parallelized diff fetching** using rayon for 4-8x faster indexing on multi-core systems - diff extraction and semantic analysis now run concurrently across all CPU cores.
 
 - **Premium agent panel styling**: Improved the AgentPanel overlay UX to match the refined look of the team channels panel:
   - Switched from `OverlayColors` to `ChatColors` for better theme integration and consistent styling across chat components
