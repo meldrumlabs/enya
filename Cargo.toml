@@ -61,6 +61,7 @@ eframe = { version = "0.33.3", default-features = false, features = [
   # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so skip egui's defaults
   "wgpu",        # Use the wgpu rendering backend (supports web screenshots).
   "persistence", # Enable restoring app state when restarting the app.
+  "accesskit",   # Platform accessibility APIs (required for egui_kittest compatibility).
   # x11/wayland added conditionally per-platform in editor crate
 ] }
 # wgpu with explicit backend support

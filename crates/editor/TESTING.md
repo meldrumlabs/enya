@@ -5,18 +5,22 @@ This document describes the testing architecture and practices for the Enya edit
 ## Quick Start
 
 ```bash
-# Run all tests (requires zig toolchain for terminal feature)
+# Run all tests WITHOUT the terminal feature (no zig required!)
+cargo nextest run -p enya-editor --no-default-features --features all-languages
+
+# Run all tests WITH terminal feature (requires zig toolchain)
 cargo nextest run -p enya-editor --all-features
 
-# Run just the unit tests (may work without zig if ghostty doesn't get linked)
-cargo nextest run -p enya-editor --lib
-
 # Run a specific test module
-cargo nextest run -p enya-editor -- keyboard
+cargo nextest run -p enya-editor --no-default-features --features all-languages -- keyboard
 
 # Check WASM compatibility (no zig required)
 cargo check -p enya-editor --target wasm32-unknown-unknown
 ```
+
+**Note**: The `terminal` feature requires the zig toolchain to build the ghostty terminal
+emulator. If you don't need terminal support, use `--no-default-features --features all-languages`
+to skip this dependency.
 
 ## Test Architecture
 
@@ -145,26 +149,57 @@ fn test_which_key_closes_on_escape() {
 
 ## Requirements
 
-### Zig Toolchain (for Terminal Feature)
+### Terminal Feature (Optional)
+
+The terminal feature (`terminal`) is **enabled by default** but can be disabled:
+
+```toml
+# Cargo.toml default features
+default = ["all-languages", "terminal"]
+```
 
 The terminal emulator (`egui_ghostty`) requires the Zig toolchain to build.
-If zig is not available, you'll see build errors like:
+If zig is not available and you try to build with the terminal feature, you'll see:
 
 ```
 error: failed to run custom build command for `ghostty_vt_sys`
 ```
 
-**Install Zig**:
+### Running Without Zig
+
+Since the terminal feature is optional, you can build and test without zig:
+
+```bash
+# Build without terminal (no zig required)
+cargo build -p enya-editor --no-default-features --features all-languages
+
+# Run ALL tests without terminal (recommended for CI without zig)
+cargo nextest run -p enya-editor --no-default-features --features all-languages
+
+# Check WASM target (no zig needed)
+cargo check -p enya-editor --target wasm32-unknown-unknown
+```
+
+### Installing Zig (for Terminal Feature)
+
+If you want the terminal feature:
+
 - macOS: `brew install zig`
 - Linux: `apt install zig` or download from https://ziglang.org/download/
 - Windows: Download from https://ziglang.org/download/
 
-**Note**: The zig build can fail if the ghostty source files are missing.
-Ensure the `vendor/ghostty` submodule is properly initialized.
+**Note**: The zig build requires the ghostty source files.
+Ensure the `vendor/ghostty` submodule is properly initialized:
+```bash
+git submodule update --init vendor/ghostty
+```
 
-### Running Without Zig
+### Legacy Instructions
 
-For development without the terminal feature, you can:
+<details>
+<summary>Old workarounds (no longer needed with optional terminal feature)</summary>
+
+Previously, to run without zig you had to:
 
 1. **Check WASM target** (no zig needed):
    ```bash
@@ -176,6 +211,7 @@ For development without the terminal feature, you can:
    cargo nextest run -p enya-editor -- keyboard_logic
    cargo nextest run -p enya-editor -- input::tests
    ```
+</details>
 
 ## Test Categories
 

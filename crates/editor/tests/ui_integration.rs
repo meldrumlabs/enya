@@ -22,7 +22,7 @@
 //!
 //! 3. **Simulating Input**: Use key_press, click, etc. to simulate user input
 //!    ```ignore
-//!    harness.press_key(egui::Key::Escape);
+//!    harness.key_press(egui::Key::Escape);
 //!    harness.run();
 //!    ```
 //!
@@ -81,11 +81,12 @@ mod which_key_tests {
         which_key.open();
 
         // Create harness with the WhichKey overlay
+        // Note: new_state takes (app_fn, initial_state)
         let mut harness = Harness::new_state(
-            which_key,
             |ctx: &egui::Context, which_key: &mut WhichKey| {
                 which_key.show(ctx);
             },
+            which_key,
         );
 
         // Run a frame to render
@@ -107,10 +108,10 @@ mod which_key_tests {
         which_key.open();
 
         let mut harness = Harness::new_state(
-            which_key,
             |ctx: &egui::Context, which_key: &mut WhichKey| {
                 which_key.show(ctx);
             },
+            which_key,
         );
 
         // First run to clear the "just_opened" flag
@@ -118,7 +119,7 @@ mod which_key_tests {
         assert!(harness.state().is_open());
 
         // Press Escape
-        harness.press_key(egui::Key::Escape);
+        harness.key_press(egui::Key::Escape);
         harness.run();
 
         // Should be closed now
@@ -133,10 +134,10 @@ mod which_key_tests {
         which_key.open();
 
         let mut harness = Harness::new_state(
-            which_key,
             |ctx: &egui::Context, which_key: &mut WhichKey| {
                 which_key.show(ctx);
             },
+            which_key,
         );
 
         // First run to clear the "just_opened" flag
@@ -144,7 +145,7 @@ mod which_key_tests {
         assert!(harness.state().is_open());
 
         // Press ? (Shift+Slash)
-        harness.press_key_modifiers(egui::Key::Slash, egui::Modifiers::SHIFT);
+        harness.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Slash);
         harness.run();
 
         // Should be closed now
@@ -160,7 +161,7 @@ mod which_key_tests {
 mod keyboard_logic_tests {
     use enya_editor::components::{QuickCommand, TimeRangePreset};
     use enya_editor::workspace::{
-        KeyboardContext, KeyboardDecision, check_navigation_blocked, determine_agent_operator_action,
+        KeyboardDecision, check_navigation_blocked, determine_agent_operator_action,
         determine_ctrl_w_action, determine_goto_action, determine_space_action,
         determine_time_range_action,
     };
@@ -179,17 +180,16 @@ mod keyboard_logic_tests {
         assert_eq!(decision, Some(KeyboardDecision::OpenWorkspaceFinder));
     }
 
-    /// Test Space+z toggles zen mode
+    /// Test Space+h shows home/landing page
     #[test]
-    fn test_space_z_toggles_zen() {
-        let decision = determine_space_action(egui::Key::Z, true);
-        assert_eq!(decision, Some(KeyboardDecision::ToggleZenMode));
+    fn test_space_h_shows_home() {
+        let decision = determine_space_action(egui::Key::H, true);
+        assert_eq!(decision, Some(KeyboardDecision::ShowHome));
     }
 
-    /// Test Space+t opens the terminal (native only)
+    /// Test Space+t toggles team menu
     #[test]
-    fn test_space_t_opens_terminal() {
-        // Only available on native builds
+    fn test_space_t_toggles_team_menu() {
         let decision = determine_space_action(egui::Key::T, true);
         assert_eq!(decision, Some(KeyboardDecision::ToggleTeamMenu));
     }
@@ -217,10 +217,10 @@ mod keyboard_logic_tests {
             Some(KeyboardDecision::SetTimeRange(TimeRangePreset::Last1Hour))
         );
 
-        // td = 1 day
+        // td = 24 hours
         assert_eq!(
             determine_time_range_action(egui::Key::D),
-            Some(KeyboardDecision::SetTimeRange(TimeRangePreset::Last1Day))
+            Some(KeyboardDecision::SetTimeRange(TimeRangePreset::Last24Hours))
         );
     }
 
@@ -271,59 +271,69 @@ mod keyboard_logic_tests {
     /// Test Ctrl+W window management shortcuts
     #[test]
     fn test_ctrl_w_shortcuts() {
+        use enya_editor::workspace::NavDirection;
+
         // Ctrl+W h = move left
         assert_eq!(
             determine_ctrl_w_action(egui::Key::H),
-            Some(KeyboardDecision::MovePaneInDirection(
-                enya_editor::workspace::NavDirection::Left
-            ))
+            Some(KeyboardDecision::MovePaneInDirection(NavDirection::Left))
         );
 
-        // Ctrl+W v = split vertical
+        // Ctrl+W j = move down
         assert_eq!(
-            determine_ctrl_w_action(egui::Key::V),
-            Some(KeyboardDecision::SplitVertical)
+            determine_ctrl_w_action(egui::Key::J),
+            Some(KeyboardDecision::MovePaneInDirection(NavDirection::Down))
         );
 
-        // Ctrl+W s = split horizontal
+        // Ctrl+W k = move up
         assert_eq!(
-            determine_ctrl_w_action(egui::Key::S),
-            Some(KeyboardDecision::SplitHorizontal)
+            determine_ctrl_w_action(egui::Key::K),
+            Some(KeyboardDecision::MovePaneInDirection(NavDirection::Up))
         );
 
-        // Ctrl+W x = close pane
+        // Ctrl+W l = move right
         assert_eq!(
-            determine_ctrl_w_action(egui::Key::X),
-            Some(KeyboardDecision::ClosePane)
+            determine_ctrl_w_action(egui::Key::L),
+            Some(KeyboardDecision::MovePaneInDirection(NavDirection::Right))
         );
+
+        // Ctrl+W t = handled separately (tab mode)
+        assert_eq!(determine_ctrl_w_action(egui::Key::T), None);
     }
 
     /// Test navigation blocking when modals are open
     #[test]
     fn test_navigation_blocked_by_modals() {
-        // Default context - not blocked
-        let ctx = KeyboardContext::default();
-        let (blocked, reason) = check_navigation_blocked(&ctx);
+        // All modals closed - not blocked
+        let (blocked, reason) = check_navigation_blocked(
+            false, // workspace_finder
+            false, // unified_finder
+            false, // command_palette
+            false, // buffer_editor
+            false, // multi_edit_overlay
+            false, // which_key
+            false, // viewport_filter
+            false, // tutorial_overlay
+            false, // source_preview
+            false, // style_picker
+            false, // codebase_finder
+        );
         assert!(!blocked, "Should not be blocked by default");
         assert!(reason.is_empty());
 
-        // Modal open - blocked
-        let ctx_with_modal = KeyboardContext {
-            any_modal_open: true,
-            ..Default::default()
-        };
-        let (blocked, reason) = check_navigation_blocked(&ctx_with_modal);
-        assert!(blocked, "Should be blocked when modal is open");
-        assert_eq!(reason, "modal_open");
+        // Workspace finder open - blocked
+        let (blocked, reason) = check_navigation_blocked(
+            true, false, false, false, false, false, false, false, false, false, false,
+        );
+        assert!(blocked, "Should be blocked when workspace finder is open");
+        assert_eq!(reason, "workspace_finder");
 
-        // egui has focus - blocked
-        let ctx_with_focus = KeyboardContext {
-            egui_has_focus: true,
-            ..Default::default()
-        };
-        let (blocked, reason) = check_navigation_blocked(&ctx_with_focus);
-        assert!(blocked, "Should be blocked when egui has focus");
-        assert_eq!(reason, "egui_focus");
+        // Command palette open - blocked
+        let (blocked, reason) = check_navigation_blocked(
+            false, false, true, false, false, false, false, false, false, false, false,
+        );
+        assert!(blocked, "Should be blocked when command palette is open");
+        assert_eq!(reason, "command_palette");
     }
 }
 
@@ -366,19 +376,19 @@ mod leader_key_tests {
         assert!(state.is_ctrl_w_active());
     }
 
-    /// Test that consuming a leader key clears it
+    /// Test that clearing a leader key deactivates it
     #[test]
-    fn test_consume_clears() {
+    fn test_clear_deactivates() {
         let mut state = LeaderKeyState::new();
 
         state.press_space();
         assert!(state.is_space_active());
-        state.consume_space();
+        state.clear_space();
         assert!(!state.is_space_active());
 
         state.press_t();
         assert!(state.is_t_active());
-        state.consume_t();
+        state.clear_t();
         assert!(!state.is_t_active());
     }
 

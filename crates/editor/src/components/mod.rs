@@ -15,7 +15,7 @@ pub use pane::{
     SparklineViz, SqlPane, SqlPaneAction, StatChart, Threshold, TimeSeriesChart, TracingPane,
     TracingPaneAction, Visualization, VisualizationType,
 };
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
 pub use pane::{TerminalPane, TerminalPaneAction};
 
 // Re-export from overlay

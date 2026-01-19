@@ -70,7 +70,8 @@ enya-ai = { workspace = true }
 # Full-text search index for codebase (metrics, alerts, commits)
 enya-search = { workspace = true }
 # Terminal emulator for running shell commands (kubectl, k9s, etc.)
-egui_ghostty = { workspace = true }
+# Optional: requires zig toolchain to build. Enable with "terminal" feature.
+egui_ghostty = { workspace = true, optional = true }
 # DataFusion SQL engine for local file queries
 enya-datafusion = { workspace = true }
 
@@ -121,7 +122,10 @@ tempfile = "3"
 egui_kittest = { version = "0.33.3", features = ["snapshot", "wgpu"] }
 
 [features]
-default = ["all-languages"]
+default = ["all-languages", "terminal"]
+# Enable terminal pane support (requires zig toolchain for ghostty).
+# Disable this feature to build/test without zig: cargo build --no-default-features --features all-languages
+terminal = ["dep:egui_ghostty"]
 # Enable syntax highlighting for Go, Python, and JavaScript/TypeScript.
 # Rust highlighting is always available on native builds.
 all-languages = [

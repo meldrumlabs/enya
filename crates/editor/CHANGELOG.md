@@ -58,6 +58,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Improved pane name matching**: Agent commands now prefer exact matches when finding panes by name, falling back to substring matches. This prevents ambiguous matches (e.g., "CPU" matching both "CPU" and "CPU Usage")
 - **Refactored pane resolution**: Extracted common `resolve_pane_target()` helper for consistent "focused" keyword handling across all pane-targeting commands
+- **Terminal feature is now optional**: The `terminal` feature (which includes the embedded terminal emulator) is enabled by default but can be disabled with `--no-default-features --features all-languages`. This allows building and testing without the zig toolchain required by ghostty
 - **Upgraded egui ecosystem**: Updated egui, eframe, and egui_extras from 0.33.2 to 0.33.3 for bug fixes and improved compatibility
 
 - **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
