@@ -24,6 +24,7 @@ rustc-hash = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 enya-promql = { workspace = true }
+rayon = "1.10"
 
 [dev-dependencies]
 

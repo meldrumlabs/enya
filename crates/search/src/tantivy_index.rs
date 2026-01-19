@@ -56,7 +56,8 @@ impl From<io::Error> for IndexError {
 /// v2: Added files_changed field for commit file tracking
 /// v3: Fixed metrics_touched field to use WithFreqsAndPositions for proper query support
 /// v4: Added diff_content and semantic fields (functions_added/removed/modified, metrics_added/removed)
-const CURRENT_SCHEMA_VERSION: u32 = 4;
+/// v5: Fixed batch diff fetching (removed --name-only conflict with -p, diffs were empty)
+const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 /// Metadata about the indexed state.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -340,12 +341,86 @@ impl TantivyCodebaseIndex {
         self.metadata.alert_count = codebase.alerts.len();
         self.metadata.commit_count = commits.len();
         self.metadata.indexed_at = codebase.last_updated;
+        // Track the newest commit (first in the list since commits are newest-first)
+        self.metadata.indexed_commit = commits.first().map(|c| c.hash.clone());
         self.save_metadata()?;
 
         log::info!(
             "Tantivy index rebuilt: {} metrics, {} alerts, {} commits",
             self.metadata.metric_count,
             self.metadata.alert_count,
+            self.metadata.commit_count
+        );
+
+        Ok(())
+    }
+
+    /// Adds new commits to the existing index (incremental update).
+    ///
+    /// Unlike `rebuild_with_progress`, this does NOT delete existing documents.
+    /// Use this for incremental indexing when you only have new commits.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_commits` - New commits to add (should be newer than existing indexed commits)
+    /// * `progress` - Optional progress callback
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if indexing fails.
+    pub fn add_commits(
+        &mut self,
+        new_commits: &[CommitInfo],
+        progress: Option<&TantivyProgress>,
+    ) -> Result<(), IndexError> {
+        if new_commits.is_empty() {
+            return Ok(());
+        }
+
+        let mut writer: IndexWriter = self.index.writer(50_000_000)?;
+
+        // Index new commits (use current count as starting index for doc_id)
+        let start_index = self.metadata.commit_count;
+
+        if let Some(p) = progress {
+            p.set_phase(TantivyPhase::IndexingCommits);
+            p.set_total(new_commits.len());
+        }
+
+        for (i, commit) in new_commits.iter().enumerate() {
+            if let Some(p) = progress {
+                let short_hash = &commit.hash[..7.min(commit.hash.len())];
+                let first_line = commit.message.lines().next().unwrap_or("");
+                let truncated = if first_line.len() > 40 {
+                    format!("{}...", &first_line[..37])
+                } else {
+                    first_line.to_string()
+                };
+                p.increment(Some(format!("{short_hash} {truncated}")));
+            }
+            let doc = self.commit_to_document(commit, start_index + i);
+            writer.add_document(doc)?;
+        }
+
+        if let Some(p) = progress {
+            p.set_phase(TantivyPhase::Finalizing);
+            p.set_current_item(Some("Committing index...".to_string()));
+        }
+
+        writer.commit()?;
+        self.reader.reload()?;
+
+        // Update metadata
+        self.metadata.commit_count += new_commits.len();
+        // Update indexed_commit to the newest (first in the list)
+        if let Some(newest) = new_commits.first() {
+            self.metadata.indexed_commit = Some(newest.hash.clone());
+        }
+        self.save_metadata()?;
+
+        log::info!(
+            "Added {} new commits to index (total: {})",
+            new_commits.len(),
             self.metadata.commit_count
         );
 

@@ -151,6 +151,17 @@ impl TantivyProgress {
     pub fn set_current_item(&self, item_name: Option<String>) {
         *self.current_item.write() = item_name;
     }
+
+    /// Set progress atomically (for parallel processing).
+    ///
+    /// Unlike `increment`, this sets the absolute progress value,
+    /// which is useful when multiple threads are updating progress.
+    pub fn set_progress_atomic(&self, current: usize, item_name: Option<String>) {
+        self.current.store(current, Ordering::Relaxed);
+        if let Some(name) = item_name {
+            *self.current_item.write() = Some(name);
+        }
+    }
 }
 
 /// The type of a search result.

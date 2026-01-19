@@ -1481,18 +1481,13 @@ impl Workspace {
 
     /// Open the diff viewer with specific content.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn open_diff_viewer_with_content(&mut self, hash: &str, diff: &str) {
+    pub fn open_diff_viewer_with_content(&mut self, hash: &str, message: &str, diff: &str) {
         log::info!("Opening diff viewer for commit from chat: {hash}");
-        self.diff_viewer.open(
-            hash,
-            &format!("Commit {}", &hash[..7.min(hash.len())]),
-            0,
-            diff,
-        );
+        self.diff_viewer.open(hash, message, 0, diff);
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn open_diff_viewer_with_content(&mut self, _hash: &str, _diff: &str) {
+    pub fn open_diff_viewer_with_content(&mut self, _hash: &str, _message: &str, _diff: &str) {
         // Diff viewer not available on WASM
     }
 

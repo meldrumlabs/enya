@@ -77,6 +77,8 @@ pub enum ChannelsPanelAction {
     OpenDiffViewer {
         /// Commit hash.
         hash: String,
+        /// Commit message (for title).
+        message: String,
         /// Full diff content.
         diff: String,
     },
@@ -491,8 +493,16 @@ impl ChannelsPanel {
                     ChatViewAction::SearchCommits(query) => {
                         action = ChannelsPanelAction::SearchCommits(query);
                     }
-                    ChatViewAction::OpenDiffViewer { hash, diff } => {
-                        action = ChannelsPanelAction::OpenDiffViewer { hash, diff };
+                    ChatViewAction::OpenDiffViewer {
+                        hash,
+                        message,
+                        diff,
+                    } => {
+                        action = ChannelsPanelAction::OpenDiffViewer {
+                            hash,
+                            message,
+                            diff,
+                        };
                     }
                     ChatViewAction::ReturnFocusToSidebar => {
                         // Escape pressed in chat input - return vim focus to sidebar

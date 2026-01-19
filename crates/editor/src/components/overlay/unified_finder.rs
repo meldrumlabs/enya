@@ -234,6 +234,8 @@ pub enum UnifiedFinderAction {
     OpenDiffViewer {
         /// Commit hash.
         hash: String,
+        /// Commit message (for title).
+        message: String,
         /// Full diff content.
         diff: String,
     },
@@ -1505,6 +1507,7 @@ impl UnifiedFinder {
                 SearchResultKind::Commit { hash, diff, .. } => {
                     Some(UnifiedFinderAction::OpenDiffViewer {
                         hash: hash.clone(),
+                        message: search_result.name.clone(),
                         diff: diff.clone(),
                     })
                 }

@@ -509,9 +509,13 @@ impl EnyaApp {
                 // Search commits in the codebase index and provide to chat
                 self.search_chat_commits(&query);
             }
-            WorkspaceAction::OpenDiffViewer { hash, diff } => {
-                // Open the diff viewer pane with the commit diff
-                self.open_diff_viewer(&hash, &diff);
+            WorkspaceAction::OpenDiffViewer {
+                hash,
+                message,
+                diff,
+            } => {
+                // Open the diff viewer with the commit message as title
+                self.open_diff_viewer(&hash, &message, &diff);
             }
         }
     }
@@ -567,8 +571,9 @@ impl EnyaApp {
     }
 
     /// Open the diff viewer with a commit diff.
-    fn open_diff_viewer(&mut self, hash: &str, diff: &str) {
-        self.workspace.open_diff_viewer_with_content(hash, diff);
+    fn open_diff_viewer(&mut self, hash: &str, message: &str, diff: &str) {
+        self.workspace
+            .open_diff_viewer_with_content(hash, message, diff);
     }
 
     /// Poll the connection manager for completed health checks
