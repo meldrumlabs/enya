@@ -15,6 +15,7 @@ All notable changes to the Enya editor will be documented in this file.
   - Tests for modal blocking logic (11 overlay types)
   - `KeyboardDecision` enum representing all keyboard-triggered actions
   - `KeyboardContext` struct for minimal state needed for keyboard decisions
+  - Enabled `egui_kittest` 0.33.3 for UI testing with snapshot support
 
 - **ENYA.md project context**: AI agents now automatically load project-specific context from `ENYA.md` or `.enya/context.md` in the repository root:
   - Custom instructions, conventions, and context are injected into every agent prompt
@@ -48,6 +49,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Improved pane name matching**: Agent commands now prefer exact matches when finding panes by name, falling back to substring matches. This prevents ambiguous matches (e.g., "CPU" matching both "CPU" and "CPU Usage")
 - **Refactored pane resolution**: Extracted common `resolve_pane_target()` helper for consistent "focused" keyword handling across all pane-targeting commands
+- **Upgraded egui ecosystem**: Updated egui, eframe, and egui_extras from 0.33.2 to 0.33.3 for bug fixes and improved compatibility
 
 - **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
   - **Data comparison**: `/diff staging prod SELECT * FROM users LIMIT 10` - compare query results in one command

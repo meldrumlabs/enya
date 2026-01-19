@@ -117,9 +117,8 @@ chrono = { workspace = true }
 criterion = { workspace = true }
 insta = { version = "1.43", features = ["toml"] }
 tempfile = "3"
-# NOTE: egui_kittest 0.33.3 has a compatibility bug with egui 0.33.2 (accesskit_update field mismatch)
-# Re-enable when egui 0.33.4 or later is released with the fix
-# egui_kittest = { version = "0.33.3", features = ["snapshot"] }
+# UI testing framework for egui - enables snapshot testing and automation
+egui_kittest = { version = "0.33.3", features = ["snapshot", "wgpu"] }
 
 [features]
 default = ["all-languages"]

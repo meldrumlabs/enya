@@ -56,8 +56,8 @@ enya-datafusion = { path = "crates/datafusion", version = "0.1.0" }
 egui_ghostty = { path = "crates/egui_ghostty" }
 
 # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts
-egui = { version = "0.33.2", default-features = false }
-eframe = { version = "0.33.2", default-features = false, features = [
+egui = { version = "0.33.3", default-features = false }
+eframe = { version = "0.33.3", default-features = false, features = [
   # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so skip egui's defaults
   "wgpu",        # Use the wgpu rendering backend (supports web screenshots).
   "persistence", # Enable restoring app state when restarting the app.
@@ -71,7 +71,7 @@ wgpu = { version = "27.0", default-features = false, features = [
   "wgsl",   # WGSL shader support
 ] }
 egui_plot = "0.34.0"
-egui_extras = { version = "0.33.2", default-features = false, features = [
+egui_extras = { version = "0.33.3", default-features = false, features = [
   "image",
 ] }
 egui_nerdfonts = { path = "crates/egui_nerdfonts" }

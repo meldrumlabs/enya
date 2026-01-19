@@ -136,10 +136,7 @@ impl KeyboardContext {
 ///
 /// Returns the keyboard decision if a valid Space+key sequence is detected,
 /// or None if the key doesn't match any Space sequence.
-pub fn determine_space_action(
-    key: egui::Key,
-    is_native: bool,
-) -> Option<KeyboardDecision> {
+pub fn determine_space_action(key: egui::Key, is_native: bool) -> Option<KeyboardDecision> {
     match key {
         egui::Key::F => Some(KeyboardDecision::OpenUnifiedFinder),
         egui::Key::W => Some(KeyboardDecision::OpenWorkspaceFinder),
@@ -429,7 +426,9 @@ mod tests {
         let result = determine_time_range_action(egui::Key::Num5);
         assert_eq!(
             result,
-            Some(KeyboardDecision::SetTimeRange(TimeRangePreset::Last5Minutes))
+            Some(KeyboardDecision::SetTimeRange(
+                TimeRangePreset::Last5Minutes
+            ))
         );
     }
 
@@ -438,7 +437,9 @@ mod tests {
         let result = determine_time_range_action(egui::Key::Num1);
         assert_eq!(
             result,
-            Some(KeyboardDecision::SetTimeRange(TimeRangePreset::Last15Minutes))
+            Some(KeyboardDecision::SetTimeRange(
+                TimeRangePreset::Last15Minutes
+            ))
         );
     }
 
@@ -447,7 +448,9 @@ mod tests {
         let result = determine_time_range_action(egui::Key::Num3);
         assert_eq!(
             result,
-            Some(KeyboardDecision::SetTimeRange(TimeRangePreset::Last30Minutes))
+            Some(KeyboardDecision::SetTimeRange(
+                TimeRangePreset::Last30Minutes
+            ))
         );
     }
 
@@ -532,7 +535,9 @@ mod tests {
         let result = determine_agent_operator_action(egui::Key::W);
         assert_eq!(
             result,
-            Some(KeyboardDecision::AgentQuickCommand(QuickCommand::WhatsWrong))
+            Some(KeyboardDecision::AgentQuickCommand(
+                QuickCommand::WhatsWrong
+            ))
         );
     }
 
