@@ -16,6 +16,15 @@ All notable changes to the Enya editor will be documented in this file.
   - `KeyboardDecision` enum representing all keyboard-triggered actions
   - `KeyboardContext` struct for minimal state needed for keyboard decisions
   - Enabled `egui_kittest` 0.33.3 for UI testing with snapshot support
+  - New `tests/ui_integration.rs` with egui_kittest harness tests for WhichKey overlay
+
+- **TESTING.md documentation**: Comprehensive testing guide covering:
+  - Quick start commands for running tests
+  - Three-layer test architecture (unit tests, integration tests, WASM checks)
+  - Detailed egui_kittest tutorial with examples
+  - Snapshot testing setup and usage
+  - Guidelines for writing new keyboard shortcut tests
+  - Troubleshooting common issues (zig toolchain, ghostty build)
 
 - **ENYA.md project context**: AI agents now automatically load project-specific context from `ENYA.md` or `.enya/context.md` in the repository root:
   - Custom instructions, conventions, and context are injected into every agent prompt
