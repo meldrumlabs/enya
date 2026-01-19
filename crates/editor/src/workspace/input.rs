@@ -260,6 +260,34 @@ impl VisualMultiState {
     pub fn clear_selection(&mut self) {
         self.selected_tile_ids.clear();
     }
+
+    /// Get a copy of all selected tile IDs
+    pub fn selected_tiles(&self) -> FxHashSet<TileId> {
+        self.selected_tile_ids.clone()
+    }
+
+    /// Validate selections against a list of valid tile IDs.
+    /// Removes any selections that are no longer valid (e.g., pane was closed).
+    /// Also updates cursor if it became invalid.
+    pub fn validate_selections(&mut self, valid_tile_ids: &[TileId]) {
+        let valid_set: FxHashSet<TileId> = valid_tile_ids.iter().copied().collect();
+
+        // Remove invalid selections
+        self.selected_tile_ids.retain(|id| valid_set.contains(id));
+
+        // Reset cursor if it became invalid
+        if let Some(cursor_id) = self.cursor_tile_id {
+            if !valid_set.contains(&cursor_id) {
+                // Set cursor to first valid selection, or first valid tile, or None
+                self.cursor_tile_id = self
+                    .selected_tile_ids
+                    .iter()
+                    .next()
+                    .copied()
+                    .or_else(|| valid_tile_ids.first().copied());
+            }
+        }
+    }
 }
 
 /// Target of keyboard focus in section-based workspace navigation.
@@ -868,5 +896,377 @@ mod tests {
         // Collapse again is a no-op
         state.collapse();
         assert!(state.collapsed);
+    }
+
+    // ==================== LeaderKeyState Extended Tests ====================
+    // Tests for 'g', 'a', Ctrl+W, and Ctrl+W t leader keys
+
+    #[test]
+    fn test_press_g_sets_timestamp() {
+        let mut state = LeaderKeyState::new();
+        assert!(state.last_g_press.is_none());
+        state.press_g();
+        assert!(state.last_g_press.is_some());
+    }
+
+    #[test]
+    fn test_press_a_sets_timestamp() {
+        let mut state = LeaderKeyState::new();
+        assert!(state.last_a_press.is_none());
+        state.press_a();
+        assert!(state.last_a_press.is_some());
+    }
+
+    #[test]
+    fn test_press_ctrl_w_sets_timestamp() {
+        let mut state = LeaderKeyState::new();
+        assert!(state.last_ctrl_w_press.is_none());
+        state.press_ctrl_w();
+        assert!(state.last_ctrl_w_press.is_some());
+    }
+
+    #[test]
+    fn test_press_ctrl_w_t_sets_timestamp() {
+        let mut state = LeaderKeyState::new();
+        assert!(state.last_ctrl_w_t_press.is_none());
+        state.press_ctrl_w_t();
+        assert!(state.last_ctrl_w_t_press.is_some());
+    }
+
+    #[test]
+    fn test_clear_g() {
+        let mut state = LeaderKeyState::new();
+        state.press_g();
+        assert!(state.last_g_press.is_some());
+        state.clear_g();
+        assert!(state.last_g_press.is_none());
+    }
+
+    #[test]
+    fn test_clear_a() {
+        let mut state = LeaderKeyState::new();
+        state.press_a();
+        assert!(state.last_a_press.is_some());
+        state.clear_a();
+        assert!(state.last_a_press.is_none());
+    }
+
+    #[test]
+    fn test_clear_ctrl_w() {
+        let mut state = LeaderKeyState::new();
+        state.press_ctrl_w();
+        assert!(state.last_ctrl_w_press.is_some());
+        state.clear_ctrl_w();
+        assert!(state.last_ctrl_w_press.is_none());
+    }
+
+    #[test]
+    fn test_clear_ctrl_w_t() {
+        let mut state = LeaderKeyState::new();
+        state.press_ctrl_w_t();
+        assert!(state.last_ctrl_w_t_press.is_some());
+        state.clear_ctrl_w_t();
+        assert!(state.last_ctrl_w_t_press.is_none());
+    }
+
+    #[test]
+    fn test_is_g_active_when_just_pressed() {
+        let mut state = LeaderKeyState::new();
+        state.press_g();
+        assert!(state.is_g_active());
+    }
+
+    #[test]
+    fn test_is_g_active_when_not_pressed() {
+        let state = LeaderKeyState::new();
+        assert!(!state.is_g_active());
+    }
+
+    #[test]
+    fn test_is_a_active_when_just_pressed() {
+        let mut state = LeaderKeyState::new();
+        state.press_a();
+        assert!(state.is_a_active());
+    }
+
+    #[test]
+    fn test_is_a_active_when_not_pressed() {
+        let state = LeaderKeyState::new();
+        assert!(!state.is_a_active());
+    }
+
+    #[test]
+    fn test_is_ctrl_w_active_when_just_pressed() {
+        let mut state = LeaderKeyState::new();
+        state.press_ctrl_w();
+        assert!(state.is_ctrl_w_active());
+    }
+
+    #[test]
+    fn test_is_ctrl_w_active_when_not_pressed() {
+        let state = LeaderKeyState::new();
+        assert!(!state.is_ctrl_w_active());
+    }
+
+    #[test]
+    fn test_is_ctrl_w_t_active_when_just_pressed() {
+        let mut state = LeaderKeyState::new();
+        state.press_ctrl_w_t();
+        assert!(state.is_ctrl_w_t_active());
+    }
+
+    #[test]
+    fn test_is_ctrl_w_t_active_when_not_pressed() {
+        let state = LeaderKeyState::new();
+        assert!(!state.is_ctrl_w_t_active());
+    }
+
+    // ==================== Leader Key Independence Tests ====================
+
+    #[test]
+    fn test_all_leader_keys_independent() {
+        // Pressing one leader key shouldn't affect any others
+        let mut state = LeaderKeyState::new();
+
+        // Press all leader keys
+        state.press_y();
+        state.press_c();
+        state.press_space();
+        state.press_t();
+        state.press_g();
+        state.press_a();
+        state.press_ctrl_w();
+        state.press_ctrl_w_t();
+
+        // All should be active
+        assert!(state.is_yy_active());
+        assert!(state.is_cv_ready());
+        assert!(state.is_space_active());
+        assert!(state.is_t_active());
+        assert!(state.is_g_active());
+        assert!(state.is_a_active());
+        assert!(state.is_ctrl_w_active());
+        assert!(state.is_ctrl_w_t_active());
+    }
+
+    #[test]
+    fn test_clearing_one_leader_key_preserves_others() {
+        let mut state = LeaderKeyState::new();
+
+        // Press multiple keys
+        state.press_space();
+        state.press_t();
+        state.press_g();
+        state.press_a();
+
+        // Clear space
+        state.clear_space();
+
+        // Others should still be active
+        assert!(!state.is_space_active());
+        assert!(state.is_t_active());
+        assert!(state.is_g_active());
+        assert!(state.is_a_active());
+    }
+
+    #[test]
+    fn test_clearing_all_leader_keys() {
+        let mut state = LeaderKeyState::new();
+
+        // Press all keys
+        state.press_y();
+        state.press_c();
+        state.press_space();
+        state.press_t();
+        state.press_g();
+        state.press_a();
+        state.press_ctrl_w();
+        state.press_ctrl_w_t();
+
+        // Clear all
+        state.clear_y();
+        state.clear_c();
+        state.clear_space();
+        state.clear_t();
+        state.clear_g();
+        state.clear_a();
+        state.clear_ctrl_w();
+        state.clear_ctrl_w_t();
+
+        // All should be inactive
+        assert!(!state.is_yy_active());
+        assert!(!state.is_cv_ready());
+        assert!(!state.is_space_active());
+        assert!(!state.is_t_active());
+        assert!(!state.is_g_active());
+        assert!(!state.is_a_active());
+        assert!(!state.is_ctrl_w_active());
+        assert!(!state.is_ctrl_w_t_active());
+    }
+
+    #[test]
+    fn test_leader_key_can_be_repressed() {
+        let mut state = LeaderKeyState::new();
+
+        // Press, clear, and press again
+        state.press_space();
+        assert!(state.is_space_active());
+        state.clear_space();
+        assert!(!state.is_space_active());
+        state.press_space();
+        assert!(state.is_space_active());
+    }
+
+    // ==================== Leader Key Timeout Tests ====================
+    // Note: These tests use real time delays and only run on native (not WASM)
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_leader_key_timeout_expires() {
+        let mut state = LeaderKeyState::new();
+        state.press_space();
+        assert!(state.is_space_active());
+
+        // Wait for timeout to expire (500ms + buffer)
+        std::thread::sleep(std::time::Duration::from_millis(550));
+
+        // Should now be inactive
+        assert!(!state.is_space_active());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_leader_key_active_before_timeout() {
+        let mut state = LeaderKeyState::new();
+        state.press_space();
+
+        // Wait less than timeout
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // Should still be active
+        assert!(state.is_space_active());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_leader_key_timeout_at_boundary() {
+        let mut state = LeaderKeyState::new();
+        state.press_space();
+
+        // Wait almost exactly 500ms (with small buffer for test execution)
+        std::thread::sleep(std::time::Duration::from_millis(480));
+
+        // Should still be active (just under 500ms)
+        assert!(state.is_space_active());
+
+        // Wait a bit more to cross the boundary
+        std::thread::sleep(std::time::Duration::from_millis(50));
+
+        // Should now be inactive
+        assert!(!state.is_space_active());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_repressing_leader_key_resets_timeout() {
+        let mut state = LeaderKeyState::new();
+        state.press_space();
+
+        // Wait part of timeout
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        assert!(state.is_space_active());
+
+        // Press again to reset
+        state.press_space();
+
+        // Wait another 400ms (would have expired if not reset)
+        std::thread::sleep(std::time::Duration::from_millis(400));
+
+        // Should still be active (reset the timer)
+        assert!(state.is_space_active());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_multiple_leader_keys_timeout_independently() {
+        let mut state = LeaderKeyState::new();
+
+        // Press space first
+        state.press_space();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+
+        // Press 't' later
+        state.press_t();
+
+        // Wait 250ms more - space should timeout (550ms total), t should not (250ms)
+        std::thread::sleep(std::time::Duration::from_millis(250));
+
+        assert!(!state.is_space_active()); // Expired (550ms)
+        assert!(state.is_t_active()); // Still active (250ms)
+    }
+
+    // ==================== VisualMultiState Extended Tests ====================
+
+    #[test]
+    fn test_visual_multi_selected_tiles_returns_cloned_set() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let mut state = VisualMultiState::new(tile1);
+        state.toggle_selection(tile2);
+
+        let selected = state.selected_tiles();
+        assert_eq!(selected.len(), 2);
+        assert!(selected.contains(&tile1));
+        assert!(selected.contains(&tile2));
+    }
+
+    #[test]
+    fn test_visual_multi_validate_selections_removes_invalid() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let tile3 = make_tile_id(3);
+        let mut state = VisualMultiState::new(tile1);
+        state.toggle_selection(tile2);
+        state.toggle_selection(tile3);
+
+        assert_eq!(state.selection_count(), 3);
+
+        // Only tile1 and tile3 are valid
+        let valid_tiles = vec![tile1, tile3];
+        state.validate_selections(&valid_tiles);
+
+        assert_eq!(state.selection_count(), 2);
+        assert!(state.is_selected(tile1));
+        assert!(!state.is_selected(tile2)); // Removed
+        assert!(state.is_selected(tile3));
+    }
+
+    #[test]
+    fn test_visual_multi_validate_cursor_resets_if_invalid() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let mut state = VisualMultiState::new(tile1);
+        state.set_cursor(tile2);
+
+        assert_eq!(state.cursor_tile_id, Some(tile2));
+
+        // tile2 is not valid - cursor should be reset
+        let valid_tiles = vec![tile1];
+        state.validate_selections(&valid_tiles);
+
+        // Cursor reset to first valid tile
+        assert_eq!(state.cursor_tile_id, Some(tile1));
+    }
+
+    #[test]
+    fn test_visual_multi_validate_with_empty_valid_set() {
+        let tile1 = make_tile_id(1);
+        let mut state = VisualMultiState::new(tile1);
+
+        state.validate_selections(&[]);
+
+        // All selections removed, cursor set to None
+        assert_eq!(state.selection_count(), 0);
+        assert!(state.cursor_tile_id.is_none());
     }
 }

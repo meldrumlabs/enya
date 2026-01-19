@@ -6,6 +6,16 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Keyboard navigation test infrastructure**: Comprehensive testing for vim-style keyboard navigation:
+  - Extended `LeaderKeyState` tests: timeout edge cases, boundary behavior, multiple key independence
+  - Extended `VisualMultiState` with `selected_tiles()` and `validate_selections()` methods and tests
+  - New `keyboard_logic.rs` module with pure decision logic testable without egui::Context
+  - Tests for all leader key sequences: Space+*, t* (time ranges), g* (go-to), a* (agent operators)
+  - Tests for Ctrl+W and Ctrl+W t window management sequences
+  - Tests for modal blocking logic (11 overlay types)
+  - `KeyboardDecision` enum representing all keyboard-triggered actions
+  - `KeyboardContext` struct for minimal state needed for keyboard decisions
+
 - **ENYA.md project context**: AI agents now automatically load project-specific context from `ENYA.md` or `.enya/context.md` in the repository root:
   - Custom instructions, conventions, and context are injected into every agent prompt
   - Supports documenting metric naming conventions, important SLOs, common queries, and team workflows
