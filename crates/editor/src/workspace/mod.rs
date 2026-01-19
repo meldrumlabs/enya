@@ -428,11 +428,15 @@ impl Workspace {
                 for cmd in &commands {
                     log::info!("Executing agent command: {cmd:?}");
                 }
-                let executed = self.handle_agent_commands(commands, ctx);
+                let activities = self.handle_agent_commands(commands, ctx);
+                // Add activities to input bar for display
+                for activity in &activities {
+                    self.agent_input_bar.add_activity(activity.clone());
+                }
                 // Only auto-exit if commands were executed AND there's no response text
                 // This allows conversational flows where the agent explains what it's doing
                 let has_response_text = !self.agent_input_bar.display_text().is_empty();
-                if executed && !has_response_text {
+                if !activities.is_empty() && !has_response_text {
                     log::info!("Agent command executed (no response text), exiting agent mode");
                     self.exit_agent_mode();
                 }
@@ -834,7 +838,8 @@ impl Workspace {
                 }
             }
             AgentPanelResult::Commands(commands) => {
-                self.handle_agent_commands(commands, ctx);
+                let activities = self.handle_agent_commands(commands, ctx);
+                self.agent_panel.add_activities(activities);
             }
             AgentPanelResult::ReturnFocusToViewport => {
                 // Vim h key pressed - return focus to viewport
@@ -2709,10 +2714,14 @@ impl Workspace {
                 "Executing {} enya command(s) from agent input bar",
                 converted_commands.len()
             );
-            let executed = self.handle_agent_commands(converted_commands, ctx);
+            let activities = self.handle_agent_commands(converted_commands, ctx);
+            // Add activities to input bar for display
+            for activity in &activities {
+                self.agent_input_bar.add_activity(activity.clone());
+            }
             // Only auto-exit if commands were executed AND there's no response text
             let has_response_text = !self.agent_input_bar.display_text().is_empty();
-            if executed && !has_response_text {
+            if !activities.is_empty() && !has_response_text {
                 log::info!("Agent command executed (no response text), exiting agent mode");
                 self.exit_agent_mode();
             }

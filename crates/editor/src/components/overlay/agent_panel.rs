@@ -262,6 +262,13 @@ impl AgentPanel {
         );
     }
 
+    /// Add activities from command execution to the current activity list.
+    ///
+    /// This is used to display feedback when agent commands are executed.
+    pub fn add_activities(&mut self, activities: Vec<ActivityItem>) {
+        self.current_activities.extend(activities);
+    }
+
     /// Add inline content (chart, source, search results) to the last assistant message.
     ///
     /// This is used by the workspace to inject visualizations into the conversation
@@ -1405,6 +1412,22 @@ impl AgentPanel {
                     _ => regular::CUBE,
                 };
                 (icon, tool.as_str(), summary.clone(), accent)
+            }
+            ActivityType::EditorAction {
+                description,
+                success,
+            } => {
+                let icon = if *success {
+                    regular::CHECK_CIRCLE
+                } else {
+                    regular::CLOSE_CIRCLE
+                };
+                let color = if *success {
+                    palette::semantic::SUCCESS
+                } else {
+                    palette::semantic::ERROR
+                };
+                (icon, "Action", description.clone(), color)
             }
             ActivityType::Error(msg) => (
                 regular::CLOSE_CIRCLE,

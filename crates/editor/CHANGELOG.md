@@ -11,6 +11,12 @@ All notable changes to the Enya editor will be documented in this file.
   - Supports documenting metric naming conventions, important SLOs, common queries, and team workflows
   - Search order: `ENYA.md` in repo root, then `.enya/context.md` as fallback
 
+- **Streaming action indicators**: Agent commands now show visual feedback during execution:
+  - Each command displays as an activity item (e.g., "Creating section 'Infrastructure'")
+  - Success/failure indicated with checkmark or error icons
+  - Activities appear in both the agent input bar and full agent panel
+  - Provides real-time visibility into what the agent is doing
+
 - **New AI agent commands** for incident investigation workflows:
   - `add_logs_pane`: Create a logs pane with optional LogQL query and Loki backend support
   - `add_tracing_pane`: Create a tracing pane with optional trace ID to pre-load

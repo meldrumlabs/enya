@@ -474,6 +474,161 @@ pub enum AgentCommand {
     ExitFullscreen,
 }
 
+impl AgentCommand {
+    /// Returns a human-readable description of the command action.
+    ///
+    /// Used for displaying command execution status in the UI.
+    pub fn description(&self) -> String {
+        match self {
+            AgentCommand::CreatePane { query, title } => {
+                if let Some(t) = title {
+                    format!("Creating pane '{t}'")
+                } else {
+                    format!("Creating pane for query: {}", truncate_str(query, 40))
+                }
+            }
+            AgentCommand::SetTimeRange { preset } => {
+                format!("Setting time range to {preset}")
+            }
+            AgentCommand::SearchMetrics { pattern } => {
+                format!("Searching metrics for '{pattern}'")
+            }
+            AgentCommand::ShowMetricSource { metric } => {
+                format!("Opening source for metric '{metric}'")
+            }
+            AgentCommand::ShowAlertSource { alert } => {
+                format!("Opening source for alert '{alert}'")
+            }
+            AgentCommand::ShowInlineChart { query, title, .. } => {
+                if let Some(t) = title {
+                    format!("Showing chart '{t}'")
+                } else {
+                    format!("Showing chart for: {}", truncate_str(query, 40))
+                }
+            }
+            AgentCommand::ShowInlineSource { metric, .. } => {
+                format!("Showing source for '{metric}'")
+            }
+            AgentCommand::SearchCodebase { query, filter, .. } => {
+                if let Some(f) = filter {
+                    format!("Searching {f} for '{query}'")
+                } else {
+                    format!("Searching codebase for '{query}'")
+                }
+            }
+            AgentCommand::AddLogsPane { title, query, .. } => {
+                if let Some(t) = title {
+                    format!("Adding logs pane '{t}'")
+                } else if let Some(q) = query {
+                    format!("Adding logs pane with query: {}", truncate_str(q, 30))
+                } else {
+                    "Adding logs pane".to_string()
+                }
+            }
+            AgentCommand::AddTracingPane { title, trace_id } => {
+                if let Some(t) = title {
+                    format!("Adding tracing pane '{t}'")
+                } else if let Some(id) = trace_id {
+                    format!("Adding tracing pane for trace {}", truncate_str(id, 20))
+                } else {
+                    "Adding tracing pane".to_string()
+                }
+            }
+            AgentCommand::AddTerminalPane { title } => {
+                if let Some(t) = title {
+                    format!("Adding terminal pane '{t}'")
+                } else {
+                    "Adding terminal pane".to_string()
+                }
+            }
+            AgentCommand::SetVisualization { pane, viz_type } => {
+                if let Some(p) = pane {
+                    format!("Setting '{p}' visualization to {viz_type}")
+                } else {
+                    format!("Setting visualization to {viz_type}")
+                }
+            }
+            AgentCommand::SetAbsoluteTimeRange { start, end } => {
+                // Format as duration for readability
+                let duration_secs = (end - start) as i64;
+                let duration = if duration_secs >= 86400 {
+                    format!("{}d", duration_secs / 86400)
+                } else if duration_secs >= 3600 {
+                    format!("{}h", duration_secs / 3600)
+                } else {
+                    format!("{}m", duration_secs / 60)
+                };
+                format!("Setting time range ({duration} window)")
+            }
+            AgentCommand::RefreshPane { pane } => {
+                if let Some(p) = pane {
+                    format!("Refreshing pane '{p}'")
+                } else {
+                    "Refreshing all panes".to_string()
+                }
+            }
+            AgentCommand::ClosePane { pane } => {
+                if pane.to_lowercase() == "focused" {
+                    "Closing focused pane".to_string()
+                } else {
+                    format!("Closing pane '{pane}'")
+                }
+            }
+            AgentCommand::CreateSection { name, collapsed } => {
+                if collapsed.unwrap_or(false) {
+                    format!("Creating section '{name}' (collapsed)")
+                } else {
+                    format!("Creating section '{name}'")
+                }
+            }
+            AgentCommand::CreateFloatingPane { title, query, .. } => {
+                if let Some(t) = title {
+                    format!("Creating floating pane '{t}'")
+                } else {
+                    format!("Creating floating pane for: {}", truncate_str(query, 30))
+                }
+            }
+            AgentCommand::MaximizePane { pane } => {
+                if pane.to_lowercase() == "focused" {
+                    "Maximizing focused pane".to_string()
+                } else {
+                    format!("Maximizing pane '{pane}'")
+                }
+            }
+            AgentCommand::RenamePane { pane, new_name } => {
+                if pane.to_lowercase() == "focused" {
+                    format!("Renaming focused pane to '{new_name}'")
+                } else {
+                    format!("Renaming '{pane}' to '{new_name}'")
+                }
+            }
+            AgentCommand::DuplicatePane { pane, new_name } => {
+                if let Some(name) = new_name {
+                    format!("Duplicating '{pane}' as '{name}'")
+                } else if pane.to_lowercase() == "focused" {
+                    "Duplicating focused pane".to_string()
+                } else {
+                    format!("Duplicating pane '{pane}'")
+                }
+            }
+            AgentCommand::FocusPane { pane } => {
+                format!("Focusing pane '{pane}'")
+            }
+            AgentCommand::ToggleZenMode => "Toggling zen mode".to_string(),
+            AgentCommand::ExitFullscreen => "Exiting fullscreen".to_string(),
+        }
+    }
+}
+
+/// Truncate a string to a maximum length, adding "..." if truncated.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
+}
+
 /// Parse agent commands from a response text.
 ///
 /// Looks for fenced code blocks with the `enya-command` language tag.

@@ -984,6 +984,22 @@ impl AgentInputBar {
                         ActivityType::Response(_) => {
                             (semantic_icons::status::LOADING, "Responding", None)
                         }
+                        ActivityType::EditorAction {
+                            description,
+                            success,
+                        } => {
+                            let icon = if *success {
+                                semantic_icons::status::SUCCESS
+                            } else {
+                                semantic_icons::diagnostic::ERROR
+                            };
+                            let preview = if description.len() > 40 {
+                                format!("{}...", &description[..37])
+                            } else {
+                                description.clone()
+                            };
+                            (icon, "Action", Some(preview))
+                        }
                     }
                 } else if self.processing_status.contains("Sending") {
                     (semantic_icons::nav::RIGHT, "Sending", None)
@@ -1829,6 +1845,17 @@ impl AgentInputBar {
                     }
                     crate::components::util::ActivityType::Response(text) => {
                         (semantic_icons::status::SUCCESS, text.clone())
+                    }
+                    crate::components::util::ActivityType::EditorAction {
+                        description,
+                        success,
+                    } => {
+                        let icon = if *success {
+                            semantic_icons::status::SUCCESS
+                        } else {
+                            semantic_icons::diagnostic::ERROR
+                        };
+                        (icon, description.clone())
                     }
                 };
 

@@ -14,6 +14,7 @@ use crate::components::pane::inline_content::{InlineSearchResults, SearchResultI
 use crate::components::pane::logs_pane::LogsBackend;
 use crate::components::pane::query_pane::QueryPaneAction;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
+use crate::components::util::{ActivityItem, ActivityType};
 use crate::components::{Buffer, Component, InlineChart, InlineContent, LogsPane, QueryPane};
 
 impl Workspace {
@@ -266,20 +267,29 @@ impl Workspace {
     ///
     /// These commands are parsed from the agent's response and executed
     /// to manipulate the workspace (create panes, change time range, etc.)
-    /// Handle agent commands and return true if any command was executed successfully.
+    /// Handle agent commands and return activity items for UI feedback.
+    ///
+    /// Each command execution generates an `ActivityItem` showing what action
+    /// was taken and whether it succeeded. These can be displayed in the agent
+    /// panel to provide visual feedback during command execution.
+    ///
     /// When commands are executed, the caller should typically exit agent mode.
     pub(super) fn handle_agent_commands(
         &mut self,
         commands: Vec<AgentCommand>,
         ctx: &egui::Context,
-    ) -> bool {
-        let mut executed_any = false;
+    ) -> Vec<ActivityItem> {
+        let mut activities = Vec::new();
 
         for command in commands {
+            // Get the description before executing (for activity display)
+            let description = command.description();
+            let mut success = false;
+
             match command {
                 AgentCommand::CreatePane { query, title } => {
                     self.add_query_pane(&query, title.as_deref());
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::SetTimeRange { preset } => {
                     // Parse preset string into a TimeRangePreset
@@ -288,7 +298,7 @@ impl Workspace {
                         // Trigger global refresh of all panes (Grafana-style)
                         self.refresh_all_panes();
                         log::info!("Agent set time range to: {preset}, refreshing all panes");
-                        executed_any = true;
+                        success = true;
                     } else {
                         log::warn!("Agent requested unknown time preset: {preset}");
                     }
@@ -299,7 +309,7 @@ impl Workspace {
                         .open_with_mode(crate::components::overlay::FinderMode::Metrics);
                     self.unified_finder.set_query(&pattern);
                     log::info!("Agent opened metrics search: {pattern}");
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::ShowMetricSource { metric } => {
                     // Open the source preview for the metric definition
@@ -307,7 +317,7 @@ impl Workspace {
                     {
                         self.open_metric_definition(&metric);
                         log::info!("Agent opened metric source: {metric}");
-                        executed_any = true;
+                        success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -320,7 +330,7 @@ impl Workspace {
                     {
                         self.open_alert_definition(&alert);
                         log::info!("Agent opened alert source: {alert}");
-                        executed_any = true;
+                        success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -340,7 +350,7 @@ impl Workspace {
                     // Find the first agent pane and inject the chart
                     self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
                     log::info!("Injected inline chart for query: {query}");
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::ShowInlineSource {
                     metric,
@@ -353,7 +363,7 @@ impl Workspace {
                         if let Some(source) = self.generate_inline_source(&metric, lines) {
                             self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
                             log::info!("Injected inline source for metric: {metric}");
-                            executed_any = true;
+                            success = true;
                         } else {
                             log::warn!("Could not find source for metric: {metric}");
                         }
@@ -404,7 +414,7 @@ impl Workspace {
                         self.inject_inline_content_to_agent_pane(InlineContent::SearchResults(
                             inline_results,
                         ));
-                        executed_any = true;
+                        success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -443,7 +453,7 @@ impl Workspace {
                     }
 
                     log::info!("Agent created logs pane");
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::AddTracingPane { trace_id, title: _ } => {
                     self.add_tracing_pane(trace_id.as_deref());
@@ -454,12 +464,12 @@ impl Workspace {
                             .map(|id| format!(" with trace_id: {id}"))
                             .unwrap_or_default()
                     );
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::AddTerminalPane { title: _ } => {
                     if self.add_terminal_pane().is_some() {
                         log::info!("Agent created terminal pane");
-                        executed_any = true;
+                        success = true;
                     } else {
                         log::warn!(
                             "Agent failed to create terminal pane (not available on this platform)"
@@ -487,7 +497,7 @@ impl Workspace {
                                         "Agent set visualization to {viz_type} for pane: {}",
                                         pane.as_deref().unwrap_or("focused")
                                     );
-                                    executed_any = true;
+                                    success = true;
                                 }
                             }
                         } else {
@@ -503,7 +513,7 @@ impl Workspace {
                     // Refresh all panes to use the new time range
                     self.refresh_all_panes();
                     log::info!("Agent set absolute time range: {start} to {end}");
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::RefreshPane { pane } => {
                     if let Some(ref pane_name) = pane {
@@ -517,7 +527,7 @@ impl Workspace {
                                 {
                                     query_pane.mark_needs_refresh();
                                     log::info!("Agent refreshed pane: {pane_name}");
-                                    executed_any = true;
+                                    success = true;
                                 }
                             }
                         } else {
@@ -527,14 +537,14 @@ impl Workspace {
                         // Refresh all panes
                         self.refresh_all_panes();
                         log::info!("Agent refreshed all panes");
-                        executed_any = true;
+                        success = true;
                     }
                 }
                 AgentCommand::ClosePane { pane } => {
                     if let Some(tile_id) = self.resolve_pane_target(&pane) {
                         self.close_tile(tile_id);
                         log::info!("Agent closed pane: {pane}");
-                        executed_any = true;
+                        success = true;
                     } else {
                         log::warn!("Agent could not find pane to close: {pane}");
                     }
@@ -555,7 +565,7 @@ impl Workspace {
                         name,
                         collapsed.unwrap_or(false)
                     );
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::CreateFloatingPane {
                     query,
@@ -586,7 +596,7 @@ impl Workspace {
                         "Agent created floating pane: {}",
                         title.as_deref().unwrap_or(&query)
                     );
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::MaximizePane { pane } => {
                     if let Some(tile_id) = self.resolve_pane_target(&pane) {
@@ -597,7 +607,7 @@ impl Workspace {
                         ) {
                             self.fullscreen_tile = Some(tile_id);
                             log::info!("Agent maximized pane: {pane}");
-                            executed_any = true;
+                            success = true;
                         }
                     } else {
                         log::warn!("Agent could not find pane to maximize: {pane}");
@@ -613,7 +623,7 @@ impl Workspace {
                             {
                                 query_pane.set_name(&new_name);
                                 log::info!("Agent renamed pane '{pane}' to '{new_name}'");
-                                executed_any = true;
+                                success = true;
                             }
                         }
                     } else {
@@ -654,7 +664,7 @@ impl Workspace {
                         if self.add_tile_to_viewport(tile_id) {
                             self.show_landing = false;
                             log::info!("Agent duplicated pane '{pane}' as '{name}'");
-                            executed_any = true;
+                            success = true;
                         }
                     } else {
                         log::warn!("Agent could not find pane to duplicate: {pane}");
@@ -665,7 +675,7 @@ impl Workspace {
                         self.behavior.set_focused_tile(Some(tile_id));
                         self.activate_tile(tile_id);
                         log::info!("Agent focused pane: {pane}");
-                        executed_any = true;
+                        success = true;
                     } else {
                         log::warn!("Agent could not find pane to focus: {pane}");
                     }
@@ -673,24 +683,33 @@ impl Workspace {
                 AgentCommand::ToggleZenMode => {
                     self.zen_mode = !self.zen_mode;
                     log::info!("Agent toggled zen mode: {}", self.zen_mode);
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::ExitFullscreen => {
                     if self.fullscreen_tile.is_some() {
                         self.fullscreen_tile = None;
                         log::info!("Agent exited fullscreen mode");
-                        executed_any = true;
+                        success = true;
                     }
                 }
             }
+
+            // Create activity item for this command
+            activities.push(ActivityItem {
+                activity_type: ActivityType::EditorAction {
+                    description,
+                    success,
+                },
+                in_progress: false,
+            });
         }
 
         // Request repaint to ensure query execution runs on next frame
-        if executed_any {
+        if !activities.is_empty() {
             ctx.request_repaint();
         }
 
-        executed_any
+        activities
     }
 
     /// Poll all agent panes for pending commands and execute them.
