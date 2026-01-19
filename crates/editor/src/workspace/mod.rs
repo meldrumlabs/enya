@@ -432,11 +432,15 @@ impl Workspace {
                 for cmd in &commands {
                     log::info!("Executing agent command: {cmd:?}");
                 }
-                let executed = self.handle_agent_commands(commands, ctx);
+                let activities = self.handle_agent_commands(commands, ctx);
+                // Add activities to input bar for display
+                for activity in &activities {
+                    self.agent_input_bar.add_activity(activity.clone());
+                }
                 // Only auto-exit if commands were executed AND there's no response text
                 // This allows conversational flows where the agent explains what it's doing
                 let has_response_text = !self.agent_input_bar.display_text().is_empty();
-                if executed && !has_response_text {
+                if !activities.is_empty() && !has_response_text {
                     log::info!("Agent command executed (no response text), exiting agent mode");
                     self.exit_agent_mode();
                 }
@@ -850,7 +854,8 @@ impl Workspace {
                 }
             }
             AgentPanelResult::Commands(commands) => {
-                self.handle_agent_commands(commands, ctx);
+                let activities = self.handle_agent_commands(commands, ctx);
+                self.agent_panel.add_activities(activities);
             }
             AgentPanelResult::ReturnFocusToViewport => {
                 // Vim h key pressed - return focus to viewport
@@ -2732,10 +2737,14 @@ impl Workspace {
                 "Executing {} enya command(s) from agent input bar",
                 converted_commands.len()
             );
-            let executed = self.handle_agent_commands(converted_commands, ctx);
+            let activities = self.handle_agent_commands(converted_commands, ctx);
+            // Add activities to input bar for display
+            for activity in &activities {
+                self.agent_input_bar.add_activity(activity.clone());
+            }
             // Only auto-exit if commands were executed AND there's no response text
             let has_response_text = !self.agent_input_bar.display_text().is_empty();
-            if executed && !has_response_text {
+            if !activities.is_empty() && !has_response_text {
                 log::info!("Agent command executed (no response text), exiting agent mode");
                 self.exit_agent_mode();
             }
@@ -3117,7 +3126,9 @@ impl Workspace {
     /// context pieces, ensuring consistency with `build_editor_context`.
     fn update_agent_context(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
-        use crate::components::overlay::agent_context::{CommitSummary, build_codebase_context};
+        use crate::components::overlay::agent_context::{
+            CommitSummary, build_codebase_context, load_project_context,
+        };
         use crate::components::overlay::agent_context::{
             EditorContext, build_connection_context, build_dashboard_context,
         };
@@ -3201,6 +3212,20 @@ impl Workspace {
             context
         };
 
+        // Load project context from ENYA.md (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        let context = {
+            let project_ctx = self
+                .codebase_manager
+                .index()
+                .and_then(|idx| load_project_context(&idx.repo_path));
+            if let Some(pc) = project_ctx {
+                context.with_project_context(pc)
+            } else {
+                context
+            }
+        };
+
         // Update the agent panel's context
         self.agent_panel.set_context(context);
     }
@@ -3214,10 +3239,12 @@ impl Workspace {
     /// Uses helper functions from `agent_context` module to build individual
     /// context pieces, ensuring consistency with `update_agent_context`.
     fn build_editor_context(&self) -> Option<crate::components::EditorContext> {
-        #[cfg(not(target_arch = "wasm32"))]
-        use crate::components::overlay::agent_context::build_codebase_context;
         use crate::components::overlay::agent_context::{
             EditorContext, build_connection_context, build_dashboard_context,
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        use crate::components::overlay::agent_context::{
+            build_codebase_context, load_project_context,
         };
 
         // Build connection context using shared helper
@@ -3276,6 +3303,20 @@ impl Workspace {
             context.with_codebase(cb)
         } else {
             context
+        };
+
+        // Load project context from ENYA.md (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        let context = {
+            let project_ctx = self
+                .codebase_manager
+                .index()
+                .and_then(|idx| load_project_context(&idx.repo_path));
+            if let Some(pc) = project_ctx {
+                context.with_project_context(pc)
+            } else {
+                context
+            }
         };
 
         Some(context)

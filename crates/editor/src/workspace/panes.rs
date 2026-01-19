@@ -14,6 +14,7 @@ use crate::components::pane::inline_content::{InlineSearchResults, SearchResultI
 use crate::components::pane::logs_pane::LogsBackend;
 use crate::components::pane::query_pane::QueryPaneAction;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
+use crate::components::util::{ActivityItem, ActivityType};
 use crate::components::{Buffer, Component, InlineChart, InlineContent, LogsPane, QueryPane};
 
 impl Workspace {
@@ -266,20 +267,29 @@ impl Workspace {
     ///
     /// These commands are parsed from the agent's response and executed
     /// to manipulate the workspace (create panes, change time range, etc.)
-    /// Handle agent commands and return true if any command was executed successfully.
+    /// Handle agent commands and return activity items for UI feedback.
+    ///
+    /// Each command execution generates an `ActivityItem` showing what action
+    /// was taken and whether it succeeded. These can be displayed in the agent
+    /// panel to provide visual feedback during command execution.
+    ///
     /// When commands are executed, the caller should typically exit agent mode.
     pub(super) fn handle_agent_commands(
         &mut self,
         commands: Vec<AgentCommand>,
         ctx: &egui::Context,
-    ) -> bool {
-        let mut executed_any = false;
+    ) -> Vec<ActivityItem> {
+        let mut activities = Vec::new();
 
         for command in commands {
+            // Get the description before executing (for activity display)
+            let description = command.description();
+            let mut success = false;
+
             match command {
                 AgentCommand::CreatePane { query, title } => {
                     self.add_query_pane(&query, title.as_deref());
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::SetTimeRange { preset } => {
                     // Parse preset string into a TimeRangePreset
@@ -288,7 +298,7 @@ impl Workspace {
                         // Trigger global refresh of all panes (Grafana-style)
                         self.refresh_all_panes();
                         log::info!("Agent set time range to: {preset}, refreshing all panes");
-                        executed_any = true;
+                        success = true;
                     } else {
                         log::warn!("Agent requested unknown time preset: {preset}");
                     }
@@ -299,7 +309,7 @@ impl Workspace {
                         .open_with_mode(crate::components::overlay::FinderMode::Metrics);
                     self.unified_finder.set_query(&pattern);
                     log::info!("Agent opened metrics search: {pattern}");
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::ShowMetricSource { metric } => {
                     // Open the source preview for the metric definition
@@ -307,7 +317,7 @@ impl Workspace {
                     {
                         self.open_metric_definition(&metric);
                         log::info!("Agent opened metric source: {metric}");
-                        executed_any = true;
+                        success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -320,7 +330,7 @@ impl Workspace {
                     {
                         self.open_alert_definition(&alert);
                         log::info!("Agent opened alert source: {alert}");
-                        executed_any = true;
+                        success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -340,7 +350,7 @@ impl Workspace {
                     // Find the first agent pane and inject the chart
                     self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
                     log::info!("Injected inline chart for query: {query}");
-                    executed_any = true;
+                    success = true;
                 }
                 AgentCommand::ShowInlineSource {
                     metric,
@@ -353,7 +363,7 @@ impl Workspace {
                         if let Some(source) = self.generate_inline_source(&metric, lines) {
                             self.inject_inline_content_to_agent_pane(InlineContent::Source(source));
                             log::info!("Injected inline source for metric: {metric}");
-                            executed_any = true;
+                            success = true;
                         } else {
                             log::warn!("Could not find source for metric: {metric}");
                         }
@@ -404,7 +414,7 @@ impl Workspace {
                         self.inject_inline_content_to_agent_pane(InlineContent::SearchResults(
                             inline_results,
                         ));
-                        executed_any = true;
+                        success = true;
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
@@ -412,15 +422,294 @@ impl Workspace {
                         log::warn!("SearchCodebase not available in WASM");
                     }
                 }
+                AgentCommand::AddLogsPane {
+                    query,
+                    loki_url,
+                    title: _,
+                } => {
+                    // Use current time range for logs (in nanoseconds)
+                    let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
+                    let start_ns = start_ns as i64;
+                    let end_ns = end_ns as i64;
+
+                    // Create logs pane with appropriate backend
+                    let tile_id = if let Some(url) = loki_url {
+                        self.add_loki_pane(start_ns, end_ns, url)
+                    } else {
+                        self.add_logs_pane(start_ns, end_ns)
+                    };
+
+                    // Set query if provided
+                    if let (Some(tile_id), Some(query)) = (tile_id, query) {
+                        if let Some(egui_tiles::Tile::Pane(component)) =
+                            self.viewport_tree.tiles.get_mut(tile_id)
+                        {
+                            if let Some(logs_pane) =
+                                component.as_any_mut().downcast_mut::<LogsPane>()
+                            {
+                                logs_pane.set_query(&query);
+                            }
+                        }
+                    }
+
+                    log::info!("Agent created logs pane");
+                    success = true;
+                }
+                AgentCommand::AddTracingPane { trace_id, title: _ } => {
+                    self.add_tracing_pane(trace_id.as_deref());
+                    log::info!(
+                        "Agent created tracing pane{}",
+                        trace_id
+                            .as_ref()
+                            .map(|id| format!(" with trace_id: {id}"))
+                            .unwrap_or_default()
+                    );
+                    success = true;
+                }
+                AgentCommand::AddTerminalPane { title: _ } => {
+                    if self.add_terminal_pane().is_some() {
+                        log::info!("Agent created terminal pane");
+                        success = true;
+                    } else {
+                        log::warn!(
+                            "Agent failed to create terminal pane (not available on this platform)"
+                        );
+                    }
+                }
+                AgentCommand::SetVisualization { pane, viz_type } => {
+                    // Parse the visualization type
+                    if let Some(viz) = Self::parse_visualization_type(&viz_type) {
+                        // Find the target pane (default to focused if not specified)
+                        let target_tile = pane
+                            .as_deref()
+                            .map(|p| self.resolve_pane_target(p))
+                            .unwrap_or_else(|| self.behavior.focused_tile());
+
+                        if let Some(tile_id) = target_tile {
+                            if let Some(egui_tiles::Tile::Pane(component)) =
+                                self.viewport_tree.tiles.get_mut(tile_id)
+                            {
+                                if let Some(query_pane) =
+                                    component.as_any_mut().downcast_mut::<QueryPane>()
+                                {
+                                    query_pane.set_visualization_type(viz);
+                                    log::info!(
+                                        "Agent set visualization to {viz_type} for pane: {}",
+                                        pane.as_deref().unwrap_or("focused")
+                                    );
+                                    success = true;
+                                }
+                            }
+                        } else {
+                            log::warn!("Agent could not find pane to set visualization: {pane:?}");
+                        }
+                    } else {
+                        log::warn!("Agent requested unknown visualization type: {viz_type}");
+                    }
+                }
+                AgentCommand::SetAbsoluteTimeRange { start, end } => {
+                    // Set the custom time range
+                    self.time_range_toolbar.set_custom_range(start, end);
+                    // Refresh all panes to use the new time range
+                    self.refresh_all_panes();
+                    log::info!("Agent set absolute time range: {start} to {end}");
+                    success = true;
+                }
+                AgentCommand::RefreshPane { pane } => {
+                    if let Some(ref pane_name) = pane {
+                        // Refresh a specific pane
+                        if let Some(tile_id) = self.find_pane_by_name(pane_name) {
+                            if let Some(egui_tiles::Tile::Pane(component)) =
+                                self.viewport_tree.tiles.get_mut(tile_id)
+                            {
+                                if let Some(query_pane) =
+                                    component.as_any_mut().downcast_mut::<QueryPane>()
+                                {
+                                    query_pane.mark_needs_refresh();
+                                    log::info!("Agent refreshed pane: {pane_name}");
+                                    success = true;
+                                }
+                            }
+                        } else {
+                            log::warn!("Agent could not find pane to refresh: {pane_name}");
+                        }
+                    } else {
+                        // Refresh all panes
+                        self.refresh_all_panes();
+                        log::info!("Agent refreshed all panes");
+                        success = true;
+                    }
+                }
+                AgentCommand::ClosePane { pane } => {
+                    if let Some(tile_id) = self.resolve_pane_target(&pane) {
+                        self.close_tile(tile_id);
+                        log::info!("Agent closed pane: {pane}");
+                        success = true;
+                    } else {
+                        log::warn!("Agent could not find pane to close: {pane}");
+                    }
+                }
+                AgentCommand::CreateSection { name, collapsed } => {
+                    // Create a new section config
+                    use crate::workspace::config::SectionConfig;
+                    use crate::workspace::input::SectionState;
+
+                    let section_config = SectionConfig::new(&name);
+                    let section_state = SectionState::new(collapsed.unwrap_or(false));
+
+                    self.section_configs.push(section_config);
+                    self.section_states.push(section_state);
+
+                    log::info!(
+                        "Agent created section: {} (collapsed: {})",
+                        name,
+                        collapsed.unwrap_or(false)
+                    );
+                    success = true;
+                }
+                AgentCommand::CreateFloatingPane {
+                    query,
+                    title,
+                    position,
+                } => {
+                    // Create a QueryPane and add it as a floating pane
+                    let query_number = self.next_query_number;
+                    self.next_query_number += 1;
+
+                    let name = title.as_deref().unwrap_or(&query);
+                    let pane: Box<dyn Component> = if self.query_executor.is_connected() {
+                        Box::new(QueryPane::with_query_named(&query, name, query_number))
+                    } else {
+                        Box::new(QueryPane::with_demo_query_named(&query, name, query_number))
+                    };
+
+                    // Calculate position - use provided position or stack offset
+                    let offset = (self.floating_panes.count() as f32) * 30.0;
+                    let pos = if let Some([x, y]) = position {
+                        egui::pos2(x, y)
+                    } else {
+                        egui::pos2(100.0 + offset, 100.0 + offset)
+                    };
+
+                    self.floating_panes.add_pane(pane, pos);
+                    log::info!(
+                        "Agent created floating pane: {}",
+                        title.as_deref().unwrap_or(&query)
+                    );
+                    success = true;
+                }
+                AgentCommand::MaximizePane { pane } => {
+                    if let Some(tile_id) = self.resolve_pane_target(&pane) {
+                        // Verify it's a pane (not a container)
+                        if matches!(
+                            self.viewport_tree.tiles.get(tile_id),
+                            Some(egui_tiles::Tile::Pane(_))
+                        ) {
+                            self.fullscreen_tile = Some(tile_id);
+                            log::info!("Agent maximized pane: {pane}");
+                            success = true;
+                        }
+                    } else {
+                        log::warn!("Agent could not find pane to maximize: {pane}");
+                    }
+                }
+                AgentCommand::RenamePane { pane, new_name } => {
+                    if let Some(tile_id) = self.resolve_pane_target(&pane) {
+                        if let Some(egui_tiles::Tile::Pane(component)) =
+                            self.viewport_tree.tiles.get_mut(tile_id)
+                        {
+                            if let Some(query_pane) =
+                                component.as_any_mut().downcast_mut::<QueryPane>()
+                            {
+                                query_pane.set_name(&new_name);
+                                log::info!("Agent renamed pane '{pane}' to '{new_name}'");
+                                success = true;
+                            }
+                        }
+                    } else {
+                        log::warn!("Agent could not find pane to rename: {pane}");
+                    }
+                }
+                AgentCommand::DuplicatePane { pane, new_name } => {
+                    // Find the source pane and get its query
+                    let source_query = if let Some(tile_id) = self.resolve_pane_target(&pane) {
+                        if let Some(egui_tiles::Tile::Pane(component)) =
+                            self.viewport_tree.tiles.get(tile_id)
+                        {
+                            component
+                                .as_any()
+                                .downcast_ref::<QueryPane>()
+                                .map(|qp| (qp.query().to_string(), qp.name().to_string()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some((query, original_name)) = source_query {
+                        // Create a duplicate pane
+                        let query_number = self.next_query_number;
+                        self.next_query_number += 1;
+
+                        let default_name = format!("{original_name} (copy)");
+                        let name = new_name.as_deref().unwrap_or(&default_name);
+                        let new_pane: Box<dyn Component> = if self.query_executor.is_connected() {
+                            Box::new(QueryPane::with_query_named(&query, name, query_number))
+                        } else {
+                            Box::new(QueryPane::with_demo_query_named(&query, name, query_number))
+                        };
+
+                        let tile_id = self.viewport_tree.tiles.insert_pane(new_pane);
+                        if self.add_tile_to_viewport(tile_id) {
+                            self.show_landing = false;
+                            log::info!("Agent duplicated pane '{pane}' as '{name}'");
+                            success = true;
+                        }
+                    } else {
+                        log::warn!("Agent could not find pane to duplicate: {pane}");
+                    }
+                }
+                AgentCommand::FocusPane { pane } => {
+                    if let Some(tile_id) = self.find_pane_by_name(&pane) {
+                        self.behavior.set_focused_tile(Some(tile_id));
+                        self.activate_tile(tile_id);
+                        log::info!("Agent focused pane: {pane}");
+                        success = true;
+                    } else {
+                        log::warn!("Agent could not find pane to focus: {pane}");
+                    }
+                }
+                AgentCommand::ToggleZenMode => {
+                    self.zen_mode = !self.zen_mode;
+                    log::info!("Agent toggled zen mode: {}", self.zen_mode);
+                    success = true;
+                }
+                AgentCommand::ExitFullscreen => {
+                    if self.fullscreen_tile.is_some() {
+                        self.fullscreen_tile = None;
+                        log::info!("Agent exited fullscreen mode");
+                        success = true;
+                    }
+                }
             }
+
+            // Create activity item for this command
+            activities.push(ActivityItem {
+                activity_type: ActivityType::EditorAction {
+                    description,
+                    success,
+                },
+                in_progress: false,
+            });
         }
 
         // Request repaint to ensure query execution runs on next frame
-        if executed_any {
+        if !activities.is_empty() {
             ctx.request_repaint();
         }
 
-        executed_any
+        activities
     }
 
     /// Poll all agent panes for pending commands and execute them.
@@ -452,6 +741,82 @@ impl Workspace {
             "7d" | "7day" | "7 days" | "1 week" | "1w" => Some(TimeRangePreset::Last7Days),
             _ => None,
         }
+    }
+
+    /// Parse a visualization type string into the enum.
+    fn parse_visualization_type(
+        viz_type: &str,
+    ) -> Option<crate::components::pane::visualization::VisualizationType> {
+        use crate::components::pane::visualization::VisualizationType;
+        match viz_type.to_lowercase().replace(['-', '_'], "").as_str() {
+            "timeseries" | "line" | "chart" => Some(VisualizationType::TimeSeries),
+            "stat" | "bignumber" | "single" => Some(VisualizationType::Stat),
+            "gauge" | "dial" | "meter" => Some(VisualizationType::Gauge),
+            "barchart" | "bar" | "bars" | "horizontal" => Some(VisualizationType::BarChart),
+            "sparkline" | "spark" | "mini" => Some(VisualizationType::Sparkline),
+            "heatmap" | "heat" | "matrix" => Some(VisualizationType::Heatmap),
+            _ => None,
+        }
+    }
+
+    /// Resolve a pane target string to a TileId.
+    ///
+    /// Handles "focused" keyword or looks up by name.
+    fn resolve_pane_target(&self, pane: &str) -> Option<TileId> {
+        if pane.to_lowercase() == "focused" {
+            self.behavior.focused_tile()
+        } else {
+            self.find_pane_by_name(pane)
+        }
+    }
+
+    /// Find a pane by its name/title.
+    ///
+    /// Matching priority:
+    /// 1. Exact match on label or pane name (case-insensitive)
+    /// 2. Substring match (name contains search term or vice versa)
+    fn find_pane_by_name(&self, name: &str) -> Option<TileId> {
+        let name_lower = name.to_lowercase();
+        let mut substring_match: Option<TileId> = None;
+
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                // Check the label
+                let label = component.label().text().to_lowercase();
+
+                // Exact match - return immediately
+                if label == name_lower {
+                    return Some(tile_id);
+                }
+
+                // For QueryPane, also check the name
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    let pane_name = query_pane.name().to_lowercase();
+
+                    // Exact match on pane name - return immediately
+                    if pane_name == name_lower {
+                        return Some(tile_id);
+                    }
+
+                    // Substring match - save for fallback (prefer first match)
+                    if substring_match.is_none()
+                        && (pane_name.contains(&name_lower) || name_lower.contains(&pane_name))
+                    {
+                        substring_match = Some(tile_id);
+                    }
+                }
+
+                // Substring match on label - save for fallback
+                if substring_match.is_none()
+                    && (label.contains(&name_lower) || name_lower.contains(&label))
+                {
+                    substring_match = Some(tile_id);
+                }
+            }
+        }
+
+        // Return substring match if no exact match found
+        substring_match
     }
 
     /// Add a tile to the viewport, handling different container types

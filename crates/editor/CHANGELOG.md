@@ -6,6 +6,39 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **ENYA.md project context**: AI agents now automatically load project-specific context from `ENYA.md` or `.enya/context.md` in the repository root:
+  - Custom instructions, conventions, and context are injected into every agent prompt
+  - Supports documenting metric naming conventions, important SLOs, common queries, and team workflows
+  - Search order: `ENYA.md` in repo root, then `.enya/context.md` as fallback
+
+- **Streaming action indicators**: Agent commands now show visual feedback during execution:
+  - Each command displays as an activity item (e.g., "Creating section 'Infrastructure'")
+  - Success/failure indicated with checkmark or error icons
+  - Activities appear in both the agent input bar and full agent panel
+  - Provides real-time visibility into what the agent is doing
+
+- **New AI agent commands** for incident investigation workflows:
+  - `add_logs_pane`: Create a logs pane with optional LogQL query and Loki backend support
+  - `add_tracing_pane`: Create a tracing pane with optional trace ID to pre-load
+  - `add_terminal_pane`: Create a terminal pane for running shell commands (native only)
+  - `set_visualization`: Change pane visualization type (time_series, stat, gauge, bar_chart, sparkline, heatmap)
+  - `set_absolute_time_range`: Set specific time range with Unix timestamps for incident investigation
+  - `refresh_pane`: Refresh specific or all panes to reload data
+  - `close_pane`: Close a pane by name or the focused pane
+  - `create_section`: Create Grafana-style collapsible sections for organizing panes
+  - `create_floating_pane`: Create floating panes for investigation workflows
+  - `maximize_pane`: Maximize a pane to fullscreen
+  - `rename_pane`: Rename a pane dynamically
+  - `duplicate_pane`: Clone a pane with same query for comparison workflows
+  - `focus_pane`: Programmatically focus a specific pane
+  - `toggle_zen_mode`: Toggle minimal UI mode
+  - `exit_fullscreen`: Exit maximized/fullscreen mode
+
+### Changed
+
+- **Improved pane name matching**: Agent commands now prefer exact matches when finding panes by name, falling back to substring matches. This prevents ambiguous matches (e.g., "CPU" matching both "CPU" and "CPU Usage")
+- **Refactored pane resolution**: Extracted common `resolve_pane_target()` helper for consistent "focused" keyword handling across all pane-targeting commands
+
 - **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
   - **Data comparison**: `/diff staging prod SELECT * FROM users LIMIT 10` - compare query results in one command
   - **Plan comparison**: `/diff analyze staging prod SELECT * FROM users` - compare EXPLAIN ANALYZE plans

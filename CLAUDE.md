@@ -31,6 +31,18 @@ When making changes to the `enya-editor` crate, **update the changelog** at `cra
 - **Fixed** - Bug fixes
 - **Removed** - Removed features
 
+## Enya Commands Documentation
+
+When adding, modifying, or removing **Enya commands** (the `enya-command` blocks that AI agents can execute), **always update the command documentation** at `crates/ai/COMMANDS.md`. This includes:
+
+- Adding new commands to the `AgentCommand` enum in `agent_context.rs`
+- Changing command parameters or behavior
+- Updating command preferences or usage guidelines
+
+The documentation should stay in sync with:
+- `crates/editor/src/components/overlay/agent_context.rs` - Command definitions and parser
+- `crates/editor/src/workspace/mod.rs` - Command execution handlers
+
 ## WASM Compatibility
 
 The editor and client crates must compile for WASM (`wasm32-unknown-unknown`). When working with time:

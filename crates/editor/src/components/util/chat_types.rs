@@ -30,6 +30,13 @@ pub enum ActivityType {
         /// Brief summary of the tool action
         summary: String,
     },
+    /// Agent is executing an editor action/command
+    EditorAction {
+        /// Description of the action (e.g., "Creating section 'Infrastructure'")
+        description: String,
+        /// Whether the action succeeded
+        success: bool,
+    },
     /// An error occurred
     Error(String),
     /// Final text response (summary for activity log)
