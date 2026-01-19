@@ -1,63 +1,31 @@
 //! SQL pane module for REPL-style SQL query execution.
 //!
 //! This module provides a SQL interface for connecting to Flight SQL servers
-//! and executing queries. On WASM, it shows a "Native App Required" message.
+//! and executing queries. When the `sql` feature is disabled or on WASM,
+//! it shows a "SQL Feature Not Available" message.
 //!
 //! # Module Structure
 //!
-//! - [`command`] - SQL pane commands (triggered with `/`)
-//! - [`connections`] - Connection management types
-//! - [`suggestions`] - Autocomplete suggestion types
-//! - [`types`] - Core types (modes, overlays, query cells)
-//! - [`highlighting`] - SQL syntax highlighting
-//! - [`plan_view`] - Query plan visualization (native-only)
+//! - [`native`] - Full implementation (native + sql feature only)
+//!   - [`command`](native::command) - SQL pane commands (triggered with `/`)
+//!   - [`connections`](native::connections) - Connection management types
+//!   - [`suggestions`](native::suggestions) - Autocomplete suggestion types
+//!   - [`types`](native::types) - Core types (modes, overlays, query cells)
+//!   - Query plan visualization
+//! - [`highlighting`] - SQL syntax highlighting (always available)
+//! - [`stub`] - Stub implementation (WASM or sql feature disabled)
 
-// Syntax highlighting (shared between native and WASM)
+// Syntax highlighting (shared between all builds)
 pub mod highlighting;
 
-// Native-only modules (depend on enya_datafusion)
-#[cfg(not(target_arch = "wasm32"))]
-pub mod command;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod connections;
-#[cfg(not(target_arch = "wasm32"))]
-mod diff;
-#[cfg(not(target_arch = "wasm32"))]
-mod diff_rendering;
-#[cfg(not(target_arch = "wasm32"))]
-mod plan_parsing;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod suggestions;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod types;
+// Native SQL implementation - requires non-WASM + sql feature
+#[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
+mod native;
+#[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
+pub use native::*;
 
-// Re-export commonly used types (native-only)
-#[cfg(not(target_arch = "wasm32"))]
-pub use command::SqlCommand;
-#[cfg(not(target_arch = "wasm32"))]
-pub use connections::{
-    ConnectionAction, ConnectionId, ConnectionSnapshot, ConnectionTreeState, SavedConnection,
-    TreeSelection,
-};
-#[cfg(not(target_arch = "wasm32"))]
-pub use suggestions::{Suggestion, SuggestionIcon, SuggestionState};
-#[cfg(not(target_arch = "wasm32"))]
-pub use types::{ResultOverlay, SqlMode, SqlPaneAction};
-
-// Query plan visualization (native-only)
-#[cfg(not(target_arch = "wasm32"))]
-mod plan_view;
-#[cfg(not(target_arch = "wasm32"))]
-pub use plan_view::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, StatsView};
-
-// Native implementation
-#[cfg(not(target_arch = "wasm32"))]
-mod pane;
-#[cfg(not(target_arch = "wasm32"))]
-pub use pane::SqlPane;
-
-// WASM stub
-#[cfg(target_arch = "wasm32")]
+// Stub for WASM or when sql feature is disabled
+#[cfg(any(target_arch = "wasm32", not(feature = "sql")))]
 mod stub;
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", not(feature = "sql")))]
 pub use stub::{SqlPane, SqlPaneAction};

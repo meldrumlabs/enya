@@ -90,8 +90,8 @@ pub enum CommandResult {
     None,
 }
 
-/// Built-in commands
-const COMMANDS: &[PaletteCommand] = &[
+/// Built-in commands (always available)
+const BASE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         name: "style",
         aliases: &["st", "theme", "t"],
@@ -165,22 +165,10 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "terminal",
-        aliases: &["term"],
-        description: "Open a terminal pane",
-        kind: CommandKind::NoArgs,
-    },
-    PaletteCommand {
         name: "trace",
         aliases: &["tr", "tracing"],
         description: "Open a tracing pane (optionally with trace ID)",
         kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
-        name: "sql",
-        aliases: &["datafusion"],
-        description: "Open a SQL pane (DataFusion)",
-        kind: CommandKind::NoArgs,
     },
     PaletteCommand {
         name: "logs",
@@ -207,6 +195,38 @@ const COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::NoArgs,
     },
 ];
+
+/// Terminal command (requires terminal feature on native)
+#[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
+const TERMINAL_COMMAND: PaletteCommand = PaletteCommand {
+    name: "terminal",
+    aliases: &["term"],
+    description: "Open a terminal pane",
+    kind: CommandKind::NoArgs,
+};
+
+/// SQL command (requires sql feature on native)
+#[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
+const SQL_COMMAND: PaletteCommand = PaletteCommand {
+    name: "sql",
+    aliases: &["datafusion"],
+    description: "Open a SQL pane (DataFusion)",
+    kind: CommandKind::NoArgs,
+};
+
+/// Returns all available commands based on enabled features.
+fn available_commands() -> Vec<&'static PaletteCommand> {
+    #[allow(unused_mut)] // mut needed when terminal or sql features enabled
+    let mut commands: Vec<&'static PaletteCommand> = BASE_COMMANDS.iter().collect();
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
+    commands.push(&TERMINAL_COMMAND);
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
+    commands.push(&SQL_COMMAND);
+
+    commands
+}
 
 /// A match result for command completion
 #[derive(Debug, Clone)]
@@ -311,9 +331,11 @@ impl CommandPalette {
         // Extract the command part (before any space/arguments)
         let cmd_part = self.input.split_whitespace().next().unwrap_or("");
 
+        let commands = available_commands();
+
         if cmd_part.is_empty() {
             // Show all commands sorted alphabetically
-            for cmd in COMMANDS {
+            for cmd in &commands {
                 self.suggestions.push(CommandMatch {
                     command: cmd,
                     score: 0,
@@ -335,7 +357,7 @@ impl CommandPalette {
             let mut buf = Vec::new();
 
             // Fuzzy match commands
-            for cmd in COMMANDS {
+            for cmd in &commands {
                 // Check main name
                 indices.clear();
                 let haystack = Utf32Str::new(cmd.name, &mut buf);
@@ -385,7 +407,8 @@ impl CommandPalette {
         let args: Vec<&str> = parts.collect();
 
         // Find matching command
-        let command = COMMANDS
+        let commands = available_commands();
+        let command = commands
             .iter()
             .find(|c| c.name == cmd_name || c.aliases.contains(&cmd_name));
 

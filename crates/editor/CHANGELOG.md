@@ -6,6 +6,26 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Keyboard navigation test infrastructure**: Comprehensive testing for vim-style keyboard navigation:
+  - Extended `LeaderKeyState` tests: timeout edge cases, boundary behavior, multiple key independence
+  - Extended `VisualMultiState` with `selected_tiles()` and `validate_selections()` methods and tests
+  - New `keyboard_logic.rs` module with pure decision logic testable without egui::Context
+  - Tests for all leader key sequences: Space+*, t* (time ranges), g* (go-to), a* (agent operators)
+  - Tests for Ctrl+W and Ctrl+W t window management sequences
+  - Tests for modal blocking logic (11 overlay types)
+  - `KeyboardDecision` enum representing all keyboard-triggered actions
+  - `KeyboardContext` struct for minimal state needed for keyboard decisions
+  - Enabled `egui_kittest` 0.33.3 for UI testing with snapshot support
+  - New `tests/ui_integration.rs` with egui_kittest harness tests for WhichKey overlay
+
+- **TESTING.md documentation**: Comprehensive testing guide covering:
+  - Quick start commands for running tests
+  - Three-layer test architecture (unit tests, integration tests, WASM checks)
+  - Detailed egui_kittest tutorial with examples
+  - Snapshot testing setup and usage
+  - Guidelines for writing new keyboard shortcut tests
+  - Troubleshooting common issues (zig toolchain, ghostty build)
+
 - **ENYA.md project context**: AI agents now automatically load project-specific context from `ENYA.md` or `.enya/context.md` in the repository root:
   - Custom instructions, conventions, and context are injected into every agent prompt
   - Supports documenting metric naming conventions, important SLOs, common queries, and team workflows
@@ -38,6 +58,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Improved pane name matching**: Agent commands now prefer exact matches when finding panes by name, falling back to substring matches. This prevents ambiguous matches (e.g., "CPU" matching both "CPU" and "CPU Usage")
 - **Refactored pane resolution**: Extracted common `resolve_pane_target()` helper for consistent "focused" keyword handling across all pane-targeting commands
+- **Terminal feature is now optional**: The `terminal` feature (which includes the embedded terminal emulator) is enabled by default but can be disabled with `--no-default-features --features all-languages`. This allows building and testing without the zig toolchain required by ghostty
+- **Upgraded egui ecosystem**: Updated egui, eframe, and egui_extras from 0.33.2 to 0.33.3 for bug fixes and improved compatibility
 
 - **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
   - **Data comparison**: `/diff staging prod SELECT * FROM users LIMIT 10` - compare query results in one command

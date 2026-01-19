@@ -70,9 +70,11 @@ enya-ai = { workspace = true }
 # Full-text search index for codebase (metrics, alerts, commits)
 enya-search = { workspace = true }
 # Terminal emulator for running shell commands (kubectl, k9s, etc.)
-egui_ghostty = { workspace = true }
+# Optional: requires zig toolchain to build. Enable with "terminal" feature.
+egui_ghostty = { workspace = true, optional = true }
 # DataFusion SQL engine for local file queries
-enya-datafusion = { workspace = true }
+# Optional: pulls in 500+ dependencies. Enable with "sql" feature.
+enya-datafusion = { workspace = true, optional = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -117,12 +119,17 @@ chrono = { workspace = true }
 criterion = { workspace = true }
 insta = { version = "1.43", features = ["toml"] }
 tempfile = "3"
-# NOTE: egui_kittest 0.33.3 has a compatibility bug with egui 0.33.2 (accesskit_update field mismatch)
-# Re-enable when egui 0.33.4 or later is released with the fix
-# egui_kittest = { version = "0.33.3", features = ["snapshot"] }
+# UI testing framework for egui - enables snapshot testing and automation
+egui_kittest = { version = "0.33.3", features = ["snapshot", "wgpu"] }
 
 [features]
-default = ["all-languages"]
+# No default features - all are opt-in. For full functionality:
+# cargo build -p enya-editor --features all-languages,terminal,sql
+default = []
+# Enable SQL pane support with DataFusion query engine (~500 dependencies).
+sql = ["dep:enya-datafusion"]
+# Enable terminal pane support (requires zig toolchain for ghostty).
+terminal = ["dep:egui_ghostty"]
 # Enable syntax highlighting for Go, Python, and JavaScript/TypeScript.
 # Rust highlighting is always available on native builds.
 all-languages = [

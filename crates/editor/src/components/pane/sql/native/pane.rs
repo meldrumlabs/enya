@@ -30,6 +30,7 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
+use super::super::highlighting::highlight_sql;
 use super::command::SqlCommand;
 use super::connections::{
     ConnectionAction, ConnectionId, ConnectionTreeState, SavedConnection, SqlBackend,
@@ -40,7 +41,6 @@ use super::diff_rendering::{
     render_data_diff_content, render_plan_diff_content, render_profile_diff_content,
     render_schema_diff_content,
 };
-use super::highlighting::highlight_sql;
 use super::plan_parsing::{
     create_demo_plan, create_diff_demo, create_profile_diff_demo, create_schema_diff_demo,
     parse_plan_text,

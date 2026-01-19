@@ -53,6 +53,14 @@ use tiles::TreeBehavior;
 // Keyboard input handling
 mod keyboard;
 
+// Pure keyboard decision logic (testable without egui::Context)
+mod keyboard_logic;
+pub use keyboard_logic::{
+    KeyboardContext, KeyboardDecision, check_navigation_blocked, determine_agent_operator_action,
+    determine_ctrl_w_action, determine_ctrl_w_t_action, determine_goto_action,
+    determine_space_action, determine_time_range_action,
+};
+
 // Overlay management (diagnostics, etc.)
 mod overlays;
 

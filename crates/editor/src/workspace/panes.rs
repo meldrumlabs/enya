@@ -90,7 +90,8 @@ impl Workspace {
     /// Add a terminal pane to the viewport.
     ///
     /// Creates a new terminal pane backed by ghostty-vt for running shell commands.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Requires the "terminal" feature to be enabled.
+    #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
     pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
         use crate::components::TerminalPane;
         use crate::ui::theme::AppTheme;
@@ -115,6 +116,13 @@ impl Workspace {
                 None
             }
         }
+    }
+
+    /// Add a terminal pane (stub - terminal feature not enabled).
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "terminal")))]
+    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+        log::warn!("Terminal panes require the 'terminal' feature (needs zig toolchain)");
+        None
     }
 
     /// Add a terminal pane (WASM stub - terminals not supported in browser).
@@ -153,7 +161,8 @@ impl Workspace {
     /// Add a SQL pane to the viewport.
     ///
     /// Creates a new SQL pane for running DataFusion queries on local files.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Requires the `sql` feature to be enabled.
+    #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
     pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
@@ -173,8 +182,8 @@ impl Workspace {
         }
     }
 
-    /// Add a SQL pane (WASM version shows "Native App Required" message).
-    #[cfg(target_arch = "wasm32")]
+    /// Add a SQL pane (stub version for WASM or when sql feature is disabled).
+    #[cfg(any(target_arch = "wasm32", not(feature = "sql")))]
     pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
@@ -186,7 +195,7 @@ impl Workspace {
         if self.add_tile_to_viewport(pane_tile) {
             self.behavior.set_focused_tile(Some(pane_tile));
             self.show_landing = false;
-            log::info!("Added SQL pane stub (WASM)");
+            log::info!("Added SQL pane stub (sql feature disabled)");
             Some(pane_tile)
         } else {
             None
@@ -197,7 +206,7 @@ impl Workspace {
     ///
     /// Call this when modals open/close to prevent terminals from capturing
     /// keyboard input meant for overlays like the style picker.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
     pub(super) fn set_terminal_keyboard_enabled(&mut self, enabled: bool) {
         use crate::components::TerminalPane;
 
@@ -208,6 +217,12 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    /// Enable or disable keyboard input for terminal panes (no-op without terminal feature).
+    #[cfg(all(not(target_arch = "wasm32"), not(feature = "terminal")))]
+    pub(super) fn set_terminal_keyboard_enabled(&mut self, _enabled: bool) {
+        // No-op: terminal feature not enabled
     }
 
     /// Add a logs pane to the viewport with the demo backend.
