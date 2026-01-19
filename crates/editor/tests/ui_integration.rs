@@ -399,7 +399,8 @@ mod leader_key_tests {
     /// Test that the timeout constant is reasonable
     #[test]
     fn test_timeout_value() {
-        // 500ms is the expected timeout
+        // Integration tests see the production value (500ms)
+        // Unit tests in input.rs use a faster 100ms timeout for speed
         assert_eq!(LEADER_KEY_TIMEOUT_MS, 500);
     }
 }
@@ -931,12 +932,18 @@ mod diagnostics_tests {
     #[test]
     fn test_diagnostics_filter_cycle() {
         assert_eq!(DiagnosticsFilter::All.cycle(), DiagnosticsFilter::Errors);
-        assert_eq!(DiagnosticsFilter::Errors.cycle(), DiagnosticsFilter::Warnings);
+        assert_eq!(
+            DiagnosticsFilter::Errors.cycle(),
+            DiagnosticsFilter::Warnings
+        );
         assert_eq!(
             DiagnosticsFilter::Warnings.cycle(),
             DiagnosticsFilter::ErrorsAndWarnings
         );
-        assert_eq!(DiagnosticsFilter::ErrorsAndWarnings.cycle(), DiagnosticsFilter::All);
+        assert_eq!(
+            DiagnosticsFilter::ErrorsAndWarnings.cycle(),
+            DiagnosticsFilter::All
+        );
     }
 
     /// Test DiagnosticsFilter labels
@@ -945,7 +952,10 @@ mod diagnostics_tests {
         assert_eq!(DiagnosticsFilter::All.label(), "All");
         assert_eq!(DiagnosticsFilter::Errors.label(), "Errors");
         assert_eq!(DiagnosticsFilter::Warnings.label(), "Warnings");
-        assert_eq!(DiagnosticsFilter::ErrorsAndWarnings.label(), "Errors & Warnings");
+        assert_eq!(
+            DiagnosticsFilter::ErrorsAndWarnings.label(),
+            "Errors & Warnings"
+        );
     }
 
     // ==================== Diagnostic Builder Tests ====================

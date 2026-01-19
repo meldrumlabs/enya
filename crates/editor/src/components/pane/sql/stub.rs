@@ -1,7 +1,8 @@
-//! WASM stub for SQL pane - shows "Native App Required" message.
+//! Stub for SQL pane - shows a message when SQL support is unavailable.
 //!
-//! SQL panes require Flight SQL connectivity which is only available
-//! in the native desktop app.
+//! This stub is used when:
+//! - Running in WASM (browsers don't support Flight SQL)
+//! - The `sql` feature is disabled (to reduce dependencies)
 
 use egui::RichText;
 
@@ -15,10 +16,10 @@ pub enum SqlPaneAction {
     None,
 }
 
-/// SQL pane stub for WASM builds.
+/// SQL pane stub for builds without SQL support.
 ///
-/// Shows a "Native App Required" message since Flight SQL
-/// connectivity is not available in browsers.
+/// Shows a message explaining that SQL support requires the native app
+/// with the `sql` feature enabled.
 pub struct SqlPane {
     id: usize,
     theme: AppTheme,
@@ -78,7 +79,7 @@ impl Component for SqlPane {
 
             // Title
             ui.label(
-                RichText::new("Native App Required")
+                RichText::new("SQL Feature Not Available")
                     .color(text_primary)
                     .size(18.0)
                     .strong(),
@@ -89,7 +90,7 @@ impl Component for SqlPane {
             // Description
             ui.label(
                 RichText::new(
-                    "SQL panes with Flight SQL connectivity\nare only available in the native desktop app.",
+                    "SQL panes require the native desktop app\nbuilt with the 'sql' feature enabled.",
                 )
                 .color(text_secondary)
                 .size(13.0),

@@ -9,8 +9,14 @@ use egui_tiles::TileId;
 
 use crate::util::Instant;
 
-/// Default timeout for leader key sequences (500ms).
+/// Default timeout for leader key sequences.
+/// Production: 500ms for comfortable typing.
+/// Tests: 100ms for faster test execution.
+#[cfg(not(test))]
 pub const LEADER_KEY_TIMEOUT_MS: u128 = 500;
+
+#[cfg(test)]
+pub const LEADER_KEY_TIMEOUT_MS: u128 = 100;
 
 /// Direction for vim-style navigation between panes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -589,7 +595,8 @@ mod tests {
 
     #[test]
     fn test_leader_key_timeout_constant() {
-        assert_eq!(LEADER_KEY_TIMEOUT_MS, 500);
+        // Test mode uses 100ms for faster tests
+        assert_eq!(LEADER_KEY_TIMEOUT_MS, 100);
     }
 
     // ==================== VisualMultiState Tests ====================
@@ -1119,6 +1126,7 @@ mod tests {
 
     // ==================== Leader Key Timeout Tests ====================
     // Note: These tests use real time delays and only run on native (not WASM)
+    // Test timeout is 100ms (production is 500ms) for faster test execution
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
@@ -1127,8 +1135,8 @@ mod tests {
         state.press_space();
         assert!(state.is_space_active());
 
-        // Wait for timeout to expire (500ms + buffer)
-        std::thread::sleep(std::time::Duration::from_millis(550));
+        // Wait for timeout to expire (100ms + buffer)
+        std::thread::sleep(std::time::Duration::from_millis(110));
 
         // Should now be inactive
         assert!(!state.is_space_active());
@@ -1141,7 +1149,7 @@ mod tests {
         state.press_space();
 
         // Wait less than timeout
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        std::thread::sleep(std::time::Duration::from_millis(40));
 
         // Should still be active
         assert!(state.is_space_active());
@@ -1153,14 +1161,14 @@ mod tests {
         let mut state = LeaderKeyState::new();
         state.press_space();
 
-        // Wait almost exactly 500ms (with small buffer for test execution)
-        std::thread::sleep(std::time::Duration::from_millis(480));
+        // Wait almost exactly 100ms (with small buffer for test execution)
+        std::thread::sleep(std::time::Duration::from_millis(95));
 
-        // Should still be active (just under 500ms)
+        // Should still be active (just under 100ms)
         assert!(state.is_space_active());
 
         // Wait a bit more to cross the boundary
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(10));
 
         // Should now be inactive
         assert!(!state.is_space_active());
@@ -1173,14 +1181,14 @@ mod tests {
         state.press_space();
 
         // Wait part of timeout
-        std::thread::sleep(std::time::Duration::from_millis(400));
+        std::thread::sleep(std::time::Duration::from_millis(80));
         assert!(state.is_space_active());
 
         // Press again to reset
         state.press_space();
 
-        // Wait another 400ms (would have expired if not reset)
-        std::thread::sleep(std::time::Duration::from_millis(400));
+        // Wait another 80ms (would have expired if not reset)
+        std::thread::sleep(std::time::Duration::from_millis(80));
 
         // Should still be active (reset the timer)
         assert!(state.is_space_active());
@@ -1193,16 +1201,16 @@ mod tests {
 
         // Press space first
         state.press_space();
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        std::thread::sleep(std::time::Duration::from_millis(60));
 
         // Press 't' later
         state.press_t();
 
-        // Wait 250ms more - space should timeout (550ms total), t should not (250ms)
-        std::thread::sleep(std::time::Duration::from_millis(250));
+        // Wait 50ms more - space should timeout (110ms total), t should not (50ms)
+        std::thread::sleep(std::time::Duration::from_millis(50));
 
-        assert!(!state.is_space_active()); // Expired (550ms)
-        assert!(state.is_t_active()); // Still active (250ms)
+        assert!(!state.is_space_active()); // Expired (110ms)
+        assert!(state.is_t_active()); // Still active (50ms)
     }
 
     // ==================== VisualMultiState Extended Tests ====================

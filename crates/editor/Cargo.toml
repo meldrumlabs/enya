@@ -73,7 +73,8 @@ enya-search = { workspace = true }
 # Optional: requires zig toolchain to build. Enable with "terminal" feature.
 egui_ghostty = { workspace = true, optional = true }
 # DataFusion SQL engine for local file queries
-enya-datafusion = { workspace = true }
+# Optional: pulls in 500+ dependencies. Enable with "sql" feature.
+enya-datafusion = { workspace = true, optional = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -122,9 +123,12 @@ tempfile = "3"
 egui_kittest = { version = "0.33.3", features = ["snapshot", "wgpu"] }
 
 [features]
-default = ["all-languages", "terminal"]
+# No default features - all are opt-in. For full functionality:
+# cargo build -p enya-editor --features all-languages,terminal,sql
+default = []
+# Enable SQL pane support with DataFusion query engine (~500 dependencies).
+sql = ["dep:enya-datafusion"]
 # Enable terminal pane support (requires zig toolchain for ghostty).
-# Disable this feature to build/test without zig: cargo build --no-default-features --features all-languages
 terminal = ["dep:egui_ghostty"]
 # Enable syntax highlighting for Go, Python, and JavaScript/TypeScript.
 # Rust highlighting is always available on native builds.

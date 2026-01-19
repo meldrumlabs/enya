@@ -237,6 +237,7 @@ pub fn determine_ctrl_w_t_action(key: egui::Key) -> Option<KeyboardDecision> {
 ///
 /// This function encapsulates the modal blocking logic, making it testable.
 /// Returns (is_blocked, reason) for debugging and testing.
+#[allow(clippy::too_many_arguments)]
 pub fn check_navigation_blocked(
     workspace_finder_open: bool,
     unified_finder_open: bool,
@@ -319,41 +320,52 @@ mod tests {
 
     #[test]
     fn test_navigation_blocked_by_visual_multi() {
-        let mut ctx = KeyboardContext::default();
-        ctx.visual_multi_active = true;
+        let ctx = KeyboardContext {
+            visual_multi_active: true,
+            ..Default::default()
+        };
         assert!(ctx.is_navigation_blocked());
     }
 
     #[test]
     fn test_navigation_blocked_by_panel_focus() {
-        let mut ctx = KeyboardContext::default();
-
-        ctx.channels_panel_focused = true;
+        let ctx = KeyboardContext {
+            channels_panel_focused: true,
+            ..Default::default()
+        };
         assert!(ctx.is_navigation_blocked());
 
-        ctx.channels_panel_focused = false;
-        ctx.agent_panel_focused = true;
+        let ctx = KeyboardContext {
+            agent_panel_focused: true,
+            ..Default::default()
+        };
         assert!(ctx.is_navigation_blocked());
     }
 
     #[test]
     fn test_navigation_blocked_by_insert_mode() {
-        let mut ctx = KeyboardContext::default();
-        ctx.any_buffer_in_insert_mode = true;
+        let ctx = KeyboardContext {
+            any_buffer_in_insert_mode: true,
+            ..Default::default()
+        };
         assert!(ctx.is_navigation_blocked());
     }
 
     #[test]
     fn test_navigation_blocked_by_agent_mode() {
-        let mut ctx = KeyboardContext::default();
-        ctx.agent_mode_active = true;
+        let ctx = KeyboardContext {
+            agent_mode_active: true,
+            ..Default::default()
+        };
         assert!(ctx.is_navigation_blocked());
     }
 
     #[test]
     fn test_navigation_blocked_by_egui_focus() {
-        let mut ctx = KeyboardContext::default();
-        ctx.egui_has_focus = true;
+        let ctx = KeyboardContext {
+            egui_has_focus: true,
+            ..Default::default()
+        };
         assert!(ctx.is_navigation_blocked());
     }
 

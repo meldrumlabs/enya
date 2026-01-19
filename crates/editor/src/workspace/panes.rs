@@ -161,7 +161,8 @@ impl Workspace {
     /// Add a SQL pane to the viewport.
     ///
     /// Creates a new SQL pane for running DataFusion queries on local files.
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Requires the `sql` feature to be enabled.
+    #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
     pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
@@ -181,8 +182,8 @@ impl Workspace {
         }
     }
 
-    /// Add a SQL pane (WASM version shows "Native App Required" message).
-    #[cfg(target_arch = "wasm32")]
+    /// Add a SQL pane (stub version for WASM or when sql feature is disabled).
+    #[cfg(any(target_arch = "wasm32", not(feature = "sql")))]
     pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
@@ -194,7 +195,7 @@ impl Workspace {
         if self.add_tile_to_viewport(pane_tile) {
             self.behavior.set_focused_tile(Some(pane_tile));
             self.show_landing = false;
-            log::info!("Added SQL pane stub (WASM)");
+            log::info!("Added SQL pane stub (sql feature disabled)");
             Some(pane_tile)
         } else {
             None
