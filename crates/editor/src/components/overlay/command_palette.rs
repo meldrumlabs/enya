@@ -10,6 +10,7 @@ use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::{ScrollShadowConfig, ScrollState, render_scroll_shadows};
 
 /// A command that can be executed from the command palette
 #[derive(Debug, Clone)]
@@ -546,7 +547,6 @@ impl CommandPalette {
         let mut result = CommandResult::None;
         let mut should_close = false;
 
-        // Handle keyboard input
         let (navigate_up, navigate_down, confirm, escape, tab) = ctx.input(|i| {
             (
                 i.key_pressed(Key::ArrowUp) || (i.key_pressed(Key::K) && i.modifiers.ctrl),
@@ -679,8 +679,8 @@ impl CommandPalette {
                         ui.add_space(4.0);
                     }
 
-                    // Suggestions
-                    egui::ScrollArea::vertical()
+                    // Suggestions with scroll shadows
+                    let scroll_output = egui::ScrollArea::vertical()
                         .max_height(300.0)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
@@ -701,6 +701,22 @@ impl CommandPalette {
                                 }
                             }
                         });
+
+                    // Render scroll shadows
+                    let scroll_state = ScrollState::from_scroll_output(
+                        scroll_output.content_size,
+                        scroll_output.inner_rect,
+                        scroll_output.state.offset,
+                    );
+                    let shadow_config = ScrollShadowConfig::default()
+                        .with_color(self.theme.bg_elevated())
+                        .with_opacity(0.6);
+                    render_scroll_shadows(
+                        ui,
+                        scroll_output.inner_rect,
+                        scroll_state,
+                        shadow_config,
+                    );
 
                     ui.add_space(4.0);
 

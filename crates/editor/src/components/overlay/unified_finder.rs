@@ -34,6 +34,7 @@ use nucleo_matcher::{
 };
 
 use crate::components::util::finder_utils::{FinderColors, FinderKeyboardInput, OverlayStyle};
+use crate::components::util::{ScrollShadowConfig, ScrollState, render_scroll_shadows};
 use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::theme::AppTheme;
@@ -996,7 +997,7 @@ impl UnifiedFinder {
         // Get the clip rect for the list area to prevent text overflow
         let list_clip_rect = ui.available_rect_before_wrap();
 
-        egui::ScrollArea::vertical()
+        let scroll_output = egui::ScrollArea::vertical()
             .max_height(max_height)
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -1179,6 +1180,17 @@ impl UnifiedFinder {
                     }
                 }
             });
+
+        // Render scroll shadows for the results list
+        let scroll_state = ScrollState::from_scroll_output(
+            scroll_output.content_size,
+            scroll_output.inner_rect,
+            scroll_output.state.offset,
+        );
+        let shadow_config = ScrollShadowConfig::default()
+            .with_color(self.theme.bg_elevated())
+            .with_opacity(0.5);
+        render_scroll_shadows(ui, scroll_output.inner_rect, scroll_state, shadow_config);
 
         clicked_index
     }

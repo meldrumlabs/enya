@@ -15,7 +15,7 @@ use crate::components::pane::time_series_chart::TimeSeriesChart;
 use crate::components::pane::{InlineChart, InlineContent, InlineSearchResults, InlineSource};
 use crate::components::util::{
     ActivityItem, ActivityType, AiModel, AiProvider, ConversationHandoff, MessageRole,
-    ResponseStatus, normalize_unicode,
+    ResponseStatus, ScrollShadowConfig, ScrollState, normalize_unicode, render_scroll_shadows,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::{truncate_first_line, truncate_path_suffix};
@@ -698,9 +698,9 @@ impl AgentPanel {
         // Premium divider
         self.render_divider(ui);
 
-        // Chat area (scrollable)
+        // Chat area (scrollable) with scroll shadows
         let available_height = ui.available_height() - 90.0; // Reserve space for input
-        ScrollArea::vertical()
+        let scroll_output = ScrollArea::vertical()
             .id_salt("agent_chat_scroll")
             .max_height(available_height)
             .auto_shrink([false; 2])
@@ -787,6 +787,17 @@ impl AgentPanel {
                     self.scroll_to_bottom = false;
                 }
             });
+
+        // Render scroll shadows for the chat area
+        let scroll_state = ScrollState::from_scroll_output(
+            scroll_output.content_size,
+            scroll_output.inner_rect,
+            scroll_output.state.offset,
+        );
+        let shadow_config = ScrollShadowConfig::default()
+            .with_color(self.theme.bg_surface())
+            .with_opacity(0.6);
+        render_scroll_shadows(ui, scroll_output.inner_rect, scroll_state, shadow_config);
 
         // Premium input divider
         self.render_divider(ui);
