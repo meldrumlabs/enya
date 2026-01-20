@@ -424,6 +424,17 @@ Exits fullscreen/maximized mode. Returns to normal multi-pane view.
 
 ---
 
+### `sync`
+
+Syncs the repository by fetching latest git commits and re-indexing the codebase (including Tantivy full-text search). Use this when the repository has been updated externally.
+
+**Example:**
+```json
+{"action": "sync"}
+```
+
+---
+
 ## Command Preferences
 
 When responding to users:

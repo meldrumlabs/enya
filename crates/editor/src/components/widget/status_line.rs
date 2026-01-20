@@ -232,6 +232,8 @@ pub struct CodebaseStatusInfo {
     pub metrics_count: Option<usize>,
     /// Language being used for scanning
     pub language: Option<String>,
+    /// HEAD commit message (subject line) when ready
+    pub commit_msg: Option<String>,
     /// Whether an operation is in progress
     pub is_loading: bool,
     /// Whether there's an error
@@ -914,10 +916,26 @@ impl StatusLine {
                         self.render_separator_rtl(ui, height);
                     }
 
-                    // Render repo name with language icon
-                    self.render_segment_rtl(
+                    // Render repo name with language icon and optional commit message
+                    let (display_name, is_truncated) = if let Some(ref msg) = status.commit_msg {
+                        // Truncate commit message if too long (keep under ~25 chars)
+                        // Use char_indices to find a safe truncation boundary (Unicode-safe)
+                        let (truncated_msg, truncated) = if msg.chars().count() > 25 {
+                            let boundary = msg
+                                .char_indices()
+                                .nth(24)
+                                .map_or(msg.len(), |(i, _)| i);
+                            (format!("{}…", &msg[..boundary]), true)
+                        } else {
+                            (msg.clone(), false)
+                        };
+                        (format!("{repo_name} · {truncated_msg}"), truncated)
+                    } else {
+                        (repo_name.clone(), false)
+                    };
+                    let response = self.render_segment_rtl_with_response(
                         ui,
-                        repo_name,
+                        &display_name,
                         Some(icon),
                         Color32::TRANSPARENT,
                         palette::text::SECONDARY,
@@ -925,6 +943,12 @@ impl StatusLine {
                         padding,
                         false,
                     );
+                    // Show full commit message tooltip when truncated and hovered
+                    if is_truncated && response.hovered() {
+                        if let Some(ref msg) = status.commit_msg {
+                            response.show_tooltip_text(msg);
+                        }
+                    }
                     self.render_separator_rtl(ui, height);
                 } else {
                     // Fallback - just show message

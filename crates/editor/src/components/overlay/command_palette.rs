@@ -87,6 +87,8 @@ pub enum CommandResult {
     DockAllPanes,
     /// Auto-arrange all floating panes in a grid
     ArrangeFloatingPanes,
+    /// Sync git repository and re-index codebase (native only)
+    SyncCodebase,
     /// No-op (command not recognized or cancelled)
     None,
 }
@@ -215,6 +217,15 @@ const SQL_COMMAND: PaletteCommand = PaletteCommand {
     kind: CommandKind::NoArgs,
 };
 
+/// Sync command (native only - git operations require filesystem)
+#[cfg(not(target_arch = "wasm32"))]
+const SYNC_COMMAND: PaletteCommand = PaletteCommand {
+    name: "sync",
+    aliases: &[],
+    description: "Sync operations (:sync git)",
+    kind: CommandKind::SingleArg,
+};
+
 /// Returns all available commands based on enabled features.
 fn available_commands() -> Vec<&'static PaletteCommand> {
     #[allow(unused_mut)] // mut needed when terminal or sql features enabled
@@ -225,6 +236,9 @@ fn available_commands() -> Vec<&'static PaletteCommand> {
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
     commands.push(&SQL_COMMAND);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    commands.push(&SYNC_COMMAND);
 
     commands
 }
@@ -533,6 +547,19 @@ impl CommandPalette {
                 }
             }
             "dock" | "dk" => CommandResult::DockAllPanes,
+            "sync" => {
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :sync git".to_string())
+                } else {
+                    match args[0].to_lowercase().as_str() {
+                        "git" => CommandResult::SyncCodebase,
+                        _ => CommandResult::Error(format!(
+                            "Unknown sync command: {}. Use 'git'",
+                            args[0]
+                        )),
+                    }
+                }
+            }
             _ => CommandResult::None,
         }
     }

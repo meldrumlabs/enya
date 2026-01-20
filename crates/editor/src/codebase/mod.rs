@@ -11,7 +11,7 @@ use rustc_hash::FxHashMap;
 pub use enya_analyzer::{
     AlertRule, CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind,
     Scanner, ScannerRegistry, build_index_with_progress, fetch_commit_history,
-    fetch_recent_commits,
+    fetch_recent_commits, get_head_commit, get_head_commit_message,
 };
 
 // Full-text search module (native only)
@@ -54,6 +54,8 @@ pub enum CodebaseStatus {
         metrics_count: usize,
         /// Language that was scanned
         language: Option<String>,
+        /// HEAD commit message (subject line)
+        head_commit_msg: Option<String>,
     },
     /// An error occurred.
     Error { url: String, message: String },
@@ -117,6 +119,16 @@ impl CodebaseStatus {
     pub fn metrics_count(&self) -> Option<usize> {
         match self {
             Self::Ready { metrics_count, .. } => Some(*metrics_count),
+            _ => None,
+        }
+    }
+
+    /// Returns the HEAD commit message if ready.
+    pub fn head_commit_msg(&self) -> Option<&str> {
+        match self {
+            Self::Ready {
+                head_commit_msg, ..
+            } => head_commit_msg.as_deref(),
             _ => None,
         }
     }
@@ -357,6 +369,11 @@ impl CodebaseManager {
         // Reset per-frame flags
         self.commits_updated = false;
 
+        // Request continuous repaints during fetching (so UI stays responsive)
+        if matches!(self.status, CodebaseStatus::Fetching { .. }) {
+            ctx.request_repaint();
+        }
+
         // Update indexing progress from the shared atomics
         if let Some(ref progress) = self.indexing_progress {
             let (current, total) = progress.get();
@@ -374,6 +391,12 @@ impl CodebaseManager {
                     ctx.request_repaint();
                 }
             }
+        }
+
+        // Request continuous repaints during Tantivy indexing
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.tantivy_progress.is_some() {
+            ctx.request_repaint();
         }
 
         // Check for completed Tantivy index build (native only)
@@ -433,6 +456,7 @@ impl CodebaseManager {
                         repo_name,
                         metrics_count,
                         language,
+                        head_commit_msg,
                         ..
                     } = &self.status
                     {
@@ -441,6 +465,7 @@ impl CodebaseManager {
                             repo_name: repo_name.clone(),
                             metrics_count: *metrics_count,
                             language: language.clone(),
+                            head_commit_msg: head_commit_msg.clone(),
                         };
                     } else {
                         // Fallback if we somehow weren't ready before
@@ -449,11 +474,17 @@ impl CodebaseManager {
                         } else {
                             Some(self.language.clone())
                         };
+                        // Get the head commit message
+                        let head_commit_msg = self
+                            .index
+                            .as_ref()
+                            .and_then(|idx| get_head_commit_message(&idx.repo_path).ok());
                         self.status = CodebaseStatus::Ready {
                             repo_name: extract_repo_name(&url),
                             metrics_count: self.index.as_ref().map_or(0, |i| i.metrics.len()),
                             language,
                             url,
+                            head_commit_msg,
                         };
                     }
                 }
@@ -579,12 +610,16 @@ impl CodebaseManager {
                     });
                 }
 
+                // Get the head commit message
+                let head_commit_msg = get_head_commit_message(&index.repo_path).ok();
+
                 self.index = Some(index);
                 self.status = CodebaseStatus::Ready {
                     url,
                     repo_name,
                     metrics_count,
                     language,
+                    head_commit_msg,
                 };
                 self.indexing_progress = None; // Clear progress tracker
             }

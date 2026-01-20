@@ -6,6 +6,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Status line commit message display**: Show the current HEAD commit message in the status line next to the repository name (e.g., "my-repo · Fix auth bug"), truncated to 25 chars if too long, providing quick visibility into what was last committed in the indexed codebase.
+
+- **Sync command**: New `:sync git` command in the command palette and `sync` agent command to fetch latest git commits and re-index the codebase (including Tantivy full-text search). Useful when the repository has been updated externally.
+
 - **Keyboard navigation test infrastructure**: Comprehensive testing for vim-style keyboard navigation:
   - Extended `LeaderKeyState` tests: timeout edge cases, boundary behavior, multiple key independence
   - Extended `VisualMultiState` with `selected_tiles()` and `validate_selections()` methods and tests

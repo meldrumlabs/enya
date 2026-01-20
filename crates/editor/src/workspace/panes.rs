@@ -707,6 +707,18 @@ impl Workspace {
                         success = true;
                     }
                 }
+                AgentCommand::Sync => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.codebase_manager.fetch_updates(ctx);
+                        log::info!("Agent triggered repository sync and re-indexing");
+                        success = true;
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("Sync command not supported in WASM");
+                    }
+                }
             }
 
             // Create activity item for this command

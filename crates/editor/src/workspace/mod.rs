@@ -1836,6 +1836,14 @@ impl Workspace {
                 self.floating_panes.arrange_panes(viewport);
                 WorkspaceAction::None
             }
+            CommandResult::SyncCodebase => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.codebase_manager.fetch_updates(ctx);
+                    log::info!("Triggered repository sync and re-indexing via :sync command");
+                }
+                WorkspaceAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
             }
@@ -3102,6 +3110,7 @@ impl Workspace {
                 repo_name,
                 metrics_count,
                 language,
+                head_commit_msg,
                 ..
             } => {
                 let is_tantivy_indexing = self.codebase_manager.is_tantivy_indexing();
@@ -3130,6 +3139,7 @@ impl Workspace {
                     repo_name: Some(repo_name.clone()),
                     metrics_count: Some(*metrics_count),
                     language: language.clone(),
+                    commit_msg: head_commit_msg.clone(),
                     is_loading: false,
                     is_error: false,
                     is_tantivy_indexing,
