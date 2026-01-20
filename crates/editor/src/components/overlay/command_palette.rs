@@ -10,6 +10,7 @@ use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::{ScrollShadowConfig, ScrollState, render_scroll_shadows};
 
 /// A command that can be executed from the command palette
 #[derive(Debug, Clone)]
@@ -86,6 +87,8 @@ pub enum CommandResult {
     DockAllPanes,
     /// Auto-arrange all floating panes in a grid
     ArrangeFloatingPanes,
+    /// Sync git repository and re-index codebase (native only)
+    SyncCodebase,
     /// No-op (command not recognized or cancelled)
     None,
 }
@@ -214,6 +217,15 @@ const SQL_COMMAND: PaletteCommand = PaletteCommand {
     kind: CommandKind::NoArgs,
 };
 
+/// Sync command (native only - git operations require filesystem)
+#[cfg(not(target_arch = "wasm32"))]
+const SYNC_COMMAND: PaletteCommand = PaletteCommand {
+    name: "sync",
+    aliases: &[],
+    description: "Sync operations (:sync git)",
+    kind: CommandKind::SingleArg,
+};
+
 /// Returns all available commands based on enabled features.
 fn available_commands() -> Vec<&'static PaletteCommand> {
     #[allow(unused_mut)] // mut needed when terminal or sql features enabled
@@ -224,6 +236,9 @@ fn available_commands() -> Vec<&'static PaletteCommand> {
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
     commands.push(&SQL_COMMAND);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    commands.push(&SYNC_COMMAND);
 
     commands
 }
@@ -532,6 +547,19 @@ impl CommandPalette {
                 }
             }
             "dock" | "dk" => CommandResult::DockAllPanes,
+            "sync" => {
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :sync git".to_string())
+                } else {
+                    match args[0].to_lowercase().as_str() {
+                        "git" => CommandResult::SyncCodebase,
+                        _ => CommandResult::Error(format!(
+                            "Unknown sync command: {}. Use 'git'",
+                            args[0]
+                        )),
+                    }
+                }
+            }
             _ => CommandResult::None,
         }
     }
@@ -546,7 +574,6 @@ impl CommandPalette {
         let mut result = CommandResult::None;
         let mut should_close = false;
 
-        // Handle keyboard input
         let (navigate_up, navigate_down, confirm, escape, tab) = ctx.input(|i| {
             (
                 i.key_pressed(Key::ArrowUp) || (i.key_pressed(Key::K) && i.modifiers.ctrl),
@@ -679,8 +706,8 @@ impl CommandPalette {
                         ui.add_space(4.0);
                     }
 
-                    // Suggestions
-                    egui::ScrollArea::vertical()
+                    // Suggestions with scroll shadows
+                    let scroll_output = egui::ScrollArea::vertical()
                         .max_height(300.0)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
@@ -701,6 +728,22 @@ impl CommandPalette {
                                 }
                             }
                         });
+
+                    // Render scroll shadows
+                    let scroll_state = ScrollState::from_scroll_output(
+                        scroll_output.content_size,
+                        scroll_output.inner_rect,
+                        scroll_output.state.offset,
+                    );
+                    let shadow_config = ScrollShadowConfig::default()
+                        .with_color(self.theme.bg_elevated())
+                        .with_opacity(0.6);
+                    render_scroll_shadows(
+                        ui,
+                        scroll_output.inner_rect,
+                        scroll_state,
+                        shadow_config,
+                    );
 
                     ui.add_space(4.0);
 

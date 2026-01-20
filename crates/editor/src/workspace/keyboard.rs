@@ -741,6 +741,8 @@ impl Workspace {
             if let Some(tile_id) = current_focus {
                 // Find the pane index for the focused tile
                 if let Some(pane_index) = self.get_pane_index(tile_id) {
+                    // Trigger yank flash visual effect
+                    self.behavior.trigger_yank_flash(tile_id);
                     ctx.request_repaint();
                     return Some(WorkspaceAction::SharePane(pane_index));
                 }

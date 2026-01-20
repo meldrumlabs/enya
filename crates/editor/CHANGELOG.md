@@ -4,6 +4,18 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Status line minimalist redesign**: Simplified the right section of the status line for a premium, cleaner look:
+  - Replaced tabs count, viewport info, last refresh time, and connection status with a single health indicator
+  - Health indicator shows green checkmark when all good, warning symbol for warnings, error symbol for errors or connection issues
+  - Hover tooltip provides details about the current status with keyboard shortcut hint (Space+d)
+  - Shows repo name with short commit hash (e.g., "my-repo · abc1234") instead of truncated commit message
+  - Git branch icon displayed next to repo name for semantic clarity
+  - Full commit message shown on hover
+  - Kept team collaboration status
+  - Mode badge on left remains unchanged
+
 ### Added
 
 - **Workspace undo system**: Vim-style `u` keybinding to undo workspace operations:
@@ -13,6 +25,8 @@ All notable changes to the Enya editor will be documented in this file.
   - Focus is restored if the pane was focused when the action occurred
   - Undo stack holds up to 50 actions
   - Uses command pattern with inverse operations for efficiency
+
+- **Sync command**: New `:sync git` command in the command palette and `sync` agent command to fetch latest git commits and re-index the codebase (including Tantivy full-text search). Useful when the repository has been updated externally.
 
 - **Keyboard navigation test infrastructure**: Comprehensive testing for vim-style keyboard navigation:
   - Extended `LeaderKeyState` tests: timeout edge cases, boundary behavior, multiple key independence
@@ -61,6 +75,22 @@ All notable changes to the Enya editor will be documented in this file.
   - `focus_pane`: Programmatically focus a specific pane
   - `toggle_zen_mode`: Toggle minimal UI mode
   - `exit_fullscreen`: Exit maximized/fullscreen mode
+
+- **Amp-style thinking indicator**: Premium visual feedback during AI requests:
+  - Animated pulsing dots with wave effect in both inline input bar (`aa`) and full agent panel (`Space+a`)
+  - Stage-based status messages (Connecting, Reading context, Thinking, Using tools, Generating)
+  - Elapsed time display for long-running requests
+  - Real-time activity updates showing current actions (e.g., "Creating section", "Fetching metrics")
+
+- **Neovim-inspired visual polish**:
+  - **Yank flash**: Brief highlight effect when sharing/yanking panes (triggered on `yy`)
+  - **Dim inactive panes**: Subtle overlay on unfocused panes for visual hierarchy
+  - **Focus pulse**: Glow effect when a pane receives focus, drawing attention to the active pane
+
+- **Layout transitions**: Smooth animated transitions when panes split:
+  - New panes smoothly grow from small to target size using ease-out-cubic easing
+  - Sibling panes animate their share changes during splits
+  - 150ms animation duration for fluid, responsive feel
 
 ### Changed
 
