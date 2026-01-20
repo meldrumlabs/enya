@@ -234,6 +234,8 @@ pub struct CodebaseStatusInfo {
     pub language: Option<String>,
     /// HEAD commit message (subject line) when ready
     pub commit_msg: Option<String>,
+    /// HEAD commit hash (short form, e.g., "abc1234") when ready
+    pub commit_hash: Option<String>,
     /// Whether an operation is in progress
     pub is_loading: bool,
     /// Whether there's an error
@@ -420,27 +422,9 @@ impl StatusLine {
     }
 
     /// Mark the last refresh time (call when data is updated)
+    #[allow(dead_code)]
     pub fn mark_refresh(&mut self) {
         self.last_refresh = Some(std::time::Instant::now());
-    }
-
-    /// Format the relative time since last refresh
-    fn format_relative_time(&self) -> Option<String> {
-        let elapsed = self.last_refresh?.elapsed();
-        let secs = elapsed.as_secs();
-
-        let result = if secs < 5 {
-            "just now".to_string()
-        } else if secs < 60 {
-            format!("{secs}s ago")
-        } else if secs < 3600 {
-            let mins = secs / 60;
-            format!("{mins}m ago")
-        } else {
-            let hours = secs / 3600;
-            format!("{hours}h ago")
-        };
-        Some(result)
     }
 
     /// Get the background color for segments based on theme
@@ -478,23 +462,27 @@ impl StatusLine {
         // Premium status line styling
         let status_bg = self.theme.bg_surface();
 
-        // Draw subtle top border for separation
-        let top_border_color = self.theme.border_subtle();
+        // Use clip_rect width to ensure we paint to the full visible window width
+        // available_rect might be constrained by parent layouts, but clip_rect is the drawable area
+        let clip_rect = ui.clip_rect();
+        let available_rect = ui.available_rect_before_wrap();
 
-        let full_rect = ui.available_rect_before_wrap();
-        let top_line_rect =
-            egui::Rect::from_min_size(full_rect.min, egui::vec2(full_rect.width(), 1.0));
-        ui.painter()
-            .rect_filled(top_line_rect, 0.0, top_border_color);
+        // Use available_rect for vertical position, but clip_rect width for full coverage
+        let full_width = clip_rect.width().max(available_rect.width());
+        let left_x = clip_rect.left().min(available_rect.left());
+
+        // Paint the full background BEFORE entering the horizontal layout
+        // This ensures the background spans the entire width regardless of content
+        let bar_rect = egui::Rect::from_min_size(
+            egui::pos2(left_x, available_rect.min.y),
+            egui::vec2(full_width, height),
+        );
+        ui.painter().rect_filled(bar_rect, 0.0, status_bg);
 
         // Use a horizontal layout that spans the full width
         ui.horizontal(|ui| {
             ui.set_height(height);
             ui.spacing_mut().item_spacing.x = 0.0;
-
-            // Fill background
-            let bar_rect = ui.available_rect_before_wrap();
-            ui.painter().rect_filled(bar_rect, 0.0, status_bg);
 
             // === LEFT SECTION (mode badge only when extra content provided) ===
             self.render_mode_badge(ui, height, padding);
@@ -505,11 +493,14 @@ impl StatusLine {
             // === REST OF LEFT SECTION ===
             self.render_left_section_after_mode(ui, height, padding);
 
-            // === CENTER SECTION (fills remaining space) ===
+            // === CENTER SECTION (extra status if any) ===
             self.render_center_section(ui, height, padding);
 
-            // === RIGHT SECTION ===
-            self.render_right_section(ui, height, padding);
+            // === RIGHT SECTION (fills remaining space, content aligned right) ===
+            let remaining_rect = ui.available_rect_before_wrap();
+            ui.scope_builder(egui::UiBuilder::new().max_rect(remaining_rect), |ui| {
+                self.render_right_section(ui, height, padding);
+            });
         });
 
         result
@@ -706,134 +697,87 @@ impl StatusLine {
         }
     }
 
-    /// Render the center section (expands to fill space)
+    /// Render the center section (shows extra status if available, doesn't consume all space)
     fn render_center_section(&self, ui: &mut Ui, _height: f32, _padding: f32) {
-        // Fill remaining horizontal space, showing extra status if available
-        ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
-            if let Some(ref extra) = self.extra_status {
-                ui.add_space(16.0);
-                ui.label(
-                    egui::RichText::new(extra)
-                        .color(self.segment_fg())
-                        .size(typography::MD)
-                        .family(egui::FontFamily::Monospace),
-                );
-            }
-
-            ui.add_space(ui.available_width());
-        });
+        // Show extra status if available, but don't consume all remaining space
+        if let Some(ref extra) = self.extra_status {
+            ui.add_space(16.0);
+            ui.label(
+                egui::RichText::new(extra)
+                    .color(self.segment_fg())
+                    .size(typography::MD)
+                    .family(egui::FontFamily::Monospace),
+            );
+        }
     }
 
-    /// Render the right section of the status line
+    /// Get the single health indicator for the minimalist status line
+    /// Returns (icon, color, tooltip_text)
+    fn get_health_indicator(&self) -> (&'static str, Color32, &'static str) {
+        let (errors, warnings, _) = self.diagnostics_count;
+
+        if errors > 0 {
+            (
+                semantic_icons::diagnostic::ERROR,
+                self.theme.semantic_error(),
+                "Errors detected (Space+d)",
+            )
+        } else if !self.is_connected {
+            (
+                semantic_icons::status::DISCONNECTED,
+                self.theme.semantic_error(),
+                "Connection lost (Space+d)",
+            )
+        } else if warnings > 0 {
+            (
+                semantic_icons::diagnostic::WARNING,
+                self.theme.semantic_warning(),
+                "Warnings present (Space+d)",
+            )
+        } else {
+            (
+                semantic_icons::status::SUCCESS,
+                self.theme.semantic_success(),
+                "All systems operational (Space+d)",
+            )
+        }
+    }
+
+    /// Render the right section of the status line (minimalist design)
     fn render_right_section(&self, ui: &mut Ui, height: f32, padding: f32) {
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            // Position info (like cursor position in vim)
-            let position_text = format!("{} tabs", self.open_tabs);
-            self.render_segment_rtl(
-                ui,
-                &position_text,
-                Some(semantic_icons::nav::TABS),
-                self.mode.color(self.theme),
-                self.mode.text_color(self.theme),
-                height,
-                padding,
-                true,
+            // Health indicator (far right) - simple colored icon with tooltip
+            let (icon, color, tooltip) = self.get_health_indicator();
+            ui.add_space(padding);
+            let response = ui.label(
+                egui::RichText::new(icon)
+                    .color(color)
+                    .size(typography::MD),
             );
+            if response.hovered() {
+                response.show_tooltip_text(tooltip);
+            }
 
-            // Separator
+            // Separator between health indicator and codebase status
             self.render_separator_rtl(ui, height);
 
-            // Viewport info (e.g., pane layout)
-            if let Some(ref viewport) = self.viewport_info {
-                self.render_segment_rtl(
-                    ui,
-                    viewport,
-                    Some(semantic_icons::nav::GRID),
-                    self.segment_bg(),
-                    self.segment_fg(),
-                    height,
-                    padding,
-                    false,
-                );
-
-                // Separator
-                self.render_separator_rtl(ui, height);
-            }
-
-            // Last refresh time
-            if let Some(ref relative_time) = self.format_relative_time() {
-                self.render_segment_rtl(
-                    ui,
-                    relative_time,
-                    Some(semantic_icons::statusline::CLOCK),
-                    self.segment_bg(),
-                    self.segment_fg(),
-                    height,
-                    padding,
-                    false,
-                );
-
-                // Separator
-                self.render_separator_rtl(ui, height);
-            }
-
-            // Diagnostics indicator (errors/warnings/infos)
-            let (errors, warnings, infos) = self.diagnostics_count;
-            if errors > 0 || warnings > 0 || infos > 0 {
-                // Build text with relevant counts
-                let mut parts = Vec::new();
-                if errors > 0 {
-                    parts.push(format!("{} {}", semantic_icons::diagnostic::ERROR, errors));
-                }
-                if warnings > 0 {
-                    parts.push(format!(
-                        "{} {}",
-                        semantic_icons::diagnostic::WARNING,
-                        warnings
-                    ));
-                }
-                if infos > 0 {
-                    parts.push(format!("{} {}", semantic_icons::diagnostic::INFO, infos));
-                }
-                let diag_text = parts.join(" ");
-
-                // Color based on severity (errors > warnings > infos)
-                let diag_color = if errors > 0 {
-                    palette::semantic::ERROR
-                } else if warnings > 0 {
-                    palette::semantic::WARNING
-                } else {
-                    palette::semantic::INFO
-                };
-
-                let response = self.render_segment_rtl_with_response(
-                    ui,
-                    &diag_text,
-                    None, // Icons are embedded in text
-                    self.segment_bg(),
-                    diag_color,
-                    height,
-                    padding,
-                    false,
-                );
-                if response.hovered() {
-                    response.show_tooltip_text("Diagnostics available (Space+d to open)");
-                }
-
-                // Separator
-                self.render_separator_rtl(ui, height);
-            }
-
-            // Codebase status (indexing spinner, repo name, metrics count, or error)
+            // Codebase status (repo name + commit message, or indexing state)
             if let Some(ref status) = self.codebase_status {
                 let is_indexing =
                     (status.is_loading || status.is_tantivy_indexing) && !status.is_error;
 
                 if status.is_error {
-                    // Error state
-                    self.render_segment_rtl(
+                    // Error state - truncate long error messages
+                    let (display_msg, is_truncated) = if status.message.chars().count() > 30 {
+                        let boundary =
+                            status.message.char_indices().nth(29).map_or(status.message.len(), |(i, _)| i);
+                        (format!("{}…", &status.message[..boundary]), true)
+                    } else {
+                        (status.message.clone(), false)
+                    };
+                    let response = self.render_segment_rtl_with_response(
                         ui,
-                        &status.message,
+                        &display_msg,
                         Some(semantic_icons::diagnostic::ERROR),
                         self.segment_bg(),
                         palette::semantic::ERROR,
@@ -841,7 +785,10 @@ impl StatusLine {
                         padding,
                         false,
                     );
-                    self.render_separator_rtl(ui, height);
+                    // Show full error message tooltip when truncated and hovered
+                    if is_truncated && response.hovered() {
+                        response.show_tooltip_text(&status.message);
+                    }
                 } else if is_indexing {
                     // Indexing state - show spinner + "Indexing" in accent color
                     let accent = self.theme.accent_primary();
@@ -885,54 +832,21 @@ impl StatusLine {
                             false,
                         );
                     }
-
-                    self.render_separator_rtl(ui, height);
                 } else if let Some(ref repo_name) = status.repo_name {
-                    // Ready state - show repo name and metrics count with language icon
-                    let metrics_text = status
-                        .metrics_count
-                        .map(|c| format!("{c} metrics"))
-                        .unwrap_or_default();
+                    // Ready state - show repo name with short commit hash
+                    // Use git branch icon since we're displaying repo/commit info
+                    let icon = semantic_icons::git::BRANCH;
 
-                    // Get language icon if available
-                    let icon = status
-                        .language
-                        .as_ref()
-                        .and_then(|lang| semantic_icons::language::from_name(lang))
-                        .unwrap_or(semantic_icons::file::CODE);
-
-                    // Render metrics count segment first (RTL order)
-                    if !metrics_text.is_empty() {
-                        self.render_segment_rtl(
-                            ui,
-                            &metrics_text,
-                            Some(semantic_icons::file::METRIC),
-                            Color32::TRANSPARENT,
-                            palette::text::SECONDARY,
-                            height,
-                            padding,
-                            false,
-                        );
-                        self.render_separator_rtl(ui, height);
-                    }
-
-                    // Render repo name with language icon and optional commit message
-                    let (display_name, is_truncated) = if let Some(ref msg) = status.commit_msg {
-                        // Truncate commit message if too long (keep under ~25 chars)
-                        // Use char_indices to find a safe truncation boundary (Unicode-safe)
-                        let (truncated_msg, truncated) = if msg.chars().count() > 25 {
-                            let boundary = msg
-                                .char_indices()
-                                .nth(24)
-                                .map_or(msg.len(), |(i, _)| i);
-                            (format!("{}…", &msg[..boundary]), true)
-                        } else {
-                            (msg.clone(), false)
-                        };
-                        (format!("{repo_name} · {truncated_msg}"), truncated)
+                    // Display: repo_name · abc1234 (short hash)
+                    // Hover: shows full commit message
+                    let display_name = if let Some(ref hash) = status.commit_hash {
+                        // Use short hash (first 7 chars)
+                        let short_hash = if hash.len() > 7 { &hash[..7] } else { hash };
+                        format!("{repo_name} · {short_hash}")
                     } else {
-                        (repo_name.clone(), false)
+                        repo_name.clone()
                     };
+
                     let response = self.render_segment_rtl_with_response(
                         ui,
                         &display_name,
@@ -943,13 +857,13 @@ impl StatusLine {
                         padding,
                         false,
                     );
-                    // Show full commit message tooltip when truncated and hovered
-                    if is_truncated && response.hovered() {
+
+                    // Show commit message on hover (if available)
+                    if response.hovered() {
                         if let Some(ref msg) = status.commit_msg {
                             response.show_tooltip_text(msg);
                         }
                     }
-                    self.render_separator_rtl(ui, height);
                 } else {
                     // Fallback - just show message
                     self.render_segment_rtl(
@@ -962,13 +876,15 @@ impl StatusLine {
                         padding,
                         false,
                     );
-                    self.render_separator_rtl(ui, height);
                 }
             }
 
             // Team collaboration status (only shown when connected to a team)
             if let Some(ref team_info) = self.team_status {
                 if team_info.should_show() {
+                    // Separator before team status
+                    self.render_separator_rtl(ui, height);
+
                     // Build team status text
                     let mut parts = Vec::new();
 
@@ -1018,36 +934,8 @@ impl StatusLine {
                     if response.hovered() {
                         response.show_tooltip_text("Team collaboration (Space+t)");
                     }
-
-                    // Separator
-                    self.render_separator_rtl(ui, height);
                 }
             }
-
-            // Connection status - refined text colors matching theme
-            let (conn_icon, conn_text, conn_color) = if self.is_connected {
-                (
-                    semantic_icons::status::CONNECTED,
-                    "ONLINE",
-                    palette::text::SECONDARY, // Muted - no need for bright color when connected
-                )
-            } else {
-                (
-                    semantic_icons::status::DISCONNECTED,
-                    "OFFLINE",
-                    palette::text::TERTIARY, // Muted gray - neutral, not alarming
-                )
-            };
-            self.render_segment_rtl(
-                ui,
-                conn_text,
-                Some(conn_icon),
-                Color32::TRANSPARENT,
-                conn_color,
-                height,
-                padding,
-                false,
-            );
         });
     }
 
@@ -1082,23 +970,32 @@ impl StatusLine {
         padding: f32,
         is_primary: bool,
     ) {
-        let content = if let Some(icon) = icon {
-            format!("{icon} {text}")
+        // Calculate width needed - measure icon and text separately for proper alignment
+        let icon_width = if let Some(icon) = icon {
+            let galley = ui.painter().layout_no_wrap(
+                icon.to_string(),
+                typography::proportional(typography::MD),
+                fg_color,
+            );
+            galley.size().x
         } else {
-            text.to_string()
+            0.0
         };
 
-        // Calculate width needed for the text
-        let galley = ui.painter().layout_no_wrap(
-            content.clone(),
+        let text_galley = ui.painter().layout_no_wrap(
+            text.to_string(),
             typography::proportional(typography::MD),
             fg_color,
         );
-        let text_width = galley.size().x + padding * 2.0;
+        let text_width = text_galley.size().x;
+
+        // Total width: padding + icon + spacing + text + padding
+        let icon_text_spacing = if icon.is_some() { 4.0 } else { 0.0 };
+        let total_width = padding + icon_width + icon_text_spacing + text_width + padding;
 
         // Draw the segment background and text
         let (rect, _response) =
-            ui.allocate_exact_size(egui::vec2(text_width, height), egui::Sense::hover());
+            ui.allocate_exact_size(egui::vec2(total_width, height), egui::Sense::hover());
 
         if ui.is_rect_visible(rect) {
             if is_primary {
@@ -1129,10 +1026,27 @@ impl StatusLine {
                 ui.painter().rect_filled(rect, 0.0, bg_color);
             }
 
+            // Render icon and text separately for proper vertical alignment
+            let center_y = rect.center().y;
+            let mut x = rect.left() + padding;
+
+            if let Some(icon) = icon {
+                // Render icon centered vertically
+                ui.painter().text(
+                    egui::pos2(x, center_y),
+                    egui::Align2::LEFT_CENTER,
+                    icon,
+                    typography::proportional(typography::MD),
+                    fg_color,
+                );
+                x += icon_width + icon_text_spacing;
+            }
+
+            // Render text centered vertically
             ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                &content,
+                egui::pos2(x, center_y),
+                egui::Align2::LEFT_CENTER,
+                text,
                 typography::proportional(typography::MD),
                 fg_color,
             );
@@ -1170,23 +1084,32 @@ impl StatusLine {
         padding: f32,
         is_primary: bool,
     ) -> egui::Response {
-        let content = if let Some(icon) = icon {
-            format!("{icon} {text}")
+        // Calculate width needed - measure icon and text separately for proper alignment
+        let icon_width = if let Some(icon) = icon {
+            let galley = ui.painter().layout_no_wrap(
+                icon.to_string(),
+                typography::proportional(typography::MD),
+                fg_color,
+            );
+            galley.size().x
         } else {
-            text.to_string()
+            0.0
         };
 
-        // Calculate width needed for the text
-        let galley = ui.painter().layout_no_wrap(
-            content.clone(),
+        let text_galley = ui.painter().layout_no_wrap(
+            text.to_string(),
             typography::proportional(typography::MD),
             fg_color,
         );
-        let text_width = galley.size().x + padding * 2.0;
+        let text_width = text_galley.size().x;
+
+        // Total width: padding + icon + spacing + text + padding
+        let icon_text_spacing = if icon.is_some() { 4.0 } else { 0.0 };
+        let total_width = padding + icon_width + icon_text_spacing + text_width + padding;
 
         // Draw the segment background and text
         let (rect, response) =
-            ui.allocate_exact_size(egui::vec2(text_width, height), egui::Sense::click());
+            ui.allocate_exact_size(egui::vec2(total_width, height), egui::Sense::click());
 
         if ui.is_rect_visible(rect) {
             if is_primary {
@@ -1217,10 +1140,27 @@ impl StatusLine {
                 ui.painter().rect_filled(rect, 0.0, bg_color);
             }
 
+            // Render icon and text separately for proper vertical alignment
+            let center_y = rect.center().y;
+            let mut x = rect.left() + padding;
+
+            if let Some(icon) = icon {
+                // Render icon centered vertically
+                ui.painter().text(
+                    egui::pos2(x, center_y),
+                    egui::Align2::LEFT_CENTER,
+                    icon,
+                    typography::proportional(typography::MD),
+                    fg_color,
+                );
+                x += icon_width + icon_text_spacing;
+            }
+
+            // Render text centered vertically
             ui.painter().text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                &content,
+                egui::pos2(x, center_y),
+                egui::Align2::LEFT_CENTER,
+                text,
                 typography::proportional(typography::MD),
                 fg_color,
             );

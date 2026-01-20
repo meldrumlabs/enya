@@ -3111,6 +3111,7 @@ impl Workspace {
                 metrics_count,
                 language,
                 head_commit_msg,
+                head_commit_hash,
                 ..
             } => {
                 let is_tantivy_indexing = self.codebase_manager.is_tantivy_indexing();
@@ -3140,6 +3141,7 @@ impl Workspace {
                     metrics_count: Some(*metrics_count),
                     language: language.clone(),
                     commit_msg: head_commit_msg.clone(),
+                    commit_hash: head_commit_hash.clone(),
                     is_loading: false,
                     is_error: false,
                     is_tantivy_indexing,

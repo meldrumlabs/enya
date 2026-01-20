@@ -56,6 +56,8 @@ pub enum CodebaseStatus {
         language: Option<String>,
         /// HEAD commit message (subject line)
         head_commit_msg: Option<String>,
+        /// HEAD commit hash (short form)
+        head_commit_hash: Option<String>,
     },
     /// An error occurred.
     Error { url: String, message: String },
@@ -129,6 +131,16 @@ impl CodebaseStatus {
             Self::Ready {
                 head_commit_msg, ..
             } => head_commit_msg.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Returns the HEAD commit hash if ready.
+    pub fn head_commit_hash(&self) -> Option<&str> {
+        match self {
+            Self::Ready {
+                head_commit_hash, ..
+            } => head_commit_hash.as_deref(),
             _ => None,
         }
     }
@@ -457,6 +469,7 @@ impl CodebaseManager {
                         metrics_count,
                         language,
                         head_commit_msg,
+                        head_commit_hash,
                         ..
                     } = &self.status
                     {
@@ -466,6 +479,7 @@ impl CodebaseManager {
                             metrics_count: *metrics_count,
                             language: language.clone(),
                             head_commit_msg: head_commit_msg.clone(),
+                            head_commit_hash: head_commit_hash.clone(),
                         };
                     } else {
                         // Fallback if we somehow weren't ready before
@@ -474,17 +488,22 @@ impl CodebaseManager {
                         } else {
                             Some(self.language.clone())
                         };
-                        // Get the head commit message
+                        // Get the head commit message and hash
                         let head_commit_msg = self
                             .index
                             .as_ref()
                             .and_then(|idx| get_head_commit_message(&idx.repo_path).ok());
+                        let head_commit_hash = self
+                            .index
+                            .as_ref()
+                            .and_then(|idx| get_head_commit(&idx.repo_path).ok());
                         self.status = CodebaseStatus::Ready {
                             repo_name: extract_repo_name(&url),
                             metrics_count: self.index.as_ref().map_or(0, |i| i.metrics.len()),
                             language,
                             url,
                             head_commit_msg,
+                            head_commit_hash,
                         };
                     }
                 }
@@ -610,8 +629,9 @@ impl CodebaseManager {
                     });
                 }
 
-                // Get the head commit message
+                // Get the head commit message and hash
                 let head_commit_msg = get_head_commit_message(&index.repo_path).ok();
+                let head_commit_hash = get_head_commit(&index.repo_path).ok();
 
                 self.index = Some(index);
                 self.status = CodebaseStatus::Ready {
@@ -620,6 +640,7 @@ impl CodebaseManager {
                     metrics_count,
                     language,
                     head_commit_msg,
+                    head_commit_hash,
                 };
                 self.indexing_progress = None; // Clear progress tracker
             }

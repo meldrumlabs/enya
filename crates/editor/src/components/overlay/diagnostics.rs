@@ -731,13 +731,21 @@ impl DiagnosticsPane {
                                                             // Message and details
                                                             ui.vertical(|ui| {
                                                                 ui.horizontal(|ui| {
-                                                                    ui.label(
-                                                                        RichText::new(
-                                                                            &diagnostic.message,
-                                                                        )
+                                                                    // Truncate long messages to prevent overlay expansion
+                                                                    let (display_msg, is_truncated) = if diagnostic.message.chars().count() > 60 {
+                                                                        let boundary = diagnostic.message.char_indices().nth(59).map_or(diagnostic.message.len(), |(i, _)| i);
+                                                                        (format!("{}…", &diagnostic.message[..boundary]), true)
+                                                                    } else {
+                                                                        (diagnostic.message.clone(), false)
+                                                                    };
+                                                                    let msg_response = ui.label(
+                                                                        RichText::new(&display_msg)
                                                                         .color(text_col)
                                                                         .size(12.0),
                                                                     );
+                                                                    if is_truncated && msg_response.hovered() {
+                                                                        msg_response.show_tooltip_text(&diagnostic.message);
+                                                                    }
 
                                                                     // Source badge
                                                                     ui.label(
@@ -1001,11 +1009,21 @@ impl DiagnosticsPane {
                                         // Message
                                         ui.vertical(|ui| {
                                             ui.horizontal(|ui| {
-                                                ui.label(
-                                                    RichText::new(&diagnostic.message)
+                                                // Truncate long messages to prevent layout expansion
+                                                let (display_msg, is_truncated) = if diagnostic.message.chars().count() > 60 {
+                                                    let boundary = diagnostic.message.char_indices().nth(59).map_or(diagnostic.message.len(), |(i, _)| i);
+                                                    (format!("{}…", &diagnostic.message[..boundary]), true)
+                                                } else {
+                                                    (diagnostic.message.clone(), false)
+                                                };
+                                                let msg_response = ui.label(
+                                                    RichText::new(&display_msg)
                                                         .color(text_col)
                                                         .size(12.0),
                                                 );
+                                                if is_truncated && msg_response.hovered() {
+                                                    msg_response.show_tooltip_text(&diagnostic.message);
+                                                }
 
                                                 // Source badge
                                                 ui.label(

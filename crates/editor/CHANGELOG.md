@@ -4,9 +4,19 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- **Status line commit message display**: Show the current HEAD commit message in the status line next to the repository name (e.g., "my-repo · Fix auth bug"), truncated to 25 chars if too long, providing quick visibility into what was last committed in the indexed codebase.
+- **Status line minimalist redesign**: Simplified the right section of the status line for a premium, cleaner look:
+  - Replaced tabs count, viewport info, last refresh time, and connection status with a single health indicator
+  - Health indicator shows green checkmark when all good, warning symbol for warnings, error symbol for errors or connection issues
+  - Hover tooltip provides details about the current status with keyboard shortcut hint (Space+d)
+  - Shows repo name with short commit hash (e.g., "my-repo · abc1234") instead of truncated commit message
+  - Git branch icon displayed next to repo name for semantic clarity
+  - Full commit message shown on hover
+  - Kept team collaboration status
+  - Mode badge on left remains unchanged
+
+### Added
 
 - **Sync command**: New `:sync git` command in the command palette and `sync` agent command to fetch latest git commits and re-index the codebase (including Tantivy full-text search). Useful when the repository has been updated externally.
 
