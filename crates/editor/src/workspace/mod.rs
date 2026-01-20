@@ -83,6 +83,10 @@ mod rendering;
 mod floating;
 pub use floating::{FloatingPaneAction, FloatingPaneId, FloatingPaneManager};
 
+// Layout animation (smooth transitions when splitting/closing panes)
+mod layout_animation;
+use layout_animation::LayoutAnimator;
+
 // Re-export config types for convenience
 pub use config::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
@@ -299,6 +303,10 @@ pub struct Workspace {
     // ==================== Floating Panes ====================
     /// Floating panes that hover above the tile layout
     floating_panes: FloatingPaneManager,
+
+    // ==================== Layout Animation ====================
+    /// Animator for smooth layout transitions
+    layout_animator: LayoutAnimator,
 }
 
 impl Workspace {
@@ -318,9 +326,12 @@ impl Workspace {
 
         let viewport_tree = egui_tiles::Tree::new("viewport_tree", root, tiles);
 
+        let mut behavior = TreeBehavior::default();
+        behavior.set_dim_inactive(true); // Enable dim inactive panes by default
+
         Self {
             viewport_tree,
-            behavior: TreeBehavior::default(),
+            behavior,
             open_charts: FxHashSet::default(),
             pending_chart: None,
             time_range_toolbar: TimeRangeToolbar::new(),
@@ -394,6 +405,8 @@ impl Workspace {
             section_renderer: SectionRenderer::default(),
             // Floating panes
             floating_panes: FloatingPaneManager::new(),
+            // Layout animation
+            layout_animator: LayoutAnimator::new(),
         }
     }
 
@@ -408,6 +421,28 @@ impl Workspace {
         self.behavior.set_theme(app_state.theme);
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
+
+        // Update visual effects (focus pulse detection, cleanup)
+        self.behavior.update_focus_effects();
+        self.behavior.cleanup_effects();
+        if self.behavior.has_active_effects() {
+            ctx.request_repaint();
+        }
+
+        // Update layout animations and apply shares to the tree
+        if self.layout_animator.has_active_animations() {
+            let share_updates = self.layout_animator.update();
+            for (container_id, shares) in share_updates {
+                if let Some(egui_tiles::Tile::Container(egui_tiles::Container::Linear(linear))) =
+                    self.viewport_tree.tiles.get_mut(container_id)
+                {
+                    for (tile_id, share) in shares {
+                        linear.shares.set_share(tile_id, share);
+                    }
+                }
+            }
+            ctx.request_repaint();
+        }
 
         // Disable terminal keyboard input when modals are open
         // This prevents terminal from capturing j/k/h/l keys meant for overlays
@@ -1801,6 +1836,14 @@ impl Workspace {
                 self.floating_panes.arrange_panes(viewport);
                 WorkspaceAction::None
             }
+            CommandResult::SyncCodebase => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.codebase_manager.fetch_updates(ctx);
+                    log::info!("Triggered repository sync and re-indexing via :sync command");
+                }
+                WorkspaceAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
             }
@@ -3067,6 +3110,8 @@ impl Workspace {
                 repo_name,
                 metrics_count,
                 language,
+                head_commit_msg,
+                head_commit_hash,
                 ..
             } => {
                 let is_tantivy_indexing = self.codebase_manager.is_tantivy_indexing();
@@ -3095,6 +3140,8 @@ impl Workspace {
                     repo_name: Some(repo_name.clone()),
                     metrics_count: Some(*metrics_count),
                     language: language.clone(),
+                    commit_msg: head_commit_msg.clone(),
+                    commit_hash: head_commit_hash.clone(),
                     is_loading: false,
                     is_error: false,
                     is_tantivy_indexing,

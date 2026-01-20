@@ -181,7 +181,11 @@ fn unshallow_if_needed(repo_path: &Path) -> Result<(), RepoError> {
 }
 
 /// Gets the current HEAD commit hash.
-fn get_head_commit(repo_path: &Path) -> Result<String, RepoError> {
+///
+/// # Errors
+///
+/// Returns an error if the git command fails or the repository is invalid.
+pub fn get_head_commit(repo_path: &Path) -> Result<String, RepoError> {
     let output = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(repo_path)
@@ -191,6 +195,26 @@ fn get_head_commit(repo_path: &Path) -> Result<String, RepoError> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(RepoError(format!("git rev-parse failed: {stderr}")));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Gets the current HEAD commit message (subject line only).
+///
+/// # Errors
+///
+/// Returns an error if the git command fails or the repository is invalid.
+pub fn get_head_commit_message(repo_path: &Path) -> Result<String, RepoError> {
+    let output = Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| RepoError(format!("Failed to run git log: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(RepoError(format!("git log failed: {stderr}")));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -545,8 +569,13 @@ pub fn fetch_all_commits_with_diffs_batch(
             if count % 50 == 0 || count == total {
                 let short_hash = &commit.hash[..7.min(commit.hash.len())];
                 let first_line = commit.message.lines().next().unwrap_or("");
-                let truncated = if first_line.len() > 35 {
-                    format!("{}...", &first_line[..32])
+                // Use char_indices to find a safe truncation boundary (Unicode-safe)
+                let truncated = if first_line.chars().count() > 35 {
+                    let boundary = first_line
+                        .char_indices()
+                        .nth(32)
+                        .map_or(first_line.len(), |(i, _)| i);
+                    format!("{}...", &first_line[..boundary])
                 } else {
                     first_line.to_string()
                 };
@@ -707,8 +736,13 @@ pub fn fetch_all_commits_with_diffs_parallel(
             if count % 50 == 0 || count == total {
                 let short_hash = &commit.hash[..7.min(commit.hash.len())];
                 let first_line = commit.message.lines().next().unwrap_or("");
-                let truncated = if first_line.len() > 35 {
-                    format!("{}...", &first_line[..32])
+                // Use char_indices to find a safe truncation boundary (Unicode-safe)
+                let truncated = if first_line.chars().count() > 35 {
+                    let boundary = first_line
+                        .char_indices()
+                        .nth(32)
+                        .map_or(first_line.len(), |(i, _)| i);
+                    format!("{}...", &first_line[..boundary])
                 } else {
                     first_line.to_string()
                 };

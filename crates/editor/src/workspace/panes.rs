@@ -707,6 +707,18 @@ impl Workspace {
                         success = true;
                     }
                 }
+                AgentCommand::Sync => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.codebase_manager.fetch_updates(ctx);
+                        log::info!("Agent triggered repository sync and re-indexing");
+                        success = true;
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("Sync command not supported in WASM");
+                    }
+                }
             }
 
             // Create activity item for this command
@@ -1147,6 +1159,10 @@ impl Workspace {
         };
 
         self.viewport_tree.root = Some(new_root);
+
+        // Start layout animation for smooth transition
+        self.layout_animator
+            .animate_split(new_root, new_pane_id, current_root, 1.0);
 
         // Maintain focus on the moved pane
         self.behavior.set_focused_tile(Some(new_pane_id));

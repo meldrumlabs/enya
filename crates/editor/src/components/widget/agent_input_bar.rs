@@ -940,8 +940,8 @@ impl AgentInputBar {
                     .map(|t| t.elapsed().as_secs())
                     .unwrap_or(0);
 
-                // Determine icon and status based on current activity
-                let (icon, status, detail) = if let Some(activity) = self.activities.last() {
+                // Determine status and detail based on current activity
+                let (status, detail) = if let Some(activity) = self.activities.last() {
                     match &activity.activity_type {
                         ActivityType::Thinking(text) => {
                             let preview = if text.len() > 40 {
@@ -949,18 +949,9 @@ impl AgentInputBar {
                             } else {
                                 text.clone()
                             };
-                            (semantic_icons::status::LOADING, "Thinking", Some(preview))
+                            ("Thinking", Some(preview))
                         }
                         ActivityType::ToolUse { tool, summary } => {
-                            let icon = match tool.as_str() {
-                                "Read" => semantic_icons::file::GENERIC,
-                                "Grep" | "Glob" => semantic_icons::action::SEARCH,
-                                "Bash" => semantic_icons::file::CODE,
-                                "Edit" | "Write" => semantic_icons::action::EDIT,
-                                "Task" => semantic_icons::action::ROBOT,
-                                "WebFetch" | "WebSearch" => semantic_icons::action::LINK,
-                                _ => semantic_icons::action::TOOL,
-                            };
                             let detail = if summary.is_empty() || summary == "{}" {
                                 None
                             } else {
@@ -971,7 +962,7 @@ impl AgentInputBar {
                                 };
                                 Some(truncated)
                             };
-                            (icon, tool.as_str(), detail)
+                            (tool.as_str(), detail)
                         }
                         ActivityType::Error(msg) => {
                             let preview = if msg.len() > 40 {
@@ -979,38 +970,31 @@ impl AgentInputBar {
                             } else {
                                 msg.clone()
                             };
-                            (semantic_icons::diagnostic::ERROR, "Error", Some(preview))
+                            ("Error", Some(preview))
                         }
-                        ActivityType::Response(_) => {
-                            (semantic_icons::status::LOADING, "Responding", None)
-                        }
+                        ActivityType::Response(_) => ("Responding", None),
                         ActivityType::EditorAction {
                             description,
-                            success,
+                            success: _,
                         } => {
-                            let icon = if *success {
-                                semantic_icons::status::SUCCESS
-                            } else {
-                                semantic_icons::diagnostic::ERROR
-                            };
                             let preview = if description.len() > 40 {
                                 format!("{}...", &description[..37])
                             } else {
                                 description.clone()
                             };
-                            (icon, "Action", Some(preview))
+                            ("Action", Some(preview))
                         }
                     }
                 } else if self.processing_status.contains("Sending") {
-                    (semantic_icons::nav::RIGHT, "Sending", None)
+                    ("Sending", None)
                 } else if self.processing_status.contains("Responding") {
-                    (semantic_icons::status::LOADING, "Responding", None)
+                    ("Responding", None)
                 } else {
-                    (semantic_icons::status::LOADING, "Thinking", None)
+                    ("Thinking", None)
                 };
 
-                // Icon
-                ui.label(RichText::new(icon).color(accent).size(typography::MD));
+                // Animated pulsing dots
+                self.render_pulsing_dots(ui, accent);
                 ui.add_space(6.0);
 
                 // Status label
@@ -1038,7 +1022,7 @@ impl AgentInputBar {
                         .size(typography::SM),
                 );
 
-                // Request repaint to update elapsed time
+                // Request repaint for animation and elapsed time
                 ui.ctx().request_repaint();
             }
             AgentInputState::Response => {
@@ -1615,12 +1599,8 @@ impl AgentInputBar {
         colors: &OverlayColors,
         accent: Color32,
     ) {
-        // Spinner
-        ui.label(
-            RichText::new(semantic_icons::status::LOADING)
-                .color(accent)
-                .size(typography::MD),
-        );
+        // Animated pulsing dots (Amp-style)
+        self.render_pulsing_dots(ui, accent);
 
         ui.add_space(8.0);
 
@@ -1642,8 +1622,25 @@ impl AgentInputBar {
                 .size(typography::MD),
         );
 
-        // Request repaint to update elapsed time
+        // Request repaint to update elapsed time and animation
         ui.ctx().request_repaint();
+    }
+
+    /// Render braille spinner for the processing state.
+    /// Uses the classic terminal spinner pattern: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
+    fn render_pulsing_dots(&self, ui: &mut egui::Ui, color: Color32) {
+        const BRAILLE_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+        let time = ui.ctx().input(|i| i.time);
+        // 10 frames per second for smooth but not too fast spinning
+        let frame_index = ((time * 10.0) as usize) % BRAILLE_FRAMES.len();
+        let spinner_char = BRAILLE_FRAMES[frame_index];
+
+        ui.label(
+            RichText::new(spinner_char.to_string())
+                .color(color)
+                .size(typography::MD),
+        );
     }
 
     fn show_response_state(

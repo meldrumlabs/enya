@@ -5,11 +5,18 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+/// Smooth easing function (ease-out cubic) for animations.
+fn ease_out_cubic(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::components::Component;
 use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
+use crate::util::Instant;
 
 /// Behavior implementation for the egui_tiles tree.
 ///
@@ -31,6 +38,16 @@ pub struct TreeBehavior {
     filtered_out_tiles: FxHashSet<TileId>,
     /// Whether viewport filter is active
     is_filter_active: bool,
+
+    // ==================== Visual Effects ====================
+    /// Active yank flash effects (tile_id -> start_time)
+    yank_flashes: FxHashMap<TileId, Instant>,
+    /// Active focus pulse effects (tile_id -> start_time)
+    focus_pulses: FxHashMap<TileId, Instant>,
+    /// Last focused tile for detecting focus changes
+    last_focused_tile: Option<TileId>,
+    /// Whether to dim inactive panes
+    dim_inactive_enabled: bool,
 }
 
 impl TreeBehavior {
@@ -74,6 +91,44 @@ impl TreeBehavior {
     /// Get the current API key
     pub fn api_key(&self) -> &str {
         &self.api_key
+    }
+
+    // ==================== Visual Effects ====================
+
+    /// Trigger a yank flash effect for a tile.
+    pub fn trigger_yank_flash(&mut self, tile_id: TileId) {
+        self.yank_flashes.insert(tile_id, Instant::now());
+    }
+
+    /// Update focus tracking and trigger pulse if focus changed.
+    pub fn update_focus_effects(&mut self) {
+        if self.focused_tile_id != self.last_focused_tile {
+            if let Some(tile_id) = self.focused_tile_id {
+                self.focus_pulses.insert(tile_id, Instant::now());
+            }
+            self.last_focused_tile = self.focused_tile_id;
+        }
+    }
+
+    /// Clean up completed visual effects.
+    pub fn cleanup_effects(&mut self) {
+        const YANK_FLASH_DURATION: f32 = 0.25;
+        const FOCUS_PULSE_DURATION: f32 = 0.2;
+
+        self.yank_flashes
+            .retain(|_, start| start.elapsed().as_secs_f32() < YANK_FLASH_DURATION);
+        self.focus_pulses
+            .retain(|_, start| start.elapsed().as_secs_f32() < FOCUS_PULSE_DURATION);
+    }
+
+    /// Check if any visual effects are active (needs repaint).
+    pub fn has_active_effects(&self) -> bool {
+        !self.yank_flashes.is_empty() || !self.focus_pulses.is_empty()
+    }
+
+    /// Enable or disable dim inactive panes effect.
+    pub fn set_dim_inactive(&mut self, enabled: bool) {
+        self.dim_inactive_enabled = enabled;
     }
 }
 
@@ -313,6 +368,77 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                     overlay_rect.center().y - galley.rect.height() / 2.0,
                 );
                 painter.galley(text_pos, galley, text_color);
+            }
+        }
+
+        // ==================== Visual Effects ====================
+
+        // Dim inactive panes (subtle overlay on unfocused panes)
+        if self.dim_inactive_enabled && !is_focused && !is_selected && !is_filtered_out {
+            // Use theme-aware dim color: black overlay for dark themes, white for light themes
+            let dim_color = if self.theme.is_dark() {
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 25)
+            } else {
+                // Lighter effect for light themes - use a subtle white overlay
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 40)
+            };
+            painter.rect_filled(rect, 4.0, dim_color);
+        }
+
+        // Yank flash effect (brief highlight when yanked)
+        if let Some(start_time) = self.yank_flashes.get(&tile_id) {
+            const YANK_FLASH_DURATION: f32 = 0.25;
+            let elapsed = start_time.elapsed().as_secs_f32();
+            let progress = (elapsed / YANK_FLASH_DURATION).min(1.0);
+
+            // Quick fade in, slow fade out
+            let opacity = if progress < 0.1 {
+                ease_out_cubic(progress / 0.1)
+            } else {
+                1.0 - ease_out_cubic((progress - 0.1) / 0.9)
+            };
+
+            if opacity > 0.01 {
+                let base = self.theme.accent_primary();
+                let flash_color = egui::Color32::from_rgba_unmultiplied(
+                    base.r(),
+                    base.g(),
+                    base.b(),
+                    (opacity * 80.0) as u8,
+                );
+                painter.rect_filled(rect, 4.0, flash_color);
+            }
+        }
+
+        // Focus pulse effect (glow when pane receives focus)
+        if let Some(start_time) = self.focus_pulses.get(&tile_id) {
+            const FOCUS_PULSE_DURATION: f32 = 0.2;
+            let elapsed = start_time.elapsed().as_secs_f32();
+            let progress = (elapsed / FOCUS_PULSE_DURATION).min(1.0);
+
+            // Quick rise, gradual fall
+            let intensity = if progress < 0.3 {
+                ease_out_cubic(progress / 0.3)
+            } else {
+                1.0 - ease_out_cubic((progress - 0.3) / 0.7)
+            };
+
+            if intensity > 0.01 {
+                let base = self.theme.accent_primary();
+                let pulse_color = egui::Color32::from_rgba_unmultiplied(
+                    base.r(),
+                    base.g(),
+                    base.b(),
+                    (intensity * 60.0) as u8,
+                );
+                // Expanding glow rings
+                let glow_expansion = intensity * 4.0;
+                painter.rect_stroke(
+                    rect.expand(glow_expansion),
+                    6.0,
+                    egui::Stroke::new(2.0 + intensity * 2.0, pulse_color),
+                    egui::StrokeKind::Outside,
+                );
             }
         }
     }
