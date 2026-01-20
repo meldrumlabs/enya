@@ -200,6 +200,9 @@ impl Workspace {
         if self.has_sections() {
             let tile_id = self.section_focus_to_tile_id();
             self.behavior.set_focused_tile(tile_id);
+        } else if !pane_tile_ids.is_empty() {
+            // For non-section workspaces, focus the first pane (top-left)
+            self.behavior.set_focused_tile(Some(pane_tile_ids[0]));
         }
 
         // Return connection config if present (for logging/tracking in caller)
