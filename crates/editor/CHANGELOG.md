@@ -54,6 +54,22 @@ All notable changes to the Enya editor will be documented in this file.
   - `toggle_zen_mode`: Toggle minimal UI mode
   - `exit_fullscreen`: Exit maximized/fullscreen mode
 
+- **Amp-style thinking indicator**: Premium visual feedback during AI requests:
+  - Animated pulsing dots with wave effect in both inline input bar (`aa`) and full agent panel (`Space+a`)
+  - Stage-based status messages (Connecting, Reading context, Thinking, Using tools, Generating)
+  - Elapsed time display for long-running requests
+  - Real-time activity updates showing current actions (e.g., "Creating section", "Fetching metrics")
+
+- **Neovim-inspired visual polish**:
+  - **Yank flash**: Brief highlight effect when sharing/yanking panes (triggered on `yy`)
+  - **Dim inactive panes**: Subtle overlay on unfocused panes for visual hierarchy
+  - **Focus pulse**: Glow effect when a pane receives focus, drawing attention to the active pane
+
+- **Layout transitions**: Smooth animated transitions when panes split:
+  - New panes smoothly grow from small to target size using ease-out-cubic easing
+  - Sibling panes animate their share changes during splits
+  - 150ms animation duration for fluid, responsive feel
+
 ### Changed
 
 - **Improved pane name matching**: Agent commands now prefer exact matches when finding panes by name, falling back to substring matches. This prevents ambiguous matches (e.g., "CPU" matching both "CPU" and "CPU Usage")

@@ -852,8 +852,16 @@ impl StatusLine {
                     );
                     ui.add_space(6.0);
 
-                    // Animated spinner
-                    ui.add(egui::Spinner::new().color(accent).size(14.0));
+                    // Braille spinner
+                    const BRAILLE_FRAMES: [char; 10] =
+                        ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+                    let time = ui.ctx().input(|i| i.time);
+                    let frame_index = ((time * 10.0) as usize) % BRAILLE_FRAMES.len();
+                    ui.label(
+                        egui::RichText::new(BRAILLE_FRAMES[frame_index].to_string())
+                            .color(accent)
+                            .size(typography::MD),
+                    );
                     ui.add_space(8.0);
 
                     // Show repo name if available (appears to the left of spinner)

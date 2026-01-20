@@ -1148,6 +1148,10 @@ impl Workspace {
 
         self.viewport_tree.root = Some(new_root);
 
+        // Start layout animation for smooth transition
+        self.layout_animator
+            .animate_split(new_root, new_pane_id, current_root, 1.0);
+
         // Maintain focus on the moved pane
         self.behavior.set_focused_tile(Some(new_pane_id));
 
