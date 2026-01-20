@@ -886,8 +886,14 @@ impl Workspace {
 
     // ==================== Pane Closing ====================
 
-    /// Close a tile and remove it from the viewport
+    /// Close a tile and remove it from the viewport.
+    ///
+    /// This captures the pane's position information before removal and pushes
+    /// an undo action so the pane can be restored with 'u'.
     pub(super) fn close_tile(&mut self, tile_id: TileId) {
+        // Check if this tile was focused (for undo restoration)
+        let was_focused = self.behavior.focused_tile() == Some(tile_id);
+
         // Get the pane's label before removing it (for open_charts tracking)
         let label = if let Some(egui_tiles::Tile::Pane(component)) =
             self.viewport_tree.tiles.get(tile_id)
@@ -896,6 +902,18 @@ impl Workspace {
         } else {
             None
         };
+
+        // Capture parent container info BEFORE removal for undo
+        let parent_info = self.find_parent_container_info(tile_id);
+
+        // Get the container kind if parent exists
+        let container_kind = parent_info.and_then(|(parent_id, _)| {
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(parent_id) {
+                Some(container.kind())
+            } else {
+                None
+            }
+        });
 
         // Find the next tile to focus before removing
         let pane_ids = self.get_pane_tile_ids();
@@ -910,8 +928,20 @@ impl Workspace {
             None
         };
 
-        // Remove the tile from the tree
-        self.viewport_tree.tiles.remove(tile_id);
+        // Remove the tile from the tree and capture the component for undo
+        if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.remove(tile_id) {
+            // Push undo action with captured info
+            let closed_pane_info = super::ClosedPaneInfo {
+                component,
+                parent_id: parent_info.map(|(id, _)| id),
+                child_index: parent_info.map(|(_, idx)| idx).unwrap_or(0),
+                container_kind: container_kind.unwrap_or(egui_tiles::ContainerKind::Tabs),
+                was_focused,
+            };
+            self.undo_stack
+                .push(super::UndoAction::RestorePane(closed_pane_info));
+            log::debug!("Pushed close pane to undo stack");
+        }
 
         // Remove from open_charts tracking
         if let Some(label) = label {
@@ -923,6 +953,198 @@ impl Workspace {
 
         // Update focus to next tile
         self.behavior.set_focused_tile(next_focus);
+    }
+
+    /// Execute the most recent undo action.
+    ///
+    /// Returns true if an action was undone, false if the undo stack was empty.
+    pub(super) fn execute_undo(&mut self) -> bool {
+        let Some(action) = self.undo_stack.pop() else {
+            log::debug!("Undo: stack is empty");
+            return false;
+        };
+
+        match action {
+            super::UndoAction::RestorePane(info) => {
+                self.restore_closed_pane(info);
+                true
+            }
+            super::UndoAction::UnfloatPane(info) => {
+                self.unfloat_pane(info);
+                true
+            }
+            super::UndoAction::UndockPane(info) => {
+                self.undock_pane(info);
+                true
+            }
+        }
+    }
+
+    /// Restore a closed pane to its previous position.
+    fn restore_closed_pane(&mut self, info: super::ClosedPaneInfo) {
+        // Re-insert the component to get a new TileId
+        let new_tile_id = self.viewport_tree.tiles.insert_pane(info.component);
+
+        // Try to restore to the original position
+        let restored = if let Some(parent_id) = info.parent_id {
+            // Check if the parent container still exists
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get_mut(parent_id) {
+                match container {
+                    egui_tiles::Container::Tabs(tabs) => {
+                        // Insert at the original index if possible, otherwise at the end
+                        let insert_idx = info.child_index.min(tabs.children.len());
+                        tabs.children.insert(insert_idx, new_tile_id);
+                        tabs.set_active(new_tile_id);
+                        true
+                    }
+                    egui_tiles::Container::Linear(linear) => {
+                        // Insert at the original index if possible, otherwise at the end
+                        let insert_idx = info.child_index.min(linear.children.len());
+                        linear.children.insert(insert_idx, new_tile_id);
+                        true
+                    }
+                    egui_tiles::Container::Grid(grid) => {
+                        // Grid doesn't support positional insertion well, just add
+                        grid.add_child(new_tile_id);
+                        true
+                    }
+                }
+            } else {
+                // Parent no longer exists, fall back to adding to viewport root
+                false
+            }
+        } else {
+            // No parent info, fall back to adding to viewport root
+            false
+        };
+
+        // If we couldn't restore to the original position, add to viewport root
+        if !restored {
+            self.add_tile_to_viewport(new_tile_id);
+        }
+
+        // Restore focus if the pane was focused when closed
+        if info.was_focused {
+            self.behavior.set_focused_tile(Some(new_tile_id));
+            self.activate_tile(new_tile_id);
+        }
+
+        self.show_landing = false;
+        log::debug!("Restored closed pane, new tile_id={new_tile_id:?}");
+    }
+
+    /// Undo a float operation: remove from floating panes and restore to tile tree.
+    fn unfloat_pane(&mut self, info: super::FloatedPaneInfo) {
+        // Remove the component from floating panes
+        let Some(component) = self.floating_panes.remove_pane(info.floating_pane_id) else {
+            log::warn!(
+                "Cannot undo float: floating pane {:?} no longer exists",
+                info.floating_pane_id
+            );
+            return;
+        };
+
+        // Re-insert the component to get a new TileId
+        let new_tile_id = self.viewport_tree.tiles.insert_pane(component);
+
+        // Try to restore to the original position in the tile tree
+        let restored = if let Some(parent_id) = info.parent_id {
+            // Check if the parent container still exists
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get_mut(parent_id) {
+                match container {
+                    egui_tiles::Container::Tabs(tabs) => {
+                        let insert_idx = info.child_index.min(tabs.children.len());
+                        tabs.children.insert(insert_idx, new_tile_id);
+                        tabs.set_active(new_tile_id);
+                        true
+                    }
+                    egui_tiles::Container::Linear(linear) => {
+                        let insert_idx = info.child_index.min(linear.children.len());
+                        linear.children.insert(insert_idx, new_tile_id);
+                        true
+                    }
+                    egui_tiles::Container::Grid(grid) => {
+                        grid.add_child(new_tile_id);
+                        true
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // If we couldn't restore to the original position, add to viewport root
+        if !restored {
+            self.add_tile_to_viewport(new_tile_id);
+        }
+
+        // Restore focus if it was focused before floating
+        if info.was_tile_focused {
+            self.behavior.set_focused_tile(Some(new_tile_id));
+            self.activate_tile(new_tile_id);
+        }
+
+        self.show_landing = false;
+        log::debug!("Undid float: restored pane to tile tree, new tile_id={new_tile_id:?}");
+    }
+
+    /// Undo a dock operation: remove from tile tree and restore to floating.
+    fn undock_pane(&mut self, info: super::DockedPaneInfo) {
+        // Find the pane by name (TileIds can change due to tree restructuring)
+        let tile_id = self.get_pane_tile_ids().into_iter().find(|&tile_id| {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                component.name() == info.component_name
+            } else {
+                false
+            }
+        });
+
+        let Some(tile_id) = tile_id else {
+            log::warn!(
+                "Cannot undo dock: pane '{}' not found in tile tree",
+                info.component_name
+            );
+            return;
+        };
+
+        // Remove the component from the tile tree
+        let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.remove(tile_id)
+        else {
+            log::warn!("Cannot undo dock: failed to remove tile {tile_id:?}");
+            return;
+        };
+
+        // Add back to floating panes with the original position and size
+        let floating_pane_id =
+            self.floating_panes
+                .add_pane_with_size(component, info.position, info.size);
+
+        // Configure the restored pane: skip animation and restore pinned state
+        if let Some(pane) = self
+            .floating_panes
+            .panes
+            .iter_mut()
+            .find(|p| p.id == floating_pane_id)
+        {
+            // Skip appearing animation - pane should be immediately visible for undo
+            pane.skip_animation();
+
+            // Restore pinned state
+            if info.pinned {
+                pane.pinned = true;
+            }
+        }
+
+        // Set focus to the floating pane
+        self.floating_panes.set_focus(Some(floating_pane_id));
+        self.behavior.set_focused_tile(None);
+
+        // Ensure landing page doesn't take over
+        self.show_landing = false;
+
+        log::debug!("Undid dock: restored pane to floating");
     }
 
     /// Close all charts and reset the viewport to show landing page
@@ -1891,6 +2113,16 @@ impl Workspace {
             }
         };
 
+        // Capture parent container info BEFORE removal for undo
+        let parent_info = self.find_parent_container_info(focused_tile);
+        let container_kind = parent_info.and_then(|(parent_id, _)| {
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(parent_id) {
+                Some(container.kind())
+            } else {
+                None
+            }
+        });
+
         // Remove the pane from the tile tree
         if let Some(egui_tiles::Tile::Pane(component)) =
             self.viewport_tree.tiles.remove(focused_tile)
@@ -1911,8 +2143,21 @@ impl Workspace {
             };
 
             // Add to floating pane manager with the determined size
-            self.floating_panes
+            let floating_pane_id = self
+                .floating_panes
                 .add_pane_with_size(component, position, size);
+
+            // Push undo action
+            let floated_info = super::FloatedPaneInfo {
+                floating_pane_id,
+                parent_id: parent_info.map(|(id, _)| id),
+                child_index: parent_info.map(|(_, idx)| idx).unwrap_or(0),
+                container_kind: container_kind.unwrap_or(egui_tiles::ContainerKind::Tabs),
+                was_tile_focused: true, // It was focused since we got it from focused_tile
+            };
+            self.undo_stack
+                .push(super::UndoAction::UnfloatPane(floated_info));
+            log::debug!("Pushed float pane to undo stack");
 
             // Clear the focus from the tile tree since we removed the tile
             self.behavior.set_focused_tile(None);
