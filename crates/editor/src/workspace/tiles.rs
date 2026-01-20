@@ -375,7 +375,13 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
         // Dim inactive panes (subtle overlay on unfocused panes)
         if self.dim_inactive_enabled && !is_focused && !is_selected && !is_filtered_out {
-            let dim_color = egui::Color32::from_rgba_unmultiplied(0, 0, 0, 25);
+            // Use theme-aware dim color: black overlay for dark themes, white for light themes
+            let dim_color = if self.theme.is_dark() {
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 25)
+            } else {
+                // Lighter effect for light themes - use a subtle white overlay
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 40)
+            };
             painter.rect_filled(rect, 4.0, dim_color);
         }
 
