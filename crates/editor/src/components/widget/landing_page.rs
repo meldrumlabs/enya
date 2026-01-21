@@ -5,6 +5,7 @@ use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::tinted_logo::TintedLogo;
 use crate::ui::typography;
+use crate::util::Instant;
 
 /// Action returned by the landing page
 #[derive(Debug, Clone, PartialEq)]
@@ -30,6 +31,26 @@ pub enum LandingPageAction {
 /// Number of menu items in the landing page
 const NUM_MENU_ITEMS: usize = 6;
 
+/// Animation timing (in seconds)
+mod animation {
+    /// Characters per second for typewriter effect
+    pub const CHARS_PER_SEC: f32 = 60.0;
+    /// Cursor blink rate (blinks per second)
+    pub const CURSOR_BLINK_RATE: f32 = 2.5;
+    /// The cursor character
+    pub const CURSOR: &str = "▌";
+    /// When the logo appears
+    pub const LOGO_START: f32 = 0.0;
+    /// When the tagline starts typing
+    pub const TAGLINE_START: f32 = 0.1;
+    /// When the first menu item starts typing
+    pub const MENU_START: f32 = 0.25;
+    /// Delay between each menu item
+    pub const MENU_STAGGER: f32 = 0.08;
+    /// When the footer starts typing
+    pub const FOOTER_START: f32 = 0.75;
+}
+
 /// Menu item type: (icon, label, shortcut, action_fn)
 type MenuItem = (
     &'static str,
@@ -49,6 +70,8 @@ pub struct LandingPage {
     last_mouse_pos: Option<egui::Pos2>,
     /// Cached tinted logo texture
     tinted_logo: TintedLogo,
+    /// When the landing page was first shown (for entrance animation)
+    first_shown: Option<Instant>,
 }
 
 impl Default for LandingPage {
@@ -65,7 +88,59 @@ impl LandingPage {
             keyboard_disabled: false,
             last_mouse_pos: None,
             tinted_logo: TintedLogo::new(),
+            first_shown: None,
         }
+    }
+
+    /// Typewriter effect: returns the visible portion of text based on elapsed time
+    fn typewriter<'a>(&self, text: &'a str, start_time: f32) -> &'a str {
+        let elapsed = self
+            .first_shown
+            .map(|t| t.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        let time_since_start = (elapsed - start_time).max(0.0);
+        let char_count = (time_since_start * animation::CHARS_PER_SEC) as usize;
+
+        // Find byte index for the nth character (Unicode-safe)
+        text.char_indices()
+            .nth(char_count)
+            .map(|(i, _)| &text[..i])
+            .unwrap_or(text)
+    }
+
+    /// Check if text is still being typed (not yet complete)
+    fn is_typing(&self, text: &str, start_time: f32) -> bool {
+        let elapsed = self
+            .first_shown
+            .map(|t| t.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        let time_since_start = (elapsed - start_time).max(0.0);
+        let char_count = (time_since_start * animation::CHARS_PER_SEC) as usize;
+        char_count < text.chars().count()
+    }
+
+    /// Get the blinking cursor if it should be visible
+    fn cursor(&self) -> &'static str {
+        let elapsed = self
+            .first_shown
+            .map(|t| t.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        // Blink on/off based on time
+        let blink_cycle = elapsed * animation::CURSOR_BLINK_RATE;
+        if blink_cycle.fract() < 0.5 {
+            animation::CURSOR
+        } else {
+            ""
+        }
+    }
+
+    /// Check if element has started appearing
+    fn is_visible(&self, start_time: f32) -> bool {
+        let elapsed = self
+            .first_shown
+            .map(|t| t.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        elapsed >= start_time
     }
 
     /// Disable keyboard handling (call when an overlay is open over the landing page)
@@ -80,6 +155,15 @@ impl LandingPage {
     /// Show the landing page UI
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> LandingPageAction {
+        // Initialize animation timer on first show
+        if self.first_shown.is_none() {
+            self.first_shown = Some(Instant::now());
+        }
+
+        // Request repaint for animations (typewriter + ambient glow)
+        // Always repaint since ambient glow is continuously animated
+        ctx.request_repaint();
+
         // Handle keyboard navigation
         let action = self.handle_keyboard(ctx);
         if action != LandingPageAction::None {
@@ -104,7 +188,7 @@ impl LandingPage {
         let available_height = ui.available_height();
 
         // Calculate the unscaled content height to determine required scale
-        // Header: logo(160) + spacing(12) + title(42) + spacing(6) + tagline(20) + spacing(8) + version(14) = 262
+        // Header: logo(160) + spacing(12) + tagline(20) + spacing(8) + version(14) = 214
         // Header spacing: 32
         // Menu: 6 items * (48 + 8) = 336
         // Footer spacing: 16
@@ -153,14 +237,14 @@ impl LandingPage {
                 ui.add_space(footer_spacing);
 
                 // === FOOTER ===
-                self.show_footer_scaled(ui, ctx, muted_color, scale);
+                self.show_footer_scaled(ui, muted_color, scale);
             });
         });
 
         action
     }
 
-    /// Show the header with logo and title (scaled version)
+    /// Show the header with logo and tagline (scaled version)
     /// Returns an action if the native app link was clicked (WASM only)
     fn show_header_scaled(
         &mut self,
@@ -169,40 +253,48 @@ impl LandingPage {
         muted_color: Color32,
         scale: f32,
     ) -> LandingPageAction {
-        let accent = self.accent_color();
         let logo_size = 160.0 * scale;
-        let title_size = 42.0 * scale;
 
-        // Get the overlay-blended tinted logo (cached per theme)
-        let texture = self.tinted_logo.get(ctx, self.theme);
-        let logo = egui::Image::from_texture(egui::load::SizedTexture::from_handle(texture));
-        ui.add(logo.max_width(logo_size).max_height(logo_size));
+        // Logo appears instantly when its time comes
+        if self.is_visible(animation::LOGO_START) {
+            let texture = self.tinted_logo.get(ctx, self.theme);
+            let logo = egui::Image::from_texture(egui::load::SizedTexture::from_handle(texture));
+            ui.add(logo.max_width(logo_size).max_height(logo_size));
+        } else {
+            // Reserve space for logo before it appears
+            ui.allocate_space(Vec2::splat(logo_size));
+        }
 
         ui.add_space(12.0 * scale);
 
-        // App name in theme accent color
-        ui.heading(
-            RichText::new("ENYA")
-                .strong()
-                .size(title_size)
-                .color(accent),
-        );
-
-        ui.add_space(6.0 * scale);
-
-        // Tagline
+        // Tagline with typewriter + cursor
+        let tagline = "A Builder's Best Friend";
+        let tagline_start = animation::TAGLINE_START;
+        let visible_tagline = self.typewriter(tagline, tagline_start);
+        let tagline_cursor = if self.is_typing(tagline, tagline_start) {
+            self.cursor()
+        } else {
+            ""
+        };
         ui.label(
-            RichText::new("A Builder's Best Friend")
+            RichText::new(format!("{visible_tagline}{tagline_cursor}"))
                 .size(typography::LG * scale)
                 .color(muted_color),
         );
 
         ui.add_space(8.0 * scale);
 
-        // Version badge - ASCII box style: [ v0.1.0 ]
-        let version = format!("[ v{} ]", env!("CARGO_PKG_VERSION"));
+        // Version badge with typewriter + cursor
+        let version = format!("Enya [ v{} ]", env!("CARGO_PKG_VERSION"));
+        let version_start = tagline_start + 0.4;
+        let visible_version = self.typewriter(&version, version_start);
+        let version_cursor = if self.is_typing(&version, version_start) {
+            self.cursor()
+        } else {
+            ""
+        };
         ui.label(
-            RichText::new(version)
+            RichText::new(format!("{visible_version}{version_cursor}"))
                 .size(typography::SM * scale)
                 .color(muted_color.gamma_multiply(0.7)),
         );
@@ -210,15 +302,24 @@ impl LandingPage {
         // On WASM, show a subtle native app notification below version
         #[cfg(target_arch = "wasm32")]
         {
+            let accent = self.accent_color();
             ui.add_space(8.0 * scale);
+            let wasm_text = format!(
+                "{}  Download Native App for full experience",
+                semantic_icons::action::IMPORT
+            );
+            let wasm_start = version_start + 0.2;
+            let visible_wasm = self.typewriter(&wasm_text, wasm_start);
+            let wasm_cursor = if self.is_typing(&wasm_text, wasm_start) {
+                self.cursor()
+            } else {
+                ""
+            };
             let response = ui.add(
                 egui::Label::new(
-                    RichText::new(format!(
-                        "{}  Download Native App for full experience",
-                        semantic_icons::action::IMPORT
-                    ))
-                    .size(typography::SM * scale)
-                    .color(accent.gamma_multiply(0.7)),
+                    RichText::new(format!("{}{}", visible_wasm, wasm_cursor))
+                        .size(typography::SM * scale)
+                        .color(accent.gamma_multiply(0.7)),
                 )
                 .sense(egui::Sense::click()),
             );
@@ -278,10 +379,27 @@ impl LandingPage {
         for (idx, (icon, label, shortcut, action_fn)) in menu_items.iter().enumerate() {
             let is_selected = self.selected_index == idx;
 
+            // Staggered typewriter for each menu item
+            let item_start = animation::MENU_START + (idx as f32 * animation::MENU_STAGGER);
+            let visible_label = self.typewriter(label, item_start);
+            let label_cursor = if self.is_typing(label, item_start) {
+                self.cursor()
+            } else {
+                ""
+            };
+            let label_with_cursor = format!("{visible_label}{label_cursor}");
+
+            // Only show item once it starts typing
+            if !self.is_visible(item_start) {
+                ui.allocate_space(Vec2::new(button_width, item_height));
+                ui.add_space(item_spacing);
+                continue;
+            }
+
             let response = self.show_menu_item_scaled(
                 ui,
                 icon,
-                label,
+                &label_with_cursor,
                 shortcut,
                 text_col,
                 accent_color,
@@ -364,7 +482,7 @@ impl LandingPage {
             label_color,
         );
 
-        // Shortcut hint (right side)
+        // Shortcut hint (right side) - plain monospace
         let shortcut_color = if is_selected || response.hovered() {
             accent_color.gamma_multiply(0.7)
         } else {
@@ -375,7 +493,7 @@ impl LandingPage {
             egui::pos2(rect.max.x - 20.0 * scale, rect.center().y),
             egui::Align2::RIGHT_CENTER,
             shortcut,
-            typography::proportional(typography::LG * scale),
+            egui::FontId::monospace(typography::MD * scale),
             shortcut_color,
         );
 
@@ -383,38 +501,37 @@ impl LandingPage {
     }
 
     /// Show the footer with keyboard hints (scaled version)
-    fn show_footer_scaled(
-        &self,
-        ui: &mut egui::Ui,
-        ctx: &egui::Context,
-        muted_color: Color32,
-        scale: f32,
-    ) {
-        // Keyboard hints
+    fn show_footer_scaled(&self, ui: &mut egui::Ui, muted_color: Color32, scale: f32) {
+        // Keyboard hints with typewriter + cursor
+        let hints = "j/k navigate  •  Enter select  •  : commands";
+        let visible_hints = self.typewriter(hints, animation::FOOTER_START);
+        let hints_cursor = if self.is_typing(hints, animation::FOOTER_START) {
+            self.cursor()
+        } else {
+            ""
+        };
         ui.label(
-            RichText::new("j/k navigate  •  Enter select  •  : commands")
+            RichText::new(format!("{visible_hints}{hints_cursor}"))
                 .size(typography::MD * scale)
                 .color(muted_color.gamma_multiply(0.7)),
         );
 
         ui.add_space(12.0 * scale);
 
-        // Credits with clickable link
-        let link_color = muted_color.gamma_multiply(0.5);
-        let response = ui.add(
-            egui::Label::new(
-                RichText::new("Developed by Meldrum Labs")
-                    .size(typography::SM * scale)
-                    .color(link_color),
-            )
-            .sense(egui::Sense::click()),
+        // Credits with typewriter + cursor
+        let credits = "Crafted in Stockholm";
+        let credits_start = animation::FOOTER_START + 0.8;
+        let visible_credits = self.typewriter(credits, credits_start);
+        let credits_cursor = if self.is_typing(credits, credits_start) {
+            self.cursor()
+        } else {
+            ""
+        };
+        ui.label(
+            RichText::new(format!("{visible_credits}{credits_cursor}"))
+                .size(typography::SM * scale)
+                .color(muted_color.gamma_multiply(0.5)),
         );
-        if response.clicked() {
-            ctx.open_url(egui::OpenUrl::new_tab("https://meldrumlabs.com"));
-        }
-        if response.hovered() {
-            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
     }
 
     /// Handle keyboard navigation
