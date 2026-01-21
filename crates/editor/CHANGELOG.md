@@ -18,6 +18,14 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Workspace undo system**: Vim-style `u` keybinding to undo workspace operations:
+  - **Close pane**: Restores closed panes to their exact position in the tile tree (tabs, splits)
+  - **Float pane**: Undoes floating a pane, restoring it to its original tile tree position
+  - **Dock pane**: Undoes docking a floating pane, restoring it to floating with original position/size
+  - Focus is restored if the pane was focused when the action occurred
+  - Undo stack holds up to 50 actions
+  - Uses command pattern with inverse operations for efficiency
+
 - **Sync command**: New `:sync git` command in the command palette and `sync` agent command to fetch latest git commits and re-index the codebase (including Tantivy full-text search). Useful when the repository has been updated externally.
 
 - **Keyboard navigation test infrastructure**: Comprehensive testing for vim-style keyboard navigation:

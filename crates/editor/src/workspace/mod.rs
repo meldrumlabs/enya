@@ -83,6 +83,10 @@ mod rendering;
 mod floating;
 pub use floating::{FloatingPaneAction, FloatingPaneId, FloatingPaneManager};
 
+// Undo system for workspace operations
+mod undo;
+pub use undo::{ClosedPaneInfo, DockedPaneInfo, FloatedPaneInfo, UndoAction, UndoStack};
+
 // Layout animation (smooth transitions when splitting/closing panes)
 mod layout_animation;
 use layout_animation::LayoutAnimator;
@@ -304,6 +308,10 @@ pub struct Workspace {
     /// Floating panes that hover above the tile layout
     floating_panes: FloatingPaneManager,
 
+    // ==================== Undo System ====================
+    /// Stack of undoable actions (vim-style 'u' to undo)
+    undo_stack: UndoStack,
+
     // ==================== Layout Animation ====================
     /// Animator for smooth layout transitions
     layout_animator: LayoutAnimator,
@@ -405,6 +413,8 @@ impl Workspace {
             section_renderer: SectionRenderer::default(),
             // Floating panes
             floating_panes: FloatingPaneManager::new(),
+            // Undo system
+            undo_stack: UndoStack::new(),
             // Layout animation
             layout_animator: LayoutAnimator::new(),
         }
@@ -1162,12 +1172,32 @@ impl Workspace {
                     self.floating_panes.remove_pane(pane_id);
                 }
                 FloatingPaneAction::Dock => {
+                    // Capture floating pane state BEFORE removal for undo
+                    let pane_state = self
+                        .floating_panes
+                        .panes
+                        .iter()
+                        .find(|p| p.id == pane_id)
+                        .map(|p| (p.component.name(), p.position, p.size, p.pinned));
+
                     // Dock the floating pane back into the tile layout
                     if let Some(component) = self.floating_panes.remove_pane(pane_id) {
                         let pane_tile = self.viewport_tree.tiles.insert_pane(component);
                         if self.add_tile_to_viewport(pane_tile) {
                             self.behavior.set_focused_tile(Some(pane_tile));
                             self.show_landing = false;
+
+                            // Push undo action with captured state (use component name, not tile_id)
+                            if let Some((name, position, size, pinned)) = pane_state {
+                                let docked_info = DockedPaneInfo {
+                                    component_name: name,
+                                    position,
+                                    size,
+                                    pinned,
+                                };
+                                self.undo_stack.push(UndoAction::UndockPane(docked_info));
+                                log::debug!("Pushed dock pane to undo stack");
+                            }
                         }
                     }
                 }

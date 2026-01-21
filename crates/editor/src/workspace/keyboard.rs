@@ -162,6 +162,7 @@ impl Workspace {
         let mut should_focus_channels_panel = false;
         let mut should_float_focused_pane = false;
         let mut should_focus_agent_panel = false;
+        let mut should_undo = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -714,6 +715,13 @@ impl Workspace {
                 return;
             }
 
+            // u - undo last action (vim-style)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::U) {
+                should_undo = true;
+                consumed = true;
+                return;
+            }
+
             // x - close focused pane
             if input.consume_key(egui::Modifiers::NONE, egui::Key::X) && current_focus.is_some() {
                 should_close_focused = true;
@@ -739,6 +747,12 @@ impl Workspace {
                     return Some(WorkspaceAction::SharePane(pane_index));
                 }
             }
+        }
+
+        // Handle undo action (u)
+        if should_undo {
+            self.execute_undo();
+            ctx.request_repaint();
         }
 
         // Handle time range preset changes (t5, t1, th, td, tw, etc.)
