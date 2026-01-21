@@ -749,11 +749,7 @@ impl StatusLine {
             // Health indicator (far right) - simple colored icon with tooltip
             let (icon, color, tooltip) = self.get_health_indicator();
             ui.add_space(padding);
-            let response = ui.label(
-                egui::RichText::new(icon)
-                    .color(color)
-                    .size(typography::MD),
-            );
+            let response = ui.label(egui::RichText::new(icon).color(color).size(typography::MD));
             if response.hovered() {
                 response.show_tooltip_text(tooltip);
             }
@@ -769,8 +765,11 @@ impl StatusLine {
                 if status.is_error {
                     // Error state - truncate long error messages
                     let (display_msg, is_truncated) = if status.message.chars().count() > 30 {
-                        let boundary =
-                            status.message.char_indices().nth(29).map_or(status.message.len(), |(i, _)| i);
+                        let boundary = status
+                            .message
+                            .char_indices()
+                            .nth(29)
+                            .map_or(status.message.len(), |(i, _)| i);
                         (format!("{}…", &status.message[..boundary]), true)
                     } else {
                         (status.message.clone(), false)

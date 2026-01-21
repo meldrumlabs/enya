@@ -4,7 +4,16 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Landing page typewriter animation**: Terminal-style typewriter entrance effect when the landing page loads. Logo appears instantly, then text elements type out character by character at 60 cps with a blinking cursor (▌) - tagline, menu items (staggered), and footer hints.
+- **Landing page monospace shortcuts**: Menu item shortcuts now render in a monospace font for a clean, terminal-native look.
+- **About overlay**: New "About" option on landing page opens a dedicated overlay describing Enya as a keyboard-first observability editor that connects metrics, logs, traces, SQL, and git with AI.
+
 ### Changed
+
+- **Landing page footer**: Updated credit text from "Developed by Meldrum Labs" to "Crafted in Stockholm"
+- **Landing page header**: Removed large "ENYA" title text for a cleaner, more minimal design - the brand name now appears subtly in the version badge (e.g., "Enya [ v0.1.0 ]")
 
 - **Status line minimalist redesign**: Simplified the right section of the status line for a premium, cleaner look:
   - Replaced tabs count, viewport info, last refresh time, and connection status with a single health indicator
