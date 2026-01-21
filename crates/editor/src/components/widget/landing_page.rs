@@ -367,7 +367,7 @@ impl LandingPage {
             (semantic_icons::keyboard::KEYBOARD, "Shortcuts", "?", || {
                 LandingPageAction::ShowShortcuts
             }),
-            (semantic_icons::status::INFO, "About", "i", || {
+            (semantic_icons::status::INFO, "About", "a", || {
                 LandingPageAction::ShowAbout
             }),
         ];
@@ -586,8 +586,8 @@ impl LandingPage {
                 return;
             }
 
-            // i - About
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::I) {
+            // a - About
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
                 action = LandingPageAction::ShowAbout;
                 return;
             }

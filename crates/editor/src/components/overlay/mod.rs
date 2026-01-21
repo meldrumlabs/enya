@@ -1,5 +1,6 @@
 //! Overlay components - modal UI that appears on top of the workspace.
 
+pub mod about;
 pub mod agent_context;
 pub mod agent_panel;
 pub mod annotation_editor;
@@ -48,6 +49,7 @@ pub use diagnostics::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use diff_viewer::{DiffViewerOverlay, DiffViewerResult};
+pub use about::AboutOverlay;
 pub use info::InfoOverlay;
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
 #[cfg(target_arch = "wasm32")]

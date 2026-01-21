@@ -14,14 +14,14 @@ use crate::components::overlay::{AnnotationEditor, AnnotationEditorResult};
 use crate::components::overlay::{CodebaseFinder, CodebaseFinderStatus, DiffViewerOverlay};
 use crate::components::overlay::{FinderMode, UnifiedFinder};
 use crate::components::{
-    AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult, Buffer,
-    BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component, ContextPane,
-    DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LogsPane, MultiBufferMode,
-    MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor, QueryLanguage, QueryPane,
-    QueryState, QuickCommand, SourcePreviewOverlay, SourcePreviewResult, StylePicker,
-    StylePickerResult, TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangeToolbar,
-    TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator,
-    WorkspaceCreatorResult, WorkspaceFinder,
+    AboutOverlay, AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult,
+    Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
+    ContextPane, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LogsPane,
+    MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor,
+    QueryLanguage, QueryPane, QueryState, QuickCommand, SourcePreviewOverlay, SourcePreviewResult,
+    StylePicker, StylePickerResult, TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo,
+    TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
+    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -205,6 +205,8 @@ pub struct Workspace {
     leader_keys: LeaderKeyState,
     /// Info overlay (shows build/version info)
     info_overlay: InfoOverlay,
+    /// About overlay (shows project information)
+    about_overlay: AboutOverlay,
     /// Which-key overlay (shows available keybindings)
     which_key: WhichKey,
     /// Style picker overlay (unified theme + font selection)
@@ -353,6 +355,7 @@ impl Workspace {
             show_landing: true, // Start with landing page
             leader_keys: LeaderKeyState::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
+            about_overlay: AboutOverlay::new(),
             which_key: WhichKey::new(),
             style_picker: StylePicker::new(),
             tutorial_overlay: TutorialOverlay::new(),
@@ -1332,6 +1335,10 @@ impl Workspace {
         self.info_overlay.set_theme(app_state.theme);
         self.info_overlay.show(ctx);
 
+        // Show about overlay modal
+        self.about_overlay.set_theme(app_state.theme);
+        self.about_overlay.show(ctx);
+
         // Show which-key overlay modal
         self.which_key.set_theme(app_state.theme);
         self.which_key.show(ctx);
@@ -1578,7 +1585,7 @@ impl Workspace {
                 ctx.request_repaint();
             }
             LandingPageAction::ShowAbout => {
-                self.info_overlay.open();
+                self.about_overlay.open();
             }
             LandingPageAction::ShowShortcuts => {
                 self.which_key.open();
@@ -1662,6 +1669,10 @@ impl Workspace {
         // Show info overlay modal
         self.info_overlay.set_theme(app_state.theme);
         self.info_overlay.show(ctx);
+
+        // Show about overlay modal
+        self.about_overlay.set_theme(app_state.theme);
+        self.about_overlay.show(ctx);
 
         // Show which-key overlay modal
         self.which_key.set_theme(app_state.theme);
