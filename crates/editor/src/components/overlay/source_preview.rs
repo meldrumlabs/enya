@@ -494,18 +494,18 @@ impl HttpHandler {
         #[cfg(not(target_arch = "wasm32"))]
         let mut next_location: Option<usize> = None;
 
-        // Handle keyboard input
-        ctx.input(|i| {
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        ctx.input_mut(|i| {
             // Escape to close
-            if i.key_pressed(Key::Escape) {
+            if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 should_close = true;
             }
             // Vim-style horizontal scrolling: h/l
             let scroll_step = 50.0;
-            if i.key_pressed(Key::H) {
+            if i.consume_key(egui::Modifiers::NONE, Key::H) {
                 self.scroll_offset_x = (self.scroll_offset_x - scroll_step).max(0.0);
             }
-            if i.key_pressed(Key::L) {
+            if i.consume_key(egui::Modifiers::NONE, Key::L) {
                 self.scroll_offset_x += scroll_step;
             }
 
@@ -513,12 +513,14 @@ impl HttpHandler {
             #[cfg(not(target_arch = "wasm32"))]
             if self.metric_locations.len() > 1 {
                 // N - next location (vim quickfix-style)
-                if i.key_pressed(Key::N) && !i.modifiers.shift {
+                if i.consume_key(egui::Modifiers::NONE, Key::N) {
                     next_location =
                         Some((self.current_location_index + 1) % self.metric_locations.len());
                 }
                 // Shift+N or P - previous location
-                if i.key_pressed(Key::P) || (i.key_pressed(Key::N) && i.modifiers.shift) {
+                if i.consume_key(egui::Modifiers::NONE, Key::P)
+                    || i.consume_key(egui::Modifiers::SHIFT, Key::N)
+                {
                     next_location = Some(if self.current_location_index == 0 {
                         self.metric_locations.len() - 1
                     } else {

@@ -168,27 +168,27 @@ impl MultiEditOverlay {
         let mut should_apply = false;
         let mut should_replace_all = false;
 
-        // Handle keyboard shortcuts
-        ctx.input(|input| {
+        // Handle keyboard shortcuts - use consume_key to prevent multiple processing
+        ctx.input_mut(|input| {
             // Escape - cancel and close
-            if input.key_pressed(Key::Escape) {
+            if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 should_close = true;
             }
             // Ctrl+Enter or Cmd+Enter - apply and close
-            if input.key_pressed(Key::Enter) && input.modifiers.command {
+            if input.consume_key(egui::Modifiers::COMMAND, Key::Enter) {
                 should_apply = true;
             }
             // Ctrl+Shift+R - replace all
-            if input.key_pressed(Key::R) && input.modifiers.command && input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, Key::R) {
                 should_replace_all = true;
             }
             // Tab - cycle through excerpts
-            if input.key_pressed(Key::Tab) && !input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::NONE, Key::Tab) {
                 self.focused_excerpt =
                     (self.focused_excerpt + 1) % (self.excerpts.len() as i32 + 1) - 1;
             }
             // Shift+Tab - cycle backwards
-            if input.key_pressed(Key::Tab) && input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::SHIFT, Key::Tab) {
                 let total = self.excerpts.len() as i32 + 1;
                 self.focused_excerpt = (self.focused_excerpt - 1 + total) % total - 1;
             }

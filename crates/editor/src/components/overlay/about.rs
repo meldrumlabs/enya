@@ -60,12 +60,12 @@ impl AboutOverlay {
 
         let mut should_close = false;
 
-        // Handle keyboard input
-        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
-
-        if escape {
-            should_close = true;
-        }
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        ctx.input_mut(|i| {
+            if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                should_close = true;
+            }
+        });
 
         // Calculate popup dimensions
         let screen_rect = ctx.available_rect();

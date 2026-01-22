@@ -161,32 +161,36 @@ impl CodebaseFinder {
         let mut result = None;
         let mut should_close = false;
 
-        // Handle keyboard input
-        ctx.input(|input| {
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        ctx.input_mut(|input| {
             // Escape to close
-            if input.key_pressed(egui::Key::Escape) {
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
                 should_close = true;
             }
 
             // Tab to cycle filter
-            if input.key_pressed(egui::Key::Tab) {
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Tab) {
                 self.cycle_filter();
             }
 
             // Arrow keys for navigation
-            if (input.key_pressed(egui::Key::ArrowUp) || input.key_pressed(egui::Key::K))
+            if (input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::K))
                 && self.selected_index > 0
             {
                 self.selected_index -= 1;
             }
-            if (input.key_pressed(egui::Key::ArrowDown) || input.key_pressed(egui::Key::J))
+            if (input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
+                || input.consume_key(egui::Modifiers::NONE, egui::Key::J))
                 && self.selected_index + 1 < self.results.len()
             {
                 self.selected_index += 1;
             }
 
             // Enter to select
-            if input.key_pressed(egui::Key::Enter) && !self.results.is_empty() {
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                && !self.results.is_empty()
+            {
                 if let Some(selected) = self.results.get(self.selected_index) {
                     result = Some(CodebaseFinderResult {
                         result: selected.clone(),

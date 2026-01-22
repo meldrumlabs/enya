@@ -651,14 +651,15 @@ impl BufferEditor {
         let mut should_save = false;
 
         // Handle keyboard shortcuts (when completion is not open)
+        // Use consume_key to prevent multiple processing
         if !self.completion.is_open() {
-            ctx.input(|input| {
+            ctx.input_mut(|input| {
                 // Escape - cancel and close
-                if input.key_pressed(Key::Escape) {
+                if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                     should_close = true;
                 }
                 // Ctrl+Enter or Cmd+Enter - save and close
-                if input.key_pressed(Key::Enter) && input.modifiers.command {
+                if input.consume_key(egui::Modifiers::COMMAND, Key::Enter) {
                     should_save = true;
                 }
             });

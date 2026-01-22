@@ -388,8 +388,8 @@ impl AgentPanel {
             AgentPanelResult::None
         };
 
-        // Handle keyboard input
-        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        let escape = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
         if escape && !self.is_waiting {
             result = AgentPanelResult::Closed;
         }

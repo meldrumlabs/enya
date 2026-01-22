@@ -583,13 +583,17 @@ impl CommandPalette {
         let mut result = CommandResult::None;
         let mut should_close = false;
 
-        let (navigate_up, navigate_down, confirm, escape, tab) = ctx.input(|i| {
+        // Use consume_key to prevent keys from being processed multiple times
+        let (navigate_up, navigate_down, confirm, escape, tab) = ctx.input_mut(|i| {
             (
-                i.key_pressed(Key::ArrowUp) || (i.key_pressed(Key::K) && i.modifiers.ctrl),
-                i.key_pressed(Key::ArrowDown) || (i.key_pressed(Key::J) && i.modifiers.ctrl),
-                i.key_pressed(Key::Enter),
-                i.key_pressed(Key::Escape),
-                i.key_pressed(Key::Tab),
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowUp)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::K),
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowDown)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::J)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::N),
+                i.consume_key(egui::Modifiers::NONE, Key::Enter),
+                i.consume_key(egui::Modifiers::NONE, Key::Escape),
+                i.consume_key(egui::Modifiers::NONE, Key::Tab),
             )
         });
 
