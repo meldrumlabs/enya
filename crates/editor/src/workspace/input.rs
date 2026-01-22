@@ -1161,17 +1161,17 @@ mod tests {
         let mut state = LeaderKeyState::new();
         state.press_space();
 
-        // Wait almost exactly 100ms (with small buffer for test execution)
-        std::thread::sleep(std::time::Duration::from_millis(95));
+        // Wait well under the 100ms timeout (use safe margin to avoid OS jitter)
+        std::thread::sleep(std::time::Duration::from_millis(50));
 
-        // Should still be active (just under 100ms)
-        assert!(state.is_space_active());
+        // Should still be active (50ms is safely under 100ms timeout)
+        assert!(state.is_space_active(), "Should be active at ~50ms");
 
-        // Wait a bit more to cross the boundary
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        // Wait well past the timeout boundary (100ms more = 150ms total)
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
-        // Should now be inactive
-        assert!(!state.is_space_active());
+        // Should now be inactive (150ms is safely over 100ms timeout)
+        assert!(!state.is_space_active(), "Should be inactive at ~150ms");
     }
 
     #[cfg(not(target_arch = "wasm32"))]
