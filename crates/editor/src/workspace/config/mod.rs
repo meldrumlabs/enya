@@ -187,6 +187,10 @@ pub struct WorkspaceConfig {
     #[serde(default, skip_serializing_if = "TimeConfig::is_default")]
     pub time: TimeConfig,
 
+    /// Plugin configuration (enable/disable plugins)
+    #[serde(default, skip_serializing_if = "PluginsConfig::is_empty")]
+    pub plugins: PluginsConfig,
+
     /// Section definitions (groups of panes with collapsible headers)
     /// If empty, falls back to legacy `panes` field for backward compatibility
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -350,6 +354,109 @@ impl GitConfig {
     pub fn with_language(mut self, language: impl Into<String>) -> Self {
         self.language = language.into();
         self
+    }
+}
+
+// =============================================================================
+// Plugin Configuration
+// =============================================================================
+
+/// Plugin configuration for the workspace.
+///
+/// Allows enabling/disabling plugins and storing plugin-specific settings.
+///
+/// ```toml
+/// [plugins]
+/// enabled = ["query-history", "bookmarks", "zen-mode"]
+/// disabled = ["metrics-aggregator"]
+///
+/// [plugins.settings.bookmarks]
+/// auto_save = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PluginsConfig {
+    /// Plugins to explicitly enable (overrides default disabled state)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enabled: Vec<String>,
+
+    /// Plugins to explicitly disable (overrides default enabled state)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled: Vec<String>,
+
+    /// Plugin-specific settings (keyed by plugin name)
+    #[serde(
+        default,
+        skip_serializing_if = "rustc_hash::FxHashMap::is_empty",
+        with = "hashmap_compat"
+    )]
+    pub settings: rustc_hash::FxHashMap<String, toml::Value>,
+}
+
+/// Serde compatibility module for FxHashMap (deserializes from any map).
+mod hashmap_compat {
+    use rustc_hash::FxHashMap;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S, K, V>(map: &FxHashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        K: Serialize + std::hash::Hash + Eq,
+        V: Serialize,
+    {
+        map.serialize(serializer)
+    }
+
+    #[allow(clippy::disallowed_types)]
+    pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<FxHashMap<K, V>, D::Error>
+    where
+        D: Deserializer<'de>,
+        K: Deserialize<'de> + std::hash::Hash + Eq,
+        V: Deserialize<'de>,
+    {
+        // Need to use std::collections::HashMap for serde deserialization, then convert
+        let map: std::collections::HashMap<K, V> = Deserialize::deserialize(deserializer)?;
+        Ok(map.into_iter().collect())
+    }
+}
+
+impl PluginsConfig {
+    /// Check if this config has any settings
+    pub fn is_empty(&self) -> bool {
+        self.enabled.is_empty() && self.disabled.is_empty() && self.settings.is_empty()
+    }
+
+    /// Check if a plugin is explicitly enabled
+    pub fn is_enabled(&self, name: &str) -> Option<bool> {
+        if self.enabled.iter().any(|n| n == name) {
+            Some(true)
+        } else if self.disabled.iter().any(|n| n == name) {
+            Some(false)
+        } else {
+            None // Use plugin's default
+        }
+    }
+
+    /// Get settings for a specific plugin
+    pub fn get_settings(&self, name: &str) -> Option<&toml::Value> {
+        self.settings.get(name)
+    }
+
+    /// Add a plugin to the enabled list
+    pub fn enable(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        self.disabled.retain(|n| n != &name);
+        if !self.enabled.contains(&name) {
+            self.enabled.push(name);
+        }
+    }
+
+    /// Add a plugin to the disabled list
+    pub fn disable(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        self.enabled.retain(|n| n != &name);
+        if !self.disabled.contains(&name) {
+            self.disabled.push(name);
+        }
     }
 }
 
@@ -951,6 +1058,7 @@ impl WorkspaceConfig {
             git: GitConfig::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
+            plugins: PluginsConfig::default(),
             sections: Vec::new(),
             panes: Vec::new(),
             layout: None,

@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use egui::RichText;
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
@@ -270,7 +269,7 @@ impl TimeRangeToolbar {
     #[profiling::function]
     pub fn show_with_countdown(&mut self, ui: &mut egui::Ui, countdown_secs: Option<u64>) {
         self.changed = false;
-        let text_color = text_color(self.theme);
+        let text_color = self.theme.text_primary();
 
         // Get accent colors based on theme for better visibility
         let accent_color = self.theme.accent_primary();

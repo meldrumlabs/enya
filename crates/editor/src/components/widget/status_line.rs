@@ -427,21 +427,6 @@ impl StatusLine {
         self.last_refresh = Some(std::time::Instant::now());
     }
 
-    /// Get the background color for segments based on theme
-    fn segment_bg(&self) -> Color32 {
-        self.theme.bg_surface()
-    }
-
-    /// Get the secondary background color for segments
-    fn segment_bg_secondary(&self) -> Color32 {
-        self.theme.bg_elevated()
-    }
-
-    /// Get the text color for segments
-    fn segment_fg(&self) -> Color32 {
-        self.theme.text_secondary()
-    }
-
     /// Render the status line
     #[profiling::function]
     pub fn show(&self, ui: &mut Ui) -> StatusLineResult {
@@ -517,15 +502,15 @@ impl StatusLine {
         }
 
         // Default mode badge for all other modes
-        let mode_color = self.mode.color(self.theme);
-        let mode_text_color = self.mode.text_color(self.theme);
+        let mode_bg = self.mode.color(self.theme);
+        let mode_fg = self.mode.text_color(self.theme);
 
         self.render_segment(
             ui,
             self.mode.label(),
             Some(semantic_icons::mode::COMMAND),
-            mode_color,
-            mode_text_color,
+            mode_bg,
+            mode_fg,
             height,
             padding,
             true,
@@ -619,18 +604,17 @@ impl StatusLine {
 
     /// Render the left section after the mode badge (zen/fullscreen badges, branch, metric, sparkline)
     fn render_left_section_after_mode(&self, ui: &mut Ui, height: f32, padding: f32) {
-        // Display preference badges (zen/fullscreen) - use distinct colors
+        // Display preference badges (zen/fullscreen) - use theme colors (Custom variant handles plugin colors internally)
         if self.is_zen_mode {
-            let (bg, fg) = (self.theme.badge_zen_bg(), self.theme.badge_zen_fg());
+            let bg = self.theme.badge_zen_bg();
+            let fg = self.theme.badge_zen_fg();
             ui.add_space(4.0);
             self.render_segment(ui, "ZEN", None, bg, fg, height, padding, false);
         }
 
         if self.is_fullscreen {
-            let (bg, fg) = (
-                self.theme.badge_fullscreen_bg(),
-                self.theme.badge_fullscreen_fg(),
-            );
+            let bg = self.theme.badge_fullscreen_bg();
+            let fg = self.theme.badge_fullscreen_fg();
             ui.add_space(4.0);
             self.render_segment(ui, "FULLSCREEN", None, bg, fg, height, padding, false);
         }
@@ -642,8 +626,8 @@ impl StatusLine {
                 ui,
                 branch,
                 Some(semantic_icons::git::BRANCH),
-                self.segment_bg(),
-                self.segment_fg(),
+                self.theme.bg_surface(),
+                self.theme.text_secondary(),
                 height,
                 padding,
                 false,
@@ -662,8 +646,8 @@ impl StatusLine {
                 ui,
                 &display_name,
                 Some(semantic_icons::action::CHART),
-                self.segment_bg_secondary(),
-                self.segment_fg(),
+                self.theme.bg_elevated(),
+                self.theme.text_secondary(),
                 height,
                 padding,
                 false,
@@ -687,7 +671,7 @@ impl StatusLine {
 
         if ui.is_rect_visible(rect) {
             // Premium: use a thin vertical line instead of chevron for cleaner look
-            let line_color = self.segment_fg().gamma_multiply(0.15);
+            let line_color = self.theme.text_secondary().gamma_multiply(0.15);
             let center_x = rect.center().x;
             ui.painter().vline(
                 center_x,
@@ -704,7 +688,7 @@ impl StatusLine {
             ui.add_space(16.0);
             ui.label(
                 egui::RichText::new(extra)
-                    .color(self.segment_fg())
+                    .color(self.theme.text_secondary())
                     .size(typography::MD)
                     .family(egui::FontFamily::Monospace),
             );
@@ -778,7 +762,7 @@ impl StatusLine {
                         ui,
                         &display_msg,
                         Some(semantic_icons::diagnostic::ERROR),
-                        self.segment_bg(),
+                        self.theme.bg_surface(),
                         palette::semantic::ERROR,
                         height,
                         padding,
@@ -946,7 +930,7 @@ impl StatusLine {
 
         if ui.is_rect_visible(rect) {
             // Premium: use a thin vertical line instead of chevron for cleaner look
-            let line_color = self.segment_fg().gamma_multiply(0.15);
+            let line_color = self.theme.text_secondary().gamma_multiply(0.15);
             let center_x = rect.center().x;
             ui.painter().vline(
                 center_x,
@@ -1177,11 +1161,11 @@ impl StatusLine {
         height: f32,
         padding: f32,
     ) {
-        let bg_color = self.segment_bg();
-        let fg_color = self.segment_fg();
+        let bg_color = self.theme.bg_surface();
+        let fg_color = self.theme.text_secondary();
 
-        // Sparkline color - use emerald accent for brand consistency
-        let sparkline_color = self.theme.accent_hover(); // Bright accent for visibility
+        // Sparkline color - use accent for brand consistency
+        let sparkline_color = self.theme.accent_hover();
 
         // Build the content: "▁▂▃▅▇ 16.7ms label"
         let chart = sparkline.render();

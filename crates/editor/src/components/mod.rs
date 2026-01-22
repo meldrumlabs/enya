@@ -25,9 +25,10 @@ pub use overlay::{
     AboutOverlay, AgentCommand, AgentPanel, AgentPanelResult, AiProvider, BufferEditor,
     BufferEditorResult, ChatMessage, CodebaseContext, CommandPalette, CommandResult,
     ConnectionContext, DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource,
-    DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext,
-    InfoOverlay, MessageRole, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
-    SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
+    DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, DynamicCommand, EditExcerpt,
+    EditorContext, InfoOverlay, MessageRole, MultiEditOverlay, MultiEditResult, PluginDisplayInfo,
+    PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay, SourcePreviewResult,
+    StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
     WorkspaceItem, parse_commands, strip_command_blocks,
 };

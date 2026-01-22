@@ -9,6 +9,14 @@ All notable changes to the Enya editor will be documented in this file.
 - **Landing page typewriter animation**: Terminal-style typewriter entrance effect when the landing page loads. Logo appears instantly, then text elements type out character by character at 60 cps with a blinking cursor (▌) - tagline, menu items (staggered), and footer hints.
 - **Landing page monospace shortcuts**: Menu item shortcuts now render in a monospace font for a clean, terminal-native look.
 - **About overlay**: New "About" option on landing page opens a dedicated overlay describing Enya as a keyboard-first observability editor that connects metrics, logs, traces, SQL, and git with AI.
+- **Plugin system**: Neovim-style Lua plugin architecture for customizing the editor:
+  - **Lua plugins**: Full scripting support with conditional logic, input validation, and HTTP requests
+  - **Plugin registry**: Central `PluginRegistry` for managing plugin lifecycle (register, init, activate, deactivate)
+  - **Plugin context**: `PluginContext` provides access to command sender, async runtime, theme, and notifications
+  - **Hook system**: Lifecycle hooks (`on_workspace_loaded`, `on_pane_added`, etc.), command hooks, keyboard hooks, theme hooks, and pane hooks
+  - **Custom themes**: Lua plugins can define custom color themes with inheritance from base themes
+  - **Plugin loader**: Automatic discovery from `~/.config/enya/plugins/` and workspace `.enya/plugins/`
+  - **Documentation**: Comprehensive [PLUGINS.md](./PLUGINS.md) guide for plugin authors
 
 ### Fixed
 
@@ -18,6 +26,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Stale focus validation after pane close**: Focus is now validated after closing a pane to ensure it references an existing tile. If the focus target was removed (e.g., container collapsed), focus falls back to the first available pane.
 - **Visual-multi cursor validation**: The visual-multi selection cursor is now validated against existing panes. If the cursor references a deleted pane, it resets to the first available pane.
 - **Recursion depth guards**: Added depth limits (100 levels) to recursive tree traversal functions to prevent stack overflow on pathological tree structures.
+
 
 ### Changed
 

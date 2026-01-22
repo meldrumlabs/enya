@@ -2,7 +2,6 @@
 
 use egui::{Color32, RichText, Stroke};
 
-use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 
 use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
@@ -263,7 +262,7 @@ impl StatChart {
     /// Render the stat chart
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         let available_width = ui.available_width();
         let available_height = ui.available_height();

@@ -2,7 +2,6 @@
 
 use egui::{Color32, RichText, Stroke};
 
-use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 
 use super::stat::Threshold;
@@ -185,7 +184,7 @@ impl GaugeChart {
         let num_segments = 60;
 
         // Draw background arc (dimmed)
-        let bg_color = text_color(self.theme).gamma_multiply(0.15);
+        let bg_color = self.theme.text_primary().gamma_multiply(0.15);
         let bg_points: Vec<egui::Pos2> = (0..=num_segments)
             .map(|i| {
                 let t = i as f32 / num_segments as f32;
@@ -236,7 +235,7 @@ impl GaugeChart {
     /// Render the gauge chart
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         let available_width = ui.available_width();
         let available_height = ui.available_height();

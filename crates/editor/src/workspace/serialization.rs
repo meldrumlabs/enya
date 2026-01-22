@@ -10,8 +10,9 @@ use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
     ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
-    LayoutType, LogsConfig, MetricsConfig, PaneConfig, RefreshInterval, SectionState, TimeConfig,
-    ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta,
+    LayoutType, LogsConfig, MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval,
+    SectionState, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
+    WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
 
@@ -62,6 +63,7 @@ impl Workspace {
                 self.time_range_toolbar.time_range().preset,
                 self.refresh_interval.unwrap_or_default(),
             ),
+            plugins: PluginsConfig::default(),
             sections: Vec::new(),
             panes,
             layout: self.extract_layout_from_tree(),

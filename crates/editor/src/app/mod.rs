@@ -15,6 +15,8 @@ mod workspace_io;
 
 pub use state::{AppState, UIState};
 
+use std::sync::Arc;
+
 use egui::Theme;
 
 use crate::AsyncRuntime;
@@ -23,9 +25,11 @@ use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
 };
 use crate::connection::ConnectionManager;
+use crate::plugin::{EditorPluginHost, PluginContextRef, PluginRegistry};
 use crate::team::TeamState;
 use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
+use crate::ui::{CustomThemeStore, ResolvedCustomTheme};
 use crate::workspace::{Workspace, WorkspaceAction};
 
 use state::EditorMetrics;
@@ -71,6 +75,18 @@ pub struct EnyaApp {
 
     // Team collaboration state (disabled by default, can be enabled with TeamConfig)
     team_state: TeamState,
+
+    // Plugin system (registry manages plugins, context provides editor services)
+    #[allow(dead_code)] // Will be used when plugin commands are dispatched
+    plugin_registry: PluginRegistry,
+    #[allow(dead_code)] // Will be used when plugins interact with editor
+    plugin_context: PluginContextRef,
+
+    // Custom themes from plugins
+    custom_themes: CustomThemeStore,
+
+    // Currently active resolved custom theme (for rendering)
+    resolved_custom_theme: Option<ResolvedCustomTheme>,
 }
 
 impl EnyaApp {
@@ -111,7 +127,131 @@ impl EnyaApp {
         state.theme = state.settings.theme;
 
         // Initialize workspace with async runtime
-        let workspace = Workspace::new(async_runtime.clone());
+        let mut workspace = Workspace::new(async_runtime.clone());
+
+        // Initialize plugin system
+        let plugin_host =
+            EditorPluginHost::new(command_sender.clone(), async_runtime.clone(), state.theme);
+        let plugin_host_ref: Arc<dyn crate::plugin::PluginHost> = Arc::new(plugin_host);
+        let plugin_context: PluginContextRef =
+            Arc::new(enya_plugin::PluginContext::new(plugin_host_ref.clone()));
+
+        // Create plugin registry
+        let mut plugin_registry = PluginRegistry::new();
+
+        // Load external plugins from ~/.config/enya/plugins/ (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use crate::plugin::{Plugin, PluginLoader};
+            let loader = PluginLoader::new();
+
+            // Load TOML config plugins
+            for result in loader.load_all() {
+                match result {
+                    Ok(plugin) => {
+                        let name = plugin.manifest().plugin.name.clone();
+                        if let Err(e) = plugin_registry.register(plugin, true) {
+                            log::warn!("Failed to register plugin '{name}': {e}");
+                        } else {
+                            log::info!("Loaded plugin: {name}");
+                        }
+                    }
+                    Err(e) => log::warn!("Failed to load plugin: {e}"),
+                }
+            }
+
+            // Load Lua script plugins
+            for result in loader.load_all_lua() {
+                match result {
+                    Ok(plugin) => {
+                        let name = plugin.name().to_string();
+                        if let Err(e) = plugin_registry.register(plugin, true) {
+                            log::warn!("Failed to register Lua plugin '{name}': {e}");
+                        } else {
+                            log::info!("Loaded Lua plugin: {name}");
+                        }
+                    }
+                    Err(e) => log::warn!("Failed to load Lua plugin: {e}"),
+                }
+            }
+        }
+
+        // Initialize the registry with the plugin context
+        plugin_registry.init(enya_plugin::PluginContext::new(plugin_host_ref));
+
+        // Initialize and activate all plugins
+        let plugin_ids: Vec<_> = plugin_registry
+            .list_plugins()
+            .iter()
+            .map(|p| p.id)
+            .collect();
+        for id in plugin_ids {
+            if let Err(e) = plugin_registry.init_plugin(id) {
+                log::warn!("Failed to initialize plugin {id:?}: {e}");
+            } else if let Err(e) = plugin_registry.activate_plugin(id) {
+                log::warn!("Failed to activate plugin {id:?}: {e}");
+            }
+        }
+
+        // Collect custom themes from plugins
+        let mut custom_themes = CustomThemeStore::new();
+        let custom_theme_list: Vec<(String, String, crate::ui::ActiveThemeColors)> =
+            plugin_registry
+                .all_themes()
+                .into_iter()
+                .map(|t| {
+                    custom_themes.register(t.clone());
+                    // Resolve the theme to get colors for the style picker preview
+                    let resolved =
+                        crate::ui::custom_theme::ResolvedCustomTheme::from_definition(&t);
+                    let colors = crate::ui::ActiveThemeColors::from_custom(&resolved);
+                    (t.name, t.display_name, colors)
+                })
+                .collect();
+        workspace.set_custom_themes(custom_theme_list);
+
+        // Collect plugin commands and pass to command palette
+        let plugin_commands: Vec<crate::components::DynamicCommand> = plugin_registry
+            .all_commands()
+            .into_iter()
+            .map(|(info, cmd)| crate::components::DynamicCommand {
+                name: cmd.name.clone(),
+                aliases: cmd.aliases.clone(),
+                description: cmd.description.clone(),
+                accepts_args: cmd.accepts_args,
+                source: info.name.clone(),
+            })
+            .collect();
+        workspace.set_plugin_commands(plugin_commands);
+
+        // Collect plugin info for the plugins overlay
+        let plugins_info: Vec<crate::components::PluginDisplayInfo> = plugin_registry
+            .list_plugins()
+            .iter()
+            .map(|info| {
+                // Determine the source type based on plugin characteristics
+                let source = if info.name.ends_with(".lua") || info.description.contains("Lua") {
+                    crate::components::PluginSource::Lua
+                } else {
+                    crate::components::PluginSource::Config
+                };
+
+                // Get commands and keybindings for this plugin
+                let commands = plugin_registry.commands_for_plugin(info.id);
+                let keybindings = plugin_registry.keybindings_for_plugin(info.id);
+
+                crate::components::PluginDisplayInfo {
+                    name: info.name.clone(),
+                    version: info.version.clone(),
+                    description: info.description.clone(),
+                    enabled: info.state == enya_plugin::PluginState::Active,
+                    source,
+                    command_count: commands.len(),
+                    keybinding_count: keybindings.len(),
+                }
+            })
+            .collect();
+        workspace.set_plugins(plugins_info);
 
         Self {
             state,
@@ -131,6 +271,11 @@ impl EnyaApp {
             checked_url_workspace: false,
             // Team state starts disabled - can be enabled later via connect()
             team_state: TeamState::default(),
+            // Plugin system
+            plugin_registry,
+            plugin_context,
+            custom_themes,
+            resolved_custom_theme: None,
         }
     }
 
@@ -144,6 +289,15 @@ impl EnyaApp {
         }
     }
 
+    /// Get the egui Visuals for the current theme (builtin or custom)
+    fn current_visuals(&self) -> egui::Visuals {
+        if let Some(ref custom) = self.resolved_custom_theme {
+            crate::ui::design::custom_theme_visuals(custom)
+        } else {
+            self.state.visuals()
+        }
+    }
+
     // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
         // Hide status line on landing page - it's part of the workspace UI, not the landing page
@@ -154,6 +308,7 @@ impl EnyaApp {
         // Update status line state
         self.status_line.set_theme(self.state.theme);
 
+        // Set active theme colors (for custom theme support)
         // Set team status (only shows when connected)
         self.status_line
             .set_team_status(self.team_state.status_info());
@@ -290,13 +445,13 @@ impl EnyaApp {
             UICommand::Theme(theme) => {
                 self.state.theme = theme;
                 self.state.settings.theme = theme; // Persist to settings
-                egui_ctx.set_visuals(self.state.visuals());
+                egui_ctx.set_visuals(self.current_visuals());
                 egui_ctx.request_repaint();
             }
             UICommand::NextTheme => {
                 self.state.theme.next();
                 self.state.settings.theme = self.state.theme; // Persist to settings
-                egui_ctx.set_visuals(self.state.visuals());
+                egui_ctx.set_visuals(self.current_visuals());
                 egui_ctx.request_repaint();
             }
 
@@ -312,6 +467,21 @@ impl EnyaApp {
 
             UICommand::OpenCommandPalette => {
                 self.open_command_palette();
+            }
+
+            UICommand::Notify { level, message } => {
+                // Log the notification from plugins
+                match level.as_str() {
+                    "error" => log::error!("[plugin] {message}"),
+                    "warn" | "warning" => log::warn!("[plugin] {message}"),
+                    "info" => log::info!("[plugin] {message}"),
+                    _ => log::debug!("[plugin] {message}"),
+                }
+                // TODO: Show visual notification in UI
+            }
+
+            UICommand::Repaint => {
+                egui_ctx.request_repaint();
             }
         }
     }
@@ -341,6 +511,14 @@ impl EnyaApp {
         let mut workspace_action = WorkspaceAction::None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Update active theme colors (from custom or builtin theme)
+            let active_colors = if let Some(ref custom) = self.resolved_custom_theme {
+                crate::ui::ActiveThemeColors::from_custom(custom)
+            } else {
+                crate::ui::ActiveThemeColors::from_builtin(self.state.theme)
+            };
+            self.workspace.set_active_colors(active_colors);
+
             // Update workspace team status and members before rendering
             self.workspace
                 .set_team_status(self.team_state.status_info());
@@ -368,7 +546,30 @@ impl EnyaApp {
         match action {
             WorkspaceAction::None => {}
             WorkspaceAction::SetTheme(theme) => {
+                // Clear custom theme and set builtin theme
+                self.state.custom_theme = None;
+                self.resolved_custom_theme = None;
                 self.command_sender.send_ui(UICommand::Theme(theme));
+            }
+            WorkspaceAction::SetCustomTheme(name) => {
+                // Resolve the custom theme
+                if let Some(def) = self.custom_themes.get(&name) {
+                    let resolved = ResolvedCustomTheme::from_definition(def);
+                    log::info!(
+                        "[theme] Resolved custom theme: {} (base: {})",
+                        resolved.display_name,
+                        if resolved.is_dark { "dark" } else { "light" }
+                    );
+                    // Set the base theme (dark or light) for fallback colors
+                    let base = if resolved.is_dark {
+                        AppTheme::Dark
+                    } else {
+                        AppTheme::Light
+                    };
+                    self.command_sender.send_ui(UICommand::Theme(base));
+                    self.resolved_custom_theme = Some(resolved);
+                }
+                self.state.set_custom_theme(name.clone());
             }
             WorkspaceAction::NextTheme => {
                 self.command_sender.send_ui(UICommand::NextTheme);
@@ -381,7 +582,25 @@ impl EnyaApp {
             }
             WorkspaceAction::SetThemeAndFont(theme, font) => {
                 // Restore both theme and font (used when cancelling style picker)
+                self.state.custom_theme = None;
+                self.resolved_custom_theme = None;
                 self.command_sender.send_ui(UICommand::Theme(theme));
+                self.state.settings.font = font;
+                fonts::setup_fonts(ctx, font);
+            }
+            WorkspaceAction::SetCustomThemeAndFont(name, font) => {
+                // Restore custom theme and font (used when cancelling style picker)
+                if let Some(def) = self.custom_themes.get(&name) {
+                    let resolved = ResolvedCustomTheme::from_definition(def);
+                    let base = if resolved.is_dark {
+                        AppTheme::Dark
+                    } else {
+                        AppTheme::Light
+                    };
+                    self.command_sender.send_ui(UICommand::Theme(base));
+                    self.resolved_custom_theme = Some(resolved);
+                }
+                self.state.set_custom_theme(name);
                 self.state.settings.font = font;
                 fonts::setup_fonts(ctx, font);
             }
@@ -517,6 +736,16 @@ impl EnyaApp {
                 // Open the diff viewer with the commit message as title
                 self.open_diff_viewer(&hash, &message, &diff);
             }
+            WorkspaceAction::PluginCommand { command, args } => {
+                // Dispatch to plugin registry
+                if !self.plugin_registry.execute_command(&command, &args) {
+                    // No plugin handled the command
+                    self.notifications.notify(Notification::new(
+                        format!("Unknown command: {command}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
         }
     }
 
@@ -616,8 +845,8 @@ impl eframe::App for EnyaApp {
         // Record frame time for editor metrics sparkline
         self.editor_metrics.record_frame();
 
-        // Set theme for the context
-        ctx.set_visuals(self.state.visuals());
+        // Set theme for the context (use custom theme colors if active)
+        ctx.set_visuals(self.current_visuals());
 
         // Handle screenshot events
         self.handle_screenshot_events(ctx);
@@ -632,7 +861,12 @@ impl eframe::App for EnyaApp {
         // Replaces native macOS titlebar for seamless theme integration
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let theme = self.state.theme;
+            // Use custom theme if active, otherwise fall back to builtin theme
+            let theme = if let Some(ref custom) = self.resolved_custom_theme {
+                AppTheme::Custom(crate::ui::ActiveThemeColors::from_custom(custom))
+            } else {
+                self.state.theme
+            };
             let titlebar_height = 32.0;
 
             egui::TopBottomPanel::top("custom_titlebar")

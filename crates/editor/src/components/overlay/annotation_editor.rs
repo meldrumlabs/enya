@@ -139,6 +139,7 @@ impl AnnotationEditor {
         }
 
         let mut result = AnnotationEditorResult::None;
+        // Extract colors from theme (Custom variant handles plugin colors internally)
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
         // Handle keyboard shortcuts - use consume_key to prevent multiple processing

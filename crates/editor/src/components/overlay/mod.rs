@@ -15,6 +15,7 @@ pub mod info;
 pub mod multi_edit;
 #[cfg(target_arch = "wasm32")]
 pub mod native_promo;
+pub mod plugins;
 #[cfg(not(target_arch = "wasm32"))]
 mod preview;
 pub mod slash_commands;
@@ -43,7 +44,9 @@ pub use super::util::{AiProvider, MessageRole};
 pub use about::AboutOverlay;
 pub use annotation_editor::{AnnotationEditor, AnnotationEditorResult};
 pub use buffer_editor::{BufferEditor, BufferEditorResult};
-pub use command_palette::{CommandKind, CommandPalette, CommandResult, PaletteCommand};
+pub use command_palette::{
+    CommandKind, CommandPalette, CommandResult, DynamicCommand, PaletteCommand,
+};
 pub use diagnostics::{
     Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter, DiagnosticsPane,
     DiagnosticsPaneAction,
@@ -54,6 +57,7 @@ pub use info::InfoOverlay;
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
 #[cfg(target_arch = "wasm32")]
 pub use native_promo::NativePromoOverlay;
+pub use plugins::{PluginDisplayInfo, PluginSource, PluginsOverlay, PluginsOverlayResult};
 pub use slash_commands::{
     SLASH_COMMANDS, SlashCommand, SlashCommandCategory, SlashCommandPopup, SlashCommandResult,
 };

@@ -20,7 +20,6 @@ use enya_ai::{AcpClient, AgentEvent};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Receiver;
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -581,7 +580,7 @@ impl AgentInputBar {
         // Accent for Agent mode
         let accent = self.theme.accent_primary();
 
-        // Inner glow color for premium glass effect
+        // Inner glow color for premium glass effect (Custom variant handles plugin colors internally)
         let inner_glow = self.theme.overlay_highlight();
 
         // Subtle bottom shadow glow (accent)
@@ -866,7 +865,7 @@ impl AgentInputBar {
         let (sep_rect, _) =
             ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
         if ui.is_rect_visible(sep_rect) {
-            let line_color = self.theme.text_secondary().gamma_multiply(0.15);
+            let line_color = self.theme.text_tertiary().gamma_multiply(0.25);
             ui.painter().vline(
                 sep_rect.center().x,
                 egui::Rangef::new(sep_rect.min.y + 6.0, sep_rect.max.y - 6.0),
@@ -1263,7 +1262,7 @@ impl AgentInputBar {
             return;
         }
 
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let popup_width = 480.0; // Same width as slash command popup
         let row_height = 32.0;
         let header_height = 32.0;
@@ -1671,9 +1670,11 @@ impl AgentInputBar {
                 .size(typography::MD),
         );
 
+        // Extract accent before closure to avoid borrow issues
+        let accent = self.theme.accent_primary();
+
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Tab hint for opening in panel - show with accent color
-            let accent = self.theme.accent_primary();
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 ui.label(RichText::new("Tab").color(accent).size(typography::SM));

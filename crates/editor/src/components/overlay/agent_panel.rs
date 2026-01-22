@@ -62,7 +62,7 @@ pub struct AgentPanel {
     /// Skip vim key detection for one frame after gaining focus
     /// (prevents immediate key detection from lingering keypresses)
     skip_vim_keys_once: bool,
-    /// Current theme
+    /// Current theme (supports Custom variant with plugin colors)
     theme: AppTheme,
     /// Chat message history
     messages: Vec<ChatMessage>,
@@ -195,6 +195,7 @@ impl AgentPanel {
     }
 
     /// Set the theme
+    /// Set the theme (supports Custom variant with plugin colors)
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
     }

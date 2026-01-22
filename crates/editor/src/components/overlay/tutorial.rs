@@ -5,7 +5,6 @@
 
 use egui::{Key, RichText};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -33,7 +32,7 @@ pub struct TutorialOverlay {
     is_open: bool,
     /// Skip input on the first frame after opening
     just_opened: bool,
-    /// Current theme
+    /// Current theme (can be Custom with plugin colors)
     theme: AppTheme,
     /// Current step index
     current_step: usize,
@@ -205,7 +204,7 @@ impl TutorialOverlay {
         steps
     }
 
-    /// Set the theme
+    /// Set the theme (supports Custom variant with plugin colors)
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
     }
@@ -317,17 +316,19 @@ impl TutorialOverlay {
         let screen_rect = ctx.available_rect();
         let popup_width = (screen_rect.width() * 0.5).clamp(500.0, 650.0);
 
+        // Extract colors from theme (Custom variant handles plugin colors internally)
+        let overlay_style = OverlayStyle::frosted_glass(self.theme);
+        let separator_color = self.theme.border_subtle();
+        let muted_text = self.theme.text_primary().gamma_multiply(0.6);
+        let accent_color = self.theme.accent_primary();
+        let key_bg = self.theme.bg_elevated();
+        let tip_color = self.theme.accent_hover();
+        let text_col = self.theme.text_primary();
+
         egui::Area::new(egui::Id::new("tutorial_overlay_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                let separator_color = self.theme.border_subtle();
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
-                let accent_color = self.theme.accent_primary();
-                let key_bg = self.theme.bg_elevated();
-                let tip_color = self.theme.accent_hover();
-
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
 
@@ -353,7 +354,7 @@ impl TutorialOverlay {
                             ui.add_space(4.0);
                             ui.label(
                                 RichText::new(step.title)
-                                    .color(text_color(self.theme))
+                                    .color(text_col)
                                     .size(typography::HEADING)
                                     .strong(),
                             );
@@ -376,7 +377,7 @@ impl TutorialOverlay {
                             ui.set_width(popup_width - 48.0);
                             ui.label(
                                 RichText::new(step.instruction)
-                                    .color(text_color(self.theme))
+                                    .color(text_col)
                                     .size(typography::LG),
                             );
                         });
@@ -484,7 +485,7 @@ impl TutorialOverlay {
 
                         // Previous
                         if self.current_step > 0 {
-                            render_key_badge_large(ui, "← h", key_bg, text_color(self.theme));
+                            render_key_badge_large(ui, "← h", key_bg, text_col);
                             ui.label(
                                 RichText::new(" prev")
                                     .color(muted_text)
@@ -499,7 +500,7 @@ impl TutorialOverlay {
                         } else {
                             "next"
                         };
-                        render_key_badge_large(ui, "→ l", key_bg, text_color(self.theme));
+                        render_key_badge_large(ui, "→ l", key_bg, text_col);
                         ui.label(
                             RichText::new(format!(" {next_label}"))
                                 .color(muted_text)
@@ -516,7 +517,7 @@ impl TutorialOverlay {
                                     .color(muted_text)
                                     .size(typography::SM),
                             );
-                            render_key_badge_large(ui, "Esc", key_bg, text_color(self.theme));
+                            render_key_badge_large(ui, "Esc", key_bg, text_col);
 
                             ui.add_space(24.0);
 
@@ -526,7 +527,7 @@ impl TutorialOverlay {
                                     .color(muted_text)
                                     .size(typography::SM),
                             );
-                            render_key_badge_large(ui, "t", key_bg, text_color(self.theme));
+                            render_key_badge_large(ui, "t", key_bg, text_col);
                         });
                     });
 

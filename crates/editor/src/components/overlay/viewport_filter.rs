@@ -160,11 +160,11 @@ impl ViewportFilter {
             }
         });
 
-        // Get theme-aware colors
-        let text_primary = palette::text_primary(self.theme);
-        let text_secondary = palette::text_secondary(self.theme);
-        let text_tertiary = palette::text_tertiary(self.theme);
-        let badge_bg = palette::bg_elevated(self.theme);
+        // Get theme-aware colors (Custom variant handles plugin colors internally)
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
+        let badge_bg = self.theme.bg_elevated();
 
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
@@ -286,9 +286,9 @@ impl ViewportFilter {
     pub fn show_inline(&mut self, ui: &mut egui::Ui) -> ViewportFilterResult {
         let mut result = ViewportFilterResult::None;
 
-        let text_primary = palette::text_primary(self.theme);
-        let text_secondary = palette::text_secondary(self.theme);
-        let text_tertiary = palette::text_tertiary(self.theme);
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
         let accent = self.theme.accent_primary();
         let bg_subtle = accent.gamma_multiply(0.08);
         let bg_active = accent.gamma_multiply(0.15);

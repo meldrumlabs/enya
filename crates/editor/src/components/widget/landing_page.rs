@@ -1,6 +1,5 @@
 use egui::{Color32, RichText, Vec2};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::tinted_logo::TintedLogo;
@@ -24,12 +23,14 @@ pub enum LandingPageAction {
     ShowAbout,
     /// Show keyboard shortcuts (which-key)
     ShowShortcuts,
+    /// Show plugins overlay
+    OpenPlugins,
     /// Show native app info (WASM only)
     ShowNativeAppInfo,
 }
 
 /// Number of menu items in the landing page
-const NUM_MENU_ITEMS: usize = 6;
+const NUM_MENU_ITEMS: usize = 7;
 
 /// Animation timing (in seconds)
 mod animation {
@@ -180,9 +181,9 @@ impl LandingPage {
         };
         self.last_mouse_pos = current_mouse_pos;
 
-        let text_col = text_color(self.theme);
-        let accent_color = self.accent_color();
-        let muted_color = text_col.gamma_multiply(0.5);
+        let text_col = self.theme.text_primary();
+        let accent_color = self.theme.accent_primary();
+        let muted_color = self.theme.text_tertiary();
 
         // Responsive layout that scales to fit any screen without scrolling
         let available_height = ui.available_height();
@@ -190,12 +191,12 @@ impl LandingPage {
         // Calculate the unscaled content height to determine required scale
         // Header: logo(160) + spacing(12) + tagline(20) + spacing(8) + version(14) = 214
         // Header spacing: 32
-        // Menu: 6 items * (48 + 8) = 336
+        // Menu: 7 items * (48 + 8) = 392
         // Footer spacing: 16
         // Footer: hints(16) + spacing(12) + credits(12) = 40
         // Margins: 32 (frame) + some padding
-        // Total unscaled: ~720
-        const UNSCALED_CONTENT_HEIGHT: f32 = 720.0;
+        // Total unscaled: ~776
+        const UNSCALED_CONTENT_HEIGHT: f32 = 776.0;
 
         // Calculate scale to fit content with some breathing room (16px top + 16px bottom)
         let target_height = available_height - 32.0;
@@ -256,6 +257,7 @@ impl LandingPage {
         let logo_size = 160.0 * scale;
 
         // Logo appears instantly when its time comes
+        // Theme already carries Custom variant if plugin theme is active
         if self.is_visible(animation::LOGO_START) {
             let texture = self.tinted_logo.get(ctx, self.theme);
             let logo = egui::Image::from_texture(egui::load::SizedTexture::from_handle(texture));
@@ -302,7 +304,7 @@ impl LandingPage {
         // On WASM, show a subtle native app notification below version
         #[cfg(target_arch = "wasm32")]
         {
-            let accent = self.accent_color();
+            let accent = self.theme.accent_primary();
             ui.add_space(8.0 * scale);
             let wasm_text = format!(
                 "{}  Download Native App for full experience",
@@ -366,6 +368,9 @@ impl LandingPage {
             }),
             (semantic_icons::keyboard::KEYBOARD, "Shortcuts", "?", || {
                 LandingPageAction::ShowShortcuts
+            }),
+            (semantic_icons::action::TOOL, "Plugins", "p", || {
+                LandingPageAction::OpenPlugins
             }),
             (semantic_icons::status::INFO, "About", "a", || {
                 LandingPageAction::ShowAbout
@@ -586,6 +591,12 @@ impl LandingPage {
                 return;
             }
 
+            // p - Plugins
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
+                action = LandingPageAction::OpenPlugins;
+                return;
+            }
+
             // a - About
             if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
                 action = LandingPageAction::ShowAbout;
@@ -620,17 +631,13 @@ impl LandingPage {
                     2 => LandingPageAction::OpenTutorial,
                     3 => LandingPageAction::OpenDocs,
                     4 => LandingPageAction::ShowShortcuts,
-                    5 => LandingPageAction::ShowAbout,
+                    5 => LandingPageAction::OpenPlugins,
+                    6 => LandingPageAction::ShowAbout,
                     _ => LandingPageAction::None,
                 };
             }
         });
 
         action
-    }
-
-    /// Get the accent color based on theme (Enya's emerald brand color)
-    fn accent_color(&self) -> Color32 {
-        self.theme.accent_primary()
     }
 }

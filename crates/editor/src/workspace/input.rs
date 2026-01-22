@@ -1180,17 +1180,17 @@ mod tests {
         let mut state = LeaderKeyState::new();
         state.press_space();
 
-        // Wait part of timeout
-        std::thread::sleep(std::time::Duration::from_millis(80));
+        // Wait part of timeout (with generous buffer)
+        std::thread::sleep(std::time::Duration::from_millis(60));
         assert!(state.is_space_active());
 
         // Press again to reset
         state.press_space();
 
-        // Wait another 80ms (would have expired if not reset)
-        std::thread::sleep(std::time::Duration::from_millis(80));
+        // Wait another 60ms (would have expired if not reset: 60+60=120ms > 100ms)
+        std::thread::sleep(std::time::Duration::from_millis(60));
 
-        // Should still be active (reset the timer)
+        // Should still be active (reset the timer, so only 60ms elapsed since reset)
         assert!(state.is_space_active());
     }
 

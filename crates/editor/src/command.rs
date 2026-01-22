@@ -9,7 +9,7 @@ pub trait UICommandSender {
     fn send_ui(&self, command: UICommand);
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum UICommand {
     Home,
     Dashboard,
@@ -22,6 +22,13 @@ pub enum UICommand {
     NextTheme,
     OpenFuzzyFinder,
     OpenCommandPalette,
+    /// Show a notification to the user (from plugins)
+    Notify {
+        level: String,
+        message: String,
+    },
+    /// Request a UI repaint (from plugins)
+    Repaint,
 }
 
 impl UICommand {
@@ -38,19 +45,24 @@ impl UICommand {
             Self::NextTheme,
             Self::OpenFuzzyFinder,
             Self::OpenCommandPalette,
+            Self::Notify {
+                level: String::new(),
+                message: String::new(),
+            },
+            Self::Repaint,
         ]
         .into_iter()
     }
 
-    pub fn text(self) -> &'static str {
+    pub fn text(&self) -> &'static str {
         self.text_and_tooltip().0
     }
 
-    pub fn tooltip(self) -> &'static str {
+    pub fn tooltip(&self) -> &'static str {
         self.text_and_tooltip().1
     }
 
-    pub fn text_and_tooltip(self) -> (&'static str, &'static str) {
+    pub fn text_and_tooltip(&self) -> (&'static str, &'static str) {
         match self {
             Self::Home => ("Home", "Open Welcome Screen"),
             Self::Help => ("Help", "Get help with any Playground issues"),
@@ -61,6 +73,8 @@ impl UICommand {
             Self::ConnectionStatus(_) => ("", ""),
             Self::OpenFuzzyFinder => ("Search...", "Open fuzzy finder to search metrics"),
             Self::OpenCommandPalette => ("Command Palette", "Open command palette"),
+            Self::Notify { .. } => ("", ""),
+            Self::Repaint => ("", ""),
         }
     }
 
@@ -88,11 +102,11 @@ impl UICommand {
         response
     }
 
-    pub fn is_link(self) -> bool {
+    pub fn is_link(&self) -> bool {
         matches!(self, Self::Help)
     }
 
-    pub fn icon(self) -> Option<&'static crate::ui::icons::Icon> {
+    pub fn icon(&self) -> Option<&'static crate::ui::icons::Icon> {
         match self {
             Self::Help => Some(&EXTERNAL_LINK),
             _ => None,
@@ -119,9 +133,10 @@ impl UICommand {
 
         let mut commands: Vec<(KeyboardShortcut, Self)> = Self::all()
             .flat_map(|cmd| {
-                cmd.kb_shortcuts(egui_ctx.os())
+                let shortcuts = cmd.kb_shortcuts(egui_ctx.os());
+                shortcuts
                     .into_iter()
-                    .map(move |kb_shortcut| (kb_shortcut, cmd))
+                    .map(move |kb_shortcut| (kb_shortcut, cmd.clone()))
             })
             .collect();
 
@@ -148,7 +163,7 @@ impl UICommand {
         })
     }
 
-    pub fn menu_button(self, egui_ctx: &egui::Context, theme: AppTheme) -> egui::Button<'static> {
+    pub fn menu_button(&self, egui_ctx: &egui::Context, theme: AppTheme) -> egui::Button<'static> {
         let mut button = if let Some(icon) = self.icon() {
             egui::Button::image_and_text(icon.as_image().tint(text_color(theme)), self.text())
         } else {
@@ -163,7 +178,7 @@ impl UICommand {
     }
 
     /// All keyboard shortcuts, with the primary first.
-    pub fn kb_shortcuts(self, _os: OperatingSystem) -> Vec<KeyboardShortcut> {
+    pub fn kb_shortcuts(&self, _os: OperatingSystem) -> Vec<KeyboardShortcut> {
         fn key(key: Key) -> KeyboardShortcut {
             KeyboardShortcut::new(Modifiers::NONE, key)
         }
@@ -179,16 +194,18 @@ impl UICommand {
             Self::OpenFuzzyFinder => vec![], // Space+m leader key sequence
             // ':' key (colon) - no modifiers needed since it's already the shifted key
             Self::OpenCommandPalette => vec![key(Key::Colon)],
+            Self::Notify { .. } => vec![], // Programmatic only
+            Self::Repaint => vec![],       // Programmatic only
         }
     }
 
     /// Primary keyboard shortcut
-    fn primary_kb_shortcut(self, os: OperatingSystem) -> Option<KeyboardShortcut> {
+    fn primary_kb_shortcut(&self, os: OperatingSystem) -> Option<KeyboardShortcut> {
         self.kb_shortcuts(os).first().copied()
     }
 
     /// Return the keyboard shortcut for this command, nicely formatted
-    pub fn formatted_kb_shortcut(self, egui_ctx: &egui::Context) -> Option<String> {
+    pub fn formatted_kb_shortcut(&self, egui_ctx: &egui::Context) -> Option<String> {
         // Note: we only show the primary shortcut to the user.
         // The fallbacks are there for people who have muscle memory for the other shortcuts.
         self.primary_kb_shortcut(egui_ctx.os())
@@ -196,14 +213,14 @@ impl UICommand {
     }
 
     /// Add e.g. " (Ctrl+F11)" as a suffix
-    pub fn format_shortcut_tooltip_suffix(self, egui_ctx: &egui::Context) -> String {
+    pub fn format_shortcut_tooltip_suffix(&self, egui_ctx: &egui::Context) -> String {
         if let Some(shortcut_text) = self.formatted_kb_shortcut(egui_ctx) {
             format!(" ({shortcut_text})")
         } else {
             Default::default()
         }
     }
-    pub fn tooltip_with_shortcut(self, egui_ctx: &egui::Context) -> String {
+    pub fn tooltip_with_shortcut(&self, egui_ctx: &egui::Context) -> String {
         format!(
             "{}{}",
             self.tooltip(),
@@ -256,13 +273,14 @@ mod tests {
     #[test]
     fn test_ui_command_all_returns_all_variants() {
         let commands: Vec<UICommand> = UICommand::all().collect();
-        assert_eq!(commands.len(), 9);
+        assert_eq!(commands.len(), 11);
         assert!(commands.contains(&UICommand::Home));
         assert!(commands.contains(&UICommand::Dashboard));
         assert!(commands.contains(&UICommand::Help));
         assert!(commands.contains(&UICommand::NextTheme));
         assert!(commands.contains(&UICommand::OpenFuzzyFinder));
         assert!(commands.contains(&UICommand::OpenCommandPalette));
+        assert!(commands.contains(&UICommand::Repaint));
     }
 
     #[test]
@@ -453,15 +471,18 @@ mod tests {
     #[test]
     fn test_ui_command_clone() {
         let cmd = UICommand::Dashboard;
-        let cloned = cmd;
+        let cloned = cmd.clone();
         assert_eq!(cmd, cloned);
     }
 
     #[test]
-    fn test_ui_command_copy() {
-        let cmd = UICommand::OpenCommandPalette;
-        let copied: UICommand = cmd;
-        assert_eq!(cmd, copied);
+    fn test_ui_command_clone_with_data() {
+        let cmd = UICommand::Notify {
+            level: "info".to_string(),
+            message: "test".to_string(),
+        };
+        let cloned = cmd.clone();
+        assert_eq!(cmd, cloned);
     }
 
     #[test]
