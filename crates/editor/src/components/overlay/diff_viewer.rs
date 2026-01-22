@@ -172,24 +172,27 @@ impl DiffViewerOverlay {
         let mut should_close = false;
 
         // Handle keyboard input (unless another overlay is on top)
+        // Use consume_key to prevent multiple processing
         if !self.keyboard_disabled {
-            ctx.input(|i| {
+            ctx.input_mut(|i| {
                 // Escape to close
-                if i.key_pressed(Key::Escape) {
+                if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
                     should_close = true;
                 }
 
                 // File navigation: n/p
                 if !self.file_diffs.is_empty() {
                     // N - next file
-                    if i.key_pressed(Key::N) && !i.modifiers.shift {
+                    if i.consume_key(egui::Modifiers::NONE, Key::N) {
                         self.current_file_index =
                             (self.current_file_index + 1) % self.file_diffs.len();
                         self.scroll_offset_x = 0.0;
                         self.scroll_offset_y = 0.0;
                     }
                     // P or Shift+N - previous file
-                    if i.key_pressed(Key::P) || (i.key_pressed(Key::N) && i.modifiers.shift) {
+                    if i.consume_key(egui::Modifiers::NONE, Key::P)
+                        || i.consume_key(egui::Modifiers::SHIFT, Key::N)
+                    {
                         self.current_file_index = if self.current_file_index == 0 {
                             self.file_diffs.len() - 1
                         } else {
@@ -201,29 +204,31 @@ impl DiffViewerOverlay {
                 }
 
                 // S - toggle split/unified view
-                if i.key_pressed(Key::S) {
+                if i.consume_key(egui::Modifiers::NONE, Key::S) {
                     self.split_view = !self.split_view;
                 }
 
                 // Vim-style scrolling
                 let scroll_step = 40.0;
                 let h_scroll_step = 50.0;
-                if i.key_pressed(Key::J) {
+                if i.consume_key(egui::Modifiers::NONE, Key::J) {
                     self.scroll_offset_y += scroll_step;
                 }
-                if i.key_pressed(Key::K) {
+                if i.consume_key(egui::Modifiers::NONE, Key::K) {
                     self.scroll_offset_y = (self.scroll_offset_y - scroll_step).max(0.0);
                 }
-                if i.key_pressed(Key::H) {
+                if i.consume_key(egui::Modifiers::NONE, Key::H) {
                     self.scroll_offset_x = (self.scroll_offset_x - h_scroll_step).max(0.0);
                 }
-                if i.key_pressed(Key::L) {
+                if i.consume_key(egui::Modifiers::NONE, Key::L) {
                     self.scroll_offset_x += h_scroll_step;
                 }
             });
         }
 
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             return DiffViewerResult::Closed;
         }

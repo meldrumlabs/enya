@@ -842,4 +842,59 @@ mod tests {
         assert!(blocked);
         assert_eq!(reason, "workspace_finder");
     }
+
+    // ==================== Focus Management Invariants ====================
+    //
+    // These tests document the expected focus behavior for keyboard navigation.
+    //
+    // Key invariant: When an overlay closes, egui focus must be cleared so that
+    // vim-style navigation (h/j/k/l) works immediately. This is achieved by calling
+    // `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` BEFORE closing
+    // the overlay.
+    //
+    // Overlays that follow this pattern:
+    // - command_palette.rs
+    // - buffer_editor.rs
+    // - multi_edit.rs
+    // - which_key.rs
+    // - workspace_creator.rs
+    // - tutorial.rs
+    // - info.rs
+    // - about.rs
+    // - source_preview.rs
+    // - diagnostics.rs
+    // - diff_viewer.rs
+    // - codebase_finder.rs
+    // - unified_finder.rs
+    //
+    // Testing this directly requires egui::Context, which isn't easily mockable.
+    // The invariant is enforced through code review and manual testing.
+
+    #[test]
+    fn test_navigation_not_blocked_when_all_overlays_closed() {
+        // This test documents the expected state after all overlays close:
+        // navigation should not be blocked.
+        let (blocked, _) = check_navigation_blocked(
+            false, false, false, false, false, false, false, false, false, false, false,
+        );
+        assert!(
+            !blocked,
+            "Navigation should not be blocked when all overlays are closed"
+        );
+    }
+
+    #[test]
+    fn test_modal_open_flag_determines_blocking() {
+        // KeyboardContext.any_modal_open should track whether focus-capturing
+        // overlays are open. When true, navigation is blocked.
+        let mut ctx = KeyboardContext::default();
+        assert!(!ctx.is_navigation_blocked());
+
+        ctx.any_modal_open = true;
+        assert!(ctx.is_navigation_blocked());
+
+        // After modal closes and focus is surrendered, the flag should be false
+        ctx.any_modal_open = false;
+        assert!(!ctx.is_navigation_blocked());
+    }
 }

@@ -141,9 +141,13 @@ impl AnnotationEditor {
         let mut result = AnnotationEditorResult::None;
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
-        // Handle keyboard shortcuts
-        let escape_pressed = ctx.input(|i| i.key_pressed(Key::Escape));
-        let enter_pressed = ctx.input(|i| i.key_pressed(Key::Enter) && i.modifiers.command);
+        // Handle keyboard shortcuts - use consume_key to prevent multiple processing
+        let mut escape_pressed = false;
+        let mut enter_pressed = false;
+        ctx.input_mut(|i| {
+            escape_pressed = i.consume_key(egui::Modifiers::NONE, Key::Escape);
+            enter_pressed = i.consume_key(egui::Modifiers::COMMAND, Key::Enter);
+        });
 
         if escape_pressed {
             self.close();

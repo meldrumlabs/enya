@@ -168,27 +168,27 @@ impl MultiEditOverlay {
         let mut should_apply = false;
         let mut should_replace_all = false;
 
-        // Handle keyboard shortcuts
-        ctx.input(|input| {
+        // Handle keyboard shortcuts - use consume_key to prevent multiple processing
+        ctx.input_mut(|input| {
             // Escape - cancel and close
-            if input.key_pressed(Key::Escape) {
+            if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 should_close = true;
             }
             // Ctrl+Enter or Cmd+Enter - apply and close
-            if input.key_pressed(Key::Enter) && input.modifiers.command {
+            if input.consume_key(egui::Modifiers::COMMAND, Key::Enter) {
                 should_apply = true;
             }
             // Ctrl+Shift+R - replace all
-            if input.key_pressed(Key::R) && input.modifiers.command && input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, Key::R) {
                 should_replace_all = true;
             }
             // Tab - cycle through excerpts
-            if input.key_pressed(Key::Tab) && !input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::NONE, Key::Tab) {
                 self.focused_excerpt =
                     (self.focused_excerpt + 1) % (self.excerpts.len() as i32 + 1) - 1;
             }
             // Shift+Tab - cycle backwards
-            if input.key_pressed(Key::Tab) && input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::SHIFT, Key::Tab) {
                 let total = self.excerpts.len() as i32 + 1;
                 self.focused_excerpt = (self.focused_excerpt - 1 + total) % total - 1;
             }
@@ -597,10 +597,14 @@ impl MultiEditOverlay {
 
         // Handle close/apply actions
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = MultiEditResult::Cancelled;
         } else if should_apply {
             let changes = self.collect_changes();
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = MultiEditResult::Applied(changes);
         }

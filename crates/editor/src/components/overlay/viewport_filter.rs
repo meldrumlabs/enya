@@ -144,10 +144,10 @@ impl ViewportFilter {
         let mut should_apply = false;
         let mut should_clear = false;
 
-        // Handle keyboard shortcuts
-        ui.ctx().input(|input| {
+        // Handle keyboard shortcuts - use consume_key to prevent multiple processing
+        ui.ctx().input_mut(|input| {
             // Escape - close without applying (if pattern is empty, also clear filter)
-            if input.key_pressed(Key::Escape) {
+            if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 if self.pattern.is_empty() && !self.applied_pattern.is_empty() {
                     should_clear = true;
                 } else {
@@ -155,7 +155,7 @@ impl ViewportFilter {
                 }
             }
             // Enter - apply filter and close
-            if input.key_pressed(Key::Enter) {
+            if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
                 should_apply = true;
             }
         });
@@ -386,10 +386,10 @@ impl ViewportFilter {
                 self.pattern = self.applied_pattern.clone();
             }
 
-            // Handle keyboard
+            // Handle keyboard - use consume_key to prevent multiple processing
             if text_response.has_focus() {
-                ui.ctx().input(|input| {
-                    if input.key_pressed(Key::Enter) {
+                ui.ctx().input_mut(|input| {
+                    if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
                         self.applied_pattern = self.pattern.clone();
                         self.is_open = false;
                         result = if self.applied_pattern.is_empty() {
@@ -398,7 +398,7 @@ impl ViewportFilter {
                             ViewportFilterResult::Applied(self.applied_pattern.clone())
                         };
                     }
-                    if input.key_pressed(Key::Escape) {
+                    if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                         if self.pattern.is_empty() && !self.applied_pattern.is_empty() {
                             self.clear();
                             result = ViewportFilterResult::Cleared;

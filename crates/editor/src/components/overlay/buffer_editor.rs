@@ -651,14 +651,15 @@ impl BufferEditor {
         let mut should_save = false;
 
         // Handle keyboard shortcuts (when completion is not open)
+        // Use consume_key to prevent multiple processing
         if !self.completion.is_open() {
-            ctx.input(|input| {
+            ctx.input_mut(|input| {
                 // Escape - cancel and close
-                if input.key_pressed(Key::Escape) {
+                if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                     should_close = true;
                 }
                 // Ctrl+Enter or Cmd+Enter - save and close
-                if input.key_pressed(Key::Enter) && input.modifiers.command {
+                if input.consume_key(egui::Modifiers::COMMAND, Key::Enter) {
                     should_save = true;
                 }
             });
@@ -1192,9 +1193,13 @@ impl BufferEditor {
         if should_save {
             let saved_query = self.query.clone();
             let saved_state = self.query_state.clone();
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = BufferEditorResult::Saved(saved_query, saved_state);
         } else if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = BufferEditorResult::Cancelled;
         }
