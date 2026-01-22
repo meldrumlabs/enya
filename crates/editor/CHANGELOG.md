@@ -15,6 +15,9 @@ All notable changes to the Enya editor will be documented in this file.
 - **Tutorial command**: Added missing `:tutorial` (or `:tut`) command to the command palette to open the interactive tutorial. The command now properly appears in the command palette and restarts the tutorial from the beginning.
 - **Vim navigation after overlay close**: Fixed an issue where vim keys (h/j/k/l) wouldn't work immediately after closing overlays. All overlays now properly clear egui focus on close so keyboard navigation resumes instantly. Affected overlays: command palette, buffer editor, multi-edit, which-key, workspace creator, tutorial, info, about, source preview, diagnostics, diff viewer, codebase finder, and unified finder.
 - **Consistent key consumption in overlays**: Standardized overlays to use `consume_key()` instead of `key_pressed()` to prevent keys from being processed multiple times in the same frame. Affected overlays: about, agent panel, annotation editor, buffer editor, codebase finder, command palette, diff viewer, info, multi-edit, source preview, and viewport filter.
+- **Stale focus validation after pane close**: Focus is now validated after closing a pane to ensure it references an existing tile. If the focus target was removed (e.g., container collapsed), focus falls back to the first available pane.
+- **Visual-multi cursor validation**: The visual-multi selection cursor is now validated against existing panes. If the cursor references a deleted pane, it resets to the first available pane.
+- **Recursion depth guards**: Added depth limits (100 levels) to recursive tree traversal functions to prevent stack overflow on pathological tree structures.
 
 ### Changed
 

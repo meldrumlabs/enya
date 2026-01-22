@@ -6,6 +6,10 @@
 
 use egui_tiles::{Tile, TileId};
 
+/// Maximum recursion depth for tree traversal operations.
+/// Prevents stack overflow on pathological tree structures.
+const MAX_TREE_DEPTH: usize = 100;
+
 use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::InlineSource;
@@ -963,8 +967,17 @@ impl Workspace {
             log::debug!("Closed tile: {label}");
         }
 
-        // Update focus to next tile
-        self.behavior.set_focused_tile(next_focus);
+        // Update focus to next tile, validating it still exists after removal
+        // (tree structure may have changed, e.g., collapsed containers)
+        let validated_focus = next_focus.filter(|&id| self.viewport_tree.tiles.get(id).is_some());
+        if validated_focus.is_none() && next_focus.is_some() {
+            // Original focus target was removed, find a fallback
+            let fresh_pane_ids = self.get_pane_tile_ids();
+            self.behavior
+                .set_focused_tile(fresh_pane_ids.first().copied());
+        } else {
+            self.behavior.set_focused_tile(validated_focus);
+        }
     }
 
     /// Execute the most recent undo action.
@@ -1437,10 +1450,21 @@ impl Workspace {
     /// Find the parent tab container of a tile, if any.
     fn find_parent_tab_container(&self, target_id: TileId) -> Option<TileId> {
         let root_id = self.viewport_tree.root()?;
-        self.find_parent_tab_recursive(root_id, target_id)
+        self.find_parent_tab_recursive(root_id, target_id, 0)
     }
 
-    fn find_parent_tab_recursive(&self, container_id: TileId, target_id: TileId) -> Option<TileId> {
+    fn find_parent_tab_recursive(
+        &self,
+        container_id: TileId,
+        target_id: TileId,
+        depth: usize,
+    ) -> Option<TileId> {
+        // Guard against pathological tree structures
+        if depth > MAX_TREE_DEPTH {
+            log::warn!("find_parent_tab_recursive exceeded max depth {MAX_TREE_DEPTH}");
+            return None;
+        }
+
         if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
             let children: Vec<TileId> = container.children().copied().collect();
 
@@ -1456,7 +1480,8 @@ impl Workspace {
 
             // Recursively search nested containers
             for child_id in children {
-                if let Some(parent) = self.find_parent_tab_recursive(child_id, target_id) {
+                if let Some(parent) = self.find_parent_tab_recursive(child_id, target_id, depth + 1)
+                {
                     return Some(parent);
                 }
             }
@@ -1577,14 +1602,21 @@ impl Workspace {
     /// Find the parent container and the index of a child within it.
     fn find_parent_container_info(&self, target_id: TileId) -> Option<(TileId, usize)> {
         let root_id = self.viewport_tree.root()?;
-        self.find_parent_info_recursive(root_id, target_id)
+        self.find_parent_info_recursive(root_id, target_id, 0)
     }
 
     fn find_parent_info_recursive(
         &self,
         container_id: TileId,
         target_id: TileId,
+        depth: usize,
     ) -> Option<(TileId, usize)> {
+        // Guard against pathological tree structures
+        if depth > MAX_TREE_DEPTH {
+            log::warn!("find_parent_info_recursive exceeded max depth {MAX_TREE_DEPTH}");
+            return None;
+        }
+
         if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
             let children: Vec<TileId> = container.children().copied().collect();
 
@@ -1597,7 +1629,8 @@ impl Workspace {
 
             // Recursively search nested containers
             for child_id in children {
-                if let Some(info) = self.find_parent_info_recursive(child_id, target_id) {
+                if let Some(info) = self.find_parent_info_recursive(child_id, target_id, depth + 1)
+                {
                     return Some(info);
                 }
             }
@@ -1613,7 +1646,7 @@ impl Workspace {
         let mut pane_ids = Vec::new();
 
         if let Some(root_id) = self.viewport_tree.root() {
-            self.collect_pane_ids(root_id, &mut pane_ids);
+            self.collect_pane_ids(root_id, &mut pane_ids, 0);
         }
 
         pane_ids
@@ -1745,7 +1778,13 @@ impl Workspace {
     }
 
     /// Recursively collect all pane tile IDs
-    fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>) {
+    fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>, depth: usize) {
+        // Guard against pathological tree structures
+        if depth > MAX_TREE_DEPTH {
+            log::warn!("collect_pane_ids exceeded max depth {MAX_TREE_DEPTH}");
+            return;
+        }
+
         if let Some(tile) = self.viewport_tree.tiles.get(tile_id) {
             match tile {
                 Tile::Pane(_) => {
@@ -1753,7 +1792,7 @@ impl Workspace {
                 }
                 Tile::Container(container) => {
                     for child_id in container.children() {
-                        self.collect_pane_ids(*child_id, pane_ids);
+                        self.collect_pane_ids(*child_id, pane_ids, depth + 1);
                     }
                 }
             }

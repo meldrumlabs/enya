@@ -957,7 +957,23 @@ impl Workspace {
     ) -> Option<WorkspaceAction> {
         let pane_ids = self.get_pane_tile_ids();
 
-        // Get current cursor position from visual-multi state
+        // Get current cursor position from visual-multi state, validating it still exists
+        let cursor_tile_id = self
+            .visual_multi_state
+            .as_ref()
+            .and_then(|s| s.cursor_tile_id)
+            .filter(|id| pane_ids.contains(id));
+
+        // If cursor was invalid, reset to first pane
+        if cursor_tile_id.is_none() {
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                if let Some(&first_pane) = pane_ids.first() {
+                    state.set_cursor(first_pane);
+                }
+            }
+        }
+
+        // Re-read cursor after potential reset
         let cursor_tile_id = self
             .visual_multi_state
             .as_ref()
