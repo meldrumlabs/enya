@@ -89,6 +89,8 @@ pub enum CommandResult {
     ArrangeFloatingPanes,
     /// Sync git repository and re-index codebase (native only)
     SyncCodebase,
+    /// Open the tutorial overlay
+    OpenTutorial,
     /// No-op (command not recognized or cancelled)
     None,
 }
@@ -195,6 +197,12 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         name: "dock",
         aliases: &["dk"],
         description: "Dock all floating panes back to tile layout",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "tutorial",
+        aliases: &["tut"],
+        description: "Open the interactive tutorial",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -547,6 +555,7 @@ impl CommandPalette {
                 }
             }
             "dock" | "dk" => CommandResult::DockAllPanes,
+            "tutorial" | "tut" => CommandResult::OpenTutorial,
             "sync" => {
                 if args.is_empty() {
                     CommandResult::Error("Usage: :sync git".to_string())

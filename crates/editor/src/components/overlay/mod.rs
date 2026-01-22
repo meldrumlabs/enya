@@ -40,6 +40,7 @@ pub use agent_panel::{AgentPanel, AgentPanelResult, ChatMessage};
 pub use codebase_finder::{CodebaseFinder, CodebaseFinderResult, CodebaseFinderStatus};
 // Re-export shared types from util for backwards compatibility
 pub use super::util::{AiProvider, MessageRole};
+pub use about::AboutOverlay;
 pub use annotation_editor::{AnnotationEditor, AnnotationEditorResult};
 pub use buffer_editor::{BufferEditor, BufferEditorResult};
 pub use command_palette::{CommandKind, CommandPalette, CommandResult, PaletteCommand};
@@ -49,7 +50,6 @@ pub use diagnostics::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use diff_viewer::{DiffViewerOverlay, DiffViewerResult};
-pub use about::AboutOverlay;
 pub use info::InfoOverlay;
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
 #[cfg(target_arch = "wasm32")]
