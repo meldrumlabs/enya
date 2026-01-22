@@ -276,4 +276,84 @@ impl PluginHost for EditorPluginHost {
             })
         }
     }
+
+    // ==================== Pane Management ====================
+
+    fn add_query_pane(&self, query: &str, title: Option<&str>) {
+        use crate::command::UICommand;
+        self.command_sender.send_ui(UICommand::PluginAddQueryPane {
+            query: query.to_string(),
+            title: title.map(|t| t.to_string()),
+        });
+    }
+
+    fn add_logs_pane(&self) {
+        use crate::command::UICommand;
+        self.command_sender.send_ui(UICommand::PluginAddLogsPane);
+    }
+
+    fn add_tracing_pane(&self, trace_id: Option<&str>) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginAddTracingPane {
+                trace_id: trace_id.map(|t| t.to_string()),
+            });
+    }
+
+    fn add_terminal_pane(&self) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginAddTerminalPane);
+    }
+
+    fn add_sql_pane(&self) {
+        use crate::command::UICommand;
+        self.command_sender.send_ui(UICommand::PluginAddSqlPane);
+    }
+
+    fn close_focused_pane(&self) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginCloseFocusedPane);
+    }
+
+    fn focus_pane(&self, direction: &str) {
+        use crate::command::UICommand;
+        self.command_sender.send_ui(UICommand::PluginFocusPane {
+            direction: direction.to_string(),
+        });
+    }
+
+    // ==================== Time Range ====================
+
+    fn set_time_range_preset(&self, preset: &str) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginSetTimeRangePreset {
+                preset: preset.to_string(),
+            });
+    }
+
+    fn set_time_range_absolute(&self, start_secs: f64, end_secs: f64) {
+        use crate::command::UICommand;
+        // Convert seconds to milliseconds for hashable storage in UICommand
+        let start_ms = (start_secs * 1000.0) as i64;
+        let end_ms = (end_secs * 1000.0) as i64;
+        self.command_sender
+            .send_ui(UICommand::PluginSetTimeRangeAbsolute { start_ms, end_ms });
+    }
+
+    fn get_time_range(&self) -> (f64, f64) {
+        // Note: Time range is managed by the workspace, and we can't synchronously
+        // query it from here. This returns a cached/default value.
+        // For accurate time range, plugins should use the async pattern or
+        // the time range will be provided in callbacks.
+        // Default to last 5 minutes from now.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let start = now - 300.0; // 5 minutes ago
+        (start, now)
+    }
 }

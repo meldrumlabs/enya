@@ -696,6 +696,22 @@ mod tests {
                 message: "Not implemented".to_string(),
             })
         }
+
+        // Pane management (no-op for mock)
+        fn add_query_pane(&self, _query: &str, _title: Option<&str>) {}
+        fn add_logs_pane(&self) {}
+        fn add_tracing_pane(&self, _trace_id: Option<&str>) {}
+        fn add_terminal_pane(&self) {}
+        fn add_sql_pane(&self) {}
+        fn close_focused_pane(&self) {}
+        fn focus_pane(&self, _direction: &str) {}
+
+        // Time range (no-op for mock)
+        fn set_time_range_preset(&self, _preset: &str) {}
+        fn set_time_range_absolute(&self, _start_secs: f64, _end_secs: f64) {}
+        fn get_time_range(&self) -> (f64, f64) {
+            (0.0, 0.0)
+        }
     }
 
     /// Simple test plugin for testing registry operations.

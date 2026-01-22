@@ -150,6 +150,30 @@ Available in command callbacks:
 | `enya.http_get(url, [headers])` | HTTP GET, returns `{status, body, headers}` or `{error}` |
 | `enya.http_post(url, body, [headers])` | HTTP POST, returns `{status, body, headers}` or `{error}` |
 
+### Pane Management Functions
+
+Control workspace panes from Lua:
+
+| Function | Description |
+|----------|-------------|
+| `enya.add_query_pane(query, [title])` | Add a query pane with PromQL query |
+| `enya.add_logs_pane()` | Add a logs pane with current time range |
+| `enya.add_tracing_pane([trace_id])` | Add a tracing pane, optionally with a trace ID |
+| `enya.add_terminal_pane()` | Add a terminal pane (native only) |
+| `enya.add_sql_pane()` | Add a SQL pane |
+| `enya.close_pane()` | Close the focused pane |
+| `enya.focus_pane(direction)` | Focus pane in direction ("left", "right", "up", "down") |
+
+### Time Range Functions
+
+Control the global time range:
+
+| Function | Description |
+|----------|-------------|
+| `enya.set_time_range(preset)` | Set time range preset ("5m", "15m", "30m", "1h", "6h", "24h", "7d") |
+| `enya.set_time_range_absolute(start, end)` | Set absolute time range (seconds since Unix epoch) |
+| `enya.get_time_range()` | Get current time range as `{start, end}` (seconds) |
+
 ## Examples
 
 ### Shell Command Execution
@@ -256,14 +280,113 @@ enya.register_command("start-incident", {
     enya.log("info", "Starting incident investigation")
     enya.notify("info", "Setting up incident investigation...")
 
-    -- Execute multiple commands to set up workspace
-    enya.execute("set-time-range", "1h")
-    enya.execute("focus-logs")
+    -- Set time range to last hour
+    enya.set_time_range("1h")
+
+    -- Add relevant panes
+    enya.add_query_pane("rate(http_requests_total[5m])", "Request Rate")
+    enya.add_logs_pane()
 
     return true
 end)
 
 enya.keymap("Space+i+s", "start-incident", "Start incident investigation")
+```
+
+### Pane Management
+
+```lua
+plugin = { name = "pane-tools", version = "0.1.0" }
+
+-- Add a query pane with a custom title
+enya.register_command("add-cpu-chart", {
+    description = "Add CPU usage chart"
+}, function(args)
+    enya.add_query_pane("rate(process_cpu_seconds_total[5m])", "CPU Usage")
+    enya.notify("info", "Added CPU chart")
+    return true
+end)
+
+-- Navigate between panes
+enya.register_command("focus-left", {
+    description = "Focus pane on the left"
+}, function(args)
+    enya.focus_pane("left")
+    return true
+end)
+
+-- Close current pane
+enya.register_command("close-current", {
+    description = "Close the focused pane"
+}, function(args)
+    enya.close_pane()
+    return true
+end)
+
+enya.keymap("Space+p+c", "add-cpu-chart", "Add CPU chart")
+enya.keymap("Space+p+h", "focus-left", "Focus left pane")
+enya.keymap("Space+p+x", "close-current", "Close pane")
+```
+
+### Time Range Control
+
+```lua
+plugin = { name = "time-presets", version = "0.1.0" }
+
+-- Quick time range presets
+enya.register_command("last-5m", {
+    description = "Set time range to last 5 minutes"
+}, function(args)
+    enya.set_time_range("5m")
+    return true
+end)
+
+enya.register_command("last-hour", {
+    description = "Set time range to last hour"
+}, function(args)
+    enya.set_time_range("1h")
+    return true
+end)
+
+enya.register_command("last-day", {
+    description = "Set time range to last 24 hours"
+}, function(args)
+    enya.set_time_range("24h")
+    return true
+end)
+
+-- Set custom absolute time range
+enya.register_command("set-range", {
+    description = "Set custom time range (start end in Unix seconds)",
+    accepts_args = true
+}, function(args)
+    local parts = {}
+    for part in args:gmatch("%S+") do
+        table.insert(parts, tonumber(part))
+    end
+
+    if #parts ~= 2 then
+        enya.notify("error", "Usage: set-range <start> <end>")
+        return false
+    end
+
+    enya.set_time_range_absolute(parts[1], parts[2])
+    enya.notify("info", "Time range set")
+    return true
+end)
+
+-- Show current time range
+enya.register_command("show-range", {
+    description = "Show current time range"
+}, function(args)
+    local range = enya.get_time_range()
+    enya.notify("info", "Range: " .. range.start .. " to " .. range["end"])
+    return true
+end)
+
+enya.keymap("Space+t+5", "last-5m", "Last 5 minutes")
+enya.keymap("Space+t+h", "last-hour", "Last hour")
+enya.keymap("Space+t+d", "last-day", "Last 24 hours")
 ```
 
 ## Custom Themes

@@ -29,11 +29,46 @@ pub enum UICommand {
     },
     /// Request a UI repaint (from plugins)
     Repaint,
+
+    // ==================== Plugin Pane Commands ====================
+    /// Add a query pane from a plugin
+    PluginAddQueryPane {
+        query: String,
+        title: Option<String>,
+    },
+    /// Add a logs pane from a plugin
+    PluginAddLogsPane,
+    /// Add a tracing pane from a plugin
+    PluginAddTracingPane {
+        trace_id: Option<String>,
+    },
+    /// Add a terminal pane from a plugin
+    PluginAddTerminalPane,
+    /// Add a SQL pane from a plugin
+    PluginAddSqlPane,
+    /// Close the focused pane from a plugin
+    PluginCloseFocusedPane,
+    /// Focus pane in a direction from a plugin
+    PluginFocusPane {
+        direction: String,
+    },
+
+    // ==================== Plugin Time Range Commands ====================
+    /// Set time range preset from a plugin (e.g., "5m", "1h", "24h")
+    PluginSetTimeRangePreset {
+        preset: String,
+    },
+    /// Set absolute time range from a plugin (milliseconds since Unix epoch)
+    PluginSetTimeRangeAbsolute {
+        start_ms: i64,
+        end_ms: i64,
+    },
 }
 
 impl UICommand {
     /// Returns all command variants (for iteration).
     /// Note: OpenExampleDashboard uses index 0 as placeholder.
+    /// Plugin commands are not included here as they are programmatic only.
     fn all() -> impl Iterator<Item = Self> {
         [
             Self::Home,
@@ -75,6 +110,16 @@ impl UICommand {
             Self::OpenCommandPalette => ("Command Palette", "Open command palette"),
             Self::Notify { .. } => ("", ""),
             Self::Repaint => ("", ""),
+            // Plugin commands (programmatic only)
+            Self::PluginAddQueryPane { .. } => ("", ""),
+            Self::PluginAddLogsPane => ("", ""),
+            Self::PluginAddTracingPane { .. } => ("", ""),
+            Self::PluginAddTerminalPane => ("", ""),
+            Self::PluginAddSqlPane => ("", ""),
+            Self::PluginCloseFocusedPane => ("", ""),
+            Self::PluginFocusPane { .. } => ("", ""),
+            Self::PluginSetTimeRangePreset { .. } => ("", ""),
+            Self::PluginSetTimeRangeAbsolute { .. } => ("", ""),
         }
     }
 
@@ -196,6 +241,16 @@ impl UICommand {
             Self::OpenCommandPalette => vec![key(Key::Colon)],
             Self::Notify { .. } => vec![], // Programmatic only
             Self::Repaint => vec![],       // Programmatic only
+            // Plugin commands (programmatic only)
+            Self::PluginAddQueryPane { .. } => vec![],
+            Self::PluginAddLogsPane => vec![],
+            Self::PluginAddTracingPane { .. } => vec![],
+            Self::PluginAddTerminalPane => vec![],
+            Self::PluginAddSqlPane => vec![],
+            Self::PluginCloseFocusedPane => vec![],
+            Self::PluginFocusPane { .. } => vec![],
+            Self::PluginSetTimeRangePreset { .. } => vec![],
+            Self::PluginSetTimeRangeAbsolute { .. } => vec![],
         }
     }
 

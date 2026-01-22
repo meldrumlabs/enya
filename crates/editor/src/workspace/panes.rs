@@ -69,8 +69,8 @@ impl Workspace {
 
     /// Add a query pane with a PromQL query and optional title.
     ///
-    /// This is used by the agent to create panes programmatically.
-    pub(super) fn add_query_pane(&mut self, query: &str, title: Option<&str>) {
+    /// This is used by the agent and plugins to create panes programmatically.
+    pub fn add_query_pane(&mut self, query: &str, title: Option<&str>) {
         let query_number = self.next_query_number;
         self.next_query_number += 1;
 
@@ -96,7 +96,7 @@ impl Workspace {
     /// Creates a new terminal pane backed by ghostty-vt for running shell commands.
     /// Requires the "terminal" feature to be enabled.
     #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
-    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+    pub fn add_terminal_pane(&mut self) -> Option<TileId> {
         use crate::components::TerminalPane;
         use crate::ui::theme::AppTheme;
 
@@ -124,14 +124,14 @@ impl Workspace {
 
     /// Add a terminal pane (stub - terminal feature not enabled).
     #[cfg(all(not(target_arch = "wasm32"), not(feature = "terminal")))]
-    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+    pub fn add_terminal_pane(&mut self) -> Option<TileId> {
         log::warn!("Terminal panes require the 'terminal' feature (needs zig toolchain)");
         None
     }
 
     /// Add a terminal pane (WASM stub - terminals not supported in browser).
     #[cfg(target_arch = "wasm32")]
-    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+    pub fn add_terminal_pane(&mut self) -> Option<TileId> {
         log::warn!("Terminal panes are not available in the browser");
         None
     }
@@ -140,7 +140,7 @@ impl Workspace {
     ///
     /// Creates a new tracing pane for visualizing distributed traces.
     /// Optionally pre-fills a trace ID to load.
-    pub(super) fn add_tracing_pane(&mut self, trace_id: Option<&str>) -> Option<TileId> {
+    pub fn add_tracing_pane(&mut self, trace_id: Option<&str>) -> Option<TileId> {
         use crate::components::TracingPane;
 
         let tracing_pane = if let Some(id) = trace_id {
@@ -167,7 +167,7 @@ impl Workspace {
     /// Creates a new SQL pane for running DataFusion queries on local files.
     /// Requires the `sql` feature to be enabled.
     #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
-    pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
+    pub fn add_sql_pane(&mut self) -> Option<TileId> {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
 
@@ -188,7 +188,7 @@ impl Workspace {
 
     /// Add a SQL pane (stub version for WASM or when sql feature is disabled).
     #[cfg(any(target_arch = "wasm32", not(feature = "sql")))]
-    pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
+    pub fn add_sql_pane(&mut self) -> Option<TileId> {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
 
@@ -2222,6 +2222,77 @@ impl Workspace {
 
             log::info!("Floated pane from tile tree with size {size:?}");
         }
+    }
+
+    // ==================== Plugin API Methods ====================
+
+    /// Add a logs pane from a plugin (uses current time range).
+    ///
+    /// This is a public wrapper for plugins to create logs panes without
+    /// needing to specify the time range explicitly.
+    pub fn add_logs_pane_from_plugin(&mut self) {
+        let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
+        self.add_logs_pane(start_ns as i64, end_ns as i64);
+    }
+
+    /// Close the currently focused pane (public wrapper for plugins).
+    pub fn close_focused_pane(&mut self) {
+        if let Some(focused_tile) = self.behavior.focused_tile() {
+            self.close_tile(focused_tile);
+        }
+    }
+
+    /// Focus pane in a direction (public wrapper for plugins).
+    ///
+    /// # Arguments
+    /// * `direction` - One of "left", "right", "up", "down"
+    pub fn focus_pane_in_direction(&mut self, direction: &str) {
+        let nav_direction = match direction.to_lowercase().as_str() {
+            "left" => NavDirection::Left,
+            "right" => NavDirection::Right,
+            "up" => NavDirection::Up,
+            "down" => NavDirection::Down,
+            _ => {
+                log::warn!("Invalid pane focus direction: {direction}");
+                return;
+            }
+        };
+
+        // Find the currently focused tile
+        let Some(current_id) = self.behavior.focused_tile() else {
+            log::debug!("No focused pane to navigate from");
+            return;
+        };
+
+        // Find sibling in the requested direction
+        if let Some(target_id) = self.find_sibling_in_direction(current_id, nav_direction) {
+            self.behavior.set_focused_tile(Some(target_id));
+            log::debug!("Plugin focused pane in direction: {nav_direction:?}");
+        }
+    }
+
+    /// Set time range preset from a plugin.
+    ///
+    /// # Arguments
+    /// * `preset` - One of "5m", "15m", "30m", "1h", "6h", "24h", "7d"
+    pub fn set_time_range_preset_from_plugin(&mut self, preset: &str) {
+        if let Some(preset_enum) = Self::parse_time_preset(preset) {
+            self.time_range_toolbar.set_preset(preset_enum);
+            log::info!("Plugin set time range preset: {preset}");
+        } else {
+            log::warn!("Plugin: unknown time range preset '{preset}'");
+        }
+    }
+
+    /// Set absolute time range from a plugin.
+    ///
+    /// # Arguments
+    /// * `start_secs` - Start time in seconds since Unix epoch
+    /// * `end_secs` - End time in seconds since Unix epoch
+    pub fn set_time_range_absolute_from_plugin(&mut self, start_secs: f64, end_secs: f64) {
+        self.time_range_toolbar
+            .set_custom_range(start_secs, end_secs);
+        log::info!("Plugin set absolute time range: {start_secs} to {end_secs}");
     }
 }
 

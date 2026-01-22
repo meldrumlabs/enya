@@ -17,6 +17,18 @@ All notable changes to the Enya editor will be documented in this file.
   - **Custom themes**: Lua plugins can define custom color themes with inheritance from base themes
   - **Plugin loader**: Automatic discovery from `~/.config/enya/plugins/` and workspace `.enya/plugins/`
   - **Documentation**: Comprehensive [PLUGINS.md](./PLUGINS.md) guide for plugin authors
+- **Plugin pane management API**: Lua plugins can now programmatically manage workspace panes:
+  - `enya.add_query_pane(query, [title])` - Add a query pane with PromQL query
+  - `enya.add_logs_pane()` - Add a logs pane with current time range
+  - `enya.add_tracing_pane([trace_id])` - Add a tracing pane
+  - `enya.add_terminal_pane()` - Add a terminal pane (native only)
+  - `enya.add_sql_pane()` - Add a SQL pane
+  - `enya.close_pane()` - Close the focused pane
+  - `enya.focus_pane(direction)` - Navigate to adjacent panes
+- **Plugin time range API**: Lua plugins can control the global time range:
+  - `enya.set_time_range(preset)` - Set time range preset ("5m", "1h", "24h", etc.)
+  - `enya.set_time_range_absolute(start, end)` - Set absolute time range
+  - `enya.get_time_range()` - Get current time range
 
 ### Fixed
 

@@ -134,6 +134,41 @@ pub trait PluginHost: Send + Sync {
         body: &str,
         headers: &FxHashMap<String, String>,
     ) -> Result<HttpResponse, HttpError>;
+
+    // ==================== Pane Management ====================
+
+    /// Add a query pane with the given PromQL query and optional title.
+    fn add_query_pane(&self, query: &str, title: Option<&str>);
+
+    /// Add a logs pane.
+    fn add_logs_pane(&self);
+
+    /// Add a tracing pane, optionally pre-filled with a trace ID.
+    fn add_tracing_pane(&self, trace_id: Option<&str>);
+
+    /// Add a terminal pane (native only, no-op on WASM).
+    fn add_terminal_pane(&self);
+
+    /// Add a SQL pane.
+    fn add_sql_pane(&self);
+
+    /// Close the currently focused pane.
+    fn close_focused_pane(&self);
+
+    /// Focus pane in the given direction ("left", "right", "up", "down").
+    fn focus_pane(&self, direction: &str);
+
+    // ==================== Time Range ====================
+
+    /// Set time range to a preset (e.g., "5m", "15m", "1h", "6h", "24h", "7d").
+    fn set_time_range_preset(&self, preset: &str);
+
+    /// Set absolute time range (start and end in seconds since Unix epoch).
+    fn set_time_range_absolute(&self, start_secs: f64, end_secs: f64);
+
+    /// Get the current time range as (start_secs, end_secs).
+    /// Note: This returns cached values; may not reflect real-time updates.
+    fn get_time_range(&self) -> (f64, f64);
 }
 
 /// Reference-counted plugin host.
@@ -225,6 +260,60 @@ impl PluginContext {
         headers: &FxHashMap<String, String>,
     ) -> Result<HttpResponse, HttpError> {
         self.host.http_post(url, body, headers)
+    }
+
+    // ==================== Pane Management ====================
+
+    /// Add a query pane with the given PromQL query and optional title.
+    pub fn add_query_pane(&self, query: &str, title: Option<&str>) {
+        self.host.add_query_pane(query, title);
+    }
+
+    /// Add a logs pane.
+    pub fn add_logs_pane(&self) {
+        self.host.add_logs_pane();
+    }
+
+    /// Add a tracing pane, optionally pre-filled with a trace ID.
+    pub fn add_tracing_pane(&self, trace_id: Option<&str>) {
+        self.host.add_tracing_pane(trace_id);
+    }
+
+    /// Add a terminal pane (native only, no-op on WASM).
+    pub fn add_terminal_pane(&self) {
+        self.host.add_terminal_pane();
+    }
+
+    /// Add a SQL pane.
+    pub fn add_sql_pane(&self) {
+        self.host.add_sql_pane();
+    }
+
+    /// Close the currently focused pane.
+    pub fn close_focused_pane(&self) {
+        self.host.close_focused_pane();
+    }
+
+    /// Focus pane in the given direction ("left", "right", "up", "down").
+    pub fn focus_pane(&self, direction: &str) {
+        self.host.focus_pane(direction);
+    }
+
+    // ==================== Time Range ====================
+
+    /// Set time range to a preset (e.g., "5m", "15m", "1h", "6h", "24h", "7d").
+    pub fn set_time_range_preset(&self, preset: &str) {
+        self.host.set_time_range_preset(preset);
+    }
+
+    /// Set absolute time range (start and end in seconds since Unix epoch).
+    pub fn set_time_range_absolute(&self, start_secs: f64, end_secs: f64) {
+        self.host.set_time_range_absolute(start_secs, end_secs);
+    }
+
+    /// Get the current time range as (start_secs, end_secs).
+    pub fn get_time_range(&self) -> (f64, f64) {
+        self.host.get_time_range()
     }
 }
 

@@ -232,6 +232,20 @@ end
 - `enya.http_get(url, [headers])` - HTTP GET request
 - `enya.http_post(url, body, [headers])` - HTTP POST request
 
+**Pane Management**:
+- `enya.add_query_pane(query, [title])` - Add a query pane with PromQL query
+- `enya.add_logs_pane()` - Add a logs pane with current time range
+- `enya.add_tracing_pane([trace_id])` - Add a tracing pane
+- `enya.add_terminal_pane()` - Add a terminal pane (native only)
+- `enya.add_sql_pane()` - Add a SQL pane
+- `enya.close_pane()` - Close the focused pane
+- `enya.focus_pane(direction)` - Focus pane in direction ("left", "right", "up", "down")
+
+**Time Range**:
+- `enya.set_time_range(preset)` - Set time range preset ("5m", "1h", "24h", etc.)
+- `enya.set_time_range_absolute(start, end)` - Set absolute time range (seconds)
+- `enya.get_time_range()` - Get current time range as `{start, end}` (seconds)
+
 ### Custom Themes in Lua
 
 ```lua

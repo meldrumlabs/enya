@@ -483,6 +483,50 @@ impl EnyaApp {
             UICommand::Repaint => {
                 egui_ctx.request_repaint();
             }
+
+            // ==================== Plugin Pane Commands ====================
+            UICommand::PluginAddQueryPane { query, title } => {
+                self.workspace.add_query_pane(&query, title.as_deref());
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginAddLogsPane => {
+                self.workspace.add_logs_pane_from_plugin();
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginAddTracingPane { trace_id } => {
+                self.workspace.add_tracing_pane(trace_id.as_deref());
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginAddTerminalPane => {
+                self.workspace.add_terminal_pane();
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginAddSqlPane => {
+                self.workspace.add_sql_pane();
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginCloseFocusedPane => {
+                self.workspace.close_focused_pane();
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginFocusPane { direction } => {
+                self.workspace.focus_pane_in_direction(&direction);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Time Range Commands ====================
+            UICommand::PluginSetTimeRangePreset { preset } => {
+                self.workspace.set_time_range_preset_from_plugin(&preset);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginSetTimeRangeAbsolute { start_ms, end_ms } => {
+                // Convert milliseconds back to seconds for the workspace API
+                let start_secs = start_ms as f64 / 1000.0;
+                let end_secs = end_ms as f64 / 1000.0;
+                self.workspace
+                    .set_time_range_absolute_from_plugin(start_secs, end_secs);
+                egui_ctx.request_repaint();
+            }
         }
     }
 

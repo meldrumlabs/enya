@@ -345,6 +345,45 @@ impl LuaPlugin {
         )?;
         enya.set("http_post", noop_http_post)?;
 
+        // Pane management - no-op during loading phase
+        let noop_add_query_pane =
+            lua.create_function(|_, (_query, _title): (String, Option<String>)| Ok(()))?;
+        enya.set("add_query_pane", noop_add_query_pane)?;
+
+        let noop_add_logs_pane = lua.create_function(|_, ()| Ok(()))?;
+        enya.set("add_logs_pane", noop_add_logs_pane)?;
+
+        let noop_add_tracing_pane = lua.create_function(|_, _trace_id: Option<String>| Ok(()))?;
+        enya.set("add_tracing_pane", noop_add_tracing_pane)?;
+
+        let noop_add_terminal_pane = lua.create_function(|_, ()| Ok(()))?;
+        enya.set("add_terminal_pane", noop_add_terminal_pane)?;
+
+        let noop_add_sql_pane = lua.create_function(|_, ()| Ok(()))?;
+        enya.set("add_sql_pane", noop_add_sql_pane)?;
+
+        let noop_close_pane = lua.create_function(|_, ()| Ok(()))?;
+        enya.set("close_pane", noop_close_pane)?;
+
+        let noop_focus_pane = lua.create_function(|_, _direction: String| Ok(()))?;
+        enya.set("focus_pane", noop_focus_pane)?;
+
+        // Time range - no-op during loading phase
+        let noop_set_time_range = lua.create_function(|_, _preset: String| Ok(()))?;
+        enya.set("set_time_range", noop_set_time_range)?;
+
+        let noop_set_time_range_absolute =
+            lua.create_function(|_, (_start, _end): (f64, f64)| Ok(()))?;
+        enya.set("set_time_range_absolute", noop_set_time_range_absolute)?;
+
+        let noop_get_time_range = lua.create_function(|lua, ()| {
+            let table = lua.create_table()?;
+            table.set("start", 0.0)?;
+            table.set("end", 0.0)?;
+            Ok(table)
+        })?;
+        enya.set("get_time_range", noop_get_time_range)?;
+
         globals.set("enya", enya)?;
 
         Ok(())
@@ -672,6 +711,84 @@ impl LuaPlugin {
             },
         )?;
         enya.set("http_post", http_post_fn)?;
+
+        // ==================== Pane Management API ====================
+
+        // enya.add_query_pane(query, [title]) - Add a query pane with PromQL query
+        let add_query_pane_fn =
+            scope.create_function(|_, (query, title): (String, Option<String>)| {
+                ctx.add_query_pane(&query, title.as_deref());
+                Ok(())
+            })?;
+        enya.set("add_query_pane", add_query_pane_fn)?;
+
+        // enya.add_logs_pane() - Add a logs pane
+        let add_logs_pane_fn = scope.create_function(|_, ()| {
+            ctx.add_logs_pane();
+            Ok(())
+        })?;
+        enya.set("add_logs_pane", add_logs_pane_fn)?;
+
+        // enya.add_tracing_pane([trace_id]) - Add a tracing pane, optionally with a trace ID
+        let add_tracing_pane_fn = scope.create_function(|_, trace_id: Option<String>| {
+            ctx.add_tracing_pane(trace_id.as_deref());
+            Ok(())
+        })?;
+        enya.set("add_tracing_pane", add_tracing_pane_fn)?;
+
+        // enya.add_terminal_pane() - Add a terminal pane (native only)
+        let add_terminal_pane_fn = scope.create_function(|_, ()| {
+            ctx.add_terminal_pane();
+            Ok(())
+        })?;
+        enya.set("add_terminal_pane", add_terminal_pane_fn)?;
+
+        // enya.add_sql_pane() - Add a SQL pane
+        let add_sql_pane_fn = scope.create_function(|_, ()| {
+            ctx.add_sql_pane();
+            Ok(())
+        })?;
+        enya.set("add_sql_pane", add_sql_pane_fn)?;
+
+        // enya.close_pane() - Close the focused pane
+        let close_pane_fn = scope.create_function(|_, ()| {
+            ctx.close_focused_pane();
+            Ok(())
+        })?;
+        enya.set("close_pane", close_pane_fn)?;
+
+        // enya.focus_pane(direction) - Focus pane in direction ("left", "right", "up", "down")
+        let focus_pane_fn = scope.create_function(|_, direction: String| {
+            ctx.focus_pane(&direction);
+            Ok(())
+        })?;
+        enya.set("focus_pane", focus_pane_fn)?;
+
+        // ==================== Time Range API ====================
+
+        // enya.set_time_range(preset) - Set time range to preset ("5m", "1h", "24h", etc.)
+        let set_time_range_fn = scope.create_function(|_, preset: String| {
+            ctx.set_time_range_preset(&preset);
+            Ok(())
+        })?;
+        enya.set("set_time_range", set_time_range_fn)?;
+
+        // enya.set_time_range_absolute(start_secs, end_secs) - Set absolute time range
+        let set_time_range_absolute_fn = scope.create_function(|_, (start, end): (f64, f64)| {
+            ctx.set_time_range_absolute(start, end);
+            Ok(())
+        })?;
+        enya.set("set_time_range_absolute", set_time_range_absolute_fn)?;
+
+        // enya.get_time_range() - Get current time range as {start, end}
+        let get_time_range_fn = scope.create_function(|lua, ()| {
+            let (start, end) = ctx.get_time_range();
+            let table = lua.create_table()?;
+            table.set("start", start)?;
+            table.set("end", end)?;
+            Ok(table)
+        })?;
+        enya.set("get_time_range", get_time_range_fn)?;
 
         Ok(())
     }
