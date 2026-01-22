@@ -10,7 +10,22 @@ All notable changes to the Enya editor will be documented in this file.
 - **Landing page monospace shortcuts**: Menu item shortcuts now render in a monospace font for a clean, terminal-native look.
 - **About overlay**: New "About" option on landing page opens a dedicated overlay describing Enya as a keyboard-first observability editor that connects metrics, logs, traces, SQL, and git with AI.
 
+### Fixed
+
+- **Tutorial command**: Added missing `:tutorial` (or `:tut`) command to the command palette to open the interactive tutorial. The command now properly appears in the command palette and restarts the tutorial from the beginning.
+
 ### Changed
+
+- **Tutorial overlay refresh**: Updated the interactive tutorial (`:tutorial`) with new sections and platform-aware content:
+  - Added **Quick Time Presets** step for `t1/th/td` shortcuts
+  - Added **Floating Panes** step for `gf` and `:dock` commands
+  - Added **Move Panes** step for `Ctrl+W h/j/k/l` and tab merging
+  - Added **Workspace Undo** step for `u` keybinding
+  - Added **Ask the AI Agent** step for `aa` and `Space+a` keybindings
+  - Added **Terminal & SQL** step (native-only) for `:terminal` and `:sql` commands
+  - Updated **Metrics Finder** to **Find Anything** with `Space+f` keybinding
+  - Tutorial now detects WASM vs native and hides native-only features on web
+  - Replaced progress dots with a simple progress bar and "X of Y" step counter for better visual clarity
 
 - **Landing page footer**: Updated credit text from "Developed by Meldrum Labs" to "Crafted in Stockholm"
 - **Landing page header**: Removed large "ENYA" title text for a cleaner, more minimal design - the brand name now appears subtly in the version badge (e.g., "Enya [ v0.1.0 ]")

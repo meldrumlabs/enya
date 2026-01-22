@@ -1885,6 +1885,10 @@ impl Workspace {
                 }
                 WorkspaceAction::None
             }
+            CommandResult::OpenTutorial => {
+                self.tutorial_overlay.open_from_start();
+                WorkspaceAction::None
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
             }

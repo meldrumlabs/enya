@@ -49,18 +49,20 @@ impl Default for TutorialOverlay {
 
 impl TutorialOverlay {
     pub fn new() -> Self {
+        let is_wasm = cfg!(target_arch = "wasm32");
         Self {
             is_open: false,
             just_opened: false,
             theme: AppTheme::default(),
             current_step: 0,
-            steps: Self::build_tutorial_steps(),
+            steps: Self::build_tutorial_steps(is_wasm),
         }
     }
 
     /// Build the default tutorial steps
-    fn build_tutorial_steps() -> Vec<TutorialStep> {
-        vec![
+    fn build_tutorial_steps(is_wasm: bool) -> Vec<TutorialStep> {
+        let mut steps = vec![
+            // === Welcome ===
             TutorialStep {
                 title: "Welcome to Enya",
                 instruction: "This tutorial will guide you through the core features of the editor. Navigate through the steps to learn vim-style keybindings and commands.",
@@ -68,6 +70,7 @@ impl TutorialOverlay {
                 tip: Some("Press → or Enter to continue, ← to go back"),
                 icon: semantic_icons::status::INFO,
             },
+            // === Pane Management (grouped) ===
             TutorialStep {
                 title: "Navigate Between Panes",
                 instruction: "Use vim-style navigation keys to move focus between panes in your workspace.",
@@ -76,18 +79,11 @@ impl TutorialOverlay {
                 icon: semantic_icons::nav::COMPASS,
             },
             TutorialStep {
-                title: "Edit a Query",
-                instruction: "Press 'e' to open the query editor for the focused pane. Write PromQL queries with syntax highlighting and autocompletion.",
-                key_hint: "e",
-                tip: Some("Press Enter to save, Esc to cancel"),
-                icon: semantic_icons::action::EDIT,
-            },
-            TutorialStep {
-                title: "Command Palette",
-                instruction: "Access all commands through the command palette. Type commands like :split, :theme, :connect, and more.",
-                key_hint: ":",
-                tip: Some("Start typing to filter commands"),
-                icon: semantic_icons::action::SEARCH,
+                title: "Move Panes",
+                instruction: "Rearrange your layout by moving panes in any direction. Merge panes into tabs for a cleaner workspace.",
+                key_hint: "Ctrl+W h/j/k/l",
+                tip: Some("Ctrl+W t h/j/k/l=merge into tab in that direction"),
+                icon: semantic_icons::nav::EXPAND_ALL,
             },
             TutorialStep {
                 title: "Split Panes",
@@ -97,11 +93,11 @@ impl TutorialOverlay {
                 icon: semantic_icons::nav::PANES,
             },
             TutorialStep {
-                title: "Time Range Controls",
-                instruction: "Navigate through time with vim-style motions. Jump to start/end of data, zoom in/out, or reset to default range.",
-                key_hint: "gg / gG / , / . / 0",
-                tip: Some("gg=jump to start, gG=jump to end, ,=zoom out, .=zoom in, 0=reset"),
-                icon: semantic_icons::time::CLOCK,
+                title: "Floating Panes",
+                instruction: "Detach any pane into a floating window for side-by-side investigation. Float panes hover above the layout.",
+                key_hint: "gf",
+                tip: Some("gf=float pane, :dock=return all to layout, :float arrange=grid"),
+                icon: semantic_icons::nav::PANES,
             },
             TutorialStep {
                 title: "Visual Multi-Select",
@@ -117,19 +113,51 @@ impl TutorialOverlay {
                 tip: Some("Type to filter, Enter to apply, Esc twice to clear"),
                 icon: semantic_icons::action::SEARCH,
             },
+            // === Editing & Commands ===
             TutorialStep {
-                title: "Metrics Finder",
-                instruction: "Quickly search and insert metrics using the fuzzy finder. Browse available metrics with live preview.",
-                key_hint: "Space+m",
-                tip: Some("Type to filter, Enter to select"),
-                icon: semantic_icons::action::CHART,
+                title: "Edit a Query",
+                instruction: "Press 'e' to open the query editor for the focused pane. Write PromQL queries with syntax highlighting and autocompletion.",
+                key_hint: "e",
+                tip: Some("Press Enter to save, Esc to cancel"),
+                icon: semantic_icons::action::EDIT,
             },
             TutorialStep {
-                title: "Workspace Management",
-                instruction: "Work with multiple workspaces using tabs. Save and load workspace configurations.",
-                key_hint: "Shift+T/N/P/X",
-                tip: Some("T=new tab, N=next, P=previous, X=close"),
-                icon: semantic_icons::nav::TABS,
+                title: "Command Palette",
+                instruction: "Access all commands through the command palette. Type commands like :split, :style, :write, and more.",
+                key_hint: ":",
+                tip: Some("Start typing to filter commands"),
+                icon: semantic_icons::action::SEARCH,
+            },
+            // === Time Navigation ===
+            TutorialStep {
+                title: "Time Range Controls",
+                instruction: "Navigate through time with vim-style motions. Jump to start/end of data, zoom in/out, or reset to default range.",
+                key_hint: "gg / gG / , / . / 0",
+                tip: Some("gg=jump to start, gG=jump to end, ,=zoom out, .=zoom in, 0=reset"),
+                icon: semantic_icons::time::CLOCK,
+            },
+            TutorialStep {
+                title: "Quick Time Presets",
+                instruction: "Instantly set common time ranges with two-key shortcuts. Perfect for quick investigations.",
+                key_hint: "t1 / th / td",
+                tip: Some("t5=5m, t1=15m, t3=30m, th=1h, t6=6h, td=24h, tw=7d"),
+                icon: semantic_icons::time::CLOCK,
+            },
+            // === Search ===
+            TutorialStep {
+                title: "Find Anything",
+                instruction: "Use the unified fuzzy finder to search metrics, workspaces, and more. Browse with live preview.",
+                key_hint: "Space+f",
+                tip: Some("Space+f=find anything, Space+w=workspaces, Space+h=home"),
+                icon: semantic_icons::action::CHART,
+            },
+            // === Workspace & View ===
+            TutorialStep {
+                title: "Workspace Undo",
+                instruction: "Made a mistake? Undo workspace operations like closing, floating, or docking panes. Up to 50 actions remembered.",
+                key_hint: "u",
+                tip: Some("Works for close, float, and dock operations"),
+                icon: semantic_icons::action::EDIT,
             },
             TutorialStep {
                 title: "Fullscreen & Zen Mode",
@@ -145,14 +173,36 @@ impl TutorialOverlay {
                 tip: Some("Yanks a URL to clipboard (vim-style yank)"),
                 icon: semantic_icons::action::COPY,
             },
-            TutorialStep {
-                title: "Get Help Anytime",
-                instruction: "Press ? to see all available keybindings at a glance. You can also run :tutorial to restart this guide.",
-                key_hint: "?",
-                tip: Some("You're ready to explore! Happy monitoring."),
-                icon: semantic_icons::keyboard::KEYBOARD,
-            },
-        ]
+        ];
+
+        // Native-only features
+        if !is_wasm {
+            steps.push(TutorialStep {
+                title: "Ask the AI Agent",
+                instruction: "Get help from the AI assistant. Ask questions about your metrics, request dashboard changes, or investigate anomalies.",
+                key_hint: "aa",
+                tip: Some("aa=quick ask, Space+a=panel, aw/ae/ay=what/explain/why"),
+                icon: semantic_icons::action::BRAIN,
+            });
+            steps.push(TutorialStep {
+                title: "Terminal & SQL",
+                instruction: "Open an embedded terminal for shell commands or a SQL pane for querying data directly. Great for incident investigation.",
+                key_hint: ":terminal / :sql",
+                tip: Some(":term for short, :sync to refresh git index"),
+                icon: semantic_icons::action::EDIT,
+            });
+        }
+
+        // Final step (always last)
+        steps.push(TutorialStep {
+            title: "Get Help Anytime",
+            instruction: "Press ? to see all available keybindings at a glance. You can also run :tutorial to restart this guide.",
+            key_hint: "?",
+            tip: Some("You're ready to explore! Happy monitoring."),
+            icon: semantic_icons::keyboard::KEYBOARD,
+        });
+
+        steps
     }
 
     /// Set the theme
@@ -336,8 +386,19 @@ impl TutorialOverlay {
                     // Key hint badge (centered)
                     ui.horizontal(|ui| {
                         let available_width = ui.available_width();
-                        // Estimate badge width based on text
-                        let badge_width = step.key_hint.len() as f32 * 10.0 + 24.0;
+                        // Measure actual text width using font metrics
+                        let font_id = typography::monospace(typography::MD);
+                        let text_width = ui.fonts_mut(|f| {
+                            f.layout_no_wrap(
+                                step.key_hint.to_string(),
+                                font_id,
+                                egui::Color32::WHITE,
+                            )
+                            .size()
+                            .x
+                        });
+                        // Badge has 10px horizontal padding on each side + 1px stroke on each side
+                        let badge_width = text_width + 22.0;
                         ui.add_space((available_width - badge_width) / 2.0);
                         render_key_badge_large(ui, step.key_hint, key_bg, accent_color);
                     });
@@ -363,37 +424,51 @@ impl TutorialOverlay {
                         ui.add_space(20.0);
                     }
 
-                    // Progress dots
+                    // Progress bar (centered)
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        let dot_spacing = 8.0;
-                        let dot_size = 6.0;
-                        let total_width = self.steps.len() as f32 * dot_size
-                            + (self.steps.len() - 1) as f32 * dot_spacing;
-                        ui.add_space((ui.available_width() - total_width) / 2.0);
+                        let available_width = ui.available_width();
+                        let bar_width = 200.0_f32.min(available_width - 48.0);
+                        let bar_height = 4.0;
+                        let progress = (self.current_step + 1) as f32 / self.steps.len() as f32;
 
-                        for i in 0..self.steps.len() {
-                            let color = if i == self.current_step {
-                                accent_color
-                            } else if i < self.current_step {
-                                muted_text
-                            } else {
-                                muted_text.gamma_multiply(0.4)
-                            };
+                        // Center the bar
+                        ui.add_space((available_width - bar_width) / 2.0);
 
-                            let (rect, _) = ui.allocate_exact_size(
-                                egui::vec2(dot_size, dot_size),
-                                egui::Sense::hover(),
-                            );
-                            ui.painter()
-                                .circle_filled(rect.center(), dot_size / 2.0, color);
+                        // Draw background track
+                        let (rect, _) = ui.allocate_exact_size(
+                            egui::vec2(bar_width, bar_height),
+                            egui::Sense::hover(),
+                        );
+                        ui.painter().rect_filled(
+                            rect,
+                            bar_height / 2.0,
+                            muted_text.gamma_multiply(0.3),
+                        );
 
-                            if i < self.steps.len() - 1 {
-                                ui.add_space(dot_spacing);
-                            }
-                        }
+                        // Draw filled portion
+                        let filled_rect = egui::Rect::from_min_size(
+                            rect.min,
+                            egui::vec2(bar_width * progress, bar_height),
+                        );
+                        ui.painter()
+                            .rect_filled(filled_rect, bar_height / 2.0, accent_color);
                     });
-                    ui.add_space(16.0);
+
+                    // Step counter text
+                    ui.add_space(6.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "{} of {}",
+                                self.current_step + 1,
+                                self.steps.len()
+                            ))
+                            .color(muted_text)
+                            .size(typography::SM),
+                        );
+                    });
+                    ui.add_space(12.0);
 
                     // Separator above footer
                     ui.painter().hline(
@@ -457,9 +532,7 @@ impl TutorialOverlay {
 
                     // Resume hint at the bottom
                     ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        let hint_width = ui.available_width();
-                        ui.add_space((hint_width - 240.0) / 2.0); // Center the hint
+                    ui.vertical_centered(|ui| {
                         ui.label(
                             RichText::new("Press t to practice, then :tutorial to resume")
                                 .color(muted_text.gamma_multiply(0.7))
