@@ -597,10 +597,14 @@ impl MultiEditOverlay {
 
         // Handle close/apply actions
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = MultiEditResult::Cancelled;
         } else if should_apply {
             let changes = self.collect_changes();
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = MultiEditResult::Applied(changes);
         }

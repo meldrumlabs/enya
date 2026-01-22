@@ -1192,9 +1192,13 @@ impl BufferEditor {
         if should_save {
             let saved_query = self.query.clone();
             let saved_state = self.query_state.clone();
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = BufferEditorResult::Saved(saved_query, saved_state);
         } else if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = BufferEditorResult::Cancelled;
         }
