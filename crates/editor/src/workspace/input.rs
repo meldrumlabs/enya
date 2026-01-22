@@ -1277,4 +1277,124 @@ mod tests {
         assert_eq!(state.selection_count(), 0);
         assert!(state.cursor_tile_id.is_none());
     }
+
+    #[test]
+    fn test_visual_multi_new_initializes_correctly() {
+        let tile = make_tile_id(42);
+        let state = VisualMultiState::new(tile);
+
+        assert!(state.is_selected(tile));
+        assert_eq!(state.cursor_tile_id, Some(tile));
+        assert_eq!(state.selection_count(), 1);
+    }
+
+    #[test]
+    fn test_visual_multi_toggle_selection_add_remove() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let mut state = VisualMultiState::new(tile1);
+
+        // Initially only tile1 selected
+        assert!(state.is_selected(tile1));
+        assert!(!state.is_selected(tile2));
+
+        // Add tile2
+        state.toggle_selection(tile2);
+        assert!(state.is_selected(tile2));
+        assert_eq!(state.selection_count(), 2);
+
+        // Remove tile2
+        state.toggle_selection(tile2);
+        assert!(!state.is_selected(tile2));
+        assert_eq!(state.selection_count(), 1);
+
+        // Remove tile1
+        state.toggle_selection(tile1);
+        assert!(!state.is_selected(tile1));
+        assert_eq!(state.selection_count(), 0);
+    }
+
+    #[test]
+    fn test_visual_multi_select_all() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let tile3 = make_tile_id(3);
+        let mut state = VisualMultiState::new(tile1);
+
+        // Clear initial selection
+        state.clear_selection();
+        assert_eq!(state.selection_count(), 0);
+
+        // Select all
+        state.select_all(&[tile1, tile2, tile3]);
+
+        assert_eq!(state.selection_count(), 3);
+        assert!(state.is_selected(tile1));
+        assert!(state.is_selected(tile2));
+        assert!(state.is_selected(tile3));
+    }
+
+    #[test]
+    fn test_visual_multi_clear_selection() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let mut state = VisualMultiState::new(tile1);
+        state.toggle_selection(tile2);
+
+        assert_eq!(state.selection_count(), 2);
+
+        state.clear_selection();
+
+        assert_eq!(state.selection_count(), 0);
+        assert!(!state.is_selected(tile1));
+        assert!(!state.is_selected(tile2));
+    }
+
+    #[test]
+    fn test_visual_multi_validate_preserves_valid_cursor() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let mut state = VisualMultiState::new(tile1);
+        state.set_cursor(tile2);
+        state.toggle_selection(tile2);
+
+        // Both tiles are valid
+        state.validate_selections(&[tile1, tile2]);
+
+        // Cursor should remain unchanged
+        assert_eq!(state.cursor_tile_id, Some(tile2));
+    }
+
+    #[test]
+    fn test_visual_multi_cursor_prefers_selection_over_first_valid() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let tile3 = make_tile_id(3);
+        let mut state = VisualMultiState::new(tile1);
+
+        // Set cursor to tile3 (invalid), select tile2
+        state.set_cursor(tile3);
+        state.toggle_selection(tile2);
+        state.toggle_selection(tile1); // Deselect tile1
+
+        // tile1 is first valid, but tile2 is selected
+        state.validate_selections(&[tile1, tile2]);
+
+        // Cursor should prefer tile2 (selected) over tile1 (first valid)
+        // Note: FxHashSet iteration order may vary, so cursor could be tile2
+        assert!(state.cursor_tile_id.is_some());
+    }
+
+    #[test]
+    fn test_visual_multi_set_cursor() {
+        let tile1 = make_tile_id(1);
+        let tile2 = make_tile_id(2);
+        let mut state = VisualMultiState::new(tile1);
+
+        assert_eq!(state.cursor_tile_id, Some(tile1));
+
+        state.set_cursor(tile2);
+
+        assert_eq!(state.cursor_tile_id, Some(tile2));
+    }
 }

@@ -2224,3 +2224,38 @@ impl Workspace {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== Constants Tests ====================
+
+    #[test]
+    fn test_max_tree_depth_value() {
+        // Document the current value for change detection.
+        // Value should be large enough for practical layouts (50+)
+        // but small enough to prevent stack overflow (200 or less).
+        assert_eq!(MAX_TREE_DEPTH, 100);
+    }
+
+    // ==================== Documentation Tests ====================
+    //
+    // The following behaviors are tested through integration tests and
+    // manual testing since they require egui_tiles tree structures:
+    //
+    // Focus Validation (close_tile):
+    // - When closing a pane, focus is set to a sibling in priority order:
+    //   Right > Left > Down > Up > first remaining pane
+    // - After tree mutation, focus is validated to ensure the tile exists
+    // - If validation fails, focus falls back to first available pane
+    //
+    // Recursion Depth Guards:
+    // - find_parent_tab_recursive: Returns None if depth > MAX_TREE_DEPTH
+    // - find_parent_info_recursive: Returns None if depth > MAX_TREE_DEPTH
+    // - collect_pane_ids: Returns partial results if depth > MAX_TREE_DEPTH
+    // - All guards log warnings when triggered
+    //
+    // These guards prevent stack overflow on pathological tree structures
+    // while allowing normal workspace layouts to function correctly.
+}
