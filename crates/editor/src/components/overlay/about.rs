@@ -270,3 +270,42 @@ impl AboutOverlay {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_overlay_is_closed() {
+        let overlay = AboutOverlay::new();
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn test_default_overlay_is_closed() {
+        let overlay = AboutOverlay::default();
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn test_open_close() {
+        let mut overlay = AboutOverlay::new();
+        overlay.open();
+        assert!(overlay.is_open());
+        overlay.close();
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn test_theme_can_be_set() {
+        let mut overlay = AboutOverlay::new();
+        overlay.set_theme(AppTheme::Dark);
+        // Theme is stored internally - test that it doesn't panic
+    }
+
+    // Note: Testing surrender_focus behavior requires egui::Context.
+    // The surrender_focus pattern is verified through code review and
+    // manual testing. Key invariant: When show() returns true (close requested),
+    // the overlay must call ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))
+    // BEFORE calling self.close() to ensure vim navigation works immediately.
+}

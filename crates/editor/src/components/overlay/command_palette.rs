@@ -942,3 +942,47 @@ impl CommandPalette {
         ui.fonts_mut(|f| f.layout_job(job))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_palette_is_closed() {
+        let palette = CommandPalette::new();
+        assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn test_open_close() {
+        let mut palette = CommandPalette::new();
+        palette.open();
+        assert!(palette.is_open());
+        palette.close();
+        assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn test_close_clears_input() {
+        let mut palette = CommandPalette::new();
+        palette.open();
+        palette.input = "test".to_string();
+        palette.close();
+        assert!(palette.input.is_empty());
+    }
+
+    #[test]
+    fn test_command_result_none_exists() {
+        // Verify that None variant exists for no-op/unknown commands
+        let result = CommandResult::None;
+        // Use pattern matching since CommandResult doesn't implement PartialEq
+        assert!(matches!(result, CommandResult::None));
+    }
+
+    // Note: Testing surrender_focus behavior requires egui::Context.
+    // The surrender_focus pattern is verified through code review and
+    // manual testing. Key invariant: When show() triggers a close (via Escape
+    // or command execution), the overlay must call
+    // ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))
+    // BEFORE calling self.close() to ensure vim navigation works immediately.
+}
