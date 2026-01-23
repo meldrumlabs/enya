@@ -177,3 +177,129 @@ pub fn light_theme(theme: super::theme::AppTheme) -> Visuals {
         ..Visuals::light()
     }
 }
+
+/// Create visuals from a resolved custom theme (plugin-defined)
+pub fn custom_theme_visuals(theme: &super::custom_theme::ResolvedCustomTheme) -> Visuals {
+    // Use custom theme colors
+    let accent_primary_color = theme.accent_primary;
+    let accent_hover_color = theme.accent_hover;
+    let selection_color = theme.accent_muted;
+
+    // Background colors
+    let bg_base = theme.bg_base;
+    let bg_surface = theme.bg_surface;
+    let bg_elevated = theme.bg_elevated;
+
+    // Border colors
+    let border_subtle = theme.border_subtle;
+    let focus_border_color = theme.border_strong;
+
+    // Text colors
+    let text_primary = theme.text_primary;
+
+    // Hover background - slightly lighter than surface
+    let bg_hover = if theme.is_dark {
+        Color32::from_rgba_unmultiplied(
+            bg_surface.r().saturating_add(15),
+            bg_surface.g().saturating_add(15),
+            bg_surface.b().saturating_add(15),
+            bg_surface.a(),
+        )
+    } else {
+        Color32::from_rgba_unmultiplied(
+            bg_surface.r().saturating_sub(10),
+            bg_surface.g().saturating_sub(10),
+            bg_surface.b().saturating_sub(10),
+            bg_surface.a(),
+        )
+    };
+
+    // Premium corner radius
+    let corner_radius = CornerRadius::same(6);
+
+    // Soft shadow
+    let soft_shadow = egui::epaint::Shadow {
+        offset: [0, 6],
+        blur: 20,
+        spread: 0,
+        color: Color32::from_black_alpha(100),
+    };
+
+    Visuals {
+        dark_mode: theme.is_dark,
+        override_text_color: None,
+
+        widgets: Widgets {
+            noninteractive: WidgetVisuals {
+                bg_fill: bg_surface,
+                weak_bg_fill: bg_surface,
+                bg_stroke: Stroke::new(1.0, border_subtle),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, text_primary),
+                expansion: 0.0,
+            },
+            inactive: WidgetVisuals {
+                bg_fill: bg_elevated,
+                weak_bg_fill: Color32::TRANSPARENT,
+                bg_stroke: Stroke::new(1.0, border_subtle),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, text_primary),
+                expansion: 0.0,
+            },
+            hovered: WidgetVisuals {
+                bg_fill: bg_hover,
+                weak_bg_fill: bg_hover,
+                bg_stroke: Stroke::new(1.0, focus_border_color),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, text_primary),
+                expansion: 1.5,
+            },
+            active: WidgetVisuals {
+                bg_fill: accent_primary_color,
+                weak_bg_fill: accent_primary_color,
+                bg_stroke: Stroke::new(1.5, accent_hover_color),
+                corner_radius,
+                fg_stroke: Stroke::new(1.5, bg_base),
+                expansion: 0.5,
+            },
+            open: WidgetVisuals {
+                bg_fill: bg_elevated,
+                weak_bg_fill: bg_elevated,
+                bg_stroke: Stroke::new(1.5, accent_primary_color),
+                corner_radius,
+                fg_stroke: Stroke::new(1.0, accent_hover_color),
+                expansion: 1.0,
+            },
+        },
+
+        selection: Selection {
+            bg_fill: selection_color,
+            stroke: Stroke::new(1.5, accent_primary_color),
+        },
+
+        window_fill: bg_surface,
+        window_stroke: Stroke::new(1.0, border_subtle),
+        panel_fill: bg_base,
+        faint_bg_color: bg_surface,
+        extreme_bg_color: bg_base,
+
+        popup_shadow: soft_shadow,
+        window_shadow: soft_shadow,
+
+        error_fg_color: theme.error,
+        warn_fg_color: theme.warning,
+        hyperlink_color: accent_hover_color,
+
+        text_cursor: TextCursorStyle {
+            stroke: Stroke::new(2.5, accent_primary_color),
+            blink: true,
+            on_duration: 0.6,
+            off_duration: 0.4,
+            ..Default::default()
+        },
+
+        striped: false,
+        clip_rect_margin: 0.0,
+        ..Default::default()
+    }
+}

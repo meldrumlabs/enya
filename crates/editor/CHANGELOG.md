@@ -6,6 +6,79 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Landing page typewriter animation**: Terminal-style typewriter entrance effect when the landing page loads. Logo appears instantly, then text elements type out character by character at 60 cps with a blinking cursor (▌) - tagline, menu items (staggered), and footer hints.
+- **Landing page monospace shortcuts**: Menu item shortcuts now render in a monospace font for a clean, terminal-native look.
+- **About overlay**: New "About" option on landing page opens a dedicated overlay describing Enya as a keyboard-first observability editor that connects metrics, logs, traces, SQL, and git with AI.
+- **Plugin system**: Neovim-style Lua plugin architecture for customizing the editor:
+  - **Lua plugins**: Full scripting support with conditional logic, input validation, and HTTP requests
+  - **Plugin registry**: Central `PluginRegistry` for managing plugin lifecycle (register, init, activate, deactivate)
+  - **Plugin context**: `PluginContext` provides access to command sender, async runtime, theme, and notifications
+  - **Hook system**: Lifecycle hooks (`on_workspace_loaded`, `on_pane_added`, etc.), command hooks, keyboard hooks, theme hooks, and pane hooks
+  - **Custom themes**: Lua plugins can define custom color themes with inheritance from base themes
+  - **Plugin loader**: Automatic discovery from `~/.config/enya/plugins/` and workspace `.enya/plugins/`
+  - **Documentation**: Comprehensive [PLUGINS.md](./PLUGINS.md) guide for plugin authors
+- **Plugin pane management API**: Lua plugins can now programmatically manage workspace panes:
+  - `enya.add_query_pane(query, [title])` - Add a query pane with PromQL query
+  - `enya.add_logs_pane()` - Add a logs pane with current time range
+  - `enya.add_tracing_pane([trace_id])` - Add a tracing pane
+  - `enya.add_terminal_pane()` - Add a terminal pane (native only)
+  - `enya.add_sql_pane()` - Add a SQL pane
+  - `enya.close_pane()` - Close the focused pane
+  - `enya.focus_pane(direction)` - Navigate to adjacent panes
+- **Plugin time range API**: Lua plugins can control the global time range:
+  - `enya.set_time_range(preset)` - Set time range preset ("5m", "1h", "24h", etc.)
+  - `enya.set_time_range_absolute(start, end)` - Set absolute time range
+  - `enya.get_time_range()` - Get current time range
+
+### Fixed
+
+- **WASM compatibility in plugin context**: Fixed `get_time_range()` in `EditorPluginHost` which used `std::time::SystemTime` directly, causing panics in WASM browsers. Now uses the WASM-safe `now_unix_secs_f64()` utility.
+- **Tutorial command**: Added missing `:tutorial` (or `:tut`) command to the command palette to open the interactive tutorial. The command now properly appears in the command palette and restarts the tutorial from the beginning.
+- **Vim navigation after overlay close**: Fixed an issue where vim keys (h/j/k/l) wouldn't work immediately after closing overlays. All overlays now properly clear egui focus on close so keyboard navigation resumes instantly. Affected overlays: command palette, buffer editor, multi-edit, which-key, workspace creator, tutorial, info, about, source preview, diagnostics, diff viewer, codebase finder, and unified finder.
+- **Consistent key consumption in overlays**: Standardized overlays to use `consume_key()` instead of `key_pressed()` to prevent keys from being processed multiple times in the same frame. Affected overlays: about, agent panel, annotation editor, buffer editor, codebase finder, command palette, diff viewer, info, multi-edit, source preview, and viewport filter.
+- **Stale focus validation after pane close**: Focus is now validated after closing a pane to ensure it references an existing tile. If the focus target was removed (e.g., container collapsed), focus falls back to the first available pane.
+- **Visual-multi cursor validation**: The visual-multi selection cursor is now validated against existing panes. If the cursor references a deleted pane, it resets to the first available pane.
+- **Recursion depth guards**: Added depth limits (100 levels) to recursive tree traversal functions to prevent stack overflow on pathological tree structures.
+
+
+### Changed
+
+- **Tutorial overlay refresh**: Updated the interactive tutorial (`:tutorial`) with new sections and platform-aware content:
+  - Added **Quick Time Presets** step for `t1/th/td` shortcuts
+  - Added **Floating Panes** step for `gf` and `:dock` commands
+  - Added **Move Panes** step for `Ctrl+W h/j/k/l` and tab merging
+  - Added **Workspace Undo** step for `u` keybinding
+  - Added **Ask the AI Agent** step for `aa` and `Space+a` keybindings
+  - Added **Terminal & SQL** step (native-only) for `:terminal` and `:sql` commands
+  - Updated **Metrics Finder** to **Find Anything** with `Space+f` keybinding
+  - Tutorial now detects WASM vs native and hides native-only features on web
+  - Replaced progress dots with a simple progress bar and "X of Y" step counter for better visual clarity
+
+- **Landing page footer**: Updated credit text from "Developed by Meldrum Labs" to "Crafted in Stockholm"
+- **Landing page header**: Removed large "ENYA" title text for a cleaner, more minimal design - the brand name now appears subtly in the version badge (e.g., "Enya [ v0.1.0 ]")
+
+- **Status line minimalist redesign**: Simplified the right section of the status line for a premium, cleaner look:
+  - Replaced tabs count, viewport info, last refresh time, and connection status with a single health indicator
+  - Health indicator shows green checkmark when all good, warning symbol for warnings, error symbol for errors or connection issues
+  - Hover tooltip provides details about the current status with keyboard shortcut hint (Space+d)
+  - Shows repo name with short commit hash (e.g., "my-repo · abc1234") instead of truncated commit message
+  - Git branch icon displayed next to repo name for semantic clarity
+  - Full commit message shown on hover
+  - Kept team collaboration status
+  - Mode badge on left remains unchanged
+
+### Added
+
+- **Workspace undo system**: Vim-style `u` keybinding to undo workspace operations:
+  - **Close pane**: Restores closed panes to their exact position in the tile tree (tabs, splits)
+  - **Float pane**: Undoes floating a pane, restoring it to its original tile tree position
+  - **Dock pane**: Undoes docking a floating pane, restoring it to floating with original position/size
+  - Focus is restored if the pane was focused when the action occurred
+  - Undo stack holds up to 50 actions
+  - Uses command pattern with inverse operations for efficiency
+
+- **Sync command**: New `:sync git` command in the command palette and `sync` agent command to fetch latest git commits and re-index the codebase (including Tantivy full-text search). Useful when the repository has been updated externally.
+
 - **Keyboard navigation test infrastructure**: Comprehensive testing for vim-style keyboard navigation:
   - Extended `LeaderKeyState` tests: timeout edge cases, boundary behavior, multiple key independence
   - Extended `VisualMultiState` with `selected_tiles()` and `validate_selections()` methods and tests
@@ -53,6 +126,22 @@ All notable changes to the Enya editor will be documented in this file.
   - `focus_pane`: Programmatically focus a specific pane
   - `toggle_zen_mode`: Toggle minimal UI mode
   - `exit_fullscreen`: Exit maximized/fullscreen mode
+
+- **Amp-style thinking indicator**: Premium visual feedback during AI requests:
+  - Animated pulsing dots with wave effect in both inline input bar (`aa`) and full agent panel (`Space+a`)
+  - Stage-based status messages (Connecting, Reading context, Thinking, Using tools, Generating)
+  - Elapsed time display for long-running requests
+  - Real-time activity updates showing current actions (e.g., "Creating section", "Fetching metrics")
+
+- **Neovim-inspired visual polish**:
+  - **Yank flash**: Brief highlight effect when sharing/yanking panes (triggered on `yy`)
+  - **Dim inactive panes**: Subtle overlay on unfocused panes for visual hierarchy
+  - **Focus pulse**: Glow effect when a pane receives focus, drawing attention to the active pane
+
+- **Layout transitions**: Smooth animated transitions when panes split:
+  - New panes smoothly grow from small to target size using ease-out-cubic easing
+  - Sibling panes animate their share changes during splits
+  - 150ms animation duration for fluid, responsive feel
 
 ### Changed
 

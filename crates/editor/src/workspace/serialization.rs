@@ -10,8 +10,9 @@ use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
     ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
-    LayoutType, LogsConfig, MetricsConfig, PaneConfig, RefreshInterval, SectionState, TimeConfig,
-    ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta,
+    LayoutType, LogsConfig, MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval,
+    SectionState, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
+    WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
 
@@ -62,6 +63,7 @@ impl Workspace {
                 self.time_range_toolbar.time_range().preset,
                 self.refresh_interval.unwrap_or_default(),
             ),
+            plugins: PluginsConfig::default(),
             sections: Vec::new(),
             panes,
             layout: self.extract_layout_from_tree(),
@@ -200,6 +202,9 @@ impl Workspace {
         if self.has_sections() {
             let tile_id = self.section_focus_to_tile_id();
             self.behavior.set_focused_tile(tile_id);
+        } else if !pane_tile_ids.is_empty() {
+            // For non-section workspaces, focus the first pane (top-left)
+            self.behavior.set_focused_tile(Some(pane_tile_ids[0]));
         }
 
         // Return connection config if present (for logging/tracking in caller)

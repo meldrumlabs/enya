@@ -6,6 +6,10 @@
 
 use egui_tiles::{Tile, TileId};
 
+/// Maximum recursion depth for tree traversal operations.
+/// Prevents stack overflow on pathological tree structures.
+const MAX_TREE_DEPTH: usize = 100;
+
 use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::InlineSource;
@@ -65,8 +69,8 @@ impl Workspace {
 
     /// Add a query pane with a PromQL query and optional title.
     ///
-    /// This is used by the agent to create panes programmatically.
-    pub(super) fn add_query_pane(&mut self, query: &str, title: Option<&str>) {
+    /// This is used by the agent and plugins to create panes programmatically.
+    pub fn add_query_pane(&mut self, query: &str, title: Option<&str>) {
         let query_number = self.next_query_number;
         self.next_query_number += 1;
 
@@ -92,7 +96,7 @@ impl Workspace {
     /// Creates a new terminal pane backed by ghostty-vt for running shell commands.
     /// Requires the "terminal" feature to be enabled.
     #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
-    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+    pub fn add_terminal_pane(&mut self) -> Option<TileId> {
         use crate::components::TerminalPane;
         use crate::ui::theme::AppTheme;
 
@@ -120,14 +124,14 @@ impl Workspace {
 
     /// Add a terminal pane (stub - terminal feature not enabled).
     #[cfg(all(not(target_arch = "wasm32"), not(feature = "terminal")))]
-    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+    pub fn add_terminal_pane(&mut self) -> Option<TileId> {
         log::warn!("Terminal panes require the 'terminal' feature (needs zig toolchain)");
         None
     }
 
     /// Add a terminal pane (WASM stub - terminals not supported in browser).
     #[cfg(target_arch = "wasm32")]
-    pub(super) fn add_terminal_pane(&mut self) -> Option<TileId> {
+    pub fn add_terminal_pane(&mut self) -> Option<TileId> {
         log::warn!("Terminal panes are not available in the browser");
         None
     }
@@ -136,7 +140,7 @@ impl Workspace {
     ///
     /// Creates a new tracing pane for visualizing distributed traces.
     /// Optionally pre-fills a trace ID to load.
-    pub(super) fn add_tracing_pane(&mut self, trace_id: Option<&str>) -> Option<TileId> {
+    pub fn add_tracing_pane(&mut self, trace_id: Option<&str>) -> Option<TileId> {
         use crate::components::TracingPane;
 
         let tracing_pane = if let Some(id) = trace_id {
@@ -163,7 +167,7 @@ impl Workspace {
     /// Creates a new SQL pane for running DataFusion queries on local files.
     /// Requires the `sql` feature to be enabled.
     #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
-    pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
+    pub fn add_sql_pane(&mut self) -> Option<TileId> {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
 
@@ -184,7 +188,7 @@ impl Workspace {
 
     /// Add a SQL pane (stub version for WASM or when sql feature is disabled).
     #[cfg(any(target_arch = "wasm32", not(feature = "sql")))]
-    pub(super) fn add_sql_pane(&mut self) -> Option<TileId> {
+    pub fn add_sql_pane(&mut self) -> Option<TileId> {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
 
@@ -707,6 +711,18 @@ impl Workspace {
                         success = true;
                     }
                 }
+                AgentCommand::Sync => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        self.codebase_manager.fetch_updates(ctx);
+                        log::info!("Agent triggered repository sync and re-indexing");
+                        success = true;
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        log::warn!("Sync command not supported in WASM");
+                    }
+                }
             }
 
             // Create activity item for this command
@@ -886,8 +902,14 @@ impl Workspace {
 
     // ==================== Pane Closing ====================
 
-    /// Close a tile and remove it from the viewport
+    /// Close a tile and remove it from the viewport.
+    ///
+    /// This captures the pane's position information before removal and pushes
+    /// an undo action so the pane can be restored with 'u'.
     pub(super) fn close_tile(&mut self, tile_id: TileId) {
+        // Check if this tile was focused (for undo restoration)
+        let was_focused = self.behavior.focused_tile() == Some(tile_id);
+
         // Get the pane's label before removing it (for open_charts tracking)
         let label = if let Some(egui_tiles::Tile::Pane(component)) =
             self.viewport_tree.tiles.get(tile_id)
@@ -896,6 +918,18 @@ impl Workspace {
         } else {
             None
         };
+
+        // Capture parent container info BEFORE removal for undo
+        let parent_info = self.find_parent_container_info(tile_id);
+
+        // Get the container kind if parent exists
+        let container_kind = parent_info.and_then(|(parent_id, _)| {
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(parent_id) {
+                Some(container.kind())
+            } else {
+                None
+            }
+        });
 
         // Find the next tile to focus before removing
         let pane_ids = self.get_pane_tile_ids();
@@ -910,8 +944,20 @@ impl Workspace {
             None
         };
 
-        // Remove the tile from the tree
-        self.viewport_tree.tiles.remove(tile_id);
+        // Remove the tile from the tree and capture the component for undo
+        if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.remove(tile_id) {
+            // Push undo action with captured info
+            let closed_pane_info = super::ClosedPaneInfo {
+                component,
+                parent_id: parent_info.map(|(id, _)| id),
+                child_index: parent_info.map(|(_, idx)| idx).unwrap_or(0),
+                container_kind: container_kind.unwrap_or(egui_tiles::ContainerKind::Tabs),
+                was_focused,
+            };
+            self.undo_stack
+                .push(super::UndoAction::RestorePane(closed_pane_info));
+            log::debug!("Pushed close pane to undo stack");
+        }
 
         // Remove from open_charts tracking
         if let Some(label) = label {
@@ -921,8 +967,209 @@ impl Workspace {
             log::debug!("Closed tile: {label}");
         }
 
-        // Update focus to next tile
-        self.behavior.set_focused_tile(next_focus);
+        // Update focus to next tile, validating it still exists after removal
+        // (tree structure may have changed, e.g., collapsed containers)
+        let validated_focus = next_focus.filter(|&id| self.viewport_tree.tiles.get(id).is_some());
+        if validated_focus.is_none() && next_focus.is_some() {
+            // Original focus target was removed, find a fallback
+            let fresh_pane_ids = self.get_pane_tile_ids();
+            self.behavior
+                .set_focused_tile(fresh_pane_ids.first().copied());
+        } else {
+            self.behavior.set_focused_tile(validated_focus);
+        }
+    }
+
+    /// Execute the most recent undo action.
+    ///
+    /// Returns true if an action was undone, false if the undo stack was empty.
+    pub(super) fn execute_undo(&mut self) -> bool {
+        let Some(action) = self.undo_stack.pop() else {
+            log::debug!("Undo: stack is empty");
+            return false;
+        };
+
+        match action {
+            super::UndoAction::RestorePane(info) => {
+                self.restore_closed_pane(info);
+                true
+            }
+            super::UndoAction::UnfloatPane(info) => {
+                self.unfloat_pane(info);
+                true
+            }
+            super::UndoAction::UndockPane(info) => {
+                self.undock_pane(info);
+                true
+            }
+        }
+    }
+
+    /// Restore a closed pane to its previous position.
+    fn restore_closed_pane(&mut self, info: super::ClosedPaneInfo) {
+        // Re-insert the component to get a new TileId
+        let new_tile_id = self.viewport_tree.tiles.insert_pane(info.component);
+
+        // Try to restore to the original position
+        let restored = if let Some(parent_id) = info.parent_id {
+            // Check if the parent container still exists
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get_mut(parent_id) {
+                match container {
+                    egui_tiles::Container::Tabs(tabs) => {
+                        // Insert at the original index if possible, otherwise at the end
+                        let insert_idx = info.child_index.min(tabs.children.len());
+                        tabs.children.insert(insert_idx, new_tile_id);
+                        tabs.set_active(new_tile_id);
+                        true
+                    }
+                    egui_tiles::Container::Linear(linear) => {
+                        // Insert at the original index if possible, otherwise at the end
+                        let insert_idx = info.child_index.min(linear.children.len());
+                        linear.children.insert(insert_idx, new_tile_id);
+                        true
+                    }
+                    egui_tiles::Container::Grid(grid) => {
+                        // Grid doesn't support positional insertion well, just add
+                        grid.add_child(new_tile_id);
+                        true
+                    }
+                }
+            } else {
+                // Parent no longer exists, fall back to adding to viewport root
+                false
+            }
+        } else {
+            // No parent info, fall back to adding to viewport root
+            false
+        };
+
+        // If we couldn't restore to the original position, add to viewport root
+        if !restored {
+            self.add_tile_to_viewport(new_tile_id);
+        }
+
+        // Restore focus if the pane was focused when closed
+        if info.was_focused {
+            self.behavior.set_focused_tile(Some(new_tile_id));
+            self.activate_tile(new_tile_id);
+        }
+
+        self.show_landing = false;
+        log::debug!("Restored closed pane, new tile_id={new_tile_id:?}");
+    }
+
+    /// Undo a float operation: remove from floating panes and restore to tile tree.
+    fn unfloat_pane(&mut self, info: super::FloatedPaneInfo) {
+        // Remove the component from floating panes
+        let Some(component) = self.floating_panes.remove_pane(info.floating_pane_id) else {
+            log::warn!(
+                "Cannot undo float: floating pane {:?} no longer exists",
+                info.floating_pane_id
+            );
+            return;
+        };
+
+        // Re-insert the component to get a new TileId
+        let new_tile_id = self.viewport_tree.tiles.insert_pane(component);
+
+        // Try to restore to the original position in the tile tree
+        let restored = if let Some(parent_id) = info.parent_id {
+            // Check if the parent container still exists
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get_mut(parent_id) {
+                match container {
+                    egui_tiles::Container::Tabs(tabs) => {
+                        let insert_idx = info.child_index.min(tabs.children.len());
+                        tabs.children.insert(insert_idx, new_tile_id);
+                        tabs.set_active(new_tile_id);
+                        true
+                    }
+                    egui_tiles::Container::Linear(linear) => {
+                        let insert_idx = info.child_index.min(linear.children.len());
+                        linear.children.insert(insert_idx, new_tile_id);
+                        true
+                    }
+                    egui_tiles::Container::Grid(grid) => {
+                        grid.add_child(new_tile_id);
+                        true
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        // If we couldn't restore to the original position, add to viewport root
+        if !restored {
+            self.add_tile_to_viewport(new_tile_id);
+        }
+
+        // Restore focus if it was focused before floating
+        if info.was_tile_focused {
+            self.behavior.set_focused_tile(Some(new_tile_id));
+            self.activate_tile(new_tile_id);
+        }
+
+        self.show_landing = false;
+        log::debug!("Undid float: restored pane to tile tree, new tile_id={new_tile_id:?}");
+    }
+
+    /// Undo a dock operation: remove from tile tree and restore to floating.
+    fn undock_pane(&mut self, info: super::DockedPaneInfo) {
+        // Find the pane by name (TileIds can change due to tree restructuring)
+        let tile_id = self.get_pane_tile_ids().into_iter().find(|&tile_id| {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                component.name() == info.component_name
+            } else {
+                false
+            }
+        });
+
+        let Some(tile_id) = tile_id else {
+            log::warn!(
+                "Cannot undo dock: pane '{}' not found in tile tree",
+                info.component_name
+            );
+            return;
+        };
+
+        // Remove the component from the tile tree
+        let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.remove(tile_id)
+        else {
+            log::warn!("Cannot undo dock: failed to remove tile {tile_id:?}");
+            return;
+        };
+
+        // Add back to floating panes with the original position and size
+        let floating_pane_id =
+            self.floating_panes
+                .add_pane_with_size(component, info.position, info.size);
+
+        // Configure the restored pane: skip animation and restore pinned state
+        if let Some(pane) = self
+            .floating_panes
+            .panes
+            .iter_mut()
+            .find(|p| p.id == floating_pane_id)
+        {
+            // Skip appearing animation - pane should be immediately visible for undo
+            pane.skip_animation();
+
+            // Restore pinned state
+            if info.pinned {
+                pane.pinned = true;
+            }
+        }
+
+        // Set focus to the floating pane
+        self.floating_panes.set_focus(Some(floating_pane_id));
+        self.behavior.set_focused_tile(None);
+
+        // Ensure landing page doesn't take over
+        self.show_landing = false;
+
+        log::debug!("Undid dock: restored pane to floating");
     }
 
     /// Close all charts and reset the viewport to show landing page
@@ -1148,6 +1395,10 @@ impl Workspace {
 
         self.viewport_tree.root = Some(new_root);
 
+        // Start layout animation for smooth transition
+        self.layout_animator
+            .animate_split(new_root, new_pane_id, current_root, 1.0);
+
         // Maintain focus on the moved pane
         self.behavior.set_focused_tile(Some(new_pane_id));
 
@@ -1199,10 +1450,21 @@ impl Workspace {
     /// Find the parent tab container of a tile, if any.
     fn find_parent_tab_container(&self, target_id: TileId) -> Option<TileId> {
         let root_id = self.viewport_tree.root()?;
-        self.find_parent_tab_recursive(root_id, target_id)
+        self.find_parent_tab_recursive(root_id, target_id, 0)
     }
 
-    fn find_parent_tab_recursive(&self, container_id: TileId, target_id: TileId) -> Option<TileId> {
+    fn find_parent_tab_recursive(
+        &self,
+        container_id: TileId,
+        target_id: TileId,
+        depth: usize,
+    ) -> Option<TileId> {
+        // Guard against pathological tree structures
+        if depth > MAX_TREE_DEPTH {
+            log::warn!("find_parent_tab_recursive exceeded max depth {MAX_TREE_DEPTH}");
+            return None;
+        }
+
         if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
             let children: Vec<TileId> = container.children().copied().collect();
 
@@ -1218,7 +1480,8 @@ impl Workspace {
 
             // Recursively search nested containers
             for child_id in children {
-                if let Some(parent) = self.find_parent_tab_recursive(child_id, target_id) {
+                if let Some(parent) = self.find_parent_tab_recursive(child_id, target_id, depth + 1)
+                {
                     return Some(parent);
                 }
             }
@@ -1339,14 +1602,21 @@ impl Workspace {
     /// Find the parent container and the index of a child within it.
     fn find_parent_container_info(&self, target_id: TileId) -> Option<(TileId, usize)> {
         let root_id = self.viewport_tree.root()?;
-        self.find_parent_info_recursive(root_id, target_id)
+        self.find_parent_info_recursive(root_id, target_id, 0)
     }
 
     fn find_parent_info_recursive(
         &self,
         container_id: TileId,
         target_id: TileId,
+        depth: usize,
     ) -> Option<(TileId, usize)> {
+        // Guard against pathological tree structures
+        if depth > MAX_TREE_DEPTH {
+            log::warn!("find_parent_info_recursive exceeded max depth {MAX_TREE_DEPTH}");
+            return None;
+        }
+
         if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(container_id) {
             let children: Vec<TileId> = container.children().copied().collect();
 
@@ -1359,7 +1629,8 @@ impl Workspace {
 
             // Recursively search nested containers
             for child_id in children {
-                if let Some(info) = self.find_parent_info_recursive(child_id, target_id) {
+                if let Some(info) = self.find_parent_info_recursive(child_id, target_id, depth + 1)
+                {
                     return Some(info);
                 }
             }
@@ -1375,7 +1646,7 @@ impl Workspace {
         let mut pane_ids = Vec::new();
 
         if let Some(root_id) = self.viewport_tree.root() {
-            self.collect_pane_ids(root_id, &mut pane_ids);
+            self.collect_pane_ids(root_id, &mut pane_ids, 0);
         }
 
         pane_ids
@@ -1507,7 +1778,13 @@ impl Workspace {
     }
 
     /// Recursively collect all pane tile IDs
-    fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>) {
+    fn collect_pane_ids(&self, tile_id: TileId, pane_ids: &mut Vec<TileId>, depth: usize) {
+        // Guard against pathological tree structures
+        if depth > MAX_TREE_DEPTH {
+            log::warn!("collect_pane_ids exceeded max depth {MAX_TREE_DEPTH}");
+            return;
+        }
+
         if let Some(tile) = self.viewport_tree.tiles.get(tile_id) {
             match tile {
                 Tile::Pane(_) => {
@@ -1515,7 +1792,7 @@ impl Workspace {
                 }
                 Tile::Container(container) => {
                     for child_id in container.children() {
-                        self.collect_pane_ids(*child_id, pane_ids);
+                        self.collect_pane_ids(*child_id, pane_ids, depth + 1);
                     }
                 }
             }
@@ -1891,6 +2168,16 @@ impl Workspace {
             }
         };
 
+        // Capture parent container info BEFORE removal for undo
+        let parent_info = self.find_parent_container_info(focused_tile);
+        let container_kind = parent_info.and_then(|(parent_id, _)| {
+            if let Some(Tile::Container(container)) = self.viewport_tree.tiles.get(parent_id) {
+                Some(container.kind())
+            } else {
+                None
+            }
+        });
+
         // Remove the pane from the tile tree
         if let Some(egui_tiles::Tile::Pane(component)) =
             self.viewport_tree.tiles.remove(focused_tile)
@@ -1911,8 +2198,21 @@ impl Workspace {
             };
 
             // Add to floating pane manager with the determined size
-            self.floating_panes
+            let floating_pane_id = self
+                .floating_panes
                 .add_pane_with_size(component, position, size);
+
+            // Push undo action
+            let floated_info = super::FloatedPaneInfo {
+                floating_pane_id,
+                parent_id: parent_info.map(|(id, _)| id),
+                child_index: parent_info.map(|(_, idx)| idx).unwrap_or(0),
+                container_kind: container_kind.unwrap_or(egui_tiles::ContainerKind::Tabs),
+                was_tile_focused: true, // It was focused since we got it from focused_tile
+            };
+            self.undo_stack
+                .push(super::UndoAction::UnfloatPane(floated_info));
+            log::debug!("Pushed float pane to undo stack");
 
             // Clear the focus from the tile tree since we removed the tile
             self.behavior.set_focused_tile(None);
@@ -1923,4 +2223,522 @@ impl Workspace {
             log::info!("Floated pane from tile tree with size {size:?}");
         }
     }
+
+    // ==================== Plugin API Methods ====================
+
+    /// Add a logs pane from a plugin (uses current time range).
+    ///
+    /// This is a public wrapper for plugins to create logs panes without
+    /// needing to specify the time range explicitly.
+    pub fn add_logs_pane_from_plugin(&mut self) {
+        let (start_ns, end_ns) = self.time_range_toolbar.get_range_ns();
+        self.add_logs_pane(start_ns as i64, end_ns as i64);
+    }
+
+    /// Close the currently focused pane (public wrapper for plugins).
+    pub fn close_focused_pane(&mut self) {
+        if let Some(focused_tile) = self.behavior.focused_tile() {
+            self.close_tile(focused_tile);
+        }
+    }
+
+    /// Focus pane in a direction (public wrapper for plugins).
+    ///
+    /// # Arguments
+    /// * `direction` - One of "left", "right", "up", "down"
+    pub fn focus_pane_in_direction(&mut self, direction: &str) {
+        let nav_direction = match direction.to_lowercase().as_str() {
+            "left" => NavDirection::Left,
+            "right" => NavDirection::Right,
+            "up" => NavDirection::Up,
+            "down" => NavDirection::Down,
+            _ => {
+                log::warn!("Invalid pane focus direction: {direction}");
+                return;
+            }
+        };
+
+        // Find the currently focused tile
+        let Some(current_id) = self.behavior.focused_tile() else {
+            log::debug!("No focused pane to navigate from");
+            return;
+        };
+
+        // Find sibling in the requested direction
+        if let Some(target_id) = self.find_sibling_in_direction(current_id, nav_direction) {
+            self.behavior.set_focused_tile(Some(target_id));
+            log::debug!("Plugin focused pane in direction: {nav_direction:?}");
+        }
+    }
+
+    /// Set time range preset from a plugin.
+    ///
+    /// # Arguments
+    /// * `preset` - One of "5m", "15m", "30m", "1h", "6h", "24h", "7d"
+    pub fn set_time_range_preset_from_plugin(&mut self, preset: &str) {
+        if let Some(preset_enum) = Self::parse_time_preset(preset) {
+            self.time_range_toolbar.set_preset(preset_enum);
+            log::info!("Plugin set time range preset: {preset}");
+        } else {
+            log::warn!("Plugin: unknown time range preset '{preset}'");
+        }
+    }
+
+    /// Set absolute time range from a plugin.
+    ///
+    /// # Arguments
+    /// * `start_secs` - Start time in seconds since Unix epoch
+    /// * `end_secs` - End time in seconds since Unix epoch
+    pub fn set_time_range_absolute_from_plugin(&mut self, start_secs: f64, end_secs: f64) {
+        self.time_range_toolbar
+            .set_custom_range(start_secs, end_secs);
+        log::info!("Plugin set absolute time range: {start_secs} to {end_secs}");
+    }
+
+    // ==================== Plugin Custom Table Panes ====================
+
+    /// Register a custom table pane configuration from a plugin.
+    ///
+    /// This stores the configuration so custom pane instances can be created later.
+    pub fn register_custom_table_pane(&mut self, config: enya_plugin::CustomTableConfig) {
+        log::info!(
+            "Registered custom table pane '{}' from plugin '{}'",
+            config.name,
+            config.plugin_name
+        );
+        self.custom_table_configs
+            .insert(config.name.clone(), config);
+    }
+
+    /// Add a custom table pane instance to the viewport.
+    ///
+    /// Creates a new pane using a previously registered custom table configuration.
+    pub fn add_custom_table_pane(&mut self, pane_type: &str) {
+        if let Some(config) = self.custom_table_configs.get(pane_type).cloned() {
+            use crate::components::PluginTablePane;
+
+            let data = self
+                .custom_table_data
+                .get(pane_type)
+                .cloned()
+                .unwrap_or_else(|| enya_plugin::CustomTableData::with_rows(Vec::new()));
+
+            let pane: Box<dyn Component> = Box::new(PluginTablePane::new(config, data));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+                log::info!("Added custom table pane: {pane_type}");
+            }
+        } else {
+            log::warn!("Unknown custom table pane type: {pane_type}");
+        }
+    }
+
+    /// Update data for a custom table pane by pane ID.
+    ///
+    /// This is called by plugins when they have new data to display.
+    /// Currently this is a placeholder - we need the PluginTablePane to support updates.
+    pub fn update_custom_table_data(&mut self, pane_id: usize, data: enya_plugin::CustomTableData) {
+        // For now, we'll update any PluginTablePane with the matching internal ID
+        // In practice, we'll need to track pane IDs better
+        log::debug!(
+            "Update custom table data for pane {pane_id}: {} rows",
+            data.rows.len()
+        );
+
+        // Update all panes that might match - in a full implementation we'd track by ID
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginTablePane;
+                if let Some(table_pane) = component.as_any_mut().downcast_mut::<PluginTablePane>() {
+                    // Only update if this is the right pane (by internal ID or first match)
+                    table_pane.set_data(data.clone());
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Update data for all custom table panes of a given type.
+    ///
+    /// This updates the stored data and refreshes any visible panes of this type.
+    pub fn update_custom_table_data_by_type(
+        &mut self,
+        pane_type: &str,
+        data: enya_plugin::CustomTableData,
+    ) {
+        // Store the data for future pane instances
+        self.custom_table_data
+            .insert(pane_type.to_string(), data.clone());
+
+        // Update any existing panes of this type
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginTablePane;
+                if let Some(table_pane) = component.as_any_mut().downcast_mut::<PluginTablePane>() {
+                    if table_pane.pane_type() == pane_type {
+                        table_pane.set_data(data.clone());
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Updated custom table data for type '{}': {} rows",
+            pane_type,
+            data.rows.len()
+        );
+    }
+
+    /// Get all registered custom table pane configurations.
+    ///
+    /// Used by the plugins overlay to show available pane types.
+    pub fn custom_table_configs(
+        &self,
+    ) -> &rustc_hash::FxHashMap<String, enya_plugin::CustomTableConfig> {
+        &self.custom_table_configs
+    }
+
+    // ==================== Plugin Custom Chart Panes ====================
+
+    /// Register a custom chart pane configuration from a plugin.
+    ///
+    /// This stores the configuration so custom chart pane instances can be created later.
+    pub fn register_custom_chart_pane(&mut self, config: enya_plugin::CustomChartConfig) {
+        log::info!(
+            "Registered custom chart pane '{}' from plugin '{}'",
+            config.name,
+            config.plugin_name
+        );
+        self.custom_chart_configs
+            .insert(config.name.clone(), config);
+    }
+
+    /// Add a custom chart pane instance to the viewport.
+    ///
+    /// Creates a new pane using a previously registered custom chart configuration.
+    pub fn add_custom_chart_pane(&mut self, pane_type: &str) {
+        if let Some(config) = self.custom_chart_configs.get(pane_type).cloned() {
+            use crate::components::PluginChartPane;
+
+            let data = self
+                .custom_chart_data
+                .get(pane_type)
+                .cloned()
+                .unwrap_or_else(|| enya_plugin::CustomChartData::with_series(Vec::new()));
+
+            let pane: Box<dyn Component> = Box::new(PluginChartPane::new(config, data));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+                log::info!("Added custom chart pane: {pane_type}");
+            }
+        } else {
+            log::warn!("Unknown custom chart pane type: {pane_type}");
+        }
+    }
+
+    /// Update data for all custom chart panes of a given type.
+    ///
+    /// This updates the stored data and refreshes any visible panes of this type.
+    pub fn update_custom_chart_data_by_type(
+        &mut self,
+        pane_type: &str,
+        data: enya_plugin::CustomChartData,
+    ) {
+        // Store the data for future pane instances
+        self.custom_chart_data
+            .insert(pane_type.to_string(), data.clone());
+
+        // Update any existing panes of this type
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginChartPane;
+                if let Some(chart_pane) = component.as_any_mut().downcast_mut::<PluginChartPane>() {
+                    if chart_pane.pane_type() == pane_type {
+                        chart_pane.set_data(data.clone());
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Updated custom chart data for type '{}': {} series",
+            pane_type,
+            data.series.len()
+        );
+    }
+
+    /// Get all registered custom chart pane configurations.
+    ///
+    /// Used by the plugins overlay to show available pane types.
+    pub fn custom_chart_configs(
+        &self,
+    ) -> &rustc_hash::FxHashMap<String, enya_plugin::CustomChartConfig> {
+        &self.custom_chart_configs
+    }
+
+    // ==================== Custom Stat Panes ====================
+
+    /// Register a custom stat pane type from a plugin.
+    ///
+    /// This stores the configuration so custom stat pane instances can be created later.
+    pub fn register_custom_stat_pane(&mut self, config: enya_plugin::StatPaneConfig) {
+        log::info!(
+            "Registered custom stat pane '{}' from plugin '{}'",
+            config.name,
+            config.plugin_name
+        );
+        self.custom_stat_configs.insert(config.name.clone(), config);
+    }
+
+    /// Add a custom stat pane instance to the viewport.
+    ///
+    /// Creates a new pane using a previously registered custom stat configuration.
+    pub fn add_custom_stat_pane(&mut self, pane_type: &str) {
+        if let Some(config) = self.custom_stat_configs.get(pane_type).cloned() {
+            use crate::components::PluginStatPane;
+
+            let data = self
+                .custom_stat_data
+                .get(pane_type)
+                .cloned()
+                .unwrap_or_else(|| enya_plugin::StatPaneData::with_value(0.0));
+
+            let pane: Box<dyn Component> = Box::new(PluginStatPane::new(config, data));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+                log::info!("Added custom stat pane of type '{pane_type}'");
+            }
+        } else {
+            log::warn!("Unknown custom stat pane type: {pane_type}");
+        }
+    }
+
+    /// Update data for all custom stat panes of a given type.
+    ///
+    /// This updates the stored data and refreshes any visible panes of this type.
+    pub fn update_custom_stat_data_by_type(
+        &mut self,
+        pane_type: &str,
+        data: enya_plugin::StatPaneData,
+    ) {
+        // Store the data for future pane instances
+        self.custom_stat_data
+            .insert(pane_type.to_string(), data.clone());
+
+        // Update any existing panes of this type
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginStatPane;
+                if let Some(stat_pane) = component.as_any_mut().downcast_mut::<PluginStatPane>() {
+                    if stat_pane.pane_type() == pane_type {
+                        stat_pane.set_data(data.clone());
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Updated custom stat data for type '{}': value={}",
+            pane_type,
+            data.value
+        );
+    }
+
+    // ==================== Custom Gauge Panes ====================
+
+    /// Register a custom gauge pane type from a plugin.
+    ///
+    /// This stores the configuration so custom gauge pane instances can be created later.
+    pub fn register_custom_gauge_pane(&mut self, config: enya_plugin::GaugePaneConfig) {
+        log::info!(
+            "Registered custom gauge pane '{}' from plugin '{}'",
+            config.name,
+            config.plugin_name
+        );
+        self.custom_gauge_configs
+            .insert(config.name.clone(), config);
+    }
+
+    /// Add a custom gauge pane instance to the viewport.
+    ///
+    /// Creates a new pane using a previously registered custom gauge configuration.
+    pub fn add_custom_gauge_pane(&mut self, pane_type: &str) {
+        if let Some(config) = self.custom_gauge_configs.get(pane_type).cloned() {
+            use crate::components::PluginGaugePane;
+
+            let data = self
+                .custom_gauge_data
+                .get(pane_type)
+                .cloned()
+                .unwrap_or_else(|| enya_plugin::GaugePaneData::with_value(0.0));
+
+            let pane: Box<dyn Component> = Box::new(PluginGaugePane::new(config, data));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+                log::info!("Added custom gauge pane of type '{pane_type}'");
+            }
+        } else {
+            log::warn!("Unknown custom gauge pane type: {pane_type}");
+        }
+    }
+
+    /// Update data for all custom gauge panes of a given type.
+    ///
+    /// This updates the stored data and refreshes any visible panes of this type.
+    pub fn update_custom_gauge_data_by_type(
+        &mut self,
+        pane_type: &str,
+        data: enya_plugin::GaugePaneData,
+    ) {
+        // Store the data for future pane instances
+        self.custom_gauge_data
+            .insert(pane_type.to_string(), data.clone());
+
+        // Update any existing panes of this type
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginGaugePane;
+                if let Some(gauge_pane) = component.as_any_mut().downcast_mut::<PluginGaugePane>() {
+                    if gauge_pane.pane_type() == pane_type {
+                        gauge_pane.set_data(data.clone());
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Updated custom gauge data for type '{}': value={}",
+            pane_type,
+            data.value
+        );
+    }
+
+    // ==================== Plugin Pane Refresh ====================
+
+    /// Get plugin pane types that need to be refreshed based on their refresh intervals.
+    ///
+    /// Returns a list of pane type names that have exceeded their refresh interval
+    /// since the last refresh.
+    pub fn get_pending_plugin_refreshes(&self, refreshable_panes: &[(String, u32)]) -> Vec<String> {
+        use std::time::Duration;
+
+        let now = crate::util::Instant::now();
+        let mut pending = Vec::new();
+
+        for (pane_type, interval_secs) in refreshable_panes {
+            if *interval_secs == 0 {
+                continue; // No auto-refresh
+            }
+
+            // Check if we have active panes of this type (only refresh if visible)
+            let has_active_pane = self.has_custom_pane_of_type(pane_type);
+            if !has_active_pane {
+                continue;
+            }
+
+            let should_refresh = match self.plugin_pane_last_refresh.get(pane_type) {
+                Some(last) => {
+                    now.duration_since(*last) >= Duration::from_secs(*interval_secs as u64)
+                }
+                None => true, // Never refreshed - refresh now
+            };
+
+            if should_refresh {
+                pending.push(pane_type.clone());
+            }
+        }
+
+        pending
+    }
+
+    /// Check if there are any custom panes of the given type currently visible.
+    fn has_custom_pane_of_type(&self, pane_type: &str) -> bool {
+        use crate::components::{
+            PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane,
+        };
+
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                // Check table panes
+                if let Some(table_pane) = component.as_any().downcast_ref::<PluginTablePane>() {
+                    if table_pane.pane_type() == pane_type {
+                        return true;
+                    }
+                }
+                // Check chart panes
+                if let Some(chart_pane) = component.as_any().downcast_ref::<PluginChartPane>() {
+                    if chart_pane.pane_type() == pane_type {
+                        return true;
+                    }
+                }
+                // Check stat panes
+                if let Some(stat_pane) = component.as_any().downcast_ref::<PluginStatPane>() {
+                    if stat_pane.pane_type() == pane_type {
+                        return true;
+                    }
+                }
+                // Check gauge panes
+                if let Some(gauge_pane) = component.as_any().downcast_ref::<PluginGaugePane>() {
+                    if gauge_pane.pane_type() == pane_type {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Mark a plugin pane type as refreshed (update its last refresh time).
+    pub fn mark_plugin_pane_refreshed(&mut self, pane_type: &str) {
+        self.plugin_pane_last_refresh
+            .insert(pane_type.to_string(), crate::util::Instant::now());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== Constants Tests ====================
+
+    #[test]
+    fn test_max_tree_depth_value() {
+        // Document the current value for change detection.
+        // Value should be large enough for practical layouts (50+)
+        // but small enough to prevent stack overflow (200 or less).
+        assert_eq!(MAX_TREE_DEPTH, 100);
+    }
+
+    // ==================== Documentation Tests ====================
+    //
+    // The following behaviors are tested through integration tests and
+    // manual testing since they require egui_tiles tree structures:
+    //
+    // Focus Validation (close_tile):
+    // - When closing a pane, focus is set to a sibling in priority order:
+    //   Right > Left > Down > Up > first remaining pane
+    // - After tree mutation, focus is validated to ensure the tile exists
+    // - If validation fails, focus falls back to first available pane
+    //
+    // Recursion Depth Guards:
+    // - find_parent_tab_recursive: Returns None if depth > MAX_TREE_DEPTH
+    // - find_parent_info_recursive: Returns None if depth > MAX_TREE_DEPTH
+    // - collect_pane_ids: Returns partial results if depth > MAX_TREE_DEPTH
+    // - All guards log warnings when triggered
+    //
+    // These guards prevent stack overflow on pathological tree structures
+    // while allowing normal workspace layouts to function correctly.
 }

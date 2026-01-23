@@ -6,12 +6,11 @@
 
 use egui::{Key, RichText};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
-use crate::components::util::finder_utils::{OverlayStyle, render_key_badge_large};
+use crate::components::util::finder_utils::OverlayStyle;
 
 /// Detect the user's operating system from the browser's user agent
 fn detect_os() -> &'static str {
@@ -57,9 +56,9 @@ const NATIVE_FEATURES: &[NativeFeature] = &[
         description: "Run Codex or Claude to create, understand and debug metrics",
     },
     NativeFeature {
-        icon: semantic_icons::file::FOLDER,
-        title: "Persistent Workspaces",
-        description: "Your dashboards, connections, and queries saved locally and ready when you are",
+        icon: semantic_icons::language::LUA,
+        title: "Plugins",
+        description: "Create your own Lua-based plugins with custom panes, charts, and integrations",
     },
 ];
 
@@ -151,167 +150,157 @@ impl NativePromoOverlay {
 
         // Calculate popup dimensions
         let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.5).clamp(480.0, 600.0);
+        let popup_width = (screen_rect.width() * 0.5).clamp(500.0, 620.0);
+        let content_width = popup_width - 48.0; // 24px padding on each side
+
+        // Extract colors from theme
+        let overlay_style = OverlayStyle::frosted_glass(self.theme);
+        let separator_color = self.theme.border_subtle();
+        let muted_text = self.theme.text_primary().gamma_multiply(0.6);
+        let accent_color = self.theme.accent_primary();
+        let text_col = self.theme.text_primary();
 
         egui::Area::new(egui::Id::new("native_promo_overlay_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
-                let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                let separator_color = self.theme.border_subtle();
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
-                let accent_color = self.theme.accent_primary();
-                let key_bg = self.theme.bg_elevated();
-                let feature_bg = self.theme.bg_hover();
+                overlay_style.frame().show(ui, |ui| {
+                    ui.set_width(popup_width);
 
-                overlay_style
-                    .apply_to_frame(egui::Frame::new().inner_margin(24.0))
-                    .show(ui, |ui| {
-                        ui.set_width(popup_width);
-
-                        // Header section - centered
-                        ui.vertical_centered(|ui| {
+                    // Header section with icon and title
+                    ui.add_space(24.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(24.0);
+                        ui.label(
+                            RichText::new(semantic_icons::action::IMPORT)
+                                .color(accent_color)
+                                .size(28.0),
+                        );
+                        ui.add_space(16.0);
+                        ui.vertical(|ui| {
                             ui.label(
-                                RichText::new(semantic_icons::status::INFO)
-                                    .color(accent_color)
-                                    .size(32.0),
-                            );
-                            ui.add_space(12.0);
-                            ui.label(
-                                RichText::new("Web Mode")
+                                RichText::new("Web Preview")
                                     .color(muted_text)
                                     .size(typography::SM),
                             );
                             ui.add_space(4.0);
                             ui.label(
                                 RichText::new("Get the Full Experience")
-                                    .color(text_color(self.theme))
+                                    .color(text_col)
                                     .size(typography::HEADING)
                                     .strong(),
                             );
                         });
-                        ui.add_space(16.0);
+                    });
+                    ui.add_space(16.0);
 
-                        // Separator
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
-                        ui.add_space(20.0);
+                    // Separator
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+                    ui.add_space(20.0);
 
-                        // Description text - centered
-                        ui.vertical_centered(|ui| {
-                            ui.set_width(popup_width - 48.0);
+                    // Description text
+                    ui.horizontal(|ui| {
+                        ui.add_space(24.0);
+                        ui.vertical(|ui| {
+                            ui.set_width(content_width);
                             ui.label(
                                 RichText::new(
-                                    "You're using the web version of Enya. Download the native desktop app to unlock these powerful features:",
+                                    "You're using the web version of Enya. Download the native desktop app to access features including:",
                                 )
-                                .color(text_color(self.theme))
+                                .color(text_col)
                                 .size(typography::MD),
                             );
                         });
-                        ui.add_space(20.0);
-
-                        // Feature list - centered cards
-                        let card_width = popup_width - 48.0;
-                        for feature in NATIVE_FEATURES {
-                            ui.vertical_centered(|ui| {
-                                egui::Frame::new()
-                                    .fill(feature_bg)
-                                    .corner_radius(8.0)
-                                    .inner_margin(egui::Margin::symmetric(16, 12))
-                                    .show(ui, |ui| {
-                                        ui.set_width(card_width);
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(feature.icon)
-                                                    .color(accent_color)
-                                                    .size(typography::XL),
-                                            );
-                                            ui.add_space(12.0);
-                                            ui.vertical(|ui| {
-                                                ui.label(
-                                                    RichText::new(feature.title)
-                                                        .color(text_color(self.theme))
-                                                        .size(typography::MD)
-                                                        .strong(),
-                                                );
-                                                ui.add_space(2.0);
-                                                ui.label(
-                                                    RichText::new(feature.description)
-                                                        .color(muted_text)
-                                                        .size(typography::SM),
-                                                );
-                                            });
-                                        });
-                                    });
-                            });
-                            ui.add_space(8.0);
-                        }
-                        ui.add_space(12.0);
-
-                        // Download link - centered
-                        let os_name = detect_os();
-                        ui.vertical_centered(|ui| {
-                            let download_response = ui.add(
-                                egui::Label::new(
-                                    RichText::new(format!(
-                                        "{}  Download for {}",
-                                        semantic_icons::action::IMPORT,
-                                        os_name
-                                    ))
-                                    .color(accent_color)
-                                    .size(typography::LG)
-                                    .strong(),
-                                )
-                                .sense(egui::Sense::click()),
-                            );
-
-                            if download_response.clicked() {
-                                ctx.open_url(egui::OpenUrl::new_tab("https://enya.build/download"));
-                            }
-
-                            if download_response.hovered() {
-                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                            }
-                        });
-                        ui.add_space(20.0);
-
-                        // Separator above footer
-                        ui.painter().hline(
-                            ui.available_rect_before_wrap().x_range(),
-                            ui.cursor().top(),
-                            egui::Stroke::new(1.0, separator_color),
-                        );
-                        ui.add_space(12.0);
-
-                        // Footer with dismiss hint - centered
-                        ui.horizontal(|ui| {
-                            // Estimate content width: badge (~100px) + spacing + text (~150px)
-                            let content_width = 260.0;
-                            ui.add_space((ui.available_width() - content_width) / 2.0);
-                            render_key_badge_large(
-                                ui,
-                                "Enter / Esc",
-                                key_bg,
-                                text_color(self.theme),
-                            );
-                            ui.add_space(8.0);
-                            ui.label(
-                                RichText::new("continue to web version")
-                                    .color(muted_text)
-                                    .size(typography::SM),
-                            );
-                        });
                     });
+                    ui.add_space(20.0);
+
+                    // Feature list
+                    for feature in NATIVE_FEATURES {
+                        ui.horizontal(|ui| {
+                            ui.add_space(24.0);
+                            ui.label(
+                                RichText::new(feature.icon)
+                                    .color(accent_color)
+                                    .size(typography::XL),
+                            );
+                            ui.add_space(14.0);
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    RichText::new(feature.title)
+                                        .color(text_col)
+                                        .size(typography::MD)
+                                        .strong(),
+                                );
+                                ui.add_space(2.0);
+                                ui.label(
+                                    RichText::new(feature.description)
+                                        .color(muted_text)
+                                        .size(typography::SM),
+                                );
+                            });
+                        });
+                        ui.add_space(14.0);
+                    }
+                    ui.add_space(4.0);
+
+                    // Download link - centered
+                    let os_name = detect_os();
+                    ui.vertical_centered(|ui| {
+                        let download_response = ui.add(
+                            egui::Label::new(
+                                RichText::new(format!(
+                                    "{}  Download for {}",
+                                    semantic_icons::action::IMPORT,
+                                    os_name
+                                ))
+                                .color(accent_color)
+                                .size(typography::LG)
+                                .strong(),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+
+                        if download_response.clicked() {
+                            ctx.open_url(egui::OpenUrl::new_tab("https://enya.build/download"));
+                        }
+
+                        if download_response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                    });
+                    ui.add_space(20.0);
+
+                    // Separator above footer
+                    ui.painter().hline(
+                        ui.available_rect_before_wrap().x_range(),
+                        ui.cursor().top(),
+                        egui::Stroke::new(1.0, separator_color),
+                    );
+                    ui.add_space(12.0);
+
+                    // Footer - minimal
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            RichText::new("Esc to close")
+                                .color(muted_text.gamma_multiply(0.7))
+                                .size(typography::XS),
+                        );
+                    });
+                    ui.add_space(12.0);
+                });
             });
 
         if should_close {
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
 
         if should_dismiss {
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.dismiss();
         }
 

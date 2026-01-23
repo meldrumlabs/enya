@@ -7,7 +7,6 @@
 
 use egui::{Key, RichText};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -194,9 +193,10 @@ impl WorkspaceCreator {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let separator_color = self.theme.border_subtle();
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
+                let muted_text = self.theme.text_primary().gamma_multiply(0.6);
                 let accent_color = self.theme.accent_primary();
                 let key_bg = self.theme.bg_elevated();
                 let tip_color = self.theme.accent_hover();
@@ -254,7 +254,7 @@ impl WorkspaceCreator {
                             ui.add_space(4.0);
                             ui.label(
                                 RichText::new("Create Workspace")
-                                    .color(text_color(self.theme))
+                                    .color(self.theme.text_primary())
                                     .size(typography::HEADING)
                                     .strong(),
                             );
@@ -275,7 +275,7 @@ impl WorkspaceCreator {
                         ui.add_space(24.0);
                         ui.label(
                             RichText::new(title)
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .size(typography::LG)
                                 .strong(),
                         );
@@ -299,7 +299,7 @@ impl WorkspaceCreator {
                                         .hint_text(label)
                                         .frame(false)
                                         .font(typography::proportional(typography::LG))
-                                        .text_color(text_color(self.theme))
+                                        .text_color(self.theme.text_primary())
                                         .desired_width(popup_width - 96.0),
                                 );
 
@@ -380,7 +380,7 @@ impl WorkspaceCreator {
                             #[cfg(not(target_arch = "wasm32"))]
                             WorkspaceCreatorStep::GitRepo => "create",
                         };
-                        render_key_badge_large(ui, "Enter", key_bg, text_color(self.theme));
+                        render_key_badge_large(ui, "Enter", key_bg, self.theme.text_primary());
                         ui.label(
                             RichText::new(format!(" {action_label}"))
                                 .color(muted_text)
@@ -396,7 +396,7 @@ impl WorkspaceCreator {
                                     .color(muted_text)
                                     .size(typography::SM),
                             );
-                            render_key_badge_large(ui, "Esc", key_bg, text_color(self.theme));
+                            render_key_badge_large(ui, "Esc", key_bg, self.theme.text_primary());
                         });
                     });
                     ui.add_space(12.0);
@@ -405,6 +405,8 @@ impl WorkspaceCreator {
 
         // Handle state changes after rendering
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = WorkspaceCreatorResult::Cancelled;
         } else if should_next {

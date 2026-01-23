@@ -162,6 +162,7 @@ impl Workspace {
         let mut should_focus_channels_panel = false;
         let mut should_float_focused_pane = false;
         let mut should_focus_agent_panel = false;
+        let mut should_undo = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -714,6 +715,13 @@ impl Workspace {
                 return;
             }
 
+            // u - undo last action (vim-style)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::U) {
+                should_undo = true;
+                consumed = true;
+                return;
+            }
+
             // x - close focused pane
             if input.consume_key(egui::Modifiers::NONE, egui::Key::X) && current_focus.is_some() {
                 should_close_focused = true;
@@ -733,10 +741,18 @@ impl Workspace {
             if let Some(tile_id) = current_focus {
                 // Find the pane index for the focused tile
                 if let Some(pane_index) = self.get_pane_index(tile_id) {
+                    // Trigger yank flash visual effect
+                    self.behavior.trigger_yank_flash(tile_id);
                     ctx.request_repaint();
                     return Some(WorkspaceAction::SharePane(pane_index));
                 }
             }
+        }
+
+        // Handle undo action (u)
+        if should_undo {
+            self.execute_undo();
+            ctx.request_repaint();
         }
 
         // Handle time range preset changes (t5, t1, th, td, tw, etc.)
@@ -941,7 +957,23 @@ impl Workspace {
     ) -> Option<WorkspaceAction> {
         let pane_ids = self.get_pane_tile_ids();
 
-        // Get current cursor position from visual-multi state
+        // Get current cursor position from visual-multi state, validating it still exists
+        let cursor_tile_id = self
+            .visual_multi_state
+            .as_ref()
+            .and_then(|s| s.cursor_tile_id)
+            .filter(|id| pane_ids.contains(id));
+
+        // If cursor was invalid, reset to first pane
+        if cursor_tile_id.is_none() {
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                if let Some(&first_pane) = pane_ids.first() {
+                    state.set_cursor(first_pane);
+                }
+            }
+        }
+
+        // Re-read cursor after potential reset
         let cursor_tile_id = self
             .visual_multi_state
             .as_ref()

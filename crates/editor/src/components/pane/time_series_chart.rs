@@ -11,7 +11,6 @@ use egui_plot::{
 
 use super::annotation::{Annotation, AnnotationId, AnnotationTarget};
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::tinted_logo::get_tinted_logo_with_opacity;
@@ -900,7 +899,7 @@ impl TimeSeriesChart {
     /// Render the chart
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_color = text_color(self.theme);
+        let text_color = self.theme.text_primary();
 
         // Calculate scale factor based on available space
         let available_width = ui.available_width();
@@ -1042,6 +1041,7 @@ impl TimeSeriesChart {
             };
 
             ui.horizontal_wrapped(|ui| {
+                ui.add_space(4.0); // Left margin for focus border clearance
                 ui.spacing_mut().item_spacing.x = legend_item_spacing;
 
                 // Show first N series

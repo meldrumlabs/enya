@@ -14,7 +14,6 @@ use enya_client::logs::{
 };
 
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
@@ -353,7 +352,7 @@ impl LogsPane {
 
     /// Render the pane header with filters.
     fn render_header(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let muted_text = text_col.gamma_multiply(0.6);
         let accent = self.theme.accent_primary();
 
@@ -1024,7 +1023,7 @@ impl LogsPane {
 
     /// Render empty state.
     fn render_empty_state(&self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         ui.centered_and_justified(|ui| {
             ui.vertical_centered(|ui| {
@@ -1058,7 +1057,7 @@ impl LogsPane {
 
     /// Render error state.
     fn render_error(&self, ui: &mut egui::Ui, error: &str) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let error_color = self.theme.semantic_error();
 
         ui.centered_and_justified(|ui| {
@@ -1124,7 +1123,7 @@ impl LogsPane {
 
     /// Render the logs table with premium styling.
     fn render_logs_table(&mut self, ui: &mut egui::Ui, response: &LogsResponse) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let accent = self.theme.accent_primary();
 
         // Premium header text color - use accent-tinted muted text
@@ -1399,7 +1398,7 @@ impl LogsPane {
                         painter.rect_filled(badge_rect, SMALL_CORNER_RADIUS, badge_bg);
 
                         // Add subtle border for light themes for better definition
-                        if self.theme.is_light() {
+                        if !self.theme.is_dark() {
                             painter.rect_stroke(
                                 badge_rect,
                                 SMALL_CORNER_RADIUS,

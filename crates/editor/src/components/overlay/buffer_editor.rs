@@ -5,7 +5,6 @@ use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticLevel};
 use crate::components::util::query_completion::{CompletionResult, QueryCompletion, QueryLanguage};
 use crate::components::util::query_state::QueryState;
 use crate::components::util::query_validation::{ValidationResult, validate_query};
-use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
@@ -651,14 +650,15 @@ impl BufferEditor {
         let mut should_save = false;
 
         // Handle keyboard shortcuts (when completion is not open)
+        // Use consume_key to prevent multiple processing
         if !self.completion.is_open() {
-            ctx.input(|input| {
+            ctx.input_mut(|input| {
                 // Escape - cancel and close
-                if input.key_pressed(Key::Escape) {
+                if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                     should_close = true;
                 }
                 // Ctrl+Enter or Cmd+Enter - save and close
-                if input.key_pressed(Key::Enter) && input.modifiers.command {
+                if input.consume_key(egui::Modifiers::COMMAND, Key::Enter) {
                     should_save = true;
                 }
             });
@@ -676,6 +676,7 @@ impl BufferEditor {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 // Muted accent for badges/buttons
                 let accent_color = self.theme.accent_muted();
@@ -700,7 +701,7 @@ impl BufferEditor {
                         // Buffer name
                         ui.label(
                             RichText::new(&self.buffer_name)
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .size(typography::XL),
                         );
 
@@ -770,7 +771,7 @@ impl BufferEditor {
                             ui.add_space(16.0);
                             ui.label(
                                 RichText::new("Esc to cancel")
-                                    .color(text_color(self.theme).gamma_multiply(0.4))
+                                    .color(self.theme.text_primary().gamma_multiply(0.4))
                                     .size(typography::SM),
                             );
                         });
@@ -793,13 +794,13 @@ impl BufferEditor {
                         ui.add_space(16.0);
                         ui.label(
                             RichText::new(semantic_icons::file::CODE)
-                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .color(self.theme.text_primary().gamma_multiply(0.6))
                                 .size(typography::XL),
                         );
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Query")
-                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .color(self.theme.text_primary().gamma_multiply(0.7))
                                 .size(typography::MD),
                         );
                     });
@@ -888,7 +889,7 @@ impl BufferEditor {
                                     .hint_text(
                                         RichText::new(hint)
                                             .font(typography::code_lg())
-                                            .color(text_color(self.theme).gamma_multiply(0.35)),
+                                            .color(self.theme.text_primary().gamma_multiply(0.35)),
                                     )
                                     .desired_width(editor_width - 28.0)
                                     .desired_rows(6)
@@ -1072,7 +1073,7 @@ impl BufferEditor {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
 
-                        let hint_color = text_color(self.theme).gamma_multiply(0.35);
+                        let hint_color = self.theme.text_primary().gamma_multiply(0.35);
                         let key_bg = self.theme.bg_elevated();
 
                         // Premium keyboard hints with key badges
@@ -1137,7 +1138,7 @@ impl BufferEditor {
                             let cancel_btn = egui::Button::new(
                                 RichText::new("Cancel")
                                     .size(typography::MD)
-                                    .color(text_color(self.theme).gamma_multiply(0.7)),
+                                    .color(self.theme.text_primary().gamma_multiply(0.7)),
                             )
                             .fill(cancel_bg)
                             .stroke(egui::Stroke::new(1.0, cancel_border))
@@ -1192,9 +1193,13 @@ impl BufferEditor {
         if should_save {
             let saved_query = self.query.clone();
             let saved_state = self.query_state.clone();
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = BufferEditorResult::Saved(saved_query, saved_state);
         } else if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = BufferEditorResult::Cancelled;
         }

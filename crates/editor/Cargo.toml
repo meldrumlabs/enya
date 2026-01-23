@@ -28,6 +28,7 @@ enya-promql = { workspace = true }
 enya-logql = { workspace = true }
 enya-client = { workspace = true }
 enya-team-api = { workspace = true }
+enya-plugin = { workspace = true }
 uuid = { version = "1", features = ["v4"] }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
@@ -53,6 +54,13 @@ parking_lot = { workspace = true, features = ["serde"] }
 simple_logger = { workspace = true }
 mimalloc = { workspace = true }
 rustls = { workspace = true }
+# System utilities for file/folder operations
+dirs = "5.0"
+open = "5.3"
+# Clipboard access for plugin system
+arboard = "3.4"
+# Blocking HTTP client for plugin system
+ureq = { version = "3", features = ["json"] }
 # Codebase integration: git repo management, metrics discovery, syntax highlighting
 enya-analyzer = { workspace = true }
 tree-sitter = "0.25"

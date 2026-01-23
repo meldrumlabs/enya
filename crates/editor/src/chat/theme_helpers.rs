@@ -58,6 +58,7 @@ impl ChatColors {
     /// Background color for AI agent messages.
     pub fn agent_message_bg(&self) -> Color32 {
         match self.theme {
+            AppTheme::Custom(colors) => colors.bg_elevated,
             AppTheme::Light => Color32::from_rgb(245, 243, 255),
             AppTheme::Nord => Color32::from_rgb(46, 52, 74),
             AppTheme::Midnight => Color32::from_rgb(25, 30, 50),

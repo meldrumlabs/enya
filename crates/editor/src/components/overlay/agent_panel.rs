@@ -15,10 +15,11 @@ use crate::components::pane::time_series_chart::TimeSeriesChart;
 use crate::components::pane::{InlineChart, InlineContent, InlineSearchResults, InlineSource};
 use crate::components::util::{
     ActivityItem, ActivityType, AiModel, AiProvider, ConversationHandoff, MessageRole,
-    ResponseStatus, normalize_unicode,
+    ResponseStatus, ScrollShadowConfig, ScrollState, normalize_unicode, render_scroll_shadows,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::{truncate_first_line, truncate_path_suffix};
+use crate::components::widget::ThinkingIndicator;
 use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -61,7 +62,7 @@ pub struct AgentPanel {
     /// Skip vim key detection for one frame after gaining focus
     /// (prevents immediate key detection from lingering keypresses)
     skip_vim_keys_once: bool,
-    /// Current theme
+    /// Current theme (supports Custom variant with plugin colors)
     theme: AppTheme,
     /// Chat message history
     messages: Vec<ChatMessage>,
@@ -194,6 +195,7 @@ impl AgentPanel {
     }
 
     /// Set the theme
+    /// Set the theme (supports Custom variant with plugin colors)
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
     }
@@ -387,8 +389,8 @@ impl AgentPanel {
             AgentPanelResult::None
         };
 
-        // Handle keyboard input
-        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        let escape = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape));
         if escape && !self.is_waiting {
             result = AgentPanelResult::Closed;
         }
@@ -697,9 +699,9 @@ impl AgentPanel {
         // Premium divider
         self.render_divider(ui);
 
-        // Chat area (scrollable)
+        // Chat area (scrollable) with scroll shadows
         let available_height = ui.available_height() - 90.0; // Reserve space for input
-        ScrollArea::vertical()
+        let scroll_output = ScrollArea::vertical()
             .id_salt("agent_chat_scroll")
             .max_height(available_height)
             .auto_shrink([false; 2])
@@ -786,6 +788,17 @@ impl AgentPanel {
                     self.scroll_to_bottom = false;
                 }
             });
+
+        // Render scroll shadows for the chat area
+        let scroll_state = ScrollState::from_scroll_output(
+            scroll_output.content_size,
+            scroll_output.inner_rect,
+            scroll_output.state.offset,
+        );
+        let shadow_config = ScrollShadowConfig::default()
+            .with_color(self.theme.bg_surface())
+            .with_opacity(0.6);
+        render_scroll_shadows(ui, scroll_output.inner_rect, scroll_state, shadow_config);
 
         // Premium input divider
         self.render_divider(ui);
@@ -1092,25 +1105,20 @@ impl AgentPanel {
             }
         }
 
-        // Streaming indicator with timer
+        // Amp-style thinking indicator with animated pulsing dots
         if message.is_streaming {
-            let accent = self.theme.accent_primary();
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.add(egui::Spinner::new().color(accent).size(14.0));
-                ui.add_space(8.0);
 
-                // Show elapsed time
-                if let Some(start) = self.request_start_time {
-                    let elapsed = start.elapsed().as_secs_f32();
-                    let time_str = if elapsed < 10.0 {
-                        format!("{elapsed:.1}s")
-                    } else {
-                        format!("{elapsed:.0}s")
-                    };
-                    ui.label(RichText::new(time_str).color(accent).size(typography::SM));
-                }
-            });
+            // Handle start_time type difference between native and WASM
+            #[cfg(not(target_arch = "wasm32"))]
+            let start_time = self.request_start_time;
+            #[cfg(target_arch = "wasm32")]
+            let start_time: Option<crate::util::Instant> = None;
+
+            ThinkingIndicator::new(self.theme)
+                .with_start_time(start_time)
+                .with_status_and_activities(self.current_status, &self.current_activities)
+                .show(ui);
         }
     }
 
@@ -1453,11 +1461,20 @@ impl AgentPanel {
         let icon_pos = content_rect.left_center() + Vec2::new(4.0, 0.0);
         let label_pos = content_rect.left_center() + Vec2::new(26.0, 0.0);
 
-        // Icon or spinner
+        // Icon or braille spinner
         if activity.in_progress {
-            // Draw spinner at icon position
-            let spinner_rect = egui::Rect::from_center_size(icon_pos, egui::vec2(14.0, 14.0));
-            ui.put(spinner_rect, egui::Spinner::new().color(accent).size(14.0));
+            // Draw braille spinner at icon position
+            const BRAILLE_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+            let time = ui.ctx().input(|i| i.time);
+            let frame_index = ((time * 10.0) as usize) % BRAILLE_FRAMES.len();
+            let spinner_char = BRAILLE_FRAMES[frame_index];
+            ui.painter().text(
+                icon_pos,
+                egui::Align2::LEFT_CENTER,
+                spinner_char.to_string(),
+                typography::proportional(typography::SM),
+                accent,
+            );
         } else {
             ui.painter().text(
                 icon_pos,

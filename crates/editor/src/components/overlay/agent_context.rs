@@ -472,6 +472,8 @@ pub enum AgentCommand {
     ToggleZenMode,
     /// Exit fullscreen mode
     ExitFullscreen,
+    /// Sync repository (git fetch/pull and re-index codebase)
+    Sync,
 }
 
 impl AgentCommand {
@@ -616,6 +618,7 @@ impl AgentCommand {
             }
             AgentCommand::ToggleZenMode => "Toggling zen mode".to_string(),
             AgentCommand::ExitFullscreen => "Exiting fullscreen".to_string(),
+            AgentCommand::Sync => "Syncing repository and re-indexing codebase".to_string(),
         }
     }
 }

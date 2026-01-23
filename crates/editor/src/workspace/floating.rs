@@ -227,6 +227,14 @@ impl FloatingPane {
         self.animation.is_some()
     }
 
+    /// Skip any current animation and make the pane fully visible immediately.
+    ///
+    /// This is useful for undo operations where the pane should appear instantly.
+    pub fn skip_animation(&mut self) {
+        self.animation = None;
+        self.animation_progress = 1.0;
+    }
+
     /// Toggle maximized state. Returns true if now maximized.
     pub fn toggle_maximize(&mut self, viewport: Rect) -> bool {
         if self.maximized {

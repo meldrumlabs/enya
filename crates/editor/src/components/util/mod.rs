@@ -10,6 +10,7 @@ pub mod query_completion;
 pub mod query_executor;
 pub mod query_state;
 pub mod query_validation;
+pub mod scroll_shadows;
 pub mod syntax_highlight;
 pub mod text_formatting;
 
@@ -33,6 +34,9 @@ pub use query_completion::{
 pub use query_executor::{Backend, ExecuteParams, QueryExecutor, QueryPollResult};
 pub use query_state::{Granularity, QueryState};
 pub use query_validation::{ValidationResult, is_valid_query, validate_query};
+pub use scroll_shadows::{
+    ScrollAreaWithShadows, ScrollShadowConfig, ScrollState, render_scroll_shadows,
+};
 pub use syntax_highlight::SyntaxHighlightData;
 pub use text_formatting::normalize_unicode;
 #[cfg(not(target_arch = "wasm32"))]

@@ -144,10 +144,10 @@ impl ViewportFilter {
         let mut should_apply = false;
         let mut should_clear = false;
 
-        // Handle keyboard shortcuts
-        ui.ctx().input(|input| {
+        // Handle keyboard shortcuts - use consume_key to prevent multiple processing
+        ui.ctx().input_mut(|input| {
             // Escape - close without applying (if pattern is empty, also clear filter)
-            if input.key_pressed(Key::Escape) {
+            if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 if self.pattern.is_empty() && !self.applied_pattern.is_empty() {
                     should_clear = true;
                 } else {
@@ -155,16 +155,16 @@ impl ViewportFilter {
                 }
             }
             // Enter - apply filter and close
-            if input.key_pressed(Key::Enter) {
+            if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
                 should_apply = true;
             }
         });
 
-        // Get theme-aware colors
-        let text_primary = palette::text_primary(self.theme);
-        let text_secondary = palette::text_secondary(self.theme);
-        let text_tertiary = palette::text_tertiary(self.theme);
-        let badge_bg = palette::bg_elevated(self.theme);
+        // Get theme-aware colors (Custom variant handles plugin colors internally)
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
+        let badge_bg = self.theme.bg_elevated();
 
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
 
@@ -286,9 +286,9 @@ impl ViewportFilter {
     pub fn show_inline(&mut self, ui: &mut egui::Ui) -> ViewportFilterResult {
         let mut result = ViewportFilterResult::None;
 
-        let text_primary = palette::text_primary(self.theme);
-        let text_secondary = palette::text_secondary(self.theme);
-        let text_tertiary = palette::text_tertiary(self.theme);
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
         let accent = self.theme.accent_primary();
         let bg_subtle = accent.gamma_multiply(0.08);
         let bg_active = accent.gamma_multiply(0.15);
@@ -386,10 +386,10 @@ impl ViewportFilter {
                 self.pattern = self.applied_pattern.clone();
             }
 
-            // Handle keyboard
+            // Handle keyboard - use consume_key to prevent multiple processing
             if text_response.has_focus() {
-                ui.ctx().input(|input| {
-                    if input.key_pressed(Key::Enter) {
+                ui.ctx().input_mut(|input| {
+                    if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
                         self.applied_pattern = self.pattern.clone();
                         self.is_open = false;
                         result = if self.applied_pattern.is_empty() {
@@ -398,7 +398,7 @@ impl ViewportFilter {
                             ViewportFilterResult::Applied(self.applied_pattern.clone())
                         };
                     }
-                    if input.key_pressed(Key::Escape) {
+                    if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                         if self.pattern.is_empty() && !self.applied_pattern.is_empty() {
                             self.clear();
                             result = ViewportFilterResult::Cleared;

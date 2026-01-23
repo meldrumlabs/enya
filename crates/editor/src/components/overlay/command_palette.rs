@@ -4,12 +4,12 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::{ScrollShadowConfig, ScrollState, render_scroll_shadows};
 
 /// A command that can be executed from the command palette
 #[derive(Debug, Clone)]
@@ -22,6 +22,50 @@ pub struct PaletteCommand {
     pub description: &'static str,
     /// The kind of command (affects parsing and execution)
     pub kind: CommandKind,
+}
+
+/// A dynamic command (e.g., from plugins) that owns its strings
+#[derive(Debug, Clone)]
+pub struct DynamicCommand {
+    /// The command name
+    pub name: String,
+    /// Aliases for the command
+    pub aliases: Vec<String>,
+    /// Description of what the command does
+    pub description: String,
+    /// Whether the command accepts arguments
+    pub accepts_args: bool,
+    /// Source of the command (e.g., plugin name)
+    pub source: String,
+}
+
+impl DynamicCommand {
+    /// Convert to a PaletteCommand by leaking strings for static lifetime.
+    /// This is acceptable because plugins are loaded once at startup.
+    fn to_palette_command(&self) -> PaletteCommand {
+        // Leak strings to get 'static lifetime
+        let name: &'static str = Box::leak(self.name.clone().into_boxed_str());
+        let description: &'static str =
+            Box::leak(format!("{} [{}]", self.description, self.source).into_boxed_str());
+        let aliases: &'static [&'static str] = Box::leak(
+            self.aliases
+                .iter()
+                .map(|a| Box::leak(a.clone().into_boxed_str()) as &'static str)
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        );
+
+        PaletteCommand {
+            name,
+            aliases,
+            description,
+            kind: if self.accepts_args {
+                CommandKind::MultiArg
+            } else {
+                CommandKind::NoArgs
+            },
+        }
+    }
 }
 
 /// The kind of command determines how arguments are parsed
@@ -86,6 +130,12 @@ pub enum CommandResult {
     DockAllPanes,
     /// Auto-arrange all floating panes in a grid
     ArrangeFloatingPanes,
+    /// Sync git repository and re-index codebase (native only)
+    SyncCodebase,
+    /// Open the tutorial overlay
+    OpenTutorial,
+    /// Try to execute a plugin command (command name, args)
+    PluginCommand(String, String),
     /// No-op (command not recognized or cancelled)
     None,
 }
@@ -194,6 +244,12 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         description: "Dock all floating panes back to tile layout",
         kind: CommandKind::NoArgs,
     },
+    PaletteCommand {
+        name: "tutorial",
+        aliases: &["tut"],
+        description: "Open the interactive tutorial",
+        kind: CommandKind::NoArgs,
+    },
 ];
 
 /// Terminal command (requires terminal feature on native)
@@ -214,6 +270,15 @@ const SQL_COMMAND: PaletteCommand = PaletteCommand {
     kind: CommandKind::NoArgs,
 };
 
+/// Sync command (native only - git operations require filesystem)
+#[cfg(not(target_arch = "wasm32"))]
+const SYNC_COMMAND: PaletteCommand = PaletteCommand {
+    name: "sync",
+    aliases: &[],
+    description: "Sync operations (:sync git)",
+    kind: CommandKind::SingleArg,
+};
+
 /// Returns all available commands based on enabled features.
 fn available_commands() -> Vec<&'static PaletteCommand> {
     #[allow(unused_mut)] // mut needed when terminal or sql features enabled
@@ -224,6 +289,9 @@ fn available_commands() -> Vec<&'static PaletteCommand> {
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
     commands.push(&SQL_COMMAND);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    commands.push(&SYNC_COMMAND);
 
     commands
 }
@@ -242,7 +310,7 @@ pub struct CommandPalette {
     input: String,
     /// Whether the palette is open
     is_open: bool,
-    /// Current theme
+    /// Current theme (supports Custom variant with plugin colors)
     theme: AppTheme,
     /// Fuzzy matcher for command completion
     matcher: Matcher,
@@ -258,6 +326,10 @@ pub struct CommandPalette {
     centered: bool,
     /// Whether to request focus on next render (only once when opening)
     needs_focus: bool,
+    /// Dynamic commands from plugins (source data)
+    plugin_commands: Vec<DynamicCommand>,
+    /// Converted plugin commands as static references (leaked for matching)
+    plugin_palette_commands: &'static [PaletteCommand],
 }
 
 impl Default for CommandPalette {
@@ -279,12 +351,24 @@ impl CommandPalette {
             cursor_to_end: false,
             centered: false,
             needs_focus: false,
+            plugin_commands: Vec::new(),
+            plugin_palette_commands: &[],
         }
     }
 
-    /// Set the theme
+    /// Set the theme (supports Custom variant with plugin colors)
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
+    }
+
+    /// Set plugin commands (called when plugins are loaded)
+    pub fn set_plugin_commands(&mut self, commands: Vec<DynamicCommand>) {
+        // Convert to static PaletteCommands for matching
+        // Leak the Vec to get a static slice (acceptable since plugins are loaded once)
+        let palette_commands: Vec<PaletteCommand> =
+            commands.iter().map(|c| c.to_palette_command()).collect();
+        self.plugin_palette_commands = Box::leak(palette_commands.into_boxed_slice());
+        self.plugin_commands = commands;
     }
 
     /// Check if the palette is open
@@ -331,11 +415,20 @@ impl CommandPalette {
         // Extract the command part (before any space/arguments)
         let cmd_part = self.input.split_whitespace().next().unwrap_or("");
 
-        let commands = available_commands();
+        // Combine built-in commands and plugin commands
+        let builtin_commands = available_commands();
 
         if cmd_part.is_empty() {
             // Show all commands sorted alphabetically
-            for cmd in &commands {
+            for cmd in &builtin_commands {
+                self.suggestions.push(CommandMatch {
+                    command: cmd,
+                    score: 0,
+                    match_positions: Vec::new(),
+                });
+            }
+            // Add plugin commands
+            for cmd in self.plugin_palette_commands {
                 self.suggestions.push(CommandMatch {
                     command: cmd,
                     score: 0,
@@ -356,27 +449,31 @@ impl CommandPalette {
             let mut indices: Vec<u32> = Vec::new();
             let mut buf = Vec::new();
 
-            // Fuzzy match commands
-            for cmd in &commands {
+            // Helper to match a command and add to suggestions
+            let match_command = |suggestions: &mut Vec<CommandMatch>,
+                                 matcher: &mut Matcher,
+                                 cmd: &'static PaletteCommand,
+                                 pattern: &Pattern,
+                                 indices: &mut Vec<u32>,
+                                 buf: &mut Vec<char>| {
                 // Check main name
                 indices.clear();
-                let haystack = Utf32Str::new(cmd.name, &mut buf);
-                if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
-                    self.suggestions.push(CommandMatch {
+                let haystack = Utf32Str::new(cmd.name, buf);
+                if let Some(score) = pattern.indices(haystack, matcher, indices) {
+                    suggestions.push(CommandMatch {
                         command: cmd,
                         score: i64::from(score),
                         match_positions: indices.iter().map(|&i| i as usize).collect(),
                     });
-                    continue;
+                    return;
                 }
 
                 // Check aliases
                 for alias in cmd.aliases {
                     indices.clear();
-                    let haystack = Utf32Str::new(alias, &mut buf);
-                    if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices)
-                    {
-                        self.suggestions.push(CommandMatch {
+                    let haystack = Utf32Str::new(alias, buf);
+                    if let Some(score) = pattern.indices(haystack, matcher, indices) {
+                        suggestions.push(CommandMatch {
                             command: cmd,
                             score: i64::from(score),
                             match_positions: indices.iter().map(|&i| i as usize).collect(),
@@ -384,7 +481,32 @@ impl CommandPalette {
                         break;
                     }
                 }
+            };
+
+            // Match built-in commands
+            for cmd in &builtin_commands {
+                match_command(
+                    &mut self.suggestions,
+                    &mut self.matcher,
+                    cmd,
+                    &pattern,
+                    &mut indices,
+                    &mut buf,
+                );
             }
+
+            // Match plugin commands
+            for cmd in self.plugin_palette_commands {
+                match_command(
+                    &mut self.suggestions,
+                    &mut self.matcher,
+                    cmd,
+                    &pattern,
+                    &mut indices,
+                    &mut buf,
+                );
+            }
+
             // Sort by score (best first)
             self.suggestions.sort_by(|a, b| b.score.cmp(&a.score));
         }
@@ -414,7 +536,8 @@ impl CommandPalette {
 
         match command {
             Some(cmd) => self.execute(cmd, &args),
-            None => CommandResult::Error(format!("Unknown command: {cmd_name}")),
+            // Unknown command - try plugin commands
+            None => CommandResult::PluginCommand(cmd_name.to_string(), args.join(" ")),
         }
     }
 
@@ -532,6 +655,20 @@ impl CommandPalette {
                 }
             }
             "dock" | "dk" => CommandResult::DockAllPanes,
+            "tutorial" | "tut" => CommandResult::OpenTutorial,
+            "sync" => {
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :sync git".to_string())
+                } else {
+                    match args[0].to_lowercase().as_str() {
+                        "git" => CommandResult::SyncCodebase,
+                        _ => CommandResult::Error(format!(
+                            "Unknown sync command: {}. Use 'git'",
+                            args[0]
+                        )),
+                    }
+                }
+            }
             _ => CommandResult::None,
         }
     }
@@ -546,14 +683,17 @@ impl CommandPalette {
         let mut result = CommandResult::None;
         let mut should_close = false;
 
-        // Handle keyboard input
-        let (navigate_up, navigate_down, confirm, escape, tab) = ctx.input(|i| {
+        // Use consume_key to prevent keys from being processed multiple times
+        let (navigate_up, navigate_down, confirm, escape, tab) = ctx.input_mut(|i| {
             (
-                i.key_pressed(Key::ArrowUp) || (i.key_pressed(Key::K) && i.modifiers.ctrl),
-                i.key_pressed(Key::ArrowDown) || (i.key_pressed(Key::J) && i.modifiers.ctrl),
-                i.key_pressed(Key::Enter),
-                i.key_pressed(Key::Escape),
-                i.key_pressed(Key::Tab),
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowUp)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::K),
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowDown)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::J)
+                    || i.consume_key(egui::Modifiers::CTRL, Key::N),
+                i.consume_key(egui::Modifiers::NONE, Key::Enter),
+                i.consume_key(egui::Modifiers::NONE, Key::Escape),
+                i.consume_key(egui::Modifiers::NONE, Key::Tab),
             )
         });
 
@@ -583,6 +723,14 @@ impl CommandPalette {
             should_close = true;
         }
 
+        // Extract colors from theme (Custom variant handles plugin colors internally)
+        let overlay_style = OverlayStyle::frosted_glass(self.theme);
+        let text_col = self.theme.text_primary();
+        let text_muted = self.theme.text_primary().gamma_multiply(0.5);
+        let accent_col = self.theme.accent_primary();
+        let border_col = self.theme.border_subtle();
+        let bg_elevated = self.theme.bg_elevated();
+
         // Render the palette
         let screen_rect = ctx.available_rect();
         let popup_width = (screen_rect.width() * 0.5).clamp(350.0, 600.0);
@@ -598,8 +746,6 @@ impl CommandPalette {
             .anchor(anchor, offset)
             .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
-                let overlay_style = OverlayStyle::frosted_glass(self.theme);
-
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
 
@@ -608,7 +754,7 @@ impl CommandPalette {
                         ui.add_space(12.0);
                         ui.label(
                             RichText::new(":")
-                                .color(text_color(self.theme))
+                                .color(text_col)
                                 .size(typography::HEADING)
                                 .strong(),
                         );
@@ -617,7 +763,7 @@ impl CommandPalette {
                             .font(typography::heading())
                             .hint_text(
                                 RichText::new("Type a command...")
-                                    .color(text_color(self.theme).gamma_multiply(0.4)),
+                                    .color(text_muted.gamma_multiply(0.8)),
                             )
                             .frame(false)
                             .desired_width(popup_width - 50.0)
@@ -654,11 +800,10 @@ impl CommandPalette {
                     ui.add_space(8.0);
 
                     // Separator
-                    let separator_color = self.theme.border_subtle();
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
-                        egui::Stroke::new(1.0, separator_color),
+                        egui::Stroke::new(1.0, border_col),
                     );
                     ui.add_space(4.0);
 
@@ -679,8 +824,8 @@ impl CommandPalette {
                         ui.add_space(4.0);
                     }
 
-                    // Suggestions
-                    egui::ScrollArea::vertical()
+                    // Suggestions with scroll shadows
+                    let scroll_output = egui::ScrollArea::vertical()
                         .max_height(300.0)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
@@ -689,7 +834,7 @@ impl CommandPalette {
                                 ui.vertical_centered(|ui| {
                                     ui.label(
                                         RichText::new("No matching commands")
-                                            .color(text_color(self.theme).gamma_multiply(0.5))
+                                            .color(text_muted)
                                             .size(typography::XL),
                                     );
                                 });
@@ -697,10 +842,33 @@ impl CommandPalette {
                             } else {
                                 for (i, suggestion) in self.suggestions.iter().enumerate() {
                                     let is_selected = i == self.selected_index;
-                                    self.render_suggestion_row(ui, suggestion, is_selected);
+                                    self.render_suggestion_row_with_colors(
+                                        ui,
+                                        suggestion,
+                                        is_selected,
+                                        text_col,
+                                        text_muted,
+                                        accent_col,
+                                    );
                                 }
                             }
                         });
+
+                    // Render scroll shadows
+                    let scroll_state = ScrollState::from_scroll_output(
+                        scroll_output.content_size,
+                        scroll_output.inner_rect,
+                        scroll_output.state.offset,
+                    );
+                    let shadow_config = ScrollShadowConfig::default()
+                        .with_color(bg_elevated)
+                        .with_opacity(0.6);
+                    render_scroll_shadows(
+                        ui,
+                        scroll_output.inner_rect,
+                        scroll_state,
+                        shadow_config,
+                    );
 
                     ui.add_space(4.0);
 
@@ -708,12 +876,12 @@ impl CommandPalette {
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
-                        egui::Stroke::new(1.0, separator_color),
+                        egui::Stroke::new(1.0, border_col),
                     );
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         ui.add_space(12.0);
-                        let hint_color = text_color(self.theme).gamma_multiply(0.4);
+                        let hint_color = text_muted.gamma_multiply(0.8);
                         ui.label(RichText::new("↑↓").color(hint_color).size(typography::SM));
                         ui.label(
                             RichText::new("navigate")
@@ -747,23 +915,24 @@ impl CommandPalette {
             });
 
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
 
         result
     }
 
-    /// Render a single suggestion row
-    fn render_suggestion_row(
+    /// Render a single suggestion row with explicit colors
+    fn render_suggestion_row_with_colors(
         &self,
         ui: &mut egui::Ui,
         suggestion: &CommandMatch,
         is_selected: bool,
+        text_col: Color32,
+        text_muted: Color32,
+        accent_col: Color32,
     ) {
-        let text_col = text_color(self.theme);
-        // Use emerald accent for highlights to match brand
-        let accent_col = self.theme.accent_primary();
-
         let row_height = 32.0;
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), row_height),
@@ -819,7 +988,7 @@ impl CommandPalette {
             let aliases_galley = ui.painter().layout_no_wrap(
                 aliases_text,
                 typography::proportional(typography::MD),
-                text_col.gamma_multiply(0.4),
+                text_muted.gamma_multiply(0.8),
             );
             ui.painter().galley(
                 egui::pos2(
@@ -827,7 +996,7 @@ impl CommandPalette {
                     content_rect.center().y - aliases_galley.size().y / 2.0,
                 ),
                 aliases_galley.clone(),
-                text_col.gamma_multiply(0.4),
+                text_muted.gamma_multiply(0.8),
             );
             cursor_x += aliases_galley.size().x + 12.0;
         }
@@ -836,14 +1005,14 @@ impl CommandPalette {
         let desc_galley = ui.painter().layout_no_wrap(
             suggestion.command.description.to_string(),
             typography::proportional(typography::MD),
-            text_col.gamma_multiply(0.5),
+            text_muted,
         );
         let desc_x = content_rect.right() - desc_galley.size().x - 8.0;
         if desc_x > cursor_x {
             ui.painter().galley(
                 egui::pos2(desc_x, content_rect.center().y - desc_galley.size().y / 2.0),
                 desc_galley,
-                text_col.gamma_multiply(0.5),
+                text_muted,
             );
         }
 
@@ -883,4 +1052,48 @@ impl CommandPalette {
 
         ui.fonts_mut(|f| f.layout_job(job))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_palette_is_closed() {
+        let palette = CommandPalette::new();
+        assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn test_open_close() {
+        let mut palette = CommandPalette::new();
+        palette.open();
+        assert!(palette.is_open());
+        palette.close();
+        assert!(!palette.is_open());
+    }
+
+    #[test]
+    fn test_close_clears_input() {
+        let mut palette = CommandPalette::new();
+        palette.open();
+        palette.input = "test".to_string();
+        palette.close();
+        assert!(palette.input.is_empty());
+    }
+
+    #[test]
+    fn test_command_result_none_exists() {
+        // Verify that None variant exists for no-op/unknown commands
+        let result = CommandResult::None;
+        // Use pattern matching since CommandResult doesn't implement PartialEq
+        assert!(matches!(result, CommandResult::None));
+    }
+
+    // Note: Testing surrender_focus behavior requires egui::Context.
+    // The surrender_focus pattern is verified through code review and
+    // manual testing. Key invariant: When show() triggers a close (via Escape
+    // or command execution), the overlay must call
+    // ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))
+    // BEFORE calling self.close() to ensure vim navigation works immediately.
 }

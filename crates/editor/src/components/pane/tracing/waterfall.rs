@@ -7,7 +7,6 @@ use egui::{Color32, Rect, RichText, Sense, Vec2};
 use enya_client::tracing::{Span, SpanStatus, Trace, format_duration_us};
 use rustc_hash::FxHashMap;
 
-use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 
 /// Padding at top and bottom of the waterfall chart
@@ -452,7 +451,7 @@ impl WaterfallChart {
     fn show_span_tooltip(&self, ui: &mut egui::Ui, span: &Span) {
         ui.set_max_width(300.0);
 
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         ui.vertical(|ui| {
             // Service and operation
@@ -509,7 +508,7 @@ impl WaterfallChart {
 
     /// Show empty state when no trace is loaded
     fn show_empty_state(&self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         ui.centered_and_justified(|ui| {
             ui.vertical_centered(|ui| {

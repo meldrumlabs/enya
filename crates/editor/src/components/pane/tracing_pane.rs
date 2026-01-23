@@ -9,7 +9,6 @@ use enya_client::tracing::{Span, Trace, format_duration_us, tempo::demo_trace};
 
 use crate::components::pane::tracing::WaterfallChart;
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 
 use super::super::Component;
@@ -145,7 +144,7 @@ impl TracingPane {
     /// Render the toolbar with trace ID input
     fn render_toolbar(&mut self, ui: &mut egui::Ui) -> TracingPaneAction {
         let mut action = TracingPaneAction::None;
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let accent = self.theme.accent_primary();
 
         // Top padding for breathing room
@@ -244,7 +243,7 @@ impl TracingPane {
 
     /// Render the span detail panel. Returns true if close button was clicked.
     fn render_detail_panel(&self, ui: &mut egui::Ui, span: &Span) -> bool {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let mut close_clicked = false;
 
         ui.vertical(|ui| {

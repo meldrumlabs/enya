@@ -29,7 +29,8 @@ pub use parser::ParseError;
 pub use repo::{
     CommitInfo, DiffSemantics, ProgressCallback, count_commits, fetch_all_commits,
     fetch_all_commits_with_diffs_batch, fetch_all_commits_with_diffs_parallel, fetch_commit_diff,
-    fetch_commit_history, fetch_recent_commits, fetch_recent_commits_with_diffs,
+    fetch_commit_history, fetch_recent_commits, fetch_recent_commits_with_diffs, get_head_commit,
+    get_head_commit_message,
 };
 pub use scanner::{AlertRule, MetricInstrumentation, MetricKind, Scanner, ScannerRegistry};
 

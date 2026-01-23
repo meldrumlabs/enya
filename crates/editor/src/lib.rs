@@ -50,10 +50,18 @@ pub mod team;
 /// Team chat: channels, threads, and messages for collaboration.
 pub mod chat;
 
+/// Plugin system for extending editor functionality.
+pub mod plugin;
+
 pub use chat::{
     Channel, ChannelId, ChannelKind, ChannelsPanel, ChannelsPanelAction, ChatMessage,
     ChatMessageAuthor, ChatState, Mention, MentionKind, MessageId, Thread, ThreadId, ThreadStatus,
 };
 pub use team::{TeamConfig, TeamState};
+
+pub use plugin::{
+    Plugin, PluginCapabilities, PluginContext, PluginError, PluginId, PluginInfo, PluginRegistry,
+    PluginResult, PluginState,
+};
 
 pub use app::EnyaApp;

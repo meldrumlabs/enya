@@ -1,6 +1,5 @@
 use egui::{Color32, Key, RichText, Stroke, TextEdit, Vec2};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -189,7 +188,7 @@ impl Buffer {
     /// Returns a `BufferAction` indicating what action should be taken
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> BufferAction {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         // Buffer frame with mode-dependent styling
         let border_color = if self.mode == BufferMode::Insert {
@@ -344,7 +343,7 @@ impl Buffer {
 
     /// Render the query with basic syntax highlighting
     fn render_highlighted_query(&self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let keyword_color = self.theme.syntax_keyword();
         let operator_color = self.theme.syntax_key();
         let value_color = self.theme.syntax_value();

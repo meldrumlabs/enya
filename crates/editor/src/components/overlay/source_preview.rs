@@ -12,7 +12,6 @@ use egui::{Color32, Key, RichText, text::LayoutJob};
 #[cfg(not(target_arch = "wasm32"))]
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
-use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
@@ -494,18 +493,18 @@ impl HttpHandler {
         #[cfg(not(target_arch = "wasm32"))]
         let mut next_location: Option<usize> = None;
 
-        // Handle keyboard input
-        ctx.input(|i| {
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        ctx.input_mut(|i| {
             // Escape to close
-            if i.key_pressed(Key::Escape) {
+            if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 should_close = true;
             }
             // Vim-style horizontal scrolling: h/l
             let scroll_step = 50.0;
-            if i.key_pressed(Key::H) {
+            if i.consume_key(egui::Modifiers::NONE, Key::H) {
                 self.scroll_offset_x = (self.scroll_offset_x - scroll_step).max(0.0);
             }
-            if i.key_pressed(Key::L) {
+            if i.consume_key(egui::Modifiers::NONE, Key::L) {
                 self.scroll_offset_x += scroll_step;
             }
 
@@ -513,12 +512,14 @@ impl HttpHandler {
             #[cfg(not(target_arch = "wasm32"))]
             if self.metric_locations.len() > 1 {
                 // N - next location (vim quickfix-style)
-                if i.key_pressed(Key::N) && !i.modifiers.shift {
+                if i.consume_key(egui::Modifiers::NONE, Key::N) {
                     next_location =
                         Some((self.current_location_index + 1) % self.metric_locations.len());
                 }
                 // Shift+N or P - previous location
-                if i.key_pressed(Key::P) || (i.key_pressed(Key::N) && i.modifiers.shift) {
+                if i.consume_key(egui::Modifiers::NONE, Key::P)
+                    || i.consume_key(egui::Modifiers::SHIFT, Key::N)
+                {
                     next_location = Some(if self.current_location_index == 0 {
                         self.metric_locations.len() - 1
                     } else {
@@ -546,9 +547,10 @@ impl HttpHandler {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let separator_color = self.theme.border_subtle();
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
+                let muted_text = self.theme.text_tertiary();
                 let accent_color = self.theme.accent_hover();
 
                 overlay_style.frame().show(ui, |ui| {
@@ -573,6 +575,8 @@ impl HttpHandler {
             });
 
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             return SourcePreviewResult::Closed;
         }
@@ -738,7 +742,7 @@ impl HttpHandler {
                 ui.add_space(16.0);
                 ui.label(
                     RichText::new("No source code available")
-                        .color(text_color(self.theme).gamma_multiply(0.5))
+                        .color(self.theme.text_primary().gamma_multiply(0.5))
                         .font(typography::proportional(typography::MD)),
                 );
             });
@@ -864,7 +868,7 @@ impl HttpHandler {
                         );
                         ui.label(
                             RichText::new(self.labels.join(", "))
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .font(typography::monospace(typography::MD)),
                         );
                         ui.add_space(16.0);
@@ -907,7 +911,7 @@ impl HttpHandler {
                         );
                         ui.label(
                             RichText::new(&self.metric_name)
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .font(typography::monospace(typography::MD))
                                 .strong(),
                         );
@@ -956,7 +960,7 @@ impl HttpHandler {
     fn highlight_rust_line(&self, line_num: usize, line: &str) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::MD);
-        let default_color = text_color(self.theme);
+        let default_color = self.theme.text_primary();
 
         // If we have no highlight spans or line offsets, fall back to plain text
         if self.highlight_spans.is_empty() || self.line_offsets.is_empty() {
@@ -1045,7 +1049,7 @@ impl HttpHandler {
     fn highlight_rust_line(&self, _line_num: usize, line: &str) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::MD);
-        let default_color = text_color(self.theme);
+        let default_color = self.theme.text_primary();
         job.append(line, 0.0, egui::TextFormat::simple(font_id, default_color));
         job
     }
