@@ -6,6 +6,21 @@ AI agent integration for Enya, providing LLM provider clients and an agent frame
 
 Enya uses the **Agent Client Protocol (ACP)** to communicate with AI coding agents. This is a JSON-RPC 2.0 protocol over stdio that allows connecting to any ACP-compatible agent.
 
+### Note on ACP Implementation
+
+We use a **custom ACP implementation** (~400 lines) rather than the [`agent-client-protocol`](https://docs.rs/agent-client-protocol) crate. This was a deliberate choice:
+
+**Why custom:**
+- Minimal footprint - we only need the basic prompt→stream flow
+- Full control over parsing - we extract only the message types we use
+- No extra dependency to track (the crate is pre-1.0 at v0.9.2)
+- Our `AgentEvent` enum stays simple and fits our editor's needs
+
+**When to reconsider:**
+- If we need agent-initiated requests (file reads, terminal, permissions)
+- If ACP spec changes frequently and manual tracking becomes burdensome
+- If we want richer content types (images, audio)
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     Editor (Enya)                           │
