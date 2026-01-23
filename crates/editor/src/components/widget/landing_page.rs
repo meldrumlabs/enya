@@ -30,7 +30,7 @@ pub enum LandingPageAction {
 }
 
 /// Number of menu items in the landing page
-const NUM_MENU_ITEMS: usize = 7;
+const NUM_MENU_ITEMS: usize = 6;
 
 /// Animation timing (in seconds)
 mod animation {
@@ -307,7 +307,7 @@ impl LandingPage {
             let accent = self.theme.accent_primary();
             ui.add_space(8.0 * scale);
             let wasm_text = format!(
-                "{}  Download Native App for full experience",
+                "{}  Download Native App for full features",
                 semantic_icons::action::IMPORT
             );
             let wasm_start = version_start + 0.2;
@@ -365,9 +365,6 @@ impl LandingPage {
             }),
             (semantic_icons::file::TEXT, "Docs", "d", || {
                 LandingPageAction::OpenDocs
-            }),
-            (semantic_icons::keyboard::KEYBOARD, "Shortcuts", "?", || {
-                LandingPageAction::ShowShortcuts
             }),
             (semantic_icons::action::TOOL, "Plugins", "p", || {
                 LandingPageAction::OpenPlugins
@@ -508,7 +505,7 @@ impl LandingPage {
     /// Show the footer with keyboard hints (scaled version)
     fn show_footer_scaled(&self, ui: &mut egui::Ui, muted_color: Color32, scale: f32) {
         // Keyboard hints with typewriter + cursor
-        let hints = "j/k navigate  •  Enter select  •  : commands";
+        let hints = "j/k navigate  •  Enter select  •  : commands  •  ? help";
         let visible_hints = self.typewriter(hints, animation::FOOTER_START);
         let hints_cursor = if self.is_typing(hints, animation::FOOTER_START) {
             self.cursor()
@@ -630,9 +627,8 @@ impl LandingPage {
                     1 => LandingPageAction::CreateWorkspace,
                     2 => LandingPageAction::OpenTutorial,
                     3 => LandingPageAction::OpenDocs,
-                    4 => LandingPageAction::ShowShortcuts,
-                    5 => LandingPageAction::OpenPlugins,
-                    6 => LandingPageAction::ShowAbout,
+                    4 => LandingPageAction::OpenPlugins,
+                    5 => LandingPageAction::ShowAbout,
                     _ => LandingPageAction::None,
                 };
             }
