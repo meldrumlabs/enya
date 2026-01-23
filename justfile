@@ -17,8 +17,12 @@ _features := if features == "all" {
         "--features=" + features
     } else { "" }
 
+# Initialize git submodules (ghostty for terminal emulator)
+submodules:
+    git submodule update --init --recursive
+
 # Installs required dev tools
-install:
+install: submodules
     cargo install --locked cargo-machete cargo-nextest cargo-deny
     cd website && npm install
 
@@ -51,7 +55,12 @@ check-wasm:
 
 # Build the website (validates links and content)
 website-build:
-    cd website && npm run build
+    #!/usr/bin/env bash
+    if command -v npm &> /dev/null && [ -d "website/node_modules" ]; then
+        cd website && npm run build
+    else
+        echo "Skipping website build (npm not available or node_modules not installed)"
+    fi
 
 # Run the website dev server
 website-dev:
@@ -64,7 +73,19 @@ lint: check-fmt clippy
 test:
     cargo nextest run {{ _features }} --cargo-profile ci
 
+# Runs integration tests (requires Docker)
+it-test:
+    cargo nextest run -p enya-integration-tests --run-ignored ignored-only
+
 # Runs a local CI check
 # Note: We don't use --all-features because puffin and tracy profiling backends are mutually exclusive
-ci:
+ci: submodules
     just lint machete test check-wasm website-build
+
+# Run the editor (initializes submodules first)
+run: submodules
+    cargo run -p enya-editor
+
+# Build the editor (initializes submodules first)
+build: submodules
+    cargo build -p enya-editor

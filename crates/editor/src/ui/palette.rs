@@ -1,8 +1,11 @@
 //! Obsidian Glass Design System
 //!
-//! A premium dark theme palette with refined depth, subtle warmth, and emerald accents.
+//! A premium dark theme palette with refined depth, subtle warmth, and configurable accents.
 //! Designed for a luxurious, high-end developer experience with Departure Mono typography.
 //! This module provides a centralized color system for consistent UI styling.
+//!
+//! The default theme is Obsidian Glass (Dark), but users can switch to other themes
+//! like Nord, Gruvbox, or Light via `:theme <name>`.
 
 use egui::Color32;
 
@@ -65,8 +68,8 @@ pub mod text {
     pub const DISABLED: Color32 = Color32::from_rgb(75, 75, 85); // Consistent with border
 }
 
-/// Accent colors - signature emerald for interactive elements
-/// Using a refined emerald green as the unified brand color
+/// Accent colors - default emerald for interactive elements
+/// This module is kept for backwards compatibility; use accent_* functions for theme-aware colors
 pub mod accent {
     use super::*;
 
@@ -84,6 +87,45 @@ pub mod accent {
 
     /// Subtle glow color - for premium hover effects
     pub const GLOW: Color32 = Color32::from_rgba_premultiplied(16, 185, 129, 30); // 12% emerald
+}
+
+/// Emerald accent colors (default Obsidian Glass theme)
+pub mod emerald {
+    use super::*;
+
+    pub const PRIMARY: Color32 = Color32::from_rgb(16, 185, 129); // #10B981
+    pub const HOVER: Color32 = Color32::from_rgb(52, 211, 153); // #34D399
+    pub const MUTED: Color32 = Color32::from_rgb(20, 40, 34);
+    pub const LIGHT: Color32 = Color32::from_rgb(5, 150, 105); // #059669
+    pub const GLOW: Color32 = Color32::from_rgba_premultiplied(16, 185, 129, 30);
+    pub const SELECTION: Color32 = Color32::from_rgb(24, 52, 42);
+    pub const FOCUS_BORDER: Color32 = Color32::from_rgb(55, 80, 72);
+}
+
+/// Nord accent colors (Arctic, icy blue)
+pub mod nord {
+    use super::*;
+
+    pub const PRIMARY: Color32 = Color32::from_rgb(136, 192, 208); // #88C0D0 - Nord frost
+    pub const HOVER: Color32 = Color32::from_rgb(143, 188, 187); // #8FBCBB - lighter frost
+    pub const MUTED: Color32 = Color32::from_rgb(20, 35, 45);
+    pub const LIGHT: Color32 = Color32::from_rgb(94, 129, 172); // #5E81AC - darker for light mode
+    pub const GLOW: Color32 = Color32::from_rgba_premultiplied(136, 192, 208, 30);
+    pub const SELECTION: Color32 = Color32::from_rgb(30, 50, 60);
+    pub const FOCUS_BORDER: Color32 = Color32::from_rgb(59, 66, 82); // #3B4252
+}
+
+/// Gruvbox accent colors (Warm retro)
+pub mod gruvbox {
+    use super::*;
+
+    pub const PRIMARY: Color32 = Color32::from_rgb(214, 93, 14); // #D65D0E - Gruvbox orange
+    pub const HOVER: Color32 = Color32::from_rgb(254, 128, 25); // #FE8019 - bright orange
+    pub const MUTED: Color32 = Color32::from_rgb(40, 30, 20);
+    pub const LIGHT: Color32 = Color32::from_rgb(175, 58, 3); // #AF3A03 - darker for light mode
+    pub const GLOW: Color32 = Color32::from_rgba_premultiplied(214, 93, 14, 30);
+    pub const SELECTION: Color32 = Color32::from_rgb(50, 40, 30);
+    pub const FOCUS_BORDER: Color32 = Color32::from_rgb(80, 73, 69); // #504945
 }
 
 /// Highlight colors - premium selections and search matches
@@ -143,6 +185,9 @@ pub mod syntax {
     pub const NEGATION: Color32 = Color32::from_rgb(255, 120, 120); // Refined coral
 }
 
+// NOTE: Diff colors have been moved to AppTheme for proper theme support.
+// See theme.rs for diff_added_bg(), diff_removed_bg(), etc.
+
 /// Chart colors - premium palette for data visualization
 pub mod chart {
     use super::*;
@@ -200,95 +245,105 @@ pub mod light_text {
 }
 
 // ============================================================================
-// Theme-aware helper functions
+// Theme-aware helper functions (delegate to AppTheme methods)
 // ============================================================================
 
 /// Get the appropriate background base color for the current theme
 #[inline]
 pub fn bg_base(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => bg::BASE,
-        AppTheme::Light => light_bg::BASE,
-    }
+    theme.bg_base()
 }
 
 /// Get the appropriate surface color for the current theme
 #[inline]
 pub fn bg_surface(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => bg::SURFACE,
-        AppTheme::Light => light_bg::SURFACE,
-    }
+    theme.bg_surface()
 }
 
 /// Get the appropriate elevated background for the current theme
 #[inline]
 pub fn bg_elevated(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => bg::ELEVATED,
-        AppTheme::Light => light_bg::ELEVATED,
-    }
+    theme.bg_elevated()
 }
 
 /// Get the appropriate hover background for the current theme
 #[inline]
 pub fn bg_hover(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => bg::HOVER,
-        AppTheme::Light => light_bg::HOVER,
-    }
+    theme.bg_hover()
 }
 
 /// Get the appropriate selected background for the current theme
 #[inline]
 pub fn bg_selected(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => bg::SELECTED,
-        AppTheme::Light => light_bg::SELECTED,
-    }
+    theme.bg_selected()
 }
 
 /// Get the appropriate subtle border for the current theme
 #[inline]
 pub fn border_subtle(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => border::SUBTLE,
-        AppTheme::Light => light_border::SUBTLE,
-    }
+    theme.border_subtle()
 }
 
 /// Get the appropriate default border for the current theme
 #[inline]
 pub fn border_default(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => border::DEFAULT,
-        AppTheme::Light => light_border::DEFAULT,
-    }
+    theme.border_default()
 }
 
 /// Get the appropriate primary text color for the current theme
 #[inline]
 pub fn text_primary(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => text::PRIMARY,
-        AppTheme::Light => light_text::PRIMARY,
-    }
+    theme.text_primary()
 }
 
 /// Get the appropriate secondary text color for the current theme
 #[inline]
 pub fn text_secondary(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => text::SECONDARY,
-        AppTheme::Light => light_text::SECONDARY,
-    }
+    theme.text_secondary()
 }
 
 /// Get the appropriate tertiary text color for the current theme
 #[inline]
 pub fn text_tertiary(theme: AppTheme) -> Color32 {
-    match theme {
-        AppTheme::Dark => text::TERTIARY,
-        AppTheme::Light => light_text::TERTIARY,
-    }
+    theme.text_tertiary()
+}
+
+// ============================================================================
+// Accent-aware helper functions (delegate to AppTheme methods)
+// ============================================================================
+
+/// Get the primary accent color for the current theme
+#[inline]
+pub fn accent_primary(theme: AppTheme) -> Color32 {
+    theme.accent_primary()
+}
+
+/// Get the hover accent color for the current theme
+#[inline]
+pub fn accent_hover(theme: AppTheme) -> Color32 {
+    theme.accent_hover()
+}
+
+/// Get the muted accent color for the current theme
+#[inline]
+pub fn accent_muted(theme: AppTheme) -> Color32 {
+    theme.accent_muted()
+}
+
+/// Get the glow accent color for the current theme
+#[inline]
+pub fn accent_glow(theme: AppTheme) -> Color32 {
+    theme.accent_glow()
+}
+
+/// Get the selection background color for the current theme
+#[inline]
+pub fn accent_selection(theme: AppTheme) -> Color32 {
+    theme.accent_selection()
+}
+
+/// Get the focus border color for the current theme
+#[inline]
+pub fn accent_focus_border(theme: AppTheme) -> Color32 {
+    theme.border_focus()
 }

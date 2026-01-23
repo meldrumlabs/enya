@@ -1,0 +1,53 @@
+[package]
+name = "enya-datafusion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+license.workspace = true
+description = "DataFusion integration for SQL query execution via Flight SQL"
+
+[dependencies]
+# DataFusion - minimal features for SQL execution
+datafusion = { version = "51", default-features = false, features = [
+    "parquet",
+    "sql",
+    "datetime_expressions",
+    "string_expressions",
+    "nested_expressions",
+] }
+
+# Arrow - minimal features (csv/json for file format support)
+arrow = { version = "57", default-features = false, features = [
+    "csv",
+    "json",
+] }
+
+# Arrow Flight - for connecting to remote Flight SQL servers
+arrow-flight = { version = "57", default-features = false, features = [
+    "flight-sql-experimental",
+] }
+tonic = { version = "0.14", default-features = false, features = [
+    "transport",
+    "codegen",
+] }
+
+# Async runtime and channels
+tokio = { workspace = true, features = ["sync", "rt"] }
+futures = "0.3"
+
+# Error handling
+thiserror = "2"
+
+# Logging
+log = { workspace = true }
+
+# Utilities
+parking_lot = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

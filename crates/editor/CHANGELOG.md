@@ -4,6 +4,1138 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Landing page typewriter animation**: Terminal-style typewriter entrance effect when the landing page loads. Logo appears instantly, then text elements type out character by character at 60 cps with a blinking cursor (▌) - tagline, menu items (staggered), and footer hints.
+- **Landing page monospace shortcuts**: Menu item shortcuts now render in a monospace font for a clean, terminal-native look.
+- **About overlay**: New "About" option on landing page opens a dedicated overlay describing Enya as a keyboard-first observability editor that connects metrics, logs, traces, SQL, and git with AI.
+- **Plugin system**: Neovim-style Lua plugin architecture for customizing the editor:
+  - **Lua plugins**: Full scripting support with conditional logic, input validation, and HTTP requests
+  - **Plugin registry**: Central `PluginRegistry` for managing plugin lifecycle (register, init, activate, deactivate)
+  - **Plugin context**: `PluginContext` provides access to command sender, async runtime, theme, and notifications
+  - **Hook system**: Lifecycle hooks (`on_workspace_loaded`, `on_pane_added`, etc.), command hooks, keyboard hooks, theme hooks, and pane hooks
+  - **Custom themes**: Lua plugins can define custom color themes with inheritance from base themes
+  - **Plugin loader**: Automatic discovery from `~/.config/enya/plugins/` and workspace `.enya/plugins/`
+  - **Documentation**: Comprehensive [PLUGINS.md](./PLUGINS.md) guide for plugin authors
+- **Plugin pane management API**: Lua plugins can now programmatically manage workspace panes:
+  - `enya.add_query_pane(query, [title])` - Add a query pane with PromQL query
+  - `enya.add_logs_pane()` - Add a logs pane with current time range
+  - `enya.add_tracing_pane([trace_id])` - Add a tracing pane
+  - `enya.add_terminal_pane()` - Add a terminal pane (native only)
+  - `enya.add_sql_pane()` - Add a SQL pane
+  - `enya.close_pane()` - Close the focused pane
+  - `enya.focus_pane(direction)` - Navigate to adjacent panes
+- **Plugin time range API**: Lua plugins can control the global time range:
+  - `enya.set_time_range(preset)` - Set time range preset ("5m", "1h", "24h", etc.)
+  - `enya.set_time_range_absolute(start, end)` - Set absolute time range
+  - `enya.get_time_range()` - Get current time range
+
+### Fixed
+
+- **WASM compatibility in plugin context**: Fixed `get_time_range()` in `EditorPluginHost` which used `std::time::SystemTime` directly, causing panics in WASM browsers. Now uses the WASM-safe `now_unix_secs_f64()` utility.
+- **Tutorial command**: Added missing `:tutorial` (or `:tut`) command to the command palette to open the interactive tutorial. The command now properly appears in the command palette and restarts the tutorial from the beginning.
+- **Vim navigation after overlay close**: Fixed an issue where vim keys (h/j/k/l) wouldn't work immediately after closing overlays. All overlays now properly clear egui focus on close so keyboard navigation resumes instantly. Affected overlays: command palette, buffer editor, multi-edit, which-key, workspace creator, tutorial, info, about, source preview, diagnostics, diff viewer, codebase finder, and unified finder.
+- **Consistent key consumption in overlays**: Standardized overlays to use `consume_key()` instead of `key_pressed()` to prevent keys from being processed multiple times in the same frame. Affected overlays: about, agent panel, annotation editor, buffer editor, codebase finder, command palette, diff viewer, info, multi-edit, source preview, and viewport filter.
+- **Stale focus validation after pane close**: Focus is now validated after closing a pane to ensure it references an existing tile. If the focus target was removed (e.g., container collapsed), focus falls back to the first available pane.
+- **Visual-multi cursor validation**: The visual-multi selection cursor is now validated against existing panes. If the cursor references a deleted pane, it resets to the first available pane.
+- **Recursion depth guards**: Added depth limits (100 levels) to recursive tree traversal functions to prevent stack overflow on pathological tree structures.
+
+
+### Changed
+
+- **Tutorial overlay refresh**: Updated the interactive tutorial (`:tutorial`) with new sections and platform-aware content:
+  - Added **Quick Time Presets** step for `t1/th/td` shortcuts
+  - Added **Floating Panes** step for `gf` and `:dock` commands
+  - Added **Move Panes** step for `Ctrl+W h/j/k/l` and tab merging
+  - Added **Workspace Undo** step for `u` keybinding
+  - Added **Ask the AI Agent** step for `aa` and `Space+a` keybindings
+  - Added **Terminal & SQL** step (native-only) for `:terminal` and `:sql` commands
+  - Updated **Metrics Finder** to **Find Anything** with `Space+f` keybinding
+  - Tutorial now detects WASM vs native and hides native-only features on web
+  - Replaced progress dots with a simple progress bar and "X of Y" step counter for better visual clarity
+
+- **Landing page footer**: Updated credit text from "Developed by Meldrum Labs" to "Crafted in Stockholm"
+- **Landing page header**: Removed large "ENYA" title text for a cleaner, more minimal design - the brand name now appears subtly in the version badge (e.g., "Enya [ v0.1.0 ]")
+
+- **Status line minimalist redesign**: Simplified the right section of the status line for a premium, cleaner look:
+  - Replaced tabs count, viewport info, last refresh time, and connection status with a single health indicator
+  - Health indicator shows green checkmark when all good, warning symbol for warnings, error symbol for errors or connection issues
+  - Hover tooltip provides details about the current status with keyboard shortcut hint (Space+d)
+  - Shows repo name with short commit hash (e.g., "my-repo · abc1234") instead of truncated commit message
+  - Git branch icon displayed next to repo name for semantic clarity
+  - Full commit message shown on hover
+  - Kept team collaboration status
+  - Mode badge on left remains unchanged
+
+### Added
+
+- **Workspace undo system**: Vim-style `u` keybinding to undo workspace operations:
+  - **Close pane**: Restores closed panes to their exact position in the tile tree (tabs, splits)
+  - **Float pane**: Undoes floating a pane, restoring it to its original tile tree position
+  - **Dock pane**: Undoes docking a floating pane, restoring it to floating with original position/size
+  - Focus is restored if the pane was focused when the action occurred
+  - Undo stack holds up to 50 actions
+  - Uses command pattern with inverse operations for efficiency
+
+- **Sync command**: New `:sync git` command in the command palette and `sync` agent command to fetch latest git commits and re-index the codebase (including Tantivy full-text search). Useful when the repository has been updated externally.
+
+- **Keyboard navigation test infrastructure**: Comprehensive testing for vim-style keyboard navigation:
+  - Extended `LeaderKeyState` tests: timeout edge cases, boundary behavior, multiple key independence
+  - Extended `VisualMultiState` with `selected_tiles()` and `validate_selections()` methods and tests
+  - New `keyboard_logic.rs` module with pure decision logic testable without egui::Context
+  - Tests for all leader key sequences: Space+*, t* (time ranges), g* (go-to), a* (agent operators)
+  - Tests for Ctrl+W and Ctrl+W t window management sequences
+  - Tests for modal blocking logic (11 overlay types)
+  - `KeyboardDecision` enum representing all keyboard-triggered actions
+  - `KeyboardContext` struct for minimal state needed for keyboard decisions
+  - Enabled `egui_kittest` 0.33.3 for UI testing with snapshot support
+  - New `tests/ui_integration.rs` with egui_kittest harness tests for WhichKey overlay
+
+- **TESTING.md documentation**: Comprehensive testing guide covering:
+  - Quick start commands for running tests
+  - Three-layer test architecture (unit tests, integration tests, WASM checks)
+  - Detailed egui_kittest tutorial with examples
+  - Snapshot testing setup and usage
+  - Guidelines for writing new keyboard shortcut tests
+  - Troubleshooting common issues (zig toolchain, ghostty build)
+
+- **ENYA.md project context**: AI agents now automatically load project-specific context from `ENYA.md` or `.enya/context.md` in the repository root:
+  - Custom instructions, conventions, and context are injected into every agent prompt
+  - Supports documenting metric naming conventions, important SLOs, common queries, and team workflows
+  - Search order: `ENYA.md` in repo root, then `.enya/context.md` as fallback
+
+- **Streaming action indicators**: Agent commands now show visual feedback during execution:
+  - Each command displays as an activity item (e.g., "Creating section 'Infrastructure'")
+  - Success/failure indicated with checkmark or error icons
+  - Activities appear in both the agent input bar and full agent panel
+  - Provides real-time visibility into what the agent is doing
+
+- **New AI agent commands** for incident investigation workflows:
+  - `add_logs_pane`: Create a logs pane with optional LogQL query and Loki backend support
+  - `add_tracing_pane`: Create a tracing pane with optional trace ID to pre-load
+  - `add_terminal_pane`: Create a terminal pane for running shell commands (native only)
+  - `set_visualization`: Change pane visualization type (time_series, stat, gauge, bar_chart, sparkline, heatmap)
+  - `set_absolute_time_range`: Set specific time range with Unix timestamps for incident investigation
+  - `refresh_pane`: Refresh specific or all panes to reload data
+  - `close_pane`: Close a pane by name or the focused pane
+  - `create_section`: Create Grafana-style collapsible sections for organizing panes
+  - `create_floating_pane`: Create floating panes for investigation workflows
+  - `maximize_pane`: Maximize a pane to fullscreen
+  - `rename_pane`: Rename a pane dynamically
+  - `duplicate_pane`: Clone a pane with same query for comparison workflows
+  - `focus_pane`: Programmatically focus a specific pane
+  - `toggle_zen_mode`: Toggle minimal UI mode
+  - `exit_fullscreen`: Exit maximized/fullscreen mode
+
+- **Amp-style thinking indicator**: Premium visual feedback during AI requests:
+  - Animated pulsing dots with wave effect in both inline input bar (`aa`) and full agent panel (`Space+a`)
+  - Stage-based status messages (Connecting, Reading context, Thinking, Using tools, Generating)
+  - Elapsed time display for long-running requests
+  - Real-time activity updates showing current actions (e.g., "Creating section", "Fetching metrics")
+
+- **Neovim-inspired visual polish**:
+  - **Yank flash**: Brief highlight effect when sharing/yanking panes (triggered on `yy`)
+  - **Dim inactive panes**: Subtle overlay on unfocused panes for visual hierarchy
+  - **Focus pulse**: Glow effect when a pane receives focus, drawing attention to the active pane
+
+- **Layout transitions**: Smooth animated transitions when panes split:
+  - New panes smoothly grow from small to target size using ease-out-cubic easing
+  - Sibling panes animate their share changes during splits
+  - 150ms animation duration for fluid, responsive feel
+
+### Changed
+
+- **Improved pane name matching**: Agent commands now prefer exact matches when finding panes by name, falling back to substring matches. This prevents ambiguous matches (e.g., "CPU" matching both "CPU" and "CPU Usage")
+- **Refactored pane resolution**: Extracted common `resolve_pane_target()` helper for consistent "focused" keyword handling across all pane-targeting commands
+- **Terminal feature is now optional**: The `terminal` feature (which includes the embedded terminal emulator) is enabled by default but can be disabled with `--no-default-features --features all-languages`. This allows building and testing without the zig toolchain required by ghostty
+- **Upgraded egui ecosystem**: Updated egui, eframe, and egui_extras from 0.33.2 to 0.33.3 for bug fixes and improved compatibility
+
+- **SQL Diff Viewer**: Compare query results, execution plans, schemas, or execution profiles between two different connections (e.g., staging vs production):
+  - **Data comparison**: `/diff staging prod SELECT * FROM users LIMIT 10` - compare query results in one command
+  - **Plan comparison**: `/diff analyze staging prod SELECT * FROM users` - compare EXPLAIN ANALYZE plans
+  - **Schema comparison**: `/diff schema staging prod users` - compare table schemas between connections
+    - Unified table view showing column name, left type, right type, and status
+    - Status highlighting: matching (✓), changed (yellow), removed (red), added (green)
+    - Statistics: matching, changed, removed, added column counts
+  - **Profile comparison**: `/diff profile staging prod SELECT * FROM orders` - compare EXPLAIN ANALYZE with premium visual design
+    - Hero summary card with big timing numbers, visual time bars, and verdict badge (Faster/Slower)
+    - Unified operator tree with visual time bars showing relative execution time
+    - Delta chips with color-coded timing changes (+/-ms)
+    - Row count and memory chips for significant metric differences
+    - Bottleneck warning indicators for operators with >50ms regression
+    - Tree guide lines with proper visual hierarchy
+    - Strikethrough styling on slower timings with color-coded highlights
+  - **Demo modes**:
+    - `/diff demo` - preview data diff with sample data
+    - `/diff schema demo` - preview schema diff with sample column differences
+    - `/diff profile demo` - preview profile diff with sample timing differences
+  - **Side-by-side data view**: Tables rendered in split columns with row counts and schema validation
+  - **Row-level highlighting**: Rows are highlighted based on diff status using theme diff colors:
+    - Matching rows: neutral styling
+    - Left-only rows: red/removed background (rows only in source connection)
+    - Right-only rows: green/added background (rows only in target connection)
+  - **Side-by-side plan view**: Execution plan trees for both connections with operator metrics
+  - **Diff statistics**: Shows matching rows, left-only rows, right-only rows at a glance
+  - **Schema mismatch detection**: Warns when schemas don't match between connections
+  - **Error handling**: Gracefully shows errors from either connection while displaying successful results
+  - **Concurrent execution**: Both queries run in parallel via `tokio::join!` for faster comparisons
+  - New types: `DiffType`, `DiffQueryResult`, `DiffStats`, `DiffRow`, `DiffRowPair`, `TableDiff`, `RowDiffStatus`, `ColumnDiffStatus`, `SchemaDiffColumn`, `SchemaDiffResult` for structured diff data
+  - New module: `diff.rs` with `compute_table_diff()`, `compute_detailed_diff()`, `compute_schema_diff()`, and `schemas_compatible()` utilities
+
+- **SQL Plan View**: Query execution plan visualization with three view modes:
+  - **Tree View**: Vim-navigable hierarchical tree with expand/collapse, bottleneck highlighting
+  - **Stats View**: Aggregate dashboard showing total time, operator count, rows, memory, bottleneck warning, category breakdown, and top slowest operators
+  - **Waterfall View**: Gantt-style visualization showing parallel execution timing
+  - Tab key cycles between view modes, Shift+Tab cycles backward
+  - Navigation keys (j/k, g/G, b for bottleneck) work in Tree/Waterfall views without propagating to underlying viewport
+  - Proper metrics parsing for real execution output (`output_rows=`, `elapsed_compute=`, `output_bytes=`)
+  - **Dedicated 12-color plan palette**: Each theme has a unique 12-color palette optimized for execution plan visualization with maximally distinct colors for: Scan/Read (blue), Filter/Limit (green), Join (orange), Aggregate/Group (purple), Sort/Order (red), Project (teal), Hash (yellow), Remote/Exchange (cyan), Union/Interleave (pink), Cooperative/Yield (lime), and other Exec operators (amber)
+
+- **Floating panes** (zellij-inspired): Detachable panes that hover above the tile layout for quick investigations:
+  - Float any focused pane using `gf` (go-float) keyboard shortcut or `:float` command
+  - Floating panes render above tile layout but below modal overlays
+  - Custom title bar with pin, minimize, dock, and close buttons
+  - Drag title bar to reposition, resize from edges and corners
+  - **Double-click title bar to maximize/restore** (fills viewport with margin)
+  - **Screen edge snapping** when dragging within 20px of viewport edges
+  - **Smooth animations**: Fade/scale on appear, animated minimize/expand transitions
+  - **Auto-arrange**: `:float arrange` (or `:fl a`) tiles all floating panes in a grid
+  - **Glass effect**: Semi-transparent backdrop for modern appearance
+  - Dock back to tile layout via dock button or `:dock` command
+  - Pin toggle to keep floating pane on top
+  - Minimize toggle to collapse to title bar only (now animated)
+  - Scratch panes auto-close on Escape
+  - Tab cycling between floating panes (not yet implemented)
+  - Full theme support with focus indicators
+  - **Native breakout windows** (desktop only): Pop floating panes out to separate OS windows
+    - Click the pop-out button (arrow icon) in the title bar to detach to a native window
+    - Native windows can be moved outside the main app, onto different monitors
+    - Custom themed title bar matching the app's dark/light theme (no native chrome)
+    - Draggable title bar for window movement
+    - Click "pop in" button or close button (X) to return the pane to the main app
+
+- **Agent panel as first-class layout participant**: The agent panel now participates in the layout flow like the channels panel:
+  - Viewport shrinks to accommodate the agent panel when open (instead of floating overlay)
+  - Left-edge highlight provides visual anchoring (symmetric with channels panel's right-edge highlight)
+  - Focus state tracking with 2px accent border when panel has vim focus
+  - `show_inside` method for rendering within the UI hierarchy (layout-aware)
+  - Matches the premium feel of the team channels panel on the left side
+  - **Vim navigation**: Press `l` at the rightmost pane edge to focus the agent panel, `h` to return to viewport
+  - Press `i` or `Enter` when panel has vim focus to enter the chat input, `Escape` to return to vim navigation
+  - Works in both section-based and tile-based workspace layouts
+
+- **Tab-to-panel handoff for agent input bar**: Seamlessly continue a conversation from the quick input bar in the persistent agent panel:
+  - Press `Tab` when viewing a response in the agent input bar to open it in the side panel
+  - Opens the three-panel layout: channels on left, viewport center, agent panel on right
+  - Conversation context (query, response, activities) is preserved during handoff
+  - Visual hint shows "Tab: open in panel" in the response state
+  - New `ConversationHandoff` type for transferring state between components
+  - `export_for_handoff()` and `import_from_handoff()` methods for clean state transfer
+  - Non-intrusive workflow that doesn't disrupt the existing pane layout
+  - Full inline content support: charts, source code previews, and search results render in the panel
+  - Agent commands (ShowInlineChart, ShowInlineSource, SearchCodebase) inject content into the panel when open
+  - `Space+a` now toggles the agent panel open/closed (previously created a new agent pane)
+
+- **Vim-style navigation for channels panel**: Added vim keybindings to navigate to and within the team channels panel:
+  - Press `h` at the leftmost pane edge to transfer focus to the channels panel
+  - Works in both section-based and tile-based workspace layouts
+  - Use `j`/`k` to navigate up/down within the panel, including across sections (threads → channels → team)
+  - Press `Enter` to select the highlighted thread, channel, or team member
+  - In split view (chat open): press `l` to focus the chat input, `Escape` to return to sidebar
+  - In sidebar-only: press `l` to return focus to the viewport
+  - Accent border indicates when the panel has vim focus
+  - Focus state properly resets when panel is hidden via `Space+g` or team disconnect
+  - Keyboard input is blocked when overlays are open (style picker, command palette, finders), including chat input handling
+
+- **Tracing pane for distributed trace visualization**: New pane type for visualizing distributed traces from Grafana Tempo with a waterfall/timeline view:
+  - **TracingClient trait** in `enya-client` crate with `TempoClient` implementation for Grafana Tempo HTTP API
+  - **Waterfall chart** showing spans as horizontal bars on a timeline with hierarchy indentation
+  - **Service-based span coloring** using theme chart palettes for consistent visual identification
+  - **Error span highlighting** with semantic error colors
+  - **Span detail panel** showing service, operation, duration, status, tags, and logs
+  - **Hover tooltips** with quick span information
+  - **Demo mode** with sample trace data for testing without a backend
+  - **Command palette integration**: Use `:trace` (or `:tr`, `:tracing`) to open a tracing pane
+  - **Optional trace ID argument**: `:trace abc123def456` pre-fills and loads a specific trace
+  - Theme-aware styling that adapts to all 13 AppTheme variants
+  - WASM compatible (uses web_time for timestamps)
+  - Trace data models: `Trace`, `Span`, `SpanStatus`, `SpanLog`, `TraceSummary`, `TraceSearchParams`
+  - `TraceManager` for managing in-flight trace fetch requests
+
+- **Collapsible sections**: Added Grafana-style collapsible sections for grouping panes with expandable/collapsible headers:
+  - New `SectionConfig` and `SectionLayout` types for TOML configuration
+  - Section layouts: horizontal, vertical, grid (with columns), and tabs
+  - New `FocusTarget` enum to track focus on section headers vs panes
+  - New `SectionState` for runtime collapsed state management
+  - `SectionRenderer` component for rendering section headers (with collapse indicator ▼/▶, name, pane count badge)
+  - Section content rendering with layout-specific pane arrangement
+  - Click-to-toggle collapse behavior on section headers
+  - Navigate between sections and panes using standard vim motions (hjkl)
+  - Helper methods: `migrate_to_sections()`, `all_panes()`, `uses_sections()`
+  - Demo workspace (`DEMO_WORKSPACE_TOML`) uses sections format to showcase the feature
+  - Example TOML format:
+    ```toml
+    [[sections]]
+    name = "API Performance"
+    layout = "horizontal"
+
+    [[sections.panes]]
+    query = "rate(http_requests_total[5m])"
+    name = "Request Rate"
+    ```
+
+- **SQL pane with Arrow Flight SQL (native-only)**: REPL-style SQL client for connecting to Flight SQL servers (DataFusion, DuckDB, InfluxDB IOx, etc.):
+  - New `SqlPane` component implementing the `Component` trait
+  - **OpenCode-style command interface**: Centered, minimal input with suggestions:
+    - `SQL >` prompt with mode indicator (SQL, DIFF, EXPLAIN, PROFILE)
+    - Inline connection pill showing active database
+    - Suggestions popup above input (command palette style)
+    - Centered content with max-width for readability
+  - **Command system** (type `/` to see commands):
+    - `/diff` - Compare query results across environments
+    - `/explain` - Show query execution plan
+    - `/profile` - Profile with detailed timing
+    - `/schema` - Show table structure
+    - `/connect` - Switch active connection
+    - `/export` - Export results
+    - `/history` - Query history
+    - `/help` - Show available commands
+  - **Smart suggestions**: Context-aware completions appearing above input:
+    - Commands when typing `/`
+    - Tables after FROM, JOIN, etc.
+    - Fuzzy matching on partial names
+    - Keyboard navigation (↑↓) and Tab to insert
+  - **Connection management** via inline pill or `/connect`:
+    - Status dot (green=connected, gray=disconnected)
+    - Click pill to see connection dropdown
+    - Add, remove, switch connections
+  - **Multi-connection management**: Save and manage multiple database connections
+    - Add connections via "Add Connection" dialog
+    - Click connected item to set as active
+    - Click disconnected item to connect
+    - Context menu for disconnect, remove
+    - Connections show status indicator (●) - green=connected, gray=disconnected
+  - REPL interface with query history displayed as cells
+  - Results rendered as tables with schema-aware column formatting
+  - **SQL syntax highlighting** in both input area and query history using theme-aware colors:
+    - Keywords (SELECT, FROM, WHERE, etc.) highlighted in keyword color
+    - Functions (COUNT, SUM, AVG, etc.) highlighted in function color
+    - Strings, numbers, comments highlighted appropriately
+    - Dot-commands (`.help`, `.open`, etc.) highlighted in accent color
+  - DuckDB/SQLite-style dot-commands: `.open`, `.close`, `.tables`, `.explain`, `.analyze`, `.plan`, `.demo`, `.help`
+  - New `enya-datafusion` crate providing:
+    - `FlightClient` for Arrow Flight SQL connections with auth support
+    - Async query execution with streaming results
+    - Metadata queries (catalogs, schemas, tables, columns)
+    - Local DataFusion session for file-based queries (Parquet, CSV, JSON)
+    - Query plan extraction and visualization utilities
+  - Open with `:sql` or `:datafusion` command
+  - Execute queries with `Ctrl+Enter` or click the play button
+
+- **Query Plan Visualization (native-only)**: Interactive query plan analysis with three visualization modes:
+  - **Tree View**: Vim-navigable hierarchical plan tree with:
+    - `j/k` for up/down navigation between operators
+    - `h/l` for collapse/expand nodes
+    - `b` to jump to bottleneck operator
+    - `Space` to toggle expand/collapse
+    - `G` to jump to bottom, `g` to jump to top
+    - Color-coded operators by type (scans=blue, filters=green, joins=orange, etc.)
+    - Bottleneck highlighting with warning icon for slowest operators
+    - Inline metrics showing execution time, row counts, and memory usage
+  - **Timeline View**: Horizontal bar chart (egui_plot) showing:
+    - Operator execution times as horizontal bars
+    - Color-coded by operator type
+    - Sorted by execution time descending
+    - Legend with timing breakdown
+  - **Diff View**: Side-by-side plan comparison for:
+    - Comparing logical vs physical plans
+    - Analyzing optimization effects
+    - Each side has independent vim navigation
+  - Commands: `.explain <query>` for logical plan, `.analyze <query>` for EXPLAIN ANALYZE
+  - `.plan [tree|timeline|diff|hide]` to switch between views or toggle visibility
+  - Plan viewer toggle button in SQL pane header
+
+- **SQL pane overlay system**: Minimal result display with expandable overlay views for detailed inspection:
+  - **Compact preview**: Most recent result shown inline with dynamic column fitting based on available width
+  - **Table overlay** (press `t` or `Enter`): Full paginated table view with diff-viewer-inspired UX:
+    - Header with table icon, accent-colored title, and stat badges (row count, column count, execution time)
+    - Row number gutter with darker background matching diff viewer line numbers
+    - Fixed-width columns ensuring proper header/body alignment during horizontal scroll
+    - Vim-style keyboard navigation: `h/l` horizontal scroll, `j/k` vertical scroll, `[/]` page navigation
+    - Keyboard events consumed to prevent propagation to underlying panes
+    - Consistent overlay sizing with other modals (85% screen width/height, clamped 700-1400px × 500-900px)
+    - Frosted glass styling matching unified finder and diff viewer
+    - Long values truncated with ellipsis to fit column width
+    - NULL values shown in muted text, alternating row backgrounds
+  - **Plan overlay** (press `p`): Query execution plan visualization
+  - Press `Esc` to close any overlay and return to compact view
+  - Press `c` to clear results from the compact preview
+  - Overlay renders centered on screen with dimmed backdrop
+
+- **Neovim-style intro message**: When a workspace has no panes, a centered intro screen displays "Enya" with tagline "A Neovim-inspired observability editor for builders", version number, and aligned command hints. Includes `~` tilde markers on every line (left margin) just like Neovim:
+  - `type  Space+f    fuzzy finder`
+  - `type  aa         ask AI agent` (native only)
+  - `type  ?          help`
+  - `type  :          commands`
+
+- **Filter match highlighting**: When using the viewport filter (`/`), matched text in pane names is now highlighted with the accent color and underlined for better visibility.
+
+- **LogsPane query history**: Added query history feature to the LogsPane component. Users can now recall previous LogQL queries from a dropdown menu in the header. The history stores up to 20 most recent unique queries, with the most recent appearing first. Duplicate queries are automatically deduplicated and moved to the front.
+
+- **Full git history indexing with incremental updates**: Improved git integration to index the complete repository history instead of just the last 1000 commits:
+  - Batch diff fetching using `git log -p` instead of individual `git show` commands (significantly faster)
+  - Parallel semantic extraction using rayon for CPU-bound parsing operations
+  - Incremental indexing on restarts: only fetches and indexes new commits since the last indexed commit
+  - Skip merge commits and follow only main branch history (`--no-merges --first-parent`)
+  - Progress tracking via atomic counters for accurate status updates during parallel operations
+  - Large diffs (>100KB) are truncated after semantic extraction to prevent memory bloat
+  - Semantic analysis preserved even for truncated diffs (functions added/removed, metrics changed)
+  - Regression tests ensure diff content is preserved (not just file names)
+  - Premium status line UX: animated spinner in accent color with simple "Indexing" text
+
+- **Separate metrics and logs config**: Workspace config now has distinct `[metrics]` and `[logs]` sections for Prometheus and Loki connections respectively. The old `[connection]` section is still supported via serde alias for backward compatibility. New `LogsConfig` includes `endpoint`, `api_key`, and `default_query` fields.
+
+- **Premium LogsPane theme styling**: The LogsPane component now fully adapts to the current AppTheme with premium visual enhancements:
+  - Header with subtle accent-tinted background (dark themes) and accent line separator
+  - Table header text blended with theme accent color for visual cohesion
+  - Row selection with accent glow effect and enhanced hover states
+  - Level badges with theme-aware backgrounds and subtle borders for light themes
+  - Dropdown popups with accent-tinted borders and improved shadows
+  - Loading skeleton shimmer intensity adapts to light/dark themes
+  - All 13 themes (Dark, Light, Midnight, Nord, Catppuccin, Ayu, etc.) now provide unique accent tints
+
+- **Terminal pane (native-only)**: Embedded terminal emulator backed by ghostty's VT library for running shell commands while debugging incidents:
+  - New `TerminalPane` component implementing the `Component` trait
+  - Run commands like `kubectl logs`, `k9s`, or any shell command directly in the editor
+  - Theme-aware terminal colors that adapt to the current editor theme with live updates
+  - Semantic ANSI palette colors (Red is red, Green is green, etc.) via `terminal_palette()`
+  - Dynamic palette updates for running TUI apps (k9s, htop, vim update colors immediately on theme change)
+  - Full keyboard input support including special keys (arrows, function keys, etc.)
+  - Mouse support for applications that use mouse reporting
+  - PTY integration via `portable-pty` for cross-platform shell spawning
+  - Three new workspace crates: `ghostty_vt_sys` (FFI bindings), `ghostty_vt` (safe Rust API), `egui_ghostty` (egui widget)
+  - Native-only feature (requires Zig 0.14.1 toolchain for building ghostty)
+
+### Changed
+
+- **Full git history indexing**: The codebase search index now indexes the complete git history instead of only the last 1000 commits. This ensures all historical commits are searchable, improving codebase search accuracy for repositories with long histories. Added new `fetch_all_commits()` and `count_commits()` functions in `enya-analyzer` for efficient full-history operations. **Parallelized diff fetching** using rayon for 4-8x faster indexing on multi-core systems - diff extraction and semantic analysis now run concurrently across all CPU cores.
+
+- **Arrow/DataFusion utilities consolidated**: Moved `format_array_value()` and plan text parsing functions (`parse_plan_text`, `parse_metrics`, `parse_metric_usize`, `parse_metric_duration`, `parse_metric_bytes`) to the `enya_datafusion` crate. The editor now imports these from the shared crate instead of having local copies. The `plan_parsing.rs` module is now focused on demo data generation.
+
+- **Plan view functions moved to shared crate**: The `format_duration`, `format_bytes`, and `format_rows` functions, along with `total_time()`, `bottleneck_time()`, and `operator_count()` methods on `PlanNode`, are now in `enya_datafusion` instead of being duplicated across plan view types. This consolidates plan analysis logic in the shared crate alongside related types like `OperatorMetrics` and `OperatorCategory`.
+
+- **SQL pane module reorganization**: Split the 6000-line `pane.rs` into focused modules following idiomatic Rust practices:
+  - `command.rs` - SQL pane commands (`SqlCommand` enum and parsing)
+  - `connections.rs` - Connection management types and UI rendering (`ConnectionId`, `SavedConnection`, `ConnectionAction`, `ConnectionSnapshot`, plus `render_connection_popup`, `render_connection_tree`, `render_add_connection_dialog`)
+  - `suggestions.rs` - Autocomplete types (`Suggestion`, `SuggestionIcon`, `SuggestionState`)
+  - `types.rs` - Core types (`SqlMode`, `ResultOverlay`, `QueryCell`, `QueryStatus`)
+  - `pane.rs` - Main `SqlPane` struct (reduced to ~5700 lines)
+  - Native-only modules properly gated with `#[cfg(not(target_arch = "wasm32"))]` for WASM compatibility
+
+- **SQL commands streamlined**: Removed unused/stub commands (`/help`, `/plan`, `/profile`, `/export`, `/watch`, `/sample`) - kept only working commands: `/explain`, `/analyze`, `/diff`, `/schema`, `/connect`, `/history`, `/demo`. The `/` trigger now shows all available commands in the fuzzy finder, making `/help` redundant.
+
+- **Connection saving with names**: The `/connect` command now supports saving connections with custom names: `/connect <endpoint> <name>`. For example, `/connect localhost:50051 local` saves and connects with the name "local". Previous behavior (switching to existing or connecting to endpoint directly) still works.
+
+- **Plan viewer UX overhaul**: Premium visual refresh for the execution plan viewer:
+  - **Pill-style tab bar**: Replaced plain selectable labels with styled pill tabs in a subtle container
+  - **Key badge hints**: Mode-specific keybindings now shown with premium key badges (like keyboard keys) instead of plain text
+  - **Tree connection lines**: Vertical and horizontal guide lines showing parent-child relationships in the tree view
+  - **Mini progress bars**: Inline percentage bars next to execution time showing relative cost at a glance
+  - **Waterfall grid lines**: Vertical grid lines at time markers (0%, 25%, 50%, 75%, 100%) for easier time reading
+  - **Premium stat cards**: Cards now have accent-colored icons and a left edge accent stripe
+  - Removed redundant sub-headers from each view since the main header and tabs establish context
+
+- **Premium agent panel styling**: Improved the AgentPanel overlay UX to match the refined look of the team channels panel:
+  - Switched from `OverlayColors` to `ChatColors` for better theme integration and consistent styling across chat components
+  - Added premium dividers between header, chat area, and input sections
+  - Message bubbles now use `ChatColors` backgrounds (`own_message_bg`, `agent_message_bg`) with rounded corners
+  - Assistant messages feature a left accent bar indicator (matching channel selection style)
+  - Role labels now include icons (user account, robot, info) for visual clarity
+  - Inline content blocks (charts, source code, search results) use premium frame styling with accent-tinted borders
+  - Activity rows use allocate_exact_size rendering with proper typography positioning (matching channels panel rows)
+  - Input area has refined styling with larger corner radius and premium elevated background
+  - Consistent use of theme typography constants and proper spacing throughout
+
+- **Tracing module restructure in `enya-client`**: Reorganized the `tempo` module under a new `tracing` parent module to support future tracing backends. The module structure is now `enya_client::tracing` with `tempo` as a submodule (`enya_client::tracing::tempo`). Common types (`Trace`, `Span`, `SpanStatus`, etc.) are re-exported from the `tracing` module root for convenience.
+
+- **Viewport pane alignment**: Improved pane layout consistency to prevent bottom panes from overlapping the status line. The viewport tree now always renders at the exact viewport height, with `TreeBehavior::min_size()` (200px) preventing panes from becoming too small. Scrolling only activates when panes would be smaller than this absolute minimum. Added explicit clip rectangles and constrained child UI rendering to ensure content never overflows into the status bar area.
+
+- **Tutorial layout**: Updated the tutorial layout to show "HTTP Requests" and "Requests by Endpoint" side by side in the top row, with "CPU Usage" and "Memory Used" stacked below. This demonstrates both horizontal and vertical pane arrangements.
+
+- **WASM native app promo**: Changed from an intrusive auto-popup overlay to a subtle clickable link below the version badge in the landing page header. Users can click "Download Native App for full experience" to see detailed information about native-only features (git integration, AI agents, persistent workspaces). Less invasive while still informing users about the full desktop experience.
+
+- **Provider-as-mode UX for agent input bar**: Redesigned the agent mode status line for a premium, uncluttered experience:
+  - Provider (Claude/OpenAI logo + name) now appears directly in the mode badge position - the provider IS the mode
+  - Removed redundant "AGENT" label and duplicate provider badge
+  - Response state now shows a preview of the AI's response (first line, truncated) instead of generic "Response ready"
+  - Processing state now shows contextual activity with appropriate icons: Sending (→), Thinking (spinner), tool use (file/search/edit icons), Responding
+  - Tool use shows the tool name and a preview of what it's doing (e.g., "Read" + "main.rs", "Grep" + "error handling")
+  - Thinking state shows a preview of the AI's thought process
+  - Response state shows `Tab expand` and `Esc clear` hints side by side (both with accent key styling)
+  - Wider input field (500px max) with cleaner placeholder: "Ask anything... / commands @ metrics"
+
+- **Toolbar UX: filter left, time right**: Redesigned the top toolbar for better visual balance:
+  - Pane filter input now appears on the left side (always visible, expands when focused)
+  - Time range controls pushed to the right side (Grafana-style placement)
+  - Filter shows match count (e.g., "2/4") when active
+  - Click filter icon or start typing to activate, Enter to apply, Esc to clear
+  - Fills the previously empty toolbar space with useful functionality
+
+### Fixed
+
+- **Agent panel vim navigation**: Fixed vim navigation not working in the agent panel and viewport after opening/returning from the panel. Multiple issues were addressed: (1) Removed the sync loop that was syncing `agent_panel_focused` with the panel's internal `has_focus` state every frame - this was causing focus to be lost unexpectedly. (2) Added `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` when toggling the agent panel open or transferring focus to it, ensuring no stale egui widget focus blocks vim keys. (3) Changed keyboard handling to use `ui.ctx().input()` with `key_pressed()` (matching the channels panel pattern). (4) Fixed text input focus detection to only release vim focus when the user actually clicks on the input, not when egui auto-restores focus. (5) Fixed `focus_input` flag to always clear regardless of vim focus state. (6) Added `skip_vim_keys_once` flag to prevent lingering keypresses from being detected as vim navigation immediately after panel gains focus (e.g., the 'a' from `Space+a` was being detected as 'h' navigation). (7) Fixed `ReturnFocusToViewport` to properly set `section_focus` (not just `behavior.focused_tile()`), which controls the visual focus indicator on viewport panes. (8) Removed `agent_panel.is_open()` from the keyboard handler's early-return condition - the agent panel can be open while viewport has navigation focus (only `agent_panel_focused` should block viewport keyboard handling). (9) Fixed `is_at_section_right_edge()` to return true for the rightmost pane of ANY section (not just the last section), allowing `l` to transfer focus to the agent panel from any section.
+
+- **Dynamic pane addition in sections mode**: Fixed `:terminal`, `:trace`, and other dynamic pane commands not showing panes when collapsible sections were active. The `add_tile_to_viewport` method now automatically clears sections mode when adding dynamic panes, since they aren't part of any configured section. This ensures newly created panes are always visible.
+
+- **Visual-multi selection in sections**: Fixed visual-multi mode (Ctrl+V) not displaying selection indicators when using collapsible sections. Section render methods (horizontal, vertical, grid, tabs) now properly draw visual-multi selection highlights on selected panes. Also fixed navigation in visual-multi mode to work with flat pane lists in sections.
+
+- **Focus border alignment**: Fixed the focus border around selected panes not aligning with actual content. Changed from using `available_rect_before_wrap()` to `min_rect()` to get the actual content rectangle.
+
+- **Single series legend**: Fixed time series charts not showing legends when only a single series is present. Changed condition from `self.series.len() > 1` to `!self.series.is_empty()`.
+
+- **Unified finder WASM freeze**: Fixed the unified fuzzy finder freezing on WASM by using `crate::util::Instant` (which uses `web_time::Instant` on WASM) instead of `std::time::Instant` which doesn't work properly in browsers.
+
+- **Chat input Escape focus release**: Fixed vim navigation not working after pressing Escape to exit the chat input. Four issues were fixed: (1) The text input now properly surrenders both widget-level and global egui focus when returning to sidebar navigation. (2) The channels panel Escape handler no longer closes the split view when the chat input is focused, allowing the chat view to properly handle Escape and return vim focus to the sidebar. (3) Added `ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))` to clear global focus state, ensuring the keyboard handler's focus check doesn't block vim keys. (4) When closing split view via Escape (e.g., when chat input lost focus due to clicking elsewhere), now properly restores vim focus to sidebar and clears egui focus.
+
+- **Style picker focus restoration**: Fixed vim navigation not working after closing the style picker (theme/font selector). The picker now clears egui framework focus when it closes, ensuring keyboard events are properly handled by vim navigation. Also fixed returning focus to viewport from channels panel to properly restore focus to the first pane if no pane was previously focused.
+
+- **SQL pane runtime crash**: Fixed a crash when opening the SQL pane (`:sql` command) with "there is no reactor running" error. The DataFusion session's `init_executor()` now accepts a tokio runtime handle, matching the pattern used by `AgentPane`.
+
+- **Command palette always accessible**: Fixed `:` not opening the command palette after navigating in certain views (e.g., SQL execution plan viewer, diff viewer). The `:` handler is now processed globally at the start of `handle_viewport_keyboard()` before any overlay blocking checks, allowing commands like `:style` to be opened on top of any overlay (except when a text field has focus or the command palette is already open).
+
+- **Style picker z-order over diff viewer**: Fixed the style picker appearing behind the diff viewer when opened on top of it, and keyboard navigation (j/k) in the style picker causing the diff viewer to scroll and come to the foreground. The diff viewer now renders earlier in the z-order (before style_picker and command_palette) and disables keyboard handling when another overlay is on top.
+
+### Removed
+
+- **AgentPane component**: Removed the `AgentPane` viewport pane in favor of the `AgentPanel` overlay. AI agent conversations now use the right-side panel exclusively, providing a cleaner separation between observability content (viewport panes) and AI assistance (overlay panel). The inline content types (`InlineChart`, `InlineSource`, `InlineSearchResults`) have been moved to a new `inline_content.rs` module.
+
+- **Workspace tab bar**: Removed the workspace tab bar (barbar.nvim-style) at the top of the editor. The editor now manages a single workspace directly instead of multiple tabs. Related keyboard shortcuts (`Shift+N`, `Shift+P`, `Shift+T`, `Shift+X`) have been removed. The `:q` command now quits the application instead of closing the current tab.
+
+- **Theme-based chart palettes**: Each of the 13 themes now has its own unique 8-color palette for time series visualization:
+  - **Dark themes** (9 themes): Vibrant saturated colors optimized for dark backgrounds
+    - Dark: Emerald accent with vibrant complements
+    - Midnight: Electric neon cyberpunk
+    - Nord: Aurora borealis colors from the Nord spec
+    - Catppuccin: Pastel macchiato palette
+    - Ayu: Warm sunset gradients
+    - Bergman: Silver cinema with muted accents
+    - Aurora: Northern lights teal/green
+    - Graphite: Industrial orange/steel
+    - Ink: Silver monochrome editorial
+  - **Light themes** (4 themes): Muted/desaturated colors for elegance on light backgrounds
+    - Light: Classic muted professional
+    - Stockholm: Nordic clarity blues
+    - Midsommar: Swedish summer brights
+    - Skärgård: Baltic sea blues
+  - Commit markers now also adapt per-theme for consistent styling
+  - Charts now feel native to each theme's aesthetic
+  - Colors update dynamically when switching themes (no app restart needed)
+
+### Changed
+
+- **Theme is now a user preference**: Theme is stored in user settings, not per-workspace. Loading a workspace no longer overrides your theme preference. This means your preferred theme stays consistent across all workspaces.
+
+- **Streamlined theme selection**: Reduced from 24 to 13 curated themes for a more focused experience
+
+- **Improved Style Picker UX**:
+  - Chart palette preview dots showing all 8 series colors for each theme
+  - Cleaner two-row layout: UI palette bar + theme name on top, chart dots below
+
+- **Unified Style Picker overlay** (`:style` command): A combined theme and font selector:
+  - Side-by-side layout: Theme panel on the left, Font panel on the right
+  - **Live preview**: Both theme and font change in real-time as you navigate
+  - See the immediate impact of font changes while browsing themes
+  - Theme panel with color palette bars (bg/elevated/accent/text preview)
+  - Font panel with Rust code sample rendered in each font's actual typeface
+  - Syntax highlighting in font preview: keywords in accent color
+  - Key cap styled keyboard hints in footer
+  - Panel switch animation with subtle glow effect
+  - Prominent active panel header with dot indicator and larger text
+  - Keyboard navigation: Tab/h/l to switch panels, ↑↓/jk to navigate, Enter to select, Esc to cancel
+  - Vim-style controls: Ctrl+N/P for navigation
+  - Focus indicator bar shows active panel
+  - "●" indicator marks current theme/font
+  - Cancel restores both original theme and font
+  - Aliases: `:st`, `:theme`, `:t`
+
+### Removed
+
+- **Old Theme Picker**: Removed separate `:theme` command overlay in favor of unified Style Picker
+- **Font command**: Removed `:font` command - use `:style` for both theme and font selection
+
+- **Sumi theme** - Japanese ink calligraphy-inspired monochrome light theme:
+  - Warm washi paper base (#F5F3EF) with brush black accent (#1A1A1A)
+  - Elegant, minimal, zen-like aesthetic inspired by traditional Japanese calligraphy
+  - Traditional Japanese color palette: Sumi black, Beni vermillion (#B43C32), Matcha green (#466E46), Ai indigo (#465A78), Yamabuki gold (#B48232)
+  - Aliases: `su`, `calligraphy`, `brush`, `japanese`, `washi`
+
+- **Five new Swedish-inspired light themes**: Added five distinctive light themes celebrating Swedish culture and nature:
+  - **Midsommar** - Swedish summer celebration with flag blue accent (#2563EB). Bright summer white base (#FEFEF5) capturing the endless daylight of Swedish midsummer. Aliases: `mid`, `summer`, `swedish-summer`, `flagblue`
+  - **Falu** - Swedish countryside with iconic Falu red accent (#802418). Weathered wood white base (#FAF8F5) inspired by the distinctive rödfärg seen on traditional Swedish barns and houses. Aliases: `fa`, `red`, `rodfarg`, `countryside`, `barn`
+  - **Birch** - Swedish forest (björkskog) with birch leaf green accent (#4A5D23). Birch bark white base (#FAFBF8) evoking the light, airy feel of Swedish birch forests. Aliases: `bi`, `bjork`, `bjorkskog`, `forest-light`
+  - **Fika** - Swedish coffee culture with coffee brown accent (#6F4E37). Cream/milk white base (#FBF8F4) celebrating the ritual of Swedish fika (coffee break). Aliases: `fi`, `coffee`, `kaffe`
+  - **Skärgård** - Stockholm archipelago with deep Baltic blue accent (#1E4D6B). Sea mist white base (#F8FBFC) inspired by the Stockholm island chain's maritime aesthetic. Aliases: `sk`, `archipelago`, `baltic`, `coastal`
+  - All themes feature complete color palettes optimized for code and time series visualization
+
+- **Four new original premium themes**: Added four distinctive themes with original color palettes:
+  - **Graphite** (dark) - Industrial precision with molten orange accent (#E85D04). Deep warm charcoal base (#121214) inspired by foundry aesthetics, warm off-white text for excellent readability. Aliases: `graph`, `industrial`, `foundry`, `molten`
+  - **Ink** (dark) - Monochrome editorial with pure silver accent (#C0C0C8). Blue-black base (#0A0A0F) for data-focused precision, cool typography-inspired palette. Aliases: `i`, `editorial`, `monochrome`, `silver`
+  - **Bone** (light) - Museum ivory with charcoal accent (#374151). Pure ivory base (#FEFDFB) with gallery-white aesthetics, elegant museum-like minimalism. Aliases: `bo`, `museum`, `ivory`, `gallery`
+  - **Sand** (light) - Desert warmth with terracotta brown accent (#9A6B4C). Warm sand base (#FAF7F2) with earthy tones, inspired by desert landscapes and natural materials. Aliases: `sa`, `desert`, `terracotta`, `earthy`
+  - All themes feature complete color palettes for backgrounds, borders, text, accents, syntax highlighting, charts, heatmaps, and diff visualization
+
+- **Five new Scandinavian light themes**: Added five premium light themes inspired by Nordic minimalism and design:
+  - **Stockholm** - Clean Nordic white with slate blue accent (#5C7A99). IKEA-inspired clarity with warm off-white backgrounds and maximum readability. Aliases: `sthlm`, `sto`, `ikea`, `nordic-white`
+  - **Copenhagen** - Danish hygge light with terracotta rose accent (#C4847A). Cozy warmth with creamy linen backgrounds and natural ceramic tones. Aliases: `cph`, `hygge`, `danish`, `linen`
+  - **Helsinki** - Finnish functionalism with forest green accent (#4A7C6F). Alvar Aalto-inspired with cool paper backgrounds and nature-meets-tech aesthetic. Aliases: `hel`, `finnish`, `aalto`, `forest`
+  - **Oslo** - Norwegian fjord light with deep fjord blue accent (#3D6B8C). Crisp glacier white backgrounds optimized for data visualization. Aliases: `osl`, `fjord`, `norwegian`
+  - **Reykjavik** - Icelandic minimal with volcanic gray accent (#2D3436). Extreme minimalism with pure snow backgrounds and stark contrasts. Aliases: `rvk`, `iceland`, `volcanic`, `snow`
+  - All themes feature carefully tuned contrast ratios for excellent readability and data visualization
+
+- **Two new Nordic-inspired dark themes**: Added two dark theme presets with Scandinavian inspiration:
+  - **Bergman** - Swedish foggy noir with steel silver accent (#A8B0C0). Inspired by Ingmar Bergman's cinematic style (The Seventh Seal), featuring muted foggy charcoal backgrounds with cool, understated silver tones for a contemplative, moody aesthetic.
+  - **Aurora** - Northern Lights with aurora teal accent (#7EE8B8). Deep night sky backgrounds with vibrant teal-green accents reminiscent of the aurora borealis, designed for excellent data visualization contrast.
+  - Both themes include complete color palettes for all UI elements, syntax highlighting, diffs, and chart visualizations
+  - Use `:theme bergman` (or aliases: `b`, `noir`, `fog`, `seventh-seal`) or `:theme aurora` (or aliases: `ar`, `northern`, `lights`, `borealis`) to switch
+
+- **Five new premium themes**: Added five new theme presets designed for premium UX feel, optimized for both code viewing and time series/chart visualization:
+  - **Midnight** - Deep space blue with electric blue accent (#3B82F6). Ultra-dark with navy undertones, inspired by Figma/Linear dark modes.
+  - **Rosé Pine** - Soft muted elegance with rose pink accent (#EBBCBA). Popular aesthetic theme with calming, low-contrast colors.
+  - **Catppuccin (Mocha)** - Warm pastel dark with mauve accent (#CBA6F7). Modern theme with warm, pastel accents that's easy on the eyes.
+  - **Ayu** - Soft amber warmth with orange accent (#FFB454). Refined dark theme with warm golden tones for a sophisticated feel.
+  - **Vesper** - Ultra-premium dark with warm amber accent (#FFC799). Near-black with subtle warm accents, inspired by fintech/trading platforms.
+  - All themes include complete color palettes for: backgrounds, borders, text, accents, syntax highlighting, visualization/chart colors, diff colors, and UI elements
+  - Theme-specific heatmap gradients for data visualization
+  - Use `:theme <name>` or aliases (`:theme cat`, `:theme rose`, `:theme midnight`, etc.) to switch
+
+- **LogQL parser and autocomplete crate** (`enya-logql`): Lightweight LogQL parser for context-aware autocomplete, mirroring the architecture of `enya-promql`:
+  - **Lexer** (`lexer.rs`): `ScanState` for tracking nesting depth, `TokenHint` enum, `partial_at_cursor()`, `last_token_before()` for cursor context detection
+  - **Completion** (`completion.rs`): `Context` enum for 15 autocomplete states (stream selectors, pipe stages, line filters, grouping, etc.), `analyze()` for context detection, `syntax_suggestions()` for static suggestions
+  - **Validation** (`validation.rs`): Basic structural validation (balanced brackets, stream selector presence, function argument validation)
+  - **LogQL syntax support**: Stream selectors `{}`, line filters (`|=`, `!=`, `|~`, `!~`), parsers (`json`, `logfmt`, `pattern`, `regexp`, `unpack`), filter expressions (`line_format`, `label_format`), range aggregations (`rate`, `count_over_time`, `bytes_rate`), aggregations (`sum`, `avg`, `topk`)
+
+- **LogQL autocomplete in BufferEditor**: `QueryCompletion` now supports both PromQL and LogQL via `QueryLanguage` enum:
+  - `QueryLanguage::PromQL` (default) for metric queries
+  - `QueryLanguage::LogQL` for log queries
+  - `set_language()` method to switch completion mode
+  - Context-aware suggestions for LogQL pipe stages, parsers, and line filters
+  - Language-aware hint text: PromQL shows `rate(http_requests_total[5m])`, LogQL shows `{app="nginx"} |= "error" | json`
+
+- **Logs pane component**: New `LogsPane` component for metric→log correlation, enabling drill-down from metric spikes to see actual SQL queries (or other logs) during that period:
+  - **Editable LogQL query** via modal BufferEditor (same UX as QueryPane - press `e` to edit, `:w` to save)
+  - Edit button overlay in top-right corner for quick access
+  - Scrollable table view with color-coded log levels (Error=red, Warn=yellow, Info=blue, Debug=gray)
+  - Level filter dropdown (All, Error, Warn, Info, Debug, Trace)
+  - Text search filter for searching within log messages
+  - Timestamp formatting (HH:MM:SS.mmm)
+  - Loading skeleton animation during data fetch
+  - Configurable backend via `LogsBackend` enum (Demo or Loki)
+  - Implements `Component` trait for integration with workspace tile system
+  - `add_logs_pane()` for demo mode, `add_loki_pane()` for real Loki servers
+
+- **Loki logs backend**: Full `LokiClient` implementation in `enya-client` for querying Grafana Loki:
+  - HTTP API integration via `/loki/api/v1/query_range`, `/loki/api/v1/labels`, `/loki/api/v1/status/buildinfo`
+  - LogQL query building from labels and text filters
+  - Response parsing with log level detection from labels (`level`, `severity`) or message patterns
+  - Health check support for connection validation
+  - Works on both native (tokio) and WASM (wasm-bindgen-futures)
+
+- **Logs command palette commands**:
+  - `:logs` - Open demo logs pane with synthetic SQL query data
+  - `:loki <url>` - Connect to a Loki server (e.g., `:loki localhost:3100`)
+
+- **Chart drilldown to logs**: Double-click on any time series chart to open a logs pane centered on that timestamp:
+  - Creates a 5-minute window around the clicked point
+  - Enables quick correlation from metric spikes to logs
+  - Works with both demo and Loki backends
+  - `ChartInteraction::DrilldownLogs` event propagates from chart → visualization → query pane → workspace
+
+### Changed
+
+- **Refactored query completion helpers**: Consolidated duplicate code between PromQL and LogQL completion handlers:
+  - Unified `find_word_start()` function with language-specific delimiters parameter
+  - Added `COMMON_DELIMITERS` constant for shared delimiter set
+  - Extracted helper methods: `push_item()`, `push_operators()`, `push_durations()`, `push_tag_keys()`, `push_tag_values()`, `push_metrics()`
+  - Reduced ~200 lines of duplicated code
+
+- **Team chat channels panel with Split View**: A Zed-inspired left sidebar for team collaboration with channels, threads, and inline chat:
+  - `Channel` - Hierarchical channels with kinds (General, Incidents, Deployments, Alerts, Custom)
+  - `Thread` - Conversation threads with priority levels (Normal, High, Critical) and status tracking
+  - `ChatMessage` - Messages with support for @mentions (users, agents, charts)
+  - `ChatState` - State management for channels, threads, and messages with demo data
+  - `ChannelsPanel` - Threads-first sidebar component showing:
+    - Active threads at the top (pinned, critical, or with unread) for quick incident access
+    - Collapsible channel tree with unread badges
+    - Slack/Discord-style team presence section with member names
+  - **Split View Chat** (Option A): When a channel or thread is selected, the panel expands to show:
+    - Left: Compact sidebar with threads, channels, and team members
+    - Right: Chat message view with conversation history
+    - Message input with @mention support and send button
+    - Chart embed button for inline plots in chat
+    - Dynamic panel sizing (220-400px sidebar only, 400-800px with chat open)
+    - Escape key to close split view
+  - `ChatView` component with:
+    - Header showing channel/thread name with back and close buttons
+    - Message bubbles with author avatars and timestamps
+    - Different styling for own messages, other users, and AI agents
+    - Agent badge for AI-generated messages
+    - System messages (centered, italic)
+    - Message reactions display
+    - Inline chart embed placeholders (click to navigate)
+  - **Inline time series charts in messages**: Share metrics data directly in chat with snapshot embedding:
+    - `InlineChart` struct holds `Vec<Series>` data captured at share time
+    - Charts render as full `TimeSeriesChart` components with axes and values
+    - Compact mode (legend hidden) fits naturally in message flow
+    - Data is frozen at share time - all team members see identical metrics
+    - Themed frame with chart icon header matching message bubble style
+    - Demo data shows P99 latency spike scenario with realistic data points
+  - **@pane autocomplete for chart sharing**: Type `@` in chat to mention and embed pane data:
+    - `PaneInfo` struct provides pane names and series data for autocomplete
+    - Autocomplete popup appears above input when typing `@` followed by any characters
+    - Fuzzy filtering matches pane names as you type
+    - Arrow keys, Tab, and Enter for navigation and selection
+    - Escape to dismiss the autocomplete popup
+    - Selected pane creates an `InlineChart` snapshot attached to the message
+    - Visual indicator shows when a chart is pending attachment
+    - Series count shown in autocomplete dropdown for each pane
+  - **#commit reference autocomplete in chat**: Type `#` in chat to reference commits and open diff viewer:
+    - `CommitInfo` struct provides commit hash, message, timestamp, and diff data
+    - Autocomplete popup shows commit history as you type `#` followed by query
+    - Commit hash displayed in monospace with full message and relative timestamp
+    - Fuzzy search filters by hash and commit message
+    - Arrow keys, Tab, and Enter for navigation and selection
+    - Selected commit inserts clickable `[#hash]` reference in message
+    - Clickable commit references in rendered messages open the diff viewer
+    - Git commit icon with premium accent styling for commit links
+    - Codebase search integration via `SearchChatCommits` action
+  - **Extended inline visualizations in chat**: Beyond time series charts, team members can share various data visualizations:
+    - `InlineVisualization` enum supporting multiple visualization types
+    - `InlineStat` - Single stat cards showing key metrics with trend indicators:
+      - Large value display with label and optional subtitle
+      - Trend arrows (up/down/neutral) with semantic colors (red for up = bad, green for down = good)
+      - Previous value comparison display
+    - `InlineTable` - Tabular data for structured information:
+      - Header row with column names
+      - Auto-sized columns with truncation for long values
+      - "... and N more rows" indicator when rows exceed max display
+    - `InlineBarChart` - Horizontal bar charts for categorical comparisons:
+      - Labels, bars, and value annotations
+      - Background track with filled bar overlay
+      - Cycling color palette (accent, blue, purple, yellow)
+      - Max value scaling for proportional bar widths
+    - Theme-aware colors in `ChatColors` for trends and chart palettes
+    - Demo data showcases all visualization types in the incident response thread
+  - Premium UX styling:
+    - Theme-aware colors (Dark, Nord, Gruvbox, Light themes)
+    - Smooth hover states with subtle backgrounds
+    - Left accent bars for selected items
+    - Pill-style unread badges with theme accent colors
+    - Subtle section dividers
+    - Premium tooltips for team members with presence status
+  - Keyboard navigation (Tab to switch sections, arrows to navigate - j/k reserved for viewport)
+  - AI agent integration through @agent mentions in chat messages
+  - **Workspace integration**: Channels panel shows as a resizable left sidebar when team mode is active
+    - Auto-opens when `:team demo` command activates team mode
+    - Toggle with `Space+g` keyboard shortcut
+    - Dynamic width based on split view state
+  - **Full-screen chat takeover**: When a channel or thread is selected, the chat takes over the entire workspace
+    - Hides the plots viewport to provide a full-screen chat experience
+    - Escape key or back button restores the normal viewport with plots
+    - `Space+g` shortcut works to close chat and return to viewport
+    - `:` command palette works when chat input is not focused
+    - Proper layout with fixed header (48px), scrollable messages, and fixed input (64px)
+    - Input area correctly respects the app status bar at the bottom
+
+- **Chart annotations for team collaboration**: Pin comments to specific points or time ranges on charts for team communication:
+  - `Annotation` - Data structure with message, author, priority (Normal/Important/Critical), and target (Point/Range/DataPoint)
+  - Annotations render as vertical lines for all target types (matching commit marker style)
+  - Hover over annotations to see author, message, and resolved status in a tooltip
+  - Priority colors: blue (Normal), orange (Important), red (Critical), gray (Resolved)
+  - "Add Annotation" action in team menu opens annotation editor overlay
+  - Keyboard navigation: `]a` / `[a` to jump between annotations, `gn` to toggle visibility
+  - Demo charts include sample annotations with varying priorities
+  - Annotation editor modal with message input, priority selector, and save/cancel actions
+
+- **Team collaboration state management**: Added a decoupled `TeamState` module for optional team collaboration features. The editor continues to work normally without team features enabled:
+  - `TeamConfig` - Configuration struct with optional `server_url` and `auth_token`
+  - `TeamState` - Wraps `TeamManager` from `enya-team-api` with a clean polling interface
+  - Optional connectivity - `TeamState::default()` returns a disconnected state
+  - Presence tracking - tracks online/idle/offline status for team members
+  - Unread notification count for mentions
+  - `status_info()` returns `None` when not connected, hiding team UI automatically
+  - Integrated into `EnyaApp`: polls for team events each frame, passes status to status line and workspace
+  - Space+t keyboard shortcut to toggle team menu (when connected)
+  - Demo mode (`:team demo`) for testing the team UI without a backend
+  - Sleek centered overlay design matching the unified finder UX:
+    - Frosted glass styling with premium shadow
+    - Keyboard navigation (↑/↓/j/k for items, Tab to switch sections, Enter to select, Esc to close)
+    - Two sections: MEMBERS (with presence dots and viewing status) and ACTIONS
+    - Hover and selection highlighting with accent colors
+
+- **Pane descriptions**: Panes now support an optional `description` field for providing context:
+  ```toml
+  [[panes]]
+  query = "histogram_quantile(0.99, ...)"
+  name = "P99 Latency"
+  description = "99th percentile latency - alert threshold is 500ms"
+  ```
+  - An info icon (ℹ) appears in the pane toolbar when a description is set
+  - Hover over the icon to view the description
+  - Tab title shows ℹ indicator for panes with descriptions
+
+- **Auto-refresh interval support**: Workspaces can now configure automatic query refresh via the `[time]` section:
+  ```toml
+  [time]
+  preset = "1h"
+  refresh = "30s"  # Options: off, 10s, 30s, 1m, 5m, 15m
+  ```
+  - Use `:refresh <interval>` (or `:r`) command to change at runtime
+  - A countdown timer appears in the toolbar when refresh is active
+  - Refresh interval is saved when exporting workspaces
+
+### Changed
+
+- **Refactored chat module colors**: Extracted shared color helpers into `chat/theme_helpers.rs`
+  - New `ChatColors` struct provides theme-aware colors for chat UI elements
+  - Consolidates duplicate color logic from `chat_view.rs` and `channels_panel.rs`
+  - Semantic color methods: `selection_bg()`, `hover_bg()`, `own_message_bg()`, `agent_message_bg()`, etc.
+  - All themes (Dark, Light, Nord, Gruvbox) have consistent color semantics
+
+- **Team API runtime fix**: Fixed crash when using `:team connect` command on native platforms:
+  - `TeamClient` now requires a `tokio::runtime::Handle` for spawning async HTTP requests
+  - `TeamManager` accepts and passes runtime handle to client on connect
+  - `TeamState` sets runtime via `set_async_runtime()` before connecting
+  - Error message shown if connect attempted without runtime handle set
+
+- **Fixed WebSocket 403 error**: WebSocket now connects with the correct team ID from the API:
+  - Added `list_teams()` method to `TeamClient` to fetch user's teams
+  - Two-phase authentication: first fetches user, then fetches teams
+  - WebSocket connects using the actual team ID from the server instead of a random UUID
+  - `pending_teams` and `pending_user` fields track auth state during connection
+
+- **WebSocket status indicator in team status**: The status line now shows real-time WebSocket connection state:
+  - `WsState` enum: Connected, Connecting, Reconnecting, Failed, Disconnected
+  - Visual indicators: no symbol when connected, `...` connecting, `~` reconnecting, `!` failed, `-` disconnected
+  - Hover tooltip shows detailed WebSocket status (e.g., "Real-time: connected")
+  - `TeamStatusInfo` now includes `ws_state` field populated from `TeamManager`
+  - Demo mode simulates connected state for testing
+
+- **Cloud backend channels API**: Full REST API and WebSocket support for team chat channels:
+  - New `enya-team-api` types: `Channel`, `ChannelKind`, `ChatThread`, `NewChannel`, `NewThread`, `InlineChartData`
+  - New `TeamEvent` variants: `ChannelCreated`, `ThreadCreated`, `ThreadResolved`
+  - Cloud API endpoints (`enya-cloud`):
+    - `GET/POST /teams/{team_id}/channels` - List and create channels
+    - `GET /teams/{team_id}/channels/{channel_id}` - Get channel details
+    - `GET/POST /teams/{team_id}/channels/{channel_id}/threads` - List and create threads
+    - `GET/POST /teams/{team_id}/channels/{channel_id}/threads/{thread_id}/messages` - Messages in threads
+    - `POST /teams/{team_id}/channels/{channel_id}/threads/{thread_id}/resolve` - Mark thread resolved
+  - Database models: `DbChannel`, `DbChannelThread` with conversions to API types
+  - Real-time broadcasting of channel/thread events via WebSocket
+  - Client methods: `list_channels()`, `create_channel()`, `list_channel_threads()`, `create_thread()`, `list_channel_messages()`, `send_channel_message()`
+  - `TeamManager` caching: Automatic caching for channels, threads, and messages with cache invalidation on create operations
+  - Real-time event handling in `TeamState::poll()`: Updates caches when `ChannelCreated`, `ThreadCreated`, and `ThreadResolved` events arrive via WebSocket
+
+- **Chat module types use UUID**: Editor chat types (`ChannelId`, `ThreadId`, `MessageId`) now use `Uuid` to match API types, enabling seamless synchronization with the cloud backend:
+  - `Channel::from_api()`, `Thread::from_api()`, `ChatMessage::from_api()` - Convert API types to editor types
+  - `ChannelKind::from_api()` / `ChannelKind::to_api()` - Convert between editor and API channel kinds
+
+### Fixed
+
+- **Chat messages now appear after sending**: Fixed bug where messages added through the chat input would not appear in the conversation. The root cause was that `workspace.chat_state` was being cloned from `team_state.chat_state` on every frame, overwriting any locally added messages. Messages are now added directly to `team_state.chat_state` via a new `WorkspaceAction::SendChatMessage` action, ensuring they persist across frames.
+
+- **Channel and thread creation now works**: Fixed clicking the "+" button to create channels and threads. Added `WorkspaceAction::CreateChannel` and `WorkspaceAction::CreateThread` actions that route through `EnyaApp` to `TeamState`. In demo mode, channels/threads are created locally; in live mode, API calls are made to the cloud backend. A notification appears to confirm the action.
+  - Added `pending_channel_creates` to track API create operations and poll for completion
+  - When API responds, the channel is added to cache and a `ChannelCreated` event is emitted
+  - Channels now have unique names with timestamps (e.g., "channel-1234")
+  - Fixed sync logic to update chat state when manager has more channels (not just on initial load)
+
+- **ChatState passed by reference instead of cloning**: Refactored to pass `&ChatState` to `workspace.show()` instead of cloning every frame. This improves performance and clarifies ownership - `TeamState` owns the `ChatState`, workspace only borrows it for rendering.
+
+### Changed
+
+- **Renamed `[codebase]` to `[git]` in workspace config**: The workspace TOML section for git repository integration has been renamed from `[codebase]` to `[git]` to better reflect its purpose. The internal `CodebaseConfig` struct is now `GitConfig`. The fields (`url`, `branch`, `language`) remain the same.
+
+- **Inline endpoint support in workspace config**: You can now specify the Prometheus endpoint directly in the `[workspace]` section for simpler workspaces:
+  ```toml
+  [workspace]
+  name = "my-dashboard"
+  endpoint = "http://localhost:9090"
+  ```
+  The separate `[connection]` section is still supported for advanced options like `api_key`, and takes precedence if both are specified.
+
+### Changed
+
+- **Beautiful diff viewer styling (GitHub/delta-inspired)**: Completely redesigned the diff viewer overlay and preview pane with modern, professional styling:
+  - **Side panel file list**: Replaced horizontal file tabs with a vertical "Changed Files" panel on the right side, similar to VS Code and Conductor. Shows file icons, names, and +/- stats for each file with click-to-select and hover effects.
+  - **Split view toggle**: Press `s` to switch between unified diff and side-by-side split view. Split view shows old code on the left and new code on the right with aligned lines, making it easy to compare changes. Paired deletions and additions are shown on the same row.
+  - **Word-level diff highlighting**: Uses the `similar` crate to compute character-level differences between paired add/delete lines. Changed characters are highlighted with brighter background colors, making it easy to see exactly what changed within a line.
+  - **Dual line numbers**: Shows both old and new line numbers in a dark gutter area, making it easy to reference specific lines.
+  - **Colored gutter stripes**: Green stripe for additions, red stripe for deletions - a subtle but effective visual cue on the left edge of each changed line.
+  - **Theme-aware diff colors**: Diff colors now respect the active theme (Dark, Light, Nord, Gruvbox). Each theme has appropriate colors for additions, deletions, context lines, hunk headers, and gutter stripes. Light theme uses readable dark green/red text on light tinted backgrounds.
+  - **Stat badges**: Separate green (+N) and red (-N) badges in the header showing additions and deletions per file.
+  - **Larger, more readable overlay**: Increased popup dimensions (85% width/height) for better code review experience.
+  - **Consistent preview styling**: The unified finder's diff preview now uses the same beautiful styling with gutter stripes and proper colors.
+
+### Added
+
+- **Unified fuzzy finder (Telescope-style)**: Added a single unified finder that consolidates all search functionality into one modal with prefix-based mode switching. Features include:
+  - Single entry point with `Space f` keybinding
+  - **Prefix-based modes** for quick mode switching:
+    - (no prefix) - Search live metrics from Prometheus
+    - `@` - Search indexed metrics from source code
+    - `!` - Search alert rules from codebase
+    - `#` - Search git commits
+    - `:` - Execute editor commands
+    - `>` - Open/switch workspaces
+    - `/` - Search everything in codebase
+  - Tab key cycles through modes
+  - **Preview pane** shows context-aware details for each result type:
+    - **Metrics/Alerts**: Source code preview with tree-sitter syntax highlighting (matching the full Source Preview Overlay styling) and target line highlighting
+    - **Live metrics**: Tags preview showing available label keys and values
+    - **Commits**: Diff preview with +/- line highlighting
+  - Nucleo-based fuzzy matching for fast, typo-tolerant search
+  - Full Tantivy integration for codebase search modes
+  - WASM-compatible: codebase search modes disabled on WASM, metrics/commands/workspaces work on both platforms
+
+- **Tantivy full-text search index** (native-only): Added a Tantivy-based full-text search index for the codebase. Features include:
+  - Indexes metrics, alerts, and git commits in a persistent on-disk index stored in `{repo}/.enya/tantivy/`
+  - Schema supports metric name, kind, labels, function context, alert expressions, severity, commit messages, and file locations
+  - Full-text search with relevance scoring via Tantivy's BM25 algorithm
+  - Filter searches by type (metrics, alerts, commits, or all)
+  - `TantivyCodebaseIndex` API: `open_or_create()`, `rebuild()`, `rebuild_with_commits()`, `search()`, `search_metrics()`, `search_alerts()`, `search_commits()`
+  - Automatically indexes up to 1000 recent git commits when building the index
+  - Automatic reader reload after index updates for immediate search visibility
+  - Metadata persistence tracking indexed commit, timestamp, and document counts
+  - AI agent tool (`SearchCodebaseTool`) for codebase search via the Agent mode
+  - WASM-compatible: All Tantivy code is behind `#[cfg(not(target_arch = "wasm32"))]`
+
+- **Agent `search_codebase` command**: AI agents can now use the `search_codebase` command to search the Tantivy index for metrics, alerts, and commits. This provides faster, ranked full-text search compared to using `git log --grep` directly. Results are displayed inline in the agent conversation with relevance scores, file paths, and line numbers.
+
+- **Status line Tantivy progress**: The status line now shows detailed progress while the Tantivy full-text search index is being built in the background. Progress includes:
+  - Current phase (Fetching commits, Indexing metrics, Indexing alerts, Indexing commits, Finalizing)
+  - Progress count (e.g., `[42/100]`)
+  - Current item name (metric name, alert name, or commit hash with message)
+
+- **Improved cloning status**: The status line now shows the repository name being cloned (e.g., "Cloning enya...") instead of the generic "Cloning repo..." message.
+
+### Fixed
+
+- **Unified finder search modes not working**: Fixed an issue where search results weren't appearing or would briefly appear then disappear when using mode prefixes (`@` for metrics, `#` for commits, `!` for alerts). Three bugs were fixed:
+  1. The mode was being read from a stale cache instead of parsing from the current query prefix
+  2. The codebase search was incorrectly running for Metrics mode, interfering with live Prometheus metric search
+  3. The internal debounce `refresh_results()` was clearing codebase results that were already set by the workspace
+
+  Now the mode is parsed from the query in real-time, each mode uses the correct search backend, and the internal debounce only runs for Metrics mode (codebase modes are handled immediately by the workspace).
+
+- **Match highlight color visibility**: Added a new `highlight_match_text()` theme method that provides bright, visible colors for fuzzy match highlighting in search results. The previous `highlight_match()` color was too dark for text foreground use. Match highlights now use bright gold/amber colors that stand out clearly against the background.
+
+- **Diff viewer showing full commit diff**: Fixed an issue where the diff viewer overlay only displayed the first file of a commit. The diff viewer now correctly shows all files in a commit, with n/p navigation between files.
+
+### Added
+
+- **Codebase finder overlay (Space+c)**: Added a new telescope-style fuzzy finder for searching the codebase. Features include:
+  - Full-text search across metrics, alerts, and git commits using the Tantivy index
+  - Filter buttons to narrow results by type (All, Metrics, Alerts, Commits)
+  - Tab key cycles through filter modes
+  - **Tabbed preview pane** with Code, Diff, and Blame views:
+    - **Code tab**: Shows result details (type, severity, file location, code snippets)
+    - **Diff tab**: Delta/GitHub-style diff rendering with green background for additions, red for deletions, blue for hunk headers
+    - **Blame tab**: Placeholder for upcoming git blame integration
+  - Arrow keys (←/→) or Ctrl+Tab/Shift+Tab to switch preview tabs
+  - j/k or arrow keys (↑/↓) for navigation, Enter to select, Escape to close
+  - Selecting a metric or alert opens the source preview overlay at the definition location
+  - Native-only (not available on WASM)
+
+### Changed
+
+- **Theme-aware egui visuals**: The `dark_theme()` function in `design.rs` now uses theme-aware colors instead of hardcoded Obsidian Glass palette constants. This ensures that egui widgets (including egui_plot backgrounds, panels, and all widget visuals) correctly reflect the selected theme's colors. Previously, switching to Nord or Gruvbox themes would leave the plot background as black; now each theme uses its own appropriate background color.
+
+- **Theme-adaptive logo**: The Enya logo now adapts to the current theme:
+  - **Dark** (default): Uses the original branded logo with full color
+  - **Light**: Uses the grayscale logo directly (ink on paper aesthetic)
+  - **Other themes** (Nord, Gruvbox): Uses a grayscale version with overlay blend tinting that preserves the logo's depth and shading while applying the theme's accent color. Dark areas stay dark, mid-tones and highlights receive the theme color. Textures are cached per theme for efficient rendering.
+
+### Added
+
+- **Extensible theme presets**: The editor now supports multiple theme presets:
+  - **Dark** (default) - Obsidian Glass with signature Enya emerald (#10B981)
+  - **Nord** - Arctic blue (#88C0D0)
+  - **Gruvbox** - Warm orange (#D65D0E)
+  - **Light** - Paper/Ink aesthetic with warm cream backgrounds and grayscale syntax
+  - Use `:theme <name>` to switch themes (e.g., `:theme gruvbox`, `:theme nord`, `:theme light`)
+  - Use `:theme` (no argument) to cycle to the next theme
+  - Theme can be configured in workspace TOML files with `theme = "dark"` etc.
+
+### Changed
+
+- **Platform-specific GPU backends**: wgpu now only enables the Metal backend on macOS and Vulkan on Linux/Windows, instead of enabling both everywhere. Combined with X11/Wayland being Linux-only, this reduces compile time and binary size on each platform.
+
+- **Disable egui default fonts**: Since we bundle our own fonts (Departure Mono, Maple Mono, JetBrains Mono, Iosevka), we no longer include egui's embedded default fonts (`epaint_default_fonts`). This reduces binary size.
+
+- **Use ring instead of aws-lc for TLS**: Switched from aws-lc-sys (heavy C dependency) to ring for rustls crypto, reducing dependency count by ~35 crates and significantly improving compile times.
+
+- **Additional language grammars are now optional**: Go, Python, and JavaScript/TypeScript syntax highlighting are controlled by the `all-languages` feature flag (enabled by default). Rust highlighting and codebase integration (git, metrics discovery) are always available on native builds. Build with `--no-default-features` to exclude the extra language grammars.
+
+### Changed
+
+- **Parallel query execution (Grafana-style refresh)**: Query execution now runs in parallel instead of sequentially. When refreshing the time range or triggering a manual refresh:
+  - All panes fire their queries simultaneously using async promises
+  - All panes show the loading skeleton animation at once
+  - Each pane completes and displays data as soon as its query returns
+  - Time range changes (via toolbar, keyboard shortcuts, or agent commands) now trigger automatic refresh of all panes
+  - This significantly improves perceived performance with multiple panels
+
+### Fixed
+
+- **Landing page j/k navigation with mouse hover**: Fixed an issue where pressing j/k to navigate the landing page menu would be immediately overridden by a stationary mouse cursor hovering over a different item. Now mouse hover only updates the selection when the mouse actually moves, allowing keyboard and mouse navigation to coexist without conflict.
+
+### Changed
+
+- **Compact landing page layout**: Reduced logo size, text size, and spacing to fit better on smaller viewports (especially WASM). Removed the tagline to save vertical space.
+
+- **Workspace creator on WASM**: The "Create workspace" option on the landing page now shows a two-step workspace creator overlay on WASM (name, then endpoint). On native, the full three-step wizard (name, endpoint, git repo) is still shown.
+
+### Added
+
+- **Native app promo overlay (WASM only)**: When using the web version, a frosted glass overlay appears on the landing page highlighting features only available in the native desktop app:
+  - Git integration for cloning repos and viewing diffs
+  - AI agents for intelligent metric analysis and query suggestions
+  - Local workspace persistence with full filesystem access
+  - Includes a "Download for macOS" link to the native app
+  - Press Enter or Escape to dismiss and continue to the web version
+  - Overlay only shows once per session (remembers dismissal)
+
+- **Vim-style window movement (Ctrl+W h/j/k/l)**: Move the focused pane to the edge of the viewport in the specified direction, matching Neovim's window movement behavior:
+  - `Ctrl+W h` - Move pane to far left (becomes leftmost vertical split)
+  - `Ctrl+W j` - Move pane to bottom (becomes bottom horizontal split)
+  - `Ctrl+W k` - Move pane to top (becomes top horizontal split)
+  - `Ctrl+W l` - Move pane to far right (becomes rightmost vertical split)
+  - New "Window Movement" section added to the which-key overlay (`?`)
+
+- **Merge panes into tabs (Ctrl+W t h/j/k/l)**: Merge the focused pane into a tab container with the pane in the specified direction:
+  - `Ctrl+W t h` - Merge with pane to the left into a tab group
+  - `Ctrl+W t j` - Merge with pane below into a tab group
+  - `Ctrl+W t k` - Merge with pane above into a tab group
+  - `Ctrl+W t l` - Merge with pane to the right into a tab group
+  - If the target pane is already in a tab container, the focused pane is added to that container
+  - Otherwise, a new tab container is created with both panes
+
+### Changed
+
+- **Premium agent input bar styling**: Enhanced the agent input bar to match the Obsidian Glass emerald theme:
+  - Agent mode badge now uses signature emerald accent instead of amber for visual consistency
+  - Added subtle emerald-tinted inner glow on the top edge for glass reflection effect
+  - Added soft emerald bottom edge glow in dark mode for depth
+  - Increased corner radius to 14px for a more premium feel
+  - Enhanced shadow depth for better elevation
+  - Suggestion pills are now clickable with emerald-highlighted commands and hover effects
+  - Pills insert the command prefix when clicked for faster command entry
+
+### Added
+
+- **Slash commands for Agent mode**: Type `/` in the agent input bar to trigger command suggestions, similar to how `@` works for metric mentions. Core commands:
+  - `/investigate` - Deep-dive analysis with correlations and anomalies
+  - `/diff` - Compare metric states between two time ranges
+  - `/query` - Generate PromQL from natural language
+  - `/explain` - Explain what the current query or chart shows
+  - Fuzzy search through commands with highlighted matches
+  - Keyboard navigation (↑/↓ or Ctrl+J/K) and Tab/Enter to select
+  - Commands are inserted into the input (e.g., `/investigate `) so you can continue typing
+  - Combine with `@` mentions: `/investigate @http_requests_total why is it spiking?`
+
+- **Configurable editor font**: Use `:font <name>` to switch between fonts. Available options: `maple` (Maple Mono), `departure` (Departure Mono), `jetbrains` (JetBrains Mono), `iosevka` (Iosevka). The preference is persisted across sessions. Departure Mono is the default.
+
+### Changed
+
+- **Minimal vim-like command palette**: Reduced from 24 to 11 commands. Added `:q`/`:quit` to close workspace and `:w`/`:write` to save workspace. Removed commands with keyboard shortcuts (`:zen` → `Z`, `:fullscreen` → `F`, `:home` → `Space+h`, `:diagnostics` → `Space+d`, `:help` → `?`) and non-vim-like commands (`:search`, `:connect`, `:prometheus`, `:close`, `:exit`, `:commits`, `:tabnew`, `:tabclose`, `:workspaces`, `:tutorial`, `:mksession`).
+- **Unified hover styling across UI components**: All interactive list/menu components now use the same subtle hover styling as the landing page - a light 5% text color background with emerald accent color for icons on hover/select. Updated components include:
+  - Workspace finder
+  - Command palette
+  - Query completion popup
+  - Agent input bar mentions popup
+  - Workspace tabs
+  - Time range widget buttons
+- **Premium layered pane focus border**: Pane focus now features a premium glass effect with three layered emerald borders - an outer subtle glow, mid glow, and crisp inner border. This creates depth and matches the Obsidian Glass theme. Uses brighter emerald in visual-multi mode to distinguish the cursor pane from selected panes.
+- **Distinct tab vs pane focus colors**: Active tabs now use sky blue (#6EBEF8) for their outline, while pane focus uses emerald. This creates a clear visual hierarchy between tab selection and pane focus.
+- **Consolidated chart colors**: Time series charts and demo visualizations now use the centralized `palette::chart::PALETTE` instead of hardcoded colors, ensuring consistent theming across all visualizations.
+- **Premium query overlay styling**: The query overlay shown at the bottom of selected panes in visual-multi mode now features Obsidian Glass styling with an emerald accent bar on the left edge and a subtle top border line. Uses palette colors for consistent theming.
+- **Viewport filter as bottom bar**: The `/` search filter now renders as a vim-style command line bar above the status line (like Agent mode) instead of a centered overlay. This is less intrusive and more consistent with vim's search behavior. Only available in Normal mode.
+- **Zen mode hides workspace tabs**: The workspace tab bar is now hidden when in Zen mode for a fully distraction-free experience.
+- **Simplified status modes**: Removed `StatusMode::Zen` and `StatusMode::Fullscreen` since these are display preferences, not modal states. The status line now stays in Normal mode with distinct secondary badges - purple "ZEN" and cyan "FULLSCREEN" - when these display preferences are active.
+
+### Fixed
+
+- **Popup positioned above cursor**: Both `/` slash command and `@` mention popups now appear directly above the trigger character position instead of centered, matching code editor autocomplete behavior. Popups are clamped to stay on screen.
+- **Language icons now render correctly**: Fixed language icons (Rust, Go, Python, etc.) in the status bar not rendering. Updated the bundled Nerd Font (Symbols Nerd Font) to the latest version which includes the MDI `LANGUAGE_*` icons with actual language logos.
+- **Time series x-axis visible in split panes**: Fixed an issue where the x-axis (time labels) was clipped when splitting panes horizontally (stacked). The chart now uses the actual remaining height after legend rendering to ensure the x-axis labels are always visible. Also improved height calculation for portrait-oriented panes (vsplit) to use a compact 20% max height.
+
+### Changed
+
+- **Enhanced indexing status**: The status line now shows the current file being indexed with a Zed-like format (e.g., "Indexing main.rs + 42 more") instead of just "Indexing [5/42]...". This provides better visibility into what files are being processed during codebase indexing.
+- **Language configuration for codebase scanning**: Workspaces can now specify a `language` field in the `[codebase]` config section to limit metric scanning to a specific language. Supported values: `rust`, `go`, `python`, `javascript`, `typescript`. If not specified, all language scanners are used. This avoids indexing irrelevant files (e.g., Python `__init__.py` in a Rust codebase).
+- **Improved file filtering**: The indexer now excludes more common static asset directories (`dist`, `build`, `public`, `assets`) and skips minified files (`*.min.*`).
+- **Enhanced codebase status display**: The status bar now shows richer information when a codebase is configured:
+  - During indexing: Shows language icon (Rust gear, Go gopher, Python logo, etc.) with the current file being indexed
+  - When ready: Shows repo name with language icon and metrics count (e.g., " rust-app-atlas | 42 metrics")
+
+### Added
+
+- **Vim-style Agent mode**: New modal agent mode for AI-assisted interactions, inspired by Neovim's modal editing:
+  - Press `a` from Normal or Visual mode to enter Agent mode
+  - Agent Input Bar appears above the status line for lightweight interaction
+  - Status line shows "AGENT" mode indicator in amber
+  - Quick command keys: `w` (what's wrong?), `y` (why?), `c` (compare), `r` (related), `e` (explain), `f` (fix), `s` (summarize), `h` (history)
+  - **Agent operator pattern**: Vim-style operators like `aw`, `ae`, `ay`, `ac`, `ar`, `af`, `as`, `ah` for quick agent commands directly from Normal mode
+    - `aw` - What's wrong? (triage current pane)
+    - `ae` - Explain (describe the focused metric)
+    - `ay` - Why? (root cause analysis)
+    - `ac` - Compare (to baseline)
+    - `ar` - Related (show correlated metrics)
+    - `af` - Fix (remediation suggestions)
+    - `as` - Summarize (incident summary)
+    - `ah` - History (past similar incidents)
+    - `aa` - Enter agent mode without sending a command
+  - Natural language input for custom queries
+  - Visual mode integration: selected panes automatically become context for the agent
+  - Press `+`/`-` to add/remove focused pane from context, `Ctrl+C` to clear context
+  - Press `Escape` to exit Agent mode
+- **AgentInputBar component**: Standalone AI input component for Agent mode:
+  - Four states: Ready, Typing, Processing, Response
+  - Premium Obsidian Glass styling with frosted glass background and subtle inner highlight
+  - Shows current AI provider (Claude/Codex) in an amber-accented badge
+  - Context panes displayed in a subtle badge with pane icon
+  - Direct AI integration via Claude Code CLI (no side panel dependency)
+  - Streaming response support with live activity display
+  - Processing state shows status message with tool use tracking
+  - Response state can expand for longer responses
+  - Activity display shows only the most recent activity for a compact UI
+  - **Enya command support**: AI responses can now execute Enya commands (create_pane, set_time_range, search_metrics, etc.) just like the Agent Panel
+  - **Immediate query execution for agent-created panes**: Panes created by AI commands now automatically load data from Prometheus without requiring a manual refresh
+  - **Auto-exit agent mode**: Agent mode automatically closes after successful command execution, returning to Normal mode for seamless vim-style navigation
+
+- **@ mention support for metrics**: Type `@` in the input to trigger a fuzzy finder popup for metrics:
+    - Premium Obsidian Glass styling with frosted glass background, emerald accents, and inner highlight
+    - Fuzzy search through all available metrics with emerald-highlighted match characters
+    - Keyboard navigation with arrow keys (↑/↓) or Ctrl+K/J/N/P
+    - Select with Enter or Tab to insert the metric name
+    - Press Escape to dismiss the popup
+    - Metrics are sourced from the connected Prometheus instance
+    - Wide popup (520px) to accommodate long metric names
+
+- **Workspace creation overlay** (native only): New three-step wizard for creating workspaces, matching the Tutorial overlay's frosted glass styling. Features include:
+  - Step 1: Enter workspace name (prefilled with "my-workspace")
+  - Step 2: Enter connection endpoint (prefilled with "http://localhost:9090")
+  - Step 3: Optional git repository path for commit annotations
+  - Progress dots showing current step
+  - Keyboard navigation: `Enter` to proceed, `Escape` to cancel
+  - Workspace tab is automatically renamed to the entered name
+  - Workspace is automatically saved to disk after creation, making it discoverable in the workspace finder
+  - On WASM, clicking "Create workspace" or the + button creates a workspace directly (overlay not available)
+
+### Fixed
+
+- **Agent-created panes now execute queries reliably**: Fixed a bug where panes created by AI would fail to load data because the query tracking used volatile TileIds that could change when egui_tiles restructured the tree during `ui()` calls. Now uses stable pane component IDs for tracking pending queries.
+
 ### Changed
 
 - **Premium Obsidian Glass theme refinements**: Enhanced the dark theme with a more luxurious, high-end feel:
@@ -22,6 +1154,12 @@ All notable changes to the Enya editor will be documented in this file.
     - Enhanced backdrop with subtle vignette effect at screen edges
     - New `draw_premium_backdrop()` with centered emerald glow for branded modals
   - **Premium keyboard badges**: Key hints now feature subtle drop shadow and 3D top-edge highlight
+
+- **Notification styling**: Updated notifications to use the obsidian glass emerald theme:
+  - Frosted glass background matching other overlays
+  - Uses semantic colors from the palette (emerald for success)
+  - Improved shadow and border styling
+  - Consistent with the overall design system
 
 - **Moved heatmap into visualization module**: The `heatmap.rs` module is now located at `components/pane/visualization/heatmap.rs` alongside other visualization types for consistency.
 - **Moved theme into ui module**: The `theme.rs` module is now located at `ui/theme.rs` alongside other UI primitives (colors, typography, icons, etc.).
@@ -71,6 +1209,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Keyboard shortcuts not firing in Agent mode**: Fixed an issue where typing `/` or `?` in the Agent Input Bar would incorrectly trigger the viewport filter or which-key overlay. These overlay handlers now check for `agent_mode_active` before consuming key events.
+- **@ mention popup loses focus**: Fixed an issue where after selecting a metric from the @ mention popup, focus would not return to the text input. The input field now receives focus automatically after a selection is made, with the cursor positioned at the end of the text.
+- **Agent-created panes not loading data**: Fixed an issue where panes created by the AI agent (via `create_pane` command) would not automatically load data from Prometheus. The `handle_agent_commands` function now requests a repaint after creating panes, ensuring query execution runs on the next frame.
 - **Read tool file path in Agent Panel**: Fixed the Agent Panel not showing file paths for Read tool activities. Added `path` field lookup in addition to `file_path` for tool summary extraction.
 
 ### Changed

@@ -2,8 +2,6 @@
 
 use egui::{Color32, RichText, Stroke};
 
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
@@ -156,10 +154,25 @@ impl StatChart {
         self.change_value = None;
     }
 
+    /// Get the current value.
+    pub fn value(&self) -> f64 {
+        self.current_value
+    }
+
+    /// Get the unit string.
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
+    /// Get the sparkline data.
+    pub fn sparkline_data(&self) -> &[f64] {
+        &self.sparkline_data
+    }
+
     /// Get color based on thresholds
     fn color_for_value(&self, value: f64) -> Color32 {
         // Find the highest threshold that the value exceeds
-        let mut color = palette::text_primary(self.theme);
+        let mut color = self.theme.text_primary();
         for threshold in &self.thresholds {
             if value >= threshold.value {
                 color = threshold.color;
@@ -188,7 +201,7 @@ impl StatChart {
 
     /// Get the theme-appropriate primary color
     fn theme_color(&self) -> Color32 {
-        palette::accent::PRIMARY
+        self.theme.accent_primary()
     }
 
     /// Render the sparkline at the bottom of the stat
@@ -247,8 +260,9 @@ impl StatChart {
     }
 
     /// Render the stat chart
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         let available_width = ui.available_width();
         let available_height = ui.available_height();
@@ -306,9 +320,9 @@ impl StatChart {
             // Change indicator
             if let Some(change) = self.change_value {
                 let (icon, color) = if change >= 0.0 {
-                    ("\u{25B2}", palette::semantic::SUCCESS) // ▲
+                    ("\u{25B2}", self.theme.semantic_success()) // ▲
                 } else {
-                    ("\u{25BC}", palette::semantic::ERROR) // ▼
+                    ("\u{25BC}", self.theme.semantic_error()) // ▼
                 };
 
                 ui.label(

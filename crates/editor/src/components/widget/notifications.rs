@@ -2,6 +2,7 @@
 //!
 //! Displays toast-style notifications in the corner of the screen with different
 //! severity levels, icons, and auto-dismiss functionality.
+//! Styled to match the obsidian glass emerald theme.
 
 use std::time::Duration;
 
@@ -37,46 +38,13 @@ impl NotificationLevel {
     }
 
     /// Get the accent color for this notification level
+    /// Uses theme-aware semantic colors (Custom variant handles plugin colors internally)
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
-            Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(59, 130, 246), // Blue
-                AppTheme::Dark => Color32::from_rgb(96, 165, 250),
-            },
-            Self::Success => match theme {
-                AppTheme::Light => Color32::from_rgb(34, 197, 94), // Green
-                AppTheme::Dark => Color32::from_rgb(74, 222, 128),
-            },
-            Self::Warn => match theme {
-                AppTheme::Light => Color32::from_rgb(234, 179, 8), // Yellow
-                AppTheme::Dark => Color32::from_rgb(250, 204, 21),
-            },
-            Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(239, 68, 68), // Red
-                AppTheme::Dark => Color32::from_rgb(248, 113, 113),
-            },
-        }
-    }
-
-    /// Get the background color for this notification level
-    pub fn bg_color(&self, theme: AppTheme) -> Color32 {
-        match self {
-            Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(239, 246, 255),
-                AppTheme::Dark => Color32::from_rgb(30, 41, 59),
-            },
-            Self::Success => match theme {
-                AppTheme::Light => Color32::from_rgb(240, 253, 244),
-                AppTheme::Dark => Color32::from_rgb(20, 51, 36),
-            },
-            Self::Warn => match theme {
-                AppTheme::Light => Color32::from_rgb(254, 252, 232),
-                AppTheme::Dark => Color32::from_rgb(54, 47, 22),
-            },
-            Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(254, 242, 242),
-                AppTheme::Dark => Color32::from_rgb(51, 28, 28),
-            },
+            Self::Info => theme.semantic_info(),
+            Self::Success => theme.accent_primary(),
+            Self::Warn => theme.semantic_warning(),
+            Self::Error => theme.semantic_error(),
         }
     }
 }
@@ -169,7 +137,7 @@ impl NotificationManager {
     pub fn new() -> Self {
         Self {
             notifications: Vec::new(),
-            theme: AppTheme::Dark,
+            theme: AppTheme::default(),
             max_visible: 5,
         }
     }
@@ -222,6 +190,7 @@ impl NotificationManager {
     }
 
     /// Render notifications in the top-right corner
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) {
         self.cleanup();
 
@@ -264,22 +233,19 @@ impl NotificationManager {
     }
 
     /// Render a single notification, returns the height used
+    /// Styled with obsidian glass theme - frosted glass background with emerald accents
     fn render_notification(
         ui: &mut Ui,
         notification: &Notification,
         width: f32,
         theme: AppTheme,
     ) -> f32 {
-        let bg_color = notification.level.bg_color(theme);
+        // Extract colors from theme (Custom variant handles plugin colors internally)
         let accent_color = notification.level.color(theme);
-        let text_color = match theme {
-            AppTheme::Light => Color32::from_rgb(30, 30, 30),
-            AppTheme::Dark => Color32::from_rgb(230, 230, 230),
-        };
-        let muted_color = match theme {
-            AppTheme::Light => Color32::from_rgb(100, 100, 100),
-            AppTheme::Dark => Color32::from_rgb(160, 160, 160),
-        };
+        let bg_color = theme.bg_surface().gamma_multiply(0.95);
+        let border_color = theme.border_subtle();
+        let text_color = theme.text_primary();
+        let muted_color = theme.text_secondary();
 
         // Calculate opacity based on progress (fade out near the end)
         let opacity = if let Some(progress) = notification.progress() {
@@ -297,35 +263,35 @@ impl NotificationManager {
 
         egui::Frame::new()
             .fill(bg_color.gamma_multiply(opacity))
-            .stroke(egui::Stroke::new(1.0, accent_color.gamma_multiply(opacity)))
-            .corner_radius(8.0)
-            .inner_margin(12.0)
+            .stroke(egui::Stroke::new(1.0, border_color.gamma_multiply(opacity)))
+            .corner_radius(10.0)
+            .inner_margin(egui::Margin::symmetric(14, 12))
             .shadow(egui::epaint::Shadow {
-                offset: [0, 2],
-                blur: 8,
+                offset: [0, 4],
+                blur: 16,
                 spread: 0,
-                color: Color32::from_black_alpha((40.0 * opacity) as u8),
+                color: Color32::from_black_alpha((60.0 * opacity) as u8),
             })
             .show(ui, |ui| {
                 ui.set_width(width);
 
                 // Header row: icon + title + close button
                 ui.horizontal(|ui| {
-                    // Accent bar on the left
-                    let bar_rect = ui.allocate_space(egui::vec2(3.0, 20.0)).1;
+                    // Accent bar on the left (thicker, rounded)
+                    let bar_rect = ui.allocate_space(egui::vec2(3.0, 22.0)).1;
                     ui.painter()
                         .rect_filled(bar_rect, 2.0, accent_color.gamma_multiply(opacity));
 
-                    ui.add_space(8.0);
+                    ui.add_space(10.0);
 
-                    // Icon
+                    // Icon with glow effect in dark mode
                     ui.label(
                         RichText::new(notification.level.icon())
                             .color(accent_color.gamma_multiply(opacity))
                             .size(18.0),
                     );
 
-                    ui.add_space(8.0);
+                    ui.add_space(10.0);
 
                     // Title
                     ui.label(

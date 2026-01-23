@@ -9,7 +9,15 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    // Initialize logging. Use RUST_LOG env var to control log levels.
+    // Default: enya_editor=info, everything else=warn (to suppress wgpu noise)
+    // Example: RUST_LOG=enya_editor=debug,warn cargo run
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .with_module_level("enya_editor", log::LevelFilter::Info)
+        .init()
+        .unwrap();
 
     // Create tokio runtime for async operations (AI agent, background tasks)
     // This runs on background threads, keeping the UI thread responsive

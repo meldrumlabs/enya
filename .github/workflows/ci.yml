@@ -28,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Rust
         uses: ./.github/actions/setup-rust
@@ -45,8 +47,9 @@ jobs:
       - name: Set up Just Runner
         uses: extractions/setup-just@v2
 
+      # Note: We don't use --all-features because puffin and tracy profiling backends are mutually exclusive
       - name: Run +${{ matrix.target }}
-        run: just features=all ${{ matrix.target }}
+        run: just ${{ matrix.target }}
         env:
           RUSTC_WRAPPER: sccache
           SCCACHE_GHA_ENABLED: "true"
@@ -57,6 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Set up Rust
         uses: ./.github/actions/setup-rust

@@ -17,16 +17,19 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 [dependencies]
 egui = { workspace = true }
 eframe = { workspace = true, default-features = false, features = [
-  "default_fonts",
   "wgpu",
   "persistence",
 ] }
-egui_extras = { workspace = true, features = ["image", "svg"] }
+egui_extras = { workspace = true, features = ["image"] }
 egui_nerdfonts = { workspace = true }
 egui_tiles = { workspace = true, features = ["serde"] }
 egui_plot = { workspace = true }
 enya-promql = { workspace = true }
+enya-logql = { workspace = true }
 enya-client = { workspace = true }
+enya-team-api = { workspace = true }
+enya-plugin = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -36,40 +39,54 @@ lz4_flex = "0.11"
 postcard = { version = "1.1", features = ["alloc"] }
 enya-build-info = { path = "../build-info" }
 nucleo-matcher = { workspace = true }
+similar = "2.7"
 reqwest = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 # nohash-hasher comes transitively from egui, pin to same version
 nohash-hasher = "0.2"
 # Zero-cost profiling abstraction - macros compile to nothing without a backend
-profiling = { version = "1.0", default-features = false }
+profiling = "1.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 parking_lot = { workspace = true, features = ["serde"] }
-ewebsock = { workspace = true, features = ["tls"] }
-env_logger = { workspace = true }
+simple_logger = { workspace = true }
 mimalloc = { workspace = true }
-rustls = { workspace = true, features = ["ring"] }
-# Enable metal backend for wgpu on macOS
-wgpu = { workspace = true, features = ["metal", "vulkan"] }
-# Codebase integration
+rustls = { workspace = true }
+# System utilities for file/folder operations
+dirs = "5.0"
+open = "5.3"
+# Clipboard access for plugin system
+arboard = "3.4"
+# Blocking HTTP client for plugin system
+ureq = { version = "3", features = ["json"] }
+# Codebase integration: git repo management, metrics discovery, syntax highlighting
 enya-analyzer = { workspace = true }
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
-tree-sitter-go = "0.23"
-tree-sitter-python = "0.23"
-tree-sitter-javascript = "0.23"
 tree-sitter-highlight = "0.25"
+# Additional language grammars (optional, enabled by "all-languages" feature)
+# Use same versions as enya-analyzer to avoid duplicate compilations
+tree-sitter-go = { version = "0.25", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }
+tree-sitter-javascript = { version = "0.25", optional = true }
 # Async runtime for AI agent and background tasks
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 # AI agent integration via ACP
 enya-ai = { workspace = true }
+# Full-text search index for codebase (metrics, alerts, commits)
+enya-search = { workspace = true }
+# Terminal emulator for running shell commands (kubectl, k9s, etc.)
+# Optional: requires zig toolchain to build. Enable with "terminal" feature.
+egui_ghostty = { workspace = true, optional = true }
+# DataFusion SQL engine for local file queries
+# Optional: pulls in 500+ dependencies. Enable with "sql" feature.
+enya-datafusion = { workspace = true, optional = true }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-ewebsock = { workspace = true }
-parking_lot = { workspace = true, features = ["wasm-bindgen", "serde"] }
+parking_lot = { workspace = true, features = ["serde"] }
 wasm-bindgen-futures = { workspace = true }
 wasm-bindgen = { workspace = true }
 js-sys = { workspace = true }
@@ -89,6 +106,19 @@ web-sys = { workspace = true, features = [
 web-time = { workspace = true }
 gloo-timers = { workspace = true, features = ["futures"] }
 
+# Linux: enable X11 and Wayland support for eframe, vulkan for wgpu
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { workspace = true, features = ["x11", "wayland"] }
+wgpu = { workspace = true, features = ["vulkan"] }
+
+# macOS: enable metal backend for wgpu
+[target.'cfg(target_os = "macos")'.dependencies]
+wgpu = { workspace = true, features = ["metal"] }
+
+# Windows: enable vulkan backend for wgpu
+[target.'cfg(target_os = "windows")'.dependencies]
+wgpu = { workspace = true, features = ["vulkan"] }
+
 [build-dependencies]
 enya-build-tools = { workspace = true }
 chrono = { workspace = true }
@@ -96,12 +126,25 @@ chrono = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 insta = { version = "1.43", features = ["toml"] }
-# NOTE: egui_kittest 0.33.3 has a compatibility bug with egui 0.33.2 (accesskit_update field mismatch)
-# Re-enable when egui 0.33.4 or later is released with the fix
-# egui_kittest = { version = "0.33.3", features = ["snapshot"] }
+tempfile = "3"
+# UI testing framework for egui - enables snapshot testing and automation
+egui_kittest = { version = "0.33.3", features = ["snapshot", "wgpu"] }
 
 [features]
+# No default features - all are opt-in. For full functionality:
+# cargo build -p enya-editor --features all-languages,terminal,sql
 default = []
+# Enable SQL pane support with DataFusion query engine (~500 dependencies).
+sql = ["dep:enya-datafusion"]
+# Enable terminal pane support (requires zig toolchain for ghostty).
+terminal = ["dep:egui_ghostty"]
+# Enable syntax highlighting for Go, Python, and JavaScript/TypeScript.
+# Rust highlighting is always available on native builds.
+all-languages = [
+  "dep:tree-sitter-go",
+  "dep:tree-sitter-python",
+  "dep:tree-sitter-javascript",
+]
 # Enable puffin profiling backend (use with puffin_viewer)
 puffin = ["profiling/profile-with-puffin", "dep:puffin", "dep:puffin_http"]
 # Enable tracy profiling backend (use with tracy profiler)

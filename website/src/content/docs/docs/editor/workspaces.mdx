@@ -1,0 +1,241 @@
+---
+title: Workspaces
+description: Configure and manage Enya workspaces
+sidebar:
+  order: 2
+  label: Workspaces
+---
+
+# Workspaces
+
+Workspaces are TOML configuration files that define a collection of panes with queries and an optional i3-style tiling layout. Workspaces are stored in `~/.enya/workspaces/`.
+
+## Workspace Commands
+
+| Command | Alias | Description |
+|---------|-------|-------------|
+| `:write` | `w` | Save current workspace |
+| `:source <name>` | `so` | Load a workspace |
+| `:share` | | Share workspace as URL |
+| `:refresh <interval>` | `r` | Set auto-refresh (off/10s/30s/1m/5m/15m) |
+
+## Basic Structure
+
+```toml
+[workspace]
+name = "my-dashboard"
+description = "Production monitoring dashboard"
+endpoint = "http://localhost:9090"  # inline endpoint (simplest form)
+
+[view]
+theme = "dark"
+
+[time]
+preset = "1h"     # Options: 5m, 15m, 30m, 1h, 6h, 24h, 7d
+refresh = "30s"   # Auto-refresh: off, 10s, 30s, 1m, 5m, 15m
+
+[[panes]]
+query = "sum(rate(http_requests_total[5m])) by (method)"
+name = "Request Rate"
+visualization = "time_series"
+
+[[panes]]
+query = "histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))"
+name = "P99 Latency"
+visualization = "stat"
+```
+
+## Connection Options
+
+The simplest way to connect is using the inline `endpoint` in the workspace section:
+
+```toml
+[workspace]
+name = "simple"
+endpoint = "http://localhost:9090"
+```
+
+For advanced options like API keys, use a separate `[connection]` section (takes precedence over inline endpoint):
+
+```toml
+[connection]
+endpoint = "http://localhost:9090"
+api_key = "your-api-key"  # optional
+```
+
+## Time Configuration
+
+The `[time]` section controls the default time range and auto-refresh behavior:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `preset` | string | Time range: `5m`, `15m`, `30m`, `1h`, `6h`, `24h`, `7d` (default: `15m`) |
+| `refresh` | string | Auto-refresh interval: `off`, `10s`, `30s`, `1m`, `5m`, `15m` (default: `off`) |
+
+```toml
+[time]
+preset = "1h"
+refresh = "30s"  # Refresh all panes every 30 seconds
+```
+
+When auto-refresh is enabled, a countdown timer appears in the toolbar. Use `:refresh` command to change the interval at runtime.
+
+## Pane Configuration
+
+Each pane in the `[[panes]]` array supports:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `query` | string | PromQL query expression (required) |
+| `name` | string | Display name for the pane |
+| `description` | string | Context about the pane (shown on hover via info icon) |
+| `tag` | string | User-defined tag for organizing panes (e.g., "Critical") |
+| `visualization` | string | Chart type: `time_series`, `stat`, `gauge`, `bar`, `sparkline`, `heatmap` |
+| `granularity` | string | Time granularity: `1m`, `5m`, `15m`, `1h`, `6h`, `1d` (default: `5m`) |
+| `unit` | string | Display unit suffix: `ms`, `%`, `req/s`, etc. |
+
+## i3-Style Layouts
+
+Workspaces support i3-style tiling layouts with horizontal/vertical splits and custom proportions.
+
+### Layout Types
+
+- `horizontal` — Split panes side by side
+- `vertical` — Stack panes top to bottom
+- `tabs` — Group panes as tabs
+
+### Pane References
+
+Panes are referenced by their 0-indexed position in the `[[panes]]` array:
+
+```toml
+[[panes]]          # Index 0
+query = "up"
+
+[[panes]]          # Index 1
+query = "process_cpu_seconds_total"
+
+[[panes]]          # Index 2
+query = "process_resident_memory_bytes"
+```
+
+### Simple Layout
+
+```toml
+# Creates: Pane0 | Pane1 with equal widths
+[layout]
+type = "horizontal"
+children = [0, 1]
+```
+
+### Nested Layout
+
+```toml
+# Creates:
+# +---------------------+-----------+
+# |                     |  Pane 1   |
+# |      Pane 0         +-----------+
+# |                     |  Pane 2   |
+# +---------------------+-----------+
+
+[layout]
+type = "horizontal"
+shares = [2.0, 1.0]
+children = [
+    0,
+    { type = "vertical", children = [1, 2] }
+]
+```
+
+### Layout Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `type` | string | Container type: `horizontal`, `vertical`, or `tabs` |
+| `children` | array | Pane indices (numbers) or nested container objects |
+| `shares` | array | Proportional sizing (defaults to equal `1.0` for each child) |
+
+## Git Integration
+
+Connect a git repository to enable go-to-definition and commit markers:
+
+```toml
+[git]
+url = "https://github.com/your-org/your-repo"
+branch = "main"
+```
+
+With git configured:
+- Press `gd` on a pane to jump to where the metric is generated in source code
+- Press `ga` to view alert rules referencing the metric
+- Git commits are displayed as markers on time-series charts
+
+## URL Sharing
+
+Share your workspace or individual panes via URL:
+
+- **Full workspace**: Use `:share` command to copy a URL containing your entire workspace
+- **Single pane**: Use `yy` (vim-style yank) on a focused pane to share just that query
+
+URLs use compact binary encoding (postcard + LZ4 compression + base64) and can be opened at `enya.build/editor`:
+
+- `?workspace=...` — Full workspace with all panes and layout
+- `?pane=...` — Single pane with just one query
+
+## Example Workspaces
+
+### Simple Dashboard
+
+```toml
+[workspace]
+name = "simple"
+endpoint = "http://localhost:9090"
+
+[[panes]]
+query = "up"
+name = "Service Health"
+visualization = "stat"
+
+[[panes]]
+query = "rate(http_requests_total[5m])"
+name = "Request Rate"
+visualization = "time_series"
+```
+
+### Complex Layout
+
+```toml
+[workspace]
+name = "production"
+description = "Production monitoring with split layout"
+endpoint = "http://prometheus.internal:9090"
+
+[time]
+preset = "1h"
+
+[[panes]]
+query = "sum(rate(http_requests_total[5m])) by (method)"
+name = "Requests by Method"
+visualization = "time_series"
+
+[[panes]]
+query = "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))"
+name = "P99 Latency"
+description = "99th percentile request latency - alert threshold is 500ms"
+visualization = "stat"
+unit = "ms"
+
+[[panes]]
+query = "sum(rate(http_requests_total{status=~\"5..\"}[5m]))"
+name = "Error Rate"
+description = "5xx errors across all services - should stay below 0.1%"
+visualization = "stat"
+
+[layout]
+type = "horizontal"
+shares = [2.0, 1.0]
+children = [
+    0,
+    { type = "vertical", children = [1, 2] }
+]
+```

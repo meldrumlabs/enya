@@ -9,22 +9,301 @@ pub trait UICommandSender {
     fn send_ui(&self, command: UICommand);
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum UICommand {
     Home,
     Dashboard,
     OpenExampleDashboard(usize),
     Help,
     ConnectionStatus(bool),
+    /// Set a specific theme
     Theme(AppTheme),
-    ToggleTheme,
+    /// Cycle to the next theme
+    NextTheme,
     OpenFuzzyFinder,
     OpenCommandPalette,
+    /// Show a notification to the user (from plugins)
+    Notify {
+        level: String,
+        message: String,
+    },
+    /// Request a UI repaint (from plugins)
+    Repaint,
+
+    // ==================== Plugin Pane Commands ====================
+    /// Add a query pane from a plugin
+    PluginAddQueryPane {
+        query: String,
+        title: Option<String>,
+    },
+    /// Add a logs pane from a plugin
+    PluginAddLogsPane,
+    /// Add a tracing pane from a plugin
+    PluginAddTracingPane {
+        trace_id: Option<String>,
+    },
+    /// Add a terminal pane from a plugin
+    PluginAddTerminalPane,
+    /// Add a SQL pane from a plugin
+    PluginAddSqlPane,
+    /// Close the focused pane from a plugin
+    PluginCloseFocusedPane,
+    /// Focus pane in a direction from a plugin
+    PluginFocusPane {
+        direction: String,
+    },
+
+    // ==================== Plugin Time Range Commands ====================
+    /// Set time range preset from a plugin (e.g., "5m", "1h", "24h")
+    PluginSetTimeRangePreset {
+        preset: String,
+    },
+    /// Set absolute time range from a plugin (milliseconds since Unix epoch)
+    PluginSetTimeRangeAbsolute {
+        start_ms: i64,
+        end_ms: i64,
+    },
+
+    // ==================== Plugin Custom Pane Commands ====================
+    /// Register a custom table pane type from a plugin
+    PluginRegisterCustomTablePane {
+        config: enya_plugin::CustomTableConfig,
+    },
+    /// Add an instance of a custom table pane
+    PluginAddCustomTablePane {
+        pane_type: String,
+    },
+    /// Update data for a custom table pane by ID
+    PluginUpdateCustomTableData {
+        pane_id: usize,
+        data: enya_plugin::CustomTableData,
+    },
+    /// Update data for all custom table panes of a type
+    PluginUpdateCustomTableDataByType {
+        pane_type: String,
+        data: enya_plugin::CustomTableData,
+    },
+
+    // ==================== Plugin Custom Chart Pane Commands ====================
+    /// Register a custom chart pane type from a plugin
+    PluginRegisterCustomChartPane {
+        config: enya_plugin::CustomChartConfig,
+    },
+    /// Add an instance of a custom chart pane
+    PluginAddCustomChartPane {
+        pane_type: String,
+    },
+    /// Update data for all custom chart panes of a type
+    /// Note: timestamps stored as milliseconds (i64), values scaled by 1_000_000 (i64)
+    PluginUpdateCustomChartDataByType {
+        pane_type: String,
+        /// Series data in hashable form: Vec<(name, tags, points)>
+        /// where points are Vec<(timestamp_ms, value_scaled)>
+        series: Vec<ChartSeriesHashable>,
+        error: Option<String>,
+    },
+
+    // ==================== Plugin Custom Stat Pane Commands ====================
+    /// Register a custom stat pane type from a plugin
+    PluginRegisterCustomStatPane {
+        config: enya_plugin::StatPaneConfig,
+    },
+    /// Add an instance of a custom stat pane
+    PluginAddCustomStatPane {
+        pane_type: String,
+    },
+    /// Update data for all custom stat panes of a type
+    PluginUpdateCustomStatDataByType {
+        pane_type: String,
+        data: StatDataHashable,
+    },
+
+    // ==================== Plugin Custom Gauge Pane Commands ====================
+    /// Register a custom gauge pane type from a plugin
+    PluginRegisterCustomGaugePane {
+        config: enya_plugin::GaugePaneConfig,
+    },
+    /// Add an instance of a custom gauge pane
+    PluginAddCustomGaugePane {
+        pane_type: String,
+    },
+    /// Update data for all custom gauge panes of a type
+    PluginUpdateCustomGaugeDataByType {
+        pane_type: String,
+        data: GaugeDataHashable,
+    },
+}
+
+/// Hashable representation of a chart series for UICommand
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ChartSeriesHashable {
+    pub name: String,
+    pub tags: std::collections::BTreeMap<String, String>,
+    /// Points as (timestamp_ms, value * 1_000_000)
+    pub points: Vec<(i64, i64)>,
+}
+
+impl ChartSeriesHashable {
+    /// Convert from plugin ChartSeries to hashable form
+    pub fn from_plugin(series: &enya_plugin::ChartSeries) -> Self {
+        Self {
+            name: series.name.clone(),
+            tags: series.tags.clone(),
+            points: series
+                .points
+                .iter()
+                .map(|p| {
+                    let timestamp_ms = (p.timestamp * 1000.0) as i64;
+                    let value_scaled = (p.value * 1_000_000.0) as i64;
+                    (timestamp_ms, value_scaled)
+                })
+                .collect(),
+        }
+    }
+
+    /// Convert back to plugin ChartSeries
+    pub fn to_plugin(&self) -> enya_plugin::ChartSeries {
+        let mut series = enya_plugin::ChartSeries::new(&self.name);
+        series.tags = self.tags.clone();
+        series.points = self
+            .points
+            .iter()
+            .map(|(ts_ms, val_scaled)| {
+                enya_plugin::ChartDataPoint::new(
+                    *ts_ms as f64 / 1000.0,
+                    *val_scaled as f64 / 1_000_000.0,
+                )
+            })
+            .collect();
+        series
+    }
+}
+
+/// Hashable representation of a threshold for UICommand
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ThresholdHashable {
+    /// Value scaled by 1_000_000
+    pub value_scaled: i64,
+    pub color: String,
+    pub label: Option<String>,
+}
+
+impl ThresholdHashable {
+    /// Convert from plugin ThresholdConfig to hashable form
+    pub fn from_plugin(thresh: &enya_plugin::ThresholdConfig) -> Self {
+        Self {
+            value_scaled: (thresh.value * 1_000_000.0) as i64,
+            color: thresh.color.clone(),
+            label: thresh.label.clone(),
+        }
+    }
+
+    /// Convert back to plugin ThresholdConfig
+    pub fn to_plugin(&self) -> enya_plugin::ThresholdConfig {
+        let mut thresh =
+            enya_plugin::ThresholdConfig::new(self.value_scaled as f64 / 1_000_000.0, &self.color);
+        if let Some(ref lbl) = self.label {
+            thresh = thresh.with_label(lbl.clone());
+        }
+        thresh
+    }
+}
+
+/// Hashable representation of stat pane data for UICommand
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct StatDataHashable {
+    /// Value scaled by 1_000_000
+    pub value_scaled: i64,
+    /// Sparkline values scaled by 1_000_000
+    pub sparkline: Vec<i64>,
+    /// Change value scaled by 1_000_000
+    pub change_value_scaled: Option<i64>,
+    pub change_period: Option<String>,
+    pub thresholds: Vec<ThresholdHashable>,
+    pub error: Option<String>,
+}
+
+impl StatDataHashable {
+    /// Convert from plugin StatPaneData to hashable form
+    pub fn from_plugin(data: &enya_plugin::StatPaneData) -> Self {
+        Self {
+            value_scaled: (data.value * 1_000_000.0) as i64,
+            sparkline: data
+                .sparkline
+                .iter()
+                .map(|v| (*v * 1_000_000.0) as i64)
+                .collect(),
+            change_value_scaled: data.change_value.map(|v| (v * 1_000_000.0) as i64),
+            change_period: data.change_period.clone(),
+            thresholds: data
+                .thresholds
+                .iter()
+                .map(ThresholdHashable::from_plugin)
+                .collect(),
+            error: data.error.clone(),
+        }
+    }
+
+    /// Convert back to plugin StatPaneData
+    pub fn to_plugin(&self) -> enya_plugin::StatPaneData {
+        if let Some(ref err) = self.error {
+            return enya_plugin::StatPaneData::with_error(err.clone());
+        }
+
+        let mut data =
+            enya_plugin::StatPaneData::with_value(self.value_scaled as f64 / 1_000_000.0);
+        data.sparkline = self
+            .sparkline
+            .iter()
+            .map(|v| *v as f64 / 1_000_000.0)
+            .collect();
+        data.change_value = self.change_value_scaled.map(|v| v as f64 / 1_000_000.0);
+        data.change_period = self.change_period.clone();
+        data.thresholds = self.thresholds.iter().map(|t| t.to_plugin()).collect();
+        data
+    }
+}
+
+/// Hashable representation of gauge pane data for UICommand
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct GaugeDataHashable {
+    /// Value scaled by 1_000_000
+    pub value_scaled: i64,
+    pub thresholds: Vec<ThresholdHashable>,
+    pub error: Option<String>,
+}
+
+impl GaugeDataHashable {
+    /// Convert from plugin GaugePaneData to hashable form
+    pub fn from_plugin(data: &enya_plugin::GaugePaneData) -> Self {
+        Self {
+            value_scaled: (data.value * 1_000_000.0) as i64,
+            thresholds: data
+                .thresholds
+                .iter()
+                .map(ThresholdHashable::from_plugin)
+                .collect(),
+            error: data.error.clone(),
+        }
+    }
+
+    /// Convert back to plugin GaugePaneData
+    pub fn to_plugin(&self) -> enya_plugin::GaugePaneData {
+        if let Some(ref err) = self.error {
+            return enya_plugin::GaugePaneData::with_error(err.clone());
+        }
+
+        let mut data =
+            enya_plugin::GaugePaneData::with_value(self.value_scaled as f64 / 1_000_000.0);
+        data.thresholds = self.thresholds.iter().map(|t| t.to_plugin()).collect();
+        data
+    }
 }
 
 impl UICommand {
     /// Returns all command variants (for iteration).
     /// Note: OpenExampleDashboard uses index 0 as placeholder.
+    /// Plugin commands are not included here as they are programmatic only.
     fn all() -> impl Iterator<Item = Self> {
         [
             Self::Home,
@@ -32,33 +311,67 @@ impl UICommand {
             Self::OpenExampleDashboard(0),
             Self::Help,
             Self::ConnectionStatus(false),
-            Self::Theme(AppTheme::Dark),
-            Self::ToggleTheme,
+            Self::Theme(AppTheme::default()),
+            Self::NextTheme,
             Self::OpenFuzzyFinder,
             Self::OpenCommandPalette,
+            Self::Notify {
+                level: String::new(),
+                message: String::new(),
+            },
+            Self::Repaint,
         ]
         .into_iter()
     }
 
-    pub fn text(self) -> &'static str {
+    pub fn text(&self) -> &'static str {
         self.text_and_tooltip().0
     }
 
-    pub fn tooltip(self) -> &'static str {
+    pub fn tooltip(&self) -> &'static str {
         self.text_and_tooltip().1
     }
 
-    pub fn text_and_tooltip(self) -> (&'static str, &'static str) {
+    pub fn text_and_tooltip(&self) -> (&'static str, &'static str) {
         match self {
             Self::Home => ("Home", "Open Welcome Screen"),
             Self::Help => ("Help", "Get help with any Playground issues"),
             Self::Dashboard => ("Dashboard", "Open Enya Dashboard"),
             Self::OpenExampleDashboard(_) => ("...", "Create an Enya dashboard"),
             Self::Theme(_) => ("...", "..."),
-            Self::ToggleTheme => ("Toggle Theme...", "Toggles the application theme"),
+            Self::NextTheme => ("Next Theme", "Cycle to the next theme"),
             Self::ConnectionStatus(_) => ("", ""),
             Self::OpenFuzzyFinder => ("Search...", "Open fuzzy finder to search metrics"),
             Self::OpenCommandPalette => ("Command Palette", "Open command palette"),
+            Self::Notify { .. } => ("", ""),
+            Self::Repaint => ("", ""),
+            // Plugin commands (programmatic only)
+            Self::PluginAddQueryPane { .. } => ("", ""),
+            Self::PluginAddLogsPane => ("", ""),
+            Self::PluginAddTracingPane { .. } => ("", ""),
+            Self::PluginAddTerminalPane => ("", ""),
+            Self::PluginAddSqlPane => ("", ""),
+            Self::PluginCloseFocusedPane => ("", ""),
+            Self::PluginFocusPane { .. } => ("", ""),
+            Self::PluginSetTimeRangePreset { .. } => ("", ""),
+            Self::PluginSetTimeRangeAbsolute { .. } => ("", ""),
+            // Custom table pane commands (programmatic only)
+            Self::PluginRegisterCustomTablePane { .. } => ("", ""),
+            Self::PluginAddCustomTablePane { .. } => ("", ""),
+            Self::PluginUpdateCustomTableData { .. } => ("", ""),
+            Self::PluginUpdateCustomTableDataByType { .. } => ("", ""),
+            // Custom chart pane commands (programmatic only)
+            Self::PluginRegisterCustomChartPane { .. } => ("", ""),
+            Self::PluginAddCustomChartPane { .. } => ("", ""),
+            Self::PluginUpdateCustomChartDataByType { .. } => ("", ""),
+            // Custom stat pane commands (programmatic only)
+            Self::PluginRegisterCustomStatPane { .. } => ("", ""),
+            Self::PluginAddCustomStatPane { .. } => ("", ""),
+            Self::PluginUpdateCustomStatDataByType { .. } => ("", ""),
+            // Custom gauge pane commands (programmatic only)
+            Self::PluginRegisterCustomGaugePane { .. } => ("", ""),
+            Self::PluginAddCustomGaugePane { .. } => ("", ""),
+            Self::PluginUpdateCustomGaugeDataByType { .. } => ("", ""),
         }
     }
 
@@ -86,11 +399,11 @@ impl UICommand {
         response
     }
 
-    pub fn is_link(self) -> bool {
+    pub fn is_link(&self) -> bool {
         matches!(self, Self::Help)
     }
 
-    pub fn icon(self) -> Option<&'static crate::ui::icons::Icon> {
+    pub fn icon(&self) -> Option<&'static crate::ui::icons::Icon> {
         match self {
             Self::Help => Some(&EXTERNAL_LINK),
             _ => None,
@@ -99,6 +412,17 @@ impl UICommand {
 
     #[must_use = "Returns the Command that was triggered by some keyboard shortcut"]
     pub fn listen_for_kb_shortcut(egui_ctx: &egui::Context) -> Option<Self> {
+        // Handle ':' for command palette BEFORE checking focus.
+        // This allows ':' to work even when widgets have focus (e.g., SQL plan viewer),
+        // as long as no widget actually consumed the key. The consume_shortcut will
+        // fail if a TextEdit or other input widget already processed the keystroke.
+        let colon_shortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Colon);
+        let command_palette_triggered =
+            egui_ctx.input_mut(|input| input.consume_shortcut(&colon_shortcut));
+        if command_palette_triggered {
+            return Some(Self::OpenCommandPalette);
+        }
+
         let anything_has_focus = egui_ctx.memory(|mem| mem.focused().is_some());
         if anything_has_focus {
             return None; // e.g. we're typing in a TextField
@@ -106,9 +430,10 @@ impl UICommand {
 
         let mut commands: Vec<(KeyboardShortcut, Self)> = Self::all()
             .flat_map(|cmd| {
-                cmd.kb_shortcuts(egui_ctx.os())
+                let shortcuts = cmd.kb_shortcuts(egui_ctx.os());
+                shortcuts
                     .into_iter()
-                    .map(move |kb_shortcut| (kb_shortcut, cmd))
+                    .map(move |kb_shortcut| (kb_shortcut, cmd.clone()))
             })
             .collect();
 
@@ -135,7 +460,7 @@ impl UICommand {
         })
     }
 
-    pub fn menu_button(self, egui_ctx: &egui::Context, theme: AppTheme) -> egui::Button<'static> {
+    pub fn menu_button(&self, egui_ctx: &egui::Context, theme: AppTheme) -> egui::Button<'static> {
         let mut button = if let Some(icon) = self.icon() {
             egui::Button::image_and_text(icon.as_image().tint(text_color(theme)), self.text())
         } else {
@@ -150,7 +475,7 @@ impl UICommand {
     }
 
     /// All keyboard shortcuts, with the primary first.
-    pub fn kb_shortcuts(self, _os: OperatingSystem) -> Vec<KeyboardShortcut> {
+    pub fn kb_shortcuts(&self, _os: OperatingSystem) -> Vec<KeyboardShortcut> {
         fn key(key: Key) -> KeyboardShortcut {
             KeyboardShortcut::new(Modifiers::NONE, key)
         }
@@ -159,23 +484,52 @@ impl UICommand {
             Self::Home => vec![],
             Self::Help => vec![], // Help accessed via ? on landing page or :help command
             Self::Dashboard => vec![key(Key::D)],
-            Self::ToggleTheme => vec![], // Removed: T key now used for gt/gT tab navigation
             Self::Theme(_) => vec![],
+            Self::NextTheme => vec![], // Use :theme command
             Self::OpenExampleDashboard(_) => vec![],
             Self::ConnectionStatus(_) => vec![],
             Self::OpenFuzzyFinder => vec![], // Space+m leader key sequence
             // ':' key (colon) - no modifiers needed since it's already the shifted key
             Self::OpenCommandPalette => vec![key(Key::Colon)],
+            Self::Notify { .. } => vec![], // Programmatic only
+            Self::Repaint => vec![],       // Programmatic only
+            // Plugin commands (programmatic only)
+            Self::PluginAddQueryPane { .. } => vec![],
+            Self::PluginAddLogsPane => vec![],
+            Self::PluginAddTracingPane { .. } => vec![],
+            Self::PluginAddTerminalPane => vec![],
+            Self::PluginAddSqlPane => vec![],
+            Self::PluginCloseFocusedPane => vec![],
+            Self::PluginFocusPane { .. } => vec![],
+            Self::PluginSetTimeRangePreset { .. } => vec![],
+            Self::PluginSetTimeRangeAbsolute { .. } => vec![],
+            // Custom table pane commands (programmatic only)
+            Self::PluginRegisterCustomTablePane { .. } => vec![],
+            Self::PluginAddCustomTablePane { .. } => vec![],
+            Self::PluginUpdateCustomTableData { .. } => vec![],
+            Self::PluginUpdateCustomTableDataByType { .. } => vec![],
+            // Custom chart pane commands (programmatic only)
+            Self::PluginRegisterCustomChartPane { .. } => vec![],
+            Self::PluginAddCustomChartPane { .. } => vec![],
+            Self::PluginUpdateCustomChartDataByType { .. } => vec![],
+            // Custom stat pane commands (programmatic only)
+            Self::PluginRegisterCustomStatPane { .. } => vec![],
+            Self::PluginAddCustomStatPane { .. } => vec![],
+            Self::PluginUpdateCustomStatDataByType { .. } => vec![],
+            // Custom gauge pane commands (programmatic only)
+            Self::PluginRegisterCustomGaugePane { .. } => vec![],
+            Self::PluginAddCustomGaugePane { .. } => vec![],
+            Self::PluginUpdateCustomGaugeDataByType { .. } => vec![],
         }
     }
 
     /// Primary keyboard shortcut
-    fn primary_kb_shortcut(self, os: OperatingSystem) -> Option<KeyboardShortcut> {
+    fn primary_kb_shortcut(&self, os: OperatingSystem) -> Option<KeyboardShortcut> {
         self.kb_shortcuts(os).first().copied()
     }
 
     /// Return the keyboard shortcut for this command, nicely formatted
-    pub fn formatted_kb_shortcut(self, egui_ctx: &egui::Context) -> Option<String> {
+    pub fn formatted_kb_shortcut(&self, egui_ctx: &egui::Context) -> Option<String> {
         // Note: we only show the primary shortcut to the user.
         // The fallbacks are there for people who have muscle memory for the other shortcuts.
         self.primary_kb_shortcut(egui_ctx.os())
@@ -183,14 +537,14 @@ impl UICommand {
     }
 
     /// Add e.g. " (Ctrl+F11)" as a suffix
-    pub fn format_shortcut_tooltip_suffix(self, egui_ctx: &egui::Context) -> String {
+    pub fn format_shortcut_tooltip_suffix(&self, egui_ctx: &egui::Context) -> String {
         if let Some(shortcut_text) = self.formatted_kb_shortcut(egui_ctx) {
             format!(" ({shortcut_text})")
         } else {
             Default::default()
         }
     }
-    pub fn tooltip_with_shortcut(self, egui_ctx: &egui::Context) -> String {
+    pub fn tooltip_with_shortcut(&self, egui_ctx: &egui::Context) -> String {
         format!(
             "{}{}",
             self.tooltip(),
@@ -243,13 +597,14 @@ mod tests {
     #[test]
     fn test_ui_command_all_returns_all_variants() {
         let commands: Vec<UICommand> = UICommand::all().collect();
-        assert_eq!(commands.len(), 9);
+        assert_eq!(commands.len(), 11);
         assert!(commands.contains(&UICommand::Home));
         assert!(commands.contains(&UICommand::Dashboard));
         assert!(commands.contains(&UICommand::Help));
-        assert!(commands.contains(&UICommand::ToggleTheme));
+        assert!(commands.contains(&UICommand::NextTheme));
         assert!(commands.contains(&UICommand::OpenFuzzyFinder));
         assert!(commands.contains(&UICommand::OpenCommandPalette));
+        assert!(commands.contains(&UICommand::Repaint));
     }
 
     #[test]
@@ -257,7 +612,7 @@ mod tests {
         assert_eq!(UICommand::Home.text(), "Home");
         assert_eq!(UICommand::Help.text(), "Help");
         assert_eq!(UICommand::Dashboard.text(), "Dashboard");
-        assert_eq!(UICommand::ToggleTheme.text(), "Toggle Theme...");
+        assert_eq!(UICommand::NextTheme.text(), "Next Theme");
         assert_eq!(UICommand::OpenFuzzyFinder.text(), "Search...");
         assert_eq!(UICommand::OpenCommandPalette.text(), "Command Palette");
     }
@@ -270,10 +625,7 @@ mod tests {
             "Get help with any Playground issues"
         );
         assert_eq!(UICommand::Dashboard.tooltip(), "Open Enya Dashboard");
-        assert_eq!(
-            UICommand::ToggleTheme.tooltip(),
-            "Toggles the application theme"
-        );
+        assert_eq!(UICommand::NextTheme.tooltip(), "Cycle to the next theme");
         assert_eq!(
             UICommand::OpenFuzzyFinder.tooltip(),
             "Open fuzzy finder to search metrics"
@@ -298,7 +650,7 @@ mod tests {
         assert!(UICommand::Help.is_link());
         assert!(!UICommand::Home.is_link());
         assert!(!UICommand::Dashboard.is_link());
-        assert!(!UICommand::ToggleTheme.is_link());
+        assert!(!UICommand::NextTheme.is_link());
         assert!(!UICommand::OpenFuzzyFinder.is_link());
         assert!(!UICommand::OpenCommandPalette.is_link());
     }
@@ -308,7 +660,7 @@ mod tests {
         assert!(UICommand::Help.icon().is_some());
         assert!(UICommand::Home.icon().is_none());
         assert!(UICommand::Dashboard.icon().is_none());
-        assert!(UICommand::ToggleTheme.icon().is_none());
+        assert!(UICommand::NextTheme.icon().is_none());
         assert!(UICommand::OpenFuzzyFinder.icon().is_none());
         assert!(UICommand::OpenCommandPalette.icon().is_none());
     }
@@ -342,7 +694,7 @@ mod tests {
                 .is_empty()
         );
         assert!(
-            UICommand::ToggleTheme
+            UICommand::NextTheme
                 .kb_shortcuts(OperatingSystem::Mac)
                 .is_empty()
         );
@@ -443,15 +795,18 @@ mod tests {
     #[test]
     fn test_ui_command_clone() {
         let cmd = UICommand::Dashboard;
-        let cloned = cmd;
+        let cloned = cmd.clone();
         assert_eq!(cmd, cloned);
     }
 
     #[test]
-    fn test_ui_command_copy() {
-        let cmd = UICommand::OpenCommandPalette;
-        let copied: UICommand = cmd;
-        assert_eq!(cmd, copied);
+    fn test_ui_command_clone_with_data() {
+        let cmd = UICommand::Notify {
+            level: "info".to_string(),
+            message: "test".to_string(),
+        };
+        let cloned = cmd.clone();
+        assert_eq!(cmd, cloned);
     }
 
     #[test]

@@ -4,16 +4,16 @@ use std::ops::RangeInclusive;
 use nohash_hasher::IntMap;
 use rustc_hash::FxHashMap;
 
-use egui::{Color32, Key, RichText, Stroke};
+use egui::{Color32, Key, Rangef, RichText, Stroke};
 use egui_plot::{
     AxisHints, GridMark, Line, LineStyle, Plot, PlotBounds, PlotPoints, Polygon, VLine,
 };
 
+use super::annotation::{Annotation, AnnotationId, AnnotationTarget};
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
+use crate::ui::tinted_logo::get_tinted_logo_with_opacity;
 
 /// A marker representing a git commit at a specific point in time.
 ///
@@ -61,6 +61,7 @@ const DEFAULT_ASPECT_RATIO: f32 = 0.35;
 /// Format a Unix timestamp (in seconds) to a human-readable string.
 /// Adapts format based on the time range being displayed.
 /// Uses UTC time for simplicity and cross-platform compatibility.
+#[profiling::function]
 fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
     // Handle invalid timestamps
     if !timestamp.is_finite() || timestamp < 0.0 {
@@ -147,6 +148,7 @@ fn format_timestamp(timestamp: f64, range_secs: f64) -> String {
 
 /// Format a numeric value with K, M, B suffixes and an optional unit suffix.
 /// Used for Y-axis labels and legend values.
+#[profiling::function]
 pub fn format_value_with_unit(value: f64, unit: &str) -> String {
     if !value.is_finite() {
         return String::new();
@@ -173,7 +175,7 @@ pub fn format_value_with_unit(value: f64, unit: &str) -> String {
 }
 
 /// A single data point in the time series
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DataPoint {
     /// Timestamp in seconds (Unix epoch or relative)
     pub timestamp: f64,
@@ -182,7 +184,7 @@ pub struct DataPoint {
 }
 
 /// A single series of data points
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Series {
     /// Display name for this series
     pub name: String,
@@ -288,6 +290,35 @@ enum ChartAction {
     ToggleStacked,
     /// Toggle commit markers visibility (gc)
     ToggleCommits,
+    /// Toggle annotations visibility (gn)
+    ToggleAnnotations,
+    /// Navigate to next annotation (]a)
+    NextAnnotation,
+    /// Navigate to previous annotation ([a)
+    PrevAnnotation,
+}
+
+/// Actions returned from chart interaction for the workspace to handle.
+#[derive(Debug, Clone)]
+pub enum ChartInteraction {
+    /// No interaction.
+    None,
+    /// User clicked to add an annotation at this timestamp.
+    AddAnnotation { timestamp: f64 },
+    /// User wants to edit an existing annotation.
+    EditAnnotation { id: AnnotationId },
+    /// User wants to delete an annotation.
+    DeleteAnnotation { id: AnnotationId },
+    /// User wants to resolve an annotation.
+    ResolveAnnotation { id: AnnotationId },
+    /// User double-clicked on the chart for logs drilldown.
+    /// Opens a logs pane centered around this timestamp.
+    DrilldownLogs {
+        /// The timestamp in seconds (Unix epoch) where the user clicked
+        timestamp_secs: f64,
+        /// The metric name for context
+        metric_name: String,
+    },
 }
 
 /// A time series chart component
@@ -302,6 +333,10 @@ pub struct TimeSeriesChart {
     commits: Vec<CommitMarker>,
     /// Whether to show commit markers
     show_commits: bool,
+    /// Team annotations (comments pinned to chart points/ranges)
+    annotations: Vec<Annotation>,
+    /// Whether to show annotations
+    show_annotations: bool,
     /// Current theme
     pub(crate) theme: AppTheme,
     /// API key (not used currently, but required by Component trait)
@@ -316,10 +351,16 @@ pub struct TimeSeriesChart {
     unit: String,
     /// Whether we're waiting for a second 'g' press (for gg command)
     pending_g: bool,
-    /// Whether we're waiting for 'c' after '[' or ']' (for commit navigation)
+    /// Whether we're waiting for 'c' or 'a' after '[' or ']' (for navigation)
     pending_bracket: Option<char>,
     /// Whether to render as a stacked area chart
     stacked: bool,
+    /// Whether annotation mode is active (click to add)
+    annotation_mode: bool,
+    /// Compact mode for inline display (no background, no interaction)
+    compact: bool,
+    /// Pending interaction to be consumed by the parent (set on double-click, cleared on take)
+    pending_interaction: Option<ChartInteraction>,
 }
 
 impl Default for TimeSeriesChart {
@@ -338,6 +379,8 @@ impl TimeSeriesChart {
             series: Vec::new(),
             commits: Vec::new(),
             show_commits: false,
+            annotations: Vec::new(),
+            show_annotations: true,
             theme: AppTheme::default(),
             api_key: String::new(),
             show_legend: true,
@@ -346,7 +389,15 @@ impl TimeSeriesChart {
             pending_g: false,
             pending_bracket: None,
             stacked: false,
+            annotation_mode: false,
+            compact: false,
+            pending_interaction: None,
         }
+    }
+
+    /// Enable compact mode for inline display (no background, no interaction).
+    pub fn set_compact(&mut self, compact: bool) {
+        self.compact = compact;
     }
 
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
@@ -401,7 +452,7 @@ impl TimeSeriesChart {
             Series::new(name.clone())
                 .with_tag("host", "server1")
                 .with_points(points1)
-                .with_color(Color32::from_rgb(99, 179, 237)), // Soft sky blue
+                .with_color(chart.theme.chart_color(0)), // Sky blue
         );
 
         // Series 2: Higher values
@@ -421,7 +472,7 @@ impl TimeSeriesChart {
             Series::new(name)
                 .with_tag("host", "server2")
                 .with_points(points2)
-                .with_color(Color32::from_rgb(94, 234, 212)), // Soft teal
+                .with_color(chart.theme.chart_color(2)), // Teal
         );
 
         // Add some demo commit markers spread across the time range
@@ -453,6 +504,38 @@ impl TimeSeriesChart {
 
         // Enable commit visibility for demo
         chart.show_commits = true;
+
+        // Add demo annotations
+        use super::annotation::{AnnotationAuthor, AnnotationPriority};
+
+        chart.add_annotation(
+            Annotation::at_point(
+                now + duration * 0.15,
+                "Latency spike after deploy - investigating",
+            )
+            .with_author(AnnotationAuthor::local("Alice Chen"))
+            .with_priority(AnnotationPriority::Important),
+        );
+        chart.add_annotation(
+            Annotation::at_range(
+                now + duration * 0.4,
+                now + duration * 0.45,
+                "Planned maintenance window",
+            )
+            .with_author(AnnotationAuthor::local("Bob Smith")),
+        );
+        chart.add_annotation(
+            Annotation::at_point(
+                now + duration * 0.6,
+                "Root cause: connection pool exhaustion",
+            )
+            .with_author(AnnotationAuthor::local("Alice Chen"))
+            .with_priority(AnnotationPriority::Critical),
+        );
+        let mut resolved_ann = Annotation::at_point(now + duration * 0.8, "Fixed in v2.3.1")
+            .with_author(AnnotationAuthor::local("Carol Davis"));
+        resolved_ann.resolve();
+        chart.add_annotation(resolved_ann);
 
         chart
     }
@@ -492,6 +575,109 @@ impl TimeSeriesChart {
     /// Toggle commit markers visibility
     pub fn toggle_commits(&mut self) {
         self.show_commits = !self.show_commits;
+    }
+
+    // ==================== Annotation Methods ====================
+
+    /// Add an annotation to the chart.
+    pub fn add_annotation(&mut self, annotation: Annotation) {
+        self.annotations.push(annotation);
+        // Keep annotations sorted by timestamp for navigation
+        self.annotations.sort_by(|a, b| {
+            a.timestamp()
+                .partial_cmp(&b.timestamp())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    /// Set all annotations at once.
+    pub fn set_annotations(&mut self, annotations: Vec<Annotation>) {
+        self.annotations = annotations;
+        self.annotations.sort_by(|a, b| {
+            a.timestamp()
+                .partial_cmp(&b.timestamp())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+
+    /// Get all annotations.
+    pub fn annotations(&self) -> &[Annotation] {
+        &self.annotations
+    }
+
+    /// Get a mutable reference to annotations.
+    pub fn annotations_mut(&mut self) -> &mut Vec<Annotation> {
+        &mut self.annotations
+    }
+
+    /// Find an annotation by ID.
+    pub fn find_annotation(&self, id: AnnotationId) -> Option<&Annotation> {
+        self.annotations.iter().find(|a| a.id == id)
+    }
+
+    /// Find a mutable annotation by ID.
+    pub fn find_annotation_mut(&mut self, id: AnnotationId) -> Option<&mut Annotation> {
+        self.annotations.iter_mut().find(|a| a.id == id)
+    }
+
+    /// Remove an annotation by ID.
+    pub fn remove_annotation(&mut self, id: AnnotationId) -> Option<Annotation> {
+        if let Some(idx) = self.annotations.iter().position(|a| a.id == id) {
+            Some(self.annotations.remove(idx))
+        } else {
+            None
+        }
+    }
+
+    /// Clear all annotations.
+    pub fn clear_annotations(&mut self) {
+        self.annotations.clear();
+    }
+
+    /// Set whether to show annotations.
+    pub fn set_show_annotations(&mut self, show: bool) {
+        self.show_annotations = show;
+    }
+
+    /// Toggle annotations visibility.
+    pub fn toggle_annotations(&mut self) {
+        self.show_annotations = !self.show_annotations;
+    }
+
+    /// Check if annotations are visible.
+    pub fn annotations_visible(&self) -> bool {
+        self.show_annotations
+    }
+
+    /// Enable annotation mode (click to add).
+    pub fn enter_annotation_mode(&mut self) {
+        self.annotation_mode = true;
+    }
+
+    /// Disable annotation mode.
+    pub fn exit_annotation_mode(&mut self) {
+        self.annotation_mode = false;
+    }
+
+    /// Check if annotation mode is active.
+    pub fn is_annotation_mode(&self) -> bool {
+        self.annotation_mode
+    }
+
+    /// Take the pending interaction (returns and clears it).
+    /// Call this after `show()` to check if the user triggered a drilldown.
+    pub fn take_interaction(&mut self) -> Option<ChartInteraction> {
+        self.pending_interaction.take()
+    }
+
+    /// Get the number of unresolved annotations.
+    pub fn unresolved_annotation_count(&self) -> usize {
+        self.annotations.iter().filter(|a| !a.resolved).count()
+    }
+
+    /// Get all series in the chart (for creating snapshots).
+    pub fn series(&self) -> &[Series] {
+        &self.series
     }
 
     /// Add a series to the chart
@@ -568,9 +754,23 @@ impl TimeSeriesChart {
                 };
             }
 
+            // Check for 'a' after pending bracket for annotation navigation
+            if self.pending_bracket.is_some() && input.key_pressed(Key::A) {
+                return match self.pending_bracket {
+                    Some(']') => ChartAction::NextAnnotation,
+                    Some('[') => ChartAction::PrevAnnotation,
+                    _ => ChartAction::None,
+                };
+            }
+
             // Check for 'c' after pending 'g' for gc (toggle commits)
             if self.pending_g && input.key_pressed(Key::C) {
                 return ChartAction::ToggleCommits;
+            }
+
+            // Check for 'n' after pending 'g' for gn (toggle annotations/notes)
+            if self.pending_g && input.key_pressed(Key::N) {
+                return ChartAction::ToggleAnnotations;
             }
 
             // Check for bracket keys ([ and ])
@@ -650,6 +850,13 @@ impl TimeSeriesChart {
             return action;
         }
 
+        // Handle annotation navigation from pending bracket
+        if action == ChartAction::NextAnnotation || action == ChartAction::PrevAnnotation {
+            self.pending_bracket = None;
+            self.pending_g = false;
+            return action;
+        }
+
         // Clear pending bracket if another key was pressed
         if action != ChartAction::None {
             self.pending_bracket = None;
@@ -659,6 +866,12 @@ impl TimeSeriesChart {
         if action == ChartAction::ToggleCommits {
             self.pending_g = false;
             return ChartAction::ToggleCommits;
+        }
+
+        // Handle gn (toggle annotations/notes)
+        if action == ChartAction::ToggleAnnotations {
+            self.pending_g = false;
+            return ChartAction::ToggleAnnotations;
         }
 
         // Handle gg (double g) state machine
@@ -681,26 +894,15 @@ impl TimeSeriesChart {
     }
 
     /// Get a default color for series index
-    /// Uses a modern, muted palette with teals, purples, and soft accent colors
+    /// Uses the theme's chart palette for consistent colors
     fn series_color(&self, index: usize) -> Color32 {
-        // A modern, muted palette - teals, purples, and soft accent colors
-        const PALETTE: &[Color32] = &[
-            Color32::from_rgb(99, 179, 237),  // Soft sky blue
-            Color32::from_rgb(129, 140, 248), // Soft indigo
-            Color32::from_rgb(94, 234, 212),  // Soft teal
-            Color32::from_rgb(192, 132, 252), // Soft purple
-            Color32::from_rgb(251, 191, 36),  // Soft amber
-            Color32::from_rgb(244, 114, 182), // Soft pink
-            Color32::from_rgb(52, 211, 153),  // Soft emerald
-            Color32::from_rgb(248, 113, 113), // Soft coral
-        ];
-        PALETTE[index % PALETTE.len()]
+        self.theme.chart_color(index)
     }
 
     /// Render the chart
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_color = text_color(self.theme);
+        let text_color = self.theme.text_primary();
 
         // Calculate scale factor based on available space
         let available_width = ui.available_width();
@@ -723,11 +925,12 @@ impl TimeSeriesChart {
                 let center_offset = (ui.available_height() / 2.0 - 50.0).max(20.0);
                 ui.add_space(center_offset);
 
-                // Enya logo (slightly transparent for subtle branding)
-                let logo = egui::Image::new(egui::include_image!("../../../assets/logo.png"))
-                    .max_width(logo_size)
-                    .max_height(logo_size)
-                    .tint(text_color.gamma_multiply(0.7));
+                // Get the overlay-blended tinted logo (subtle for empty state)
+                let texture = get_tinted_logo_with_opacity(ui.ctx(), self.theme, 0.5);
+                let logo =
+                    egui::Image::from_texture(egui::load::SizedTexture::from_handle(&texture))
+                        .max_width(logo_size)
+                        .max_height(logo_size);
                 ui.add(logo);
 
                 ui.add_space(16.0 * scale_factor);
@@ -753,10 +956,17 @@ impl TimeSeriesChart {
         if chart_action == ChartAction::ToggleCommits {
             self.toggle_commits();
         }
+        if chart_action == ChartAction::ToggleAnnotations {
+            self.toggle_annotations();
+        }
 
         // Pre-compute commit navigation targets (need to do this outside the plot closure
         // since we need &self which would conflict with the mutable borrow for find_*_commit)
         let commits_for_nav: Vec<f64> = self.commits.iter().map(|c| c.timestamp).collect();
+
+        // Pre-compute annotation navigation targets
+        let annotations_for_nav: Vec<f64> =
+            self.annotations.iter().map(|a| a.timestamp()).collect();
 
         // Clone commits for rendering (to avoid borrow issues in closure)
         let commits_to_render: Vec<_> = if self.show_commits {
@@ -765,8 +975,18 @@ impl TimeSeriesChart {
             Vec::new()
         };
 
-        // Commit marker color - uses brand emerald
-        let commit_color = palette::chart::COMMIT_MARKER;
+        // Clone annotations for rendering
+        let annotations_to_render: Vec<_> = if self.show_annotations {
+            self.annotations.clone()
+        } else {
+            Vec::new()
+        };
+
+        // Commit marker color - uses theme color
+        let commit_color = self.theme.chart_commit_marker();
+
+        // Capture theme for annotation colors inside closures
+        let chart_theme = self.theme;
 
         // Calculate time range for adaptive formatting
         let time_range_secs = data_time_range
@@ -792,21 +1012,28 @@ impl TimeSeriesChart {
         let available_width = ui.available_width();
         let available_height = ui.available_height();
         let aspect_height = available_width * DEFAULT_ASPECT_RATIO;
-        // Use the smaller of available height or aspect-based height, but respect minimum
-        let optimal_height = available_height.min(aspect_height).max(MIN_CHART_HEIGHT);
 
-        // Center the plot vertically if there's extra space
-        let vertical_padding = (available_height - optimal_height).max(0.0) / 2.0;
-        if vertical_padding > 1.0 {
-            ui.add_space(vertical_padding);
-        }
+        // When available height is constrained (split panes), use available height directly
+        // to ensure the x-axis labels remain visible and don't get clipped.
+        // Only use aspect ratio when we have ample vertical space.
+        let use_available_height = available_height < MIN_CHART_HEIGHT * 1.5;
+        let optimal_height = if use_available_height {
+            // Constrained: use available height (allows plot to shrink and show axis)
+            available_height
+        } else {
+            // Ample space: use aspect ratio for aesthetic proportions
+            aspect_height.max(MIN_CHART_HEIGHT).min(available_height)
+        };
+
+        // Note: We align the chart to the top of the pane (no vertical centering).
+        // This looks cleaner in vsplit layouts where panes are tall and narrow.
 
         // Apply very soft grid lines for premium look - barely visible structure
-        let grid_color = palette::border_subtle(self.theme).gamma_multiply(0.25);
+        let grid_color = self.theme.border_subtle().gamma_multiply(0.25);
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
-        // Legend above the chart (only show if multiple series)
-        if self.show_legend && self.series.len() > 1 {
+        // Legend above the chart (show if any series exist)
+        if self.show_legend && !self.series.is_empty() {
             const MAX_VISIBLE_SERIES: usize = 5;
             let total_series = self.series.len();
             let show_overflow = total_series > MAX_VISIBLE_SERIES;
@@ -817,6 +1044,7 @@ impl TimeSeriesChart {
             };
 
             ui.horizontal_wrapped(|ui| {
+                ui.add_space(4.0); // Left margin for focus border clearance
                 ui.spacing_mut().item_spacing.x = legend_item_spacing;
 
                 // Show first N series
@@ -880,8 +1108,7 @@ impl TimeSeriesChart {
                     if response.hovered() {
                         let rect = response.rect;
                         // Paint over with highlighted text
-                        ui.painter()
-                            .rect_filled(rect, 0.0, palette::bg_surface(self.theme));
+                        ui.painter().rect_filled(rect, 0.0, self.theme.bg_surface());
                         ui.painter().text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
@@ -921,16 +1148,83 @@ impl TimeSeriesChart {
 
         // The plot - let egui_plot manage bounds internally via its ID-based memory
         // Note: We use our own custom legend above the chart, so no egui_plot legend
-        let plot = Plot::new(format!("plot_{}", self.id))
-            .min_size(egui::vec2(100.0, MIN_CHART_HEIGHT))
-            .height(optimal_height)
+        // Use the ACTUAL remaining height after legend, but cap it for good aspect ratio
+        let remaining_height = ui.available_height();
+        let remaining_width = ui.available_width();
+
+        // Calculate a reasonable plot height:
+        // - When height is constrained (stacked panes): use all remaining height
+        // - When pane is tall & narrow (vsplit): use aspect ratio to avoid stretching
+        // - Otherwise: use the pre-calculated optimal height
+        //
+        // Detect vsplit by checking if pane is portrait-oriented (height > width * 1.2)
+        let is_portrait = remaining_height > remaining_width * 1.2;
+        let plot_height = if remaining_height < MIN_CHART_HEIGHT * 1.5 {
+            // Height constrained (horizontal split) - use all remaining height
+            remaining_height
+        } else if is_portrait {
+            // Portrait pane (vsplit) - use standard aspect ratio
+            // and cap to 20% of pane height for compact dashboard appearance
+            let aspect_height = remaining_width * DEFAULT_ASPECT_RATIO;
+            let max_height = remaining_height * 0.20; // Cap to 20% of pane
+            aspect_height.max(MIN_CHART_HEIGHT).min(max_height)
+        } else {
+            // Ample space - use optimal height but don't exceed remaining
+            optimal_height.min(remaining_height)
+        };
+
+        let mut plot = Plot::new(format!("plot_{}", self.id))
+            .min_size(egui::vec2(100.0, 80.0)) // Reduced min height to allow smaller panes
+            .height(plot_height)
+            .show_axes([true, true])
             .custom_x_axes(vec![x_axis])
             .custom_y_axes(vec![y_axis])
-            .show_axes(true)
             .show_grid(true)
-            .allow_zoom(true)
-            .allow_drag(true)
-            .allow_scroll(true);
+            .allow_zoom(!self.compact)
+            .allow_drag(!self.compact)
+            .allow_scroll(!self.compact);
+
+        // In compact mode, create a cleaner display
+        if self.compact {
+            // Use simpler axes with fixed minimum thickness for alignment
+            let compact_y_axis = AxisHints::new_y()
+                .min_thickness(45.0) // Fixed width for consistent alignment
+                .formatter(move |mark: GridMark, _range: &RangeInclusive<f64>| {
+                    // Simpler formatting for compact mode
+                    let value = mark.value;
+                    if !value.is_finite() {
+                        return String::new();
+                    }
+                    let abs_value = value.abs();
+                    if abs_value >= 1_000_000.0 {
+                        format!("{:.0}M", value / 1_000_000.0)
+                    } else if abs_value >= 1_000.0 {
+                        format!("{:.0}K", value / 1_000.0)
+                    } else if value.fract() == 0.0 {
+                        format!("{value:.0}")
+                    } else {
+                        format!("{value:.1}")
+                    }
+                });
+
+            let compact_x_axis = AxisHints::new_x()
+                .label_spacing(Rangef::new(80.0, 120.0)) // More spacing to avoid edge overlap
+                .formatter(move |mark: GridMark, _range: &RangeInclusive<f64>| {
+                    format_timestamp(mark.value, time_range_secs)
+                });
+
+            plot = plot
+                .custom_x_axes(vec![compact_x_axis])
+                .custom_y_axes(vec![compact_y_axis])
+                .show_background(false)
+                .allow_boxed_zoom(false)
+                .clamp_grid(true) // Clamp labels to data range
+                .show_x(false)
+                .show_y(false)
+                .allow_double_click_reset(false)
+                .cursor_color(Color32::TRANSPARENT) // Hide hover cursor lines
+                .sense(egui::Sense::empty()); // No interaction at all
+        }
 
         let plot_response = plot.show(ui, |plot_ui| {
             // Apply chart action inside the plot closure where we have access to plot_ui
@@ -1012,7 +1306,41 @@ impl TimeSeriesChart {
                         plot_ui.set_plot_bounds(new_bounds);
                     }
                 }
-                ChartAction::None | ChartAction::ToggleStacked | ChartAction::ToggleCommits => {}
+                ChartAction::NextAnnotation => {
+                    let current_center = plot_ui.plot_bounds().center().x;
+                    if let Some(&next_t) = annotations_for_nav.iter().find(|&&t| t > current_center)
+                    {
+                        let bounds = plot_ui.plot_bounds();
+                        let width = bounds.max()[0] - bounds.min()[0];
+                        let half_width = width / 2.0;
+                        let new_bounds = PlotBounds::from_min_max(
+                            [next_t - half_width, bounds.min()[1]],
+                            [next_t + half_width, bounds.max()[1]],
+                        );
+                        plot_ui.set_plot_bounds(new_bounds);
+                    }
+                }
+                ChartAction::PrevAnnotation => {
+                    let current_center = plot_ui.plot_bounds().center().x;
+                    if let Some(&prev_t) = annotations_for_nav
+                        .iter()
+                        .rev()
+                        .find(|&&t| t < current_center)
+                    {
+                        let bounds = plot_ui.plot_bounds();
+                        let width = bounds.max()[0] - bounds.min()[0];
+                        let half_width = width / 2.0;
+                        let new_bounds = PlotBounds::from_min_max(
+                            [prev_t - half_width, bounds.min()[1]],
+                            [prev_t + half_width, bounds.max()[1]],
+                        );
+                        plot_ui.set_plot_bounds(new_bounds);
+                    }
+                }
+                ChartAction::None
+                | ChartAction::ToggleStacked
+                | ChartAction::ToggleCommits
+                | ChartAction::ToggleAnnotations => {}
             }
 
             // Draw commit markers as vertical dashed lines
@@ -1057,6 +1385,96 @@ impl TimeSeriesChart {
                                     ui.add_space(4.0);
                                     // Commit message
                                     ui.label(&commit.message);
+                                });
+                            });
+                        break; // Only show one tooltip at a time
+                    }
+                }
+            }
+
+            // Draw annotation markers as vertical lines (like commit markers)
+            // Note: We use VLines instead of Polygons to avoid affecting plot auto-bounds
+            for annotation in &annotations_to_render {
+                let ann_color = annotation.color_for_theme(chart_theme);
+                match &annotation.target {
+                    AnnotationTarget::Point { timestamp } => {
+                        // Draw as vertical line
+                        let vline = VLine::new(format!("ann_{}", annotation.id.0), *timestamp)
+                            .color(ann_color)
+                            .style(LineStyle::Solid)
+                            .stroke(Stroke::new(2.0, ann_color));
+                        plot_ui.vline(vline);
+                    }
+                    AnnotationTarget::Range { start, end } => {
+                        // Draw as two vertical lines for start and end
+                        // (Polygons cause plot bounds instability)
+                        let start_line =
+                            VLine::new(format!("ann_range_start_{}", annotation.id.0), *start)
+                                .color(ann_color)
+                                .style(LineStyle::Solid)
+                                .stroke(Stroke::new(2.0, ann_color));
+                        plot_ui.vline(start_line);
+
+                        let end_line =
+                            VLine::new(format!("ann_range_end_{}", annotation.id.0), *end)
+                                .color(ann_color)
+                                .style(LineStyle::dashed_dense())
+                                .stroke(Stroke::new(2.0, ann_color));
+                        plot_ui.vline(end_line);
+                    }
+                    AnnotationTarget::DataPoint { timestamp, .. } => {
+                        // Draw as vertical line at the timestamp
+                        // (Diamond polygon causes plot bounds instability)
+                        let vline =
+                            VLine::new(format!("ann_point_{}", annotation.id.0), *timestamp)
+                                .color(ann_color)
+                                .style(LineStyle::Solid)
+                                .stroke(Stroke::new(2.5, ann_color));
+                        plot_ui.vline(vline);
+                    }
+                }
+            }
+
+            // Check for hover near annotations and show tooltip
+            if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
+                let bounds = plot_ui.plot_bounds();
+                let view_width = bounds.max()[0] - bounds.min()[0];
+                let hover_threshold = view_width * 0.015; // 1.5% of visible time range
+
+                for annotation in &annotations_to_render {
+                    let is_near = annotation
+                        .target
+                        .contains_timestamp(pointer_pos.x, hover_threshold);
+                    if is_near {
+                        let ann_color = annotation.color_for_theme(chart_theme);
+                        egui::containers::Tooltip::for_widget(plot_ui.response())
+                            .at_pointer()
+                            .show(|ui| {
+                                ui.set_max_width(300.0);
+                                ui.vertical(|ui| {
+                                    // Header with priority icon and author
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(annotation.priority.icon())
+                                                .size(semantic_icons::SIZE_ITEM)
+                                                .color(ann_color),
+                                        );
+                                        ui.label(
+                                            RichText::new(&annotation.author.display_name)
+                                                .strong()
+                                                .color(ann_color),
+                                        );
+                                        if annotation.resolved {
+                                            ui.label(
+                                                RichText::new("(resolved)")
+                                                    .italics()
+                                                    .color(Color32::GRAY),
+                                            );
+                                        }
+                                    });
+                                    ui.add_space(4.0);
+                                    // Message
+                                    ui.label(&annotation.message);
                                 });
                             });
                         break; // Only show one tooltip at a time
@@ -1184,6 +1602,27 @@ impl TimeSeriesChart {
                 }
             }
         });
+
+        // Detect double-click for logs drilldown (only when not in compact or annotation mode)
+        if !self.compact && !self.annotation_mode && plot_response.response.double_clicked() {
+            // Get the pointer position and convert to plot coordinates
+            if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                // Convert screen position to plot coordinates
+                let plot_point = plot_response.transform.value_from_position(pointer_pos);
+                let timestamp_secs = plot_point.x;
+
+                self.pending_interaction = Some(ChartInteraction::DrilldownLogs {
+                    timestamp_secs,
+                    metric_name: self.metric_name.clone(),
+                });
+
+                log::debug!(
+                    "Chart drilldown triggered at timestamp {} for metric '{}'",
+                    timestamp_secs,
+                    self.metric_name
+                );
+            }
+        }
 
         // Render commit labels below the plot, positioned at their timestamp's X coordinate
         if self.show_commits && !commits_to_render.is_empty() {

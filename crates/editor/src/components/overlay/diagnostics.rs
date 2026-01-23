@@ -7,8 +7,6 @@ use std::any::Any;
 
 use egui::{Color32, Key, RichText, ScrollArea, Ui};
 
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::util::Instant;
@@ -44,44 +42,20 @@ impl DiagnosticLevel {
     /// Get the accent color for this diagnostic level
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
-            Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(220, 38, 38),
-                AppTheme::Dark => Color32::from_rgb(248, 113, 113),
-            },
-            Self::Warning => match theme {
-                AppTheme::Light => Color32::from_rgb(217, 119, 6),
-                AppTheme::Dark => Color32::from_rgb(251, 191, 36),
-            },
-            Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(37, 99, 235),
-                AppTheme::Dark => Color32::from_rgb(96, 165, 250),
-            },
-            Self::Hint => match theme {
-                AppTheme::Light => Color32::from_rgb(22, 163, 74),
-                AppTheme::Dark => Color32::from_rgb(74, 222, 128),
-            },
+            Self::Error => theme.semantic_error(),
+            Self::Warning => theme.semantic_warning(),
+            Self::Info => theme.semantic_info(),
+            Self::Hint => theme.semantic_success(),
         }
     }
 
     /// Get the background color for this diagnostic level
     pub fn bg_color(&self, theme: AppTheme) -> Color32 {
         match self {
-            Self::Error => match theme {
-                AppTheme::Light => Color32::from_rgb(254, 242, 242),
-                AppTheme::Dark => Color32::from_rgb(51, 28, 28),
-            },
-            Self::Warning => match theme {
-                AppTheme::Light => Color32::from_rgb(255, 251, 235),
-                AppTheme::Dark => Color32::from_rgb(54, 47, 22),
-            },
-            Self::Info => match theme {
-                AppTheme::Light => Color32::from_rgb(239, 246, 255),
-                AppTheme::Dark => Color32::from_rgb(30, 41, 59),
-            },
-            Self::Hint => match theme {
-                AppTheme::Light => Color32::from_rgb(240, 253, 244),
-                AppTheme::Dark => Color32::from_rgb(20, 51, 36),
-            },
+            Self::Error => theme.diagnostic_error_bg(),
+            Self::Warning => theme.diagnostic_warning_bg(),
+            Self::Info => theme.diagnostic_info_bg(),
+            Self::Hint => theme.diagnostic_hint_bg(),
         }
     }
 
@@ -290,7 +264,7 @@ impl DiagnosticsFilter {
 pub struct DiagnosticsPane {
     /// Unique pane identifier
     id: usize,
-    /// Current theme
+    /// Current theme (supports Custom variant with plugin colors)
     theme: AppTheme,
     /// List of diagnostics
     diagnostics: Vec<Diagnostic>,
@@ -340,6 +314,21 @@ impl DiagnosticsPane {
             is_open: false,
             just_opened: false,
         }
+    }
+
+    /// Get the accent color for a diagnostic level
+    fn diagnostic_color(&self, level: DiagnosticLevel) -> Color32 {
+        match level {
+            DiagnosticLevel::Error => self.theme.semantic_error(),
+            DiagnosticLevel::Warning => self.theme.semantic_warning(),
+            DiagnosticLevel::Info => self.theme.semantic_info(),
+            DiagnosticLevel::Hint => self.theme.semantic_success(),
+        }
+    }
+
+    /// Get the background color for a diagnostic level
+    fn diagnostic_bg_color(&self, level: DiagnosticLevel) -> Color32 {
+        level.bg_color(self.theme)
     }
 
     /// Add a diagnostic
@@ -552,6 +541,8 @@ impl DiagnosticsPane {
         }
 
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             return action;
         }
@@ -561,20 +552,14 @@ impl DiagnosticsPane {
         let popup_width = (screen_rect.width() * 0.70).clamp(600.0, 850.0);
         let popup_max_height = (screen_rect.height() * 0.75).min(650.0);
 
-        let text_col = text_color(self.theme);
         let (errors, warnings, infos, hints) = self.count_by_level();
 
-        // Use shared overlay style
+        // Use shared overlay style (Custom variant handles plugin colors internally)
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
-        let separator_color = match self.theme {
-            AppTheme::Light => palette::light_border::SUBTLE,
-            AppTheme::Dark => palette::border::SUBTLE,
-        };
-        let muted_text = text_col.gamma_multiply(0.6);
-        let key_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgba_unmultiplied(240, 240, 240, 200),
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(40, 40, 40, 200),
-        };
+        let text_col = self.theme.text_primary();
+        let separator_color = self.theme.border_subtle();
+        let muted_text = self.theme.text_primary().gamma_multiply(0.6);
+        let key_bg = self.theme.bg_elevated();
 
         egui::Area::new(egui::Id::new("diagnostics_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -605,7 +590,7 @@ impl DiagnosticsPane {
 
                             // Count badges
                             if errors > 0 {
-                                let color = DiagnosticLevel::Error.color(self.theme);
+                                let color = self.diagnostic_color(DiagnosticLevel::Error);
                                 ui.label(
                                     RichText::new(format!(
                                         "{} {}",
@@ -617,7 +602,7 @@ impl DiagnosticsPane {
                                 );
                             }
                             if warnings > 0 {
-                                let color = DiagnosticLevel::Warning.color(self.theme);
+                                let color = self.diagnostic_color(DiagnosticLevel::Warning);
                                 ui.label(
                                     RichText::new(format!(
                                         "{} {}",
@@ -629,7 +614,7 @@ impl DiagnosticsPane {
                                 );
                             }
                             if infos > 0 {
-                                let color = DiagnosticLevel::Info.color(self.theme);
+                                let color = self.diagnostic_color(DiagnosticLevel::Info);
                                 ui.label(
                                     RichText::new(format!(
                                         "{} {}",
@@ -641,7 +626,7 @@ impl DiagnosticsPane {
                                 );
                             }
                             if hints > 0 {
-                                let color = DiagnosticLevel::Hint.color(self.theme);
+                                let color = self.diagnostic_color(DiagnosticLevel::Hint);
                                 ui.label(
                                     RichText::new(format!(
                                         "{} {}",
@@ -703,13 +688,23 @@ impl DiagnosticsPane {
                             .cloned()
                             .collect();
 
+                        // Pre-calculate colors for closure access
+                        let hint_color = self.diagnostic_color(DiagnosticLevel::Hint);
+                        let error_color = self.diagnostic_color(DiagnosticLevel::Error);
+                        let warning_color = self.diagnostic_color(DiagnosticLevel::Warning);
+                        let info_color = self.diagnostic_color(DiagnosticLevel::Info);
+                        let error_bg = self.diagnostic_bg_color(DiagnosticLevel::Error);
+                        let warning_bg = self.diagnostic_bg_color(DiagnosticLevel::Warning);
+                        let info_bg = self.diagnostic_bg_color(DiagnosticLevel::Info);
+                        let hint_bg = self.diagnostic_bg_color(DiagnosticLevel::Hint);
+
                         if filtered.is_empty() {
                             // Empty state
                             ui.vertical_centered(|ui| {
                                 ui.add_space(40.0);
                                 ui.label(
                                     RichText::new(semantic_icons::status::SUCCESS)
-                                        .color(DiagnosticLevel::Hint.color(self.theme))
+                                        .color(hint_color)
                                         .size(40.0),
                                 );
                                 ui.add_space(12.0);
@@ -722,7 +717,6 @@ impl DiagnosticsPane {
                             });
                         } else {
                             let selected_id = self.selected_id;
-                            let theme = self.theme;
                             let mut clicked_diagnostic: Option<(u64, Option<usize>)> = None;
 
                             ScrollArea::vertical()
@@ -732,8 +726,14 @@ impl DiagnosticsPane {
                                     ui.add_space(4.0);
                                     for diagnostic in &filtered {
                                         let is_selected = selected_id == Some(diagnostic.id);
+                                        let (level_color, level_bg) = match diagnostic.level {
+                                            DiagnosticLevel::Error => (error_color, error_bg),
+                                            DiagnosticLevel::Warning => (warning_color, warning_bg),
+                                            DiagnosticLevel::Info => (info_color, info_bg),
+                                            DiagnosticLevel::Hint => (hint_color, hint_bg),
+                                        };
                                         let bg = if is_selected {
-                                            diagnostic.level.bg_color(theme)
+                                            level_bg
                                         } else {
                                             Color32::TRANSPARENT
                                         };
@@ -751,9 +751,7 @@ impl DiagnosticsPane {
                                                             // Level icon
                                                             ui.label(
                                                                 RichText::new(diagnostic.level.icon())
-                                                                    .color(
-                                                                        diagnostic.level.color(theme),
-                                                                    )
+                                                                    .color(level_color)
                                                                     .size(14.0),
                                                             );
 
@@ -762,13 +760,21 @@ impl DiagnosticsPane {
                                                             // Message and details
                                                             ui.vertical(|ui| {
                                                                 ui.horizontal(|ui| {
-                                                                    ui.label(
-                                                                        RichText::new(
-                                                                            &diagnostic.message,
-                                                                        )
+                                                                    // Truncate long messages to prevent overlay expansion
+                                                                    let (display_msg, is_truncated) = if diagnostic.message.chars().count() > 60 {
+                                                                        let boundary = diagnostic.message.char_indices().nth(59).map_or(diagnostic.message.len(), |(i, _)| i);
+                                                                        (format!("{}…", &diagnostic.message[..boundary]), true)
+                                                                    } else {
+                                                                        (diagnostic.message.clone(), false)
+                                                                    };
+                                                                    let msg_response = ui.label(
+                                                                        RichText::new(&display_msg)
                                                                         .color(text_col)
                                                                         .size(12.0),
                                                                     );
+                                                                    if is_truncated && msg_response.hovered() {
+                                                                        msg_response.show_tooltip_text(&diagnostic.message);
+                                                                    }
 
                                                                     // Source badge
                                                                     ui.label(
@@ -889,7 +895,7 @@ impl DiagnosticsPane {
     /// Render the diagnostics pane
     pub fn show_with_action(&mut self, ui: &mut Ui) -> DiagnosticsPaneAction {
         let mut action = DiagnosticsPaneAction::None;
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let (errors, warnings, infos, hints) = self.count_by_level();
 
         // Header
@@ -906,7 +912,7 @@ impl DiagnosticsPane {
 
             // Count badges
             if errors > 0 {
-                let color = DiagnosticLevel::Error.color(self.theme);
+                let color = self.diagnostic_color(DiagnosticLevel::Error);
                 ui.label(
                     RichText::new(format!("{} {errors}", semantic_icons::diagnostic::ERROR))
                         .color(color)
@@ -914,7 +920,7 @@ impl DiagnosticsPane {
                 );
             }
             if warnings > 0 {
-                let color = DiagnosticLevel::Warning.color(self.theme);
+                let color = self.diagnostic_color(DiagnosticLevel::Warning);
                 ui.label(
                     RichText::new(format!(
                         "{} {warnings}",
@@ -925,7 +931,7 @@ impl DiagnosticsPane {
                 );
             }
             if infos > 0 {
-                let color = DiagnosticLevel::Info.color(self.theme);
+                let color = self.diagnostic_color(DiagnosticLevel::Info);
                 ui.label(
                     RichText::new(format!("{} {infos}", semantic_icons::diagnostic::INFO))
                         .color(color)
@@ -933,7 +939,7 @@ impl DiagnosticsPane {
                 );
             }
             if hints > 0 {
-                let color = DiagnosticLevel::Hint.color(self.theme);
+                let color = self.diagnostic_color(DiagnosticLevel::Hint);
                 ui.label(
                     RichText::new(format!("{} {hints}", semantic_icons::diagnostic::HINT))
                         .color(color)
@@ -980,7 +986,17 @@ impl DiagnosticsPane {
             .cloned()
             .collect();
         let selected_id = self.selected_id;
-        let theme = self.theme;
+
+        // Pre-calculate colors for closure access
+        let hint_color = self.diagnostic_color(DiagnosticLevel::Hint);
+        let error_color = self.diagnostic_color(DiagnosticLevel::Error);
+        let warning_color = self.diagnostic_color(DiagnosticLevel::Warning);
+        let info_color = self.diagnostic_color(DiagnosticLevel::Info);
+        let error_bg = self.diagnostic_bg_color(DiagnosticLevel::Error);
+        let warning_bg = self.diagnostic_bg_color(DiagnosticLevel::Warning);
+        let info_bg = self.diagnostic_bg_color(DiagnosticLevel::Info);
+        let hint_bg = self.diagnostic_bg_color(DiagnosticLevel::Hint);
+        let muted_text = self.theme.text_primary().gamma_multiply(0.6);
 
         if filtered.is_empty() {
             // Empty state
@@ -988,15 +1004,11 @@ impl DiagnosticsPane {
                 ui.add_space(20.0);
                 ui.label(
                     RichText::new(semantic_icons::status::SUCCESS)
-                        .color(DiagnosticLevel::Hint.color(theme))
+                        .color(hint_color)
                         .size(32.0),
                 );
                 ui.add_space(8.0);
-                ui.label(
-                    RichText::new("No diagnostics")
-                        .color(text_col.gamma_multiply(0.6))
-                        .size(13.0),
-                );
+                ui.label(RichText::new("No diagnostics").color(muted_text).size(13.0));
             });
         } else {
             // Track clicks to update state after rendering
@@ -1007,8 +1019,14 @@ impl DiagnosticsPane {
                 .show(ui, |ui| {
                     for diagnostic in &filtered {
                         let is_selected = selected_id == Some(diagnostic.id);
+                        let (level_color, level_bg) = match diagnostic.level {
+                            DiagnosticLevel::Error => (error_color, error_bg),
+                            DiagnosticLevel::Warning => (warning_color, warning_bg),
+                            DiagnosticLevel::Info => (info_color, info_bg),
+                            DiagnosticLevel::Hint => (hint_color, hint_bg),
+                        };
                         let bg_color = if is_selected {
-                            diagnostic.level.bg_color(theme)
+                            level_bg
                         } else {
                             Color32::TRANSPARENT
                         };
@@ -1023,7 +1041,7 @@ impl DiagnosticsPane {
                                         // Level icon
                                         ui.label(
                                             RichText::new(diagnostic.level.icon())
-                                                .color(diagnostic.level.color(theme))
+                                                .color(level_color)
                                                 .size(14.0),
                                         );
 
@@ -1032,11 +1050,36 @@ impl DiagnosticsPane {
                                         // Message
                                         ui.vertical(|ui| {
                                             ui.horizontal(|ui| {
-                                                ui.label(
-                                                    RichText::new(&diagnostic.message)
+                                                // Truncate long messages to prevent layout expansion
+                                                let (display_msg, is_truncated) =
+                                                    if diagnostic.message.chars().count() > 60 {
+                                                        let boundary = diagnostic
+                                                            .message
+                                                            .char_indices()
+                                                            .nth(59)
+                                                            .map_or(
+                                                                diagnostic.message.len(),
+                                                                |(i, _)| i,
+                                                            );
+                                                        (
+                                                            format!(
+                                                                "{}…",
+                                                                &diagnostic.message[..boundary]
+                                                            ),
+                                                            true,
+                                                        )
+                                                    } else {
+                                                        (diagnostic.message.clone(), false)
+                                                    };
+                                                let msg_response = ui.label(
+                                                    RichText::new(&display_msg)
                                                         .color(text_col)
                                                         .size(12.0),
                                                 );
+                                                if is_truncated && msg_response.hovered() {
+                                                    msg_response
+                                                        .show_tooltip_text(&diagnostic.message);
+                                                }
 
                                                 // Source badge
                                                 ui.label(
@@ -1107,6 +1150,7 @@ impl DiagnosticsPane {
 }
 
 impl Component for DiagnosticsPane {
+    #[profiling::function]
     fn show(&mut self, ui: &mut Ui) {
         // Ignore action in Component::show - use show_with_action for action handling
         self.show_with_action(ui);

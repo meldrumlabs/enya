@@ -9,8 +9,8 @@
 
 use egui::{Color32, Key, RichText, Stroke, TextFormat, text::LayoutJob};
 
+use crate::ui::active_theme::ActiveThemeColors;
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -60,18 +60,9 @@ impl OverlayStyle {
     /// Frosted glass style: semi-transparent background with soft edges
     /// Now enhanced with inner highlight for premium feel
     pub fn frosted_glass(theme: AppTheme) -> Self {
-        let (bg, border, inner_highlight) = match theme {
-            AppTheme::Light => (
-                Color32::from_rgba_unmultiplied(252, 252, 250, 245), // Warm white, 96% opacity
-                Color32::from_rgba_unmultiplied(210, 210, 205, 180),
-                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 60)), // Subtle top highlight
-            ),
-            AppTheme::Dark => (
-                Color32::from_rgba_unmultiplied(14, 14, 16, 245), // Neutral obsidian, 96% opacity
-                Color32::from_rgba_unmultiplied(45, 45, 48, 160), // Neutral border
-                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 12)), // Subtle top highlight
-            ),
-        };
+        let bg = theme.overlay_bg();
+        let border = theme.overlay_border();
+        let inner_highlight = Some(theme.overlay_highlight());
 
         Self {
             bg,
@@ -88,12 +79,27 @@ impl OverlayStyle {
         }
     }
 
+    /// Frosted glass style using active theme colors (builtin or custom)
+    pub fn frosted_glass_active(colors: &ActiveThemeColors) -> Self {
+        Self {
+            bg: colors.overlay_bg,
+            border: colors.overlay_border,
+            corner_radius: 14.0,
+            stroke_width: 1.0,
+            shadow: egui::epaint::Shadow {
+                offset: [0, 8],
+                blur: 32,
+                spread: 0,
+                color: Color32::from_black_alpha(80),
+            },
+            inner_highlight: Some(colors.overlay_highlight),
+        }
+    }
+
     /// Minimal flat style: solid background, no shadows
     pub fn minimal_flat(theme: AppTheme) -> Self {
-        let (bg, border) = match theme {
-            AppTheme::Light => (palette::light_bg::SURFACE, palette::light_border::DEFAULT),
-            AppTheme::Dark => (palette::bg::SURFACE, palette::border::SUBTLE),
-        };
+        let bg = theme.bg_surface();
+        let border = theme.border_default();
 
         Self {
             bg,
@@ -107,11 +113,8 @@ impl OverlayStyle {
 
     /// Subtle neon style: solid background with glowing accent border
     pub fn subtle_neon(theme: AppTheme) -> Self {
-        let bg = match theme {
-            AppTheme::Light => palette::light_bg::SURFACE,
-            AppTheme::Dark => palette::bg::BASE,
-        };
-        let glow_color = palette::accent::PRIMARY;
+        let bg = theme.bg_base();
+        let glow_color = theme.accent_primary();
 
         Self {
             bg,
@@ -130,18 +133,9 @@ impl OverlayStyle {
 
     /// Premium glass style: enhanced transparency with inner glow and deep shadows
     pub fn premium_glass(theme: AppTheme) -> Self {
-        let (bg, border, inner_highlight) = match theme {
-            AppTheme::Light => (
-                Color32::from_rgba_unmultiplied(250, 250, 248, 235), // Warm white transparent
-                Color32::from_rgba_unmultiplied(200, 200, 195, 150),
-                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 80)), // Stronger top highlight
-            ),
-            AppTheme::Dark => (
-                Color32::from_rgba_unmultiplied(12, 12, 14, 235), // Neutral deep obsidian
-                Color32::from_rgba_unmultiplied(40, 40, 44, 140), // Neutral border
-                Some(Color32::from_rgba_unmultiplied(255, 255, 255, 18)), // Top edge glow
-            ),
-        };
+        let bg = theme.overlay_bg_deep();
+        let border = theme.overlay_border();
+        let inner_highlight = Some(theme.overlay_highlight_strong());
 
         Self {
             bg,
@@ -215,27 +209,15 @@ pub struct FinderColors {
 impl FinderColors {
     /// Create finder colors for the given theme
     pub fn new(theme: AppTheme) -> Self {
-        match theme {
-            AppTheme::Light => Self {
-                bg: palette::light_bg::SURFACE,
-                border: palette::light_border::DEFAULT,
-                separator: palette::light_border::SUBTLE,
-                highlight: palette::highlight::MATCH,
-                selected_bg: palette::light_bg::SELECTED,
-                hover_bg: palette::light_bg::HOVER,
-                preview_bg: palette::light_bg::ELEVATED,
-                panel_bg: palette::light_bg::BASE,
-            },
-            AppTheme::Dark => Self {
-                bg: palette::bg::SURFACE,
-                border: palette::border::SUBTLE,
-                separator: palette::border::SUBTLE,
-                highlight: palette::highlight::MATCH,
-                selected_bg: palette::bg::SELECTED,
-                hover_bg: palette::bg::HOVER,
-                preview_bg: palette::bg::ELEVATED,
-                panel_bg: palette::bg::BASE,
-            },
+        Self {
+            bg: theme.bg_surface(),
+            border: theme.border_default(),
+            separator: theme.border_subtle(),
+            highlight: theme.highlight_match_text(),
+            selected_bg: theme.bg_selected(),
+            hover_bg: theme.bg_hover(),
+            preview_bg: theme.bg_elevated(),
+            panel_bg: theme.bg_base(),
         }
     }
 }
@@ -252,6 +234,8 @@ pub struct FinderKeyboardInput {
     pub escape: bool,
     /// Toggle preview pane
     pub toggle_preview: bool,
+    /// Cycle to next mode (Tab key)
+    pub cycle_mode: bool,
 }
 
 impl FinderKeyboardInput {
@@ -265,6 +249,7 @@ impl FinderKeyboardInput {
             confirm: i.key_pressed(Key::Enter),
             escape: i.key_pressed(Key::Escape),
             toggle_preview: i.key_pressed(Key::P) && i.modifiers.ctrl,
+            cycle_mode: i.key_pressed(Key::Tab) && !i.modifiers.shift,
         })
     }
 }
@@ -326,8 +311,8 @@ pub fn generate_demo_preview_data(item_name: &str) -> Vec<DataPoint> {
 }
 
 /// Get the chart line color for the given theme
-pub fn chart_color(_theme: AppTheme) -> Color32 {
-    palette::chart::PRIMARY
+pub fn chart_color(theme: AppTheme) -> Color32 {
+    theme.chart_color(0)
 }
 
 /// Render keyboard hints footer for finder modals
@@ -409,25 +394,27 @@ impl OverlayColors {
     /// Create overlay colors for the given theme
     pub fn new(theme: AppTheme) -> Self {
         let text = text_color(theme);
-        match theme {
-            AppTheme::Light => Self {
-                text,
-                muted_text: text.gamma_multiply(0.6),
-                faint_text: text.gamma_multiply(0.4),
-                accent: palette::accent::LIGHT,
-                separator: palette::light_border::SUBTLE,
-                elevated_bg: palette::light_bg::ELEVATED,
-                badge_bg: palette::light_bg::HOVER,
-            },
-            AppTheme::Dark => Self {
-                text,
-                muted_text: text.gamma_multiply(0.6),
-                faint_text: text.gamma_multiply(0.4),
-                accent: palette::accent::HOVER,
-                separator: palette::border::SUBTLE,
-                elevated_bg: palette::bg::ELEVATED,
-                badge_bg: palette::bg::HOVER,
-            },
+        Self {
+            text,
+            muted_text: text.gamma_multiply(0.6),
+            faint_text: text.gamma_multiply(0.4),
+            accent: theme.accent_hover(),
+            separator: theme.border_subtle(),
+            elevated_bg: theme.bg_elevated(),
+            badge_bg: theme.bg_hover(),
+        }
+    }
+
+    /// Create overlay colors from ActiveThemeColors (for custom themes)
+    pub fn from_active(colors: &ActiveThemeColors) -> Self {
+        Self {
+            text: colors.text_primary,
+            muted_text: colors.text_primary.gamma_multiply(0.6),
+            faint_text: colors.text_primary.gamma_multiply(0.4),
+            accent: colors.accent_hover,
+            separator: colors.border_subtle,
+            elevated_bg: colors.bg_elevated,
+            badge_bg: colors.bg_hover,
         }
     }
 }
@@ -441,10 +428,7 @@ impl OverlayColors {
 /// This is a common pattern used across all overlay components to
 /// visually separate sections.
 pub fn draw_separator(ui: &mut egui::Ui, theme: AppTheme) {
-    let separator_color = match theme {
-        AppTheme::Light => palette::light_border::SUBTLE,
-        AppTheme::Dark => palette::border::SUBTLE,
-    };
+    let separator_color = theme.border_subtle();
     ui.painter().hline(
         ui.available_rect_before_wrap().x_range(),
         ui.cursor().top(),
@@ -538,6 +522,171 @@ pub fn render_key_badge_large(
     );
 }
 
+// =============================================================================
+// Stat Badge Rendering
+// =============================================================================
+
+/// Render a simple stat badge (e.g., "128 rows", "5 cols").
+///
+/// Uses muted colors from OverlayColors for a subtle appearance.
+pub fn render_stat_badge(ui: &mut egui::Ui, text: &str, colors: &OverlayColors) {
+    egui::Frame::new()
+        .fill(colors.badge_bg)
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(text)
+                    .color(colors.muted_text)
+                    .font(typography::proportional(typography::XS)),
+            );
+        });
+}
+
+/// Render a stat badge with an icon prefix (e.g., clock icon + "123ms").
+///
+/// The icon is rendered in faint_text color, the value in muted_text.
+pub fn render_stat_badge_with_icon(
+    ui: &mut egui::Ui,
+    icon: &str,
+    value: &str,
+    colors: &OverlayColors,
+) {
+    egui::Frame::new()
+        .fill(colors.badge_bg)
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 3.0;
+                ui.label(RichText::new(icon).color(colors.faint_text).size(10.0));
+                ui.label(
+                    RichText::new(value)
+                        .color(colors.muted_text)
+                        .font(typography::proportional(typography::XS)),
+                );
+            });
+        });
+}
+
+/// Render a colored badge with custom fill and text color.
+///
+/// Useful for diff stats, status indicators, etc. The fill is automatically
+/// made semi-transparent (15% opacity) and a subtle stroke is added.
+pub fn render_colored_badge(ui: &mut egui::Ui, text: &str, color: Color32) {
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.15))
+        .stroke(Stroke::new(1.0, color.gamma_multiply(0.5)))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).color(color).size(11.0));
+        });
+}
+
+// =============================================================================
+// Split Panel Rendering
+// =============================================================================
+
+/// Render a split-panel header with left and right labels.
+///
+/// Commonly used for diff views to show "staging" vs "production" etc.
+pub fn render_split_header(
+    ui: &mut egui::Ui,
+    left_label: &str,
+    right_label: &str,
+    left_color: Color32,
+    right_color: Color32,
+    separator_color: Color32,
+) {
+    let available_width = ui.available_width();
+    let side_width = (available_width - 12.0) / 2.0;
+
+    ui.horizontal(|ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(side_width, 20.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(8.0);
+                ui.label(RichText::new(left_label).color(left_color).strong());
+            },
+        );
+        ui.add_space(4.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(side_width, 20.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(8.0);
+                ui.label(RichText::new(right_label).color(right_color).strong());
+            },
+        );
+    });
+
+    // Separator below headers
+    ui.painter().hline(
+        ui.available_rect_before_wrap().x_range(),
+        ui.cursor().top(),
+        Stroke::new(1.0, separator_color),
+    );
+    ui.add_space(4.0);
+}
+
+/// Render side-by-side panels with a vertical separator.
+///
+/// Takes closures for rendering the left and right content.
+/// The `id_salt` is used to create unique IDs for scroll areas.
+pub fn render_split_panels<L, R>(
+    ui: &mut egui::Ui,
+    height: f32,
+    separator_color: Color32,
+    id_salt: &str,
+    left_content: L,
+    right_content: R,
+) where
+    L: FnOnce(&mut egui::Ui),
+    R: FnOnce(&mut egui::Ui),
+{
+    let available_width = ui.available_width();
+    let side_width = (available_width - 12.0) / 2.0;
+
+    ui.horizontal(|ui| {
+        // Left panel
+        ui.allocate_ui_with_layout(
+            egui::vec2(side_width, height),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                ui.set_max_width(side_width);
+                egui::ScrollArea::vertical()
+                    .id_salt(format!("{id_salt}_left"))
+                    .auto_shrink([false, false])
+                    .show(ui, left_content);
+            },
+        );
+
+        // Center separator
+        let separator_rect = ui.available_rect_before_wrap();
+        ui.painter().vline(
+            separator_rect.left(),
+            separator_rect.y_range(),
+            Stroke::new(1.0, separator_color),
+        );
+        ui.add_space(4.0);
+
+        // Right panel
+        ui.allocate_ui_with_layout(
+            egui::vec2(side_width, height),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                ui.set_max_width(side_width);
+                egui::ScrollArea::vertical()
+                    .id_salt(format!("{id_salt}_right"))
+                    .auto_shrink([false, false])
+                    .show(ui, right_content);
+            },
+        );
+    });
+}
+
 /// Draw a semi-transparent backdrop overlay covering the entire screen.
 ///
 /// This is used by modals like the buffer editor and multi-edit overlay
@@ -551,15 +700,11 @@ pub fn draw_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
             // Premium backdrop with slight vignette effect
-            let backdrop_color = match theme {
-                AppTheme::Light => Color32::from_rgba_unmultiplied(245, 245, 250, 140),
-                AppTheme::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 200), // Deeper, richer backdrop
-            };
+            let backdrop_color = theme.backdrop_color();
             ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
 
-            // Add subtle vignette at edges for depth (dark theme only)
-            if theme == AppTheme::Dark {
-                let vignette_color = Color32::from_rgba_unmultiplied(0, 0, 0, 40);
+            // Add subtle vignette at edges for depth (dark themes)
+            if let Some(vignette_color) = theme.backdrop_vignette() {
                 // Top edge vignette
                 let top_rect = egui::Rect::from_min_size(
                     screen_rect.min,
@@ -576,9 +721,9 @@ pub fn draw_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
         });
 }
 
-/// Draw a premium backdrop with emerald accent glow
+/// Draw a premium backdrop with accent glow
 ///
-/// Similar to draw_backdrop but with a subtle emerald glow in the center
+/// Similar to draw_backdrop but with a subtle accent glow in the center
 /// for a more branded, luxurious feel.
 #[allow(deprecated)]
 pub fn draw_premium_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
@@ -588,17 +733,13 @@ pub fn draw_premium_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &s
         .order(egui::Order::Middle)
         .show(ctx, |ui| {
             // Base backdrop
-            let backdrop_color = match theme {
-                AppTheme::Light => Color32::from_rgba_unmultiplied(245, 245, 250, 150),
-                AppTheme::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 210),
-            };
+            let backdrop_color = theme.backdrop_color_strong();
             ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
 
-            // Subtle emerald glow in the center (where modal will appear)
-            if theme == AppTheme::Dark {
+            // Subtle accent glow in the center (where modal will appear)
+            if let Some(glow_color) = theme.backdrop_accent_glow() {
                 let center = screen_rect.center();
                 let glow_rect = egui::Rect::from_center_size(center, egui::vec2(400.0, 300.0));
-                let glow_color = Color32::from_rgba_unmultiplied(16, 185, 129, 8); // Very subtle emerald
                 ui.painter().rect_filled(glow_rect, 100.0, glow_color);
             }
         });

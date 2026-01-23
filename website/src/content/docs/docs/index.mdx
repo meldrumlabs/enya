@@ -1,6 +1,6 @@
 ---
 title: Welcome to Enya
-description: Embeddable observability agent for data systems
+description: AI-Native Observability Editor
 sidebar:
   hidden: true
 prev: false
@@ -9,41 +9,24 @@ next:
   label: Introduction
 ---
 
-# Welcome to Enya Documentation
+# Enya Documentation
 
-Embeddable observability agent for data systems.
+A keyboard-first observability editor that connects metrics, code, and AI.
 
-## Instrument Your Data Systems in Minutes
+## Built for Builders
 
-Enya makes it incredibly easy to add deep observability to your data pipelines. Here's how simple it is:
+Enya is designed for the engineers writing the code, instrumenting metrics, responding to pages, and debugging production issues. Navigate metrics like you navigate code—with vim-style keybindings, a command palette, and workspaces defined in TOML.
 
-```rust
-use enya::Enya;
+## Get Started
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the Enya observability agent
-    let enya = Enya::new()
-        .with_endpoint("http://localhost:4317")
-        .build()?;
+- **[Introduction](/docs/docs/getting-started/introduction/)** — Learn what Enya is and why it exists
+- **[Quick Start](/docs/docs/getting-started/quick-start/)** — Install and run Enya in minutes
+- **[Editor Guide](/docs/docs/editor/)** — Keyboard shortcuts, commands, and workflows
 
-    // Instrument your data pipeline
-    let pipeline = enya.instrument(my_pipeline)
-        .track_lineage()
-        .monitor_quality()
-        .profile_data();
+## Core Concepts
 
-    // Your pipeline now reports metrics, traces, and data quality
-    pipeline.run().await?;
-
-    Ok(())
-}
-```
-
-Just add Enya to your project:
-
-```sh
-cargo add enya
-```
-
-Ready to begin? Check out the [Getting Started](/docs/getting-started/introduction/) guide to start instrumenting your data systems with Enya.
+- **Keyboard-Driven** — Neovim-inspired navigation with `h/j/k/l`, `:` commands, and leader keys
+- **Codebase-Aware** — Jump from metric charts to source code with tree-sitter analysis
+- **AI-Native** — Connect Codex or Claude Code to analyze metrics and create visualizations
+- **Prometheus Compatible** — Works with Prometheus, Thanos, Mimir, VictoriaMetrics, and more
+- **i3-Style Layouts** — Flexible tiling workspaces with splits, tabs, and proportional sizing

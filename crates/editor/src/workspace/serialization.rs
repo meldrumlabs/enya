@@ -9,12 +9,12 @@ use rustc_hash::FxHashMap;
 use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
-    CodebaseConfig, ConnectionConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
-    PaneConfig, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
+    ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
+    LayoutType, LogsConfig, MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval,
+    SectionState, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
     WorkspaceMeta,
 };
 use crate::components::{Component, QueryPane};
-use crate::ui::theme::AppTheme;
 
 impl Workspace {
     // =========================================================================
@@ -22,12 +22,10 @@ impl Workspace {
     // =========================================================================
 
     /// Serialize the current workspace state to a WorkspaceConfig
-    pub fn to_workspace_config(
-        &self,
-        name: &str,
-        theme: AppTheme,
-        endpoint: Option<&str>,
-    ) -> WorkspaceConfig {
+    ///
+    /// Note: Theme is NOT saved to workspace config - it's a user preference
+    /// stored in AppSettings, not a per-workspace setting.
+    pub fn to_workspace_config(&self, name: &str, endpoint: Option<&str>) -> WorkspaceConfig {
         let mut panes = Vec::new();
 
         // Collect all QueryPane data from the viewport tree
@@ -39,6 +37,7 @@ impl Workspace {
                         query_pane.saved_query(),
                         query_pane.name(),
                         query_pane.tag(),
+                        query_pane.description(),
                         state,
                     ));
                 }
@@ -50,19 +49,22 @@ impl Workspace {
                 name: name.to_string(),
                 description: String::new(),
                 version: WORKSPACE_VERSION,
+                endpoint: endpoint.map(|e| e.to_string()).unwrap_or_default(),
             },
-            connection: endpoint.map_or_else(ConnectionConfig::default, |e| {
-                ConnectionConfig::with_endpoint(e)
-            }),
-            codebase: CodebaseConfig::default(),
+            metrics: MetricsConfig::default(),
+            logs: LogsConfig::default(),
+            git: GitConfig::default(),
             view: ViewConfig {
-                theme: match theme {
-                    AppTheme::Light => "light".to_string(),
-                    AppTheme::Dark => "dark".to_string(),
-                },
+                // Theme is NOT included - it's a user preference, not workspace setting
                 zen_mode: self.zen_mode,
+                ..Default::default()
             },
-            time: TimeConfig::from_preset(self.time_range_toolbar.time_range().preset),
+            time: TimeConfig::from_preset_with_refresh(
+                self.time_range_toolbar.time_range().preset,
+                self.refresh_interval.unwrap_or_default(),
+            ),
+            plugins: PluginsConfig::default(),
+            sections: Vec::new(),
             panes,
             layout: self.extract_layout_from_tree(),
         }
@@ -70,17 +72,18 @@ impl Workspace {
 
     /// Load a workspace config, replacing current state
     /// Returns the connection config if specified in the workspace
-    pub fn load_workspace_config(
-        &mut self,
-        config: &WorkspaceConfig,
-        theme: &mut AppTheme,
-    ) -> Option<ConnectionConfig> {
-        // Apply view settings
-        *theme = config.view.app_theme();
+    ///
+    /// Note: Theme is NOT loaded from workspace config - it's a user preference
+    /// stored in AppSettings, not a per-workspace setting.
+    pub fn load_workspace_config(&mut self, config: &WorkspaceConfig) -> Option<ConnectionConfig> {
+        // Apply view settings (theme is intentionally NOT loaded - it's a user preference)
         self.zen_mode = config.view.zen_mode;
 
         // Apply time range
         self.time_range_toolbar.set_preset(config.time.to_preset());
+
+        // Apply refresh interval
+        self.set_refresh_interval(RefreshInterval::parse(&config.time.refresh));
 
         // Clear existing panes and reset the tree
         self.clear_all_panes();
@@ -88,10 +91,29 @@ impl Workspace {
         // Reset query counter for new workspace
         self.next_query_number = 1;
 
-        // Phase 1: Insert all panes and collect their TileIds
-        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(config.panes.len());
+        // Initialize section state if workspace uses sections
+        if config.uses_sections() {
+            self.section_configs = config.sections.clone();
+            self.section_states = config
+                .sections
+                .iter()
+                .map(|s| SectionState::new(s.collapsed))
+                .collect();
+            self.section_focus = FocusTarget::first();
+        } else {
+            self.section_configs.clear();
+            self.section_states.clear();
+            self.section_focus = FocusTarget::None;
+        }
 
-        for pane_config in &config.panes {
+        // Get all panes (from sections if present, otherwise from legacy panes field)
+        let all_panes = config.all_panes();
+        let pane_count = all_panes.len();
+
+        // Phase 1: Insert all panes and collect their TileIds
+        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(pane_count);
+
+        for pane_config in &all_panes {
             let query_number = self.next_query_number;
             self.next_query_number += 1;
 
@@ -102,6 +124,9 @@ impl Workspace {
             );
             if !pane_config.tag.is_empty() {
                 query_pane.set_tag(&pane_config.tag);
+            }
+            if !pane_config.description.is_empty() {
+                query_pane.set_description(&pane_config.description);
             }
             if !pane_config.unit.is_empty() {
                 query_pane.set_unit(&pane_config.unit);
@@ -125,7 +150,7 @@ impl Workspace {
         // Phase 2: Build the layout tree
         let root_id = if let Some(layout) = &config.layout {
             // Validate layout references before building
-            if let Err(e) = layout.validate(config.panes.len()) {
+            if let Err(e) = layout.validate(pane_count) {
                 log::warn!("Invalid layout config: {e}. Falling back to tabs.");
                 self.viewport_tree
                     .tiles
@@ -145,34 +170,48 @@ impl Workspace {
         self.viewport_tree.root = Some(root_id);
 
         // Hide landing page if we have panes
-        if !config.panes.is_empty() {
+        if !all_panes.is_empty() {
             self.show_landing = false;
         }
 
-        // Store codebase URL for deferred initialization (native only)
+        // Store git URL for deferred initialization (native only with codebase feature)
         // The actual clone/index happens in show() when ctx is available
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.pending_codebase_config = if config.codebase.is_empty() {
+            self.pending_git_config = if config.git.is_empty() {
                 None
             } else {
-                Some(config.codebase.url.clone())
+                // Set language filter if configured
+                self.codebase_manager.set_language(&config.git.language);
+                Some(config.git.url.clone())
             };
         }
 
         // Store connection endpoint for deferred initialization
         // The actual connection happens in show() when ctx is available
-        self.pending_connection_endpoint = if config.connection.is_empty() {
+        // Use effective_connection() to support both workspace.endpoint and [connection]
+        let effective_conn = config.effective_connection();
+        self.pending_connection_endpoint = if effective_conn.is_empty() {
             None
         } else {
-            Some(config.connection.endpoint.clone())
+            Some(effective_conn.endpoint.clone())
         };
 
+        // Sync behavior.focused_tile() with section_focus for compatibility
+        // with features that rely on tile-based focus (visual-multi, etc.)
+        if self.has_sections() {
+            let tile_id = self.section_focus_to_tile_id();
+            self.behavior.set_focused_tile(tile_id);
+        } else if !pane_tile_ids.is_empty() {
+            // For non-section workspaces, focus the first pane (top-left)
+            self.behavior.set_focused_tile(Some(pane_tile_ids[0]));
+        }
+
         // Return connection config if present (for logging/tracking in caller)
-        if config.connection.is_empty() {
+        if effective_conn.is_empty() {
             None
         } else {
-            Some(config.connection.clone())
+            Some(effective_conn)
         }
     }
 

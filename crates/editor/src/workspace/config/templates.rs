@@ -149,13 +149,12 @@ children = [
 pub const ATLAS_WORKSPACE_TOML: &str = r#"[workspace]
 name = "atlas"
 description = "Atlas observability dashboard with codebase integration"
-
-[connection]
 endpoint = "http://localhost:9090"
 
-[codebase]
+[git]
 url = "git@github.com:polygon-io/rust-app-atlas.git"
 branch = "main"
+language = "rust"
 
 [view]
 theme = "dark"
@@ -179,58 +178,51 @@ children = [0]
 
 /// Demo workspace with sample queries that work without a backend connection.
 /// Uses realistic Prometheus metric names from the DemoMetricsClient catalog.
+/// Demonstrates collapsible sections with different layouts.
 pub const DEMO_WORKSPACE_TOML: &str = r#"[workspace]
 name = "demo"
 description = "Interactive demo with sample data - no backend required"
-
-# Empty endpoint means demo mode (synthetic data)
-[connection]
-endpoint = ""
+# No endpoint = demo mode (synthetic data)
 
 [view]
 theme = "dark"
 
 [time]
 preset = "1h"
+refresh = "30s"  # Auto-refresh every 30 seconds
 
-# Time Series: HTTP request rate by method (rate of counter)
-[[panes]]
+# API Performance section - horizontal layout for side-by-side comparison
+[[sections]]
+name = "API Performance"
+layout = "horizontal"
+
+[[sections.panes]]
 query = "sum(rate(http_requests_total[5m])) by (method)"
 name = "HTTP Request Rate"
 visualization = "time_series"
 granularity = "1m"
 
-# Stat: Active database connections (gauge - current value)
-[[panes]]
-query = "sum(db_connections_active) by (pool)"
-name = "DB Connections"
-visualization = "stat"
-granularity = "1m"
-
-# Time Series: Request latency p99 (histogram quantile)
-[[panes]]
+[[sections.panes]]
 query = "histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))"
 name = "Request Latency (p99)"
 visualization = "time_series"
 granularity = "1m"
 
-# Gauge: Application queue depth (gauge - current value)
-[[panes]]
+# Infrastructure section - grid layout for compact display
+[[sections]]
+name = "Infrastructure"
+layout = "grid"
+columns = 2
+
+[[sections.panes]]
+query = "sum(db_connections_active) by (pool)"
+name = "DB Connections"
+visualization = "stat"
+granularity = "1m"
+
+[[sections.panes]]
 query = "sum(app_queue_depth) by (queue)"
 name = "Queue Depth"
 visualization = "gauge"
 granularity = "1m"
-
-# Layout: 2x2 grid
-# +----------------------+------------------+
-# | HTTP Request Rate(0) | DB Connections(1)|
-# +----------------------+------------------+
-# | Request Latency(2)   | Queue Depth (3)  |
-# +----------------------+------------------+
-[layout]
-type = "vertical"
-children = [
-    { type = "horizontal", children = [0, 1] },
-    { type = "horizontal", children = [2, 3] }
-]
 "#;

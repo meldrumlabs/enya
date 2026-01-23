@@ -2,11 +2,14 @@
 //!
 //! This module provides functions to populate visualizations with
 //! demo data when not connected to a real data source.
-
-use egui::Color32;
+//!
+//! Note: Series colors are intentionally NOT set here. The TimeSeriesChart
+//! will automatically use theme-aware colors from `theme.chart_color(index)`
+//! when rendering, allowing colors to change dynamically with theme switches.
 
 use crate::ui::palette;
 
+use super::super::annotation::{Annotation, AnnotationAuthor, AnnotationPriority};
 use super::super::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
 
 use super::Threshold;
@@ -55,6 +58,10 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         return;
     }
 
+    // Note: We intentionally don't set colors here. The TimeSeriesChart will
+    // use theme.chart_color(index) at render time, allowing colors to change
+    // dynamically when the theme changes.
+
     // Generate some demo data based on query hash for variety
     let hash = query
         .bytes()
@@ -81,8 +88,7 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
     chart.add_series(
         Series::new(query)
             .with_tag("host", "server1")
-            .with_points(points1)
-            .with_color(Color32::from_rgb(59, 130, 246)),
+            .with_points(points1),
     );
 
     // Series 2
@@ -103,8 +109,7 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
     chart.add_series(
         Series::new(query)
             .with_tag("host", "server2")
-            .with_points(points2)
-            .with_color(Color32::from_rgb(16, 185, 129)),
+            .with_points(points2),
     );
 
     // Add demo commit markers
@@ -133,6 +138,36 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         now + duration * 0.9,
         "Performance improvements",
     ));
+
+    // Add demo annotations to showcase team collaboration features
+    chart.add_annotation(
+        Annotation::at_point(
+            now + duration * 0.15,
+            "Latency spike after deploy - investigating",
+        )
+        .with_author(AnnotationAuthor::local("Alice Chen"))
+        .with_priority(AnnotationPriority::Important),
+    );
+    chart.add_annotation(
+        Annotation::at_range(
+            now + duration * 0.4,
+            now + duration * 0.45,
+            "Planned maintenance window",
+        )
+        .with_author(AnnotationAuthor::local("Bob Smith")),
+    );
+    chart.add_annotation(
+        Annotation::at_point(
+            now + duration * 0.6,
+            "Root cause: connection pool exhaustion - fixed in next release",
+        )
+        .with_author(AnnotationAuthor::local("Alice Chen"))
+        .with_priority(AnnotationPriority::Critical),
+    );
+    let mut resolved_ann = Annotation::at_point(now + duration * 0.8, "Fixed in v2.3.1")
+        .with_author(AnnotationAuthor::local("Carol Davis"));
+    resolved_ann.resolve();
+    chart.add_annotation(resolved_ann);
 }
 
 /// Populate demo data for stat visualization
@@ -332,29 +367,17 @@ fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         "/api/notifications",
     ];
 
-    // Colors for each series
-    let colors = [
-        Color32::from_rgb(99, 179, 237),  // Sky blue
-        Color32::from_rgb(129, 140, 248), // Indigo
-        Color32::from_rgb(94, 234, 212),  // Teal
-        Color32::from_rgb(192, 132, 252), // Purple
-        Color32::from_rgb(251, 191, 36),  // Amber
-        Color32::from_rgb(244, 114, 182), // Pink
-        Color32::from_rgb(52, 211, 153),  // Emerald
-        Color32::from_rgb(248, 113, 113), // Coral
-        Color32::from_rgb(163, 230, 53),  // Lime
-        Color32::from_rgb(251, 146, 60),  // Orange
-        Color32::from_rgb(147, 197, 253), // Light blue
-        Color32::from_rgb(196, 181, 253), // Light purple
-    ];
+    // Note: We intentionally don't set colors here. The TimeSeriesChart will
+    // use theme.chart_color(index) at render time, allowing colors to change
+    // dynamically when the theme changes.
 
-    for (i, endpoint) in endpoints.iter().enumerate() {
+    for endpoint in endpoints.iter() {
         let hash = endpoint
             .bytes()
             .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
         let base = 20.0 + (hash % 80) as f64;
         let freq = 100.0 + (hash % 200) as f64;
-        let phase = (i as f64) * 0.5;
+        let phase = (hash % 10) as f64 * 0.5;
 
         let points: Vec<DataPoint> = (0..num_points)
             .map(|j| {
@@ -370,8 +393,7 @@ fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         chart.add_series(
             Series::new(query)
                 .with_tag("endpoint", *endpoint)
-                .with_points(points)
-                .with_color(colors[i % colors.len()]),
+                .with_points(points),
         );
     }
 }

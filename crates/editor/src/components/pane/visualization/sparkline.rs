@@ -2,8 +2,6 @@
 
 use egui::{Color32, RichText, Stroke};
 
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
@@ -90,6 +88,11 @@ impl SparklineViz {
         self.data.clear();
     }
 
+    /// Get the data points.
+    pub fn data(&self) -> &[f64] {
+        &self.data
+    }
+
     /// Set whether to show the current value
     pub fn set_show_value(&mut self, show: bool) {
         self.show_value = show;
@@ -107,7 +110,7 @@ impl SparklineViz {
 
     /// Get the line color (uses accent if not set)
     fn line_color(&self) -> Color32 {
-        self.color.unwrap_or(palette::accent::PRIMARY)
+        self.color.unwrap_or(self.theme.accent_primary())
     }
 
     /// Get the current (latest) value
@@ -129,8 +132,9 @@ impl SparklineViz {
     }
 
     /// Render the sparkline chart
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let line_color = self.line_color();
 
         let available_width = ui.available_width();

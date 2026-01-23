@@ -11,3 +11,23 @@ target_ra
 target_wasm
 
 .enya/
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Zig build cache (ghostty_vt_sys)
+.zig-cache/
+
+# Credentials
+*.pem
+*.key
+credentials.json

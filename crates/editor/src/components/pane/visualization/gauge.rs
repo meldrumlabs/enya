@@ -2,8 +2,6 @@
 
 use egui::{Color32, RichText, Stroke};
 
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 use super::stat::Threshold;
@@ -110,6 +108,26 @@ impl GaugeChart {
         self.current_value = 0.0;
     }
 
+    /// Get the current value.
+    pub fn value(&self) -> f64 {
+        self.current_value
+    }
+
+    /// Get the minimum value.
+    pub fn min(&self) -> f64 {
+        self.min_value
+    }
+
+    /// Get the maximum value.
+    pub fn max(&self) -> f64 {
+        self.max_value
+    }
+
+    /// Get the unit string.
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
     /// Get the normalized value (0.0 to 1.0)
     pub(crate) fn normalized_value(&self) -> f64 {
         let range = self.max_value - self.min_value;
@@ -121,7 +139,7 @@ impl GaugeChart {
 
     /// Get color based on thresholds
     fn color_for_value(&self) -> Color32 {
-        let mut color = palette::accent::PRIMARY;
+        let mut color = self.theme.accent_primary();
         for threshold in &self.thresholds {
             if self.current_value >= threshold.value {
                 color = threshold.color;
@@ -166,7 +184,7 @@ impl GaugeChart {
         let num_segments = 60;
 
         // Draw background arc (dimmed)
-        let bg_color = text_color(self.theme).gamma_multiply(0.15);
+        let bg_color = self.theme.text_primary().gamma_multiply(0.15);
         let bg_points: Vec<egui::Pos2> = (0..=num_segments)
             .map(|i| {
                 let t = i as f32 / num_segments as f32;
@@ -215,8 +233,9 @@ impl GaugeChart {
     }
 
     /// Render the gauge chart
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         let available_width = ui.available_width();
         let available_height = ui.available_height();

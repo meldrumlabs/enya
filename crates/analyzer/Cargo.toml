@@ -22,8 +22,9 @@ streaming-iterator = "0.1"
 walkdir = "2"
 rustc-hash = { workspace = true }
 log = { workspace = true }
-dirs = "6"
+parking_lot = { workspace = true }
 enya-promql = { workspace = true }
+rayon = "1.10"
 
 [dev-dependencies]
 

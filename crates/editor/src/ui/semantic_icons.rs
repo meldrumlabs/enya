@@ -222,6 +222,11 @@ pub mod status {
     pub const VISUAL: &str = regular::SELECTION;
     pub const SEARCH: &str = regular::MAGNIFY;
     pub const COMMAND_MODE: &str = regular::TERMINAL;
+
+    // Notifications
+    pub const NOTIFICATION: &str = regular::BELL;
+    pub const NOTIFICATION_NEW: &str = regular::BELL_BADGE;
+    pub const ALERT: &str = regular::ALERT;
 }
 
 // ============================================================================
@@ -253,6 +258,7 @@ pub mod nav {
     pub const TABS: &str = regular::TAB;
     pub const FULLSCREEN: &str = regular::FULLSCREEN;
     pub const EXIT_FULLSCREEN: &str = regular::FULLSCREEN_EXIT;
+    pub const TREE: &str = regular::SITEMAP;
 
     // Navigation targets
     pub const HOME: &str = regular::HOME;
@@ -260,6 +266,7 @@ pub mod nav {
     pub const HELP: &str = regular::HELP_CIRCLE;
     pub const BACK: &str = regular::ARROW_LEFT;
     pub const FORWARD: &str = regular::ARROW_RIGHT;
+    pub const SWITCH: &str = regular::SWAP_HORIZONTAL;
 }
 
 // ============================================================================
@@ -289,6 +296,11 @@ pub mod action {
     pub const ZOOM_IN: &str = regular::MAGNIFY_PLUS;
     pub const ZOOM_OUT: &str = regular::MAGNIFY_MINUS;
     pub const SWAP: &str = regular::SWAP_HORIZONTAL;
+    pub const EXPLORE: &str = regular::COMPASS;
+    pub const TAG: &str = regular::TAG;
+    pub const SPLIT: &str = regular::ARROW_SPLIT_HORIZONTAL;
+    pub const HELP: &str = regular::HELP_CIRCLE;
+    pub const HISTORY: &str = regular::HISTORY;
 
     // Chart/Data operations
     pub const CHART: &str = regular::CHART_LINE;
@@ -303,6 +315,20 @@ pub mod action {
     pub const PAUSE: &str = regular::PAUSE;
     pub const STOP: &str = regular::STOP;
     pub const CLOSE: &str = regular::CLOSE;
+
+    // AI/Agent operations
+    pub const ROBOT: &str = regular::ROBOT;
+    pub const BRAIN: &str = regular::BRAIN;
+    pub const TOOL: &str = regular::WRENCH;
+
+    // Terminal operations
+    pub const TERMINAL: &str = regular::TERMINAL;
+    pub const GHOSTTY: &str = regular::GHOST;
+
+    // Account operations
+    pub const SETTINGS: &str = regular::COG_1;
+    pub const LOGOUT: &str = regular::LOGOUT;
+    pub const LOGIN: &str = regular::LOGIN;
 }
 
 // ============================================================================
@@ -331,6 +357,7 @@ pub mod file {
     pub const TAG: &str = regular::TAG;
     pub const LABEL: &str = regular::HASH;
     pub const TREE: &str = regular::SITEMAP;
+    pub const GIT: &str = regular::GIT;
 }
 
 // ============================================================================
@@ -469,6 +496,142 @@ pub mod statusline {
     pub const RECORDING: &str = regular::RECORD;
     pub const CLOCK: &str = regular::CLOCK_OUTLINE;
     pub const REFRESH: &str = regular::SYNC;
+}
+
+// ============================================================================
+// Social/Team Icons - icons for team collaboration features
+// ============================================================================
+
+pub mod social {
+    use egui_nerdfonts::regular;
+
+    pub const TEAM: &str = regular::ACCOUNT_GROUP;
+    pub const USER: &str = regular::ACCOUNT;
+    pub const USERS: &str = regular::ACCOUNT_MULTIPLE;
+    pub const COMMENT: &str = regular::COMMENT;
+    pub const COMMENTS: &str = regular::COMMENT_MULTIPLE;
+    pub const MENTION: &str = regular::AT;
+    pub const CHAT: &str = regular::CHAT;
+}
+
+// ============================================================================
+// Language Icons - icons for programming languages
+// ============================================================================
+
+pub mod language {
+    use egui_nerdfonts::regular;
+
+    // Language icons from MDI (Material Design Icons) - the LANGUAGE_* variants
+    // include the actual language logos (Rust gear, Go gopher, Python snake, etc.)
+    pub const RUST: &str = regular::LANGUAGE_RUST;
+    pub const GO: &str = regular::LANGUAGE_GO;
+    pub const PYTHON: &str = regular::LANGUAGE_PYTHON;
+    pub const JAVASCRIPT: &str = regular::LANGUAGE_JAVASCRIPT;
+    pub const TYPESCRIPT: &str = regular::LANGUAGE_TYPESCRIPT;
+    pub const JAVA: &str = regular::LANGUAGE_JAVA;
+    pub const C: &str = regular::LANGUAGE_C;
+    pub const CPP: &str = regular::LANGUAGE_CPP;
+    pub const CSHARP: &str = regular::LANGUAGE_CSHARP;
+    pub const HTML: &str = regular::LANGUAGE_HTML5;
+    pub const CSS: &str = regular::LANGUAGE_CSS3;
+    pub const RUBY: &str = regular::LANGUAGE_RUBY;
+    pub const PHP: &str = regular::LANGUAGE_PHP;
+    pub const LUA: &str = regular::LANGUAGE_LUA;
+    pub const KOTLIN: &str = regular::LANGUAGE_KOTLIN;
+    pub const SWIFT: &str = regular::LANGUAGE_SWIFT;
+    pub const MARKDOWN: &str = regular::LANGUAGE_MARKDOWN;
+
+    /// Get language icon from language name
+    pub fn from_name(name: &str) -> Option<&'static str> {
+        match name.to_lowercase().as_str() {
+            "rust" | "rs" => Some(RUST),
+            "go" | "golang" => Some(GO),
+            "python" | "py" => Some(PYTHON),
+            "javascript" | "js" => Some(JAVASCRIPT),
+            "typescript" | "ts" => Some(TYPESCRIPT),
+            "java" => Some(JAVA),
+            "c" => Some(C),
+            "cpp" | "c++" | "cc" | "cxx" => Some(CPP),
+            "csharp" | "cs" | "c#" => Some(CSHARP),
+            "html" | "htm" => Some(HTML),
+            "css" | "scss" | "sass" => Some(CSS),
+            "ruby" | "rb" => Some(RUBY),
+            "php" => Some(PHP),
+            "lua" => Some(LUA),
+            "kotlin" | "kt" => Some(KOTLIN),
+            "swift" => Some(SWIFT),
+            "markdown" | "md" => Some(MARKDOWN),
+            _ => None,
+        }
+    }
+
+    /// Get language icon from file extension
+    pub fn from_extension(ext: &str) -> Option<&'static str> {
+        match ext.to_lowercase().as_str() {
+            "rs" => Some(RUST),
+            "go" => Some(GO),
+            "py" | "pyw" | "pyi" => Some(PYTHON),
+            "js" | "mjs" | "cjs" => Some(JAVASCRIPT),
+            "ts" | "tsx" => Some(TYPESCRIPT),
+            "jsx" => Some(JAVASCRIPT),
+            "java" => Some(JAVA),
+            "c" | "h" => Some(C),
+            "cpp" | "cc" | "cxx" | "hpp" | "hxx" => Some(CPP),
+            "cs" => Some(CSHARP),
+            "html" | "htm" => Some(HTML),
+            "css" | "scss" | "sass" | "less" => Some(CSS),
+            "rb" | "rake" => Some(RUBY),
+            "php" => Some(PHP),
+            "lua" => Some(LUA),
+            "kt" | "kts" => Some(KOTLIN),
+            "swift" => Some(SWIFT),
+            "md" | "markdown" => Some(MARKDOWN),
+            _ => None,
+        }
+    }
+}
+
+/// Get a file icon based on file path/extension
+pub fn file_icon(path: &std::path::Path) -> &'static str {
+    // Try to get language-specific icon first
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if let Some(icon) = language::from_extension(ext) {
+            return icon;
+        }
+
+        // Check for config files
+        match ext.to_lowercase().as_str() {
+            "toml" | "yaml" | "yml" | "json" | "ini" | "conf" | "cfg" => {
+                return file::CONFIG;
+            }
+            "csv" | "tsv" | "parquet" | "avro" => return file::DATA,
+            "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "ico" => return file::IMAGE,
+            "txt" | "log" => return file::TEXT,
+            _ => {}
+        }
+    }
+
+    // Check for special filenames
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        let name_lower = name.to_lowercase();
+        if name_lower.starts_with("dockerfile")
+            || name_lower == "makefile"
+            || name_lower == "cmakelists.txt"
+            || name_lower == "cargo.toml"
+            || name_lower == "package.json"
+            || name_lower == "go.mod"
+            || name_lower == ".gitignore"
+            || name_lower == ".env"
+        {
+            return file::CONFIG;
+        }
+        if name_lower == "readme.md" || name_lower == "changelog.md" || name_lower == "license" {
+            return file::TEXT;
+        }
+    }
+
+    // Default to code icon for unknown types
+    file::CODE
 }
 
 #[cfg(test)]

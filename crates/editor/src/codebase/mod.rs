@@ -11,7 +11,15 @@ use rustc_hash::FxHashMap;
 pub use enya_analyzer::{
     AlertRule, CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind,
     Scanner, ScannerRegistry, build_index_with_progress, fetch_commit_history,
+    fetch_recent_commits, get_head_commit, get_head_commit_message,
 };
+
+// Full-text search module (native only)
+#[cfg(not(target_arch = "wasm32"))]
+pub mod search;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use search::{IndexError, SearchFilter, SearchResult, SearchResultKind, TantivyCodebaseIndex};
 
 // Re-export CommitMarker from the chart module
 pub use crate::components::pane::time_series_chart::CommitMarker;
@@ -32,11 +40,39 @@ pub enum CodebaseStatus {
         current: usize,
         /// Total files to index
         total: usize,
+        /// Name of the current file being indexed
+        current_file: Option<String>,
+        /// Language being scanned (for icon display)
+        language: Option<String>,
     },
     /// Codebase is ready and indexed.
-    Ready { url: String },
+    Ready {
+        url: String,
+        /// Repository name extracted from URL
+        repo_name: String,
+        /// Number of metrics discovered
+        metrics_count: usize,
+        /// Language that was scanned
+        language: Option<String>,
+        /// HEAD commit message (subject line)
+        head_commit_msg: Option<String>,
+        /// HEAD commit hash (short form)
+        head_commit_hash: Option<String>,
+    },
     /// An error occurred.
     Error { url: String, message: String },
+}
+
+/// Extract repository name from a git URL.
+///
+/// Examples:
+/// - `git@github.com:org/repo.git` → `repo`
+/// - `https://github.com/org/repo.git` → `repo`
+/// - `https://github.com/org/repo` → `repo`
+fn extract_repo_name(url: &str) -> String {
+    // Handle both HTTPS (/) and SSH (:) separators
+    let name = url.rsplit(['/', ':']).next().unwrap_or(url);
+    name.trim_end_matches(".git").to_string()
 }
 
 impl CodebaseStatus {
@@ -60,8 +96,52 @@ impl CodebaseStatus {
             Self::Cloning { url }
             | Self::Fetching { url }
             | Self::Indexing { url, .. }
-            | Self::Ready { url }
+            | Self::Ready { url, .. }
             | Self::Error { url, .. } => Some(url),
+        }
+    }
+
+    /// Returns the language if one is configured.
+    pub fn language(&self) -> Option<&str> {
+        match self {
+            Self::Indexing { language, .. } | Self::Ready { language, .. } => language.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Returns the repository name if ready.
+    pub fn repo_name(&self) -> Option<&str> {
+        match self {
+            Self::Ready { repo_name, .. } => Some(repo_name),
+            _ => None,
+        }
+    }
+
+    /// Returns the metrics count if ready.
+    pub fn metrics_count(&self) -> Option<usize> {
+        match self {
+            Self::Ready { metrics_count, .. } => Some(*metrics_count),
+            _ => None,
+        }
+    }
+
+    /// Returns the HEAD commit message if ready.
+    pub fn head_commit_msg(&self) -> Option<&str> {
+        match self {
+            Self::Ready {
+                head_commit_msg, ..
+            } => head_commit_msg.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Returns the HEAD commit hash if ready.
+    pub fn head_commit_hash(&self) -> Option<&str> {
+        match self {
+            Self::Ready {
+                head_commit_hash, ..
+            } => head_commit_hash.as_deref(),
+            _ => None,
         }
     }
 }
@@ -81,7 +161,11 @@ pub enum CodebaseResult {
         has_changes: bool,
     },
     /// Indexing completed.
-    IndexComplete { url: String, index: CodebaseIndex },
+    IndexComplete {
+        url: String,
+        index: CodebaseIndex,
+        language: Option<String>,
+    },
     /// Commit history fetch completed.
     HistoryComplete {
         start_secs: i64,
@@ -91,6 +175,10 @@ pub enum CodebaseResult {
     /// An error occurred.
     Error { url: String, message: String },
 }
+
+/// Result from building a Tantivy index (native only).
+#[cfg(not(target_arch = "wasm32"))]
+type TantivyResult = Result<TantivyCodebaseIndex, IndexError>;
 
 /// Manages codebase integration for the editor.
 ///
@@ -104,12 +192,24 @@ pub struct CodebaseManager {
     indexing_progress: Option<IndexProgress>,
     /// Registry of available scanners for different languages
     scanner_registry: ScannerRegistry,
+    /// Configured language for scanning (e.g., "rust", "go", "python")
+    /// If empty, all language scanners are used.
+    language: String,
     /// Cached commit history keyed by (start_secs, end_secs)
     commit_cache: FxHashMap<(i64, i64), Vec<CommitMarker>>,
     /// Time range currently being fetched (to avoid duplicate requests)
     pending_history_range: Option<(i64, i64)>,
     /// Flag indicating new commits arrived this frame
     commits_updated: bool,
+    /// Tantivy full-text search index (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    tantivy_index: Option<TantivyCodebaseIndex>,
+    /// Pending Tantivy index result from background thread
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_tantivy: Arc<Mutex<Option<TantivyResult>>>,
+    /// Progress tracking for Tantivy indexing (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    tantivy_progress: Option<search::TantivyProgress>,
 }
 
 impl Default for CodebaseManager {
@@ -127,10 +227,25 @@ impl CodebaseManager {
             index: None,
             indexing_progress: None,
             scanner_registry: ScannerRegistry::default(),
+            language: String::new(),
             commit_cache: FxHashMap::default(),
             pending_history_range: None,
             commits_updated: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            tantivy_index: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_tantivy: Arc::new(Mutex::new(None)),
+            #[cfg(not(target_arch = "wasm32"))]
+            tantivy_progress: None,
         }
+    }
+
+    /// Sets the language for metric scanning.
+    ///
+    /// When set, only scanners for the specified language will be used during indexing.
+    /// Supported values: "rust", "go", "python", "javascript", "typescript"
+    pub fn set_language(&mut self, language: impl Into<String>) {
+        self.language = language.into();
     }
 
     /// Returns a reference to the scanner registry.
@@ -209,7 +324,16 @@ impl CodebaseManager {
     }
 
     /// Builds the codebase index from the given repository path.
-    fn start_indexing(&mut self, url: String, path: std::path::PathBuf, ctx: &egui::Context) {
+    ///
+    /// If `language` is provided, only scanners for that language will be used.
+    /// Otherwise, all language scanners are used.
+    fn start_indexing(
+        &mut self,
+        url: String,
+        path: std::path::PathBuf,
+        language: Option<String>,
+        ctx: &egui::Context,
+    ) {
         // Create shared progress tracker
         let progress = IndexProgress::new();
         self.indexing_progress = Some(progress.clone());
@@ -218,6 +342,8 @@ impl CodebaseManager {
             url: url.clone(),
             current: 0,
             total: 0,
+            current_file: None,
+            language: language.clone(),
         };
 
         let pending = Arc::clone(&self.pending_result);
@@ -225,10 +351,18 @@ impl CodebaseManager {
 
         std::thread::spawn(move || {
             // Create scanner registry for the indexing thread
-            let registry = ScannerRegistry::default();
+            // Use language-specific registry if configured, otherwise use all scanners
+            let registry = match language {
+                Some(ref lang) if !lang.is_empty() => ScannerRegistry::for_language(lang),
+                _ => ScannerRegistry::default(),
+            };
 
             let result = match build_index_with_progress(&url, &path, &progress, &registry) {
-                Ok(idx) => CodebaseResult::IndexComplete { url, index: idx },
+                Ok(idx) => CodebaseResult::IndexComplete {
+                    url,
+                    index: idx,
+                    language,
+                },
                 Err(e) => CodebaseResult::Error {
                     url,
                     message: e.to_string(),
@@ -247,20 +381,56 @@ impl CodebaseManager {
         // Reset per-frame flags
         self.commits_updated = false;
 
+        // Request continuous repaints during fetching (so UI stays responsive)
+        if matches!(self.status, CodebaseStatus::Fetching { .. }) {
+            ctx.request_repaint();
+        }
+
         // Update indexing progress from the shared atomics
         if let Some(ref progress) = self.indexing_progress {
             let (current, total) = progress.get();
-            if let CodebaseStatus::Indexing { url, .. } = &self.status {
+            let current_file = progress.current_file();
+            if let CodebaseStatus::Indexing { url, language, .. } = &self.status {
                 self.status = CodebaseStatus::Indexing {
                     url: url.clone(),
                     current,
                     total,
+                    current_file,
+                    language: language.clone(),
                 };
                 // Request repaint to show updated progress
                 if current > 0 {
                     ctx.request_repaint();
                 }
             }
+        }
+
+        // Request continuous repaints during Tantivy indexing
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.tantivy_progress.is_some() {
+            ctx.request_repaint();
+        }
+
+        // Check for completed Tantivy index build (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(result) = self.pending_tantivy.lock().take() {
+            match result {
+                Ok(tantivy_index) => {
+                    log::info!(
+                        "Tantivy index ready: {} metrics, {} alerts, {} commits",
+                        tantivy_index.metric_count(),
+                        tantivy_index.alert_count(),
+                        tantivy_index.commit_count()
+                    );
+                    self.tantivy_index = Some(tantivy_index);
+                }
+                Err(e) => {
+                    log::warn!("Failed to build Tantivy index: {e}");
+                    // Continue without Tantivy - fallback to in-memory search
+                }
+            }
+            // Clear progress tracker when done
+            self.tantivy_progress = None;
         }
 
         let result = self.pending_result.lock().take();
@@ -272,7 +442,12 @@ impl CodebaseManager {
         match result {
             CodebaseResult::CloneComplete { url, path } => {
                 // Clone complete, start indexing
-                self.start_indexing(url, path, ctx);
+                let language = if self.language.is_empty() {
+                    None
+                } else {
+                    Some(self.language.clone())
+                };
+                self.start_indexing(url, path, language, ctx);
             }
             CodebaseResult::FetchComplete {
                 url,
@@ -281,15 +456,192 @@ impl CodebaseManager {
             } => {
                 if has_changes {
                     // Re-index if there were changes
-                    self.start_indexing(url, path, ctx);
+                    let language = if self.language.is_empty() {
+                        None
+                    } else {
+                        Some(self.language.clone())
+                    };
+                    self.start_indexing(url, path, language, ctx);
                 } else {
-                    // No changes, we're done
-                    self.status = CodebaseStatus::Ready { url };
+                    // No changes, preserve existing ready state info
+                    if let CodebaseStatus::Ready {
+                        repo_name,
+                        metrics_count,
+                        language,
+                        head_commit_msg,
+                        head_commit_hash,
+                        ..
+                    } = &self.status
+                    {
+                        self.status = CodebaseStatus::Ready {
+                            url,
+                            repo_name: repo_name.clone(),
+                            metrics_count: *metrics_count,
+                            language: language.clone(),
+                            head_commit_msg: head_commit_msg.clone(),
+                            head_commit_hash: head_commit_hash.clone(),
+                        };
+                    } else {
+                        // Fallback if we somehow weren't ready before
+                        let language = if self.language.is_empty() {
+                            None
+                        } else {
+                            Some(self.language.clone())
+                        };
+                        // Get the head commit message and hash
+                        let head_commit_msg = self
+                            .index
+                            .as_ref()
+                            .and_then(|idx| get_head_commit_message(&idx.repo_path).ok());
+                        let head_commit_hash = self
+                            .index
+                            .as_ref()
+                            .and_then(|idx| get_head_commit(&idx.repo_path).ok());
+                        self.status = CodebaseStatus::Ready {
+                            repo_name: extract_repo_name(&url),
+                            metrics_count: self.index.as_ref().map_or(0, |i| i.metrics.len()),
+                            language,
+                            url,
+                            head_commit_msg,
+                            head_commit_hash,
+                        };
+                    }
                 }
             }
-            CodebaseResult::IndexComplete { url, index } => {
+            CodebaseResult::IndexComplete {
+                url,
+                index,
+                language,
+            } => {
+                let metrics_count = index.metrics.len();
+                let repo_name = extract_repo_name(&url);
+
+                // Spawn background task to build Tantivy index (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let repo_path = index.repo_path.clone();
+                    let index_clone = index.clone();
+                    let pending_tantivy = Arc::clone(&self.pending_tantivy);
+                    let ctx_clone = ctx.clone();
+
+                    // Create progress tracker for Tantivy indexing
+                    let progress = search::TantivyProgress::new();
+                    self.tantivy_progress = Some(progress.clone());
+
+                    std::thread::spawn(move || {
+                        progress.set_phase(search::TantivyPhase::FetchingCommits);
+
+                        // Check for existing index to enable incremental updates
+                        let existing_index = TantivyCodebaseIndex::open_or_create(&repo_path).ok();
+                        let last_indexed_commit = existing_index
+                            .as_ref()
+                            .and_then(|idx| idx.indexed_commit().map(ToString::to_string));
+
+                        let is_incremental = last_indexed_commit.is_some();
+                        if let Some(ref commit) = last_indexed_commit {
+                            progress.set_current_item(Some(format!(
+                                "Checking for new commits since {}...",
+                                &commit[..7.min(commit.len())]
+                            )));
+                        } else {
+                            progress.set_current_item(Some(
+                                "Loading full commit history...".to_string(),
+                            ));
+                        }
+
+                        // Create progress callback for diff fetching
+                        let progress_clone = progress.clone();
+                        let ctx_for_progress = ctx_clone.clone();
+                        let last_repaint =
+                            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                        let last_repaint_clone = Arc::clone(&last_repaint);
+
+                        let progress_callback: enya_analyzer::ProgressCallback =
+                            Box::new(move |current, total, item| {
+                                progress_clone.set_total(total);
+                                progress_clone
+                                    .set_progress_atomic(current, item.map(ToString::to_string));
+
+                                let last =
+                                    last_repaint_clone.load(std::sync::atomic::Ordering::Relaxed);
+                                if (current >= last + 100 || current == total)
+                                    && last_repaint_clone
+                                        .compare_exchange(
+                                            last,
+                                            current,
+                                            std::sync::atomic::Ordering::Relaxed,
+                                            std::sync::atomic::Ordering::Relaxed,
+                                        )
+                                        .is_ok()
+                                {
+                                    ctx_for_progress.request_repaint();
+                                }
+                            });
+
+                        // Fetch commits with batch mode (single git command for all diffs)
+                        // If we have a last indexed commit, only fetch new commits (incremental)
+                        let commits = enya_analyzer::fetch_all_commits_with_diffs_batch(
+                            &repo_path,
+                            last_indexed_commit.as_deref(),
+                            Some(&progress_callback),
+                        )
+                        .unwrap_or_else(|e| {
+                            log::warn!("Failed to fetch commits for indexing: {e}");
+                            Vec::new()
+                        });
+
+                        ctx_clone.request_repaint();
+
+                        // Build or update the Tantivy index
+                        let result = if is_incremental && !commits.is_empty() {
+                            // Incremental update: add new commits to existing index
+                            log::info!(
+                                "Incremental update: adding {} new commits to index",
+                                commits.len()
+                            );
+                            existing_index.ok_or(IndexError::NotInitialized).and_then(
+                                |mut tantivy_index| {
+                                    tantivy_index.add_commits(&commits, Some(&progress))?;
+                                    Ok(tantivy_index)
+                                },
+                            )
+                        } else if is_incremental && commits.is_empty() {
+                            // No new commits - just return existing index
+                            log::info!("No new commits to index");
+                            existing_index.ok_or(IndexError::NotInitialized)
+                        } else {
+                            // Full rebuild
+                            log::info!("Full index rebuild with {} commits", commits.len());
+                            TantivyCodebaseIndex::open_or_create(&repo_path).and_then(
+                                |mut tantivy_index| {
+                                    tantivy_index.rebuild_with_progress(
+                                        &index_clone,
+                                        &commits,
+                                        Some(&progress),
+                                    )?;
+                                    Ok(tantivy_index)
+                                },
+                            )
+                        };
+
+                        *pending_tantivy.lock() = Some(result);
+                        ctx_clone.request_repaint();
+                    });
+                }
+
+                // Get the head commit message and hash
+                let head_commit_msg = get_head_commit_message(&index.repo_path).ok();
+                let head_commit_hash = get_head_commit(&index.repo_path).ok();
+
                 self.index = Some(index);
-                self.status = CodebaseStatus::Ready { url };
+                self.status = CodebaseStatus::Ready {
+                    url,
+                    repo_name,
+                    metrics_count,
+                    language,
+                    head_commit_msg,
+                    head_commit_hash,
+                };
                 self.indexing_progress = None; // Clear progress tracker
             }
             CodebaseResult::HistoryComplete {
@@ -403,5 +755,104 @@ impl CodebaseManager {
     /// Call this when the codebase is updated to ensure fresh history.
     pub fn clear_commit_cache(&mut self) {
         self.commit_cache.clear();
+    }
+
+    /// Returns true if Tantivy full-text search is available.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn has_tantivy_index(&self) -> bool {
+        self.tantivy_index.is_some()
+    }
+
+    /// Returns true if Tantivy index is currently being built in the background.
+    ///
+    /// This is true when we're in Ready state (tree-sitter done) but Tantivy
+    /// hasn't finished yet.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn is_tantivy_indexing(&self) -> bool {
+        // We're building Tantivy if we have a progress tracker active
+        self.tantivy_progress.is_some()
+    }
+
+    /// Returns the Tantivy indexing progress if currently building.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn tantivy_progress(&self) -> Option<&search::TantivyProgress> {
+        self.tantivy_progress.as_ref()
+    }
+
+    /// Returns a reference to the Tantivy index if available.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn tantivy_index(&self) -> Option<&TantivyCodebaseIndex> {
+        self.tantivy_index.as_ref()
+    }
+
+    /// Searches using Tantivy full-text search.
+    ///
+    /// Returns ranked search results. Falls back to in-memory substring
+    /// search if Tantivy is not available.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[must_use]
+    pub fn search_ranked(
+        &self,
+        query: &str,
+        filter: SearchFilter,
+        limit: usize,
+    ) -> Vec<SearchResult> {
+        if let Some(tantivy) = &self.tantivy_index {
+            tantivy.search(query, filter, limit)
+        } else {
+            // Fallback to in-memory search
+            self.fallback_search(query, filter, limit)
+        }
+    }
+
+    /// Fallback in-memory search when Tantivy is not available.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn fallback_search(
+        &self,
+        query: &str,
+        filter: SearchFilter,
+        limit: usize,
+    ) -> Vec<SearchResult> {
+        let Some(index) = &self.index else {
+            return Vec::new();
+        };
+
+        let query_lower = query.to_lowercase();
+        let mut results = Vec::new();
+
+        // Search metrics
+        if matches!(filter, SearchFilter::All | SearchFilter::Metrics) {
+            for metric in &index.metrics {
+                if metric.name.to_lowercase().contains(&query_lower) {
+                    results.push(SearchResult::from_metric(metric, 1.0));
+                    if results.len() >= limit {
+                        return results;
+                    }
+                }
+            }
+        }
+
+        // Search alerts
+        if matches!(filter, SearchFilter::All | SearchFilter::Alerts) {
+            for alert in &index.alerts {
+                if alert.name.to_lowercase().contains(&query_lower)
+                    || alert
+                        .metric_name
+                        .as_ref()
+                        .is_some_and(|m| m.to_lowercase().contains(&query_lower))
+                {
+                    results.push(SearchResult::from_alert(alert, 1.0));
+                    if results.len() >= limit {
+                        return results;
+                    }
+                }
+            }
+        }
+
+        results
     }
 }

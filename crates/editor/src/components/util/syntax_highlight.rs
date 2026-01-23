@@ -2,6 +2,8 @@
 //!
 //! Provides shared syntax highlighting functionality for source code display,
 //! used by both `SourcePreviewOverlay` and inline source previews in agent panes.
+//!
+//! Requires the "codebase" feature on native builds.
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::ops::Range;
@@ -95,7 +97,7 @@ impl SyntaxHighlightData {
         data
     }
 
-    /// WASM stub - no tree-sitter available.
+    /// Stub when tree-sitter is not available (WASM or codebase feature disabled).
     #[cfg(target_arch = "wasm32")]
     pub fn new(_content: &str, _language: &str) -> Self {
         Self::default()
@@ -111,6 +113,7 @@ impl SyntaxHighlightData {
         }
 
         // Select the appropriate language grammar
+        // Rust is always available, other languages require "all-languages" feature
         let config_result = match language {
             "rust" => HighlightConfiguration::new(
                 tree_sitter_rust::LANGUAGE.into(),
@@ -119,6 +122,7 @@ impl SyntaxHighlightData {
                 "",
                 "",
             ),
+            #[cfg(feature = "all-languages")]
             "go" => HighlightConfiguration::new(
                 tree_sitter_go::LANGUAGE.into(),
                 "go",
@@ -126,6 +130,7 @@ impl SyntaxHighlightData {
                 "",
                 "",
             ),
+            #[cfg(feature = "all-languages")]
             "python" => HighlightConfiguration::new(
                 tree_sitter_python::LANGUAGE.into(),
                 "python",
@@ -133,6 +138,7 @@ impl SyntaxHighlightData {
                 "",
                 "",
             ),
+            #[cfg(feature = "all-languages")]
             "javascript" | "typescript" | "js" | "ts" => HighlightConfiguration::new(
                 tree_sitter_javascript::LANGUAGE.into(),
                 "javascript",
@@ -209,6 +215,7 @@ impl SyntaxHighlightData {
     ///
     /// `line_num` is 1-indexed. Returns a `LayoutJob` ready for egui rendering.
     #[cfg(not(target_arch = "wasm32"))]
+    #[profiling::function]
     pub fn highlight_line(&self, line_num: usize, line: &str, theme: AppTheme) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::SM);
@@ -296,8 +303,9 @@ impl SyntaxHighlightData {
         job
     }
 
-    /// WASM fallback - no syntax highlighting, just plain text.
+    /// Fallback when tree-sitter is not available - no syntax highlighting, just plain text.
     #[cfg(target_arch = "wasm32")]
+    #[profiling::function]
     pub fn highlight_line(&self, _line_num: usize, line: &str, theme: AppTheme) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::SM);
@@ -312,47 +320,24 @@ impl SyntaxHighlightData {
 pub fn highlight_color(idx: usize, theme: AppTheme) -> Color32 {
     let name = HIGHLIGHT_NAMES.get(idx).copied().unwrap_or("");
 
-    match theme {
-        AppTheme::Light => match name {
-            "keyword" => Color32::from_rgb(160, 50, 160), // purple
-            "string" | "escape" => Color32::from_rgb(50, 130, 50), // green
-            "comment" => Color32::from_rgb(120, 120, 120), // gray
-            "function" | "function.builtin" => Color32::from_rgb(50, 100, 180), // blue
-            "function.macro" => Color32::from_rgb(0, 130, 150), // teal
-            "type" | "type.builtin" | "constructor" => Color32::from_rgb(180, 100, 50), // orange
-            "number" | "constant" | "constant.builtin" => Color32::from_rgb(180, 80, 80), // red-ish
-            "attribute" => Color32::from_rgb(150, 120, 50), // yellow-brown
-            "variable" | "variable.parameter" | "property" | "label" => {
-                Color32::from_rgb(40, 40, 40)
-            } // dark
-            "variable.builtin" => Color32::from_rgb(160, 50, 160), // purple (self)
-            "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
-                Color32::from_rgb(60, 60, 60) // dark gray
-            }
-            _ => Color32::from_rgb(40, 40, 40), // default dark
-        },
-        AppTheme::Dark => match name {
-            "keyword" => Color32::from_rgb(200, 120, 220), // purple
-            "string" | "escape" => Color32::from_rgb(130, 200, 130), // green
-            "comment" => Color32::from_rgb(128, 128, 128), // gray
-            "function" | "function.builtin" => Color32::from_rgb(100, 160, 255), // blue
-            "function.macro" => Color32::from_rgb(80, 200, 200), // cyan
-            "type" | "type.builtin" | "constructor" => Color32::from_rgb(220, 160, 100), // orange
-            "number" | "constant" | "constant.builtin" => Color32::from_rgb(220, 120, 120), // red-ish
-            "attribute" => Color32::from_rgb(220, 190, 100), // yellow
-            "variable" | "variable.parameter" | "property" | "label" => {
-                Color32::from_rgb(220, 220, 220)
-            } // light
-            "variable.builtin" => Color32::from_rgb(200, 120, 220), // purple (self)
-            "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
-                Color32::from_rgb(180, 180, 180) // light gray
-            }
-            _ => Color32::from_rgb(220, 220, 220), // default light
-        },
+    match name {
+        "keyword" => theme.syntax_keyword(),
+        "string" | "escape" => theme.syntax_value(),
+        "comment" => theme.syntax_comment(),
+        "function" | "function.builtin" | "function.macro" => theme.syntax_function(),
+        "type" | "type.builtin" | "constructor" => theme.syntax_type(),
+        "number" | "constant" | "constant.builtin" => theme.syntax_number(),
+        "attribute" => theme.syntax_type(), // Use type color for attributes
+        "variable" | "variable.parameter" | "property" | "label" => theme.syntax_variable(),
+        "variable.builtin" => theme.syntax_keyword(), // Use keyword color for builtin vars (self)
+        "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
+            theme.syntax_punctuation()
+        }
+        _ => theme.syntax_variable(), // Default to variable color
     }
 }
 
-/// WASM stub for highlight_color.
+/// Stub for highlight_color when tree-sitter is not available.
 #[cfg(target_arch = "wasm32")]
 pub fn highlight_color(_idx: usize, theme: AppTheme) -> Color32 {
     text_color(theme)

@@ -19,6 +19,7 @@ mod async_runtime;
 pub use async_runtime::AsyncRuntime;
 
 /// Codebase integration: git repo management and metrics-rs instrumentation discovery.
+/// Requires the "codebase" feature (enabled by default on native builds).
 #[cfg(not(target_arch = "wasm32"))]
 pub mod codebase;
 
@@ -40,9 +41,27 @@ pub mod ui;
 /// General utilities including WASM-compatible time handling.
 pub mod util;
 
-/// Workspace runtime (pane layout), configuration (serialization), and tab management.
+/// Workspace runtime (pane layout) and configuration (serialization).
 pub mod workspace;
 
-pub use workspace::{TabBarAction, WorkspaceTab, WorkspaceTabBar};
+/// Team collaboration state management (optional, works without team features).
+pub mod team;
+
+/// Team chat: channels, threads, and messages for collaboration.
+pub mod chat;
+
+/// Plugin system for extending editor functionality.
+pub mod plugin;
+
+pub use chat::{
+    Channel, ChannelId, ChannelKind, ChannelsPanel, ChannelsPanelAction, ChatMessage,
+    ChatMessageAuthor, ChatState, Mention, MentionKind, MessageId, Thread, ThreadId, ThreadStatus,
+};
+pub use team::{TeamConfig, TeamState};
+
+pub use plugin::{
+    Plugin, PluginCapabilities, PluginContext, PluginError, PluginId, PluginInfo, PluginRegistry,
+    PluginResult, PluginState,
+};
 
 pub use app::EnyaApp;

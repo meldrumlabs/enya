@@ -5,8 +5,6 @@
 
 use egui::{Color32, Key, RichText};
 
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -39,7 +37,7 @@ pub struct WhichKey {
     is_open: bool,
     /// Skip input on the first frame after opening (to avoid immediate close)
     just_opened: bool,
-    /// Current theme
+    /// Current theme (can be Custom with plugin colors)
     theme: AppTheme,
     /// Keybinding groups
     groups: Vec<KeybindingGroup>,
@@ -69,20 +67,12 @@ impl WhichKey {
                 icon: semantic_icons::nav::COMPASS,
                 bindings: vec![
                     Keybinding {
-                        key: "h / ←",
-                        description: "Move focus left",
+                        key: "h/j/k/l",
+                        description: "Move focus (vim-style)",
                     },
                     Keybinding {
-                        key: "j / ↓",
-                        description: "Move focus down",
-                    },
-                    Keybinding {
-                        key: "k / ↑",
-                        description: "Move focus up",
-                    },
-                    Keybinding {
-                        key: "l / →",
-                        description: "Move focus right",
+                        key: "←/↓/↑/→",
+                        description: "Move focus (arrows)",
                     },
                 ],
             },
@@ -92,11 +82,37 @@ impl WhichKey {
                 bindings: vec![
                     Keybinding {
                         key: "x",
-                        description: "Close focused pane",
+                        description: "Close pane",
                     },
                     Keybinding {
                         key: "f",
-                        description: "Toggle fullscreen",
+                        description: "Fullscreen",
+                    },
+                    Keybinding {
+                        key: "z",
+                        description: "Zen mode",
+                    },
+                    Keybinding {
+                        key: "gf",
+                        description: "Float pane",
+                    },
+                    Keybinding {
+                        key: "Ctrl+V",
+                        description: "Multi-select",
+                    },
+                ],
+            },
+            KeybindingGroup {
+                name: "Window",
+                icon: semantic_icons::nav::EXPAND_ALL,
+                bindings: vec![
+                    Keybinding {
+                        key: "Ctrl+W h/j/k/l",
+                        description: "Move pane",
+                    },
+                    Keybinding {
+                        key: "Ctrl+W t h/j/k/l",
+                        description: "Merge into tab",
                     },
                 ],
             },
@@ -106,115 +122,37 @@ impl WhichKey {
                 bindings: vec![
                     Keybinding {
                         key: "e",
-                        description: "Edit focused pane query",
+                        description: "Edit query",
                     },
                     Keybinding {
                         key: "yy",
-                        description: "Share/yank pane URL",
+                        description: "Share/yank URL",
+                    },
+                    Keybinding {
+                        key: "cv",
+                        description: "Cycle viz type",
                     },
                 ],
             },
             KeybindingGroup {
-                name: "View",
-                icon: semantic_icons::mode::VIEW,
-                bindings: vec![
-                    Keybinding {
-                        key: "z",
-                        description: "Toggle zen mode",
-                    },
-                    Keybinding {
-                        key: "t",
-                        description: "Toggle theme",
-                    },
-                ],
-            },
-            KeybindingGroup {
-                name: "Workspaces",
-                icon: semantic_icons::nav::TABS,
-                bindings: vec![
-                    Keybinding {
-                        key: "Shift+T",
-                        description: "New workspace tab",
-                    },
-                    Keybinding {
-                        key: "Shift+X",
-                        description: "Close workspace tab",
-                    },
-                    Keybinding {
-                        key: "Shift+N",
-                        description: "Next workspace tab",
-                    },
-                    Keybinding {
-                        key: "Shift+P",
-                        description: "Previous workspace tab",
-                    },
-                ],
-            },
-            KeybindingGroup {
-                name: "Search & Commands",
+                name: "Search",
                 icon: semantic_icons::action::SEARCH,
                 bindings: vec![
                     Keybinding {
                         key: ":",
-                        description: "Open command palette",
+                        description: "Commands",
                     },
                     Keybinding {
                         key: "/",
-                        description: "Filter panes by query",
+                        description: "Filter panes",
                     },
                     Keybinding {
-                        key: "Space+m",
-                        description: "Open metrics finder",
+                        key: "Space+f",
+                        description: "Find anything",
                     },
                     Keybinding {
                         key: "Space+w",
-                        description: "Open workspace finder",
-                    },
-                    Keybinding {
-                        key: "Space+h",
-                        description: "Go to home",
-                    },
-                    Keybinding {
-                        key: "Space+d",
-                        description: "Toggle diagnostics",
-                    },
-                    Keybinding {
-                        key: "?",
-                        description: "Show this help",
-                    },
-                ],
-            },
-            KeybindingGroup {
-                name: "Time Range",
-                icon: semantic_icons::time::CLOCK,
-                bindings: vec![
-                    Keybinding {
-                        key: "t5",
-                        description: "Last 5 minutes",
-                    },
-                    Keybinding {
-                        key: "t1",
-                        description: "Last 15 minutes",
-                    },
-                    Keybinding {
-                        key: "t3",
-                        description: "Last 30 minutes",
-                    },
-                    Keybinding {
-                        key: "th",
-                        description: "Last 1 hour",
-                    },
-                    Keybinding {
-                        key: "t6",
-                        description: "Last 6 hours",
-                    },
-                    Keybinding {
-                        key: "td",
-                        description: "Last 24 hours (day)",
-                    },
-                    Keybinding {
-                        key: "tw",
-                        description: "Last 7 days (week)",
+                        description: "Find workspace",
                     },
                 ],
             },
@@ -223,14 +161,66 @@ impl WhichKey {
                 icon: semantic_icons::action::LINK,
                 bindings: vec![
                     Keybinding {
+                        key: "Space+h",
+                        description: "Home",
+                    },
+                    Keybinding {
+                        key: "Space+d",
+                        description: "Diagnostics",
+                    },
+                    Keybinding {
                         key: "gd",
-                        description: "Go to metric definition",
+                        description: "Definition",
                     },
                     Keybinding {
                         key: "ga",
-                        description: "Go to alert for metric",
+                        description: "Alert",
                     },
                 ],
+            },
+            KeybindingGroup {
+                name: "Time Range",
+                icon: semantic_icons::time::CLOCK,
+                bindings: vec![
+                    Keybinding {
+                        key: "t5/t1/t3",
+                        description: "5/15/30 min",
+                    },
+                    Keybinding {
+                        key: "th/t6",
+                        description: "1h/6h",
+                    },
+                    Keybinding {
+                        key: "td/tw",
+                        description: "Day/week",
+                    },
+                ],
+            },
+            KeybindingGroup {
+                name: "Agent",
+                icon: semantic_icons::action::BRAIN,
+                bindings: vec![
+                    Keybinding {
+                        key: "Space+a",
+                        description: "Agent panel",
+                    },
+                    Keybinding {
+                        key: "aa",
+                        description: "Ask agent",
+                    },
+                    Keybinding {
+                        key: "aw/ae/ay",
+                        description: "What/Explain/Why",
+                    },
+                ],
+            },
+            KeybindingGroup {
+                name: "Help",
+                icon: semantic_icons::status::INFO,
+                bindings: vec![Keybinding {
+                    key: "?",
+                    description: "This help",
+                }],
             },
         ]
     }
@@ -257,6 +247,7 @@ impl WhichKey {
     }
 
     /// Show the overlay. Returns true if it was closed this frame.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         if !self.is_open {
             return false;
@@ -282,29 +273,22 @@ impl WhichKey {
             });
         }
 
-        // Calculate popup dimensions - wider to fit content in columns
+        // Calculate popup dimensions - wide for 3-column layout
         let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.7).clamp(600.0, 900.0);
-        let popup_max_height = (screen_rect.height() * 0.75).clamp(400.0, 600.0);
+        let popup_width = (screen_rect.width() * 0.8).clamp(700.0, 1000.0);
+        let popup_max_height = (screen_rect.height() * 0.6).clamp(300.0, 450.0);
 
         egui::Area::new(egui::Id::new("which_key_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (handles both builtin and custom themes)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                let separator_color = match self.theme {
-                    AppTheme::Light => palette::light_border::SUBTLE,
-                    AppTheme::Dark => palette::border::SUBTLE,
-                };
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
-                let key_bg = match self.theme {
-                    AppTheme::Light => palette::light_bg::ELEVATED,
-                    AppTheme::Dark => palette::bg::ELEVATED,
-                };
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::PRIMARY,
-                };
+                let separator_color = self.theme.border_subtle();
+                let text_col = self.theme.text_primary();
+                let muted_text = self.theme.text_tertiary();
+                let key_bg = self.theme.bg_elevated();
+                let accent_color = self.theme.accent_primary();
 
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
@@ -322,7 +306,7 @@ impl WhichKey {
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Keyboard Shortcuts")
-                                .color(text_color(self.theme))
+                                .color(text_col)
                                 .size(18.0)
                                 .strong(),
                         );
@@ -343,35 +327,23 @@ impl WhichKey {
                         ui.vertical(|ui| {
                             ui.set_width(popup_width - 32.0);
 
-                            // Split groups into two columns
+                            // Split groups into three columns for compact layout
                             let groups = &self.groups;
-                            let mid = groups.len().div_ceil(2);
+                            let col_size = groups.len().div_ceil(3);
 
-                            ui.columns(2, |columns| {
-                                // Left column
-                                for group in groups.iter().take(mid) {
+                            ui.columns(3, |columns| {
+                                for (i, group) in groups.iter().enumerate() {
+                                    let col = i / col_size;
+                                    let col = col.min(2); // Ensure we don't overflow
                                     Self::render_group(
-                                        &mut columns[0],
+                                        &mut columns[col],
                                         group,
-                                        self.theme,
                                         accent_color,
                                         muted_text,
                                         key_bg,
+                                        text_col,
                                     );
-                                    columns[0].add_space(16.0);
-                                }
-
-                                // Right column
-                                for group in groups.iter().skip(mid) {
-                                    Self::render_group(
-                                        &mut columns[1],
-                                        group,
-                                        self.theme,
-                                        accent_color,
-                                        muted_text,
-                                        key_bg,
-                                    );
-                                    columns[1].add_space(16.0);
+                                    columns[col].add_space(12.0);
                                 }
                             });
                         });
@@ -413,6 +385,8 @@ impl WhichKey {
             });
 
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
 
@@ -423,46 +397,46 @@ impl WhichKey {
     fn render_group(
         ui: &mut egui::Ui,
         group: &KeybindingGroup,
-        theme: AppTheme,
         accent_color: Color32,
         muted_text: Color32,
         key_bg: Color32,
+        text_col: Color32,
     ) {
         // Group header with icon
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(group.icon)
                     .color(accent_color)
-                    .size(typography::XL),
+                    .size(typography::LG),
             );
             ui.add_space(4.0);
             ui.label(
                 RichText::new(group.name)
                     .color(accent_color)
-                    .size(typography::LG)
+                    .size(typography::MD)
                     .strong(),
             );
         });
-        ui.add_space(6.0);
+        ui.add_space(4.0);
 
         // Keybindings
         for binding in &group.bindings {
             ui.horizontal(|ui| {
-                ui.add_space(20.0); // Indent under group header
+                ui.add_space(16.0); // Indent under group header
 
                 // Key badge
-                render_key_badge(ui, binding.key, key_bg, text_color(theme));
+                render_key_badge(ui, binding.key, key_bg, text_col);
 
-                ui.add_space(8.0);
+                ui.add_space(6.0);
 
                 // Description
                 ui.label(
                     RichText::new(binding.description)
                         .color(muted_text)
-                        .font(typography::proportional(typography::LG)),
+                        .font(typography::proportional(typography::MD)),
                 );
             });
-            ui.add_space(2.0);
+            ui.add_space(1.0);
         }
     }
 }

@@ -1,3 +1,61 @@
+/// Available editor fonts
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum EditorFont {
+    /// Maple Mono - clean, modern monospace font
+    MapleMono,
+    /// Departure Mono - distinctive retro-style monospace font
+    #[default]
+    DepartureMono,
+    /// JetBrains Mono - designed by JetBrains for developers
+    JetBrainsMono,
+    /// Iosevka - narrow, highly customizable monospace font
+    Iosevka,
+}
+
+impl EditorFont {
+    /// Human-readable font name
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::MapleMono => "Maple Mono",
+            Self::DepartureMono => "Departure Mono",
+            Self::JetBrainsMono => "JetBrains Mono",
+            Self::Iosevka => "Iosevka",
+        }
+    }
+
+    /// Internal font family name used in egui
+    pub fn font_family_name(&self) -> &'static str {
+        match self {
+            Self::MapleMono => "maple_mono",
+            Self::DepartureMono => "departure_mono",
+            Self::JetBrainsMono => "jetbrains_mono",
+            Self::Iosevka => "iosevka",
+        }
+    }
+
+    /// Returns all available fonts
+    pub fn all() -> &'static [EditorFont] {
+        &[
+            Self::DepartureMono,
+            Self::MapleMono,
+            Self::JetBrainsMono,
+            Self::Iosevka,
+        ]
+    }
+
+    /// Description of the font
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::MapleMono => "Clean, modern monospace with ligatures",
+            Self::DepartureMono => "Distinctive retro-style monospace",
+            Self::JetBrainsMono => "Developer-focused, great for code",
+            Self::Iosevka => "Narrow, highly customizable",
+        }
+    }
+}
+
+use crate::ui::theme::AppTheme;
+
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {
     /// API key for backend services (kept for future use)
@@ -9,6 +67,12 @@ pub struct AppSettings {
     /// Recent workspaces that were accessed
     #[serde(default)]
     pub recent_workspaces: Vec<WorkspaceEntry>,
+    /// Currently selected editor font
+    #[serde(default)]
+    pub font: EditorFont,
+    /// Current UI theme (user preference, not per-workspace)
+    #[serde(default)]
+    pub theme: AppTheme,
 }
 
 /// Entry for a recently opened plot/chart

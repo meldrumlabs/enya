@@ -465,6 +465,7 @@ impl<T: FinderItem> Finder<T> {
     /// Refreshes the filtered results based on the current query.
     ///
     /// This is called automatically by `show()` when `needs_refresh` is true.
+    #[profiling::function]
     fn refresh_results(&mut self) {
         self.results.clear();
 
@@ -529,6 +530,7 @@ impl<T: FinderItem> Finder<T> {
     ///     println!("Selected: {}", selected.search_text());
     /// }
     /// ```
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> Option<T> {
         self.show_with_preview(ctx, |_, _, _| {})
     }
@@ -554,6 +556,7 @@ impl<T: FinderItem> Finder<T> {
     ///     ui.label(&result.item.description);
     /// });
     /// ```
+    #[profiling::function]
     pub fn show_with_preview<F>(&mut self, ctx: &egui::Context, render_preview: F) -> Option<T>
     where
         F: FnOnce(&mut egui::Ui, &FinderResult<T>, &FinderColors),
@@ -816,6 +819,7 @@ impl<T: FinderItem> Finder<T> {
         colors: &FinderColors,
     ) -> bool {
         let text_col = text_color(self.theme);
+        let accent_col = self.theme.accent_primary();
         let secondary_color = text_col.gamma_multiply(0.5);
 
         let row_height = 36.0;
@@ -824,11 +828,13 @@ impl<T: FinderItem> Finder<T> {
             egui::Sense::click(),
         );
 
-        // Background
+        let is_hovered = response.hovered();
+
+        // Background - use subtle hover style like landing page
         let bg_color = if is_selected {
-            colors.selected_bg
-        } else if response.hovered() {
-            colors.hover_bg
+            accent_col.gamma_multiply(0.12)
+        } else if is_hovered {
+            text_col.gamma_multiply(0.05)
         } else {
             Color32::TRANSPARENT
         };
@@ -840,19 +846,23 @@ impl<T: FinderItem> Finder<T> {
         // Selection indicator bar
         if is_selected {
             let indicator_rect = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height));
-            ui.painter()
-                .rect_filled(indicator_rect, 0.0, colors.highlight);
+            ui.painter().rect_filled(indicator_rect, 0.0, accent_col);
         }
 
         // Content layout
         let content_rect = rect.shrink2(egui::vec2(16.0, 0.0));
         let mut cursor_x = content_rect.left();
 
-        // Icon
+        // Icon - use accent color on hover/select like landing page
+        let icon_color = if is_selected || is_hovered {
+            accent_col
+        } else {
+            text_col.gamma_multiply(0.6)
+        };
         let icon_galley = ui.painter().layout_no_wrap(
             result.item.icon().to_string(),
             typography::proportional(typography::XL),
-            text_col.gamma_multiply(0.6),
+            icon_color,
         );
         ui.painter().galley(
             egui::pos2(
@@ -860,7 +870,7 @@ impl<T: FinderItem> Finder<T> {
                 content_rect.center().y - icon_galley.size().y / 2.0,
             ),
             icon_galley.clone(),
-            text_col,
+            icon_color,
         );
         cursor_x += icon_galley.size().x + 10.0;
 

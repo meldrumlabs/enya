@@ -6,10 +6,8 @@
 
 use egui::Visuals;
 
-use crate::ui::design::black_theme;
 use crate::ui::settings_screen::AppSettings;
 use crate::ui::theme::AppTheme;
-use crate::ui::theme::light;
 use crate::util::Instant;
 
 /// Tracks internal editor metrics for the status line sparkline
@@ -70,23 +68,48 @@ impl EditorMetrics {
 #[serde(default)]
 pub struct AppState {
     pub(crate) settings: AppSettings,
-    /// Current active Theme
+    /// Current active builtin theme
     pub(crate) theme: AppTheme,
+    /// Custom theme name (from plugins). When Some, overrides the builtin theme.
+    pub(crate) custom_theme: Option<String>,
     pub(crate) ui_state: UIState,
 }
 
 impl AppState {
     /// Returns the current App theme visuals
     pub fn visuals(&self) -> Visuals {
-        match self.theme {
-            AppTheme::Light => light(),
-            AppTheme::Dark => black_theme(),
-        }
+        self.theme.visuals()
     }
 
     /// Returns the current UIState
     pub fn ui_state(&self) -> &UIState {
         &self.ui_state
+    }
+
+    /// Returns the current builtin theme.
+    pub fn builtin_theme(&self) -> AppTheme {
+        self.theme
+    }
+
+    /// Returns the custom theme name if one is active.
+    pub fn custom_theme(&self) -> Option<&str> {
+        self.custom_theme.as_deref()
+    }
+
+    /// Returns true if a custom (plugin) theme is active.
+    pub fn is_custom_theme(&self) -> bool {
+        self.custom_theme.is_some()
+    }
+
+    /// Set a builtin theme, clearing any custom theme.
+    pub fn set_builtin_theme(&mut self, theme: AppTheme) {
+        self.theme = theme;
+        self.custom_theme = None;
+    }
+
+    /// Set a custom theme by name.
+    pub fn set_custom_theme(&mut self, name: String) {
+        self.custom_theme = Some(name);
     }
 }
 

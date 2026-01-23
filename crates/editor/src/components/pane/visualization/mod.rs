@@ -23,6 +23,7 @@ pub use suggester::{ResultCharacteristics, suggest_visualization};
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
+use super::annotation::{Annotation, AnnotationId};
 use super::time_series_chart::{CommitMarker, Series, TimeSeriesChart};
 
 /// Standard padding for visualization types (for consistent spacing)
@@ -82,6 +83,18 @@ impl VisualizationType {
             Self::Sparkline => Self::Heatmap,
             Self::Heatmap => Self::TimeSeries,
         }
+    }
+
+    /// Get all visualization types
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::TimeSeries,
+            Self::Stat,
+            Self::Gauge,
+            Self::BarChart,
+            Self::Sparkline,
+            Self::Heatmap,
+        ]
     }
 
     /// Get the string representation for serialization
@@ -225,6 +238,16 @@ impl Visualization {
             Self::BarChart(bar) => bar.show(ui),
             Self::Sparkline(spark) => spark.show(ui),
             Self::Heatmap(heatmap) => heatmap.show(ui),
+        }
+    }
+
+    /// Take any pending interaction from the visualization (only time series supports this).
+    /// Call after `show()` to check if the user double-clicked for logs drilldown.
+    pub fn take_interaction(&mut self) -> Option<super::time_series_chart::ChartInteraction> {
+        match self {
+            Self::TimeSeries(chart) => chart.take_interaction(),
+            // Other visualization types don't support interactions yet
+            _ => None,
         }
     }
 
@@ -410,6 +433,47 @@ impl Visualization {
             Self::Heatmap(_) => {
                 // Heatmaps don't use simple unit suffixes
             }
+        }
+    }
+
+    // ==================== Annotation Methods ====================
+
+    /// Add an annotation (only for time series charts).
+    pub fn add_annotation(&mut self, annotation: Annotation) {
+        if let Self::TimeSeries(chart) = self {
+            chart.add_annotation(annotation);
+        }
+    }
+
+    /// Update an existing annotation (only for time series charts).
+    pub fn update_annotation(&mut self, annotation: Annotation) {
+        if let Self::TimeSeries(chart) = self {
+            if let Some(existing) = chart.find_annotation_mut(annotation.id) {
+                *existing = annotation;
+            }
+        }
+    }
+
+    /// Remove an annotation (only for time series charts).
+    pub fn remove_annotation(&mut self, id: AnnotationId) {
+        if let Self::TimeSeries(chart) = self {
+            chart.remove_annotation(id);
+        }
+    }
+
+    /// Get all annotations (only for time series charts).
+    pub fn annotations(&self) -> Vec<&Annotation> {
+        if let Self::TimeSeries(chart) = self {
+            chart.annotations().iter().collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Toggle annotations visibility (only for time series charts).
+    pub fn toggle_annotations(&mut self) {
+        if let Self::TimeSeries(chart) = self {
+            chart.toggle_annotations();
         }
     }
 }

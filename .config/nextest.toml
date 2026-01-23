@@ -1,0 +1,33 @@
+# Nextest configuration for faster test execution
+# See: https://nexte.st/docs/configuration/
+
+[profile.default]
+# Run more tests in parallel (default is num_cpus)
+test-threads = "num-cpus"
+
+# Fail fast on first failure during development
+fail-fast = true
+
+# Reduce output verbosity for faster display
+status-level = "pass"
+
+# Don't retry by default (only retry known flaky tests)
+retries = 0
+
+# Slow timeout tests that use thread::sleep - run with lower priority
+# These tests verify real timing behavior and can't be easily mocked
+[[profile.default.overrides]]
+filter = "test(test_leader_key_timeout) | test(test_repressing_leader_key)"
+threads-required = 1
+slow-timeout = { period = "1s" }
+
+[profile.ci]
+# CI-specific settings
+fail-fast = false
+retries = 2
+
+# In CI, mark timeout tests as slow so they're reported separately
+[[profile.ci.overrides]]
+filter = "test(test_leader_key_timeout) | test(test_repressing_leader_key)"
+threads-required = 1
+slow-timeout = { period = "500ms", terminate-after = 2 }

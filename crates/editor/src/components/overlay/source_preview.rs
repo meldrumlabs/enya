@@ -12,7 +12,6 @@ use egui::{Color32, Key, RichText, text::LayoutJob};
 #[cfg(not(target_arch = "wasm32"))]
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
-use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
@@ -484,6 +483,7 @@ impl HttpHandler {
     }
 
     /// Show the overlay. Returns the result of the interaction.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> SourcePreviewResult {
         if !self.is_open {
             return SourcePreviewResult::None;
@@ -493,18 +493,18 @@ impl HttpHandler {
         #[cfg(not(target_arch = "wasm32"))]
         let mut next_location: Option<usize> = None;
 
-        // Handle keyboard input
-        ctx.input(|i| {
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        ctx.input_mut(|i| {
             // Escape to close
-            if i.key_pressed(Key::Escape) {
+            if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 should_close = true;
             }
             // Vim-style horizontal scrolling: h/l
             let scroll_step = 50.0;
-            if i.key_pressed(Key::H) {
+            if i.consume_key(egui::Modifiers::NONE, Key::H) {
                 self.scroll_offset_x = (self.scroll_offset_x - scroll_step).max(0.0);
             }
-            if i.key_pressed(Key::L) {
+            if i.consume_key(egui::Modifiers::NONE, Key::L) {
                 self.scroll_offset_x += scroll_step;
             }
 
@@ -512,12 +512,14 @@ impl HttpHandler {
             #[cfg(not(target_arch = "wasm32"))]
             if self.metric_locations.len() > 1 {
                 // N - next location (vim quickfix-style)
-                if i.key_pressed(Key::N) && !i.modifiers.shift {
+                if i.consume_key(egui::Modifiers::NONE, Key::N) {
                     next_location =
                         Some((self.current_location_index + 1) % self.metric_locations.len());
                 }
                 // Shift+N or P - previous location
-                if i.key_pressed(Key::P) || (i.key_pressed(Key::N) && i.modifiers.shift) {
+                if i.consume_key(egui::Modifiers::NONE, Key::P)
+                    || i.consume_key(egui::Modifiers::SHIFT, Key::N)
+                {
                     next_location = Some(if self.current_location_index == 0 {
                         self.metric_locations.len() - 1
                     } else {
@@ -545,16 +547,11 @@ impl HttpHandler {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                let separator_color = match self.theme {
-                    AppTheme::Light => palette::light_border::SUBTLE,
-                    AppTheme::Dark => palette::border::SUBTLE,
-                };
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::HOVER,
-                };
+                let separator_color = self.theme.border_subtle();
+                let muted_text = self.theme.text_tertiary();
+                let accent_color = self.theme.accent_hover();
 
                 overlay_style.frame().show(ui, |ui| {
                     // Cap width to prevent content from stretching the overlay
@@ -578,6 +575,8 @@ impl HttpHandler {
             });
 
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             return SourcePreviewResult::Closed;
         }
@@ -743,7 +742,7 @@ impl HttpHandler {
                 ui.add_space(16.0);
                 ui.label(
                     RichText::new("No source code available")
-                        .color(text_color(self.theme).gamma_multiply(0.5))
+                        .color(self.theme.text_primary().gamma_multiply(0.5))
                         .font(typography::proportional(typography::MD)),
                 );
             });
@@ -758,14 +757,8 @@ impl HttpHandler {
 
         let line_num_width = format!("{}", self.source_lines.len()).len();
 
-        let line_num_color = match self.theme {
-            AppTheme::Light => palette::light_text::TERTIARY,
-            AppTheme::Dark => palette::text::TERTIARY,
-        };
-        let highlight_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgba_unmultiplied(255, 220, 0, 40),
-            AppTheme::Dark => Color32::from_rgba_unmultiplied(255, 220, 0, 30),
-        };
+        let line_num_color = self.theme.text_tertiary();
+        let highlight_bg = self.theme.highlight_line();
 
         ui.add_space(8.0);
 
@@ -844,10 +837,7 @@ impl HttpHandler {
         );
         ui.add_space(8.0);
 
-        let key_color = match self.theme {
-            AppTheme::Light => palette::light_text::TERTIARY,
-            AppTheme::Dark => palette::text::TERTIARY,
-        };
+        let key_color = self.theme.text_tertiary();
 
         match self.preview_kind {
             PreviewKind::Metric => {
@@ -878,7 +868,7 @@ impl HttpHandler {
                         );
                         ui.label(
                             RichText::new(self.labels.join(", "))
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .font(typography::monospace(typography::MD)),
                         );
                         ui.add_space(16.0);
@@ -921,7 +911,7 @@ impl HttpHandler {
                         );
                         ui.label(
                             RichText::new(&self.metric_name)
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .font(typography::monospace(typography::MD))
                                 .strong(),
                         );
@@ -970,7 +960,7 @@ impl HttpHandler {
     fn highlight_rust_line(&self, line_num: usize, line: &str) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::MD);
-        let default_color = text_color(self.theme);
+        let default_color = self.theme.text_primary();
 
         // If we have no highlight spans or line offsets, fall back to plain text
         if self.highlight_spans.is_empty() || self.line_offsets.is_empty() {
@@ -1054,12 +1044,12 @@ impl HttpHandler {
         job
     }
 
-    /// Fallback for WASM - no syntax highlighting.
+    /// Fallback when tree-sitter is not available - no syntax highlighting.
     #[cfg(target_arch = "wasm32")]
     fn highlight_rust_line(&self, _line_num: usize, line: &str) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::MD);
-        let default_color = text_color(self.theme);
+        let default_color = self.theme.text_primary();
         job.append(line, 0.0, egui::TextFormat::simple(font_id, default_color));
         job
     }
@@ -1069,43 +1059,22 @@ impl HttpHandler {
     fn highlight_color(&self, idx: usize) -> Color32 {
         let name = HIGHLIGHT_NAMES.get(idx).copied().unwrap_or("");
 
-        match self.theme {
-            AppTheme::Light => match name {
-                "keyword" => Color32::from_rgb(160, 50, 160), // purple
-                "string" | "escape" => Color32::from_rgb(50, 130, 50), // green
-                "comment" => Color32::from_rgb(120, 120, 120), // gray
-                "function" | "function.builtin" => Color32::from_rgb(50, 100, 180), // blue
-                "function.macro" => Color32::from_rgb(0, 130, 150), // teal
-                "type" | "type.builtin" | "constructor" => Color32::from_rgb(180, 100, 50), // orange
-                "number" | "constant" | "constant.builtin" => Color32::from_rgb(180, 80, 80), // red-ish
-                "attribute" => Color32::from_rgb(150, 120, 50), // yellow-brown
-                "variable" | "variable.parameter" | "property" | "label" => {
-                    Color32::from_rgb(40, 40, 40)
-                } // dark
-                "variable.builtin" => Color32::from_rgb(160, 50, 160), // purple (self)
-                "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
-                    Color32::from_rgb(60, 60, 60) // dark gray
-                }
-                _ => Color32::from_rgb(40, 40, 40), // default dark
-            },
-            AppTheme::Dark => match name {
-                "keyword" => Color32::from_rgb(200, 120, 220), // purple
-                "string" | "escape" => Color32::from_rgb(130, 200, 130), // green
-                "comment" => Color32::from_rgb(128, 128, 128), // gray
-                "function" | "function.builtin" => Color32::from_rgb(100, 160, 255), // blue
-                "function.macro" => Color32::from_rgb(80, 200, 200), // cyan
-                "type" | "type.builtin" | "constructor" => Color32::from_rgb(220, 160, 100), // orange
-                "number" | "constant" | "constant.builtin" => Color32::from_rgb(220, 120, 120), // red-ish
-                "attribute" => Color32::from_rgb(220, 190, 100), // yellow
-                "variable" | "variable.parameter" | "property" | "label" => {
-                    Color32::from_rgb(220, 220, 220)
-                } // light
-                "variable.builtin" => Color32::from_rgb(200, 120, 220), // purple (self)
-                "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
-                    Color32::from_rgb(180, 180, 180) // light gray
-                }
-                _ => Color32::from_rgb(220, 220, 220), // default light
-            },
+        match name {
+            "keyword" => self.theme.syntax_keyword(),
+            "string" | "escape" => self.theme.syntax_value(),
+            "comment" => self.theme.syntax_comment(),
+            "function" | "function.builtin" | "function.macro" => self.theme.syntax_function(),
+            "type" | "type.builtin" | "constructor" => self.theme.syntax_type(),
+            "number" | "constant" | "constant.builtin" => self.theme.syntax_number(),
+            "attribute" => self.theme.syntax_type(), // Use type color for attributes
+            "variable" | "variable.parameter" | "property" | "label" => {
+                self.theme.syntax_variable()
+            }
+            "variable.builtin" => self.theme.syntax_keyword(), // Use keyword color for builtin vars (self)
+            "operator" | "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => {
+                self.theme.syntax_punctuation()
+            }
+            _ => self.theme.syntax_variable(), // Default to variable color
         }
     }
 }

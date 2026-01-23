@@ -12,7 +12,13 @@ runs:
         packages: libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
         version: 1.0
 
+    - name: Install Zig
+      uses: mlugg/setup-zig@v2
+      with:
+        version: 0.14.1
+
     - name: Install dev tools
       uses: taiki-e/install-action@v2.49.15
       with:
-        tool: nextest@0.9.89, cargo-machete, cargo-deny, taplo-cli
+        # cargo-deny@0.18.9+ required for CVSS 4.0 support in RustSec advisories
+        tool: nextest@0.9.89, cargo-machete, cargo-deny@0.18.9, taplo-cli

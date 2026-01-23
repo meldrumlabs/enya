@@ -2,10 +2,9 @@ use egui::text::LayoutJob;
 use egui::{Color32, FontId, Key, RichText, TextFormat};
 
 use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticLevel};
-use crate::components::util::query_completion::{CompletionResult, QueryCompletion};
+use crate::components::util::query_completion::{CompletionResult, QueryCompletion, QueryLanguage};
 use crate::components::util::query_state::QueryState;
 use crate::components::util::query_validation::{ValidationResult, validate_query};
-use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
@@ -37,27 +36,15 @@ struct QuerySyntaxColors {
 
 impl QuerySyntaxColors {
     fn for_theme(theme: AppTheme) -> Self {
-        match theme {
-            AppTheme::Light => Self {
-                keyword: Color32::from_rgb(166, 38, 164), // purple - keywords
-                tag_key: Color32::from_rgb(0, 92, 197),   // blue - keys
-                colon: palette::light_text::TERTIARY,
-                tag_value: palette::accent::LIGHT, // emerald - values
-                wildcard: Color32::from_rgb(200, 120, 0), // orange
-                paren: palette::light_text::TERTIARY,
-                negation: palette::semantic::ERROR,
-                default: palette::light_text::PRIMARY,
-            },
-            AppTheme::Dark => Self {
-                keyword: palette::syntax::KEYWORD,
-                tag_key: palette::syntax::KEY,
-                colon: palette::syntax::PUNCTUATION,
-                tag_value: palette::syntax::VALUE,
-                wildcard: palette::syntax::SPECIAL,
-                paren: palette::syntax::PUNCTUATION,
-                negation: palette::syntax::NEGATION,
-                default: palette::text::PRIMARY,
-            },
+        Self {
+            keyword: theme.syntax_keyword(),
+            tag_key: theme.syntax_key(),
+            colon: theme.syntax_punctuation(),
+            tag_value: theme.syntax_value(),
+            wildcard: theme.syntax_type(), // Use type color for wildcards/special
+            paren: theme.syntax_punctuation(),
+            negation: theme.semantic_error(),
+            default: theme.text_primary(),
         }
     }
 }
@@ -573,6 +560,22 @@ impl BufferEditor {
         self.original_metric_name = Self::extract_metric_name(query);
     }
 
+    /// Open the editor for a specific query language (PromQL or LogQL)
+    pub fn open_with_language(&mut self, query: &str, buffer_name: &str, language: QueryLanguage) {
+        self.completion.set_language(language);
+        self.open(query, buffer_name);
+    }
+
+    /// Set the query language for completion (PromQL or LogQL)
+    pub fn set_language(&mut self, language: QueryLanguage) {
+        self.completion.set_language(language);
+    }
+
+    /// Get the current query language
+    pub fn language(&self) -> QueryLanguage {
+        self.completion.language()
+    }
+
     /// Close the editor without saving
     pub fn close(&mut self) {
         self.is_open = false;
@@ -636,6 +639,7 @@ impl BufferEditor {
     }
 
     /// Show the buffer editor modal. Returns the result of the interaction.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> BufferEditorResult {
         if !self.is_open {
             return BufferEditorResult::None;
@@ -646,14 +650,15 @@ impl BufferEditor {
         let mut should_save = false;
 
         // Handle keyboard shortcuts (when completion is not open)
+        // Use consume_key to prevent multiple processing
         if !self.completion.is_open() {
-            ctx.input(|input| {
+            ctx.input_mut(|input| {
                 // Escape - cancel and close
-                if input.key_pressed(Key::Escape) {
+                if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                     should_close = true;
                 }
                 // Ctrl+Enter or Cmd+Enter - save and close
-                if input.key_pressed(Key::Enter) && input.modifiers.command {
+                if input.consume_key(egui::Modifiers::COMMAND, Key::Enter) {
                     should_save = true;
                 }
             });
@@ -671,12 +676,10 @@ impl BufferEditor {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                // Muted accent for badges/buttons (darker, less saturated for dark mode)
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => Color32::from_rgb(13, 148, 103), // Darker emerald (~0.8x PRIMARY)
-                };
+                // Muted accent for badges/buttons
+                let accent_color = self.theme.accent_muted();
 
                 let frame_response = overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
@@ -698,7 +701,7 @@ impl BufferEditor {
                         // Buffer name
                         ui.label(
                             RichText::new(&self.buffer_name)
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .size(typography::XL),
                         );
 
@@ -768,7 +771,7 @@ impl BufferEditor {
                             ui.add_space(16.0);
                             ui.label(
                                 RichText::new("Esc to cancel")
-                                    .color(text_color(self.theme).gamma_multiply(0.4))
+                                    .color(self.theme.text_primary().gamma_multiply(0.4))
                                     .size(typography::SM),
                             );
                         });
@@ -777,10 +780,7 @@ impl BufferEditor {
                     ui.add_space(12.0);
 
                     // Separator
-                    let separator_color = match self.theme {
-                        AppTheme::Light => palette::light_border::SUBTLE,
-                        AppTheme::Dark => palette::border::SUBTLE,
-                    };
+                    let separator_color = self.theme.border_subtle();
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
@@ -794,13 +794,13 @@ impl BufferEditor {
                         ui.add_space(16.0);
                         ui.label(
                             RichText::new(semantic_icons::file::CODE)
-                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .color(self.theme.text_primary().gamma_multiply(0.6))
                                 .size(typography::XL),
                         );
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Query")
-                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .color(self.theme.text_primary().gamma_multiply(0.7))
                                 .size(typography::MD),
                         );
                     });
@@ -840,14 +840,8 @@ impl BufferEditor {
                         let editor_width = popup_width - 32.0;
 
                         // Premium editor styling
-                        let editor_bg = match self.theme {
-                            AppTheme::Light => palette::light_bg::ELEVATED,
-                            AppTheme::Dark => Color32::from_rgb(14, 14, 17), // Slightly darker for contrast
-                        };
-                        let editor_border = match self.theme {
-                            AppTheme::Light => palette::light_border::SUBTLE,
-                            AppTheme::Dark => palette::border::SUBTLE,
-                        };
+                        let editor_bg = self.theme.bg_inset();
+                        let editor_border = self.theme.border_subtle();
 
                         // Create layouter closure for syntax highlighting
                         // Use larger font for better readability
@@ -881,13 +875,21 @@ impl BufferEditor {
                                     Color32::from_rgba_unmultiplied(0, 0, 0, 15),
                                 );
 
+                                // Language-aware hint text
+                                let hint = match self.language() {
+                                    QueryLanguage::PromQL => "e.g., rate(http_requests_total[5m])",
+                                    QueryLanguage::LogQL => {
+                                        r#"e.g., {app="nginx"} |= "error" | json"#
+                                    }
+                                };
+
                                 egui::TextEdit::multiline(&mut self.query)
                                     .id(text_edit_id)
                                     .font(typography::code_lg())
                                     .hint_text(
-                                        RichText::new("e.g., rate(http_requests_total[5m])")
+                                        RichText::new(hint)
                                             .font(typography::code_lg())
-                                            .color(text_color(self.theme).gamma_multiply(0.35)),
+                                            .color(self.theme.text_primary().gamma_multiply(0.35)),
                                     )
                                     .desired_width(editor_width - 28.0)
                                     .desired_rows(6)
@@ -1071,11 +1073,8 @@ impl BufferEditor {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
 
-                        let hint_color = text_color(self.theme).gamma_multiply(0.35);
-                        let key_bg = match self.theme {
-                            AppTheme::Light => palette::light_bg::ELEVATED,
-                            AppTheme::Dark => palette::bg::ELEVATED,
-                        };
+                        let hint_color = self.theme.text_primary().gamma_multiply(0.35);
+                        let key_bg = self.theme.bg_elevated();
 
                         // Premium keyboard hints with key badges
                         crate::components::util::finder_utils::render_key_badge(
@@ -1134,18 +1133,12 @@ impl BufferEditor {
                             ui.add_space(10.0);
 
                             // Cancel button with refined ghost styling
-                            let cancel_bg = match self.theme {
-                                AppTheme::Light => palette::light_bg::HOVER,
-                                AppTheme::Dark => palette::bg::ELEVATED,
-                            };
-                            let cancel_border = match self.theme {
-                                AppTheme::Light => palette::light_border::SUBTLE,
-                                AppTheme::Dark => palette::border::SUBTLE,
-                            };
+                            let cancel_bg = self.theme.bg_elevated();
+                            let cancel_border = self.theme.border_subtle();
                             let cancel_btn = egui::Button::new(
                                 RichText::new("Cancel")
                                     .size(typography::MD)
-                                    .color(text_color(self.theme).gamma_multiply(0.7)),
+                                    .color(self.theme.text_primary().gamma_multiply(0.7)),
                             )
                             .fill(cancel_bg)
                             .stroke(egui::Stroke::new(1.0, cancel_border))
@@ -1200,9 +1193,13 @@ impl BufferEditor {
         if should_save {
             let saved_query = self.query.clone();
             let saved_state = self.query_state.clone();
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = BufferEditorResult::Saved(saved_query, saved_state);
         } else if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = BufferEditorResult::Cancelled;
         }

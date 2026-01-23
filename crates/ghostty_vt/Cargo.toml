@@ -1,0 +1,10 @@
+[package]
+name = "ghostty_vt"
+version.workspace = true
+edition.workspace = true
+publish = false
+license = "Apache-2.0"
+description = "Safe Rust bindings for ghostty's virtual terminal library"
+
+[dependencies]
+ghostty_vt_sys = { path = "../ghostty_vt_sys" }

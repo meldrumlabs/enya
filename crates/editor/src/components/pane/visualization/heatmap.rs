@@ -6,8 +6,6 @@
 use egui::{Color32, RichText, Stroke, StrokeKind};
 
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 /// A single cell in the heatmap
@@ -150,24 +148,15 @@ impl HeatmapViz {
         self.cells.clear();
     }
 
-    /// Get a color for a normalized value (0-1) - Obsidian Glass theme palette
+    /// Get a color for a normalized value (0-1) - uses theme-aware gradient
     ///
-    /// Uses an emerald-based gradient that matches the editor's brand colors:
+    /// Uses a gradient that matches the current theme:
     /// - Low values: dark backgrounds (near-black)
-    /// - Mid values: teal/emerald transition
-    /// - High values: bright emerald accent
-    fn get_color(value: f32) -> Color32 {
-        // Obsidian Glass inspired palette - dark to emerald gradient
-        let colors = [
-            Color32::from_rgb(10, 10, 10),   // bg::BASE - almost black
-            Color32::from_rgb(20, 28, 25),   // Dark with subtle green tint
-            Color32::from_rgb(18, 38, 32),   // accent::MUTED - subtle emerald
-            Color32::from_rgb(20, 60, 50),   // Deeper emerald
-            Color32::from_rgb(32, 100, 85),  // Mid teal-emerald
-            Color32::from_rgb(16, 140, 100), // Approaching accent
-            Color32::from_rgb(16, 185, 129), // accent::PRIMARY - emerald
-            Color32::from_rgb(52, 211, 153), // accent::HOVER - bright emerald
-        ];
+    /// - Mid values: transitional colors
+    /// - High values: bright accent color
+    fn get_color(&self, value: f32) -> Color32 {
+        // Get theme-specific gradient colors
+        let colors = self.theme.heatmap_gradient();
 
         let t = value.clamp(0.0, 1.0);
 
@@ -192,8 +181,9 @@ impl HeatmapViz {
     }
 
     /// Render the heatmap
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         ui.vertical(|ui| {
             ui.add_space(8.0);
@@ -280,7 +270,7 @@ impl HeatmapViz {
                         egui::vec2(cell_width - gap, cell_height - gap),
                     );
 
-                    let color = Self::get_color(cell.value);
+                    let color = self.get_color(cell.value);
                     painter.rect_filled(cell_rect, 2.0, color);
                 }
 
@@ -288,7 +278,7 @@ impl HeatmapViz {
                 painter.rect_stroke(
                     rect,
                     0.0,
-                    Stroke::new(1.0, palette::border::SUBTLE),
+                    Stroke::new(1.0, self.theme.border_subtle()),
                     StrokeKind::Outside,
                 );
 
@@ -315,7 +305,7 @@ impl HeatmapViz {
                                 egui::pos2(legend_rect.left(), y),
                                 egui::vec2(legend_width, step_height + 1.0),
                             );
-                            legend_painter.rect_filled(step_rect, 0.0, Self::get_color(t));
+                            legend_painter.rect_filled(step_rect, 0.0, self.get_color(t));
                         }
 
                         // Min/max labels
@@ -484,21 +474,23 @@ mod tests {
 
     #[test]
     fn test_get_color() {
-        // Test color at boundaries
-        let color_0 = HeatmapViz::get_color(0.0);
-        let color_1 = HeatmapViz::get_color(1.0);
+        // Test color at boundaries with default (Emerald) theme
+        let heatmap = HeatmapViz::new("test");
+        let color_0 = heatmap.get_color(0.0);
+        let color_1 = heatmap.get_color(1.0);
 
         // Should be different colors
         assert_ne!(color_0, color_1);
 
-        // Color at 0 should be near-black (Obsidian Glass bg::BASE)
-        assert!(color_0.r() < 20);
-        assert!(color_0.g() < 20);
-        assert!(color_0.b() < 20);
+        // Color at 0 should be near-black (dark background)
+        assert!(color_0.r() < 30);
+        assert!(color_0.g() < 30);
+        assert!(color_0.b() < 30);
 
-        // Color at 1 should be bright emerald (accent::HOVER)
-        assert!(color_1.g() > 180); // Green channel dominant
-        assert!(color_1.g() > color_1.r()); // More green than red
+        // Color at 1 should be the accent highlight (brighter than low)
+        assert!(
+            color_1.r() > color_0.r() || color_1.g() > color_0.g() || color_1.b() > color_0.b()
+        );
     }
 
     #[test]

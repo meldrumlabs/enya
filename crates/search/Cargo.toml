@@ -1,0 +1,31 @@
+[package]
+name = "enya-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+license.workspace = true
+description = "Full-text search index for Enya codebase (metrics, alerts, commits)"
+
+[dependencies]
+# Core types from analyzer
+enya-analyzer = { workspace = true }
+
+# Full-text search engine
+tantivy = "0.25"
+
+# Serialization for metadata
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+# Logging
+log = { workspace = true }
+
+# Synchronization primitives
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

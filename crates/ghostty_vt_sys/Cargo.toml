@@ -1,0 +1,9 @@
+[package]
+name = "ghostty_vt_sys"
+version.workspace = true
+edition.workspace = true
+publish = false
+license = "Apache-2.0"
+description = "FFI bindings to ghostty's virtual terminal library"
+
+[build-dependencies]

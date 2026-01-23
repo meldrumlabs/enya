@@ -2,8 +2,6 @@
 
 use egui::{Color32, RichText};
 
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 
 use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
@@ -123,6 +121,11 @@ impl BarChartViz {
         self.sorted = sorted;
     }
 
+    /// Get a reference to the bars.
+    pub fn bars(&self) -> &[Bar] {
+        &self.bars
+    }
+
     /// Get bars sorted by value (descending) if sorted is true
     pub(crate) fn get_display_bars(&self) -> Vec<&Bar> {
         let mut bars: Vec<&Bar> = self.bars.iter().collect();
@@ -150,9 +153,10 @@ impl BarChartViz {
     }
 
     /// Render the bar chart
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
-        let accent_color = palette::accent::PRIMARY;
+        let text_col = self.theme.text_primary();
+        let accent_color = self.theme.accent_primary();
 
         let available_width = ui.available_width();
         let available_height = ui.available_height();

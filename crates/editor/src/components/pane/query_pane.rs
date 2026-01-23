@@ -1,5 +1,6 @@
 use egui::{Color32, RichText};
 
+use crate::components::pane::time_series_chart::ChartInteraction;
 use crate::components::pane::visualization::{
     Visualization, VisualizationType, populate_demo_data,
 };
@@ -7,7 +8,6 @@ use crate::components::util::id_generator::next_id_usize;
 use crate::components::util::query_state::QueryState;
 use crate::components::widget::buffer::{Buffer, BufferAction, BufferMode};
 use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
@@ -16,17 +16,18 @@ fn render_loading_state(ui: &mut egui::Ui, theme: AppTheme) {
     let time = ui.ctx().input(|i| i.time);
     let available = ui.available_size();
 
-    // Skeleton colors - obsidian glass emerald style
-    let base = palette::bg_elevated(theme);
-    // Add subtle emerald tint to skeleton elements for cohesive look
+    // Skeleton colors - fully theme-aware styling
+    let base = theme.bg_elevated();
+    let accent = theme.accent_primary();
+    // Blend base with a subtle amount of accent for theme-aware skeleton tint
     let skeleton_base = Color32::from_rgba_unmultiplied(
-        base.r().saturating_sub(5),
-        base.g().saturating_add(8), // subtle green tint
-        base.b().saturating_add(3),
+        (base.r() as f32 * 0.95 + accent.r() as f32 * 0.05) as u8,
+        (base.g() as f32 * 0.95 + accent.g() as f32 * 0.05) as u8,
+        (base.b() as f32 * 0.95 + accent.b() as f32 * 0.05) as u8,
         base.a(),
     );
-    // Richer emerald shimmer for glassy effect
-    let shimmer_color = palette::accent::PRIMARY.gamma_multiply(0.3);
+    // Use theme accent for shimmer effect
+    let shimmer_color = accent.gamma_multiply(0.3);
 
     // Calculate shimmer position (sweeps left to right)
     let shimmer_progress = ((time * 0.8) % 2.0) as f32; // 0.0 to 2.0, loops
@@ -136,6 +137,8 @@ pub struct QueryPane {
     query_state: QueryState,
     /// User-defined tag for organizing panes (e.g., "Critical", "Warning")
     tag: String,
+    /// Description providing context about the pane (shown on hover)
+    description: String,
     /// Whether this pane needs a query refresh (set on save, cleared after execution)
     needs_refresh: bool,
     /// Whether a query is currently in flight (for loading state)
@@ -145,6 +148,10 @@ pub struct QueryPane {
     has_user_override: bool,
     /// Whether edit was requested via button click (for workspace to pick up)
     edit_requested: bool,
+    /// Whether the visualization type dropdown is open
+    viz_dropdown_open: bool,
+    /// Pending action to be consumed by the workspace (set during show, cleared on take)
+    pending_action: Option<QueryPaneAction>,
 }
 
 impl Default for QueryPane {
@@ -179,10 +186,13 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
+            pending_action: None,
         }
     }
 
@@ -236,10 +246,13 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: true, // Trigger query on first frame
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
+            pending_action: None,
         }
     }
 
@@ -264,10 +277,13 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
+            pending_action: None,
         }
     }
 
@@ -295,10 +311,13 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: true, // Trigger query on first frame
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
+            pending_action: None,
         }
     }
 
@@ -326,10 +345,13 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
+            pending_action: None,
         }
     }
 
@@ -368,10 +390,13 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: false,
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
+            pending_action: None,
         }
     }
 
@@ -397,10 +422,13 @@ impl QueryPane {
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
+            description: String::new(),
             needs_refresh: true,
             is_loading: false,
             has_user_override: false,
             edit_requested: false,
+            viz_dropdown_open: false,
+            pending_action: None,
         }
     }
 
@@ -479,9 +507,25 @@ impl QueryPane {
         &self.tag
     }
 
+    /// Take the pending action (returns and clears it).
+    /// Call this after rendering to check for drilldown interactions.
+    pub fn take_pending_action(&mut self) -> Option<QueryPaneAction> {
+        self.pending_action.take()
+    }
+
     /// Set the user-defined tag
     pub fn set_tag(&mut self, tag: &str) {
         self.tag = tag.to_string();
+    }
+
+    /// Get the description
+    pub fn description(&self) -> &str {
+        &self.description
+    }
+
+    /// Set the description
+    pub fn set_description(&mut self, description: &str) {
+        self.description = description.to_string();
     }
 
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
@@ -599,6 +643,11 @@ impl QueryPane {
         self.refresh_chart();
     }
 
+    /// Get a reference to the visualization.
+    pub fn visualization(&self) -> &Visualization {
+        &self.visualization
+    }
+
     /// Get a mutable reference to the visualization (for external query execution)
     pub fn visualization_mut(&mut self) -> &mut Visualization {
         &mut self.visualization
@@ -639,7 +688,30 @@ impl QueryPane {
         self.edit_requested = false;
     }
 
+    // ==================== Annotation Methods ====================
+
+    /// Add an annotation to the visualization's chart.
+    pub fn add_annotation(&mut self, annotation: super::annotation::Annotation) {
+        self.visualization.add_annotation(annotation);
+    }
+
+    /// Update an existing annotation in the visualization's chart.
+    pub fn update_annotation(&mut self, annotation: super::annotation::Annotation) {
+        self.visualization.update_annotation(annotation);
+    }
+
+    /// Remove an annotation from the visualization's chart.
+    pub fn remove_annotation(&mut self, id: super::annotation::AnnotationId) {
+        self.visualization.remove_annotation(id);
+    }
+
+    /// Get all annotations from the visualization's chart.
+    pub fn annotations(&self) -> Vec<&super::annotation::Annotation> {
+        self.visualization.annotations()
+    }
+
     /// Render the query pane
+    #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
         let mut action = QueryPaneAction::None;
         let text_col = text_color(self.theme);
@@ -716,41 +788,167 @@ impl QueryPane {
                 render_loading_state(ui, self.theme);
             } else {
                 self.visualization.show(ui);
+
+                // Check for chart interactions (e.g., double-click for drilldown)
+                if let Some(ChartInteraction::DrilldownLogs {
+                    timestamp_secs,
+                    metric_name,
+                }) = self.visualization.take_interaction()
+                {
+                    action = QueryPaneAction::DrilldownLogs {
+                        timestamp_secs,
+                        metric_name,
+                    };
+                }
             }
         });
 
-        // Edit button overlay in top-right corner (only when buffer is collapsed)
-        // Positioned to align with the + button in the tab bar above
+        // Toolbar overlay in top-right corner (only when buffer is collapsed)
+        // Contains: info button (if description), visualization type dropdown, edit button
         if !self.buffer_expanded {
             let button_size = egui::vec2(24.0, 24.0);
-            let button_pos = egui::pos2(
+            let spacing = 2.0;
+            let has_description = !self.description.is_empty();
+
+            // Edit button (rightmost)
+            let edit_button_pos = egui::pos2(
                 pane_rect.right() - button_size.x - 4.0,
                 pane_rect.top() + 4.0,
             );
-            let button_rect = egui::Rect::from_min_size(button_pos, button_size);
+            let edit_button_rect = egui::Rect::from_min_size(edit_button_pos, button_size);
 
-            // Determine icon color based on hover state
-            let is_hovered = ui.rect_contains_pointer(button_rect);
-            let icon_color = if is_hovered {
+            let is_edit_hovered = ui.rect_contains_pointer(edit_button_rect);
+            let edit_icon_color = if is_edit_hovered {
                 text_col.gamma_multiply(0.9)
             } else {
                 text_col.gamma_multiply(0.5)
             };
 
-            let response = ui.put(
-                button_rect,
+            let edit_response = ui.put(
+                edit_button_rect,
                 egui::Button::new(
                     RichText::new(semantic_icons::action::EDIT)
-                        .color(icon_color)
+                        .color(edit_icon_color)
                         .size(14.0),
                 )
                 .fill(Color32::TRANSPARENT)
                 .frame(false),
             );
 
-            if response.on_hover_text("Edit query (e)").clicked() {
+            if edit_response.on_hover_text("Edit query (e)").clicked() {
                 self.edit_requested = true;
             }
+
+            // Visualization type dropdown (left of edit button)
+            let viz_button_pos = egui::pos2(
+                edit_button_pos.x - button_size.x - spacing,
+                pane_rect.top() + 4.0,
+            );
+
+            // Info button (left of viz button, only if description exists)
+            if has_description {
+                let info_button_pos = egui::pos2(
+                    viz_button_pos.x - button_size.x - spacing,
+                    pane_rect.top() + 4.0,
+                );
+                let info_button_rect = egui::Rect::from_min_size(info_button_pos, button_size);
+
+                let is_info_hovered = ui.rect_contains_pointer(info_button_rect);
+                let info_icon_color = if is_info_hovered {
+                    self.theme.accent_primary()
+                } else {
+                    text_col.gamma_multiply(0.5)
+                };
+
+                let info_response = ui.put(
+                    info_button_rect,
+                    egui::Button::new(
+                        RichText::new(semantic_icons::status::INFO)
+                            .color(info_icon_color)
+                            .size(14.0),
+                    )
+                    .fill(Color32::TRANSPARENT)
+                    .frame(false),
+                );
+
+                info_response.on_hover_text(&self.description);
+            }
+            let viz_button_rect = egui::Rect::from_min_size(viz_button_pos, button_size);
+
+            let is_viz_hovered = ui.rect_contains_pointer(viz_button_rect);
+            let viz_icon_color = if is_viz_hovered {
+                text_col.gamma_multiply(0.9)
+            } else {
+                text_col.gamma_multiply(0.5)
+            };
+
+            let current_viz = self.visualization_type();
+            let viz_response = ui.put(
+                viz_button_rect,
+                egui::Button::new(
+                    RichText::new(semantic_icons::action::CHART)
+                        .color(viz_icon_color)
+                        .size(14.0),
+                )
+                .fill(Color32::TRANSPARENT)
+                .frame(false),
+            );
+
+            let viz_tooltip = format!("Visualization: {} (click to change)", current_viz.label());
+            let viz_response = viz_response.on_hover_text(viz_tooltip);
+
+            // Toggle dropdown on click
+            if viz_response.clicked() {
+                self.viz_dropdown_open = !self.viz_dropdown_open;
+            }
+
+            // Show popup menu using Area
+            if self.viz_dropdown_open {
+                let popup_id = egui::Id::new(format!("viz_popup_{}", self.id));
+                let area_response = egui::Area::new(popup_id)
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(viz_response.rect.left_bottom() + egui::vec2(0.0, 2.0))
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            ui.set_min_width(120.0);
+                            let mut clicked_type = None;
+                            for viz_type in VisualizationType::all() {
+                                let is_selected = *viz_type == current_viz;
+                                let label = format!("{} {}", viz_type.icon(), viz_type.label());
+
+                                let text = if is_selected {
+                                    RichText::new(label).strong()
+                                } else {
+                                    RichText::new(label)
+                                };
+
+                                if ui.selectable_label(is_selected, text).clicked() {
+                                    clicked_type = Some(*viz_type);
+                                }
+                            }
+                            clicked_type
+                        })
+                    });
+
+                // Handle selection and close popup
+                if let Some(viz_type) = area_response.inner.inner {
+                    self.set_visualization_type(viz_type);
+                    self.viz_dropdown_open = false;
+                }
+
+                // Close if clicked outside
+                if ui.input(|i| i.pointer.any_click())
+                    && !area_response.response.contains_pointer()
+                    && !viz_response.contains_pointer()
+                {
+                    self.viz_dropdown_open = false;
+                }
+            }
+        }
+
+        // Store actions that need to be consumed by the workspace (e.g., drilldown)
+        if matches!(action, QueryPaneAction::DrilldownLogs { .. }) {
+            self.pending_action = Some(action.clone());
         }
 
         action
@@ -758,12 +956,19 @@ impl QueryPane {
 }
 
 /// Actions that can result from query pane interaction
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum QueryPaneAction {
     /// No action
     None,
     /// Query was changed (buffer saved)
     QueryChanged,
+    /// User double-clicked on chart for logs drilldown
+    DrilldownLogs {
+        /// Timestamp in seconds where user clicked
+        timestamp_secs: f64,
+        /// The metric name for context
+        metric_name: String,
+    },
 }
 
 /// Implement Component trait so QueryPane can be used in the dashboard
@@ -800,6 +1005,10 @@ impl crate::components::Component for QueryPane {
 
         let title = self.buffer.display_title();
         egui::RichText::new(format!("{icon} {title}"))
+    }
+
+    fn description(&self) -> &str {
+        &self.description
     }
 
     fn as_any(&self) -> &dyn std::any::Any {

@@ -1,7 +1,5 @@
 use egui::{Color32, FontId, Key, RichText};
 
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -158,6 +156,7 @@ impl MultiEditOverlay {
     }
 
     /// Show the multi-edit overlay. Returns the result of the interaction.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> MultiEditResult {
         if !self.is_open {
             return MultiEditResult::None;
@@ -168,27 +167,27 @@ impl MultiEditOverlay {
         let mut should_apply = false;
         let mut should_replace_all = false;
 
-        // Handle keyboard shortcuts
-        ctx.input(|input| {
+        // Handle keyboard shortcuts - use consume_key to prevent multiple processing
+        ctx.input_mut(|input| {
             // Escape - cancel and close
-            if input.key_pressed(Key::Escape) {
+            if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
                 should_close = true;
             }
             // Ctrl+Enter or Cmd+Enter - apply and close
-            if input.key_pressed(Key::Enter) && input.modifiers.command {
+            if input.consume_key(egui::Modifiers::COMMAND, Key::Enter) {
                 should_apply = true;
             }
             // Ctrl+Shift+R - replace all
-            if input.key_pressed(Key::R) && input.modifiers.command && input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, Key::R) {
                 should_replace_all = true;
             }
             // Tab - cycle through excerpts
-            if input.key_pressed(Key::Tab) && !input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::NONE, Key::Tab) {
                 self.focused_excerpt =
                     (self.focused_excerpt + 1) % (self.excerpts.len() as i32 + 1) - 1;
             }
             // Shift+Tab - cycle backwards
-            if input.key_pressed(Key::Tab) && input.modifiers.shift {
+            if input.consume_key(egui::Modifiers::SHIFT, Key::Tab) {
                 let total = self.excerpts.len() as i32 + 1;
                 self.focused_excerpt = (self.focused_excerpt - 1 + total) % total - 1;
             }
@@ -211,12 +210,10 @@ impl MultiEditOverlay {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 // Muted accent for badges/buttons
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => Color32::from_rgb(13, 148, 103),
-                };
+                let accent_color = self.theme.accent_primary();
 
                 let frame_response = overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
@@ -238,7 +235,7 @@ impl MultiEditOverlay {
                         // Title with pane count
                         ui.label(
                             RichText::new(format!("Edit {} Panes", self.excerpts.len()))
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .size(typography::XL),
                         );
 
@@ -248,7 +245,7 @@ impl MultiEditOverlay {
                             ui.add_space(8.0);
                             ui.label(
                                 RichText::new(format!("[+{modified}]"))
-                                    .color(palette::semantic::WARNING)
+                                    .color(self.theme.semantic_warning())
                                     .size(typography::MD),
                             );
                         }
@@ -258,7 +255,7 @@ impl MultiEditOverlay {
                             ui.add_space(16.0);
                             ui.label(
                                 RichText::new("Esc to cancel")
-                                    .color(text_color(self.theme).gamma_multiply(0.4))
+                                    .color(self.theme.text_primary().gamma_multiply(0.4))
                                     .size(typography::SM),
                             );
                         });
@@ -267,10 +264,7 @@ impl MultiEditOverlay {
                     ui.add_space(12.0);
 
                     // Separator
-                    let separator_color = match self.theme {
-                        AppTheme::Light => palette::light_border::SUBTLE,
-                        AppTheme::Dark => palette::border::SUBTLE,
-                    };
+                    let separator_color = self.theme.border_subtle();
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
@@ -284,13 +278,13 @@ impl MultiEditOverlay {
                         ui.add_space(20.0);
                         ui.label(
                             RichText::new(semantic_icons::action::SEARCH)
-                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .color(self.theme.text_primary().gamma_multiply(0.6))
                                 .size(typography::XL),
                         );
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Find & Replace")
-                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .color(self.theme.text_primary().gamma_multiply(0.7))
                                 .size(typography::MD),
                         );
 
@@ -299,9 +293,15 @@ impl MultiEditOverlay {
                             let match_count = self.count_matches();
                             ui.add_space(8.0);
                             let (icon, color) = if match_count == 0 {
-                                (semantic_icons::status::WARNING, palette::semantic::WARNING)
+                                (
+                                    semantic_icons::status::WARNING,
+                                    self.theme.semantic_warning(),
+                                )
                             } else {
-                                (semantic_icons::status::SUCCESS, palette::semantic::SUCCESS)
+                                (
+                                    semantic_icons::status::SUCCESS,
+                                    self.theme.semantic_success(),
+                                )
                             };
                             ui.label(
                                 RichText::new(format!("{icon} {match_count} matches"))
@@ -314,14 +314,8 @@ impl MultiEditOverlay {
                     ui.add_space(8.0);
 
                     // Find/Replace inputs with premium styled background
-                    let editor_bg = match self.theme {
-                        AppTheme::Light => palette::light_bg::ELEVATED,
-                        AppTheme::Dark => Color32::from_rgb(14, 14, 17), // Darker for contrast
-                    };
-                    let editor_border = match self.theme {
-                        AppTheme::Light => palette::light_border::SUBTLE,
-                        AppTheme::Dark => palette::border::SUBTLE,
-                    };
+                    let editor_bg = self.theme.bg_inset();
+                    let editor_border = self.theme.border_subtle();
 
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
@@ -343,7 +337,9 @@ impl MultiEditOverlay {
                                         .hint_text(
                                             RichText::new("Find pattern...")
                                                 .font(typography::code_lg())
-                                                .color(text_color(self.theme).gamma_multiply(0.35)),
+                                                .color(
+                                                    self.theme.text_primary().gamma_multiply(0.35),
+                                                ),
                                         ),
                                 );
 
@@ -392,7 +388,9 @@ impl MultiEditOverlay {
                                         .hint_text(
                                             RichText::new("Replace with...")
                                                 .font(typography::code_lg())
-                                                .color(text_color(self.theme).gamma_multiply(0.35)),
+                                                .color(
+                                                    self.theme.text_primary().gamma_multiply(0.35),
+                                                ),
                                         ),
                                 );
                             });
@@ -421,7 +419,7 @@ impl MultiEditOverlay {
                                 .color(if button_enabled {
                                     Color32::WHITE
                                 } else {
-                                    text_color(self.theme).gamma_multiply(0.5)
+                                    self.theme.text_primary().gamma_multiply(0.5)
                                 })
                                 .strong(),
                         )
@@ -446,7 +444,7 @@ impl MultiEditOverlay {
                             ui.painter().rect_filled(
                                 replace_response.rect,
                                 6.0,
-                                palette::accent::HOVER,
+                                self.theme.accent_hover(),
                             );
                         }
 
@@ -473,13 +471,13 @@ impl MultiEditOverlay {
                         ui.add_space(16.0);
                         ui.label(
                             RichText::new(semantic_icons::file::CODE)
-                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .color(self.theme.text_primary().gamma_multiply(0.6))
                                 .size(14.0),
                         );
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Queries")
-                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .color(self.theme.text_primary().gamma_multiply(0.7))
                                 .size(12.0),
                         );
                     });
@@ -513,13 +511,10 @@ impl MultiEditOverlay {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
 
-                        let hint_color = text_color(self.theme).gamma_multiply(0.35);
-                        let key_bg = match self.theme {
-                            AppTheme::Light => palette::light_bg::ELEVATED,
-                            AppTheme::Dark => palette::bg::ELEVATED,
-                        };
+                        let hint_color = self.theme.text_primary().gamma_multiply(0.35);
 
                         // Premium keyboard hints with key badges
+                        let key_bg = self.theme.bg_elevated();
                         render_key_badge(ui, "⌘↵", key_bg, hint_color);
                         ui.add_space(4.0);
                         ui.label(
@@ -568,7 +563,7 @@ impl MultiEditOverlay {
                                 ui.painter().rect_filled(
                                     apply_response.rect,
                                     6.0,
-                                    palette::accent::HOVER,
+                                    self.theme.accent_hover(),
                                 );
                             }
 
@@ -579,18 +574,12 @@ impl MultiEditOverlay {
                             ui.add_space(10.0);
 
                             // Cancel button with refined ghost styling
-                            let cancel_bg = match self.theme {
-                                AppTheme::Light => palette::light_bg::HOVER,
-                                AppTheme::Dark => palette::bg::ELEVATED,
-                            };
-                            let cancel_border = match self.theme {
-                                AppTheme::Light => palette::light_border::SUBTLE,
-                                AppTheme::Dark => palette::border::SUBTLE,
-                            };
+                            let cancel_bg = self.theme.bg_elevated();
+                            let cancel_border = self.theme.border_subtle();
                             let cancel_btn = egui::Button::new(
                                 RichText::new("Cancel")
                                     .size(typography::MD)
-                                    .color(text_color(self.theme).gamma_multiply(0.7)),
+                                    .color(self.theme.text_primary().gamma_multiply(0.7)),
                             )
                             .fill(cancel_bg)
                             .stroke(egui::Stroke::new(1.0, cancel_border))
@@ -612,10 +601,14 @@ impl MultiEditOverlay {
 
         // Handle close/apply actions
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = MultiEditResult::Cancelled;
         } else if should_apply {
             let changes = self.collect_changes();
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             result = MultiEditResult::Applied(changes);
         }
@@ -625,25 +618,15 @@ impl MultiEditOverlay {
 
     /// Render the excerpts section
     fn show_excerpts(&mut self, ui: &mut egui::Ui) {
-        // Premium excerpt card styling
-        let excerpt_bg = match self.theme {
-            AppTheme::Light => palette::light_bg::ELEVATED,
-            AppTheme::Dark => Color32::from_rgb(18, 18, 22), // Slightly darker for card effect
-        };
-        let excerpt_border = match self.theme {
-            AppTheme::Light => palette::light_border::SUBTLE,
-            AppTheme::Dark => palette::border::SUBTLE,
-        };
-        let label_color = text_color(self.theme).gamma_multiply(0.7);
-        let highlight_bg = match self.theme {
-            AppTheme::Light => Color32::from_rgb(187, 247, 208), // Light emerald
-            AppTheme::Dark => Color32::from_rgb(16, 60, 48),     // Rich emerald tint
-        };
-        let text_col = text_color(self.theme);
-        let accent_color = match self.theme {
-            AppTheme::Light => palette::accent::LIGHT,
-            AppTheme::Dark => palette::accent::HOVER,
-        };
+        // Premium excerpt card styling - extract all colors before the loop
+        let excerpt_bg = self.theme.bg_card();
+        let excerpt_border = self.theme.border_subtle();
+        let label_color = self.theme.text_primary().gamma_multiply(0.7);
+        let highlight_bg = self.theme.highlight_match();
+        let text_col = self.theme.text_primary();
+        let accent_color = self.theme.accent_hover();
+        let warning_color = self.theme.semantic_warning();
+        let inset_bg = self.theme.bg_inset();
 
         // Clone find_pattern to avoid borrow issues
         let find_pattern = self.find_pattern.clone();
@@ -687,11 +670,7 @@ impl MultiEditOverlay {
                     ui.horizontal(|ui| {
                         // Modified indicator with glow
                         if is_modified {
-                            ui.label(
-                                RichText::new("●")
-                                    .color(palette::semantic::WARNING)
-                                    .size(typography::SM),
-                            );
+                            ui.label(RichText::new("●").color(warning_color).size(typography::SM));
                             ui.add_space(4.0);
                         }
 
@@ -785,11 +764,7 @@ impl MultiEditOverlay {
                         );
 
                         // Draw background for the text area with premium styling
-                        let text_bg = match self.theme {
-                            AppTheme::Light => palette::light_bg::SURFACE,
-                            AppTheme::Dark => Color32::from_rgb(12, 12, 15), // Darker inset
-                        };
-                        painter.rect_filled(response.rect, 6.0, text_bg);
+                        painter.rect_filled(response.rect, 6.0, inset_bg);
 
                         // Draw the highlighted text
                         painter.galley(response.rect.min + egui::vec2(8.0, 6.0), galley, text_col);
@@ -803,13 +778,8 @@ impl MultiEditOverlay {
                         let text_edit_id = egui::Id::new(format!("excerpt_{}", excerpt.source_id));
 
                         // Premium editor background
-                        let editor_bg = match self.theme {
-                            AppTheme::Light => palette::light_bg::SURFACE,
-                            AppTheme::Dark => Color32::from_rgb(12, 12, 15),
-                        };
-
                         egui::Frame::new()
-                            .fill(editor_bg)
+                            .fill(inset_bg)
                             .corner_radius(6.0)
                             .inner_margin(egui::vec2(8.0, 6.0))
                             .show(ui, |ui| {

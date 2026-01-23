@@ -3,8 +3,6 @@
 use egui::{Color32, Key, RichText};
 use enya_build_info::BuildInfo;
 
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -15,7 +13,7 @@ use crate::components::util::finder_utils::OverlayStyle;
 pub struct InfoOverlay {
     /// Whether the overlay is open
     is_open: bool,
-    /// Current theme
+    /// Current theme (can be Custom with plugin colors)
     theme: AppTheme,
     /// Build info to display
     build_info: BuildInfo,
@@ -51,6 +49,7 @@ impl InfoOverlay {
     }
 
     /// Show the overlay. Returns true if it should be closed.
+    #[profiling::function]
     pub fn show(&mut self, ctx: &egui::Context) -> bool {
         if !self.is_open {
             return false;
@@ -58,12 +57,12 @@ impl InfoOverlay {
 
         let mut should_close = false;
 
-        // Handle keyboard input
-        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
-
-        if escape {
-            should_close = true;
-        }
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        ctx.input_mut(|i| {
+            if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                should_close = true;
+            }
+        });
 
         // Calculate popup dimensions
         let screen_rect = ctx.available_rect();
@@ -75,20 +74,11 @@ impl InfoOverlay {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
-                let separator_color = match self.theme {
-                    AppTheme::Light => palette::light_border::SUBTLE,
-                    AppTheme::Dark => palette::border::SUBTLE,
-                };
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
-                let accent_color = match self.theme {
-                    AppTheme::Light => palette::accent::LIGHT,
-                    AppTheme::Dark => palette::accent::HOVER,
-                };
-                let key_color = match self.theme {
-                    AppTheme::Light => palette::light_text::TERTIARY,
-                    AppTheme::Dark => palette::text::TERTIARY,
-                };
-                let value_color = text_color(self.theme);
+                let separator_color = self.theme.border_subtle();
+                let muted_text = self.theme.text_primary().gamma_multiply(0.6);
+                let accent_color = self.theme.accent_hover();
+                let key_color = self.theme.text_tertiary();
+                let value_color = self.theme.text_primary();
 
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
@@ -261,6 +251,8 @@ impl InfoOverlay {
             });
 
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
 
@@ -286,4 +278,52 @@ impl InfoOverlay {
                 .font(typography::monospace(typography::XL)),
         );
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_build_info() -> BuildInfo {
+        BuildInfo {
+            crate_name: "enya-editor",
+            version: enya_build_info::CrateVersion::new(0, 1, 0),
+            git_branch: "main",
+            git_hash: "abc123",
+            datetime: "2024-01-01",
+            target_triple: "x86_64-unknown-linux-gnu",
+            rustc_version: "1.75.0",
+            llvm_version: "17.0",
+            features: "default",
+            is_in_enya_workspace: true,
+        }
+    }
+
+    #[test]
+    fn test_new_overlay_is_closed() {
+        let overlay = InfoOverlay::new(test_build_info());
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn test_open_close() {
+        let mut overlay = InfoOverlay::new(test_build_info());
+        overlay.open();
+        assert!(overlay.is_open());
+        overlay.close();
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn test_theme_can_be_set() {
+        let mut overlay = InfoOverlay::new(test_build_info());
+        overlay.set_theme(AppTheme::Dark);
+        // Theme is stored internally - test that it doesn't panic
+    }
+
+    // Note: Testing surrender_focus behavior requires egui::Context.
+    // The surrender_focus pattern is verified through code review and
+    // manual testing. Key invariant: When show() returns true (close requested),
+    // the overlay must call ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))
+    // BEFORE calling self.close() to ensure vim navigation works immediately.
 }

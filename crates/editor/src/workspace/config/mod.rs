@@ -1,29 +1,21 @@
 //! Workspace serialization and deserialization
 //!
 //! Workspaces capture the state of an Enya dashboard:
-//! - Panes with their queries and settings
+//! - Sections with collapsible headers containing grouped panes
 //! - View preferences (theme, panel visibility)
 //! - Time range settings
-//! - API connection settings
+//! - Metrics (Prometheus) and Logs (Loki) connection settings
 //!
 //! # File Format
 //!
 //! Workspaces are stored as TOML files, designed to be human-readable and
-//! git-friendly. Example:
+//! git-friendly. Example with sections:
 //!
 //! ```toml
 //! [workspace]
 //! name = "prod-api"
 //! description = "Production API monitoring"
-//!
-//! [connection]
-//! endpoint = "https://metrics.example.com"
-//! # api_key can be set but is often omitted for security
-//! # api_key = "sk-..."
-//!
-//! [codebase]
-//! url = "https://github.com/org/repo.git"
-//! # branch = "main"  # optional, defaults to repo's default branch
+//! endpoint = "https://prometheus.example.com"
 //!
 //! [view]
 //! theme = "dark"
@@ -31,12 +23,64 @@
 //! [time]
 //! preset = "1h"
 //!
+//! [[sections]]
+//! name = "API Performance"
+//! layout = "horizontal"
+//!
+//! [[sections.panes]]
+//! query = "rate(http_requests_total[5m])"
+//! name = "Request Rate"
+//!
+//! [[sections.panes]]
+//! query = "histogram_quantile(0.99, http_request_duration_seconds)"
+//! name = "Latency p99"
+//!
+//! [[sections]]
+//! name = "Infrastructure"
+//! layout = "grid"
+//! columns = 2
+//! collapsed = true
+//!
+//! [[sections.panes]]
+//! query = "avg(cpu_usage)"
+//! name = "CPU Usage"
+//! ```
+//!
+//! Legacy format (deprecated - use sections instead):
+//!
+//! ```toml
+//! [workspace]
+//! name = "prod-api"
+//!
 //! [[panes]]
 //! query = "env:prod AND service:api"
 //! name = "API Requests"
 //! tag = "Critical"
-//! aggregation = "avg"
 //! granularity = "5m"
+//! ```
+//!
+//! For metrics connection with API key:
+//!
+//! ```toml
+//! [metrics]
+//! endpoint = "https://prometheus.example.com"
+//! api_key = "sk-..."  # optional
+//! ```
+//!
+//! For logs (Loki) connection:
+//!
+//! ```toml
+//! [logs]
+//! endpoint = "https://loki.example.com"
+//! default_query = "{app=\"nginx\"}"  # optional
+//! ```
+//!
+//! Git integration for go-to-definition and commit markers:
+//!
+//! ```toml
+//! [git]
+//! url = "https://github.com/org/repo.git"
+//! branch = "main"  # optional
 //! ```
 //!
 //! # Web Loading
@@ -119,13 +163,21 @@ pub struct WorkspaceConfig {
     /// Workspace metadata
     pub workspace: WorkspaceMeta,
 
-    /// API connection settings
-    #[serde(default, skip_serializing_if = "ConnectionConfig::is_empty")]
-    pub connection: ConnectionConfig,
+    /// Metrics (Prometheus) connection settings
+    #[serde(
+        default,
+        skip_serializing_if = "MetricsConfig::is_empty",
+        alias = "connection"
+    )]
+    pub metrics: MetricsConfig,
 
-    /// Codebase integration settings (git repo for source code awareness)
-    #[serde(default, skip_serializing_if = "CodebaseConfig::is_empty")]
-    pub codebase: CodebaseConfig,
+    /// Logs (Loki) connection settings
+    #[serde(default, skip_serializing_if = "LogsConfig::is_empty")]
+    pub logs: LogsConfig,
+
+    /// Git integration settings (repository for source code awareness)
+    #[serde(default, skip_serializing_if = "GitConfig::is_empty")]
+    pub git: GitConfig,
 
     /// View/UI preferences
     #[serde(default, skip_serializing_if = "ViewConfig::is_default")]
@@ -135,11 +187,22 @@ pub struct WorkspaceConfig {
     #[serde(default, skip_serializing_if = "TimeConfig::is_default")]
     pub time: TimeConfig,
 
-    /// Pane definitions (queries and their settings)
+    /// Plugin configuration (enable/disable plugins)
+    #[serde(default, skip_serializing_if = "PluginsConfig::is_empty")]
+    pub plugins: PluginsConfig,
+
+    /// Section definitions (groups of panes with collapsible headers)
+    /// If empty, falls back to legacy `panes` field for backward compatibility
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<SectionConfig>,
+
+    /// Legacy pane definitions (deprecated - use sections instead)
+    /// Only used when sections is empty for backward compatibility
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub panes: Vec<PaneConfig>,
 
-    /// Layout configuration (optional - defaults to tabs if omitted)
+    /// Legacy layout configuration (deprecated - sections manage their own layout)
+    /// Only used when sections is empty for backward compatibility
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutConfig>,
 }
@@ -160,6 +223,11 @@ pub struct WorkspaceMeta {
         skip_serializing_if = "is_default_version"
     )]
     pub version: u32,
+
+    /// Inline endpoint for simple workspaces (alternative to [connection] section)
+    /// If both this and [connection].endpoint are set, [connection] takes precedence.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub endpoint: String,
 }
 
 fn is_default_version(v: &u32) -> bool {
@@ -170,10 +238,10 @@ fn default_version() -> u32 {
     WORKSPACE_VERSION
 }
 
-/// API connection configuration
+/// Metrics (Prometheus) connection configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ConnectionConfig {
-    /// API endpoint URL (e.g., "https://metrics.example.com")
+pub struct MetricsConfig {
+    /// Prometheus API endpoint URL (e.g., "https://prometheus.example.com")
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub endpoint: String,
 
@@ -182,13 +250,13 @@ pub struct ConnectionConfig {
     pub api_key: String,
 }
 
-impl ConnectionConfig {
-    /// Check if this config has any connection settings
+impl MetricsConfig {
+    /// Check if this config has any settings
     pub fn is_empty(&self) -> bool {
         self.endpoint.is_empty() && self.api_key.is_empty()
     }
 
-    /// Create a new connection config with an endpoint
+    /// Create a new metrics config with an endpoint
     pub fn with_endpoint(endpoint: impl Into<String>) -> Self {
         Self {
             endpoint: endpoint.into(),
@@ -197,12 +265,53 @@ impl ConnectionConfig {
     }
 }
 
-/// Codebase integration configuration
+/// Backward compatibility alias
+pub type ConnectionConfig = MetricsConfig;
+
+/// Logs (Loki) connection configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LogsConfig {
+    /// Loki API endpoint URL (e.g., "https://loki.example.com")
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub endpoint: String,
+
+    /// API key (optional - often omitted for security, loaded from env instead)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub api_key: String,
+
+    /// Default LogQL query (optional)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub default_query: String,
+}
+
+impl LogsConfig {
+    /// Check if this config has any settings
+    pub fn is_empty(&self) -> bool {
+        self.endpoint.is_empty() && self.api_key.is_empty() && self.default_query.is_empty()
+    }
+
+    /// Create a new logs config with an endpoint
+    pub fn with_endpoint(endpoint: impl Into<String>) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            api_key: String::new(),
+            default_query: String::new(),
+        }
+    }
+
+    /// Set the default query
+    pub fn with_default_query(mut self, query: impl Into<String>) -> Self {
+        self.default_query = query.into();
+        self
+    }
+}
+
+/// Git integration configuration
 ///
 /// Allows the editor to connect to a git repository for source code awareness,
 /// enabling features like metrics-to-code mapping.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CodebaseConfig {
+pub struct GitConfig {
     /// Git repository URL (e.g., "https://github.com/org/repo.git")
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub url: String,
@@ -210,27 +319,143 @@ pub struct CodebaseConfig {
     /// Branch to track (defaults to the repo's default branch if not specified)
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub branch: String,
+
+    /// Primary language for metric scanning (e.g., "rust", "go", "python", "typescript")
+    /// If not specified, all supported languages are scanned.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub language: String,
 }
 
-impl CodebaseConfig {
-    /// Check if this config has any codebase settings
+impl GitConfig {
+    /// Check if this config has any git settings
     pub fn is_empty(&self) -> bool {
         self.url.is_empty()
     }
 
-    /// Create a new codebase config with a URL
+    /// Create a new git config with a URL
     pub fn with_url(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
             branch: String::new(),
+            language: String::new(),
         }
     }
 
-    /// Create a new codebase config with a URL and branch
+    /// Create a new git config with a URL and branch
     pub fn with_url_and_branch(url: impl Into<String>, branch: impl Into<String>) -> Self {
         Self {
             url: url.into(),
             branch: branch.into(),
+            language: String::new(),
+        }
+    }
+
+    /// Set the language for this git config
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = language.into();
+        self
+    }
+}
+
+// =============================================================================
+// Plugin Configuration
+// =============================================================================
+
+/// Plugin configuration for the workspace.
+///
+/// Allows enabling/disabling plugins and storing plugin-specific settings.
+///
+/// ```toml
+/// [plugins]
+/// enabled = ["query-history", "bookmarks", "zen-mode"]
+/// disabled = ["metrics-aggregator"]
+///
+/// [plugins.settings.bookmarks]
+/// auto_save = true
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PluginsConfig {
+    /// Plugins to explicitly enable (overrides default disabled state)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enabled: Vec<String>,
+
+    /// Plugins to explicitly disable (overrides default enabled state)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled: Vec<String>,
+
+    /// Plugin-specific settings (keyed by plugin name)
+    #[serde(
+        default,
+        skip_serializing_if = "rustc_hash::FxHashMap::is_empty",
+        with = "hashmap_compat"
+    )]
+    pub settings: rustc_hash::FxHashMap<String, toml::Value>,
+}
+
+/// Serde compatibility module for FxHashMap (deserializes from any map).
+mod hashmap_compat {
+    use rustc_hash::FxHashMap;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S, K, V>(map: &FxHashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        K: Serialize + std::hash::Hash + Eq,
+        V: Serialize,
+    {
+        map.serialize(serializer)
+    }
+
+    #[allow(clippy::disallowed_types)]
+    pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<FxHashMap<K, V>, D::Error>
+    where
+        D: Deserializer<'de>,
+        K: Deserialize<'de> + std::hash::Hash + Eq,
+        V: Deserialize<'de>,
+    {
+        // Need to use std::collections::HashMap for serde deserialization, then convert
+        let map: std::collections::HashMap<K, V> = Deserialize::deserialize(deserializer)?;
+        Ok(map.into_iter().collect())
+    }
+}
+
+impl PluginsConfig {
+    /// Check if this config has any settings
+    pub fn is_empty(&self) -> bool {
+        self.enabled.is_empty() && self.disabled.is_empty() && self.settings.is_empty()
+    }
+
+    /// Check if a plugin is explicitly enabled
+    pub fn is_enabled(&self, name: &str) -> Option<bool> {
+        if self.enabled.iter().any(|n| n == name) {
+            Some(true)
+        } else if self.disabled.iter().any(|n| n == name) {
+            Some(false)
+        } else {
+            None // Use plugin's default
+        }
+    }
+
+    /// Get settings for a specific plugin
+    pub fn get_settings(&self, name: &str) -> Option<&toml::Value> {
+        self.settings.get(name)
+    }
+
+    /// Add a plugin to the enabled list
+    pub fn enable(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        self.disabled.retain(|n| n != &name);
+        if !self.enabled.contains(&name) {
+            self.enabled.push(name);
+        }
+    }
+
+    /// Add a plugin to the disabled list
+    pub fn disable(&mut self, name: impl Into<String>) {
+        let name = name.into();
+        self.enabled.retain(|n| n != &name);
+        if !self.disabled.contains(&name) {
+            self.disabled.push(name);
         }
     }
 }
@@ -271,10 +496,7 @@ impl Default for ViewConfig {
 impl ViewConfig {
     /// Convert theme string to AppTheme
     pub fn app_theme(&self) -> AppTheme {
-        match self.theme.to_lowercase().as_str() {
-            "light" => AppTheme::Light,
-            _ => AppTheme::Dark,
-        }
+        AppTheme::parse(&self.theme).unwrap_or_default()
     }
 
     /// Check if all values are defaults
@@ -292,6 +514,11 @@ pub struct TimeConfig {
         skip_serializing_if = "is_default_time_preset"
     )]
     pub preset: String,
+
+    /// Auto-refresh interval: "off", "10s", "30s", "1m", "5m", "15m"
+    /// Defaults to "off" (no auto-refresh)
+    #[serde(default, skip_serializing_if = "is_refresh_off")]
+    pub refresh: String,
 }
 
 fn is_default_time_preset(s: &String) -> bool {
@@ -302,10 +529,15 @@ fn default_time_preset() -> String {
     "15m".to_string()
 }
 
+fn is_refresh_off(s: &String) -> bool {
+    s.is_empty() || s == "off"
+}
+
 impl Default for TimeConfig {
     fn default() -> Self {
         Self {
             preset: default_time_preset(),
+            refresh: String::new(),
         }
     }
 }
@@ -329,12 +561,209 @@ impl TimeConfig {
     pub fn from_preset(preset: TimeRangePreset) -> Self {
         Self {
             preset: preset.label().to_string(),
+            refresh: String::new(),
         }
+    }
+
+    /// Create from TimeRangePreset with refresh interval
+    pub fn from_preset_with_refresh(preset: TimeRangePreset, refresh: RefreshInterval) -> Self {
+        Self {
+            preset: preset.label().to_string(),
+            refresh: refresh.to_string(),
+        }
+    }
+
+    /// Get the refresh interval in seconds, or None if disabled
+    pub fn refresh_interval_secs(&self) -> Option<u64> {
+        RefreshInterval::parse(&self.refresh).to_secs()
+    }
+
+    /// Check if auto-refresh is enabled
+    pub fn is_refresh_enabled(&self) -> bool {
+        self.refresh_interval_secs().is_some()
     }
 
     /// Check if all values are defaults
     pub fn is_default(&self) -> bool {
-        self.preset == "15m"
+        self.preset == "15m" && is_refresh_off(&self.refresh)
+    }
+}
+
+/// Auto-refresh interval options
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RefreshInterval {
+    /// No auto-refresh
+    #[default]
+    Off,
+    /// Refresh every 10 seconds
+    TenSeconds,
+    /// Refresh every 30 seconds
+    ThirtySeconds,
+    /// Refresh every 1 minute
+    OneMinute,
+    /// Refresh every 5 minutes
+    FiveMinutes,
+    /// Refresh every 15 minutes
+    FifteenMinutes,
+}
+
+impl RefreshInterval {
+    /// Parse a refresh interval string
+    pub fn parse(s: &str) -> Self {
+        match s.to_lowercase().trim() {
+            "" | "off" | "none" | "disabled" => Self::Off,
+            "10s" => Self::TenSeconds,
+            "30s" => Self::ThirtySeconds,
+            "1m" | "60s" => Self::OneMinute,
+            "5m" | "300s" => Self::FiveMinutes,
+            "15m" | "900s" => Self::FifteenMinutes,
+            _ => Self::Off,
+        }
+    }
+
+    /// Get the interval in seconds, or None if disabled
+    pub fn to_secs(self) -> Option<u64> {
+        match self {
+            Self::Off => None,
+            Self::TenSeconds => Some(10),
+            Self::ThirtySeconds => Some(30),
+            Self::OneMinute => Some(60),
+            Self::FiveMinutes => Some(300),
+            Self::FifteenMinutes => Some(900),
+        }
+    }
+
+    /// Get the display label
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::TenSeconds => "10s",
+            Self::ThirtySeconds => "30s",
+            Self::OneMinute => "1m",
+            Self::FiveMinutes => "5m",
+            Self::FifteenMinutes => "15m",
+        }
+    }
+
+    /// Get all available options (for UI dropdown)
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Off,
+            Self::TenSeconds,
+            Self::ThirtySeconds,
+            Self::OneMinute,
+            Self::FiveMinutes,
+            Self::FifteenMinutes,
+        ]
+    }
+}
+
+impl std::fmt::Display for RefreshInterval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Off => write!(f, "off"),
+            Self::TenSeconds => write!(f, "10s"),
+            Self::ThirtySeconds => write!(f, "30s"),
+            Self::OneMinute => write!(f, "1m"),
+            Self::FiveMinutes => write!(f, "5m"),
+            Self::FifteenMinutes => write!(f, "15m"),
+        }
+    }
+}
+
+// =============================================================================
+// Section Configuration
+// =============================================================================
+
+/// Layout type for sections (how panes within a section are arranged)
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SectionLayout {
+    /// Horizontal arrangement (panes side by side)
+    #[default]
+    Horizontal,
+    /// Vertical arrangement (panes stacked)
+    Vertical,
+    /// Grid arrangement (rows and columns)
+    Grid,
+    /// Tabbed arrangement
+    Tabs,
+}
+
+impl SectionLayout {
+    /// Check if this is the default layout (horizontal)
+    pub fn is_default(&self) -> bool {
+        *self == Self::Horizontal
+    }
+}
+
+/// A section grouping multiple panes with a collapsible header
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionConfig {
+    /// Section name displayed in the header
+    pub name: String,
+
+    /// Layout type for panes within this section
+    #[serde(default, skip_serializing_if = "SectionLayout::is_default")]
+    pub layout: SectionLayout,
+
+    /// Whether the section is collapsed
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub collapsed: bool,
+
+    /// Number of columns for grid layout
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<usize>,
+
+    /// Share ratios for panes (for horizontal/vertical layouts)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shares: Vec<f32>,
+
+    /// Panes within this section
+    #[serde(default)]
+    pub panes: Vec<PaneConfig>,
+}
+
+impl SectionConfig {
+    /// Create a new section with the given name
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            layout: SectionLayout::default(),
+            collapsed: false,
+            columns: None,
+            shares: Vec::new(),
+            panes: Vec::new(),
+        }
+    }
+
+    /// Set the layout type
+    pub fn with_layout(mut self, layout: SectionLayout) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    /// Set the collapsed state
+    pub fn with_collapsed(mut self, collapsed: bool) -> Self {
+        self.collapsed = collapsed;
+        self
+    }
+
+    /// Set the number of columns for grid layout
+    pub fn with_columns(mut self, columns: usize) -> Self {
+        self.columns = Some(columns);
+        self
+    }
+
+    /// Add a pane to this section
+    pub fn with_pane(mut self, pane: PaneConfig) -> Self {
+        self.panes.push(pane);
+        self
+    }
+
+    /// Get share for pane at index (defaults to 1.0 if not specified)
+    pub fn share_for(&self, index: usize) -> f32 {
+        self.shares.get(index).copied().unwrap_or(1.0)
     }
 }
 
@@ -351,6 +780,10 @@ pub struct PaneConfig {
     /// Display name (optional)
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+
+    /// Description providing context about the pane (shown on hover)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
 
     /// User-defined tag for organizing panes (e.g., "Critical", "Warning", "Info")
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -397,6 +830,7 @@ impl PaneConfig {
         Self {
             query: query.into(),
             name: String::new(),
+            description: String::new(),
             tag: String::new(),
             unit: String::new(),
             granularity: default_granularity(),
@@ -407,6 +841,12 @@ impl PaneConfig {
     /// Set the name
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = name.into();
+        self
+    }
+
+    /// Set the description
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
         self
     }
 
@@ -455,10 +895,17 @@ impl PaneConfig {
     }
 
     /// Create from query and QueryState
-    pub fn from_query_state(query: &str, name: &str, tag: &str, state: &QueryState) -> Self {
+    pub fn from_query_state(
+        query: &str,
+        name: &str,
+        tag: &str,
+        description: &str,
+        state: &QueryState,
+    ) -> Self {
         Self {
             query: query.to_string(),
             name: name.to_string(),
+            description: description.to_string(),
             tag: tag.to_string(),
             unit: String::new(),
             granularity: state.granularity.label().to_string(),
@@ -471,12 +918,14 @@ impl PaneConfig {
         query: &str,
         name: &str,
         tag: &str,
+        description: &str,
         state: &QueryState,
         viz_type: VisualizationType,
     ) -> Self {
         Self {
             query: query.to_string(),
             name: name.to_string(),
+            description: description.to_string(),
             tag: tag.to_string(),
             unit: String::new(),
             granularity: state.granularity.label().to_string(),
@@ -602,26 +1051,107 @@ impl WorkspaceConfig {
                 name: name.into(),
                 description: String::new(),
                 version: WORKSPACE_VERSION,
+                endpoint: String::new(),
             },
-            connection: ConnectionConfig::default(),
-            codebase: CodebaseConfig::default(),
+            metrics: MetricsConfig::default(),
+            logs: LogsConfig::default(),
+            git: GitConfig::default(),
             view: ViewConfig::default(),
             time: TimeConfig::default(),
+            plugins: PluginsConfig::default(),
+            sections: Vec::new(),
             panes: Vec::new(),
             layout: None,
         }
     }
 
-    /// Create a workspace with an API endpoint
+    /// Create a workspace with an API endpoint (using inline workspace.endpoint)
     pub fn with_endpoint(name: impl Into<String>, endpoint: impl Into<String>) -> Self {
         let mut ws = Self::new(name);
-        ws.connection = ConnectionConfig::with_endpoint(endpoint);
+        ws.workspace.endpoint = endpoint.into();
         ws
     }
 
-    /// Add a pane to the workspace
+    /// Get the effective metrics endpoint, preferring [metrics].endpoint over workspace.endpoint
+    pub fn effective_endpoint(&self) -> Option<&str> {
+        if !self.metrics.endpoint.is_empty() {
+            Some(&self.metrics.endpoint)
+        } else if !self.workspace.endpoint.is_empty() {
+            Some(&self.workspace.endpoint)
+        } else {
+            None
+        }
+    }
+
+    /// Get the effective metrics config, merging workspace.endpoint if needed
+    pub fn effective_metrics(&self) -> MetricsConfig {
+        if !self.metrics.endpoint.is_empty() {
+            // [metrics] section takes precedence
+            self.metrics.clone()
+        } else if !self.workspace.endpoint.is_empty() {
+            // Use inline workspace.endpoint
+            MetricsConfig::with_endpoint(&self.workspace.endpoint)
+        } else {
+            MetricsConfig::default()
+        }
+    }
+
+    /// Backward compatibility alias for effective_metrics
+    pub fn effective_connection(&self) -> MetricsConfig {
+        self.effective_metrics()
+    }
+
+    /// Get the effective logs config
+    pub fn effective_logs(&self) -> &LogsConfig {
+        &self.logs
+    }
+
+    /// Check if logs are configured
+    pub fn has_logs_config(&self) -> bool {
+        !self.logs.endpoint.is_empty()
+    }
+
+    /// Add a pane to the workspace (legacy - prefer add_section)
     pub fn add_pane(&mut self, pane: PaneConfig) {
         self.panes.push(pane);
+    }
+
+    /// Add a section to the workspace
+    pub fn add_section(&mut self, section: SectionConfig) {
+        self.sections.push(section);
+    }
+
+    /// Get all panes across all sections (flattened view)
+    /// If sections is empty, returns legacy panes
+    pub fn all_panes(&self) -> Vec<&PaneConfig> {
+        if !self.sections.is_empty() {
+            self.sections.iter().flat_map(|s| &s.panes).collect()
+        } else {
+            self.panes.iter().collect()
+        }
+    }
+
+    /// Check if using the new sections format
+    pub fn uses_sections(&self) -> bool {
+        !self.sections.is_empty()
+    }
+
+    /// Migrate legacy panes to a single default section
+    /// Returns the workspace unchanged if already using sections
+    pub fn migrate_to_sections(mut self) -> Self {
+        if self.sections.is_empty() && !self.panes.is_empty() {
+            let section = SectionConfig {
+                name: "Default".to_string(),
+                layout: SectionLayout::default(),
+                collapsed: false,
+                columns: None,
+                shares: Vec::new(),
+                panes: std::mem::take(&mut self.panes),
+            };
+            self.sections.push(section);
+            self.layout = None;
+        }
+        self
     }
 
     /// Parse a workspace from TOML string
@@ -889,6 +1419,7 @@ granularity = "5m"
         let pane = PaneConfig {
             query: "sum(*) by (service)".to_string(),
             name: "Test".to_string(),
+            description: String::new(),
             tag: "Critical".to_string(),
             granularity: "15m".to_string(),
             visualization: "time_series".to_string(),
@@ -943,6 +1474,7 @@ name = "Staging"
         for (input, expected) in cases {
             let config = TimeConfig {
                 preset: input.to_string(),
+                refresh: String::new(),
             };
             assert_eq!(config.to_preset(), expected);
         }
@@ -970,49 +1502,110 @@ query = "test"
         assert_eq!(ws.panes[0].granularity, "5m");
         assert!(ws.panes[0].name.is_empty());
 
-        // Connection defaults (empty)
-        assert!(ws.connection.is_empty());
+        // Metrics defaults (empty)
+        assert!(ws.metrics.is_empty());
+
+        // Logs defaults (empty)
+        assert!(ws.logs.is_empty());
     }
 
     #[test]
-    fn test_connection_config() {
+    fn test_metrics_config() {
         let toml = r#"
 [workspace]
 name = "with-endpoint"
 
-[connection]
-endpoint = "https://metrics.example.com"
+[metrics]
+endpoint = "https://prometheus.example.com"
 
 [[panes]]
 query = "env:prod"
 "#;
         let ws = WorkspaceConfig::from_toml(toml).unwrap();
-        assert_eq!(ws.connection.endpoint, "https://metrics.example.com");
-        assert!(ws.connection.api_key.is_empty());
-        assert!(!ws.connection.is_empty());
+        assert_eq!(ws.metrics.endpoint, "https://prometheus.example.com");
+        assert!(ws.metrics.api_key.is_empty());
+        assert!(!ws.metrics.is_empty());
 
         // Test serialization - empty api_key should be omitted
         let serialized = ws.to_toml().unwrap();
-        assert!(serialized.contains("endpoint = \"https://metrics.example.com\""));
+        assert!(serialized.contains("endpoint = \"https://prometheus.example.com\""));
         assert!(!serialized.contains("api_key"));
     }
 
     #[test]
-    fn test_connection_with_api_key() {
+    fn test_metrics_with_api_key() {
         let toml = r#"
 [workspace]
 name = "with-key"
 
-[connection]
-endpoint = "https://metrics.example.com"
+[metrics]
+endpoint = "https://prometheus.example.com"
 api_key = "sk-test-123"
 
 [[panes]]
 query = "env:prod"
 "#;
         let ws = WorkspaceConfig::from_toml(toml).unwrap();
-        assert_eq!(ws.connection.endpoint, "https://metrics.example.com");
-        assert_eq!(ws.connection.api_key, "sk-test-123");
+        assert_eq!(ws.metrics.endpoint, "https://prometheus.example.com");
+        assert_eq!(ws.metrics.api_key, "sk-test-123");
+    }
+
+    #[test]
+    fn test_connection_backward_compat() {
+        // Test that old [connection] section still works via serde alias
+        let toml = r#"
+[workspace]
+name = "legacy"
+
+[connection]
+endpoint = "https://legacy.example.com"
+
+[[panes]]
+query = "env:prod"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.metrics.endpoint, "https://legacy.example.com");
+    }
+
+    #[test]
+    fn test_logs_config() {
+        let toml = r#"
+[workspace]
+name = "with-logs"
+
+[logs]
+endpoint = "https://loki.example.com"
+default_query = "{app=\"nginx\"}"
+
+[[panes]]
+query = "env:prod"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.logs.endpoint, "https://loki.example.com");
+        assert_eq!(ws.logs.default_query, "{app=\"nginx\"}");
+        assert!(ws.logs.api_key.is_empty());
+        assert!(!ws.logs.is_empty());
+        assert!(ws.has_logs_config());
+    }
+
+    #[test]
+    fn test_metrics_and_logs_config() {
+        let toml = r#"
+[workspace]
+name = "full-observability"
+
+[metrics]
+endpoint = "https://prometheus.example.com"
+
+[logs]
+endpoint = "https://loki.example.com"
+
+[[panes]]
+query = "env:prod"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.metrics.endpoint, "https://prometheus.example.com");
+        assert_eq!(ws.logs.endpoint, "https://loki.example.com");
     }
 
     // ==================== LayoutConfig Tests ====================
@@ -1297,7 +1890,7 @@ children = [0, { type = "vertical", children = [1, 2] }]
     #[test]
     fn test_view_config_app_theme() {
         let mut config = ViewConfig::default();
-        assert_eq!(config.app_theme(), AppTheme::Dark);
+        assert_eq!(config.app_theme(), AppTheme::Dark); // "dark" parses to Dark
 
         config.theme = "light".to_string();
         assert_eq!(config.app_theme(), AppTheme::Light);
@@ -1305,8 +1898,11 @@ children = [0, { type = "vertical", children = [1, 2] }]
         config.theme = "LIGHT".to_string();
         assert_eq!(config.app_theme(), AppTheme::Light);
 
+        config.theme = "nord".to_string();
+        assert_eq!(config.app_theme(), AppTheme::Nord);
+
         config.theme = "invalid".to_string();
-        assert_eq!(config.app_theme(), AppTheme::Dark); // Defaults to dark
+        assert_eq!(config.app_theme(), AppTheme::Dark); // Defaults to Dark
     }
 
     // ==================== TimeConfig Tests ====================
@@ -1352,32 +1948,33 @@ children = [0, { type = "vertical", children = [1, 2] }]
         for (input, expected) in cases {
             let config = TimeConfig {
                 preset: input.to_string(),
+                refresh: String::new(),
             };
             assert_eq!(config.to_preset(), expected, "Failed for input: {input}");
         }
     }
 
-    // ==================== ConnectionConfig Tests ====================
+    // ==================== MetricsConfig Tests ====================
 
     #[test]
-    fn test_connection_config_default() {
-        let config = ConnectionConfig::default();
+    fn test_metrics_config_default() {
+        let config = MetricsConfig::default();
         assert!(config.endpoint.is_empty());
         assert!(config.api_key.is_empty());
         assert!(config.is_empty());
     }
 
     #[test]
-    fn test_connection_config_with_endpoint() {
-        let config = ConnectionConfig::with_endpoint("https://api.example.com");
-        assert_eq!(config.endpoint, "https://api.example.com");
+    fn test_metrics_config_with_endpoint() {
+        let config = MetricsConfig::with_endpoint("https://prometheus.example.com");
+        assert_eq!(config.endpoint, "https://prometheus.example.com");
         assert!(config.api_key.is_empty());
         assert!(!config.is_empty());
     }
 
     #[test]
-    fn test_connection_config_is_empty() {
-        let mut config = ConnectionConfig::default();
+    fn test_metrics_config_is_empty() {
+        let mut config = MetricsConfig::default();
         assert!(config.is_empty());
 
         config.endpoint = "http://localhost".to_string();
@@ -1385,6 +1982,47 @@ children = [0, { type = "vertical", children = [1, 2] }]
 
         config.endpoint = String::new();
         config.api_key = "key".to_string();
+        assert!(!config.is_empty());
+    }
+
+    // ==================== LogsConfig Tests ====================
+
+    #[test]
+    fn test_logs_config_default() {
+        let config = LogsConfig::default();
+        assert!(config.endpoint.is_empty());
+        assert!(config.api_key.is_empty());
+        assert!(config.default_query.is_empty());
+        assert!(config.is_empty());
+    }
+
+    #[test]
+    fn test_logs_config_with_endpoint() {
+        let config = LogsConfig::with_endpoint("https://loki.example.com");
+        assert_eq!(config.endpoint, "https://loki.example.com");
+        assert!(config.api_key.is_empty());
+        assert!(config.default_query.is_empty());
+        assert!(!config.is_empty());
+    }
+
+    #[test]
+    fn test_logs_config_with_default_query() {
+        let config = LogsConfig::with_endpoint("https://loki.example.com")
+            .with_default_query("{app=\"nginx\"}");
+        assert_eq!(config.endpoint, "https://loki.example.com");
+        assert_eq!(config.default_query, "{app=\"nginx\"}");
+    }
+
+    #[test]
+    fn test_logs_config_is_empty() {
+        let mut config = LogsConfig::default();
+        assert!(config.is_empty());
+
+        config.endpoint = "http://localhost".to_string();
+        assert!(!config.is_empty());
+
+        config.endpoint = String::new();
+        config.default_query = "{job=\"test\"}".to_string();
         assert!(!config.is_empty());
     }
 
@@ -1431,6 +2069,7 @@ children = [0, { type = "vertical", children = [1, 2] }]
             let pane = PaneConfig {
                 query: "test".to_string(),
                 name: String::new(),
+                description: String::new(),
                 tag: String::new(),
                 granularity: input.to_string(),
                 visualization: "time_series".to_string(),
@@ -1450,12 +2089,14 @@ children = [0, { type = "vertical", children = [1, 2] }]
             "sum(*)",
             "Test",
             "MyTag",
+            "Test description",
             &state,
             VisualizationType::Stat,
         );
 
         assert_eq!(pane.query, "sum(*)");
         assert_eq!(pane.name, "Test");
+        assert_eq!(pane.description, "Test description");
         assert_eq!(pane.tag, "MyTag");
         assert_eq!(pane.granularity, "1m");
         assert_eq!(pane.visualization, "stat");
@@ -1492,7 +2133,8 @@ name = "no-version"
         assert_eq!(ws.workspace.name, "my-workspace");
         assert!(ws.workspace.description.is_empty());
         assert_eq!(ws.workspace.version, WORKSPACE_VERSION);
-        assert!(ws.connection.is_empty());
+        assert!(ws.metrics.is_empty());
+        assert!(ws.logs.is_empty());
         assert!(ws.panes.is_empty());
         assert!(ws.layout.is_none());
     }
@@ -1501,7 +2143,28 @@ name = "no-version"
     fn test_workspace_config_with_endpoint() {
         let ws = WorkspaceConfig::with_endpoint("test", "https://api.example.com");
         assert_eq!(ws.workspace.name, "test");
-        assert_eq!(ws.connection.endpoint, "https://api.example.com");
+        // endpoint is now stored inline in workspace section
+        assert_eq!(ws.workspace.endpoint, "https://api.example.com");
+        assert!(ws.metrics.is_empty());
+        // effective_endpoint should return the inline endpoint
+        assert_eq!(ws.effective_endpoint(), Some("https://api.example.com"));
+    }
+
+    #[test]
+    fn test_workspace_config_effective_endpoint_precedence() {
+        // When both workspace.endpoint and metrics.endpoint are set,
+        // metrics takes precedence
+        let mut ws = WorkspaceConfig::with_endpoint("test", "http://inline:9090");
+        ws.metrics = MetricsConfig::with_endpoint("http://metrics:9090");
+        assert_eq!(ws.effective_endpoint(), Some("http://metrics:9090"));
+
+        // When only workspace.endpoint is set
+        let ws = WorkspaceConfig::with_endpoint("test", "http://inline:9090");
+        assert_eq!(ws.effective_endpoint(), Some("http://inline:9090"));
+
+        // When neither is set
+        let ws = WorkspaceConfig::new("test");
+        assert_eq!(ws.effective_endpoint(), None);
     }
 
     #[test]
@@ -1594,7 +2257,8 @@ version = 999
         assert!(!toml.contains("theme")); // "dark" is default
         assert!(!toml.contains("zen_mode"));
         assert!(!toml.contains("preset")); // "15m" is default
-        assert!(!toml.contains("[connection]")); // Empty connection
+        assert!(!toml.contains("[metrics]")); // Empty metrics
+        assert!(!toml.contains("[logs]")); // Empty logs
         assert!(!toml.contains("[time]")); // Default time
         assert!(!toml.contains("[[panes]]")); // No panes
     }
@@ -1632,7 +2296,9 @@ version = 999
     fn test_snapshot_full_workspace_toml() {
         let mut ws = WorkspaceConfig::new("full-dashboard");
         ws.workspace.description = "A comprehensive monitoring dashboard".to_string();
-        ws.connection = ConnectionConfig::with_endpoint("https://metrics.example.com");
+        ws.metrics = MetricsConfig::with_endpoint("https://prometheus.example.com");
+        ws.logs = LogsConfig::with_endpoint("https://loki.example.com")
+            .with_default_query("{app=\"api\"}");
         ws.view.theme = "light".to_string();
         ws.time.preset = "1h".to_string();
         ws.add_pane(
@@ -1654,8 +2320,12 @@ version = 999
         name = "full-dashboard"
         description = "A comprehensive monitoring dashboard"
 
-        [connection]
-        endpoint = "https://metrics.example.com"
+        [metrics]
+        endpoint = "https://prometheus.example.com"
+
+        [logs]
+        endpoint = "https://loki.example.com"
+        default_query = '{app="api"}'
 
         [view]
         theme = "light"
@@ -1762,5 +2432,267 @@ version = 999
 
         let encoded = ws.to_base64().unwrap();
         insta::assert_snapshot!(encoded, @"pMwAAAPAkBnNoYXJlZAsBGnN1bShlbnY6cHJvZCkgYnkgKHNlcnZpY2UpAQpQcm9kdWN0aW9uAAEA");
+    }
+
+    // ==================== Section Configuration Tests ====================
+
+    #[test]
+    fn test_section_layout_default() {
+        let layout = SectionLayout::default();
+        assert_eq!(layout, SectionLayout::Horizontal);
+    }
+
+    #[test]
+    fn test_section_layout_serde() {
+        let toml = r#"
+[workspace]
+name = "section-test"
+
+[[sections]]
+name = "API"
+layout = "horizontal"
+
+[[sections.panes]]
+query = "test1"
+
+[[sections]]
+name = "Infra"
+layout = "grid"
+columns = 2
+
+[[sections.panes]]
+query = "test2"
+
+[[sections]]
+name = "Logs"
+layout = "vertical"
+
+[[sections.panes]]
+query = "test3"
+
+[[sections]]
+name = "Overview"
+layout = "tabs"
+
+[[sections.panes]]
+query = "test4"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.sections.len(), 4);
+        assert_eq!(ws.sections[0].layout, SectionLayout::Horizontal);
+        assert_eq!(ws.sections[1].layout, SectionLayout::Grid);
+        assert_eq!(ws.sections[1].columns, Some(2));
+        assert_eq!(ws.sections[2].layout, SectionLayout::Vertical);
+        assert_eq!(ws.sections[3].layout, SectionLayout::Tabs);
+    }
+
+    #[test]
+    fn test_section_config_new() {
+        let section = SectionConfig::new("Test Section");
+        assert_eq!(section.name, "Test Section");
+        assert_eq!(section.layout, SectionLayout::Horizontal);
+        assert!(!section.collapsed);
+        assert!(section.columns.is_none());
+        assert!(section.shares.is_empty());
+        assert!(section.panes.is_empty());
+    }
+
+    #[test]
+    fn test_section_config_builder() {
+        let section = SectionConfig::new("API Performance")
+            .with_layout(SectionLayout::Grid)
+            .with_columns(3)
+            .with_collapsed(true)
+            .with_pane(PaneConfig::new("query1").with_name("Pane 1"))
+            .with_pane(PaneConfig::new("query2").with_name("Pane 2"));
+
+        assert_eq!(section.name, "API Performance");
+        assert_eq!(section.layout, SectionLayout::Grid);
+        assert!(section.collapsed);
+        assert_eq!(section.columns, Some(3));
+        assert_eq!(section.panes.len(), 2);
+    }
+
+    #[test]
+    fn test_section_config_share_for() {
+        let mut section = SectionConfig::new("Test");
+        section.shares = vec![0.3, 0.7];
+
+        assert!((section.share_for(0) - 0.3).abs() < 0.001);
+        assert!((section.share_for(1) - 0.7).abs() < 0.001);
+        assert!((section.share_for(2) - 1.0).abs() < 0.001); // Default
+    }
+
+    #[test]
+    fn test_parse_sections_toml() {
+        let toml = r#"
+[workspace]
+name = "sections-dashboard"
+
+[[sections]]
+name = "API Performance"
+layout = "horizontal"
+
+[[sections.panes]]
+query = "rate(http_requests_total[5m])"
+name = "Request Rate"
+
+[[sections.panes]]
+query = "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))"
+name = "Latency p99"
+
+[[sections]]
+name = "Infrastructure"
+layout = "grid"
+columns = 2
+collapsed = true
+
+[[sections.panes]]
+query = "avg(cpu_usage)"
+name = "CPU Usage"
+
+[[sections.panes]]
+query = "avg(memory_usage)"
+name = "Memory Usage"
+"#;
+        let ws = WorkspaceConfig::from_toml(toml).unwrap();
+        assert_eq!(ws.workspace.name, "sections-dashboard");
+        assert_eq!(ws.sections.len(), 2);
+
+        // First section
+        assert_eq!(ws.sections[0].name, "API Performance");
+        assert_eq!(ws.sections[0].layout, SectionLayout::Horizontal);
+        assert!(!ws.sections[0].collapsed);
+        assert_eq!(ws.sections[0].panes.len(), 2);
+        assert_eq!(ws.sections[0].panes[0].name, "Request Rate");
+
+        // Second section
+        assert_eq!(ws.sections[1].name, "Infrastructure");
+        assert_eq!(ws.sections[1].layout, SectionLayout::Grid);
+        assert_eq!(ws.sections[1].columns, Some(2));
+        assert!(ws.sections[1].collapsed);
+        assert_eq!(ws.sections[1].panes.len(), 2);
+    }
+
+    #[test]
+    fn test_workspace_uses_sections() {
+        let mut ws = WorkspaceConfig::new("test");
+        assert!(!ws.uses_sections());
+
+        ws.add_section(SectionConfig::new("Test").with_pane(PaneConfig::new("query")));
+        assert!(ws.uses_sections());
+    }
+
+    #[test]
+    fn test_workspace_all_panes_with_sections() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_section(
+            SectionConfig::new("Section 1")
+                .with_pane(PaneConfig::new("q1"))
+                .with_pane(PaneConfig::new("q2")),
+        );
+        ws.add_section(SectionConfig::new("Section 2").with_pane(PaneConfig::new("q3")));
+
+        let all = ws.all_panes();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].query, "q1");
+        assert_eq!(all[1].query, "q2");
+        assert_eq!(all[2].query, "q3");
+    }
+
+    #[test]
+    fn test_workspace_all_panes_legacy() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_pane(PaneConfig::new("q1"));
+        ws.add_pane(PaneConfig::new("q2"));
+
+        let all = ws.all_panes();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].query, "q1");
+        assert_eq!(all[1].query, "q2");
+    }
+
+    #[test]
+    fn test_workspace_migrate_to_sections() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_pane(PaneConfig::new("q1").with_name("Pane 1"));
+        ws.add_pane(PaneConfig::new("q2").with_name("Pane 2"));
+
+        assert!(!ws.uses_sections());
+        assert_eq!(ws.panes.len(), 2);
+
+        let ws = ws.migrate_to_sections();
+
+        assert!(ws.uses_sections());
+        assert_eq!(ws.sections.len(), 1);
+        assert_eq!(ws.sections[0].name, "Default");
+        assert_eq!(ws.sections[0].panes.len(), 2);
+        assert!(ws.panes.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_migrate_to_sections_noop() {
+        // Already using sections - should be a no-op
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_section(SectionConfig::new("Existing").with_pane(PaneConfig::new("q1")));
+
+        let ws = ws.migrate_to_sections();
+
+        assert_eq!(ws.sections.len(), 1);
+        assert_eq!(ws.sections[0].name, "Existing");
+    }
+
+    #[test]
+    fn test_snapshot_workspace_with_sections() {
+        let mut ws = WorkspaceConfig::new("sections-dashboard");
+        ws.add_section(
+            SectionConfig::new("API Performance")
+                .with_layout(SectionLayout::Horizontal)
+                .with_pane(
+                    PaneConfig::new("rate(http_requests_total[5m])").with_name("Request Rate"),
+                )
+                .with_pane(
+                    PaneConfig::new("histogram_quantile(0.99, latency)").with_name("Latency p99"),
+                ),
+        );
+        ws.add_section(
+            SectionConfig::new("Infrastructure")
+                .with_layout(SectionLayout::Grid)
+                .with_columns(2)
+                .with_collapsed(true)
+                .with_pane(PaneConfig::new("avg(cpu_usage)").with_name("CPU"))
+                .with_pane(PaneConfig::new("avg(memory_usage)").with_name("Memory")),
+        );
+
+        let toml = ws.to_toml().unwrap();
+        insta::assert_snapshot!(toml, @r#"
+        [workspace]
+        name = "sections-dashboard"
+
+        [[sections]]
+        name = "API Performance"
+
+        [[sections.panes]]
+        query = "rate(http_requests_total[5m])"
+        name = "Request Rate"
+
+        [[sections.panes]]
+        query = "histogram_quantile(0.99, latency)"
+        name = "Latency p99"
+
+        [[sections]]
+        name = "Infrastructure"
+        layout = "grid"
+        collapsed = true
+        columns = 2
+
+        [[sections.panes]]
+        query = "avg(cpu_usage)"
+        name = "CPU"
+
+        [[sections.panes]]
+        query = "avg(memory_usage)"
+        name = "Memory"
+        "#);
     }
 }

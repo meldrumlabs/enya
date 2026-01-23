@@ -5,12 +5,17 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+/// Smooth easing function (ease-out cubic) for animations.
+fn ease_out_cubic(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::components::Component;
-use crate::ui::colors::text_color;
-use crate::ui::palette;
 use crate::ui::theme::AppTheme;
+use crate::util::Instant;
 
 /// Behavior implementation for the egui_tiles tree.
 ///
@@ -18,7 +23,6 @@ use crate::ui::theme::AppTheme;
 /// visual-multi selection overlays, and viewport filtering.
 #[derive(Default, Clone)]
 pub struct TreeBehavior {
-    pub(super) add_child_to: Option<TileId>,
     /// Currently focused tile for vim-style navigation
     focused_tile_id: Option<TileId>,
     /// Selected tiles in visual-multi mode (empty when not in visual-multi mode)
@@ -33,6 +37,16 @@ pub struct TreeBehavior {
     filtered_out_tiles: FxHashSet<TileId>,
     /// Whether viewport filter is active
     is_filter_active: bool,
+
+    // ==================== Visual Effects ====================
+    /// Active yank flash effects (tile_id -> start_time)
+    yank_flashes: FxHashMap<TileId, Instant>,
+    /// Active focus pulse effects (tile_id -> start_time)
+    focus_pulses: FxHashMap<TileId, Instant>,
+    /// Last focused tile for detecting focus changes
+    last_focused_tile: Option<TileId>,
+    /// Whether to dim inactive panes
+    dim_inactive_enabled: bool,
 }
 
 impl TreeBehavior {
@@ -77,9 +91,52 @@ impl TreeBehavior {
     pub fn api_key(&self) -> &str {
         &self.api_key
     }
+
+    // ==================== Visual Effects ====================
+
+    /// Trigger a yank flash effect for a tile.
+    pub fn trigger_yank_flash(&mut self, tile_id: TileId) {
+        self.yank_flashes.insert(tile_id, Instant::now());
+    }
+
+    /// Update focus tracking and trigger pulse if focus changed.
+    pub fn update_focus_effects(&mut self) {
+        if self.focused_tile_id != self.last_focused_tile {
+            if let Some(tile_id) = self.focused_tile_id {
+                self.focus_pulses.insert(tile_id, Instant::now());
+            }
+            self.last_focused_tile = self.focused_tile_id;
+        }
+    }
+
+    /// Clean up completed visual effects.
+    pub fn cleanup_effects(&mut self) {
+        const YANK_FLASH_DURATION: f32 = 0.25;
+        const FOCUS_PULSE_DURATION: f32 = 0.2;
+
+        self.yank_flashes
+            .retain(|_, start| start.elapsed().as_secs_f32() < YANK_FLASH_DURATION);
+        self.focus_pulses
+            .retain(|_, start| start.elapsed().as_secs_f32() < FOCUS_PULSE_DURATION);
+    }
+
+    /// Check if any visual effects are active (needs repaint).
+    pub fn has_active_effects(&self) -> bool {
+        !self.yank_flashes.is_empty() || !self.focus_pulses.is_empty()
+    }
+
+    /// Enable or disable dim inactive panes effect.
+    pub fn set_dim_inactive(&mut self, enabled: bool) {
+        self.dim_inactive_enabled = enabled;
+    }
 }
 
 impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
+    /// Minimum size for any pane - prevents panes from becoming too small
+    fn min_size(&self) -> f32 {
+        200.0 // Minimum 200px to ensure charts/content remain readable
+    }
+
     /// Gap between panes in horizontal/vertical layouts
     fn gap_width(&self, _style: &egui::Style) -> f32 {
         4.0 // Subtle gap for visual separation
@@ -92,9 +149,9 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         resize_state: egui_tiles::ResizeState,
     ) -> egui::Stroke {
         let color = match resize_state {
-            egui_tiles::ResizeState::Idle => palette::border_subtle(self.theme),
-            egui_tiles::ResizeState::Hovering => palette::border_default(self.theme),
-            egui_tiles::ResizeState::Dragging => palette::border::FOCUS,
+            egui_tiles::ResizeState::Idle => self.theme.border_subtle(),
+            egui_tiles::ResizeState::Hovering => self.theme.border_default(),
+            egui_tiles::ResizeState::Dragging => self.theme.border_focus(),
         };
         egui::Stroke::new(1.0, color)
     }
@@ -106,7 +163,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
     /// Background color of the tab bar
     fn tab_bar_color(&self, _visuals: &egui::Visuals) -> egui::Color32 {
-        palette::bg_surface(self.theme)
+        self.theme.bg_surface()
     }
 
     /// Background color of individual tabs
@@ -118,20 +175,20 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         state: &egui_tiles::TabState,
     ) -> egui::Color32 {
         if state.active {
-            palette::bg_elevated(self.theme)
+            self.theme.bg_elevated()
         } else if state.is_being_dragged {
-            palette::bg_hover(self.theme)
+            self.theme.bg_hover()
         } else {
-            palette::bg_surface(self.theme)
+            self.theme.bg_surface()
         }
     }
 
     /// Stroke for the line separating tab bar from content
     fn tab_bar_hline_stroke(&self, _visuals: &egui::Visuals) -> egui::Stroke {
-        egui::Stroke::new(1.0, palette::border_subtle(self.theme))
+        egui::Stroke::new(1.0, self.theme.border_subtle())
     }
 
-    /// Outline stroke around tabs (emerald for active, subtle for inactive)
+    /// Outline stroke around tabs (subtle accent for active, subtle for inactive)
     fn tab_outline_stroke(
         &self,
         _visuals: &egui::Visuals,
@@ -140,16 +197,17 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         state: &egui_tiles::TabState,
     ) -> egui::Stroke {
         if state.active {
-            egui::Stroke::new(1.0, palette::accent::PRIMARY)
+            // Muted accent - visible but not distracting
+            egui::Stroke::new(1.0, self.theme.syntax_key().gamma_multiply(0.5))
         } else {
-            egui::Stroke::new(1.0, palette::border_subtle(self.theme))
+            egui::Stroke::new(1.0, self.theme.border_subtle())
         }
     }
 
     fn tab_title_for_pane(&mut self, component: &Box<dyn Component>) -> egui::WidgetText {
         component
             .label()
-            .color(text_color(self.theme))
+            .color(self.theme.text_primary())
             .strong()
             .into()
     }
@@ -169,6 +227,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         egui_tiles::UiResponse::None
     }
 
+    #[profiling::function]
     fn paint_on_top_of_tile(
         &self,
         painter: &egui::Painter,
@@ -182,43 +241,31 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
         // When viewport filter is active, dim non-matching panes
         if is_filtered_out {
-            let dim_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200),
-                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(0, 0, 0, 200),
-            };
+            let dim_color = self.theme.bg_base().gamma_multiply(0.8);
             painter.rect_filled(rect, 4.0, dim_color);
 
             // Draw "filtered" indicator text
-            let text_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(100, 100, 100, 150),
-                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(150, 150, 150, 150),
-            };
+            let text_col = self.theme.text_tertiary();
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "filtered",
                 egui::FontId::proportional(12.0),
-                text_color,
+                text_col,
             );
             return; // Don't draw other overlays on filtered panes
         }
 
         // In visual-multi mode, draw selection indicator for selected panes
         if is_selected {
-            // Emerald selection color to match brand
-            let selection_color = match self.theme {
-                AppTheme::Light => egui::Color32::from_rgba_unmultiplied(5, 150, 105, 50),
-                AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(16, 185, 129, 40),
-            };
+            // Selection tint using theme accent
+            let selection_color = self.theme.accent_primary().gamma_multiply(0.15);
 
             // Fill the entire tile with a subtle selection tint
             painter.rect_filled(rect, 4.0, selection_color);
 
             // Draw selection border
-            let border_color = match self.theme {
-                AppTheme::Light => palette::accent::LIGHT,
-                AppTheme::Dark => palette::accent::PRIMARY,
-            };
+            let border_color = self.theme.accent_primary();
             let border_width = 2.0;
             let inset_rect = rect.shrink(border_width / 2.0);
             painter.rect_stroke(
@@ -230,46 +277,52 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         }
 
         // Draw focus border on top of the entire tile (including tab bar)
-        // This shows which pane has the cursor in visual-multi mode
+        // Premium glass effect with layered borders for depth
         if is_focused {
-            // White/gray focus color to match Enya's color scheme
-            // Use brighter color in visual-multi mode to distinguish cursor from selection
+            // Use theme accent for focus border
+            // Brighter accent in visual-multi mode to distinguish cursor from selection
             let focus_color = if self.is_visual_multi_mode {
-                match self.theme {
-                    AppTheme::Light => egui::Color32::from_rgb(100, 100, 110),
-                    AppTheme::Dark => egui::Color32::from_rgb(255, 255, 255),
-                }
+                self.theme.accent_hover()
             } else {
-                match self.theme {
-                    AppTheme::Light => egui::Color32::from_rgb(120, 120, 130),
-                    AppTheme::Dark => egui::Color32::from_rgb(200, 200, 210),
-                }
+                self.theme.accent_primary()
             };
 
-            // Shrink the rect inward so the border stroke is fully visible
-            let border_width = 3.0;
-            let inset_rect = rect.shrink(border_width / 2.0);
-
+            // Premium layered glow effect - thin layers to minimize content overlap
+            // Layer 1: Outer glow band (subtle, widest)
+            let glow_color = focus_color.gamma_multiply(0.10);
             painter.rect_stroke(
-                inset_rect,
+                rect,
                 4.0,
-                egui::Stroke::new(border_width, focus_color),
-                egui::StrokeKind::Outside,
+                egui::Stroke::new(3.0, glow_color),
+                egui::StrokeKind::Inside,
+            );
+
+            // Layer 2: Mid glow band (brighter, thinner)
+            let mid_glow_color = focus_color.gamma_multiply(0.25);
+            painter.rect_stroke(
+                rect,
+                4.0,
+                egui::Stroke::new(1.5, mid_glow_color),
+                egui::StrokeKind::Inside,
+            );
+
+            // Layer 3: Crisp edge border (full color, thin)
+            painter.rect_stroke(
+                rect,
+                4.0,
+                egui::Stroke::new(1.0, focus_color),
+                egui::StrokeKind::Inside,
             );
         }
 
         // In visual-multi mode, show query content at the bottom of each selected pane
         if is_selected {
             if let Some(query) = self.tile_queries.get(&tile_id) {
-                // Style for query overlay
-                let bg_color = match self.theme {
-                    AppTheme::Light => egui::Color32::from_rgba_unmultiplied(255, 255, 255, 230),
-                    AppTheme::Dark => egui::Color32::from_rgba_unmultiplied(30, 30, 35, 230),
-                };
-                let text_color = match self.theme {
-                    AppTheme::Light => egui::Color32::from_rgb(50, 50, 60),
-                    AppTheme::Dark => egui::Color32::from_rgb(220, 220, 230),
-                };
+                // Premium glass styling for query overlay
+                let bg_color = self.theme.bg_surface().gamma_multiply(0.92);
+                let query_text_color = self.theme.text_primary().gamma_multiply(0.9);
+                let accent_color = self.theme.accent_primary();
+                let query_border_color = accent_color.gamma_multiply(0.3);
 
                 // Truncate query if too long
                 let display_query = if query.len() > 60 {
@@ -280,39 +333,112 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
                 // Calculate text layout
                 let font_id = egui::FontId::monospace(11.0);
-                let galley = painter.layout_no_wrap(display_query, font_id, text_color);
+                let galley = painter.layout_no_wrap(display_query, font_id, query_text_color);
 
                 // Position at bottom of tile with padding
-                let padding = 6.0;
-                let overlay_height = galley.rect.height() + padding * 2.0;
+                let padding_h = 10.0;
+                let padding_v = 6.0;
+                let overlay_height = galley.rect.height() + padding_v * 2.0;
                 let overlay_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.min.x, rect.max.y - overlay_height),
                     egui::vec2(rect.width(), overlay_height),
                 );
 
-                // Draw background
+                // Draw background with subtle top border
                 painter.rect_filled(overlay_rect, 0.0, bg_color);
+
+                // Top edge accent line
+                let top_line_rect = egui::Rect::from_min_size(
+                    overlay_rect.left_top(),
+                    egui::vec2(overlay_rect.width(), 1.0),
+                );
+                painter.rect_filled(top_line_rect, 0.0, query_border_color);
+
+                // Emerald accent bar on left
+                let accent_bar = egui::Rect::from_min_size(
+                    overlay_rect.left_top(),
+                    egui::vec2(3.0, overlay_height),
+                );
+                painter.rect_filled(accent_bar, 0.0, accent_color);
 
                 // Draw text centered vertically in the overlay
                 let text_pos = egui::pos2(
-                    overlay_rect.min.x + padding,
+                    overlay_rect.min.x + padding_h,
                     overlay_rect.center().y - galley.rect.height() / 2.0,
                 );
-                painter.galley(text_pos, galley, text_color);
+                painter.galley(text_pos, galley, query_text_color);
             }
         }
-    }
 
-    fn top_bar_right_ui(
-        &mut self,
-        _tiles: &Tiles<Box<dyn Component>>,
-        ui: &mut egui::Ui,
-        tile_id: TileId,
-        _tabs: &egui_tiles::Tabs,
-        _scroll_offset: &mut f32,
-    ) {
-        if ui.button("➕").clicked() {
-            self.add_child_to = Some(tile_id);
+        // ==================== Visual Effects ====================
+
+        // Dim inactive panes (subtle overlay on unfocused panes)
+        if self.dim_inactive_enabled && !is_focused && !is_selected && !is_filtered_out {
+            // Use theme-aware dim color: black overlay for dark themes, white for light themes
+            let dim_color = if self.theme.is_dark() {
+                egui::Color32::from_rgba_unmultiplied(0, 0, 0, 25)
+            } else {
+                // Lighter effect for light themes - use a subtle white overlay
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, 40)
+            };
+            painter.rect_filled(rect, 4.0, dim_color);
+        }
+
+        // Yank flash effect (brief highlight when yanked)
+        if let Some(start_time) = self.yank_flashes.get(&tile_id) {
+            const YANK_FLASH_DURATION: f32 = 0.25;
+            let elapsed = start_time.elapsed().as_secs_f32();
+            let progress = (elapsed / YANK_FLASH_DURATION).min(1.0);
+
+            // Quick fade in, slow fade out
+            let opacity = if progress < 0.1 {
+                ease_out_cubic(progress / 0.1)
+            } else {
+                1.0 - ease_out_cubic((progress - 0.1) / 0.9)
+            };
+
+            if opacity > 0.01 {
+                let base = self.theme.accent_primary();
+                let flash_color = egui::Color32::from_rgba_unmultiplied(
+                    base.r(),
+                    base.g(),
+                    base.b(),
+                    (opacity * 80.0) as u8,
+                );
+                painter.rect_filled(rect, 4.0, flash_color);
+            }
+        }
+
+        // Focus pulse effect (glow when pane receives focus)
+        if let Some(start_time) = self.focus_pulses.get(&tile_id) {
+            const FOCUS_PULSE_DURATION: f32 = 0.2;
+            let elapsed = start_time.elapsed().as_secs_f32();
+            let progress = (elapsed / FOCUS_PULSE_DURATION).min(1.0);
+
+            // Quick rise, gradual fall
+            let intensity = if progress < 0.3 {
+                ease_out_cubic(progress / 0.3)
+            } else {
+                1.0 - ease_out_cubic((progress - 0.3) / 0.7)
+            };
+
+            if intensity > 0.01 {
+                let base = self.theme.accent_primary();
+                let pulse_color = egui::Color32::from_rgba_unmultiplied(
+                    base.r(),
+                    base.g(),
+                    base.b(),
+                    (intensity * 60.0) as u8,
+                );
+                // Expanding glow rings
+                let glow_expansion = intensity * 4.0;
+                painter.rect_stroke(
+                    rect.expand(glow_expansion),
+                    6.0,
+                    egui::Stroke::new(2.0 + intensity * 2.0, pulse_color),
+                    egui::StrokeKind::Outside,
+                );
+            }
         }
     }
 
@@ -370,20 +496,20 @@ mod tests {
     fn test_tree_behavior_default() {
         let behavior = TreeBehavior::default();
         assert!(behavior.focused_tile().is_none());
-        assert_eq!(behavior.theme(), AppTheme::Light); // Default theme (from Default derive)
+        assert_eq!(behavior.theme(), AppTheme::default()); // Default theme (from Default derive)
         assert_eq!(behavior.api_key(), "");
     }
 
     #[test]
     fn test_set_theme() {
         let mut behavior = TreeBehavior::default();
-        assert_eq!(behavior.theme(), AppTheme::Light);
-
-        behavior.set_theme(AppTheme::Dark);
         assert_eq!(behavior.theme(), AppTheme::Dark);
 
         behavior.set_theme(AppTheme::Light);
         assert_eq!(behavior.theme(), AppTheme::Light);
+
+        behavior.set_theme(AppTheme::Dark);
+        assert_eq!(behavior.theme(), AppTheme::Dark);
     }
 
     #[test]
