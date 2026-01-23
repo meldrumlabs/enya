@@ -25,6 +25,10 @@ use crate::components::{
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
+use enya_plugin::{
+    CustomChartConfig, CustomChartData, CustomTableConfig, CustomTableData, GaugePaneConfig,
+    GaugePaneData, StatPaneConfig, StatPaneData,
+};
 
 // Workspace configuration module (serialization)
 pub mod config;
@@ -331,6 +335,26 @@ pub struct Workspace {
     /// Resolved theme colors (from custom or builtin theme)
     /// Used for components that need custom theme support
     active_colors: Option<crate::ui::ActiveThemeColors>,
+
+    // ==================== Plugin Custom Panes ====================
+    /// Registry of custom table pane configurations (by pane type name)
+    custom_table_configs: FxHashMap<String, CustomTableConfig>,
+    /// Data for custom table panes (by pane type name)
+    custom_table_data: FxHashMap<String, CustomTableData>,
+    /// Registry of custom chart pane configurations (by pane type name)
+    custom_chart_configs: FxHashMap<String, CustomChartConfig>,
+    /// Data for custom chart panes (by pane type name)
+    custom_chart_data: FxHashMap<String, CustomChartData>,
+    /// Registry of custom stat pane configurations (by pane type name)
+    custom_stat_configs: FxHashMap<String, StatPaneConfig>,
+    /// Data for custom stat panes (by pane type name)
+    custom_stat_data: FxHashMap<String, StatPaneData>,
+    /// Registry of custom gauge pane configurations (by pane type name)
+    custom_gauge_configs: FxHashMap<String, GaugePaneConfig>,
+    /// Data for custom gauge panes (by pane type name)
+    custom_gauge_data: FxHashMap<String, GaugePaneData>,
+    /// Last refresh time for plugin panes (by pane type name)
+    plugin_pane_last_refresh: FxHashMap<String, crate::util::Instant>,
 }
 
 impl Workspace {
@@ -437,6 +461,16 @@ impl Workspace {
             layout_animator: LayoutAnimator::new(),
             // Active theme colors
             active_colors: None,
+            // Plugin custom panes
+            custom_table_configs: FxHashMap::default(),
+            custom_table_data: FxHashMap::default(),
+            custom_chart_configs: FxHashMap::default(),
+            custom_chart_data: FxHashMap::default(),
+            custom_stat_configs: FxHashMap::default(),
+            custom_stat_data: FxHashMap::default(),
+            custom_gauge_configs: FxHashMap::default(),
+            custom_gauge_data: FxHashMap::default(),
+            plugin_pane_last_refresh: FxHashMap::default(),
         }
     }
 

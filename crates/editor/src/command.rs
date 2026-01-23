@@ -63,6 +63,241 @@ pub enum UICommand {
         start_ms: i64,
         end_ms: i64,
     },
+
+    // ==================== Plugin Custom Pane Commands ====================
+    /// Register a custom table pane type from a plugin
+    PluginRegisterCustomTablePane {
+        config: enya_plugin::CustomTableConfig,
+    },
+    /// Add an instance of a custom table pane
+    PluginAddCustomTablePane {
+        pane_type: String,
+    },
+    /// Update data for a custom table pane by ID
+    PluginUpdateCustomTableData {
+        pane_id: usize,
+        data: enya_plugin::CustomTableData,
+    },
+    /// Update data for all custom table panes of a type
+    PluginUpdateCustomTableDataByType {
+        pane_type: String,
+        data: enya_plugin::CustomTableData,
+    },
+
+    // ==================== Plugin Custom Chart Pane Commands ====================
+    /// Register a custom chart pane type from a plugin
+    PluginRegisterCustomChartPane {
+        config: enya_plugin::CustomChartConfig,
+    },
+    /// Add an instance of a custom chart pane
+    PluginAddCustomChartPane {
+        pane_type: String,
+    },
+    /// Update data for all custom chart panes of a type
+    /// Note: timestamps stored as milliseconds (i64), values scaled by 1_000_000 (i64)
+    PluginUpdateCustomChartDataByType {
+        pane_type: String,
+        /// Series data in hashable form: Vec<(name, tags, points)>
+        /// where points are Vec<(timestamp_ms, value_scaled)>
+        series: Vec<ChartSeriesHashable>,
+        error: Option<String>,
+    },
+
+    // ==================== Plugin Custom Stat Pane Commands ====================
+    /// Register a custom stat pane type from a plugin
+    PluginRegisterCustomStatPane {
+        config: enya_plugin::StatPaneConfig,
+    },
+    /// Add an instance of a custom stat pane
+    PluginAddCustomStatPane {
+        pane_type: String,
+    },
+    /// Update data for all custom stat panes of a type
+    PluginUpdateCustomStatDataByType {
+        pane_type: String,
+        data: StatDataHashable,
+    },
+
+    // ==================== Plugin Custom Gauge Pane Commands ====================
+    /// Register a custom gauge pane type from a plugin
+    PluginRegisterCustomGaugePane {
+        config: enya_plugin::GaugePaneConfig,
+    },
+    /// Add an instance of a custom gauge pane
+    PluginAddCustomGaugePane {
+        pane_type: String,
+    },
+    /// Update data for all custom gauge panes of a type
+    PluginUpdateCustomGaugeDataByType {
+        pane_type: String,
+        data: GaugeDataHashable,
+    },
+}
+
+/// Hashable representation of a chart series for UICommand
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ChartSeriesHashable {
+    pub name: String,
+    pub tags: std::collections::BTreeMap<String, String>,
+    /// Points as (timestamp_ms, value * 1_000_000)
+    pub points: Vec<(i64, i64)>,
+}
+
+impl ChartSeriesHashable {
+    /// Convert from plugin ChartSeries to hashable form
+    pub fn from_plugin(series: &enya_plugin::ChartSeries) -> Self {
+        Self {
+            name: series.name.clone(),
+            tags: series.tags.clone(),
+            points: series
+                .points
+                .iter()
+                .map(|p| {
+                    let timestamp_ms = (p.timestamp * 1000.0) as i64;
+                    let value_scaled = (p.value * 1_000_000.0) as i64;
+                    (timestamp_ms, value_scaled)
+                })
+                .collect(),
+        }
+    }
+
+    /// Convert back to plugin ChartSeries
+    pub fn to_plugin(&self) -> enya_plugin::ChartSeries {
+        let mut series = enya_plugin::ChartSeries::new(&self.name);
+        series.tags = self.tags.clone();
+        series.points = self
+            .points
+            .iter()
+            .map(|(ts_ms, val_scaled)| {
+                enya_plugin::ChartDataPoint::new(
+                    *ts_ms as f64 / 1000.0,
+                    *val_scaled as f64 / 1_000_000.0,
+                )
+            })
+            .collect();
+        series
+    }
+}
+
+/// Hashable representation of a threshold for UICommand
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ThresholdHashable {
+    /// Value scaled by 1_000_000
+    pub value_scaled: i64,
+    pub color: String,
+    pub label: Option<String>,
+}
+
+impl ThresholdHashable {
+    /// Convert from plugin ThresholdConfig to hashable form
+    pub fn from_plugin(thresh: &enya_plugin::ThresholdConfig) -> Self {
+        Self {
+            value_scaled: (thresh.value * 1_000_000.0) as i64,
+            color: thresh.color.clone(),
+            label: thresh.label.clone(),
+        }
+    }
+
+    /// Convert back to plugin ThresholdConfig
+    pub fn to_plugin(&self) -> enya_plugin::ThresholdConfig {
+        let mut thresh =
+            enya_plugin::ThresholdConfig::new(self.value_scaled as f64 / 1_000_000.0, &self.color);
+        if let Some(ref lbl) = self.label {
+            thresh = thresh.with_label(lbl.clone());
+        }
+        thresh
+    }
+}
+
+/// Hashable representation of stat pane data for UICommand
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct StatDataHashable {
+    /// Value scaled by 1_000_000
+    pub value_scaled: i64,
+    /// Sparkline values scaled by 1_000_000
+    pub sparkline: Vec<i64>,
+    /// Change value scaled by 1_000_000
+    pub change_value_scaled: Option<i64>,
+    pub change_period: Option<String>,
+    pub thresholds: Vec<ThresholdHashable>,
+    pub error: Option<String>,
+}
+
+impl StatDataHashable {
+    /// Convert from plugin StatPaneData to hashable form
+    pub fn from_plugin(data: &enya_plugin::StatPaneData) -> Self {
+        Self {
+            value_scaled: (data.value * 1_000_000.0) as i64,
+            sparkline: data
+                .sparkline
+                .iter()
+                .map(|v| (*v * 1_000_000.0) as i64)
+                .collect(),
+            change_value_scaled: data.change_value.map(|v| (v * 1_000_000.0) as i64),
+            change_period: data.change_period.clone(),
+            thresholds: data
+                .thresholds
+                .iter()
+                .map(ThresholdHashable::from_plugin)
+                .collect(),
+            error: data.error.clone(),
+        }
+    }
+
+    /// Convert back to plugin StatPaneData
+    pub fn to_plugin(&self) -> enya_plugin::StatPaneData {
+        if let Some(ref err) = self.error {
+            return enya_plugin::StatPaneData::with_error(err.clone());
+        }
+
+        let mut data =
+            enya_plugin::StatPaneData::with_value(self.value_scaled as f64 / 1_000_000.0);
+        data.sparkline = self
+            .sparkline
+            .iter()
+            .map(|v| *v as f64 / 1_000_000.0)
+            .collect();
+        data.change_value = self.change_value_scaled.map(|v| v as f64 / 1_000_000.0);
+        data.change_period = self.change_period.clone();
+        data.thresholds = self.thresholds.iter().map(|t| t.to_plugin()).collect();
+        data
+    }
+}
+
+/// Hashable representation of gauge pane data for UICommand
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct GaugeDataHashable {
+    /// Value scaled by 1_000_000
+    pub value_scaled: i64,
+    pub thresholds: Vec<ThresholdHashable>,
+    pub error: Option<String>,
+}
+
+impl GaugeDataHashable {
+    /// Convert from plugin GaugePaneData to hashable form
+    pub fn from_plugin(data: &enya_plugin::GaugePaneData) -> Self {
+        Self {
+            value_scaled: (data.value * 1_000_000.0) as i64,
+            thresholds: data
+                .thresholds
+                .iter()
+                .map(ThresholdHashable::from_plugin)
+                .collect(),
+            error: data.error.clone(),
+        }
+    }
+
+    /// Convert back to plugin GaugePaneData
+    pub fn to_plugin(&self) -> enya_plugin::GaugePaneData {
+        if let Some(ref err) = self.error {
+            return enya_plugin::GaugePaneData::with_error(err.clone());
+        }
+
+        let mut data =
+            enya_plugin::GaugePaneData::with_value(self.value_scaled as f64 / 1_000_000.0);
+        data.thresholds = self.thresholds.iter().map(|t| t.to_plugin()).collect();
+        data
+    }
 }
 
 impl UICommand {
@@ -120,6 +355,23 @@ impl UICommand {
             Self::PluginFocusPane { .. } => ("", ""),
             Self::PluginSetTimeRangePreset { .. } => ("", ""),
             Self::PluginSetTimeRangeAbsolute { .. } => ("", ""),
+            // Custom table pane commands (programmatic only)
+            Self::PluginRegisterCustomTablePane { .. } => ("", ""),
+            Self::PluginAddCustomTablePane { .. } => ("", ""),
+            Self::PluginUpdateCustomTableData { .. } => ("", ""),
+            Self::PluginUpdateCustomTableDataByType { .. } => ("", ""),
+            // Custom chart pane commands (programmatic only)
+            Self::PluginRegisterCustomChartPane { .. } => ("", ""),
+            Self::PluginAddCustomChartPane { .. } => ("", ""),
+            Self::PluginUpdateCustomChartDataByType { .. } => ("", ""),
+            // Custom stat pane commands (programmatic only)
+            Self::PluginRegisterCustomStatPane { .. } => ("", ""),
+            Self::PluginAddCustomStatPane { .. } => ("", ""),
+            Self::PluginUpdateCustomStatDataByType { .. } => ("", ""),
+            // Custom gauge pane commands (programmatic only)
+            Self::PluginRegisterCustomGaugePane { .. } => ("", ""),
+            Self::PluginAddCustomGaugePane { .. } => ("", ""),
+            Self::PluginUpdateCustomGaugeDataByType { .. } => ("", ""),
         }
     }
 
@@ -251,6 +503,23 @@ impl UICommand {
             Self::PluginFocusPane { .. } => vec![],
             Self::PluginSetTimeRangePreset { .. } => vec![],
             Self::PluginSetTimeRangeAbsolute { .. } => vec![],
+            // Custom table pane commands (programmatic only)
+            Self::PluginRegisterCustomTablePane { .. } => vec![],
+            Self::PluginAddCustomTablePane { .. } => vec![],
+            Self::PluginUpdateCustomTableData { .. } => vec![],
+            Self::PluginUpdateCustomTableDataByType { .. } => vec![],
+            // Custom chart pane commands (programmatic only)
+            Self::PluginRegisterCustomChartPane { .. } => vec![],
+            Self::PluginAddCustomChartPane { .. } => vec![],
+            Self::PluginUpdateCustomChartDataByType { .. } => vec![],
+            // Custom stat pane commands (programmatic only)
+            Self::PluginRegisterCustomStatPane { .. } => vec![],
+            Self::PluginAddCustomStatPane { .. } => vec![],
+            Self::PluginUpdateCustomStatDataByType { .. } => vec![],
+            // Custom gauge pane commands (programmatic only)
+            Self::PluginRegisterCustomGaugePane { .. } => vec![],
+            Self::PluginAddCustomGaugePane { .. } => vec![],
+            Self::PluginUpdateCustomGaugeDataByType { .. } => vec![],
         }
     }
 

@@ -69,10 +69,14 @@ use std::path::{Path, PathBuf};
 
 use mlua::{Function, Lua, RegistryKey, Result as LuaResult, Table, Value, Variadic};
 use parking_lot::Mutex;
+use rustc_hash::FxHashMap;
 
 use crate::theme::{ThemeBase, ThemeColors, ThemeDefinition};
 use crate::traits::{CommandConfig, KeybindingConfig, Plugin, PluginCapabilities};
-use crate::types::{LogLevel, PluginContext};
+use crate::types::{
+    CustomChartConfig, CustomTableConfig, GaugePaneConfig, LogLevel, PluginContext, StatPaneConfig,
+    TableColumnConfig,
+};
 use crate::{PluginError, PluginResult};
 
 /// A command registered by a Lua plugin.
@@ -103,6 +107,16 @@ pub struct LuaPlugin {
     commands: Vec<LuaCommand>,
     /// Keybindings registered by this plugin
     keybindings: Vec<KeybindingConfig>,
+    /// Custom table pane types registered by this plugin
+    table_pane_types: Vec<CustomTableConfig>,
+    /// Custom chart pane types registered by this plugin
+    chart_pane_types: Vec<CustomChartConfig>,
+    /// Custom stat pane types registered by this plugin
+    stat_pane_types: Vec<StatPaneConfig>,
+    /// Custom gauge pane types registered by this plugin
+    gauge_pane_types: Vec<GaugePaneConfig>,
+    /// Refresh callbacks keyed by pane type name
+    refresh_callbacks: FxHashMap<String, RegistryKey>,
     /// Custom theme defined by this plugin (if any)
     theme: Option<ThemeDefinition>,
     /// Path to the plugin file
@@ -175,6 +189,45 @@ impl LuaPlugin {
         // Extract custom theme (if defined)
         let theme = Self::extract_theme(&lua);
 
+        // Create refresh callbacks map
+        let mut refresh_callbacks = FxHashMap::default();
+
+        // Extract custom table pane types
+        let table_pane_types = Self::extract_table_pane_types(&lua, &name, &mut refresh_callbacks)
+            .map_err(|e| {
+                PluginError::InvalidConfiguration(format!(
+                    "Failed to read table pane types from {}: {e}",
+                    path.display()
+                ))
+            })?;
+
+        // Extract custom chart pane types
+        let chart_pane_types = Self::extract_chart_pane_types(&lua, &name, &mut refresh_callbacks)
+            .map_err(|e| {
+                PluginError::InvalidConfiguration(format!(
+                    "Failed to read chart pane types from {}: {e}",
+                    path.display()
+                ))
+            })?;
+
+        // Extract custom stat pane types
+        let stat_pane_types = Self::extract_stat_pane_types(&lua, &name, &mut refresh_callbacks)
+            .map_err(|e| {
+                PluginError::InvalidConfiguration(format!(
+                    "Failed to read stat pane types from {}: {e}",
+                    path.display()
+                ))
+            })?;
+
+        // Extract custom gauge pane types
+        let gauge_pane_types = Self::extract_gauge_pane_types(&lua, &name, &mut refresh_callbacks)
+            .map_err(|e| {
+                PluginError::InvalidConfiguration(format!(
+                    "Failed to read gauge pane types from {}: {e}",
+                    path.display()
+                ))
+            })?;
+
         Ok(Self {
             lua: Mutex::new(lua),
             name: Box::leak(name.into_boxed_str()),
@@ -182,6 +235,11 @@ impl LuaPlugin {
             description: Box::leak(description.into_boxed_str()),
             commands,
             keybindings,
+            table_pane_types,
+            chart_pane_types,
+            stat_pane_types,
+            gauge_pane_types,
+            refresh_callbacks,
             theme,
             path: path.to_path_buf(),
             active: false,
@@ -197,9 +255,13 @@ impl LuaPlugin {
         // Create the enya table
         let enya = lua.create_table()?;
 
-        // Storage for registered commands (will be extracted later)
+        // Storage for registered commands, keybindings, and custom panes (will be extracted later)
         let registered_commands = lua.create_table()?;
         let registered_keybindings = lua.create_table()?;
+        let registered_table_panes = lua.create_table()?;
+        let registered_chart_panes = lua.create_table()?;
+        let registered_stat_panes = lua.create_table()?;
+        let registered_gauge_panes = lua.create_table()?;
 
         // enya.register_command(name, config, callback)
         let commands_ref = registered_commands.clone();
@@ -290,9 +352,221 @@ impl LuaPlugin {
         })?;
         enya.set("keymap", keymap)?;
 
+        // enya.register_table_pane(name, config, [callback]) - Register a custom table pane type
+        // The optional callback is called to refresh pane data
+        let table_panes_ref = registered_table_panes.clone();
+        let register_table_pane = lua.create_function(move |lua, args: Variadic<Value>| {
+            let args: Vec<Value> = args.into_iter().collect();
+            if args.len() < 2 {
+                return Err(mlua::Error::runtime(
+                    "register_table_pane requires at least 2 arguments: name, config",
+                ));
+            }
+
+            let name = match &args[0] {
+                Value::String(s) => s.to_str()?.to_string(),
+                _ => return Err(mlua::Error::runtime("name must be a string")),
+            };
+
+            let config = match &args[1] {
+                Value::Table(t) => t.clone(),
+                _ => return Err(mlua::Error::runtime("config must be a table")),
+            };
+
+            let pane_table = lua.create_table()?;
+            pane_table.set("name", name)?;
+            pane_table.set(
+                "title",
+                config
+                    .get::<Option<String>>("title")?
+                    .unwrap_or_else(|| "Custom Table".to_string()),
+            )?;
+            pane_table.set(
+                "refresh_interval",
+                config.get::<Option<u32>>("refresh_interval")?.unwrap_or(0),
+            )?;
+
+            // Extract columns array
+            let columns_table = lua.create_table()?;
+            if let Ok(columns) = config.get::<Table>("columns") {
+                for (idx, col) in columns.pairs::<i64, Table>().flatten() {
+                    let col_table = lua.create_table()?;
+                    col_table.set("name", col.get::<String>("name")?)?;
+                    col_table.set("key", col.get::<Option<String>>("key")?.unwrap_or_default())?;
+                    col_table.set("width", col.get::<Option<f32>>("width")?.unwrap_or(0.0))?;
+                    columns_table.set(idx, col_table)?;
+                }
+            }
+            pane_table.set("columns", columns_table)?;
+
+            // Store callback if provided
+            if let Some(Value::Function(callback)) = args.get(2) {
+                pane_table.set("callback", callback.clone())?;
+            }
+
+            let len = table_panes_ref.len()? + 1;
+            table_panes_ref.set(len, pane_table)?;
+
+            Ok(())
+        })?;
+        enya.set("register_table_pane", register_table_pane)?;
+
+        // enya.register_chart_pane(name, config, [callback]) - Register a custom chart pane type
+        let chart_panes_ref = registered_chart_panes.clone();
+        let register_chart_pane = lua.create_function(move |lua, args: Variadic<Value>| {
+            let args: Vec<Value> = args.into_iter().collect();
+            if args.len() < 2 {
+                return Err(mlua::Error::runtime(
+                    "register_chart_pane requires at least 2 arguments: name, config",
+                ));
+            }
+
+            let name = match &args[0] {
+                Value::String(s) => s.to_str()?.to_string(),
+                _ => return Err(mlua::Error::runtime("name must be a string")),
+            };
+
+            let config = match &args[1] {
+                Value::Table(t) => t.clone(),
+                _ => return Err(mlua::Error::runtime("config must be a table")),
+            };
+
+            let pane_table = lua.create_table()?;
+            pane_table.set("name", name)?;
+            pane_table.set(
+                "title",
+                config
+                    .get::<Option<String>>("title")?
+                    .unwrap_or_else(|| "Custom Chart".to_string()),
+            )?;
+            pane_table.set(
+                "y_unit",
+                config.get::<Option<String>>("y_unit")?.unwrap_or_default(),
+            )?;
+            pane_table.set(
+                "refresh_interval",
+                config.get::<Option<u32>>("refresh_interval")?.unwrap_or(0),
+            )?;
+
+            // Store callback if provided
+            if let Some(Value::Function(callback)) = args.get(2) {
+                pane_table.set("callback", callback.clone())?;
+            }
+
+            let len = chart_panes_ref.len()? + 1;
+            chart_panes_ref.set(len, pane_table)?;
+
+            Ok(())
+        })?;
+        enya.set("register_chart_pane", register_chart_pane)?;
+
+        // enya.register_stat_pane(name, config, [callback]) - Register a custom stat pane type
+        let stat_panes_ref = registered_stat_panes.clone();
+        let register_stat_pane = lua.create_function(move |lua, args: Variadic<Value>| {
+            let args: Vec<Value> = args.into_iter().collect();
+            if args.len() < 2 {
+                return Err(mlua::Error::runtime(
+                    "register_stat_pane requires at least 2 arguments: name, config",
+                ));
+            }
+
+            let name = match &args[0] {
+                Value::String(s) => s.to_str()?.to_string(),
+                _ => return Err(mlua::Error::runtime("name must be a string")),
+            };
+
+            let config = match &args[1] {
+                Value::Table(t) => t.clone(),
+                _ => return Err(mlua::Error::runtime("config must be a table")),
+            };
+
+            let pane_table = lua.create_table()?;
+            pane_table.set("name", name)?;
+            pane_table.set(
+                "title",
+                config
+                    .get::<Option<String>>("title")?
+                    .unwrap_or_else(|| "Custom Stat".to_string()),
+            )?;
+            pane_table.set(
+                "unit",
+                config.get::<Option<String>>("unit")?.unwrap_or_default(),
+            )?;
+            pane_table.set(
+                "refresh_interval",
+                config.get::<Option<u32>>("refresh_interval")?.unwrap_or(0),
+            )?;
+
+            // Store callback if provided
+            if let Some(Value::Function(callback)) = args.get(2) {
+                pane_table.set("callback", callback.clone())?;
+            }
+
+            let len = stat_panes_ref.len()? + 1;
+            stat_panes_ref.set(len, pane_table)?;
+
+            Ok(())
+        })?;
+        enya.set("register_stat_pane", register_stat_pane)?;
+
+        // enya.register_gauge_pane(name, config, [callback]) - Register a custom gauge pane type
+        let gauge_panes_ref = registered_gauge_panes.clone();
+        let register_gauge_pane = lua.create_function(move |lua, args: Variadic<Value>| {
+            let args: Vec<Value> = args.into_iter().collect();
+            if args.len() < 2 {
+                return Err(mlua::Error::runtime(
+                    "register_gauge_pane requires at least 2 arguments: name, config",
+                ));
+            }
+
+            let name = match &args[0] {
+                Value::String(s) => s.to_str()?.to_string(),
+                _ => return Err(mlua::Error::runtime("name must be a string")),
+            };
+
+            let config = match &args[1] {
+                Value::Table(t) => t.clone(),
+                _ => return Err(mlua::Error::runtime("config must be a table")),
+            };
+
+            let pane_table = lua.create_table()?;
+            pane_table.set("name", name)?;
+            pane_table.set(
+                "title",
+                config
+                    .get::<Option<String>>("title")?
+                    .unwrap_or_else(|| "Custom Gauge".to_string()),
+            )?;
+            pane_table.set(
+                "unit",
+                config.get::<Option<String>>("unit")?.unwrap_or_default(),
+            )?;
+            pane_table.set("min", config.get::<Option<f64>>("min")?.unwrap_or(0.0))?;
+            pane_table.set("max", config.get::<Option<f64>>("max")?.unwrap_or(100.0))?;
+            pane_table.set(
+                "refresh_interval",
+                config.get::<Option<u32>>("refresh_interval")?.unwrap_or(0),
+            )?;
+
+            // Store callback if provided
+            if let Some(Value::Function(callback)) = args.get(2) {
+                pane_table.set("callback", callback.clone())?;
+            }
+
+            let len = gauge_panes_ref.len()? + 1;
+            gauge_panes_ref.set(len, pane_table)?;
+
+            Ok(())
+        })?;
+        enya.set("register_gauge_pane", register_gauge_pane)?;
+
         // Store references for later extraction
         enya.set("_registered_commands", registered_commands)?;
         enya.set("_registered_keybindings", registered_keybindings)?;
+        enya.set("_registered_table_panes", registered_table_panes)?;
+        enya.set("_registered_chart_panes", registered_chart_panes)?;
+        enya.set("_registered_stat_panes", registered_stat_panes)?;
+        enya.set("_registered_gauge_panes", registered_gauge_panes)?;
 
         // Placeholder functions that will be overwritten when we have context
         let noop_notify = lua.create_function(|_, (_level, _msg): (String, String)| {
@@ -384,6 +658,38 @@ impl LuaPlugin {
         })?;
         enya.set("get_time_range", noop_get_time_range)?;
 
+        // Custom table pane functions - no-op during loading phase
+        let noop_add_custom_pane = lua.create_function(|_, _pane_type: String| Ok(()))?;
+        enya.set("add_custom_pane", noop_add_custom_pane)?;
+
+        let noop_set_pane_data =
+            lua.create_function(|_, (_pane_type, _data): (String, Table)| Ok(()))?;
+        enya.set("set_pane_data", noop_set_pane_data)?;
+
+        // Custom chart pane functions - no-op during loading phase
+        let noop_add_chart_pane = lua.create_function(|_, _pane_type: String| Ok(()))?;
+        enya.set("add_chart_pane", noop_add_chart_pane)?;
+
+        let noop_set_chart_data =
+            lua.create_function(|_, (_pane_type, _data): (String, Table)| Ok(()))?;
+        enya.set("set_chart_data", noop_set_chart_data)?;
+
+        // Custom stat pane functions - no-op during loading phase
+        let noop_add_stat_pane = lua.create_function(|_, _pane_type: String| Ok(()))?;
+        enya.set("add_stat_pane", noop_add_stat_pane)?;
+
+        let noop_set_stat_data =
+            lua.create_function(|_, (_pane_type, _data): (String, Table)| Ok(()))?;
+        enya.set("set_stat_data", noop_set_stat_data)?;
+
+        // Custom gauge pane functions - no-op during loading phase
+        let noop_add_gauge_pane = lua.create_function(|_, _pane_type: String| Ok(()))?;
+        enya.set("add_gauge_pane", noop_add_gauge_pane)?;
+
+        let noop_set_gauge_data =
+            lua.create_function(|_, (_pane_type, _data): (String, Table)| Ok(()))?;
+        enya.set("set_gauge_data", noop_set_gauge_data)?;
+
         globals.set("enya", enya)?;
 
         Ok(())
@@ -459,6 +765,189 @@ impl LuaPlugin {
         }
 
         Ok(keybindings)
+    }
+
+    /// Extract registered custom table pane types from the Lua state.
+    /// Also extracts and stores refresh callbacks in the registry.
+    fn extract_table_pane_types(
+        lua: &Lua,
+        plugin_name: &str,
+        refresh_callbacks: &mut FxHashMap<String, RegistryKey>,
+    ) -> LuaResult<Vec<CustomTableConfig>> {
+        let globals = lua.globals();
+        let enya: Table = globals.get("enya")?;
+        let registered: Table = enya.get("_registered_table_panes")?;
+
+        let mut pane_types = Vec::new();
+
+        for pair in registered.pairs::<i64, Table>() {
+            let (_, pane_table) = pair?;
+
+            let name: String = pane_table.get("name")?;
+            let title: String = pane_table.get("title")?;
+            let refresh_interval: u32 = pane_table.get("refresh_interval")?;
+
+            // Extract columns
+            let columns_table: Table = pane_table.get("columns")?;
+            let mut columns = Vec::new();
+
+            for col_pair in columns_table.pairs::<i64, Table>() {
+                let (_, col) = col_pair?;
+                let col_name: String = col.get("name")?;
+                let col_key: String = col.get("key")?;
+                let col_width: f32 = col.get("width")?;
+
+                let mut column = TableColumnConfig::new(col_name);
+                if !col_key.is_empty() {
+                    column = column.with_key(col_key);
+                }
+                if col_width > 0.0 {
+                    column = column.with_width(col_width as u32);
+                }
+                columns.push(column);
+            }
+
+            // Extract and store callback if present
+            if let Ok(callback) = pane_table.get::<Function>("callback") {
+                let callback_key = lua.create_registry_value(callback)?;
+                refresh_callbacks.insert(name.clone(), callback_key);
+            }
+
+            pane_types.push(CustomTableConfig {
+                name,
+                title,
+                columns,
+                refresh_interval,
+                plugin_name: plugin_name.to_string(),
+            });
+        }
+
+        Ok(pane_types)
+    }
+
+    /// Extract registered custom chart pane types from the Lua state.
+    /// Also extracts and stores refresh callbacks in the registry.
+    fn extract_chart_pane_types(
+        lua: &Lua,
+        plugin_name: &str,
+        refresh_callbacks: &mut FxHashMap<String, RegistryKey>,
+    ) -> LuaResult<Vec<CustomChartConfig>> {
+        let globals = lua.globals();
+        let enya: Table = globals.get("enya")?;
+        let registered: Table = enya.get("_registered_chart_panes")?;
+
+        let mut pane_types = Vec::new();
+
+        for pair in registered.pairs::<i64, Table>() {
+            let (_, pane_table) = pair?;
+
+            let name: String = pane_table.get("name")?;
+            let title: String = pane_table.get("title")?;
+            let y_unit: String = pane_table.get("y_unit")?;
+            let refresh_interval: u32 = pane_table.get("refresh_interval")?;
+
+            // Extract and store callback if present
+            if let Ok(callback) = pane_table.get::<Function>("callback") {
+                let callback_key = lua.create_registry_value(callback)?;
+                refresh_callbacks.insert(name.clone(), callback_key);
+            }
+
+            pane_types.push(CustomChartConfig {
+                name,
+                title,
+                y_unit: if y_unit.is_empty() {
+                    None
+                } else {
+                    Some(y_unit)
+                },
+                refresh_interval,
+                plugin_name: plugin_name.to_string(),
+            });
+        }
+
+        Ok(pane_types)
+    }
+
+    /// Extract registered custom stat pane types from the Lua state.
+    /// Also extracts and stores refresh callbacks in the registry.
+    fn extract_stat_pane_types(
+        lua: &Lua,
+        plugin_name: &str,
+        refresh_callbacks: &mut FxHashMap<String, RegistryKey>,
+    ) -> LuaResult<Vec<StatPaneConfig>> {
+        let globals = lua.globals();
+        let enya: Table = globals.get("enya")?;
+        let registered: Table = enya.get("_registered_stat_panes")?;
+
+        let mut pane_types = Vec::new();
+
+        for pair in registered.pairs::<i64, Table>() {
+            let (_, pane_table) = pair?;
+
+            let name: String = pane_table.get("name")?;
+            let title: String = pane_table.get("title")?;
+            let unit: String = pane_table.get("unit")?;
+            let refresh_interval: u32 = pane_table.get("refresh_interval")?;
+
+            // Extract and store callback if present
+            if let Ok(callback) = pane_table.get::<Function>("callback") {
+                let callback_key = lua.create_registry_value(callback)?;
+                refresh_callbacks.insert(name.clone(), callback_key);
+            }
+
+            pane_types.push(StatPaneConfig {
+                name,
+                title,
+                unit: if unit.is_empty() { None } else { Some(unit) },
+                refresh_interval,
+                plugin_name: plugin_name.to_string(),
+            });
+        }
+
+        Ok(pane_types)
+    }
+
+    /// Extract registered custom gauge pane types from the Lua state.
+    /// Also extracts and stores refresh callbacks in the registry.
+    fn extract_gauge_pane_types(
+        lua: &Lua,
+        plugin_name: &str,
+        refresh_callbacks: &mut FxHashMap<String, RegistryKey>,
+    ) -> LuaResult<Vec<GaugePaneConfig>> {
+        let globals = lua.globals();
+        let enya: Table = globals.get("enya")?;
+        let registered: Table = enya.get("_registered_gauge_panes")?;
+
+        let mut pane_types = Vec::new();
+
+        for pair in registered.pairs::<i64, Table>() {
+            let (_, pane_table) = pair?;
+
+            let name: String = pane_table.get("name")?;
+            let title: String = pane_table.get("title")?;
+            let unit: String = pane_table.get("unit")?;
+            let min: f64 = pane_table.get("min")?;
+            let max: f64 = pane_table.get("max")?;
+            let refresh_interval: u32 = pane_table.get("refresh_interval")?;
+
+            // Extract and store callback if present
+            if let Ok(callback) = pane_table.get::<Function>("callback") {
+                let callback_key = lua.create_registry_value(callback)?;
+                refresh_callbacks.insert(name.clone(), callback_key);
+            }
+
+            pane_types.push(GaugePaneConfig {
+                name,
+                title,
+                unit: if unit.is_empty() { None } else { Some(unit) },
+                min_scaled: (min * 1_000_000.0) as i64,
+                max_scaled: (max * 1_000_000.0) as i64,
+                refresh_interval,
+                plugin_name: plugin_name.to_string(),
+            });
+        }
+
+        Ok(pane_types)
     }
 
     /// Extract lifecycle hook functions from the Lua state.
@@ -790,6 +1279,228 @@ impl LuaPlugin {
         })?;
         enya.set("get_time_range", get_time_range_fn)?;
 
+        // ==================== Custom Pane API ====================
+
+        // enya.add_custom_pane(pane_type) - Add an instance of a custom table pane
+        let add_custom_pane_fn = scope.create_function(|_, pane_type: String| {
+            ctx.add_custom_table_pane(&pane_type);
+            Ok(())
+        })?;
+        enya.set("add_custom_pane", add_custom_pane_fn)?;
+
+        // enya.set_pane_data(pane_type, data) - Update data for all instances of a custom table pane type
+        // data = { rows = { {col1 = "value1", col2 = "value2"}, {...} } } or { error = "message" }
+        let set_pane_data_fn = scope.create_function(|_, (pane_type, data): (String, Table)| {
+            use crate::{CustomTableData, CustomTableRow};
+
+            // Check for error field
+            if let Ok(Some(error)) = data.get::<Option<String>>("error") {
+                let table_data = CustomTableData::with_error(error);
+                ctx.update_custom_table_data_by_type(&pane_type, table_data);
+                return Ok(());
+            }
+
+            // Extract rows
+            let mut rows = Vec::new();
+            if let Ok(rows_table) = data.get::<Table>("rows") {
+                for (_, row_table) in rows_table.pairs::<i64, Table>().flatten() {
+                    let mut row = CustomTableRow::new();
+                    for (key, value) in row_table.pairs::<String, String>().flatten() {
+                        row = row.with_cell(key, value);
+                    }
+                    rows.push(row);
+                }
+            }
+
+            let table_data = CustomTableData::with_rows(rows);
+            ctx.update_custom_table_data_by_type(&pane_type, table_data);
+            Ok(())
+        })?;
+        enya.set("set_pane_data", set_pane_data_fn)?;
+
+        // ==================== Custom Chart Pane API ====================
+
+        // enya.add_chart_pane(pane_type) - Add an instance of a custom chart pane
+        let add_chart_pane_fn = scope.create_function(|_, pane_type: String| {
+            ctx.add_custom_chart_pane(&pane_type);
+            Ok(())
+        })?;
+        enya.set("add_chart_pane", add_chart_pane_fn)?;
+
+        // enya.set_chart_data(pane_type, data) - Update data for all instances of a custom chart pane type
+        // data = {
+        //   series = {
+        //     { name = "Series1", tags = { key = "value" }, points = { { timestamp = 1234567890, value = 123.4 }, ... } },
+        //     ...
+        //   }
+        // } or { error = "message" }
+        let set_chart_data_fn =
+            scope.create_function(|_, (pane_type, data): (String, Table)| {
+                use crate::{ChartDataPoint, ChartSeries, CustomChartData};
+
+                // Check for error field
+                if let Ok(Some(error)) = data.get::<Option<String>>("error") {
+                    let chart_data = CustomChartData::with_error(error);
+                    ctx.update_custom_chart_data_by_type(&pane_type, chart_data);
+                    return Ok(());
+                }
+
+                // Extract series
+                let mut series_vec = Vec::new();
+                if let Ok(series_table) = data.get::<Table>("series") {
+                    for (_, series_entry) in series_table.pairs::<i64, Table>().flatten() {
+                        let name: String = series_entry
+                            .get::<Option<String>>("name")?
+                            .unwrap_or_else(|| "unnamed".to_string());
+
+                        let mut series = ChartSeries::new(name);
+
+                        // Extract tags
+                        if let Ok(tags_table) = series_entry.get::<Table>("tags") {
+                            for (key, value) in tags_table.pairs::<String, String>().flatten() {
+                                series = series.with_tag(key, value);
+                            }
+                        }
+
+                        // Extract points
+                        if let Ok(points_table) = series_entry.get::<Table>("points") {
+                            for (_, point_entry) in points_table.pairs::<i64, Table>().flatten() {
+                                let timestamp: f64 = point_entry.get("timestamp")?;
+                                let value: f64 = point_entry.get("value")?;
+                                series.points.push(ChartDataPoint::new(timestamp, value));
+                            }
+                        }
+
+                        series_vec.push(series);
+                    }
+                }
+
+                let chart_data = CustomChartData::with_series(series_vec);
+                ctx.update_custom_chart_data_by_type(&pane_type, chart_data);
+                Ok(())
+            })?;
+        enya.set("set_chart_data", set_chart_data_fn)?;
+
+        // ==================== Custom Stat Pane API ====================
+
+        // enya.add_stat_pane(pane_type) - Add an instance of a custom stat pane
+        let add_stat_pane_fn = scope.create_function(|_, pane_type: String| {
+            ctx.add_stat_pane(&pane_type);
+            Ok(())
+        })?;
+        enya.set("add_stat_pane", add_stat_pane_fn)?;
+
+        // enya.set_stat_data(pane_type, data) - Update data for all instances of a custom stat pane type
+        // data = {
+        //   value = 123.4,                        -- The current value
+        //   sparkline = { 1, 2, 3, 4, 5 },       -- Optional sparkline history
+        //   change_value = 5.2,                   -- Optional % change
+        //   change_period = "vs last hour",       -- Optional change period description
+        //   thresholds = {                        -- Optional thresholds
+        //     { value = 50, color = "yellow" },
+        //     { value = 80, color = "red" }
+        //   }
+        // } or { error = "message" }
+        let set_stat_data_fn = scope.create_function(|_, (pane_type, data): (String, Table)| {
+            use crate::{StatPaneData, ThresholdConfig};
+
+            // Check for error field
+            if let Ok(Some(error)) = data.get::<Option<String>>("error") {
+                let stat_data = StatPaneData::with_error(error);
+                ctx.update_stat_data_by_type(&pane_type, stat_data);
+                return Ok(());
+            }
+
+            let value: f64 = data.get::<Option<f64>>("value")?.unwrap_or(0.0);
+            let mut stat_data = StatPaneData::with_value(value);
+
+            // Extract sparkline
+            if let Ok(sparkline_table) = data.get::<Table>("sparkline") {
+                let mut sparkline = Vec::new();
+                for (_, val) in sparkline_table.pairs::<i64, f64>().flatten() {
+                    sparkline.push(val);
+                }
+                stat_data.sparkline = sparkline;
+            }
+
+            // Extract change
+            if let Ok(Some(change_value)) = data.get::<Option<f64>>("change_value") {
+                let change_period: String = data
+                    .get::<Option<String>>("change_period")?
+                    .unwrap_or_else(|| "vs last period".to_string());
+                stat_data.change_value = Some(change_value);
+                stat_data.change_period = Some(change_period);
+            }
+
+            // Extract thresholds
+            if let Ok(thresholds_table) = data.get::<Table>("thresholds") {
+                for (_, thresh) in thresholds_table.pairs::<i64, Table>().flatten() {
+                    let value: f64 = thresh.get("value")?;
+                    let color: String = thresh.get("color")?;
+                    let label: Option<String> = thresh.get::<Option<String>>("label")?;
+                    let mut threshold = ThresholdConfig::new(value, color);
+                    if let Some(lbl) = label {
+                        threshold = threshold.with_label(lbl);
+                    }
+                    stat_data.thresholds.push(threshold);
+                }
+            }
+
+            ctx.update_stat_data_by_type(&pane_type, stat_data);
+            Ok(())
+        })?;
+        enya.set("set_stat_data", set_stat_data_fn)?;
+
+        // ==================== Custom Gauge Pane API ====================
+
+        // enya.add_gauge_pane(pane_type) - Add an instance of a custom gauge pane
+        let add_gauge_pane_fn = scope.create_function(|_, pane_type: String| {
+            ctx.add_gauge_pane(&pane_type);
+            Ok(())
+        })?;
+        enya.set("add_gauge_pane", add_gauge_pane_fn)?;
+
+        // enya.set_gauge_data(pane_type, data) - Update data for all instances of a custom gauge pane type
+        // data = {
+        //   value = 75.5,                         -- The current value
+        //   thresholds = {                        -- Optional thresholds
+        //     { value = 50, color = "yellow" },
+        //     { value = 80, color = "red" }
+        //   }
+        // } or { error = "message" }
+        let set_gauge_data_fn =
+            scope.create_function(|_, (pane_type, data): (String, Table)| {
+                use crate::{GaugePaneData, ThresholdConfig};
+
+                // Check for error field
+                if let Ok(Some(error)) = data.get::<Option<String>>("error") {
+                    let gauge_data = GaugePaneData::with_error(error);
+                    ctx.update_gauge_data_by_type(&pane_type, gauge_data);
+                    return Ok(());
+                }
+
+                let value: f64 = data.get::<Option<f64>>("value")?.unwrap_or(0.0);
+                let mut gauge_data = GaugePaneData::with_value(value);
+
+                // Extract thresholds
+                if let Ok(thresholds_table) = data.get::<Table>("thresholds") {
+                    for (_, thresh) in thresholds_table.pairs::<i64, Table>().flatten() {
+                        let value: f64 = thresh.get("value")?;
+                        let color: String = thresh.get("color")?;
+                        let label: Option<String> = thresh.get::<Option<String>>("label")?;
+                        let mut threshold = ThresholdConfig::new(value, color);
+                        if let Some(lbl) = label {
+                            threshold = threshold.with_label(lbl);
+                        }
+                        gauge_data.thresholds.push(threshold);
+                    }
+                }
+
+                ctx.update_gauge_data_by_type(&pane_type, gauge_data);
+                Ok(())
+            })?;
+        enya.set("set_gauge_data", set_gauge_data_fn)?;
+
         Ok(())
     }
 
@@ -840,6 +1551,13 @@ impl Plugin for LuaPlugin {
         }
         if self.theme.is_some() {
             caps |= PluginCapabilities::CUSTOM_THEMES;
+        }
+        if !self.table_pane_types.is_empty()
+            || !self.chart_pane_types.is_empty()
+            || !self.stat_pane_types.is_empty()
+            || !self.gauge_pane_types.is_empty()
+        {
+            caps |= PluginCapabilities::PANES;
         }
         caps
     }
@@ -894,6 +1612,92 @@ impl Plugin for LuaPlugin {
 
     fn themes(&self) -> Vec<ThemeDefinition> {
         self.theme.clone().into_iter().collect()
+    }
+
+    fn custom_table_panes(&self) -> Vec<crate::CustomTableConfig> {
+        self.table_pane_types.clone()
+    }
+
+    fn custom_chart_panes(&self) -> Vec<crate::CustomChartConfig> {
+        self.chart_pane_types.clone()
+    }
+
+    fn custom_stat_panes(&self) -> Vec<crate::StatPaneConfig> {
+        self.stat_pane_types.clone()
+    }
+
+    fn custom_gauge_panes(&self) -> Vec<crate::GaugePaneConfig> {
+        self.gauge_pane_types.clone()
+    }
+
+    fn refreshable_pane_types(&self) -> Vec<(&str, u32)> {
+        let mut result = Vec::new();
+
+        // Only include pane types that have both a refresh callback and a non-zero interval
+        for config in &self.table_pane_types {
+            if config.refresh_interval > 0 && self.refresh_callbacks.contains_key(&config.name) {
+                result.push((config.name.as_str(), config.refresh_interval));
+            }
+        }
+        for config in &self.chart_pane_types {
+            if config.refresh_interval > 0 && self.refresh_callbacks.contains_key(&config.name) {
+                result.push((config.name.as_str(), config.refresh_interval));
+            }
+        }
+        for config in &self.stat_pane_types {
+            if config.refresh_interval > 0 && self.refresh_callbacks.contains_key(&config.name) {
+                result.push((config.name.as_str(), config.refresh_interval));
+            }
+        }
+        for config in &self.gauge_pane_types {
+            if config.refresh_interval > 0 && self.refresh_callbacks.contains_key(&config.name) {
+                result.push((config.name.as_str(), config.refresh_interval));
+            }
+        }
+
+        result
+    }
+
+    fn trigger_pane_refresh(&mut self, pane_type: &str, ctx: &PluginContext) -> bool {
+        let Some(callback_key) = self.refresh_callbacks.get(pane_type) else {
+            log::warn!(
+                "[plugin:{}] No refresh callback for pane type '{}'",
+                self.name,
+                pane_type
+            );
+            return false;
+        };
+
+        let lua = self.lua.lock();
+
+        let result = lua.scope(|scope| {
+            // Set up runtime API with current context
+            Self::setup_runtime_api(&lua, scope, ctx)?;
+
+            // Get the callback from registry
+            let callback: Function = lua.registry_value(callback_key)?;
+
+            // Call the callback (no arguments)
+            callback.call::<()>(())?;
+
+            Ok(())
+        });
+
+        match result {
+            Ok(()) => {
+                log::debug!("[plugin:{}] Refreshed pane type '{}'", self.name, pane_type);
+                true
+            }
+            Err(e) => {
+                log::error!(
+                    "[plugin:{}] Error refreshing pane type '{}': {e}",
+                    self.name,
+                    pane_type
+                );
+                ctx.notify("error", &format!("Plugin refresh error: {e}"));
+                false
+            }
+        }
     }
 
     fn execute_command(&mut self, command: &str, args: &str, ctx: &PluginContext) -> bool {

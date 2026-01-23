@@ -2294,6 +2294,418 @@ impl Workspace {
             .set_custom_range(start_secs, end_secs);
         log::info!("Plugin set absolute time range: {start_secs} to {end_secs}");
     }
+
+    // ==================== Plugin Custom Table Panes ====================
+
+    /// Register a custom table pane configuration from a plugin.
+    ///
+    /// This stores the configuration so custom pane instances can be created later.
+    pub fn register_custom_table_pane(&mut self, config: enya_plugin::CustomTableConfig) {
+        log::info!(
+            "Registered custom table pane '{}' from plugin '{}'",
+            config.name,
+            config.plugin_name
+        );
+        self.custom_table_configs
+            .insert(config.name.clone(), config);
+    }
+
+    /// Add a custom table pane instance to the viewport.
+    ///
+    /// Creates a new pane using a previously registered custom table configuration.
+    pub fn add_custom_table_pane(&mut self, pane_type: &str) {
+        if let Some(config) = self.custom_table_configs.get(pane_type).cloned() {
+            use crate::components::PluginTablePane;
+
+            let data = self
+                .custom_table_data
+                .get(pane_type)
+                .cloned()
+                .unwrap_or_else(|| enya_plugin::CustomTableData::with_rows(Vec::new()));
+
+            let pane: Box<dyn Component> = Box::new(PluginTablePane::new(config, data));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+                log::info!("Added custom table pane: {pane_type}");
+            }
+        } else {
+            log::warn!("Unknown custom table pane type: {pane_type}");
+        }
+    }
+
+    /// Update data for a custom table pane by pane ID.
+    ///
+    /// This is called by plugins when they have new data to display.
+    /// Currently this is a placeholder - we need the PluginTablePane to support updates.
+    pub fn update_custom_table_data(&mut self, pane_id: usize, data: enya_plugin::CustomTableData) {
+        // For now, we'll update any PluginTablePane with the matching internal ID
+        // In practice, we'll need to track pane IDs better
+        log::debug!(
+            "Update custom table data for pane {pane_id}: {} rows",
+            data.rows.len()
+        );
+
+        // Update all panes that might match - in a full implementation we'd track by ID
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginTablePane;
+                if let Some(table_pane) = component.as_any_mut().downcast_mut::<PluginTablePane>() {
+                    // Only update if this is the right pane (by internal ID or first match)
+                    table_pane.set_data(data.clone());
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Update data for all custom table panes of a given type.
+    ///
+    /// This updates the stored data and refreshes any visible panes of this type.
+    pub fn update_custom_table_data_by_type(
+        &mut self,
+        pane_type: &str,
+        data: enya_plugin::CustomTableData,
+    ) {
+        // Store the data for future pane instances
+        self.custom_table_data
+            .insert(pane_type.to_string(), data.clone());
+
+        // Update any existing panes of this type
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginTablePane;
+                if let Some(table_pane) = component.as_any_mut().downcast_mut::<PluginTablePane>() {
+                    if table_pane.pane_type() == pane_type {
+                        table_pane.set_data(data.clone());
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Updated custom table data for type '{}': {} rows",
+            pane_type,
+            data.rows.len()
+        );
+    }
+
+    /// Get all registered custom table pane configurations.
+    ///
+    /// Used by the plugins overlay to show available pane types.
+    pub fn custom_table_configs(
+        &self,
+    ) -> &rustc_hash::FxHashMap<String, enya_plugin::CustomTableConfig> {
+        &self.custom_table_configs
+    }
+
+    // ==================== Plugin Custom Chart Panes ====================
+
+    /// Register a custom chart pane configuration from a plugin.
+    ///
+    /// This stores the configuration so custom chart pane instances can be created later.
+    pub fn register_custom_chart_pane(&mut self, config: enya_plugin::CustomChartConfig) {
+        log::info!(
+            "Registered custom chart pane '{}' from plugin '{}'",
+            config.name,
+            config.plugin_name
+        );
+        self.custom_chart_configs
+            .insert(config.name.clone(), config);
+    }
+
+    /// Add a custom chart pane instance to the viewport.
+    ///
+    /// Creates a new pane using a previously registered custom chart configuration.
+    pub fn add_custom_chart_pane(&mut self, pane_type: &str) {
+        if let Some(config) = self.custom_chart_configs.get(pane_type).cloned() {
+            use crate::components::PluginChartPane;
+
+            let data = self
+                .custom_chart_data
+                .get(pane_type)
+                .cloned()
+                .unwrap_or_else(|| enya_plugin::CustomChartData::with_series(Vec::new()));
+
+            let pane: Box<dyn Component> = Box::new(PluginChartPane::new(config, data));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+                log::info!("Added custom chart pane: {pane_type}");
+            }
+        } else {
+            log::warn!("Unknown custom chart pane type: {pane_type}");
+        }
+    }
+
+    /// Update data for all custom chart panes of a given type.
+    ///
+    /// This updates the stored data and refreshes any visible panes of this type.
+    pub fn update_custom_chart_data_by_type(
+        &mut self,
+        pane_type: &str,
+        data: enya_plugin::CustomChartData,
+    ) {
+        // Store the data for future pane instances
+        self.custom_chart_data
+            .insert(pane_type.to_string(), data.clone());
+
+        // Update any existing panes of this type
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginChartPane;
+                if let Some(chart_pane) = component.as_any_mut().downcast_mut::<PluginChartPane>() {
+                    if chart_pane.pane_type() == pane_type {
+                        chart_pane.set_data(data.clone());
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Updated custom chart data for type '{}': {} series",
+            pane_type,
+            data.series.len()
+        );
+    }
+
+    /// Get all registered custom chart pane configurations.
+    ///
+    /// Used by the plugins overlay to show available pane types.
+    pub fn custom_chart_configs(
+        &self,
+    ) -> &rustc_hash::FxHashMap<String, enya_plugin::CustomChartConfig> {
+        &self.custom_chart_configs
+    }
+
+    // ==================== Custom Stat Panes ====================
+
+    /// Register a custom stat pane type from a plugin.
+    ///
+    /// This stores the configuration so custom stat pane instances can be created later.
+    pub fn register_custom_stat_pane(&mut self, config: enya_plugin::StatPaneConfig) {
+        log::info!(
+            "Registered custom stat pane '{}' from plugin '{}'",
+            config.name,
+            config.plugin_name
+        );
+        self.custom_stat_configs.insert(config.name.clone(), config);
+    }
+
+    /// Add a custom stat pane instance to the viewport.
+    ///
+    /// Creates a new pane using a previously registered custom stat configuration.
+    pub fn add_custom_stat_pane(&mut self, pane_type: &str) {
+        if let Some(config) = self.custom_stat_configs.get(pane_type).cloned() {
+            use crate::components::PluginStatPane;
+
+            let data = self
+                .custom_stat_data
+                .get(pane_type)
+                .cloned()
+                .unwrap_or_else(|| enya_plugin::StatPaneData::with_value(0.0));
+
+            let pane: Box<dyn Component> = Box::new(PluginStatPane::new(config, data));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+                log::info!("Added custom stat pane of type '{pane_type}'");
+            }
+        } else {
+            log::warn!("Unknown custom stat pane type: {pane_type}");
+        }
+    }
+
+    /// Update data for all custom stat panes of a given type.
+    ///
+    /// This updates the stored data and refreshes any visible panes of this type.
+    pub fn update_custom_stat_data_by_type(
+        &mut self,
+        pane_type: &str,
+        data: enya_plugin::StatPaneData,
+    ) {
+        // Store the data for future pane instances
+        self.custom_stat_data
+            .insert(pane_type.to_string(), data.clone());
+
+        // Update any existing panes of this type
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginStatPane;
+                if let Some(stat_pane) = component.as_any_mut().downcast_mut::<PluginStatPane>() {
+                    if stat_pane.pane_type() == pane_type {
+                        stat_pane.set_data(data.clone());
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Updated custom stat data for type '{}': value={}",
+            pane_type,
+            data.value
+        );
+    }
+
+    // ==================== Custom Gauge Panes ====================
+
+    /// Register a custom gauge pane type from a plugin.
+    ///
+    /// This stores the configuration so custom gauge pane instances can be created later.
+    pub fn register_custom_gauge_pane(&mut self, config: enya_plugin::GaugePaneConfig) {
+        log::info!(
+            "Registered custom gauge pane '{}' from plugin '{}'",
+            config.name,
+            config.plugin_name
+        );
+        self.custom_gauge_configs
+            .insert(config.name.clone(), config);
+    }
+
+    /// Add a custom gauge pane instance to the viewport.
+    ///
+    /// Creates a new pane using a previously registered custom gauge configuration.
+    pub fn add_custom_gauge_pane(&mut self, pane_type: &str) {
+        if let Some(config) = self.custom_gauge_configs.get(pane_type).cloned() {
+            use crate::components::PluginGaugePane;
+
+            let data = self
+                .custom_gauge_data
+                .get(pane_type)
+                .cloned()
+                .unwrap_or_else(|| enya_plugin::GaugePaneData::with_value(0.0));
+
+            let pane: Box<dyn Component> = Box::new(PluginGaugePane::new(config, data));
+            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
+
+            if self.add_tile_to_viewport(pane_tile) {
+                self.behavior.set_focused_tile(Some(pane_tile));
+                self.show_landing = false;
+                log::info!("Added custom gauge pane of type '{pane_type}'");
+            }
+        } else {
+            log::warn!("Unknown custom gauge pane type: {pane_type}");
+        }
+    }
+
+    /// Update data for all custom gauge panes of a given type.
+    ///
+    /// This updates the stored data and refreshes any visible panes of this type.
+    pub fn update_custom_gauge_data_by_type(
+        &mut self,
+        pane_type: &str,
+        data: enya_plugin::GaugePaneData,
+    ) {
+        // Store the data for future pane instances
+        self.custom_gauge_data
+            .insert(pane_type.to_string(), data.clone());
+
+        // Update any existing panes of this type
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                use crate::components::PluginGaugePane;
+                if let Some(gauge_pane) = component.as_any_mut().downcast_mut::<PluginGaugePane>() {
+                    if gauge_pane.pane_type() == pane_type {
+                        gauge_pane.set_data(data.clone());
+                    }
+                }
+            }
+        }
+
+        log::debug!(
+            "Updated custom gauge data for type '{}': value={}",
+            pane_type,
+            data.value
+        );
+    }
+
+    // ==================== Plugin Pane Refresh ====================
+
+    /// Get plugin pane types that need to be refreshed based on their refresh intervals.
+    ///
+    /// Returns a list of pane type names that have exceeded their refresh interval
+    /// since the last refresh.
+    pub fn get_pending_plugin_refreshes(&self, refreshable_panes: &[(String, u32)]) -> Vec<String> {
+        use std::time::Duration;
+
+        let now = crate::util::Instant::now();
+        let mut pending = Vec::new();
+
+        for (pane_type, interval_secs) in refreshable_panes {
+            if *interval_secs == 0 {
+                continue; // No auto-refresh
+            }
+
+            // Check if we have active panes of this type (only refresh if visible)
+            let has_active_pane = self.has_custom_pane_of_type(pane_type);
+            if !has_active_pane {
+                continue;
+            }
+
+            let should_refresh = match self.plugin_pane_last_refresh.get(pane_type) {
+                Some(last) => {
+                    now.duration_since(*last) >= Duration::from_secs(*interval_secs as u64)
+                }
+                None => true, // Never refreshed - refresh now
+            };
+
+            if should_refresh {
+                pending.push(pane_type.clone());
+            }
+        }
+
+        pending
+    }
+
+    /// Check if there are any custom panes of the given type currently visible.
+    fn has_custom_pane_of_type(&self, pane_type: &str) -> bool {
+        use crate::components::{
+            PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane,
+        };
+
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(egui_tiles::Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                // Check table panes
+                if let Some(table_pane) = component.as_any().downcast_ref::<PluginTablePane>() {
+                    if table_pane.pane_type() == pane_type {
+                        return true;
+                    }
+                }
+                // Check chart panes
+                if let Some(chart_pane) = component.as_any().downcast_ref::<PluginChartPane>() {
+                    if chart_pane.pane_type() == pane_type {
+                        return true;
+                    }
+                }
+                // Check stat panes
+                if let Some(stat_pane) = component.as_any().downcast_ref::<PluginStatPane>() {
+                    if stat_pane.pane_type() == pane_type {
+                        return true;
+                    }
+                }
+                // Check gauge panes
+                if let Some(gauge_pane) = component.as_any().downcast_ref::<PluginGaugePane>() {
+                    if gauge_pane.pane_type() == pane_type {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Mark a plugin pane type as refreshed (update its last refresh time).
+    pub fn mark_plugin_pane_refreshed(&mut self, pane_type: &str) {
+        self.plugin_pane_last_refresh
+            .insert(pane_type.to_string(), crate::util::Instant::now());
+    }
 }
 
 #[cfg(test)]

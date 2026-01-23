@@ -131,6 +131,31 @@ Available during plugin load:
 |----------|-------------|
 | `enya.register_command(name, config, callback)` | Register a command |
 | `enya.keymap(keys, command, description, [modes])` | Register a keybinding |
+| `enya.register_table_pane(name, config, [callback])` | Register a custom table pane type with optional auto-refresh callback |
+| `enya.register_chart_pane(name, config, [callback])` | Register a custom chart pane type with optional auto-refresh callback |
+| `enya.register_stat_pane(name, config, [callback])` | Register a custom stat pane type with optional auto-refresh callback |
+| `enya.register_gauge_pane(name, config, [callback])` | Register a custom gauge pane type with optional auto-refresh callback |
+
+#### Auto-Refresh Callbacks
+
+Custom pane types support automatic refresh when a `refresh_interval` is set and a callback function is provided:
+
+```lua
+-- Auto-refresh every 30 seconds
+enya.register_table_pane("my-data", {
+    title = "My Data",
+    refresh_interval = 30,  -- seconds (0 = manual only)
+    columns = { ... }
+}, function()
+    -- This callback is called automatically when:
+    -- 1. A pane of this type is visible
+    -- 2. The refresh interval has elapsed since last refresh
+    local data = fetch_my_data()
+    enya.set_pane_data("my-data", { rows = data })
+end)
+```
+
+The callback runs in the editor's update loop and should fetch new data then call the appropriate `set_*_data` function.
 
 ### Runtime Functions
 
@@ -173,6 +198,133 @@ Control the global time range:
 | `enya.set_time_range(preset)` | Set time range preset ("5m", "15m", "30m", "1h", "6h", "24h", "7d") |
 | `enya.set_time_range_absolute(start, end)` | Set absolute time range (seconds since Unix epoch) |
 | `enya.get_time_range()` | Get current time range as `{start, end}` (seconds) |
+
+### Custom Table Pane Functions
+
+Create and update custom table panes:
+
+| Function | Description |
+|----------|-------------|
+| `enya.register_table_pane(name, config)` | Register a custom table pane type |
+| `enya.add_custom_pane(pane_type)` | Add an instance of a registered table pane |
+| `enya.set_pane_data(pane_type, data)` | Update data for all table panes of a type |
+
+The `data` parameter for `set_pane_data` should be a table with either:
+- `{ rows = {...} }` - Array of row tables with key-value pairs matching column keys
+- `{ error = "message" }` - Error message to display in the pane
+
+### Custom Chart Pane Functions
+
+Create and update custom time series chart panes:
+
+| Function | Description |
+|----------|-------------|
+| `enya.register_chart_pane(name, config)` | Register a custom chart pane type |
+| `enya.add_chart_pane(pane_type)` | Add an instance of a registered chart pane |
+| `enya.set_chart_data(pane_type, data)` | Update data for all chart panes of a type |
+
+The `config` parameter for `register_chart_pane`:
+```lua
+{
+    title = "Chart Title",    -- Display title for the pane tab
+    y_unit = "ms",           -- Optional unit for Y-axis labels (e.g., "ms", "%", "req/s")
+    refresh_interval = 30    -- Optional: auto-refresh interval in seconds (0 = manual only)
+}
+```
+
+The `data` parameter for `set_chart_data` should be a table with either:
+- `{ series = {...} }` - Array of series objects (see below)
+- `{ error = "message" }` - Error message to display in the pane
+
+Each series in the `series` array:
+```lua
+{
+    name = "Series Name",                -- Display name for the legend
+    tags = { key = "value" },            -- Optional metadata tags
+    points = {                           -- Array of data points
+        { timestamp = 1706000000, value = 45.2 },
+        { timestamp = 1706000060, value = 48.1 },
+        -- ... more points (timestamps in seconds since Unix epoch)
+    }
+}
+```
+
+### Custom Stat Pane Functions
+
+Create and update custom stat (big number) panes:
+
+| Function | Description |
+|----------|-------------|
+| `enya.register_stat_pane(name, config)` | Register a custom stat pane type |
+| `enya.add_stat_pane(pane_type)` | Add an instance of a registered stat pane |
+| `enya.set_stat_data(pane_type, data)` | Update data for all stat panes of a type |
+
+The `config` parameter for `register_stat_pane`:
+```lua
+{
+    title = "CPU Usage",     -- Display title for the pane
+    unit = "%",              -- Optional unit suffix (e.g., "%", "ms", "req/s")
+    refresh_interval = 30    -- Optional: auto-refresh interval in seconds (0 = manual only)
+}
+```
+
+The `data` parameter for `set_stat_data` should be a table with either:
+- Data object with the fields below
+- `{ error = "message" }` - Error message to display in the pane
+
+Data fields:
+```lua
+{
+    value = 75.2,                        -- Current value to display
+    sparkline = { 72, 74, 73, 75, ... }, -- Optional: recent history for sparkline
+    change_value = 5.2,                  -- Optional: change percentage
+    change_period = "vs last hour",      -- Optional: change period description
+    thresholds = {                       -- Optional: color thresholds
+        { value = 0, color = "green" },
+        { value = 50, color = "yellow" },
+        { value = 80, color = "red" }
+    }
+}
+```
+
+Threshold colors can be semantic names (`"green"`, `"yellow"`, `"red"`, `"blue"`) or hex codes (`"#ff5722"`).
+
+### Custom Gauge Pane Functions
+
+Create and update custom gauge (arc) panes:
+
+| Function | Description |
+|----------|-------------|
+| `enya.register_gauge_pane(name, config)` | Register a custom gauge pane type |
+| `enya.add_gauge_pane(pane_type)` | Add an instance of a registered gauge pane |
+| `enya.set_gauge_data(pane_type, data)` | Update data for all gauge panes of a type |
+
+The `config` parameter for `register_gauge_pane`:
+```lua
+{
+    title = "Memory Usage",  -- Display title for the pane
+    unit = "%",              -- Optional unit suffix
+    min = 0,                 -- Minimum value (default: 0)
+    max = 100,               -- Maximum value (default: 100)
+    refresh_interval = 30    -- Optional: auto-refresh interval in seconds (0 = manual only)
+}
+```
+
+The `data` parameter for `set_gauge_data` should be a table with either:
+- Data object with the fields below
+- `{ error = "message" }` - Error message to display in the pane
+
+Data fields:
+```lua
+{
+    value = 62.5,                        -- Current value to display
+    thresholds = {                       -- Optional: color thresholds
+        { value = 0, color = "green" },
+        { value = 60, color = "yellow" },
+        { value = 85, color = "red" }
+    }
+}
+```
 
 ## Examples
 
@@ -326,6 +478,231 @@ end)
 enya.keymap("Space+p+c", "add-cpu-chart", "Add CPU chart")
 enya.keymap("Space+p+h", "focus-left", "Focus left pane")
 enya.keymap("Space+p+x", "close-current", "Close pane")
+```
+
+### Custom Table Panes
+
+Create your own custom pane types that display tabular data fetched via HTTP or generated locally:
+
+```lua
+plugin = { name = "incident-tracker", version = "0.1.0" }
+
+-- Register a custom table pane type during plugin load
+enya.register_table_pane("incidents", {
+    title = "Active Incidents",
+    refresh_interval = 60,  -- Auto-refresh every 60 seconds (0 = manual only)
+    columns = {
+        { name = "ID", key = "id", width = 80 },
+        { name = "Severity", key = "severity", width = 100 },
+        { name = "Title", key = "title" },  -- No width = flexible
+        { name = "Status", key = "status", width = 120 }
+    }
+})
+
+-- Command to add a custom pane instance
+enya.register_command("show-incidents", {
+    description = "Show active incidents"
+}, function(args)
+    enya.add_custom_pane("incidents")
+    return true
+end)
+
+-- Command to refresh data
+enya.register_command("refresh-incidents", {
+    description = "Refresh incident data"
+}, function(args)
+    -- Fetch data from an API
+    local response = enya.http_get("https://api.example.com/incidents")
+
+    if response.error then
+        -- Show error in the pane
+        enya.set_pane_data("incidents", { error = response.error })
+        return false
+    end
+
+    -- Parse JSON response (simplified example)
+    local rows = {}
+    -- In practice, you'd parse response.body as JSON
+    table.insert(rows, {
+        id = "INC-001",
+        severity = "High",
+        title = "Database latency spike",
+        status = "Investigating"
+    })
+    table.insert(rows, {
+        id = "INC-002",
+        severity = "Medium",
+        title = "API error rate increase",
+        status = "Monitoring"
+    })
+
+    -- Update all panes of this type with new data
+    enya.set_pane_data("incidents", { rows = rows })
+    enya.notify("info", "Incidents refreshed")
+    return true
+end)
+
+enya.keymap("Space+i+i", "show-incidents", "Show incidents")
+enya.keymap("Space+i+r", "refresh-incidents", "Refresh incidents")
+```
+
+### Custom Chart Panes
+
+Create time series charts with data from any source:
+
+```lua
+plugin = { name = "cloudwatch-metrics", version = "0.1.0" }
+
+-- Register a custom chart pane type during plugin load
+enya.register_chart_pane("cloudwatch", {
+    title = "CloudWatch Metrics",
+    y_unit = "ms"  -- Unit for Y-axis labels
+})
+
+-- Command to add a chart pane
+enya.register_command("show-cloudwatch", {
+    description = "Show CloudWatch metrics chart"
+}, function(args)
+    enya.add_chart_pane("cloudwatch")
+    return true
+end)
+
+-- Command to fetch and display metrics
+enya.register_command("refresh-cloudwatch", {
+    description = "Refresh CloudWatch metrics"
+}, function(args)
+    -- In practice, you'd fetch from CloudWatch API
+    local now = os.time()
+    local series = {}
+
+    -- Generate sample latency data
+    local points = {}
+    for i = 60, 1, -1 do
+        table.insert(points, {
+            timestamp = now - (i * 60),  -- One point per minute
+            value = 50 + math.random(-20, 30)
+        })
+    end
+
+    table.insert(series, {
+        name = "API Latency",
+        tags = { region = "us-east-1", service = "api-gateway" },
+        points = points
+    })
+
+    -- Generate sample throughput data
+    local throughput_points = {}
+    for i = 60, 1, -1 do
+        table.insert(throughput_points, {
+            timestamp = now - (i * 60),
+            value = 1000 + math.random(-200, 300)
+        })
+    end
+
+    table.insert(series, {
+        name = "Request Count",
+        tags = { region = "us-east-1", service = "api-gateway" },
+        points = throughput_points
+    })
+
+    -- Update all CloudWatch panes with the data
+    enya.set_chart_data("cloudwatch", { series = series })
+    enya.notify("info", "CloudWatch metrics updated")
+    return true
+end)
+
+-- Show error state
+enya.register_command("cloudwatch-error", {
+    description = "Simulate CloudWatch error"
+}, function(args)
+    enya.set_chart_data("cloudwatch", {
+        error = "Failed to fetch metrics: Access Denied"
+    })
+    return true
+end)
+
+enya.keymap("Space+c+w", "show-cloudwatch", "Show CloudWatch chart")
+enya.keymap("Space+c+r", "refresh-cloudwatch", "Refresh CloudWatch")
+```
+
+### Custom Stat and Gauge Panes with Auto-Refresh
+
+Display metrics as big numbers or circular gauges with automatic updates:
+
+```lua
+plugin = { name = "system-monitor", version = "0.1.0" }
+
+-- Define refresh function for CPU stat
+local function refresh_cpu_stats()
+    -- In practice, fetch from metrics API
+    local cpu_value = 45 + math.random(-10, 10)
+    enya.set_stat_data("cpu-usage", {
+        value = cpu_value,
+        sparkline = { 42, 44, 43, 45, 47, 46, 48, cpu_value },
+        change_value = cpu_value - 42,
+        change_period = "vs last hour",
+        thresholds = {
+            { value = 0, color = "green" },
+            { value = 50, color = "yellow" },
+            { value = 80, color = "red" }
+        }
+    })
+end
+
+-- Define refresh function for memory gauge
+local function refresh_memory_gauge()
+    local mem_value = 60 + math.random(-10, 15)
+    enya.set_gauge_data("memory-usage", {
+        value = mem_value,
+        thresholds = {
+            { value = 0, color = "green" },
+            { value = 60, color = "yellow" },
+            { value = 85, color = "red" }
+        }
+    })
+end
+
+-- Register a stat pane with auto-refresh every 10 seconds
+enya.register_stat_pane("cpu-usage", {
+    title = "CPU Usage",
+    unit = "%",
+    refresh_interval = 10  -- Auto-refresh every 10 seconds
+}, refresh_cpu_stats)
+
+-- Register a gauge pane with auto-refresh every 10 seconds
+enya.register_gauge_pane("memory-usage", {
+    title = "Memory Usage",
+    unit = "%",
+    min = 0,
+    max = 100,
+    refresh_interval = 10  -- Auto-refresh every 10 seconds
+}, refresh_memory_gauge)
+
+-- Command to add panes
+enya.register_command("system-stats", {
+    description = "Show system stat panes (auto-refresh every 10s)"
+}, function(args)
+    enya.add_stat_pane("cpu-usage")
+    enya.add_gauge_pane("memory-usage")
+    -- Initial data fetch
+    refresh_cpu_stats()
+    refresh_memory_gauge()
+    enya.notify("info", "System stats shown (auto-refreshes every 10s)")
+    return true
+end)
+
+-- Command to manually refresh (in addition to auto-refresh)
+enya.register_command("update-stats", {
+    description = "Manually update system stats"
+}, function(args)
+    refresh_cpu_stats()
+    refresh_memory_gauge()
+    enya.notify("info", "Stats updated")
+    return true
+end)
+
+enya.keymap("Space+s+s", "system-stats", "Show system stats")
+enya.keymap("Space+s+u", "update-stats", "Update stats")
 ```
 
 ### Time Range Control

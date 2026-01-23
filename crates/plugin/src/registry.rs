@@ -376,6 +376,88 @@ impl PluginRegistry {
             .collect()
     }
 
+    /// Get all custom table pane configurations from active plugins.
+    pub fn all_custom_table_panes(&self) -> Vec<crate::CustomTableConfig> {
+        self.plugins
+            .values()
+            .filter(|e| e.info.state == PluginState::Active)
+            .flat_map(|e| e.plugin.custom_table_panes())
+            .collect()
+    }
+
+    /// Get all custom chart pane configurations from active plugins.
+    pub fn all_custom_chart_panes(&self) -> Vec<crate::CustomChartConfig> {
+        self.plugins
+            .values()
+            .filter(|e| e.info.state == PluginState::Active)
+            .flat_map(|e| e.plugin.custom_chart_panes())
+            .collect()
+    }
+
+    /// Get all custom stat pane configurations from active plugins.
+    pub fn all_custom_stat_panes(&self) -> Vec<crate::StatPaneConfig> {
+        self.plugins
+            .values()
+            .filter(|e| e.info.state == PluginState::Active)
+            .flat_map(|e| e.plugin.custom_stat_panes())
+            .collect()
+    }
+
+    /// Get all custom gauge pane configurations from active plugins.
+    pub fn all_custom_gauge_panes(&self) -> Vec<crate::GaugePaneConfig> {
+        self.plugins
+            .values()
+            .filter(|e| e.info.state == PluginState::Active)
+            .flat_map(|e| e.plugin.custom_gauge_panes())
+            .collect()
+    }
+
+    /// Get all pane types that support auto-refresh from active plugins.
+    ///
+    /// Returns a vector of (pane_type_name, refresh_interval_seconds) tuples.
+    pub fn all_refreshable_pane_types(&self) -> Vec<(String, u32)> {
+        self.plugins
+            .values()
+            .filter(|e| e.info.state == PluginState::Active)
+            .flat_map(|e| {
+                e.plugin
+                    .refreshable_pane_types()
+                    .into_iter()
+                    .map(|(name, interval)| (name.to_string(), interval))
+            })
+            .collect()
+    }
+
+    /// Trigger a refresh for a specific pane type.
+    ///
+    /// Finds the plugin that owns this pane type and calls its refresh callback.
+    /// Returns true if the refresh was triggered successfully.
+    pub fn trigger_pane_refresh(&mut self, pane_type: &str) -> bool {
+        let ctx = match &self.context {
+            Some(c) => c,
+            None => return false,
+        };
+
+        for entry in self.plugins.values_mut() {
+            if entry.info.state != PluginState::Active {
+                continue;
+            }
+
+            // Check if this plugin has this pane type as refreshable
+            let has_pane_type = entry
+                .plugin
+                .refreshable_pane_types()
+                .iter()
+                .any(|(name, _)| *name == pane_type);
+
+            if has_pane_type {
+                return entry.plugin.trigger_pane_refresh(pane_type, ctx);
+            }
+        }
+
+        false
+    }
+
     /// Get commands for a specific plugin.
     pub fn commands_for_plugin(&self, id: PluginId) -> Vec<&CommandConfig> {
         self.plugins
@@ -712,6 +794,37 @@ mod tests {
         fn get_time_range(&self) -> (f64, f64) {
             (0.0, 0.0)
         }
+
+        // Custom table panes (no-op for mock)
+        fn register_custom_table_pane(&self, _config: crate::CustomTableConfig) {}
+        fn add_custom_table_pane(&self, _pane_type: &str) {}
+        fn update_custom_table_data(&self, _pane_id: usize, _data: crate::CustomTableData) {}
+        fn update_custom_table_data_by_type(
+            &self,
+            _pane_type: &str,
+            _data: crate::CustomTableData,
+        ) {
+        }
+
+        // Custom chart panes (no-op for mock)
+        fn register_custom_chart_pane(&self, _config: crate::CustomChartConfig) {}
+        fn add_custom_chart_pane(&self, _pane_type: &str) {}
+        fn update_custom_chart_data_by_type(
+            &self,
+            _pane_type: &str,
+            _data: crate::CustomChartData,
+        ) {
+        }
+
+        // Custom stat panes (no-op for mock)
+        fn register_stat_pane(&self, _config: crate::StatPaneConfig) {}
+        fn add_stat_pane(&self, _pane_type: &str) {}
+        fn update_stat_data_by_type(&self, _pane_type: &str, _data: crate::StatPaneData) {}
+
+        // Custom gauge panes (no-op for mock)
+        fn register_gauge_pane(&self, _config: crate::GaugePaneConfig) {}
+        fn add_gauge_pane(&self, _pane_type: &str) {}
+        fn update_gauge_data_by_type(&self, _pane_type: &str, _data: crate::GaugePaneData) {}
     }
 
     /// Simple test plugin for testing registry operations.

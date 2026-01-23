@@ -356,4 +356,123 @@ impl PluginHost for EditorPluginHost {
         let start = now - 300.0; // 5 minutes ago
         (start, now)
     }
+
+    // ==================== Custom Panes ====================
+
+    fn register_custom_table_pane(&self, config: enya_plugin::CustomTableConfig) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginRegisterCustomTablePane { config });
+    }
+
+    fn add_custom_table_pane(&self, pane_type: &str) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginAddCustomTablePane {
+                pane_type: pane_type.to_string(),
+            });
+    }
+
+    fn update_custom_table_data(&self, pane_id: usize, data: enya_plugin::CustomTableData) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginUpdateCustomTableData { pane_id, data });
+    }
+
+    fn update_custom_table_data_by_type(
+        &self,
+        pane_type: &str,
+        data: enya_plugin::CustomTableData,
+    ) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginUpdateCustomTableDataByType {
+                pane_type: pane_type.to_string(),
+                data,
+            });
+    }
+
+    // ==================== Custom Chart Panes ====================
+
+    fn register_custom_chart_pane(&self, config: enya_plugin::CustomChartConfig) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginRegisterCustomChartPane { config });
+    }
+
+    fn add_custom_chart_pane(&self, pane_type: &str) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginAddCustomChartPane {
+                pane_type: pane_type.to_string(),
+            });
+    }
+
+    fn update_custom_chart_data_by_type(
+        &self,
+        pane_type: &str,
+        data: enya_plugin::CustomChartData,
+    ) {
+        use crate::command::{ChartSeriesHashable, UICommand};
+        self.command_sender
+            .send_ui(UICommand::PluginUpdateCustomChartDataByType {
+                pane_type: pane_type.to_string(),
+                series: data
+                    .series
+                    .iter()
+                    .map(ChartSeriesHashable::from_plugin)
+                    .collect(),
+                error: data.error,
+            });
+    }
+
+    // ==================== Custom Stat Panes ====================
+
+    fn register_stat_pane(&self, config: enya_plugin::StatPaneConfig) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginRegisterCustomStatPane { config });
+    }
+
+    fn add_stat_pane(&self, pane_type: &str) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginAddCustomStatPane {
+                pane_type: pane_type.to_string(),
+            });
+    }
+
+    fn update_stat_data_by_type(&self, pane_type: &str, data: enya_plugin::StatPaneData) {
+        use crate::command::{StatDataHashable, UICommand};
+        self.command_sender
+            .send_ui(UICommand::PluginUpdateCustomStatDataByType {
+                pane_type: pane_type.to_string(),
+                data: StatDataHashable::from_plugin(&data),
+            });
+    }
+
+    // ==================== Custom Gauge Panes ====================
+
+    fn register_gauge_pane(&self, config: enya_plugin::GaugePaneConfig) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginRegisterCustomGaugePane { config });
+    }
+
+    fn add_gauge_pane(&self, pane_type: &str) {
+        use crate::command::UICommand;
+        self.command_sender
+            .send_ui(UICommand::PluginAddCustomGaugePane {
+                pane_type: pane_type.to_string(),
+            });
+    }
+
+    fn update_gauge_data_by_type(&self, pane_type: &str, data: enya_plugin::GaugePaneData) {
+        use crate::command::{GaugeDataHashable, UICommand};
+        self.command_sender
+            .send_ui(UICommand::PluginUpdateCustomGaugeDataByType {
+                pane_type: pane_type.to_string(),
+                data: GaugeDataHashable::from_plugin(&data),
+            });
+    }
 }

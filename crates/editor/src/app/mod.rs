@@ -210,6 +210,26 @@ impl EnyaApp {
                 .collect();
         workspace.set_custom_themes(custom_theme_list);
 
+        // Collect and register custom table pane types from plugins
+        for config in plugin_registry.all_custom_table_panes() {
+            workspace.register_custom_table_pane(config);
+        }
+
+        // Collect and register custom chart pane types from plugins
+        for config in plugin_registry.all_custom_chart_panes() {
+            workspace.register_custom_chart_pane(config);
+        }
+
+        // Collect and register custom stat pane types from plugins
+        for config in plugin_registry.all_custom_stat_panes() {
+            workspace.register_custom_stat_pane(config);
+        }
+
+        // Collect and register custom gauge pane types from plugins
+        for config in plugin_registry.all_custom_gauge_panes() {
+            workspace.register_custom_gauge_pane(config);
+        }
+
         // Collect plugin commands and pass to command palette
         let plugin_commands: Vec<crate::components::DynamicCommand> = plugin_registry
             .all_commands()
@@ -525,6 +545,82 @@ impl EnyaApp {
                 let end_secs = end_ms as f64 / 1000.0;
                 self.workspace
                     .set_time_range_absolute_from_plugin(start_secs, end_secs);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Custom Pane Commands ====================
+            UICommand::PluginRegisterCustomTablePane { config } => {
+                self.workspace.register_custom_table_pane(config);
+            }
+            UICommand::PluginAddCustomTablePane { pane_type } => {
+                self.workspace.add_custom_table_pane(&pane_type);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomTableData { pane_id, data } => {
+                self.workspace.update_custom_table_data(pane_id, data);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomTableDataByType { pane_type, data } => {
+                self.workspace
+                    .update_custom_table_data_by_type(&pane_type, data);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Custom Chart Pane Commands ====================
+            UICommand::PluginRegisterCustomChartPane { config } => {
+                self.workspace.register_custom_chart_pane(config);
+            }
+            UICommand::PluginAddCustomChartPane { pane_type } => {
+                self.workspace.add_custom_chart_pane(&pane_type);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomChartDataByType {
+                pane_type,
+                series,
+                error,
+            } => {
+                // Convert hashable series back to plugin format
+                let chart_data = if let Some(err) = error {
+                    enya_plugin::CustomChartData::with_error(err)
+                } else {
+                    let plugin_series: Vec<enya_plugin::ChartSeries> =
+                        series.iter().map(|s| s.to_plugin()).collect();
+                    enya_plugin::CustomChartData::with_series(plugin_series)
+                };
+                self.workspace
+                    .update_custom_chart_data_by_type(&pane_type, chart_data);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Custom Stat Pane Commands ====================
+            UICommand::PluginRegisterCustomStatPane { config } => {
+                self.workspace.register_custom_stat_pane(config);
+            }
+            UICommand::PluginAddCustomStatPane { pane_type } => {
+                self.workspace.add_custom_stat_pane(&pane_type);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomStatDataByType { pane_type, data } => {
+                // Convert hashable data back to plugin format
+                let stat_data = data.to_plugin();
+                self.workspace
+                    .update_custom_stat_data_by_type(&pane_type, stat_data);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Custom Gauge Pane Commands ====================
+            UICommand::PluginRegisterCustomGaugePane { config } => {
+                self.workspace.register_custom_gauge_pane(config);
+            }
+            UICommand::PluginAddCustomGaugePane { pane_type } => {
+                self.workspace.add_custom_gauge_pane(&pane_type);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomGaugeDataByType { pane_type, data } => {
+                // Convert hashable data back to plugin format
+                let gauge_data = data.to_plugin();
+                self.workspace
+                    .update_custom_gauge_data_by_type(&pane_type, gauge_data);
                 egui_ctx.request_repaint();
             }
         }
@@ -873,6 +969,33 @@ impl EnyaApp {
             }
         }
     }
+
+    /// Poll plugin panes for auto-refresh based on their refresh intervals.
+    ///
+    /// This checks which plugin pane types need to be refreshed and triggers
+    /// their refresh callbacks.
+    fn poll_plugin_pane_refreshes(&mut self) {
+        // Get all refreshable pane types from the plugin registry
+        let refreshable = self.plugin_registry.all_refreshable_pane_types();
+        if refreshable.is_empty() {
+            return;
+        }
+
+        // Check which pane types need to be refreshed
+        let pending = self.workspace.get_pending_plugin_refreshes(&refreshable);
+        if pending.is_empty() {
+            return;
+        }
+
+        // Trigger refresh for each pending pane type
+        for pane_type in pending {
+            if self.plugin_registry.trigger_pane_refresh(&pane_type) {
+                // Mark as refreshed after successful trigger
+                self.workspace.mark_plugin_pane_refreshed(&pane_type);
+                log::debug!("Auto-refreshed plugin pane type '{pane_type}'");
+            }
+        }
+    }
 }
 
 impl eframe::App for EnyaApp {
@@ -900,6 +1023,9 @@ impl eframe::App for EnyaApp {
 
         // Poll team state for events (presence changes, mentions, etc.)
         self.team_state.poll(ctx);
+
+        // Poll plugin pane refreshes (auto-refresh based on intervals)
+        self.poll_plugin_pane_refreshes();
 
         // Custom titlebar with window controls and drag area
         // Replaces native macOS titlebar for seamless theme integration

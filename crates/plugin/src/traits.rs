@@ -6,7 +6,9 @@ use bitflags::bitflags;
 
 use crate::hooks::{CommandHook, KeyboardHook, LifecycleHook, PaneHook, ThemeHook};
 use crate::theme::ThemeDefinition;
-use crate::types::{PluginContext, Theme};
+use crate::types::{
+    CustomChartConfig, CustomTableConfig, GaugePaneConfig, PluginContext, StatPaneConfig, Theme,
+};
 
 /// Result type for plugin operations.
 pub type PluginResult<T> = Result<T, PluginError>;
@@ -196,6 +198,34 @@ pub trait Plugin: Any + Send + Sync {
         vec![]
     }
 
+    /// Returns the custom table pane types this plugin provides.
+    ///
+    /// Only called if the plugin declares `PANES` capability.
+    fn custom_table_panes(&self) -> Vec<CustomTableConfig> {
+        vec![]
+    }
+
+    /// Returns the custom chart pane types this plugin provides.
+    ///
+    /// Only called if the plugin declares `PANES` capability.
+    fn custom_chart_panes(&self) -> Vec<CustomChartConfig> {
+        vec![]
+    }
+
+    /// Returns the custom stat pane types this plugin provides.
+    ///
+    /// Only called if the plugin declares `PANES` capability.
+    fn custom_stat_panes(&self) -> Vec<StatPaneConfig> {
+        vec![]
+    }
+
+    /// Returns the custom gauge pane types this plugin provides.
+    ///
+    /// Only called if the plugin declares `PANES` capability.
+    fn custom_gauge_panes(&self) -> Vec<GaugePaneConfig> {
+        vec![]
+    }
+
     /// Returns the lifecycle hooks this plugin wants to receive.
     fn lifecycle_hooks(&self) -> Option<Box<dyn LifecycleHook>> {
         None
@@ -232,6 +262,25 @@ pub trait Plugin: Any + Send + Sync {
     ///
     /// Only called if the plugin declares `THEMING` capability.
     fn on_theme_changed(&mut self, _theme: Theme) {}
+
+    /// Get pane types that have auto-refresh enabled.
+    ///
+    /// Returns a list of (pane_type_name, refresh_interval_secs) pairs.
+    /// Only called if the plugin declares `PANES` capability.
+    fn refreshable_pane_types(&self) -> Vec<(&str, u32)> {
+        vec![]
+    }
+
+    /// Trigger a refresh for a specific pane type.
+    ///
+    /// This is called by the editor when a pane needs to be refreshed
+    /// (based on its refresh_interval). The plugin should fetch new data
+    /// and call the appropriate `set_*_data` function.
+    ///
+    /// Returns true if the refresh was triggered successfully.
+    fn trigger_pane_refresh(&mut self, _pane_type: &str, _ctx: &PluginContext) -> bool {
+        false
+    }
 
     /// Get a reference to self as Any (for downcasting).
     fn as_any(&self) -> &dyn Any;
