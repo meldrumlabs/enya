@@ -581,14 +581,6 @@ impl crate::components::Component for PluginTablePane {
         self.theme = theme;
     }
 
-    fn set_api_key(&mut self, _key: &str) {
-        // Not needed for plugin table pane
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed for plugin table pane
-    }
-
     fn label(&self) -> egui::RichText {
         egui::RichText::new(format!("{} {}", semantic_icons::file::DATA, self.name))
     }

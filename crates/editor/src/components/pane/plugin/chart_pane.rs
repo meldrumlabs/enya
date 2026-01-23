@@ -196,14 +196,6 @@ impl crate::components::Component for PluginChartPane {
         self.chart.set_theme(theme);
     }
 
-    fn set_api_key(&mut self, _key: &str) {
-        // Not needed for plugin chart pane
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed for plugin chart pane
-    }
-
     fn label(&self) -> egui::RichText {
         egui::RichText::new(format!("{} {}", semantic_icons::action::CHART, self.name))
     }

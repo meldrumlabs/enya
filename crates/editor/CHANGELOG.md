@@ -507,6 +507,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Removed
 
+- **Dead theme code in design.rs**: Removed ~580 lines of unused theme code including `white_theme()`, standalone `gruvbox_theme()`, `black_theme()` legacy wrapper, and 4 commented-out theme implementations. The theming system now uses only `dark_theme()` and `light_theme()` which are driven by the `AppTheme` enum.
+
+- **Dead code cleanup across panes**: Removed unused fields and functions:
+  - `SqlPane::get_tables()` - unused method (10 lines)
+  - `TracingPane::api_key` and `staging_api_key` - unused fields
+  - `WaterfallChart::zoom_level` - unused field (zoom feature not implemented)
+
+- **Component trait cleanup**: Removed `set_api_key()` and `set_staging_api_key()` from the `Component` trait - they were stored but never read by any component. Removed the `api_key` field from `QueryPane`, `TimeSeriesChart`, `Buffer`, and the propagation code from workspace rendering.
+
 - **AgentPane component**: Removed the `AgentPane` viewport pane in favor of the `AgentPanel` overlay. AI agent conversations now use the right-side panel exclusively, providing a cleaner separation between observability content (viewport panes) and AI assistance (overlay panel). The inline content types (`InlineChart`, `InlineSource`, `InlineSearchResults`) have been moved to a new `inline_content.rs` module.
 
 - **Workspace tab bar**: Removed the workspace tab bar (barbar.nvim-style) at the top of the editor. The editor now manages a single workspace directly instead of multiple tabs. Related keyboard shortcuts (`Shift+N`, `Shift+P`, `Shift+T`, `Shift+X`) have been removed. The `:q` command now quits the application instead of closing the current tab.

@@ -1,32 +1,32 @@
-//! Plugin stat pane component for displaying a big number with optional sparkline.
+//! Plugin gauge pane component for displaying a value on a circular arc.
 //!
-//! This pane wraps the StatChart component and accepts data from Lua plugins,
-//! allowing plugins to create custom stat views for metrics fetched via HTTP or
+//! This pane wraps the GaugeChart component and accepts data from Lua plugins,
+//! allowing plugins to create custom gauge views for metrics fetched via HTTP or
 //! generated locally.
 //!
 //! ## Features
 //!
-//! - **Big number display** with automatic formatting (K, M, B suffixes)
-//! - **Optional sparkline** showing recent history
-//! - **Change indicator** showing delta vs previous period
+//! - **Circular arc gauge** showing value on a range
+//! - **Configurable min/max range**
 //! - **Threshold-based coloring** for value states
+//! - **Animated needle** showing current position
 //! - **Error display** if data fetch fails
 
 use std::any::Any;
 
 use egui::Color32;
-use enya_plugin::{StatPaneConfig, StatPaneData};
+use enya_plugin::{GaugePaneConfig, GaugePaneData};
 
-use crate::components::pane::visualization::{StatChart, Threshold};
+use crate::components::pane::visualization::{GaugeChart, Threshold};
 use crate::components::util::id_generator::next_id_usize;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
-/// A plugin stat pane that displays a big number with optional sparkline.
+/// A plugin gauge pane that displays a value on a circular arc.
 ///
-/// This pane wraps the StatChart component and converts plugin data
+/// This pane wraps the GaugeChart component and converts plugin data
 /// types to the chart's internal representation.
-pub struct PluginStatPane {
+pub struct PluginGaugePane {
     /// Unique identifier for this pane
     id: usize,
     /// Display name for the pane (from config title)
@@ -34,25 +34,30 @@ pub struct PluginStatPane {
     /// Current theme
     theme: AppTheme,
     /// Configuration for this pane type
-    config: StatPaneConfig,
-    /// The wrapped stat chart
-    chart: StatChart,
+    config: GaugePaneConfig,
+    /// The wrapped gauge chart
+    chart: GaugeChart,
     /// Current data (kept for reference/updates)
-    data: StatPaneData,
+    data: GaugePaneData,
     /// Error message to display (if any)
     error: Option<String>,
 }
 
-impl PluginStatPane {
-    /// Create a new plugin stat pane with the given configuration and initial data.
-    pub fn new(config: StatPaneConfig, data: StatPaneData) -> Self {
+impl PluginGaugePane {
+    /// Create a new plugin gauge pane with the given configuration and initial data.
+    pub fn new(config: GaugePaneConfig, data: GaugePaneData) -> Self {
         let name = config.title.clone();
-        let mut chart = StatChart::new(&name);
+        let mut chart = GaugeChart::new(&name);
 
         // Set unit if configured
         if let Some(ref unit) = config.unit {
             chart.set_unit(unit);
         }
+
+        // Set range from config (unscale the values)
+        let min = config.min_scaled as f64 / 1_000_000.0;
+        let max = config.max_scaled as f64 / 1_000_000.0;
+        chart.set_range(min, max);
 
         // Apply initial data
         Self::apply_data_to_chart(&mut chart, &data);
@@ -74,7 +79,7 @@ impl PluginStatPane {
     }
 
     /// Set new data for this pane.
-    pub fn set_data(&mut self, data: StatPaneData) {
+    pub fn set_data(&mut self, data: GaugePaneData) {
         self.error = data.error.clone();
         self.data = data.clone();
 
@@ -83,21 +88,9 @@ impl PluginStatPane {
         }
     }
 
-    /// Apply plugin data to the StatChart.
-    fn apply_data_to_chart(chart: &mut StatChart, data: &StatPaneData) {
+    /// Apply plugin data to the GaugeChart.
+    fn apply_data_to_chart(chart: &mut GaugeChart, data: &GaugePaneData) {
         chart.set_value(data.value);
-        chart.set_sparkline_data(data.sparkline.clone());
-
-        // Apply change indicator if present
-        if let Some(change_value) = data.change_value {
-            let period = data
-                .change_period
-                .clone()
-                .unwrap_or_else(|| "vs last period".to_string());
-            chart.set_change(change_value, period);
-        } else {
-            chart.clear_change();
-        }
 
         // Apply thresholds
         chart.clear_thresholds();
@@ -167,13 +160,13 @@ impl PluginStatPane {
             return;
         }
 
-        // Show the stat chart
+        // Show the gauge chart
         self.chart.show(ui);
     }
 }
 
-/// Implement Component trait so PluginStatPane can be used in the dashboard.
-impl crate::components::Component for PluginStatPane {
+/// Implement Component trait so PluginGaugePane can be used in the dashboard.
+impl crate::components::Component for PluginGaugePane {
     fn show(&mut self, ui: &mut egui::Ui) {
         self.show_internal(ui);
     }
@@ -191,20 +184,12 @@ impl crate::components::Component for PluginStatPane {
         self.chart.set_theme(theme);
     }
 
-    fn set_api_key(&mut self, _key: &str) {
-        // Not needed for plugin stat pane
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed for plugin stat pane
-    }
-
     fn label(&self) -> egui::RichText {
-        egui::RichText::new(format!("{} {}", semantic_icons::action::CHART, self.name))
+        egui::RichText::new(format!("{} {}", egui_nerdfonts::regular::GAUGE, self.name))
     }
 
     fn description(&self) -> &str {
-        "Custom stat from plugin"
+        "Custom gauge from plugin"
     }
 
     fn as_any(&self) -> &dyn Any {

@@ -3,10 +3,7 @@
 pub mod annotation;
 pub mod inline_content;
 pub mod logs_pane;
-pub mod plugin_chart_pane;
-pub mod plugin_gauge_pane;
-pub mod plugin_stat_pane;
-pub mod plugin_table_pane;
+pub mod plugin;
 pub mod query_pane;
 pub mod sql;
 #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
@@ -20,10 +17,7 @@ pub use inline_content::{
     InlineChart, InlineContent, InlineSearchResults, InlineSource, SearchResultItem,
 };
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
-pub use plugin_chart_pane::PluginChartPane;
-pub use plugin_gauge_pane::PluginGaugePane;
-pub use plugin_stat_pane::PluginStatPane;
-pub use plugin_table_pane::PluginTablePane;
+pub use plugin::{PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane};
 #[cfg(all(not(target_arch = "wasm32"), feature = "sql"))]
 pub use sql::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, StatsView};
 pub use sql::{SqlPane, SqlPaneAction};

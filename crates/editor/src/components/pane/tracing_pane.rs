@@ -30,12 +30,6 @@ pub struct TracingPane {
     name: String,
     /// Current theme
     theme: AppTheme,
-    /// API key (not used for tracing yet, but required by Component trait)
-    #[allow(dead_code)]
-    api_key: String,
-    /// Staging API key
-    #[allow(dead_code)]
-    staging_api_key: String,
     /// Description
     description: String,
 
@@ -73,8 +67,6 @@ impl TracingPane {
             id: next_id_usize(),
             name: "Trace".to_string(),
             theme: AppTheme::default(),
-            api_key: String::new(),
-            staging_api_key: String::new(),
             description: String::new(),
             trace_id_input: String::new(),
             current_trace: None,
@@ -490,14 +482,6 @@ impl Component for TracingPane {
     fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
         self.waterfall.set_theme(theme);
-    }
-
-    fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
-    }
-
-    fn set_staging_api_key(&mut self, key: &str) {
-        self.staging_api_key = key.to_string();
     }
 
     fn label(&self) -> egui::RichText {

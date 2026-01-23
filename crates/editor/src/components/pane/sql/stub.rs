@@ -48,14 +48,6 @@ impl Component for SqlPane {
         self.theme = theme;
     }
 
-    fn set_api_key(&mut self, _key: &str) {
-        // No-op for stub
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // No-op for stub
-    }
-
     fn label(&self) -> egui::RichText {
         RichText::new("SQL")
     }

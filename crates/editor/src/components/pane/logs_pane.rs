@@ -1478,14 +1478,6 @@ impl crate::components::Component for LogsPane {
         self.theme = theme;
     }
 
-    fn set_api_key(&mut self, _key: &str) {
-        // Not needed for logs pane
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed for logs pane
-    }
-
     fn label(&self) -> egui::RichText {
         egui::RichText::new(format!("{} {}", semantic_icons::file::TEXT, self.name))
     }

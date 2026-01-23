@@ -1884,16 +1884,6 @@ impl SqlPane {
         });
     }
 
-    /// Get the list of tables from the current backend.
-    #[allow(dead_code)] // Will be used for table info population
-    fn get_tables(&self) -> Vec<TableInfo> {
-        match &self.backend {
-            Some(SqlBackend::Flight { tables, .. }) => tables.clone(),
-            Some(SqlBackend::Local { session, .. }) => session.tables(),
-            None => Vec::new(),
-        }
-    }
-
     /// Show the SQL pane with three-panel layout.
     ///
     /// Layout:
@@ -5627,14 +5617,6 @@ impl crate::components::Component for SqlPane {
 
     fn set_theme(&mut self, theme: AppTheme) {
         SqlPane::set_theme(self, theme);
-    }
-
-    fn set_api_key(&mut self, _key: &str) {
-        // Not needed for SQL pane
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed for SQL pane
     }
 
     fn label(&self) -> RichText {

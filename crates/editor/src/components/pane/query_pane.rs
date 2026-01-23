@@ -129,8 +129,6 @@ pub struct QueryPane {
     visualization: Visualization,
     /// Current theme
     theme: AppTheme,
-    /// API key
-    api_key: String,
     /// Whether the buffer edit area is expanded (shown)
     buffer_expanded: bool,
     /// Query state (aggregation, granularity, time range)
@@ -182,7 +180,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -242,7 +239,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -273,7 +269,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -307,7 +302,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -341,7 +335,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -386,7 +379,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -418,7 +410,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -623,11 +614,6 @@ impl QueryPane {
         self.theme = theme;
         self.buffer.set_theme(theme);
         self.visualization.set_theme(theme);
-    }
-
-    /// Set API key
-    pub fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
     }
 
     /// Refresh the visualization based on current saved query
@@ -987,14 +973,6 @@ impl crate::components::Component for QueryPane {
 
     fn set_theme(&mut self, theme: AppTheme) {
         QueryPane::set_theme(self, theme);
-    }
-
-    fn set_api_key(&mut self, key: &str) {
-        QueryPane::set_api_key(self, key);
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed
     }
 
     fn label(&self) -> egui::RichText {

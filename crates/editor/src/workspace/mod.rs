@@ -499,8 +499,6 @@ impl Workspace {
         chat_state: Option<&crate::chat::ChatState>,
     ) -> WorkspaceAction {
         self.behavior.set_theme(self.effective_theme(app_state));
-        self.behavior
-            .set_keys(app_state.settings.api_key.to_owned());
 
         // Update visual effects (focus pulse detection, cleanup)
         self.behavior.update_focus_effects();
@@ -1108,7 +1106,6 @@ impl Workspace {
                         self.viewport_tree.tiles.get_mut(fullscreen_id)
                     {
                         component.set_theme(self.behavior.theme());
-                        component.set_api_key(self.behavior.api_key());
                         component.show(ui);
                     } else {
                         // Tile no longer exists, exit fullscreen
