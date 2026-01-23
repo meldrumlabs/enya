@@ -55,7 +55,12 @@ check-wasm:
 
 # Build the website (validates links and content)
 website-build:
-    cd website && npm run build
+    #!/usr/bin/env bash
+    if command -v npm &> /dev/null && [ -d "website/node_modules" ]; then
+        cd website && npm run build
+    else
+        echo "Skipping website build (npm not available or node_modules not installed)"
+    fi
 
 # Run the website dev server
 website-dev:

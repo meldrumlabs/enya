@@ -11,9 +11,10 @@ pub mod widget;
 pub use pane::{
     AgentAiProvider, Bar, BarChartViz, CommitMarker, DataPoint, GaugeChart, HeatmapCell,
     HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSearchResults, InlineSource,
-    LogsBackend, LogsPane, LogsPaneAction, QueryPane, QueryPaneAction, SearchResultItem, Series,
-    SparklineViz, SqlPane, SqlPaneAction, StatChart, Threshold, TimeSeriesChart, TracingPane,
-    TracingPaneAction, Visualization, VisualizationType,
+    LogsBackend, LogsPane, LogsPaneAction, PluginChartPane, PluginGaugePane, PluginStatPane,
+    PluginTablePane, QueryPane, QueryPaneAction, SearchResultItem, Series, SparklineViz, SqlPane,
+    SqlPaneAction, StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction,
+    Visualization, VisualizationType,
 };
 #[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
 pub use pane::{TerminalPane, TerminalPaneAction};
@@ -25,9 +26,10 @@ pub use overlay::{
     AboutOverlay, AgentCommand, AgentPanel, AgentPanelResult, AiProvider, BufferEditor,
     BufferEditorResult, ChatMessage, CodebaseContext, CommandPalette, CommandResult,
     ConnectionContext, DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource,
-    DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext,
-    InfoOverlay, MessageRole, MultiEditOverlay, MultiEditResult, SourcePreviewOverlay,
-    SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
+    DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, DynamicCommand, EditExcerpt,
+    EditorContext, InfoOverlay, MessageRole, MultiEditOverlay, MultiEditResult, PluginDisplayInfo,
+    PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay, SourcePreviewResult,
+    StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
     WorkspaceItem, parse_commands, strip_command_blocks,
 };

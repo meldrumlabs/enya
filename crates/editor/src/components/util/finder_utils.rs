@@ -9,6 +9,7 @@
 
 use egui::{Color32, Key, RichText, Stroke, TextFormat, text::LayoutJob};
 
+use crate::ui::active_theme::ActiveThemeColors;
 use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -75,6 +76,23 @@ impl OverlayStyle {
                 color: Color32::from_black_alpha(80), // Deeper shadow for more lift
             },
             inner_highlight,
+        }
+    }
+
+    /// Frosted glass style using active theme colors (builtin or custom)
+    pub fn frosted_glass_active(colors: &ActiveThemeColors) -> Self {
+        Self {
+            bg: colors.overlay_bg,
+            border: colors.overlay_border,
+            corner_radius: 14.0,
+            stroke_width: 1.0,
+            shadow: egui::epaint::Shadow {
+                offset: [0, 8],
+                blur: 32,
+                spread: 0,
+                color: Color32::from_black_alpha(80),
+            },
+            inner_highlight: Some(colors.overlay_highlight),
         }
     }
 
@@ -384,6 +402,19 @@ impl OverlayColors {
             separator: theme.border_subtle(),
             elevated_bg: theme.bg_elevated(),
             badge_bg: theme.bg_hover(),
+        }
+    }
+
+    /// Create overlay colors from ActiveThemeColors (for custom themes)
+    pub fn from_active(colors: &ActiveThemeColors) -> Self {
+        Self {
+            text: colors.text_primary,
+            muted_text: colors.text_primary.gamma_multiply(0.6),
+            faint_text: colors.text_primary.gamma_multiply(0.4),
+            accent: colors.accent_hover,
+            separator: colors.border_subtle,
+            elevated_bg: colors.bg_elevated,
+            badge_bg: colors.bg_hover,
         }
     }
 }

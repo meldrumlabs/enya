@@ -248,6 +248,7 @@ impl DiffViewerOverlay {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let colors = OverlayColors::new(self.theme);
                 let separator_color = colors.separator;

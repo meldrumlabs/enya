@@ -1,6 +1,5 @@
 use egui::{Color32, FontId, Key, RichText};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -211,6 +210,7 @@ impl MultiEditOverlay {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 // Muted accent for badges/buttons
                 let accent_color = self.theme.accent_primary();
@@ -235,7 +235,7 @@ impl MultiEditOverlay {
                         // Title with pane count
                         ui.label(
                             RichText::new(format!("Edit {} Panes", self.excerpts.len()))
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .size(typography::XL),
                         );
 
@@ -255,7 +255,7 @@ impl MultiEditOverlay {
                             ui.add_space(16.0);
                             ui.label(
                                 RichText::new("Esc to cancel")
-                                    .color(text_color(self.theme).gamma_multiply(0.4))
+                                    .color(self.theme.text_primary().gamma_multiply(0.4))
                                     .size(typography::SM),
                             );
                         });
@@ -278,13 +278,13 @@ impl MultiEditOverlay {
                         ui.add_space(20.0);
                         ui.label(
                             RichText::new(semantic_icons::action::SEARCH)
-                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .color(self.theme.text_primary().gamma_multiply(0.6))
                                 .size(typography::XL),
                         );
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Find & Replace")
-                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .color(self.theme.text_primary().gamma_multiply(0.7))
                                 .size(typography::MD),
                         );
 
@@ -337,7 +337,9 @@ impl MultiEditOverlay {
                                         .hint_text(
                                             RichText::new("Find pattern...")
                                                 .font(typography::code_lg())
-                                                .color(text_color(self.theme).gamma_multiply(0.35)),
+                                                .color(
+                                                    self.theme.text_primary().gamma_multiply(0.35),
+                                                ),
                                         ),
                                 );
 
@@ -386,7 +388,9 @@ impl MultiEditOverlay {
                                         .hint_text(
                                             RichText::new("Replace with...")
                                                 .font(typography::code_lg())
-                                                .color(text_color(self.theme).gamma_multiply(0.35)),
+                                                .color(
+                                                    self.theme.text_primary().gamma_multiply(0.35),
+                                                ),
                                         ),
                                 );
                             });
@@ -415,7 +419,7 @@ impl MultiEditOverlay {
                                 .color(if button_enabled {
                                     Color32::WHITE
                                 } else {
-                                    text_color(self.theme).gamma_multiply(0.5)
+                                    self.theme.text_primary().gamma_multiply(0.5)
                                 })
                                 .strong(),
                         )
@@ -467,13 +471,13 @@ impl MultiEditOverlay {
                         ui.add_space(16.0);
                         ui.label(
                             RichText::new(semantic_icons::file::CODE)
-                                .color(text_color(self.theme).gamma_multiply(0.6))
+                                .color(self.theme.text_primary().gamma_multiply(0.6))
                                 .size(14.0),
                         );
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Queries")
-                                .color(text_color(self.theme).gamma_multiply(0.7))
+                                .color(self.theme.text_primary().gamma_multiply(0.7))
                                 .size(12.0),
                         );
                     });
@@ -507,7 +511,7 @@ impl MultiEditOverlay {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
 
-                        let hint_color = text_color(self.theme).gamma_multiply(0.35);
+                        let hint_color = self.theme.text_primary().gamma_multiply(0.35);
 
                         // Premium keyboard hints with key badges
                         let key_bg = self.theme.bg_elevated();
@@ -575,7 +579,7 @@ impl MultiEditOverlay {
                             let cancel_btn = egui::Button::new(
                                 RichText::new("Cancel")
                                     .size(typography::MD)
-                                    .color(text_color(self.theme).gamma_multiply(0.7)),
+                                    .color(self.theme.text_primary().gamma_multiply(0.7)),
                             )
                             .fill(cancel_bg)
                             .stroke(egui::Stroke::new(1.0, cancel_border))
@@ -614,14 +618,15 @@ impl MultiEditOverlay {
 
     /// Render the excerpts section
     fn show_excerpts(&mut self, ui: &mut egui::Ui) {
-        // Premium excerpt card styling
+        // Premium excerpt card styling - extract all colors before the loop
         let excerpt_bg = self.theme.bg_card();
         let excerpt_border = self.theme.border_subtle();
-        let label_color = text_color(self.theme).gamma_multiply(0.7);
+        let label_color = self.theme.text_primary().gamma_multiply(0.7);
         let highlight_bg = self.theme.highlight_match();
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let accent_color = self.theme.accent_hover();
         let warning_color = self.theme.semantic_warning();
+        let inset_bg = self.theme.bg_inset();
 
         // Clone find_pattern to avoid borrow issues
         let find_pattern = self.find_pattern.clone();
@@ -759,8 +764,7 @@ impl MultiEditOverlay {
                         );
 
                         // Draw background for the text area with premium styling
-                        let text_bg = self.theme.bg_inset();
-                        painter.rect_filled(response.rect, 6.0, text_bg);
+                        painter.rect_filled(response.rect, 6.0, inset_bg);
 
                         // Draw the highlighted text
                         painter.galley(response.rect.min + egui::vec2(8.0, 6.0), galley, text_col);
@@ -774,10 +778,8 @@ impl MultiEditOverlay {
                         let text_edit_id = egui::Id::new(format!("excerpt_{}", excerpt.source_id));
 
                         // Premium editor background
-                        let editor_bg = self.theme.bg_inset();
-
                         egui::Frame::new()
-                            .fill(editor_bg)
+                            .fill(inset_bg)
                             .corner_radius(6.0)
                             .inner_margin(egui::vec2(8.0, 6.0))
                             .show(ui, |ui| {

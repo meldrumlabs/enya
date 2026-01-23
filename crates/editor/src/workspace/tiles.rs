@@ -14,7 +14,6 @@ fn ease_out_cubic(t: f32) -> f32 {
 use egui_tiles::{SimplificationOptions, Tile, TileId, Tiles};
 
 use crate::components::Component;
-use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 use crate::util::Instant;
 
@@ -208,7 +207,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
     fn tab_title_for_pane(&mut self, component: &Box<dyn Component>) -> egui::WidgetText {
         component
             .label()
-            .color(text_color(self.theme))
+            .color(self.theme.text_primary())
             .strong()
             .into()
     }
@@ -246,13 +245,13 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
             painter.rect_filled(rect, 4.0, dim_color);
 
             // Draw "filtered" indicator text
-            let text_color = self.theme.text_tertiary();
+            let text_col = self.theme.text_tertiary();
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "filtered",
                 egui::FontId::proportional(12.0),
-                text_color,
+                text_col,
             );
             return; // Don't draw other overlays on filtered panes
         }
@@ -321,9 +320,9 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
             if let Some(query) = self.tile_queries.get(&tile_id) {
                 // Premium glass styling for query overlay
                 let bg_color = self.theme.bg_surface().gamma_multiply(0.92);
-                let text_color = self.theme.text_primary().gamma_multiply(0.9);
+                let query_text_color = self.theme.text_primary().gamma_multiply(0.9);
                 let accent_color = self.theme.accent_primary();
-                let border_color = accent_color.gamma_multiply(0.3);
+                let query_border_color = accent_color.gamma_multiply(0.3);
 
                 // Truncate query if too long
                 let display_query = if query.len() > 60 {
@@ -334,7 +333,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
 
                 // Calculate text layout
                 let font_id = egui::FontId::monospace(11.0);
-                let galley = painter.layout_no_wrap(display_query, font_id, text_color);
+                let galley = painter.layout_no_wrap(display_query, font_id, query_text_color);
 
                 // Position at bottom of tile with padding
                 let padding_h = 10.0;
@@ -353,7 +352,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                     overlay_rect.left_top(),
                     egui::vec2(overlay_rect.width(), 1.0),
                 );
-                painter.rect_filled(top_line_rect, 0.0, border_color);
+                painter.rect_filled(top_line_rect, 0.0, query_border_color);
 
                 // Emerald accent bar on left
                 let accent_bar = egui::Rect::from_min_size(
@@ -367,7 +366,7 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
                     overlay_rect.min.x + padding_h,
                     overlay_rect.center().y - galley.rect.height() / 2.0,
                 );
-                painter.galley(text_pos, galley, text_color);
+                painter.galley(text_pos, galley, query_text_color);
             }
         }
 

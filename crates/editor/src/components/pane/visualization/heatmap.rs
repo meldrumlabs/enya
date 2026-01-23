@@ -6,7 +6,6 @@
 use egui::{Color32, RichText, Stroke, StrokeKind};
 
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 
 /// A single cell in the heatmap
@@ -184,7 +183,7 @@ impl HeatmapViz {
     /// Render the heatmap
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         ui.vertical(|ui| {
             ui.add_space(8.0);

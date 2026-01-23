@@ -17,14 +17,18 @@ use crate::components::{
     AboutOverlay, AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult,
     Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
     ContextPane, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LogsPane,
-    MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult, QueryExecutor,
-    QueryLanguage, QueryPane, QueryState, QuickCommand, SourcePreviewOverlay, SourcePreviewResult,
-    StylePicker, StylePickerResult, TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo,
-    TimeRangeToolbar, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
+    MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult, PluginsOverlay,
+    PluginsOverlayResult, QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand,
+    SourcePreviewOverlay, SourcePreviewResult, StylePicker, StylePickerResult, TeamMember,
+    TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TutorialOverlay, ViewportFilter,
+    ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
+use enya_plugin::{
+    CustomChartConfig, CustomChartData, CustomTableConfig, CustomTableData, GaugePaneConfig,
+    GaugePaneData, StatPaneConfig, StatPaneData,
+};
 
 // Workspace configuration module (serialization)
 pub mod config;
@@ -95,8 +99,9 @@ use layout_animation::LayoutAnimator;
 pub use config::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
     DEMO_WORKSPACE_TOML, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
-    LogsConfig, MetricsConfig, PaneConfig, RefreshInterval, SectionConfig, SectionLayout,
-    TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
+    LogsConfig, MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval, SectionConfig,
+    SectionLayout, TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError,
+    WorkspaceMeta,
 };
 
 /// Actions that the Workspace needs the App to handle
@@ -104,14 +109,18 @@ pub use config::{
 pub enum WorkspaceAction {
     /// No action needed
     None,
-    /// Set a specific theme
+    /// Set a specific builtin theme
     SetTheme(AppTheme),
+    /// Set a custom theme by name (from plugins)
+    SetCustomTheme(String),
     /// Cycle to the next theme
     NextTheme,
     /// Set the editor font
     SetFont(EditorFont),
     /// Set both theme and font (used when cancelling style picker to restore originals)
     SetThemeAndFont(AppTheme, EditorFont),
+    /// Set custom theme and font (used when cancelling style picker to restore custom theme)
+    SetCustomThemeAndFont(String, EditorFont),
     /// Show a notification
     Notify { level: String, message: String },
     /// Track a recently opened plot
@@ -164,6 +173,8 @@ pub enum WorkspaceAction {
         message: String,
         diff: String,
     },
+    /// Execute a plugin command (command name, args)
+    PluginCommand { command: String, args: String },
 }
 
 /// The main viewport layout with a flexible tile tree for views/charts.
@@ -213,6 +224,8 @@ pub struct Workspace {
     style_picker: StylePicker,
     /// Tutorial overlay (interactive walkthrough)
     tutorial_overlay: TutorialOverlay,
+    /// Plugins overlay (view and manage plugins)
+    plugins_overlay: PluginsOverlay,
     /// Workspace creator overlay (new workspace wizard)
     workspace_creator: WorkspaceCreator,
     /// Current scroll offset for smooth scrolling (0.0 to 1.0, percentage)
@@ -317,6 +330,31 @@ pub struct Workspace {
     // ==================== Layout Animation ====================
     /// Animator for smooth layout transitions
     layout_animator: LayoutAnimator,
+
+    // ==================== Active Theme Colors ====================
+    /// Resolved theme colors (from custom or builtin theme)
+    /// Used for components that need custom theme support
+    active_colors: Option<crate::ui::ActiveThemeColors>,
+
+    // ==================== Plugin Custom Panes ====================
+    /// Registry of custom table pane configurations (by pane type name)
+    custom_table_configs: FxHashMap<String, CustomTableConfig>,
+    /// Data for custom table panes (by pane type name)
+    custom_table_data: FxHashMap<String, CustomTableData>,
+    /// Registry of custom chart pane configurations (by pane type name)
+    custom_chart_configs: FxHashMap<String, CustomChartConfig>,
+    /// Data for custom chart panes (by pane type name)
+    custom_chart_data: FxHashMap<String, CustomChartData>,
+    /// Registry of custom stat pane configurations (by pane type name)
+    custom_stat_configs: FxHashMap<String, StatPaneConfig>,
+    /// Data for custom stat panes (by pane type name)
+    custom_stat_data: FxHashMap<String, StatPaneData>,
+    /// Registry of custom gauge pane configurations (by pane type name)
+    custom_gauge_configs: FxHashMap<String, GaugePaneConfig>,
+    /// Data for custom gauge panes (by pane type name)
+    custom_gauge_data: FxHashMap<String, GaugePaneData>,
+    /// Last refresh time for plugin panes (by pane type name)
+    plugin_pane_last_refresh: FxHashMap<String, crate::util::Instant>,
 }
 
 impl Workspace {
@@ -359,6 +397,7 @@ impl Workspace {
             which_key: WhichKey::new(),
             style_picker: StylePicker::new(),
             tutorial_overlay: TutorialOverlay::new(),
+            plugins_overlay: PluginsOverlay::new(),
             workspace_creator: WorkspaceCreator::new(),
             viewport_scroll_offset: 0.0,
             viewport_scroll_target: 0.0,
@@ -420,6 +459,34 @@ impl Workspace {
             undo_stack: UndoStack::new(),
             // Layout animation
             layout_animator: LayoutAnimator::new(),
+            // Active theme colors
+            active_colors: None,
+            // Plugin custom panes
+            custom_table_configs: FxHashMap::default(),
+            custom_table_data: FxHashMap::default(),
+            custom_chart_configs: FxHashMap::default(),
+            custom_chart_data: FxHashMap::default(),
+            custom_stat_configs: FxHashMap::default(),
+            custom_stat_data: FxHashMap::default(),
+            custom_gauge_configs: FxHashMap::default(),
+            custom_gauge_data: FxHashMap::default(),
+            plugin_pane_last_refresh: FxHashMap::default(),
+        }
+    }
+
+    /// Set the active theme colors (from custom or builtin theme)
+    pub fn set_active_colors(&mut self, colors: crate::ui::ActiveThemeColors) {
+        self.active_colors = Some(colors);
+    }
+
+    /// Get the effective theme for rendering.
+    /// Returns `AppTheme::Custom(colors)` if a custom theme is active,
+    /// otherwise returns the builtin theme from app_state.
+    fn effective_theme(&self, app_state: &AppState) -> AppTheme {
+        if let Some(colors) = self.active_colors {
+            AppTheme::Custom(colors)
+        } else {
+            app_state.theme
         }
     }
 
@@ -431,7 +498,7 @@ impl Workspace {
         app_state: &AppState,
         chat_state: Option<&crate::chat::ChatState>,
     ) -> WorkspaceAction {
-        self.behavior.set_theme(app_state.theme);
+        self.behavior.set_theme(self.effective_theme(app_state));
         self.behavior
             .set_keys(app_state.settings.api_key.to_owned());
 
@@ -637,7 +704,7 @@ impl Workspace {
 
         // Update component themes
         self.time_range_toolbar.set_theme(app_state.theme);
-        self.landing_page.set_theme(app_state.theme);
+        self.landing_page.set_theme(self.effective_theme(app_state));
 
         // Handle adding a pending chart to the viewport
         if let Some(metric_name) = self.pending_chart.take() {
@@ -656,8 +723,11 @@ impl Workspace {
         // Handle pending style picker open (needs app_state for current theme and font)
         if self.pending_open_style_picker {
             self.pending_open_style_picker = false;
-            self.style_picker
-                .open(app_state.theme, app_state.settings.font);
+            self.style_picker.open_with_custom(
+                app_state.theme,
+                app_state.custom_theme(),
+                app_state.settings.font,
+            );
         }
 
         // Show landing page only if explicitly enabled and no charts open
@@ -896,7 +966,7 @@ impl Workspace {
         // Rendered as a layout participant - viewport shrinks when panel is open
         // Update context before showing so the agent has awareness of editor state
         self.update_agent_context();
-        self.agent_panel.set_theme(app_state.theme);
+        self.agent_panel.set_theme(self.effective_theme(app_state));
         self.agent_panel.set_focus(self.agent_panel_focused);
         match self.agent_panel.show_inside(ui, ctx) {
             AgentPanelResult::Closed => {
@@ -964,7 +1034,7 @@ impl Workspace {
                     total_panes
                 };
                 self.viewport_filter.update_counts(matching_panes, total_panes);
-                self.viewport_filter.set_theme(app_state.theme);
+                self.viewport_filter.set_theme(self.effective_theme(app_state));
 
                 egui::TopBottomPanel::top("time_range_toolbar")
                     .resizable(false)
@@ -1257,10 +1327,21 @@ impl Workspace {
             .show(ctx, app_state.theme, app_state.settings.font)
         {
             StylePickerResult::ThemeSelected(theme) => return WorkspaceAction::SetTheme(theme),
-            StylePickerResult::Cancelled(original_theme, original_font) => {
-                return WorkspaceAction::SetThemeAndFont(original_theme, original_font);
+            StylePickerResult::CustomThemeSelected(name) => {
+                return WorkspaceAction::SetCustomTheme(name);
+            }
+            StylePickerResult::Cancelled(original_theme, original_custom, original_font) => {
+                // If there was a custom theme, restore it; otherwise restore builtin theme
+                if let Some(custom_name) = original_custom {
+                    return WorkspaceAction::SetCustomThemeAndFont(custom_name, original_font);
+                } else {
+                    return WorkspaceAction::SetThemeAndFont(original_theme, original_font);
+                }
             }
             StylePickerResult::ThemePreview(theme) => return WorkspaceAction::SetTheme(theme),
+            StylePickerResult::CustomThemePreview(name) => {
+                return WorkspaceAction::SetCustomTheme(name);
+            }
             StylePickerResult::FontSelected(font) => return WorkspaceAction::SetFont(font),
             StylePickerResult::FontPreview(font) => return WorkspaceAction::SetFont(font),
             StylePickerResult::None => {}
@@ -1307,7 +1388,8 @@ impl Workspace {
         }
 
         // Show command palette modal
-        self.command_palette.set_theme(app_state.theme);
+        self.command_palette
+            .set_theme(self.effective_theme(app_state));
         let cmd_result = self.command_palette.show(ctx);
 
         // Show buffer editor modal
@@ -1332,7 +1414,7 @@ impl Workspace {
         }
 
         // Show info overlay modal
-        self.info_overlay.set_theme(app_state.theme);
+        self.info_overlay.set_theme(self.effective_theme(app_state));
         self.info_overlay.show(ctx);
 
         // Show about overlay modal
@@ -1340,12 +1422,36 @@ impl Workspace {
         self.about_overlay.show(ctx);
 
         // Show which-key overlay modal
-        self.which_key.set_theme(app_state.theme);
+        self.which_key.set_theme(self.effective_theme(app_state));
         self.which_key.show(ctx);
 
         // Show tutorial overlay modal
-        self.tutorial_overlay.set_theme(app_state.theme);
+        self.tutorial_overlay
+            .set_theme(self.effective_theme(app_state));
         self.tutorial_overlay.show(ctx);
+
+        // Show plugins overlay modal
+        self.plugins_overlay
+            .set_theme(self.effective_theme(app_state));
+        match self.plugins_overlay.show(ctx) {
+            PluginsOverlayResult::OpenPluginDirectory => {
+                // Open the plugin directory in the system file manager
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if let Some(dir) = dirs::home_dir() {
+                        let plugin_dir = dir.join(".config").join("enya").join("plugins");
+                        if let Err(e) = open::that(&plugin_dir) {
+                            log::warn!("Failed to open plugin directory: {e}");
+                        }
+                    }
+                }
+            }
+            PluginsOverlayResult::TogglePlugin(name) => {
+                log::info!("Toggle plugin: {name}");
+                // TODO: Implement plugin enable/disable via PluginRegistry
+            }
+            PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
+        }
 
         // Show workspace creator overlay modal
         self.workspace_creator.set_theme(app_state.theme);
@@ -1373,7 +1479,8 @@ impl Workspace {
         }
 
         // Show diagnostics overlay modal
-        self.diagnostics_pane.set_theme(app_state.theme);
+        self.diagnostics_pane
+            .set_theme(self.effective_theme(app_state));
         self.diagnostics_pane.show_overlay(ctx);
 
         // Show source preview overlay modal
@@ -1447,7 +1554,8 @@ impl Workspace {
         self.poll_agent_pane_commands(ctx);
 
         // Update viewport filter state (rendering happens in bottom panel)
-        self.viewport_filter.set_theme(app_state.theme);
+        self.viewport_filter
+            .set_theme(self.effective_theme(app_state));
         let (match_count, total_count) = self.count_filtered_panes();
         self.viewport_filter.update_counts(match_count, total_count);
 
@@ -1552,7 +1660,8 @@ impl Workspace {
             || self.style_picker.is_open()
             || self.workspace_finder.is_open()
             || self.command_palette.is_open()
-            || self.which_key.is_open();
+            || self.which_key.is_open()
+            || self.plugins_overlay.is_open();
         self.landing_page.set_keyboard_disabled(modal_open);
 
         // Show the landing page in the central panel
@@ -1590,6 +1699,9 @@ impl Workspace {
             LandingPageAction::ShowShortcuts => {
                 self.which_key.open();
             }
+            LandingPageAction::OpenPlugins => {
+                self.plugins_overlay.open();
+            }
             LandingPageAction::OpenDocs => {
                 ctx.open_url(egui::OpenUrl::new_tab("https://enya.build/docs"));
             }
@@ -1613,10 +1725,21 @@ impl Workspace {
             .show(ctx, app_state.theme, app_state.settings.font)
         {
             StylePickerResult::ThemeSelected(theme) => return WorkspaceAction::SetTheme(theme),
-            StylePickerResult::Cancelled(original_theme, original_font) => {
-                return WorkspaceAction::SetThemeAndFont(original_theme, original_font);
+            StylePickerResult::CustomThemeSelected(name) => {
+                return WorkspaceAction::SetCustomTheme(name);
+            }
+            StylePickerResult::Cancelled(original_theme, original_custom, original_font) => {
+                // If there was a custom theme, restore it; otherwise restore builtin theme
+                if let Some(custom_name) = original_custom {
+                    return WorkspaceAction::SetCustomThemeAndFont(custom_name, original_font);
+                } else {
+                    return WorkspaceAction::SetThemeAndFont(original_theme, original_font);
+                }
             }
             StylePickerResult::ThemePreview(theme) => return WorkspaceAction::SetTheme(theme),
+            StylePickerResult::CustomThemePreview(name) => {
+                return WorkspaceAction::SetCustomTheme(name);
+            }
             StylePickerResult::FontSelected(font) => return WorkspaceAction::SetFont(font),
             StylePickerResult::FontPreview(font) => return WorkspaceAction::SetFont(font),
             StylePickerResult::None => {}
@@ -1663,11 +1786,12 @@ impl Workspace {
         }
 
         // Show command palette modal
-        self.command_palette.set_theme(app_state.theme);
+        self.command_palette
+            .set_theme(self.effective_theme(app_state));
         let cmd_result = self.command_palette.show(ctx);
 
         // Show info overlay modal
-        self.info_overlay.set_theme(app_state.theme);
+        self.info_overlay.set_theme(self.effective_theme(app_state));
         self.info_overlay.show(ctx);
 
         // Show about overlay modal
@@ -1675,12 +1799,36 @@ impl Workspace {
         self.about_overlay.show(ctx);
 
         // Show which-key overlay modal
-        self.which_key.set_theme(app_state.theme);
+        self.which_key.set_theme(self.effective_theme(app_state));
         self.which_key.show(ctx);
 
         // Show tutorial overlay modal
-        self.tutorial_overlay.set_theme(app_state.theme);
+        self.tutorial_overlay
+            .set_theme(self.effective_theme(app_state));
         self.tutorial_overlay.show(ctx);
+
+        // Show plugins overlay modal
+        self.plugins_overlay
+            .set_theme(self.effective_theme(app_state));
+        match self.plugins_overlay.show(ctx) {
+            PluginsOverlayResult::OpenPluginDirectory => {
+                // Open the plugin directory in the system file manager
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if let Some(dir) = dirs::home_dir() {
+                        let plugin_dir = dir.join(".config").join("enya").join("plugins");
+                        if let Err(e) = open::that(&plugin_dir) {
+                            log::warn!("Failed to open plugin directory: {e}");
+                        }
+                    }
+                }
+            }
+            PluginsOverlayResult::TogglePlugin(name) => {
+                log::info!("Toggle plugin: {name}");
+                // TODO: Implement plugin enable/disable via PluginRegistry
+            }
+            PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
+        }
 
         // Show workspace creator overlay modal
         self.workspace_creator.set_theme(app_state.theme);
@@ -1708,7 +1856,8 @@ impl Workspace {
         }
 
         // Show diagnostics overlay modal
-        self.diagnostics_pane.set_theme(app_state.theme);
+        self.diagnostics_pane
+            .set_theme(self.effective_theme(app_state));
         self.diagnostics_pane.show_overlay(ctx);
 
         // Show annotation editor overlay modal
@@ -1889,6 +2038,9 @@ impl Workspace {
                 self.tutorial_overlay.open_from_start();
                 WorkspaceAction::None
             }
+            CommandResult::PluginCommand(command, args) => {
+                WorkspaceAction::PluginCommand { command, args }
+            }
             CommandResult::Success | CommandResult::Error(_) | CommandResult::None => {
                 WorkspaceAction::None
             }
@@ -2005,6 +2157,25 @@ impl Workspace {
     /// Open the command palette with pre-filled text
     pub fn open_command_palette_with_text(&mut self, text: &str) {
         self.command_palette.open_with_text(text);
+    }
+
+    /// Set plugin commands for the command palette
+    pub fn set_plugin_commands(&mut self, commands: Vec<crate::components::DynamicCommand>) {
+        self.command_palette.set_plugin_commands(commands);
+    }
+
+    /// Set plugins info for the plugins overlay
+    pub fn set_plugins(&mut self, plugins: Vec<crate::components::PluginDisplayInfo>) {
+        self.plugins_overlay.set_plugins(plugins);
+    }
+
+    /// Set custom themes from plugins for the style picker.
+    /// Each tuple is (name, display_name, resolved colors).
+    pub fn set_custom_themes(
+        &mut self,
+        themes: Vec<(String, String, crate::ui::active_theme::ActiveThemeColors)>,
+    ) {
+        self.style_picker.set_custom_themes(themes);
     }
 
     /// Toggle zen mode (distraction-free view)

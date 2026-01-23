@@ -35,7 +35,6 @@ use nucleo_matcher::{
 
 use crate::components::util::finder_utils::{FinderColors, FinderKeyboardInput, OverlayStyle};
 use crate::components::util::{ScrollShadowConfig, ScrollState, render_scroll_shadows};
-use crate::ui::colors::text_color;
 use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -679,8 +678,16 @@ impl UnifiedFinder {
         // Large fixed height (70% of screen, clamped)
         let popup_max_height = (screen_rect.height() * 0.70).clamp(500.0, 700.0);
 
-        let colors = FinderColors::new(self.theme);
+        // Extract colors from theme (Custom variant handles plugin colors internally)
         let overlay_style = OverlayStyle::frosted_glass(self.theme);
+        let text_col = self.theme.text_primary();
+        let text_muted = self.theme.text_primary().gamma_multiply(0.5);
+        let accent_col = self.theme.accent_primary();
+        let accent_hover = self.theme.accent_hover();
+        let border_col = self.theme.border_subtle();
+        let bg_elevated = self.theme.bg_elevated();
+        let highlight_col = self.theme.highlight_match_text();
+        let colors = FinderColors::new(self.theme);
 
         egui::Area::new(egui::Id::new("unified_finder"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, -30.0])
@@ -723,7 +730,7 @@ impl UnifiedFinder {
                     ui.set_max_height(popup_max_height);
 
                     // Header with search input and mode badge
-                    self.render_header(ui, &colors, total_width);
+                    self.render_header(ui, total_width, text_col, text_muted, accent_col);
 
                     ui.add_space(8.0);
 
@@ -731,7 +738,7 @@ impl UnifiedFinder {
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
-                        egui::Stroke::new(1.0, colors.separator),
+                        egui::Stroke::new(1.0, border_col),
                     );
                     ui.add_space(4.0);
 
@@ -740,8 +747,19 @@ impl UnifiedFinder {
 
                     // Content area - takes all remaining space minus footer
                     let content_height = ui.available_height() - footer_height - 16.0; // 16 = spacing + margins
-                    clicked_index =
-                        self.render_content(ui, &colors, list_width, preview_width, content_height);
+                    clicked_index = self.render_content(
+                        ui,
+                        &colors,
+                        list_width,
+                        preview_width,
+                        content_height,
+                        text_col,
+                        text_muted,
+                        accent_col,
+                        highlight_col,
+                        border_col,
+                        bg_elevated,
+                    );
 
                     // Use add_space with remaining available height to push footer to bottom
                     let remaining = ui.available_height() - footer_height - 10.0;
@@ -753,13 +771,13 @@ impl UnifiedFinder {
                     ui.painter().hline(
                         ui.available_rect_before_wrap().x_range(),
                         ui.cursor().top(),
-                        egui::Stroke::new(1.0, colors.separator),
+                        egui::Stroke::new(1.0, border_col),
                     );
 
                     // Use bottom-aligned layout to push footer content to the bottom of available space
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                         ui.add_space(8.0); // Bottom padding
-                        self.render_footer(ui);
+                        self.render_footer(ui, text_muted, accent_hover);
                     });
                 });
 
@@ -794,10 +812,15 @@ impl UnifiedFinder {
     }
 
     /// Renders the header with search input and mode badge.
-    fn render_header(&mut self, ui: &mut egui::Ui, _colors: &FinderColors, total_width: f32) {
-        let accent = self.theme.accent_primary();
+    fn render_header(
+        &mut self,
+        ui: &mut egui::Ui,
+        total_width: f32,
+        text_col: Color32,
+        text_muted: Color32,
+        accent_col: Color32,
+    ) {
         let mode_color = self.mode.color(self.theme);
-        let text_col = text_color(self.theme);
         let badge_width = 100.0; // Fixed badge width for consistent positioning
 
         ui.horizontal(|ui| {
@@ -806,7 +829,7 @@ impl UnifiedFinder {
             // Search icon with accent color
             ui.label(
                 RichText::new(egui_nerdfonts::regular::MAGNIFY)
-                    .color(accent)
+                    .color(accent_col)
                     .size(18.0),
             );
 
@@ -822,7 +845,7 @@ impl UnifiedFinder {
                             "Search {}...  @ metrics  ! alerts  # commits",
                             self.mode.label().to_lowercase()
                         ))
-                        .color(text_col.gamma_multiply(0.4))
+                        .color(text_muted.gamma_multiply(0.8))
                         .size(typography::MD),
                     )
                     .text_color(text_col)
@@ -889,7 +912,7 @@ impl UnifiedFinder {
                     };
                     ui.label(
                         RichText::new(format!("{count_text} results"))
-                            .color(text_col.gamma_multiply(0.4))
+                            .color(text_muted.gamma_multiply(0.8))
                             .size(typography::XS),
                     );
                 }
@@ -898,6 +921,7 @@ impl UnifiedFinder {
     }
 
     /// Renders the main content area. Returns clicked index if any.
+    #[allow(clippy::too_many_arguments)]
     fn render_content(
         &mut self,
         ui: &mut egui::Ui,
@@ -905,6 +929,12 @@ impl UnifiedFinder {
         list_width: f32,
         preview_width: f32,
         content_height: f32,
+        text_col: Color32,
+        text_muted: Color32,
+        accent_col: Color32,
+        highlight_col: Color32,
+        border_col: Color32,
+        bg_elevated: Color32,
     ) -> Option<usize> {
         // Check for native-only modes on WASM
         #[cfg(target_arch = "wasm32")]
@@ -915,7 +945,9 @@ impl UnifiedFinder {
                 egui_nerdfonts::regular::DESKTOP,
                 "Native app required",
                 Some("Codebase search is only available in the native app"),
-                colors,
+                text_col,
+                text_muted,
+                accent_col,
             );
             return None;
         }
@@ -928,7 +960,9 @@ impl UnifiedFinder {
                 egui_nerdfonts::regular::MAGNIFY_CLOSE,
                 "No results found",
                 None,
-                colors,
+                text_col,
+                text_muted,
+                accent_col,
             );
             return None;
         }
@@ -941,7 +975,9 @@ impl UnifiedFinder {
                 self.mode.icon(),
                 &format!("Type to search {}", self.mode.label().to_lowercase()),
                 Some("Use prefixes: @ metrics  ! alerts  # commits"),
-                colors,
+                text_col,
+                text_muted,
+                accent_col,
             );
             return None;
         }
@@ -959,7 +995,15 @@ impl UnifiedFinder {
                     egui::vec2(list_width, content_height),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
-                        clicked_index = self.render_results_list(ui, colors, content_height);
+                        clicked_index = self.render_results_list(
+                            ui,
+                            content_height,
+                            text_col,
+                            text_muted,
+                            accent_col,
+                            highlight_col,
+                            bg_elevated,
+                        );
                     },
                 );
 
@@ -967,7 +1011,7 @@ impl UnifiedFinder {
                 ui.painter().vline(
                     ui.cursor().left(),
                     ui.available_rect_before_wrap().y_range(),
-                    egui::Stroke::new(1.0, colors.separator),
+                    egui::Stroke::new(1.0, border_col),
                 );
 
                 // Preview
@@ -975,7 +1019,9 @@ impl UnifiedFinder {
                     egui::vec2(preview_width, content_height),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
-                        self.render_preview(ui, colors);
+                        self.render_preview(
+                            ui, colors, text_col, text_muted, accent_col, border_col,
+                        );
                     },
                 );
             },
@@ -985,16 +1031,19 @@ impl UnifiedFinder {
     }
 
     /// Renders the results list. Returns the index of a clicked item if any.
+    #[allow(clippy::too_many_arguments)]
     fn render_results_list(
         &mut self,
         ui: &mut egui::Ui,
-        _colors: &FinderColors,
         max_height: f32,
+        text_col: Color32,
+        text_muted: Color32,
+        accent_col: Color32,
+        highlight_col: Color32,
+        bg_elevated: Color32,
     ) -> Option<usize> {
+        let _ = text_muted; // Used in secondary text rendering
         let mut clicked_index: Option<usize> = None;
-        let text_col = text_color(self.theme);
-        let accent_col = self.theme.accent_primary();
-        let highlight_col = self.theme.highlight_match_text();
 
         // Get the clip rect for the list area to prevent text overflow
         let list_clip_rect = ui.available_rect_before_wrap();
@@ -1190,7 +1239,7 @@ impl UnifiedFinder {
             scroll_output.state.offset,
         );
         let shadow_config = ScrollShadowConfig::default()
-            .with_color(self.theme.bg_elevated())
+            .with_color(bg_elevated)
             .with_opacity(0.5);
         render_scroll_shadows(ui, scroll_output.inner_rect, scroll_state, shadow_config);
 
@@ -1198,7 +1247,16 @@ impl UnifiedFinder {
     }
 
     /// Renders the preview pane.
-    fn render_preview(&self, ui: &mut egui::Ui, colors: &FinderColors) {
+    #[allow(clippy::too_many_arguments)]
+    fn render_preview(
+        &self,
+        ui: &mut egui::Ui,
+        _colors: &FinderColors,
+        text_col: Color32,
+        text_muted: Color32,
+        accent_col: Color32,
+        border_col: Color32,
+    ) {
         // No background fill - uses the same frosted glass as the rest of the overlay
         // This matches the Source Preview Overlay styling
 
@@ -1221,7 +1279,7 @@ impl UnifiedFinder {
                 |ui| {
                     ui.label(
                         RichText::new("Select an item to preview")
-                            .color(text_color(self.theme).gamma_multiply(0.4))
+                            .color(text_muted.gamma_multiply(0.8))
                             .italics(),
                     );
                 },
@@ -1242,15 +1300,9 @@ impl UnifiedFinder {
                 let inner_clip = ui.available_rect_before_wrap();
                 ui.set_clip_rect(inner_clip);
 
-                let text_col = text_color(self.theme);
-
                 // Header - truncate title to fit available width
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(result.icon())
-                            .color(self.mode.color(self.theme))
-                            .size(20.0),
-                    );
+                    ui.label(RichText::new(result.icon()).color(accent_col).size(20.0));
                     ui.add_space(8.0);
 
                     // Truncate title to fit available space (reserve space for icon + margins)
@@ -1277,7 +1329,7 @@ impl UnifiedFinder {
                         // Category
                         ui.label(
                             RichText::new(format!("Category: {category}"))
-                                .color(text_col.gamma_multiply(0.6))
+                                .color(text_muted)
                                 .size(typography::SM),
                         );
 
@@ -1287,17 +1339,17 @@ impl UnifiedFinder {
                         ui.painter().hline(
                             ui.available_rect_before_wrap().x_range(),
                             ui.cursor().top(),
-                            egui::Stroke::new(1.0, colors.separator),
+                            egui::Stroke::new(1.0, border_col),
                         );
                         ui.add_space(12.0);
 
-                        // Tags section
-                        let tag_key_color = self.theme.syntax_key();
-                        let tag_value_color = self.theme.syntax_value();
+                        // Tags section - use accent colors for syntax highlighting
+                        let tag_key_color = accent_col;
+                        let tag_value_color = text_col;
 
                         ui.label(
                             RichText::new("Available Tags")
-                                .color(text_col.gamma_multiply(0.6))
+                                .color(text_muted)
                                 .size(typography::XS),
                         );
                         ui.add_space(8.0);
@@ -1305,7 +1357,7 @@ impl UnifiedFinder {
                         if tags.is_empty() {
                             ui.label(
                                 RichText::new("No tags available")
-                                    .color(text_col.gamma_multiply(0.4))
+                                    .color(text_muted.gamma_multiply(0.8))
                                     .italics()
                                     .size(typography::SM),
                             );
@@ -1354,7 +1406,7 @@ impl UnifiedFinder {
                                                             "  ... and {} more",
                                                             sorted_values.len() - 5
                                                         ))
-                                                        .color(text_col.gamma_multiply(0.4))
+                                                        .color(text_muted.gamma_multiply(0.8))
                                                         .italics()
                                                         .size(typography::XS),
                                                     );
@@ -1443,7 +1495,7 @@ impl UnifiedFinder {
                                 search_result.line,
                                 remaining_height,
                                 text_col,
-                                colors,
+                                _colors,
                                 self.theme,
                                 self.highlight_cache.as_ref(),
                             );
@@ -1454,9 +1506,9 @@ impl UnifiedFinder {
     }
 
     /// Renders the footer with keyboard hints.
-    fn render_footer(&self, ui: &mut egui::Ui) {
-        let accent = self.theme.accent_hover();
-        let hint_color = text_color(self.theme).gamma_multiply(0.4);
+    fn render_footer(&self, ui: &mut egui::Ui, text_muted: Color32, accent_hover: Color32) {
+        let accent = accent_hover;
+        let hint_color = text_muted.gamma_multiply(0.8);
 
         ui.horizontal(|ui| {
             ui.add_space(16.0);
@@ -1530,6 +1582,7 @@ impl UnifiedFinder {
     }
 
     /// Renders a premium empty state with centered icon, message, and optional hint.
+    #[allow(clippy::too_many_arguments)]
     fn render_empty_state(
         &self,
         ui: &mut egui::Ui,
@@ -1537,11 +1590,10 @@ impl UnifiedFinder {
         icon: &str,
         message: &str,
         hint: Option<&str>,
-        _colors: &FinderColors,
+        text_col: Color32,
+        text_muted: Color32,
+        accent_col: Color32,
     ) {
-        let accent = self.theme.accent_primary();
-        let text_col = text_color(self.theme);
-
         // Use allocate_ui_with_layout to ensure consistent height
         ui.allocate_ui_with_layout(
             egui::vec2(ui.available_width(), content_height),
@@ -1571,27 +1623,27 @@ impl UnifiedFinder {
                 ui.painter().circle_filled(
                     circle_center,
                     circle_radius,
-                    accent.gamma_multiply(0.08),
+                    accent_col.gamma_multiply(0.08),
                 );
 
                 // Inner circle slightly brighter
                 ui.painter().circle_filled(
                     circle_center,
                     circle_radius * 0.85,
-                    accent.gamma_multiply(0.05),
+                    accent_col.gamma_multiply(0.05),
                 );
 
                 // Icon centered in the circle
                 let icon_galley = ui.painter().layout_no_wrap(
                     icon.to_string(),
                     typography::proportional(icon_height),
-                    accent.gamma_multiply(0.5),
+                    accent_col.gamma_multiply(0.5),
                 );
                 let icon_pos = egui::pos2(
                     circle_center.x - icon_galley.size().x / 2.0,
                     circle_center.y - icon_galley.size().y / 2.0,
                 );
-                ui.painter().galley(icon_pos, icon_galley, accent);
+                ui.painter().galley(icon_pos, icon_galley, accent_col);
 
                 ui.add_space(20.0);
 
@@ -1607,7 +1659,7 @@ impl UnifiedFinder {
                     ui.add_space(6.0);
                     ui.label(
                         RichText::new(hint_text)
-                            .color(text_col.gamma_multiply(0.4))
+                            .color(text_muted)
                             .font(typography::proportional(typography::SM)),
                     );
                 }

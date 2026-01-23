@@ -6,7 +6,6 @@
 
 use egui::{Key, RichText};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -157,9 +156,10 @@ impl NativePromoOverlay {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let separator_color = self.theme.border_subtle();
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
+                let muted_text = self.theme.text_primary().gamma_multiply(0.6);
                 let accent_color = self.theme.accent_primary();
                 let key_bg = self.theme.bg_elevated();
                 let feature_bg = self.theme.bg_hover();
@@ -185,7 +185,7 @@ impl NativePromoOverlay {
                             ui.add_space(4.0);
                             ui.label(
                                 RichText::new("Get the Full Experience")
-                                    .color(text_color(self.theme))
+                                    .color(self.theme.text_primary())
                                     .size(typography::HEADING)
                                     .strong(),
                             );
@@ -207,7 +207,7 @@ impl NativePromoOverlay {
                                 RichText::new(
                                     "You're using the web version of Enya. Download the native desktop app to unlock these powerful features:",
                                 )
-                                .color(text_color(self.theme))
+                                .color(self.theme.text_primary())
                                 .size(typography::MD),
                             );
                         });
@@ -233,7 +233,7 @@ impl NativePromoOverlay {
                                             ui.vertical(|ui| {
                                                 ui.label(
                                                     RichText::new(feature.title)
-                                                        .color(text_color(self.theme))
+                                                        .color(self.theme.text_primary())
                                                         .size(typography::MD)
                                                         .strong(),
                                                 );
@@ -295,7 +295,7 @@ impl NativePromoOverlay {
                                 ui,
                                 "Enter / Esc",
                                 key_bg,
-                                text_color(self.theme),
+                                self.theme.text_primary(),
                             );
                             ui.add_space(8.0);
                             ui.label(

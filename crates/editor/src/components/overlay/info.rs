@@ -3,7 +3,6 @@
 use egui::{Color32, Key, RichText};
 use enya_build_info::BuildInfo;
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -14,7 +13,7 @@ use crate::components::util::finder_utils::OverlayStyle;
 pub struct InfoOverlay {
     /// Whether the overlay is open
     is_open: bool,
-    /// Current theme
+    /// Current theme (can be Custom with plugin colors)
     theme: AppTheme,
     /// Build info to display
     build_info: BuildInfo,
@@ -76,10 +75,10 @@ impl InfoOverlay {
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let separator_color = self.theme.border_subtle();
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
+                let muted_text = self.theme.text_primary().gamma_multiply(0.6);
                 let accent_color = self.theme.accent_hover();
                 let key_color = self.theme.text_tertiary();
-                let value_color = text_color(self.theme);
+                let value_color = self.theme.text_primary();
 
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
