@@ -93,6 +93,127 @@ struct LuaCommand {
     callback_key: RegistryKey,
 }
 
+/// Set up no-op placeholder functions on the enya table.
+/// These are needed because plugins may call API functions during initial loading,
+/// before the real implementations are available via setup_runtime_api.
+fn setup_noop_api(lua: &Lua, enya: &Table) -> LuaResult<()> {
+    // Core functions
+    enya.set(
+        "notify",
+        lua.create_function(|_, _: (String, String)| Ok(()))?,
+    )?;
+    enya.set("log", lua.create_function(|_, _: (String, String)| Ok(()))?)?;
+    enya.set("request_repaint", lua.create_function(|_, ()| Ok(()))?)?;
+    enya.set(
+        "editor_version",
+        lua.create_function(|_, ()| Ok("unknown".to_string()))?,
+    )?;
+    enya.set("is_wasm", lua.create_function(|_, ()| Ok(false))?)?;
+    enya.set(
+        "theme_name",
+        lua.create_function(|_, ()| Ok("unknown".to_string()))?,
+    )?;
+    enya.set(
+        "clipboard_write",
+        lua.create_function(|_, _: String| Ok(false))?,
+    )?;
+    enya.set(
+        "clipboard_read",
+        lua.create_function(|_, ()| Ok(None::<String>))?,
+    )?;
+    enya.set(
+        "execute",
+        lua.create_function(|_, _: (String, Option<String>)| Ok(false))?,
+    )?;
+
+    // HTTP functions - return error during loading phase
+    enya.set(
+        "http_get",
+        lua.create_function(|_, _: (String, Option<Table>)| -> LuaResult<Table> {
+            Err(mlua::Error::runtime(
+                "HTTP not available during plugin loading",
+            ))
+        })?,
+    )?;
+    enya.set(
+        "http_post",
+        lua.create_function(
+            |_, _: (String, String, Option<Table>)| -> LuaResult<Table> {
+                Err(mlua::Error::runtime(
+                    "HTTP not available during plugin loading",
+                ))
+            },
+        )?,
+    )?;
+
+    // Pane management
+    enya.set(
+        "add_query_pane",
+        lua.create_function(|_, _: (String, Option<String>)| Ok(()))?,
+    )?;
+    enya.set("add_logs_pane", lua.create_function(|_, ()| Ok(()))?)?;
+    enya.set(
+        "add_tracing_pane",
+        lua.create_function(|_, _: Option<String>| Ok(()))?,
+    )?;
+    enya.set("add_terminal_pane", lua.create_function(|_, ()| Ok(()))?)?;
+    enya.set("add_sql_pane", lua.create_function(|_, ()| Ok(()))?)?;
+    enya.set("close_pane", lua.create_function(|_, ()| Ok(()))?)?;
+    enya.set("focus_pane", lua.create_function(|_, _: String| Ok(()))?)?;
+
+    // Time range
+    enya.set(
+        "set_time_range",
+        lua.create_function(|_, _: String| Ok(()))?,
+    )?;
+    enya.set(
+        "set_time_range_absolute",
+        lua.create_function(|_, _: (f64, f64)| Ok(()))?,
+    )?;
+    enya.set(
+        "get_time_range",
+        lua.create_function(|lua, ()| {
+            let table = lua.create_table()?;
+            table.set("start", 0.0)?;
+            table.set("end", 0.0)?;
+            Ok(table)
+        })?,
+    )?;
+
+    // Custom pane functions
+    enya.set(
+        "add_custom_pane",
+        lua.create_function(|_, _: String| Ok(()))?,
+    )?;
+    enya.set(
+        "set_pane_data",
+        lua.create_function(|_, _: (String, Table)| Ok(()))?,
+    )?;
+    enya.set(
+        "add_chart_pane",
+        lua.create_function(|_, _: String| Ok(()))?,
+    )?;
+    enya.set(
+        "set_chart_data",
+        lua.create_function(|_, _: (String, Table)| Ok(()))?,
+    )?;
+    enya.set("add_stat_pane", lua.create_function(|_, _: String| Ok(()))?)?;
+    enya.set(
+        "set_stat_data",
+        lua.create_function(|_, _: (String, Table)| Ok(()))?,
+    )?;
+    enya.set(
+        "add_gauge_pane",
+        lua.create_function(|_, _: String| Ok(()))?,
+    )?;
+    enya.set(
+        "set_gauge_data",
+        lua.create_function(|_, _: (String, Table)| Ok(()))?,
+    )?;
+
+    Ok(())
+}
+
 /// A Lua-based plugin.
 pub struct LuaPlugin {
     /// The Lua state (wrapped in Mutex for Sync)
@@ -568,127 +689,11 @@ impl LuaPlugin {
         enya.set("_registered_stat_panes", registered_stat_panes)?;
         enya.set("_registered_gauge_panes", registered_gauge_panes)?;
 
-        // Placeholder functions that will be overwritten when we have context
-        let noop_notify = lua.create_function(|_, (_level, _msg): (String, String)| {
-            // No-op during loading - will be replaced with real impl at runtime
-            Ok(())
-        })?;
-        enya.set("notify", noop_notify)?;
-
-        let noop_log = lua.create_function(|_, (_level, _msg): (String, String)| Ok(()))?;
-        enya.set("log", noop_log)?;
-
-        let noop_repaint = lua.create_function(|_, ()| Ok(()))?;
-        enya.set("request_repaint", noop_repaint)?;
-
-        let noop_version = lua.create_function(|_, ()| Ok("unknown".to_string()))?;
-        enya.set("editor_version", noop_version)?;
-
-        let noop_wasm = lua.create_function(|_, ()| Ok(false))?;
-        enya.set("is_wasm", noop_wasm)?;
-
-        let noop_theme_name = lua.create_function(|_, ()| Ok("unknown".to_string()))?;
-        enya.set("theme_name", noop_theme_name)?;
-
-        let noop_clipboard_write = lua.create_function(|_, _text: String| Ok(false))?;
-        enya.set("clipboard_write", noop_clipboard_write)?;
-
-        let noop_clipboard_read = lua.create_function(|_, ()| Ok(None::<String>))?;
-        enya.set("clipboard_read", noop_clipboard_read)?;
-
-        let noop_execute =
-            lua.create_function(|_, (_cmd, _args): (String, Option<String>)| Ok(false))?;
-        enya.set("execute", noop_execute)?;
-
-        // HTTP functions - return error during loading phase
-        let noop_http_get = lua.create_function(
-            |_, (_url, _headers): (String, Option<Table>)| -> LuaResult<Table> {
-                Err(mlua::Error::runtime(
-                    "HTTP not available during plugin loading",
-                ))
-            },
-        )?;
-        enya.set("http_get", noop_http_get)?;
-
-        let noop_http_post = lua.create_function(
-            |_, (_url, _body, _headers): (String, String, Option<Table>)| -> LuaResult<Table> {
-                Err(mlua::Error::runtime(
-                    "HTTP not available during plugin loading",
-                ))
-            },
-        )?;
-        enya.set("http_post", noop_http_post)?;
-
-        // Pane management - no-op during loading phase
-        let noop_add_query_pane =
-            lua.create_function(|_, (_query, _title): (String, Option<String>)| Ok(()))?;
-        enya.set("add_query_pane", noop_add_query_pane)?;
-
-        let noop_add_logs_pane = lua.create_function(|_, ()| Ok(()))?;
-        enya.set("add_logs_pane", noop_add_logs_pane)?;
-
-        let noop_add_tracing_pane = lua.create_function(|_, _trace_id: Option<String>| Ok(()))?;
-        enya.set("add_tracing_pane", noop_add_tracing_pane)?;
-
-        let noop_add_terminal_pane = lua.create_function(|_, ()| Ok(()))?;
-        enya.set("add_terminal_pane", noop_add_terminal_pane)?;
-
-        let noop_add_sql_pane = lua.create_function(|_, ()| Ok(()))?;
-        enya.set("add_sql_pane", noop_add_sql_pane)?;
-
-        let noop_close_pane = lua.create_function(|_, ()| Ok(()))?;
-        enya.set("close_pane", noop_close_pane)?;
-
-        let noop_focus_pane = lua.create_function(|_, _direction: String| Ok(()))?;
-        enya.set("focus_pane", noop_focus_pane)?;
-
-        // Time range - no-op during loading phase
-        let noop_set_time_range = lua.create_function(|_, _preset: String| Ok(()))?;
-        enya.set("set_time_range", noop_set_time_range)?;
-
-        let noop_set_time_range_absolute =
-            lua.create_function(|_, (_start, _end): (f64, f64)| Ok(()))?;
-        enya.set("set_time_range_absolute", noop_set_time_range_absolute)?;
-
-        let noop_get_time_range = lua.create_function(|lua, ()| {
-            let table = lua.create_table()?;
-            table.set("start", 0.0)?;
-            table.set("end", 0.0)?;
-            Ok(table)
-        })?;
-        enya.set("get_time_range", noop_get_time_range)?;
-
-        // Custom table pane functions - no-op during loading phase
-        let noop_add_custom_pane = lua.create_function(|_, _pane_type: String| Ok(()))?;
-        enya.set("add_custom_pane", noop_add_custom_pane)?;
-
-        let noop_set_pane_data =
-            lua.create_function(|_, (_pane_type, _data): (String, Table)| Ok(()))?;
-        enya.set("set_pane_data", noop_set_pane_data)?;
-
-        // Custom chart pane functions - no-op during loading phase
-        let noop_add_chart_pane = lua.create_function(|_, _pane_type: String| Ok(()))?;
-        enya.set("add_chart_pane", noop_add_chart_pane)?;
-
-        let noop_set_chart_data =
-            lua.create_function(|_, (_pane_type, _data): (String, Table)| Ok(()))?;
-        enya.set("set_chart_data", noop_set_chart_data)?;
-
-        // Custom stat pane functions - no-op during loading phase
-        let noop_add_stat_pane = lua.create_function(|_, _pane_type: String| Ok(()))?;
-        enya.set("add_stat_pane", noop_add_stat_pane)?;
-
-        let noop_set_stat_data =
-            lua.create_function(|_, (_pane_type, _data): (String, Table)| Ok(()))?;
-        enya.set("set_stat_data", noop_set_stat_data)?;
-
-        // Custom gauge pane functions - no-op during loading phase
-        let noop_add_gauge_pane = lua.create_function(|_, _pane_type: String| Ok(()))?;
-        enya.set("add_gauge_pane", noop_add_gauge_pane)?;
-
-        let noop_set_gauge_data =
-            lua.create_function(|_, (_pane_type, _data): (String, Table)| Ok(()))?;
-        enya.set("set_gauge_data", noop_set_gauge_data)?;
+        // Placeholder functions that will be overwritten by setup_runtime_api when we have context.
+        // These no-ops are needed because plugins may call these functions during initial loading.
+        // IMPORTANT: When adding new API functions, add both a no-op here AND the real impl in
+        // setup_runtime_api to keep them in sync.
+        setup_noop_api(lua, &enya)?;
 
         globals.set("enya", enya)?;
 
@@ -802,7 +807,9 @@ impl LuaPlugin {
                     column = column.with_key(col_key);
                 }
                 if col_width > 0.0 {
-                    column = column.with_width(col_width as u32);
+                    // Clamp to valid u32 range to prevent overflow
+                    let width = col_width.min(u32::MAX as f32) as u32;
+                    column = column.with_width(width);
                 }
                 columns.push(column);
             }

@@ -140,6 +140,14 @@ pub struct ConfigPlugin {
     path: PathBuf,
     /// Whether the plugin is active
     active: bool,
+    /// Cached static name (leaked once at load)
+    name: &'static str,
+    /// Cached static version (leaked once at load)
+    version: &'static str,
+    /// Cached static description (leaked once at load)
+    description: &'static str,
+    /// Cached static min_editor_version (leaked once at load)
+    min_editor_version: Option<&'static str>,
 }
 
 impl ConfigPlugin {
@@ -153,16 +161,53 @@ impl ConfigPlugin {
             PluginError::InvalidConfiguration(format!("Failed to parse {}: {e}", path.display()))
         })?;
 
+        // Leak strings once at load time (plugins live for the duration of the program)
+        let name = Box::leak(manifest.plugin.name.clone().into_boxed_str());
+        let version = Box::leak(manifest.plugin.version.clone().into_boxed_str());
+        let description = Box::leak(manifest.plugin.description.clone().into_boxed_str());
+        let min_editor_version = manifest
+            .plugin
+            .min_enya_version
+            .as_ref()
+            .map(|v| Box::leak(v.clone().into_boxed_str()) as &'static str);
+
         Ok(Self {
             manifest,
             path: path.to_path_buf(),
             active: false,
+            name,
+            version,
+            description,
+            min_editor_version,
         })
     }
 
     /// Get the plugin manifest.
     pub fn manifest(&self) -> &PluginManifest {
         &self.manifest
+    }
+
+    /// Create a plugin from a manifest (for testing).
+    #[cfg(test)]
+    pub fn from_manifest(manifest: PluginManifest, path: PathBuf) -> Self {
+        let name = Box::leak(manifest.plugin.name.clone().into_boxed_str());
+        let version = Box::leak(manifest.plugin.version.clone().into_boxed_str());
+        let description = Box::leak(manifest.plugin.description.clone().into_boxed_str());
+        let min_editor_version = manifest
+            .plugin
+            .min_enya_version
+            .as_ref()
+            .map(|v| Box::leak(v.clone().into_boxed_str()) as &'static str);
+
+        Self {
+            manifest,
+            path,
+            active: false,
+            name,
+            version,
+            description,
+            min_editor_version,
+        }
     }
 
     /// Execute a shell command.
@@ -178,15 +223,27 @@ impl ConfigPlugin {
             self.manifest.plugin.name
         );
 
+        let plugin_name = self.manifest.plugin.name.clone();
+        let cmd_for_log = full_cmd.clone();
+
         match std::process::Command::new("sh")
             .arg("-c")
             .arg(&full_cmd)
             .spawn()
         {
             Ok(mut child) => {
-                // Don't wait for the process to complete
-                std::thread::spawn(move || {
-                    let _ = child.wait();
+                // Don't wait for the process to complete, but log exit status
+                std::thread::spawn(move || match child.wait() {
+                    Ok(status) => {
+                        if !status.success() {
+                            log::warn!(
+                                "[plugin:{plugin_name}] Command exited with {status}: {cmd_for_log}"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("[plugin:{plugin_name}] Failed to wait for command: {e}");
+                    }
                 });
                 true
             }
@@ -203,17 +260,15 @@ impl ConfigPlugin {
 
 impl Plugin for ConfigPlugin {
     fn name(&self) -> &'static str {
-        // Leak the string to get a 'static lifetime
-        // This is fine because plugins live for the duration of the program
-        Box::leak(self.manifest.plugin.name.clone().into_boxed_str())
+        self.name
     }
 
     fn version(&self) -> &'static str {
-        Box::leak(self.manifest.plugin.version.clone().into_boxed_str())
+        self.version
     }
 
     fn description(&self) -> &'static str {
-        Box::leak(self.manifest.plugin.description.clone().into_boxed_str())
+        self.description
     }
 
     fn capabilities(&self) -> PluginCapabilities {
@@ -228,11 +283,7 @@ impl Plugin for ConfigPlugin {
     }
 
     fn min_editor_version(&self) -> Option<&'static str> {
-        self.manifest
-            .plugin
-            .min_enya_version
-            .as_ref()
-            .map(|v| Box::leak(v.clone().into_boxed_str()) as &'static str)
+        self.min_editor_version
     }
 
     fn init(&mut self, _ctx: &PluginContext) -> PluginResult<()> {
@@ -658,11 +709,7 @@ mod tests {
             version = "1.0.0"
         "#;
         let manifest: PluginManifest = toml::from_str(empty_toml).unwrap();
-        let plugin = ConfigPlugin {
-            manifest,
-            path: PathBuf::from("test.toml"),
-            active: false,
-        };
+        let plugin = ConfigPlugin::from_manifest(manifest, PathBuf::from("test.toml"));
         assert!(plugin.capabilities().is_empty());
 
         // With commands
@@ -675,11 +722,7 @@ mod tests {
             name = "test"
         "#;
         let manifest: PluginManifest = toml::from_str(cmd_toml).unwrap();
-        let plugin = ConfigPlugin {
-            manifest,
-            path: PathBuf::from("test.toml"),
-            active: false,
-        };
+        let plugin = ConfigPlugin::from_manifest(manifest, PathBuf::from("test.toml"));
         assert!(plugin.capabilities().contains(PluginCapabilities::COMMANDS));
 
         // With keybindings
@@ -693,11 +736,7 @@ mod tests {
             command = "test"
         "#;
         let manifest: PluginManifest = toml::from_str(kb_toml).unwrap();
-        let plugin = ConfigPlugin {
-            manifest,
-            path: PathBuf::from("test.toml"),
-            active: false,
-        };
+        let plugin = ConfigPlugin::from_manifest(manifest, PathBuf::from("test.toml"));
         assert!(plugin.capabilities().contains(PluginCapabilities::KEYBOARD));
     }
 

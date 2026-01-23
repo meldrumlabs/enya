@@ -1044,6 +1044,7 @@ impl TimeSeriesChart {
             };
 
             ui.horizontal_wrapped(|ui| {
+                ui.add_space(4.0); // Left margin for focus border clearance
                 ui.spacing_mut().item_spacing.x = legend_item_spacing;
 
                 // Show first N series

@@ -40,9 +40,9 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    /// Parse a log level from a string.
+    /// Parse a log level from a string (case-insensitive).
     pub fn parse(s: &str) -> Self {
-        match s {
+        match s.to_ascii_lowercase().as_str() {
             "debug" => Self::Debug,
             "warn" | "warning" => Self::Warn,
             "error" => Self::Error,
@@ -425,21 +425,41 @@ pub struct GaugePaneConfig {
     pub plugin_name: String,
 }
 
+/// Scale factor for converting f64 to i64 for hashable storage.
+const GAUGE_SCALE_FACTOR: f64 = 1_000_000.0;
+
 impl GaugePaneConfig {
     /// Get minimum value as f64.
     pub fn min(&self) -> f64 {
-        self.min_scaled as f64 / 1_000_000.0
+        self.min_scaled as f64 / GAUGE_SCALE_FACTOR
     }
 
     /// Get maximum value as f64.
     pub fn max(&self) -> f64 {
-        self.max_scaled as f64 / 1_000_000.0
+        self.max_scaled as f64 / GAUGE_SCALE_FACTOR
     }
 
     /// Set range from f64 values.
+    /// Values are clamped to representable range to avoid overflow.
     pub fn set_range(&mut self, min: f64, max: f64) {
-        self.min_scaled = (min * 1_000_000.0) as i64;
-        self.max_scaled = (max * 1_000_000.0) as i64;
+        self.min_scaled = scale_f64_to_i64(min);
+        self.max_scaled = scale_f64_to_i64(max);
+    }
+}
+
+/// Safely scale an f64 value to i64, clamping to representable range.
+/// Handles NaN, infinity, and values that would overflow after scaling.
+fn scale_f64_to_i64(value: f64) -> i64 {
+    if value.is_nan() {
+        return 0;
+    }
+    let scaled = value * GAUGE_SCALE_FACTOR;
+    if scaled >= i64::MAX as f64 {
+        i64::MAX
+    } else if scaled <= i64::MIN as f64 {
+        i64::MIN
+    } else {
+        scaled as i64
     }
 }
 
@@ -879,7 +899,10 @@ mod tests {
         // Unknown values default to Info
         assert_eq!(LogLevel::parse("unknown"), LogLevel::Info);
         assert_eq!(LogLevel::parse(""), LogLevel::Info);
-        assert_eq!(LogLevel::parse("DEBUG"), LogLevel::Info); // case sensitive
+        // Case-insensitive parsing
+        assert_eq!(LogLevel::parse("DEBUG"), LogLevel::Debug);
+        assert_eq!(LogLevel::parse("WARN"), LogLevel::Warn);
+        assert_eq!(LogLevel::parse("Error"), LogLevel::Error);
     }
 
     #[test]
