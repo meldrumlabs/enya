@@ -209,14 +209,6 @@ impl crate::components::Component for TerminalPane {
         TerminalPane::set_theme(self, theme);
     }
 
-    fn set_api_key(&mut self, _key: &str) {
-        // Not needed for terminal
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed for terminal
-    }
-
     fn label(&self) -> RichText {
         RichText::new(format!(
             "{} {}",

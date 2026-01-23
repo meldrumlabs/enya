@@ -1379,13 +1379,6 @@ impl FloatingPaneManager {
         }
     }
 
-    /// Apply API key to all floating pane components.
-    pub fn set_api_key(&mut self, key: &str) {
-        for pane in &mut self.panes {
-            pane.component.set_api_key(key);
-        }
-    }
-
     /// Get a mutable reference to the focused pane's component.
     pub fn focused_component_mut(&mut self) -> Option<&mut Box<dyn Component>> {
         let focused_id = self.focused?;

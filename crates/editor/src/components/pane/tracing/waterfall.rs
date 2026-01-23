@@ -39,9 +39,6 @@ pub struct WaterfallChart {
     hovered_span_id: Option<String>,
     /// Mapping from service name to color index
     service_colors: FxHashMap<String, usize>,
-    /// Zoom level (1.0 = normal)
-    #[allow(dead_code)]
-    zoom_level: f32,
     /// Show span labels inline
     show_labels: bool,
 }
@@ -61,7 +58,6 @@ impl WaterfallChart {
             selected_span_id: None,
             hovered_span_id: None,
             service_colors: FxHashMap::default(),
-            zoom_level: 1.0,
             show_labels: true,
         }
     }

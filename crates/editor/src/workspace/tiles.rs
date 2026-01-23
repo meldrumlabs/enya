@@ -26,7 +26,6 @@ pub struct TreeBehavior {
     /// Query content per tile (for display in visual-multi mode)
     tile_queries: FxHashMap<TileId, String>,
     theme: AppTheme,
-    api_key: String,
     /// Tile IDs that are filtered out (should be dimmed)
     filtered_out_tiles: FxHashSet<TileId>,
     /// Whether viewport filter is active
@@ -36,10 +35,6 @@ pub struct TreeBehavior {
 impl TreeBehavior {
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
-    }
-
-    pub fn set_keys(&mut self, api_key: String) {
-        self.api_key = api_key;
     }
 
     pub fn set_focused_tile(&mut self, tile_id: Option<TileId>) {
@@ -69,11 +64,6 @@ impl TreeBehavior {
     /// Get the current theme
     pub fn theme(&self) -> AppTheme {
         self.theme
-    }
-
-    /// Get the current API key
-    pub fn api_key(&self) -> &str {
-        &self.api_key
     }
 }
 
@@ -164,9 +154,8 @@ impl egui_tiles::Behavior<Box<dyn Component>> for TreeBehavior {
         _tile_id: TileId,
         component: &mut Box<dyn Component>,
     ) -> egui_tiles::UiResponse {
-        // Make sure theme + keys are updated for the component
+        // Make sure theme is updated for the component
         component.set_theme(self.theme);
-        component.set_api_key(&self.api_key);
 
         component.show(ui);
 
@@ -372,7 +361,6 @@ mod tests {
         let behavior = TreeBehavior::default();
         assert!(behavior.focused_tile().is_none());
         assert_eq!(behavior.theme(), AppTheme::default()); // Default theme (from Default derive)
-        assert_eq!(behavior.api_key(), "");
     }
 
     #[test]
@@ -385,18 +373,6 @@ mod tests {
 
         behavior.set_theme(AppTheme::Dark);
         assert_eq!(behavior.theme(), AppTheme::Dark);
-    }
-
-    #[test]
-    fn test_set_keys() {
-        let mut behavior = TreeBehavior::default();
-        assert_eq!(behavior.api_key(), "");
-
-        behavior.set_keys("test-api-key-123".to_string());
-        assert_eq!(behavior.api_key(), "test-api-key-123");
-
-        behavior.set_keys(String::new());
-        assert_eq!(behavior.api_key(), "");
     }
 
     // ==================== Focus Management Tests ====================
@@ -518,13 +494,11 @@ mod tests {
         let tile_id = make_tile_id(42);
 
         behavior.set_theme(AppTheme::Light);
-        behavior.set_keys("my-key".to_string());
         behavior.set_focused_tile(Some(tile_id));
 
         let cloned = behavior.clone();
 
         assert_eq!(cloned.theme(), AppTheme::Light);
-        assert_eq!(cloned.api_key(), "my-key");
         assert_eq!(cloned.focused_tile(), Some(tile_id));
     }
 
@@ -539,9 +513,6 @@ mod tests {
 
         // Set theme
         behavior.set_theme(AppTheme::Light);
-
-        // Set API key
-        behavior.set_keys("secret".to_string());
 
         // Set focus
         behavior.set_focused_tile(Some(tile1));
@@ -562,7 +533,6 @@ mod tests {
 
         // Verify independent states
         assert_eq!(behavior.theme(), AppTheme::Light);
-        assert_eq!(behavior.api_key(), "secret");
         assert_eq!(behavior.focused_tile(), Some(tile1));
     }
 
@@ -584,21 +554,6 @@ mod tests {
     }
 
     // ==================== Edge Cases ====================
-
-    #[test]
-    fn test_empty_api_key() {
-        let mut behavior = TreeBehavior::default();
-        behavior.set_keys(String::new());
-        assert!(behavior.api_key().is_empty());
-    }
-
-    #[test]
-    fn test_long_api_key() {
-        let mut behavior = TreeBehavior::default();
-        let long_key = "a".repeat(1000);
-        behavior.set_keys(long_key.clone());
-        assert_eq!(behavior.api_key(), long_key);
-    }
 
     #[test]
     fn test_unicode_in_queries() {

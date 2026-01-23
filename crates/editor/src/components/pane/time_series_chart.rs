@@ -340,8 +340,6 @@ pub struct TimeSeriesChart {
     show_annotations: bool,
     /// Current theme
     pub(crate) theme: AppTheme,
-    /// API key (not used currently, but required by Component trait)
-    api_key: String,
     /// Whether to show the legend
     show_legend: bool,
     /// Y-axis label
@@ -383,7 +381,6 @@ impl TimeSeriesChart {
             annotations: Vec::new(),
             show_annotations: true,
             theme: AppTheme::default(),
-            api_key: String::new(),
             show_legend: true,
             y_label: None,
             unit: String::new(),
@@ -1698,14 +1695,6 @@ impl crate::components::Component for TimeSeriesChart {
 
     fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
-    }
-
-    fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed
     }
 
     fn label(&self) -> egui::RichText {

@@ -1094,14 +1094,6 @@ impl Component for DiagnosticsPane {
         self.theme = theme;
     }
 
-    fn set_api_key(&mut self, _key: &str) {
-        // Not needed
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed
-    }
-
     fn label(&self) -> RichText {
         let (errors, warnings, _, _) = self.count_by_level();
         let icon = if errors > 0 {

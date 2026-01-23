@@ -151,7 +151,6 @@ impl Workspace {
                                 self.viewport_tree.tiles.get_mut(*tile_id)
                             {
                                 component.set_theme(theme);
-                                component.set_api_key(self.behavior.api_key());
 
                                 // Render pane with header showing the name
                                 ui.allocate_ui(
@@ -374,26 +373,24 @@ impl Workspace {
         }
 
         let theme = self.behavior.theme();
-        // Clone api_key to avoid borrow conflict
-        let api_key = self.behavior.api_key().to_string();
 
         ui.add_space(SECTION_CONTENT_PADDING);
 
         match section.layout {
             SectionLayout::Horizontal => {
-                self.render_section_horizontal(ui, tile_ids, section_idx, theme, &api_key);
+                self.render_section_horizontal(ui, tile_ids, section_idx, theme);
             }
             SectionLayout::Vertical => {
-                self.render_section_vertical(ui, tile_ids, section_idx, theme, &api_key);
+                self.render_section_vertical(ui, tile_ids, section_idx, theme);
             }
             SectionLayout::Grid => {
                 let columns = section.columns.unwrap_or(2).max(1);
-                self.render_section_grid(ui, tile_ids, section_idx, columns, theme, &api_key);
+                self.render_section_grid(ui, tile_ids, section_idx, columns, theme);
             }
             SectionLayout::Tabs => {
                 // Clone section to avoid borrow conflict with render method
                 let section = section.clone();
-                self.render_section_tabs(ui, tile_ids, &section, section_idx, theme, &api_key);
+                self.render_section_tabs(ui, tile_ids, &section, section_idx, theme);
             }
         }
 
@@ -407,7 +404,6 @@ impl Workspace {
         tile_ids: &[egui_tiles::TileId],
         section_idx: usize,
         theme: AppTheme,
-        api_key: &str,
     ) {
         let available_width = ui.available_width() - SECTION_CONTENT_PADDING * 2.0;
         let pane_count = tile_ids.len();
@@ -432,7 +428,6 @@ impl Workspace {
                 let response = ui.allocate_ui(Vec2::new(pane_width, pane_height), |ui| {
                     if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
                         component.set_theme(theme);
-                        component.set_api_key(api_key);
                         component.show(ui);
                     }
                     ui.min_rect()
@@ -461,7 +456,6 @@ impl Workspace {
         tile_ids: &[egui_tiles::TileId],
         section_idx: usize,
         theme: AppTheme,
-        api_key: &str,
     ) {
         let pane_height = super::SECTION_PANE_HEIGHT;
         let is_visual_multi = self.is_in_visual_multi_mode();
@@ -480,7 +474,6 @@ impl Workspace {
                 let response = ui.allocate_ui(Vec2::new(available_width, pane_height), |ui| {
                     if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
                         component.set_theme(theme);
-                        component.set_api_key(api_key);
                         component.show(ui);
                     }
                     ui.min_rect()
@@ -510,7 +503,6 @@ impl Workspace {
         section_idx: usize,
         columns: usize,
         theme: AppTheme,
-        api_key: &str,
     ) {
         let available_width = ui.available_width() - SECTION_CONTENT_PADDING * 2.0;
         let total_gaps = (columns.saturating_sub(1)) as f32 * SECTION_PANE_GAP;
@@ -543,7 +535,6 @@ impl Workspace {
                                 self.viewport_tree.tiles.get_mut(tile_id)
                             {
                                 component.set_theme(theme);
-                                component.set_api_key(api_key);
                                 component.show(ui);
                             }
                             ui.min_rect()
@@ -579,7 +570,6 @@ impl Workspace {
         section: &SectionConfig,
         section_idx: usize,
         theme: AppTheme,
-        api_key: &str,
     ) {
         if tile_ids.is_empty() {
             return;
@@ -657,7 +647,6 @@ impl Workspace {
             let response = ui.allocate_ui(Vec2::new(available_width, pane_height), |ui| {
                 if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
                     component.set_theme(theme);
-                    component.set_api_key(api_key);
                     component.show(ui);
                 }
                 ui.min_rect()

@@ -40,8 +40,6 @@ pub struct Buffer {
     name: String,
     /// Current theme
     theme: AppTheme,
-    /// API key (required by Component trait)
-    api_key: String,
     /// Cursor position in the content (for insert mode)
     cursor_pos: usize,
 }
@@ -65,7 +63,6 @@ impl Buffer {
             modified: false,
             name: String::new(),
             theme: AppTheme::default(),
-            api_key: String::new(),
             cursor_pos: 0,
         }
     }
@@ -155,11 +152,6 @@ impl Buffer {
     /// Set the theme
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
-    }
-
-    /// Set the API key
-    pub fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
     }
 
     /// Get the display title for this buffer
@@ -496,14 +488,6 @@ impl crate::components::Component for Buffer {
 
     fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
-    }
-
-    fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed
     }
 
     fn label(&self) -> egui::RichText {

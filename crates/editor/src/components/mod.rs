@@ -61,8 +61,6 @@ pub trait Component: Any {
     fn name(&self) -> String;
     /// Saves the current theme for the component
     fn set_theme(&mut self, theme: AppTheme);
-    fn set_api_key(&mut self, key: &str);
-    fn set_staging_api_key(&mut self, key: &str);
     /// Returns a RichText label for the given component
     fn label(&self) -> egui::RichText;
 

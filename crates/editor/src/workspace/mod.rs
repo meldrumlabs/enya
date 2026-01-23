@@ -406,8 +406,6 @@ impl Workspace {
         chat_state: Option<&crate::chat::ChatState>,
     ) -> WorkspaceAction {
         self.behavior.set_theme(app_state.theme);
-        self.behavior
-            .set_keys(app_state.settings.api_key.to_owned());
 
         // Disable terminal keyboard input when modals are open
         // This prevents terminal from capturing j/k/h/l keys meant for overlays
@@ -990,7 +988,6 @@ impl Workspace {
                         self.viewport_tree.tiles.get_mut(fullscreen_id)
                     {
                         component.set_theme(self.behavior.theme());
-                        component.set_api_key(self.behavior.api_key());
                         component.show(ui);
                     } else {
                         // Tile no longer exists, exit fullscreen
