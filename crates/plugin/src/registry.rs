@@ -92,6 +92,8 @@ pub struct PluginRegistry {
     plugins: FxHashMap<PluginId, PluginEntry>,
     /// Plugin name to ID mapping
     name_to_id: FxHashMap<String, PluginId>,
+    /// Command name/alias to plugin ID mapping for O(1) command lookup
+    command_to_plugin: FxHashMap<String, PluginId>,
     /// Next plugin ID
     next_id: usize,
     /// Plugin context (shared with all plugins)
@@ -112,6 +114,7 @@ impl PluginRegistry {
         Self {
             plugins: FxHashMap::default(),
             name_to_id: FxHashMap::default(),
+            command_to_plugin: FxHashMap::default(),
             next_id: 0,
             context: None,
             enabled_plugins: FxHashMap::default(),
@@ -268,6 +271,15 @@ impl PluginRegistry {
         }
 
         entry.info.state = PluginState::Active;
+
+        // Index commands for O(1) lookup
+        for cmd in &entry.commands {
+            self.command_to_plugin.insert(cmd.name.clone(), id);
+            for alias in &cmd.aliases {
+                self.command_to_plugin.insert(alias.clone(), id);
+            }
+        }
+
         Ok(())
     }
 
@@ -285,6 +297,14 @@ impl PluginRegistry {
 
         if entry.info.state != PluginState::Active {
             return Ok(()); // Not active
+        }
+
+        // Remove commands from index
+        for cmd in &entry.commands {
+            self.command_to_plugin.remove(&cmd.name);
+            for alias in &cmd.aliases {
+                self.command_to_plugin.remove(alias);
+            }
         }
 
         if let Err(e) = entry.plugin.deactivate(ctx) {
@@ -481,22 +501,18 @@ impl PluginRegistry {
             None => return false,
         };
 
-        for entry in self.plugins.values_mut() {
-            if entry.info.state != PluginState::Active {
-                continue;
-            }
+        // O(1) lookup using command index
+        let plugin_id = match self.command_to_plugin.get(command) {
+            Some(&id) => id,
+            None => return false,
+        };
 
-            if entry
-                .commands
-                .iter()
-                .any(|c| c.name == command || c.aliases.contains(&command.to_string()))
-                && entry.plugin.execute_command(command, args, ctx)
-            {
-                return true;
-            }
-        }
+        let entry = match self.plugins.get_mut(&plugin_id) {
+            Some(e) if e.info.state == PluginState::Active => e,
+            _ => return false,
+        };
 
-        false
+        entry.plugin.execute_command(command, args, ctx)
     }
 
     // ==================== Hook Dispatch ====================

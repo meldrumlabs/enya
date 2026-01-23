@@ -349,10 +349,7 @@ impl PluginHost for EditorPluginHost {
         // For accurate time range, plugins should use the async pattern or
         // the time range will be provided in callbacks.
         // Default to last 5 minutes from now.
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0);
+        let now = crate::util::now_unix_secs_f64();
         let start = now - 300.0; // 5 minutes ago
         (start, now)
     }

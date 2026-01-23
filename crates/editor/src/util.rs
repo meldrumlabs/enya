@@ -26,6 +26,27 @@ pub fn now_unix_secs() -> i64 {
     }
 }
 
+/// Get the current Unix timestamp in seconds as f64 (with sub-second precision).
+/// Works on both native and WASM platforms.
+#[inline]
+pub fn now_unix_secs_f64() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use web_time::SystemTime;
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0)
+    }
+}
+
 pub fn png_to_icon_data(png_bytes: &[u8]) -> egui::IconData {
     let image = image::load_from_memory(png_bytes).unwrap();
     let size = [image.width() as usize, image.height() as usize];
