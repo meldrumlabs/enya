@@ -9,7 +9,6 @@
 
 use crate::ui::palette;
 
-use super::super::annotation::{Annotation, AnnotationAuthor, AnnotationPriority};
 use super::super::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
 
 use super::Threshold;
@@ -138,36 +137,6 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
         now + duration * 0.9,
         "Performance improvements",
     ));
-
-    // Add demo annotations to showcase team collaboration features
-    chart.add_annotation(
-        Annotation::at_point(
-            now + duration * 0.15,
-            "Latency spike after deploy - investigating",
-        )
-        .with_author(AnnotationAuthor::local("Alice Chen"))
-        .with_priority(AnnotationPriority::Important),
-    );
-    chart.add_annotation(
-        Annotation::at_range(
-            now + duration * 0.4,
-            now + duration * 0.45,
-            "Planned maintenance window",
-        )
-        .with_author(AnnotationAuthor::local("Bob Smith")),
-    );
-    chart.add_annotation(
-        Annotation::at_point(
-            now + duration * 0.6,
-            "Root cause: connection pool exhaustion - fixed in next release",
-        )
-        .with_author(AnnotationAuthor::local("Alice Chen"))
-        .with_priority(AnnotationPriority::Critical),
-    );
-    let mut resolved_ann = Annotation::at_point(now + duration * 0.8, "Fixed in v2.3.1")
-        .with_author(AnnotationAuthor::local("Carol Davis"));
-    resolved_ann.resolve();
-    chart.add_annotation(resolved_ann);
 }
 
 /// Populate demo data for stat visualization

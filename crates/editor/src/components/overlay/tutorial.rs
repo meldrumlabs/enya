@@ -142,6 +142,14 @@ impl TutorialOverlay {
                 tip: Some("t5=5m, t1=15m, t3=30m, th=1h, t6=6h, td=24h, tw=7d"),
                 icon: semantic_icons::time::CLOCK,
             },
+            // === Git Integration ===
+            TutorialStep {
+                title: "Commit Annotations",
+                instruction: "Overlay git commits on your charts to correlate code changes with metric behavior. See exactly when deployments happened.",
+                key_hint: "gc",
+                tip: Some("gc=toggle commits, ]c=next commit, [c=prev commit"),
+                icon: semantic_icons::action::CHART,
+            },
             // === Search ===
             TutorialStep {
                 title: "Find Anything",

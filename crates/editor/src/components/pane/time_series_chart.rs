@@ -333,7 +333,7 @@ pub struct TimeSeriesChart {
     commits: Vec<CommitMarker>,
     /// Whether to show commit markers
     show_commits: bool,
-    /// Team annotations (comments pinned to chart points/ranges)
+    /// Annotations (comments pinned to chart points/ranges)
     annotations: Vec<Annotation>,
     /// Whether to show annotations
     show_annotations: bool,
@@ -548,9 +548,8 @@ impl TimeSeriesChart {
         });
     }
 
-    /// Set all commit markers at once
+    /// Set all commit markers at once (does not auto-enable visibility)
     pub fn set_commits(&mut self, commits: Vec<CommitMarker>) {
-        self.show_commits = !commits.is_empty();
         self.commits = commits;
         self.commits.sort_by(|a, b| {
             a.timestamp
