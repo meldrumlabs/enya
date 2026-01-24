@@ -17,17 +17,18 @@ use crate::components::{
     AboutOverlay, AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult,
     Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
     ContextPane, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LogsPane,
-    MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult, PluginsOverlay,
-    PluginsOverlayResult, QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand,
-    SourcePreviewOverlay, SourcePreviewResult, StylePicker, StylePickerResult, TeamMember,
-    TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TutorialOverlay, ViewportFilter,
+    MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult, PluginChartPane,
+    PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay, PluginsOverlayResult,
+    QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand, SourcePreviewOverlay,
+    SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember, TeamMenu,
+    TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TracingPane, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
 use enya_plugin::{
-    CustomChartConfig, CustomChartData, CustomTableConfig, CustomTableData, GaugePaneConfig,
-    GaugePaneData, StatPaneConfig, StatPaneData,
+    CustomChartConfig, CustomChartData, CustomTableConfig, CustomTableData, FocusedPaneInfo,
+    GaugePaneConfig, GaugePaneData, StatPaneConfig, StatPaneData,
 };
 
 // Workspace configuration module (serialization)
@@ -284,6 +285,12 @@ pub struct Workspace {
     pending_connection_endpoint: Option<String>,
     /// Auto-refresh interval (None = disabled)
     refresh_interval: Option<RefreshInterval>,
+    /// Pending plugin install action (name, file)
+    pending_install_plugin: Option<(String, String)>,
+    /// Pending plugin remove action (name)
+    pending_remove_plugin: Option<String>,
+    /// Pending plugin refresh action
+    pending_refresh_plugins: bool,
     /// Last time queries were auto-refreshed
     last_refresh: Option<crate::util::Instant>,
     /// Pending git repo path to configure (set from workspace creator)
@@ -435,6 +442,9 @@ impl Workspace {
             pending_git_config: None,
             pending_connection_endpoint: None,
             refresh_interval: None,
+            pending_install_plugin: None,
+            pending_remove_plugin: None,
+            pending_refresh_plugins: false,
             last_refresh: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_git_repo: None,
@@ -535,6 +545,7 @@ impl Workspace {
                 || self.which_key.is_open()
                 || self.viewport_filter.is_open()
                 || self.tutorial_overlay.is_open()
+                || self.plugins_overlay.is_open()
                 || self.source_preview.is_open()
                 || self.agent_panel.is_open();
             self.set_terminal_keyboard_enabled(!modal_open);
@@ -1447,6 +1458,21 @@ impl Workspace {
                 log::info!("Toggle plugin: {name}");
                 // TODO: Implement plugin enable/disable via PluginRegistry
             }
+            PluginsOverlayResult::InstallPlugin(name, file) => {
+                log::info!("Install plugin: {name} from {file}");
+                // Set installing state to show spinner
+                self.plugins_overlay
+                    .set_installing_plugin(Some(name.clone()));
+                self.pending_install_plugin = Some((name, file));
+            }
+            PluginsOverlayResult::RemovePlugin(name) => {
+                log::info!("Remove plugin: {name}");
+                self.pending_remove_plugin = Some(name);
+            }
+            PluginsOverlayResult::RefreshAvailable => {
+                log::info!("Refresh available plugins");
+                self.pending_refresh_plugins = true;
+            }
             PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
         }
 
@@ -1572,6 +1598,7 @@ impl Workspace {
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
+            && !self.plugins_overlay.is_open()
             && !codebase_finder_open
             && !self.is_any_buffer_in_insert_mode()
             && !self.agent_mode_active
@@ -1600,6 +1627,7 @@ impl Workspace {
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
+            && !self.plugins_overlay.is_open()
             && !codebase_finder_open
             && !self.agent_mode_active
             && !text_widget_focused
@@ -1824,6 +1852,21 @@ impl Workspace {
                 log::info!("Toggle plugin: {name}");
                 // TODO: Implement plugin enable/disable via PluginRegistry
             }
+            PluginsOverlayResult::InstallPlugin(name, file) => {
+                log::info!("Install plugin: {name} from {file}");
+                // Set installing state to show spinner
+                self.plugins_overlay
+                    .set_installing_plugin(Some(name.clone()));
+                self.pending_install_plugin = Some((name, file));
+            }
+            PluginsOverlayResult::RemovePlugin(name) => {
+                log::info!("Remove plugin: {name}");
+                self.pending_remove_plugin = Some(name);
+            }
+            PluginsOverlayResult::RefreshAvailable => {
+                log::info!("Refresh available plugins");
+                self.pending_refresh_plugins = true;
+            }
             PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
         }
 
@@ -1901,6 +1944,7 @@ impl Workspace {
         if !self.workspace_finder.is_open()
             && !self.command_palette.is_open()
             && !self.which_key.is_open()
+            && !self.plugins_overlay.is_open()
             && !self.diagnostics_pane.is_open()
         {
             ctx.input_mut(|input| {
@@ -2164,6 +2208,24 @@ impl Workspace {
     /// Set plugins info for the plugins overlay
     pub fn set_plugins(&mut self, plugins: Vec<crate::components::PluginDisplayInfo>) {
         self.plugins_overlay.set_plugins(plugins);
+    }
+
+    /// Set available community plugins for the plugins overlay
+    pub fn set_available_plugins(
+        &mut self,
+        plugins: Vec<crate::components::overlay::plugins::CommunityPluginInfo>,
+    ) {
+        self.plugins_overlay.set_available_plugins(plugins);
+    }
+
+    /// Set loading state for the plugins overlay
+    pub fn set_plugins_loading(&mut self, loading: bool) {
+        self.plugins_overlay.set_loading_available(loading);
+    }
+
+    /// Set the plugin currently being installed
+    pub fn set_installing_plugin(&mut self, name: Option<String>) {
+        self.plugins_overlay.set_installing_plugin(name);
     }
 
     /// Set custom themes from plugins for the style picker.
@@ -3253,6 +3315,81 @@ impl Workspace {
         None
     }
 
+    /// Get information about the currently focused pane.
+    ///
+    /// Returns `FocusedPaneInfo` with type, title, query, and metric name (if applicable).
+    /// This is used by plugins to share context to external services like Slack/Discord.
+    pub fn get_focused_pane_info(&self) -> Option<FocusedPaneInfo> {
+        let tile_id = self.behavior.focused_tile()?;
+        let tile = self.viewport_tree.tiles.get(tile_id)?;
+
+        if let egui_tiles::Tile::Pane(component) = tile {
+            // Check each pane type
+            if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                let query = query_pane.saved_query().to_string();
+                let metric_name = enya_promql::extract_metric_name(&query);
+                let mut info = FocusedPaneInfo::new("query").with_query(query.clone());
+                // Use metric name as title if available, otherwise use truncated query
+                if let Some(ref metric) = metric_name {
+                    info = info
+                        .with_title(metric.clone())
+                        .with_metric_name(metric.clone());
+                } else if !query.is_empty() {
+                    // Use first 50 chars of query as title
+                    let title = if query.len() > 50 {
+                        format!("{}...", &query[..50])
+                    } else {
+                        query
+                    };
+                    info = info.with_title(title);
+                }
+                return Some(info);
+            }
+
+            if component.as_any().downcast_ref::<LogsPane>().is_some() {
+                return Some(FocusedPaneInfo::new("logs").with_title("Logs"));
+            }
+
+            if component.as_any().downcast_ref::<TracingPane>().is_some() {
+                return Some(FocusedPaneInfo::new("tracing").with_title("Tracing"));
+            }
+
+            if component.as_any().downcast_ref::<SqlPane>().is_some() {
+                return Some(FocusedPaneInfo::new("sql").with_title("SQL"));
+            }
+
+            // Plugin pane types - use Component::name() which returns the title
+            if let Some(table_pane) = component.as_any().downcast_ref::<PluginTablePane>() {
+                return Some(
+                    FocusedPaneInfo::new("custom_table").with_title(Component::name(table_pane)),
+                );
+            }
+
+            if let Some(chart_pane) = component.as_any().downcast_ref::<PluginChartPane>() {
+                return Some(
+                    FocusedPaneInfo::new("custom_chart").with_title(Component::name(chart_pane)),
+                );
+            }
+
+            if let Some(stat_pane) = component.as_any().downcast_ref::<PluginStatPane>() {
+                return Some(
+                    FocusedPaneInfo::new("custom_stat").with_title(Component::name(stat_pane)),
+                );
+            }
+
+            if let Some(gauge_pane) = component.as_any().downcast_ref::<PluginGaugePane>() {
+                return Some(
+                    FocusedPaneInfo::new("custom_gauge").with_title(Component::name(gauge_pane)),
+                );
+            }
+
+            // Unknown pane type
+            return Some(FocusedPaneInfo::new("unknown"));
+        }
+
+        None
+    }
+
     /// Check if source preview overlay is open
     pub fn is_source_preview_open(&self) -> bool {
         self.source_preview.is_open()
@@ -3625,5 +3762,35 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    // ==================== Community Plugin Actions ====================
+
+    /// Check if there's a pending install plugin action.
+    pub fn has_pending_install_plugin(&self) -> bool {
+        self.pending_install_plugin.is_some()
+    }
+
+    /// Take the pending install plugin action if any.
+    /// Returns (name, file) tuple if there's a pending install.
+    pub fn take_pending_install_plugin(&mut self) -> Option<(String, String)> {
+        self.pending_install_plugin.take()
+    }
+
+    /// Check if there's a pending remove plugin action.
+    pub fn has_pending_remove_plugin(&self) -> bool {
+        self.pending_remove_plugin.is_some()
+    }
+
+    /// Take the pending remove plugin action if any.
+    /// Returns plugin name if there's a pending remove.
+    pub fn take_pending_remove_plugin(&mut self) -> Option<String> {
+        self.pending_remove_plugin.take()
+    }
+
+    /// Take and clear the pending refresh plugins flag.
+    /// Returns true if refresh was requested.
+    pub fn take_pending_refresh_plugins(&mut self) -> bool {
+        std::mem::take(&mut self.pending_refresh_plugins)
     }
 }

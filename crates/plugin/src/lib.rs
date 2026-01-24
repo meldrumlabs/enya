@@ -106,9 +106,9 @@ pub mod lua;
 // Re-export core types
 pub use types::{
     BoxFuture, ChartDataPoint, ChartSeries, CustomChartConfig, CustomChartData, CustomTableConfig,
-    CustomTableData, CustomTableRow, GaugePaneConfig, GaugePaneData, HttpError, HttpResponse,
-    LogLevel, NotificationLevel, PluginContext, PluginContextRef, PluginHost, PluginHostRef,
-    StatPaneConfig, StatPaneData, TableColumnConfig, Theme, ThresholdConfig,
+    CustomTableData, CustomTableRow, FocusedPaneInfo, GaugePaneConfig, GaugePaneData, HttpError,
+    HttpResponse, LogLevel, NotificationLevel, PluginContext, PluginContextRef, PluginHost,
+    PluginHostRef, StatPaneConfig, StatPaneData, TableColumnConfig, Theme, ThresholdConfig,
 };
 
 // Re-export theme types

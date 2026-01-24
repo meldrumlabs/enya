@@ -315,6 +315,46 @@ impl PluginRegistry {
         Ok(())
     }
 
+    /// Unregister a plugin completely, removing it from the registry.
+    ///
+    /// This deactivates the plugin first if it's active, then removes all
+    /// references to it from the registry. Use this for hot-reload scenarios
+    /// where you need to replace a plugin with a new version.
+    pub fn unregister_plugin(&mut self, id: PluginId) -> PluginResult<()> {
+        // First deactivate if active
+        let _ = self.deactivate_plugin(id);
+
+        // Get the entry to clean up mappings
+        let entry = self
+            .plugins
+            .remove(&id)
+            .ok_or_else(|| PluginError::NotFound(format!("Plugin ID {}", id.0)))?;
+
+        // Remove name mapping
+        self.name_to_id.remove(&entry.info.name);
+
+        // Remove commands from index (in case deactivate didn't run)
+        for cmd in &entry.commands {
+            self.command_to_plugin.remove(&cmd.name);
+            for alias in &cmd.aliases {
+                self.command_to_plugin.remove(alias);
+            }
+        }
+
+        log::info!("Unregistered plugin: {}", entry.info.name);
+        Ok(())
+    }
+
+    /// Unregister a plugin by name.
+    pub fn unregister_plugin_by_name(&mut self, name: &str) -> PluginResult<()> {
+        let id = self
+            .name_to_id
+            .get(name)
+            .copied()
+            .ok_or_else(|| PluginError::NotFound(format!("Plugin '{name}'")))?;
+        self.unregister_plugin(id)
+    }
+
     /// Get a plugin by ID.
     pub fn get(&self, id: PluginId) -> Option<&dyn Plugin> {
         self.plugins.get(&id).map(|e| e.plugin.as_ref())
@@ -841,6 +881,11 @@ mod tests {
         fn register_gauge_pane(&self, _config: crate::GaugePaneConfig) {}
         fn add_gauge_pane(&self, _pane_type: &str) {}
         fn update_gauge_data_by_type(&self, _pane_type: &str, _data: crate::GaugePaneData) {}
+
+        // Focused pane info (no-op for mock)
+        fn get_focused_pane_info(&self) -> Option<crate::FocusedPaneInfo> {
+            None
+        }
     }
 
     /// Simple test plugin for testing registry operations.

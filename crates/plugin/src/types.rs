@@ -404,6 +404,52 @@ impl StatPaneData {
     }
 }
 
+// ==================== Focused Pane Info ====================
+
+/// Information about the currently focused pane.
+/// Used for sharing context to external services like Slack/Discord.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FocusedPaneInfo {
+    /// Type of the pane (e.g., "query", "logs", "tracing", "terminal", "sql", "custom_table")
+    pub pane_type: String,
+    /// Display title of the pane (if any)
+    pub title: Option<String>,
+    /// Query string (for query panes)
+    pub query: Option<String>,
+    /// Metric name (for query panes, extracted from PromQL)
+    pub metric_name: Option<String>,
+}
+
+impl FocusedPaneInfo {
+    /// Create a new focused pane info.
+    pub fn new(pane_type: impl Into<String>) -> Self {
+        Self {
+            pane_type: pane_type.into(),
+            title: None,
+            query: None,
+            metric_name: None,
+        }
+    }
+
+    /// Set the title.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Set the query.
+    pub fn with_query(mut self, query: impl Into<String>) -> Self {
+        self.query = Some(query.into());
+        self
+    }
+
+    /// Set the metric name.
+    pub fn with_metric_name(mut self, metric_name: impl Into<String>) -> Self {
+        self.metric_name = Some(metric_name.into());
+        self
+    }
+}
+
 // ==================== Custom Gauge Pane Types ====================
 
 /// Configuration for a custom gauge pane type.
@@ -646,6 +692,12 @@ pub trait PluginHost: Send + Sync {
 
     /// Update data for all gauge panes of a given type.
     fn update_gauge_data_by_type(&self, pane_type: &str, data: GaugePaneData);
+
+    // ==================== Focused Pane ====================
+
+    /// Get information about the currently focused pane.
+    /// Returns None if no pane is focused.
+    fn get_focused_pane_info(&self) -> Option<FocusedPaneInfo>;
 }
 
 /// Reference-counted plugin host.
@@ -864,6 +916,13 @@ impl PluginContext {
     /// Update data for all gauge panes of a given type.
     pub fn update_gauge_data_by_type(&self, pane_type: &str, data: GaugePaneData) {
         self.host.update_gauge_data_by_type(pane_type, data);
+    }
+
+    // ==================== Focused Pane ====================
+
+    /// Get information about the currently focused pane.
+    pub fn get_focused_pane_info(&self) -> Option<FocusedPaneInfo> {
+        self.host.get_focused_pane_info()
     }
 }
 

@@ -63,6 +63,7 @@
 //! - `enya.execute(command, [args])` - Execute another command
 //! - `enya.http_get(url, [headers])` - HTTP GET, returns `{status, body, headers}` or `{error}`
 //! - `enya.http_post(url, body, [headers])` - HTTP POST, returns `{status, body, headers}` or `{error}`
+//! - `enya.get_focused_pane()` - Get focused pane info `{pane_type, title, query, metric_name}` or nil
 
 use std::any::Any;
 use std::path::{Path, PathBuf};
@@ -178,6 +179,10 @@ fn setup_noop_api(lua: &Lua, enya: &Table) -> LuaResult<()> {
             table.set("end", 0.0)?;
             Ok(table)
         })?,
+    )?;
+    enya.set(
+        "get_focused_pane",
+        lua.create_function(|_, ()| Ok(None::<Table>))?,
     )?;
 
     // Custom pane functions
@@ -1285,6 +1290,28 @@ impl LuaPlugin {
             Ok(table)
         })?;
         enya.set("get_time_range", get_time_range_fn)?;
+
+        // enya.get_focused_pane() - Get info about the currently focused pane
+        // Returns { pane_type, title, query, metric_name } or nil if no pane is focused
+        let get_focused_pane_fn = scope.create_function(|lua, ()| {
+            if let Some(info) = ctx.get_focused_pane_info() {
+                let table = lua.create_table()?;
+                table.set("pane_type", info.pane_type)?;
+                if let Some(title) = info.title {
+                    table.set("title", title)?;
+                }
+                if let Some(query) = info.query {
+                    table.set("query", query)?;
+                }
+                if let Some(metric_name) = info.metric_name {
+                    table.set("metric_name", metric_name)?;
+                }
+                Ok(mlua::Value::Table(table))
+            } else {
+                Ok(mlua::Value::Nil)
+            }
+        })?;
+        enya.set("get_focused_pane", get_focused_pane_fn)?;
 
         // ==================== Custom Pane API ====================
 
