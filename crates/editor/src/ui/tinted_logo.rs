@@ -107,14 +107,16 @@ pub fn get_tinted_logo_with_opacity(ctx: &Context, theme: AppTheme, opacity: f32
 /// - For Light: loads the grayscale logo as-is (ink on paper aesthetic)
 /// - For other themes: loads the tintable logo with overlay blend tinting
 fn load_logo_for_theme(theme: AppTheme, opacity: f32) -> ColorImage {
-    if theme == AppTheme::Dark {
-        load_original_logo(opacity)
-    } else if theme == AppTheme::Light {
-        // Light uses ink/paper aesthetic - use grayscale logo directly
-        load_grayscale_logo(opacity)
-    } else {
-        let tint = theme.accent_primary().gamma_multiply(opacity);
-        load_tinted_logo(tint)
+    match theme {
+        AppTheme::Dark => load_original_logo(opacity),
+        AppTheme::Light => {
+            // Light uses ink/paper aesthetic - use grayscale logo directly
+            load_grayscale_logo(opacity)
+        }
+        _ => {
+            let tint = theme.accent_primary().gamma_multiply(opacity);
+            load_tinted_logo(tint)
+        }
     }
 }
 

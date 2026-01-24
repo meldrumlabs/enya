@@ -16,6 +16,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Demo team annotations**: Removed demo annotations from tutorial charts. Team collaboration features will be added in a future release.
 
+### Fixed
+
+- **Dark theme logo on WASM**: Use original branded logo (not tinted) for Dark theme on WASM builds
+
 ### Added
 
 - **Plugin focused pane API**: Lua plugins can now access information about the currently focused pane for sharing context to external services:
