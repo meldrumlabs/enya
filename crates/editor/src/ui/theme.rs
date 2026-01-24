@@ -2551,6 +2551,17 @@ impl AppTheme {
             Self::Dark => Color32::from_rgb(22, 27, 34),
         }
     }
+
+    /// Get the active theme colors for this theme.
+    ///
+    /// This is a convenience method that extracts `ActiveThemeColors` from
+    /// either a custom theme (directly carried) or a builtin theme (computed).
+    pub fn active_colors(&self) -> super::ActiveThemeColors {
+        match self {
+            Self::Custom(colors) => *colors,
+            _ => super::ActiveThemeColors::from_builtin(*self),
+        }
+    }
 }
 
 pub fn light() -> Visuals {

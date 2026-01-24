@@ -17,17 +17,18 @@ use crate::components::{
     AboutOverlay, AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult,
     Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
     ContextPane, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LogsPane,
-    MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult, PluginsOverlay,
-    PluginsOverlayResult, QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand,
-    SourcePreviewOverlay, SourcePreviewResult, StylePicker, StylePickerResult, TeamMember,
-    TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TutorialOverlay, ViewportFilter,
+    MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult, PluginChartPane,
+    PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay, PluginsOverlayResult,
+    QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand, SourcePreviewOverlay,
+    SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember, TeamMenu,
+    TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TracingPane, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
 use enya_plugin::{
-    CustomChartConfig, CustomChartData, CustomTableConfig, CustomTableData, GaugePaneConfig,
-    GaugePaneData, StatPaneConfig, StatPaneData,
+    CustomChartConfig, CustomChartData, CustomTableConfig, CustomTableData, FocusedPaneInfo,
+    GaugePaneConfig, GaugePaneData, StatPaneConfig, StatPaneData,
 };
 
 // Workspace configuration module (serialization)
@@ -284,6 +285,12 @@ pub struct Workspace {
     pending_connection_endpoint: Option<String>,
     /// Auto-refresh interval (None = disabled)
     refresh_interval: Option<RefreshInterval>,
+    /// Pending plugin install action (name, file)
+    pending_install_plugin: Option<(String, String)>,
+    /// Pending plugin remove action (name)
+    pending_remove_plugin: Option<String>,
+    /// Pending plugin refresh action
+    pending_refresh_plugins: bool,
     /// Last time queries were auto-refreshed
     last_refresh: Option<crate::util::Instant>,
     /// Pending git repo path to configure (set from workspace creator)
@@ -335,6 +342,13 @@ pub struct Workspace {
     /// Resolved theme colors (from custom or builtin theme)
     /// Used for components that need custom theme support
     active_colors: Option<crate::ui::ActiveThemeColors>,
+    /// Cached effective theme for the current render frame.
+    /// This is computed at the start of `show()` and should be used for all
+    /// theme-related rendering via the `theme()` getter.
+    ///
+    /// IMPORTANT: Always use `self.theme()` instead of `app_state.theme` when
+    /// rendering to ensure custom plugin themes are properly applied.
+    render_theme: AppTheme,
 
     // ==================== Plugin Custom Panes ====================
     /// Registry of custom table pane configurations (by pane type name)
@@ -435,6 +449,9 @@ impl Workspace {
             pending_git_config: None,
             pending_connection_endpoint: None,
             refresh_interval: None,
+            pending_install_plugin: None,
+            pending_remove_plugin: None,
+            pending_refresh_plugins: false,
             last_refresh: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_git_repo: None,
@@ -461,6 +478,7 @@ impl Workspace {
             layout_animator: LayoutAnimator::new(),
             // Active theme colors
             active_colors: None,
+            render_theme: AppTheme::default(),
             // Plugin custom panes
             custom_table_configs: FxHashMap::default(),
             custom_table_data: FxHashMap::default(),
@@ -482,12 +500,27 @@ impl Workspace {
     /// Get the effective theme for rendering.
     /// Returns `AppTheme::Custom(colors)` if a custom theme is active,
     /// otherwise returns the builtin theme from app_state.
+    ///
+    /// NOTE: Prefer using `self.theme()` after the start of `show()` for cleaner code.
+    /// This method is kept for cases where app_state is needed to compute the fallback.
     fn effective_theme(&self, app_state: &AppState) -> AppTheme {
         if let Some(colors) = self.active_colors {
             AppTheme::Custom(colors)
         } else {
             app_state.theme
         }
+    }
+
+    /// Get the current render theme.
+    ///
+    /// This is the preferred method to access the theme during rendering.
+    /// It returns the effective theme (custom plugin theme if active, otherwise builtin).
+    ///
+    /// IMPORTANT: Always use this instead of `app_state.theme` to ensure
+    /// custom plugin themes are properly applied throughout the UI.
+    #[inline]
+    fn theme(&self) -> AppTheme {
+        self.render_theme
     }
 
     #[profiling::function]
@@ -498,7 +531,10 @@ impl Workspace {
         app_state: &AppState,
         chat_state: Option<&crate::chat::ChatState>,
     ) -> WorkspaceAction {
-        self.behavior.set_theme(self.effective_theme(app_state));
+        // Cache the effective theme for this frame - use self.theme() throughout rendering
+        self.render_theme = self.effective_theme(app_state);
+
+        self.behavior.set_theme(self.theme());
 
         // Update visual effects (focus pulse detection, cleanup)
         self.behavior.update_focus_effects();
@@ -535,6 +571,7 @@ impl Workspace {
                 || self.which_key.is_open()
                 || self.viewport_filter.is_open()
                 || self.tutorial_overlay.is_open()
+                || self.plugins_overlay.is_open()
                 || self.source_preview.is_open()
                 || self.agent_panel.is_open();
             self.set_terminal_keyboard_enabled(!modal_open);
@@ -701,8 +738,8 @@ impl Workspace {
             .set_filter_state(self.viewport_filter.is_active(), filtered_out_tiles);
 
         // Update component themes
-        self.time_range_toolbar.set_theme(app_state.theme);
-        self.landing_page.set_theme(self.effective_theme(app_state));
+        self.time_range_toolbar.set_theme(self.theme());
+        self.landing_page.set_theme(self.theme());
 
         // Handle adding a pending chart to the viewport
         if let Some(metric_name) = self.pending_chart.take() {
@@ -722,7 +759,7 @@ impl Workspace {
         if self.pending_open_style_picker {
             self.pending_open_style_picker = false;
             self.style_picker.open_with_custom(
-                app_state.theme,
+                self.theme(),
                 app_state.custom_theme(),
                 app_state.settings.font,
             );
@@ -779,7 +816,7 @@ impl Workspace {
                     .default_width(280.0)
                     .max_width(400.0)
                     .show_inside(ui, |ui| {
-                        self.channels_panel.set_theme(app_state.theme);
+                        self.channels_panel.set_theme(self.theme());
                         match self.channels_panel.show(
                             ui,
                             chat_state.threads(),
@@ -851,7 +888,7 @@ impl Workspace {
                 self.channels_panel.set_available_panes(pane_info);
 
                 egui::CentralPanel::default().show_inside(ui, |ui| {
-                    self.channels_panel.set_theme(app_state.theme);
+                    self.channels_panel.set_theme(self.theme());
                     match self.channels_panel.show(
                         ui,
                         chat_state.threads(),
@@ -964,7 +1001,7 @@ impl Workspace {
         // Rendered as a layout participant - viewport shrinks when panel is open
         // Update context before showing so the agent has awareness of editor state
         self.update_agent_context();
-        self.agent_panel.set_theme(self.effective_theme(app_state));
+        self.agent_panel.set_theme(self.theme());
         self.agent_panel.set_focus(self.agent_panel_focused);
         match self.agent_panel.show_inside(ui, ctx) {
             AgentPanelResult::Closed => {
@@ -1032,7 +1069,7 @@ impl Workspace {
                     total_panes
                 };
                 self.viewport_filter.update_counts(matching_panes, total_panes);
-                self.viewport_filter.set_theme(self.effective_theme(app_state));
+                self.viewport_filter.set_theme(self.theme());
 
                 egui::TopBottomPanel::top("time_range_toolbar")
                     .resizable(false)
@@ -1044,7 +1081,7 @@ impl Workspace {
                         // Only show keyboard hints when there are panes open
                         // (landing page already shows hints when workspace is empty)
                         if total_panes > 0 {
-                            let hint_color = app_state.theme.text_tertiary();
+                            let hint_color = self.theme().text_tertiary();
                             let hint_text = "hjkl navigate   : cmd   ? help";
                             let font = egui::FontId::proportional(11.0);
                             let hint_galley = ui.painter().layout_no_wrap(
@@ -1221,7 +1258,7 @@ impl Workspace {
                             egui::pos2(viewport_rect.right(), full_rect.top()),
                             egui::vec2(SCROLLBAR_WIDTH, full_rect.height()),
                         );
-                        self.draw_scrollbar(ui.painter(), scrollbar_rect, app_state.theme);
+                        self.draw_scrollbar(ui.painter(), scrollbar_rect, self.theme());
                     }
                 }
             });
@@ -1230,12 +1267,12 @@ impl Workspace {
 
         // ==================== Floating Panes ====================
         // Render floating panes above the tile layout but below modal overlays
-        self.floating_panes.set_theme(app_state.theme);
+        self.floating_panes.set_theme(self.theme());
         // Use the available rect as the viewport for floating pane snapping/maximize
         let floating_viewport = ctx.available_rect();
         let floating_actions = self
             .floating_panes
-            .show(ctx, app_state.theme, floating_viewport);
+            .show(ctx, self.theme(), floating_viewport);
         for (pane_id, action) in floating_actions {
             match action {
                 FloatingPaneAction::Close => {
@@ -1304,7 +1341,7 @@ impl Workspace {
         // NOTE: This is rendered BEFORE style_picker and command_palette so they appear on top
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.diff_viewer.set_theme(app_state.theme);
+            self.diff_viewer.set_theme(self.theme());
             // Disable keyboard when another overlay is on top
             self.diff_viewer.set_keyboard_disabled(
                 self.style_picker.is_open() || self.command_palette.is_open(),
@@ -1313,7 +1350,7 @@ impl Workspace {
         }
 
         // Show workspace finder modal (rendered on top of everything)
-        self.workspace_finder.set_theme(app_state.theme);
+        self.workspace_finder.set_theme(self.theme());
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
             return WorkspaceAction::LoadWorkspace(selected_workspace);
         }
@@ -1321,7 +1358,7 @@ impl Workspace {
         // Show style picker modal (unified theme + font picker)
         match self
             .style_picker
-            .show(ctx, app_state.theme, app_state.settings.font)
+            .show(ctx, self.theme(), app_state.settings.font)
         {
             StylePickerResult::ThemeSelected(theme) => return WorkspaceAction::SetTheme(theme),
             StylePickerResult::CustomThemeSelected(name) => {
@@ -1377,7 +1414,7 @@ impl Workspace {
                 self.codebase_finder.set_results(results);
             }
 
-            self.codebase_finder.set_theme(app_state.theme);
+            self.codebase_finder.set_theme(self.theme());
             if let Some(finder_result) = self.codebase_finder.show(ctx) {
                 // Handle the selected result - navigate to source
                 self.handle_codebase_finder_result(finder_result.result);
@@ -1385,12 +1422,11 @@ impl Workspace {
         }
 
         // Show command palette modal
-        self.command_palette
-            .set_theme(self.effective_theme(app_state));
+        self.command_palette.set_theme(self.theme());
         let cmd_result = self.command_palette.show(ctx);
 
         // Show buffer editor modal
-        self.buffer_editor.set_theme(app_state.theme);
+        self.buffer_editor.set_theme(self.theme());
         match self.buffer_editor.show(ctx) {
             BufferEditorResult::Saved(query, query_state) => {
                 self.apply_buffer_editor_result(query, query_state);
@@ -1402,7 +1438,7 @@ impl Workspace {
         }
 
         // Show multi-edit overlay
-        self.multi_edit_overlay.set_theme(app_state.theme);
+        self.multi_edit_overlay.set_theme(self.theme());
         match self.multi_edit_overlay.show(ctx) {
             MultiEditResult::Applied(changes) => {
                 self.apply_multi_edit_changes(changes);
@@ -1411,25 +1447,23 @@ impl Workspace {
         }
 
         // Show info overlay modal
-        self.info_overlay.set_theme(self.effective_theme(app_state));
+        self.info_overlay.set_theme(self.theme());
         self.info_overlay.show(ctx);
 
         // Show about overlay modal
-        self.about_overlay.set_theme(app_state.theme);
+        self.about_overlay.set_theme(self.theme());
         self.about_overlay.show(ctx);
 
         // Show which-key overlay modal
-        self.which_key.set_theme(self.effective_theme(app_state));
+        self.which_key.set_theme(self.theme());
         self.which_key.show(ctx);
 
         // Show tutorial overlay modal
-        self.tutorial_overlay
-            .set_theme(self.effective_theme(app_state));
+        self.tutorial_overlay.set_theme(self.theme());
         self.tutorial_overlay.show(ctx);
 
         // Show plugins overlay modal
-        self.plugins_overlay
-            .set_theme(self.effective_theme(app_state));
+        self.plugins_overlay.set_theme(self.theme());
         match self.plugins_overlay.show(ctx) {
             PluginsOverlayResult::OpenPluginDirectory => {
                 // Open the plugin directory in the system file manager
@@ -1447,11 +1481,26 @@ impl Workspace {
                 log::info!("Toggle plugin: {name}");
                 // TODO: Implement plugin enable/disable via PluginRegistry
             }
+            PluginsOverlayResult::InstallPlugin(name, file) => {
+                log::info!("Install plugin: {name} from {file}");
+                // Set installing state to show spinner
+                self.plugins_overlay
+                    .set_installing_plugin(Some(name.clone()));
+                self.pending_install_plugin = Some((name, file));
+            }
+            PluginsOverlayResult::RemovePlugin(name) => {
+                log::info!("Remove plugin: {name}");
+                self.pending_remove_plugin = Some(name);
+            }
+            PluginsOverlayResult::RefreshAvailable => {
+                log::info!("Refresh available plugins");
+                self.pending_refresh_plugins = true;
+            }
             PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
         }
 
         // Show workspace creator overlay modal
-        self.workspace_creator.set_theme(app_state.theme);
+        self.workspace_creator.set_theme(self.theme());
         match self.workspace_creator.show(ctx) {
             WorkspaceCreatorResult::Created {
                 name,
@@ -1476,15 +1525,14 @@ impl Workspace {
         }
 
         // Show diagnostics overlay modal
-        self.diagnostics_pane
-            .set_theme(self.effective_theme(app_state));
+        self.diagnostics_pane.set_theme(self.theme());
         self.diagnostics_pane.show_overlay(ctx);
 
         // Show source preview overlay modal
         if self.source_preview.is_open() {
             log::debug!("source_preview.is_open() = true, calling show()");
         }
-        self.source_preview.set_theme(app_state.theme);
+        self.source_preview.set_theme(self.theme());
         match self.source_preview.show(ctx) {
             SourcePreviewResult::Closed => {
                 log::debug!("Source preview closed");
@@ -1503,7 +1551,7 @@ impl Workspace {
         // Show team menu (only when connected to a team)
         // The menu renders as a centered overlay (like unified finder)
         if let Some(ref status) = self.team_status {
-            self.team_menu.set_theme(app_state.theme);
+            self.team_menu.set_theme(self.theme());
 
             // Get team name and current user ID from status
             let team_name = status.team_name.as_deref();
@@ -1551,8 +1599,7 @@ impl Workspace {
         self.poll_agent_pane_commands(ctx);
 
         // Update viewport filter state (rendering happens in bottom panel)
-        self.viewport_filter
-            .set_theme(self.effective_theme(app_state));
+        self.viewport_filter.set_theme(self.theme());
         let (match_count, total_count) = self.count_filtered_panes();
         self.viewport_filter.update_counts(match_count, total_count);
 
@@ -1572,6 +1619,7 @@ impl Workspace {
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
+            && !self.plugins_overlay.is_open()
             && !codebase_finder_open
             && !self.is_any_buffer_in_insert_mode()
             && !self.agent_mode_active
@@ -1600,6 +1648,7 @@ impl Workspace {
             && !self.command_palette.is_open()
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
+            && !self.plugins_overlay.is_open()
             && !codebase_finder_open
             && !self.agent_mode_active
             && !text_widget_focused
@@ -1644,7 +1693,7 @@ impl Workspace {
         #[cfg(target_arch = "wasm32")]
         let native_promo_open = {
             // Don't auto-open - let user click the footer link to see details
-            self.native_promo_overlay.set_theme(app_state.theme);
+            self.native_promo_overlay.set_theme(self.theme());
             self.native_promo_overlay.show(ctx);
             self.native_promo_overlay.is_open()
         };
@@ -1711,7 +1760,7 @@ impl Workspace {
         }
 
         // Show workspace finder modal (rendered on top of everything)
-        self.workspace_finder.set_theme(app_state.theme);
+        self.workspace_finder.set_theme(self.theme());
         if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
             return WorkspaceAction::LoadWorkspace(selected_workspace);
         }
@@ -1719,7 +1768,7 @@ impl Workspace {
         // Show style picker modal (unified theme + font picker)
         match self
             .style_picker
-            .show(ctx, app_state.theme, app_state.settings.font)
+            .show(ctx, self.theme(), app_state.settings.font)
         {
             StylePickerResult::ThemeSelected(theme) => return WorkspaceAction::SetTheme(theme),
             StylePickerResult::CustomThemeSelected(name) => {
@@ -1775,7 +1824,7 @@ impl Workspace {
                 self.codebase_finder.set_results(results);
             }
 
-            self.codebase_finder.set_theme(app_state.theme);
+            self.codebase_finder.set_theme(self.theme());
             if let Some(finder_result) = self.codebase_finder.show(ctx) {
                 // Handle the selected result - navigate to source
                 self.handle_codebase_finder_result(finder_result.result);
@@ -1783,30 +1832,27 @@ impl Workspace {
         }
 
         // Show command palette modal
-        self.command_palette
-            .set_theme(self.effective_theme(app_state));
+        self.command_palette.set_theme(self.theme());
         let cmd_result = self.command_palette.show(ctx);
 
         // Show info overlay modal
-        self.info_overlay.set_theme(self.effective_theme(app_state));
+        self.info_overlay.set_theme(self.theme());
         self.info_overlay.show(ctx);
 
         // Show about overlay modal
-        self.about_overlay.set_theme(app_state.theme);
+        self.about_overlay.set_theme(self.theme());
         self.about_overlay.show(ctx);
 
         // Show which-key overlay modal
-        self.which_key.set_theme(self.effective_theme(app_state));
+        self.which_key.set_theme(self.theme());
         self.which_key.show(ctx);
 
         // Show tutorial overlay modal
-        self.tutorial_overlay
-            .set_theme(self.effective_theme(app_state));
+        self.tutorial_overlay.set_theme(self.theme());
         self.tutorial_overlay.show(ctx);
 
         // Show plugins overlay modal
-        self.plugins_overlay
-            .set_theme(self.effective_theme(app_state));
+        self.plugins_overlay.set_theme(self.theme());
         match self.plugins_overlay.show(ctx) {
             PluginsOverlayResult::OpenPluginDirectory => {
                 // Open the plugin directory in the system file manager
@@ -1824,11 +1870,26 @@ impl Workspace {
                 log::info!("Toggle plugin: {name}");
                 // TODO: Implement plugin enable/disable via PluginRegistry
             }
+            PluginsOverlayResult::InstallPlugin(name, file) => {
+                log::info!("Install plugin: {name} from {file}");
+                // Set installing state to show spinner
+                self.plugins_overlay
+                    .set_installing_plugin(Some(name.clone()));
+                self.pending_install_plugin = Some((name, file));
+            }
+            PluginsOverlayResult::RemovePlugin(name) => {
+                log::info!("Remove plugin: {name}");
+                self.pending_remove_plugin = Some(name);
+            }
+            PluginsOverlayResult::RefreshAvailable => {
+                log::info!("Refresh available plugins");
+                self.pending_refresh_plugins = true;
+            }
             PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
         }
 
         // Show workspace creator overlay modal
-        self.workspace_creator.set_theme(app_state.theme);
+        self.workspace_creator.set_theme(self.theme());
         match self.workspace_creator.show(ctx) {
             WorkspaceCreatorResult::Created {
                 name,
@@ -1853,12 +1914,11 @@ impl Workspace {
         }
 
         // Show diagnostics overlay modal
-        self.diagnostics_pane
-            .set_theme(self.effective_theme(app_state));
+        self.diagnostics_pane.set_theme(self.theme());
         self.diagnostics_pane.show_overlay(ctx);
 
         // Show annotation editor overlay modal
-        self.annotation_editor.set_theme(app_state.theme);
+        self.annotation_editor.set_theme(self.theme());
         match self.annotation_editor.show(ctx) {
             AnnotationEditorResult::Created(annotation) => {
                 // Add annotation to the focused pane's chart
@@ -1901,6 +1961,7 @@ impl Workspace {
         if !self.workspace_finder.is_open()
             && !self.command_palette.is_open()
             && !self.which_key.is_open()
+            && !self.plugins_overlay.is_open()
             && !self.diagnostics_pane.is_open()
         {
             ctx.input_mut(|input| {
@@ -2164,6 +2225,24 @@ impl Workspace {
     /// Set plugins info for the plugins overlay
     pub fn set_plugins(&mut self, plugins: Vec<crate::components::PluginDisplayInfo>) {
         self.plugins_overlay.set_plugins(plugins);
+    }
+
+    /// Set available community plugins for the plugins overlay
+    pub fn set_available_plugins(
+        &mut self,
+        plugins: Vec<crate::components::overlay::plugins::CommunityPluginInfo>,
+    ) {
+        self.plugins_overlay.set_available_plugins(plugins);
+    }
+
+    /// Set loading state for the plugins overlay
+    pub fn set_plugins_loading(&mut self, loading: bool) {
+        self.plugins_overlay.set_loading_available(loading);
+    }
+
+    /// Set the plugin currently being installed
+    pub fn set_installing_plugin(&mut self, name: Option<String>) {
+        self.plugins_overlay.set_installing_plugin(name);
     }
 
     /// Set custom themes from plugins for the style picker.
@@ -3253,6 +3332,81 @@ impl Workspace {
         None
     }
 
+    /// Get information about the currently focused pane.
+    ///
+    /// Returns `FocusedPaneInfo` with type, title, query, and metric name (if applicable).
+    /// This is used by plugins to share context to external services like Slack/Discord.
+    pub fn get_focused_pane_info(&self) -> Option<FocusedPaneInfo> {
+        let tile_id = self.behavior.focused_tile()?;
+        let tile = self.viewport_tree.tiles.get(tile_id)?;
+
+        if let egui_tiles::Tile::Pane(component) = tile {
+            // Check each pane type
+            if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                let query = query_pane.saved_query().to_string();
+                let metric_name = enya_promql::extract_metric_name(&query);
+                let mut info = FocusedPaneInfo::new("query").with_query(query.clone());
+                // Use metric name as title if available, otherwise use truncated query
+                if let Some(ref metric) = metric_name {
+                    info = info
+                        .with_title(metric.clone())
+                        .with_metric_name(metric.clone());
+                } else if !query.is_empty() {
+                    // Use first 50 chars of query as title
+                    let title = if query.len() > 50 {
+                        format!("{}...", &query[..50])
+                    } else {
+                        query
+                    };
+                    info = info.with_title(title);
+                }
+                return Some(info);
+            }
+
+            if component.as_any().downcast_ref::<LogsPane>().is_some() {
+                return Some(FocusedPaneInfo::new("logs").with_title("Logs"));
+            }
+
+            if component.as_any().downcast_ref::<TracingPane>().is_some() {
+                return Some(FocusedPaneInfo::new("tracing").with_title("Tracing"));
+            }
+
+            if component.as_any().downcast_ref::<SqlPane>().is_some() {
+                return Some(FocusedPaneInfo::new("sql").with_title("SQL"));
+            }
+
+            // Plugin pane types - use Component::name() which returns the title
+            if let Some(table_pane) = component.as_any().downcast_ref::<PluginTablePane>() {
+                return Some(
+                    FocusedPaneInfo::new("custom_table").with_title(Component::name(table_pane)),
+                );
+            }
+
+            if let Some(chart_pane) = component.as_any().downcast_ref::<PluginChartPane>() {
+                return Some(
+                    FocusedPaneInfo::new("custom_chart").with_title(Component::name(chart_pane)),
+                );
+            }
+
+            if let Some(stat_pane) = component.as_any().downcast_ref::<PluginStatPane>() {
+                return Some(
+                    FocusedPaneInfo::new("custom_stat").with_title(Component::name(stat_pane)),
+                );
+            }
+
+            if let Some(gauge_pane) = component.as_any().downcast_ref::<PluginGaugePane>() {
+                return Some(
+                    FocusedPaneInfo::new("custom_gauge").with_title(Component::name(gauge_pane)),
+                );
+            }
+
+            // Unknown pane type
+            return Some(FocusedPaneInfo::new("unknown"));
+        }
+
+        None
+    }
+
     /// Check if source preview overlay is open
     pub fn is_source_preview_open(&self) -> bool {
         self.source_preview.is_open()
@@ -3625,5 +3779,35 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    // ==================== Community Plugin Actions ====================
+
+    /// Check if there's a pending install plugin action.
+    pub fn has_pending_install_plugin(&self) -> bool {
+        self.pending_install_plugin.is_some()
+    }
+
+    /// Take the pending install plugin action if any.
+    /// Returns (name, file) tuple if there's a pending install.
+    pub fn take_pending_install_plugin(&mut self) -> Option<(String, String)> {
+        self.pending_install_plugin.take()
+    }
+
+    /// Check if there's a pending remove plugin action.
+    pub fn has_pending_remove_plugin(&self) -> bool {
+        self.pending_remove_plugin.is_some()
+    }
+
+    /// Take the pending remove plugin action if any.
+    /// Returns plugin name if there's a pending remove.
+    pub fn take_pending_remove_plugin(&mut self) -> Option<String> {
+        self.pending_remove_plugin.take()
+    }
+
+    /// Take and clear the pending refresh plugins flag.
+    /// Returns true if refresh was requested.
+    pub fn take_pending_refresh_plugins(&mut self) -> bool {
+        std::mem::take(&mut self.pending_refresh_plugins)
     }
 }

@@ -6,8 +6,10 @@
 use std::sync::Arc;
 
 use enya_plugin::{
-    BoxFuture, HttpError, HttpResponse, LogLevel, NotificationLevel, PluginHost, Theme,
+    BoxFuture, FocusedPaneInfo, HttpError, HttpResponse, LogLevel, NotificationLevel, PluginHost,
+    Theme,
 };
+use parking_lot::RwLock;
 use rustc_hash::FxHashMap;
 
 use crate::AsyncRuntime;
@@ -19,6 +21,16 @@ pub type PluginContextRef = Arc<enya_plugin::PluginContext>;
 
 /// Create a plugin context from an EditorPluginHost.
 pub type PluginContext = enya_plugin::PluginContext;
+
+/// Shared state for the plugin system that can be updated by the editor.
+#[derive(Default)]
+pub struct PluginSharedState {
+    /// Information about the currently focused pane
+    pub focused_pane: Option<FocusedPaneInfo>,
+}
+
+/// Reference-counted shared state for plugin access.
+pub type PluginSharedStateRef = Arc<RwLock<PluginSharedState>>;
 
 /// Editor implementation of the PluginHost trait.
 ///
@@ -35,6 +47,8 @@ pub struct EditorPluginHost {
     editor_version: &'static str,
     /// Whether the editor is running in WASM
     is_wasm: bool,
+    /// Shared state that can be read by plugins
+    shared_state: PluginSharedStateRef,
 }
 
 impl EditorPluginHost {
@@ -43,6 +57,7 @@ impl EditorPluginHost {
         command_sender: CommandSender,
         async_runtime: AsyncRuntime,
         theme: AppTheme,
+        shared_state: PluginSharedStateRef,
     ) -> Self {
         Self {
             command_sender,
@@ -53,7 +68,13 @@ impl EditorPluginHost {
             is_wasm: true,
             #[cfg(not(target_arch = "wasm32"))]
             is_wasm: false,
+            shared_state,
         }
+    }
+
+    /// Create a new shared state instance.
+    pub fn create_shared_state() -> PluginSharedStateRef {
+        Arc::new(RwLock::new(PluginSharedState::default()))
     }
 
     /// Get the command sender for sending UI commands.
@@ -471,5 +492,11 @@ impl PluginHost for EditorPluginHost {
                 pane_type: pane_type.to_string(),
                 data: GaugeDataHashable::from_plugin(&data),
             });
+    }
+
+    // ==================== Focused Pane ====================
+
+    fn get_focused_pane_info(&self) -> Option<FocusedPaneInfo> {
+        self.shared_state.read().focused_pane.clone()
     }
 }

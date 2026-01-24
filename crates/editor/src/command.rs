@@ -132,6 +132,15 @@ pub enum UICommand {
         pane_type: String,
         data: GaugeDataHashable,
     },
+
+    // ==================== Community Plugin Commands ====================
+    /// Install a community plugin from the registry
+    InstallCommunityPlugin {
+        name: String,
+        file: String,
+    },
+    /// Refresh the list of available community plugins
+    RefreshCommunityPlugins,
 }
 
 /// Hashable representation of a chart series for UICommand
@@ -372,6 +381,9 @@ impl UICommand {
             Self::PluginRegisterCustomGaugePane { .. } => ("", ""),
             Self::PluginAddCustomGaugePane { .. } => ("", ""),
             Self::PluginUpdateCustomGaugeDataByType { .. } => ("", ""),
+            // Community plugin commands (programmatic only)
+            Self::InstallCommunityPlugin { .. } => ("", ""),
+            Self::RefreshCommunityPlugins => ("", ""),
         }
     }
 
@@ -520,6 +532,9 @@ impl UICommand {
             Self::PluginRegisterCustomGaugePane { .. } => vec![],
             Self::PluginAddCustomGaugePane { .. } => vec![],
             Self::PluginUpdateCustomGaugeDataByType { .. } => vec![],
+            // Community plugin commands (programmatic only)
+            Self::InstallCommunityPlugin { .. } => vec![],
+            Self::RefreshCommunityPlugins => vec![],
         }
     }
 

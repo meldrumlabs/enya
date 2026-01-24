@@ -85,6 +85,7 @@ impl Workspace {
             || self.which_key.is_open()
             || self.viewport_filter.is_open()
             || self.tutorial_overlay.is_open()
+            || self.plugins_overlay.is_open()
             || self.source_preview.is_open()
             || self.style_picker.is_open()
             || codebase_finder_open
@@ -141,6 +142,7 @@ impl Workspace {
         let mut should_show_home = false;
         let mut should_toggle_diagnostics = false;
         let mut should_toggle_team_menu = false;
+        let mut should_open_plugins_overlay = false;
         let mut should_edit_buffer = false;
         let mut should_go_to_definition = false;
         let mut should_go_to_alert = false;
@@ -277,6 +279,14 @@ impl Workspace {
                     if self.team_status.is_some() {
                         self.toggle_channels_panel();
                     }
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+p - open plugins overlay
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
+                    should_open_plugins_overlay = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -800,6 +810,11 @@ impl Workspace {
                 self.toggle_team_menu();
                 ctx.request_repaint();
             }
+        }
+
+        if should_open_plugins_overlay {
+            self.plugins_overlay.open();
+            ctx.request_repaint();
         }
 
         if should_toggle_agent_panel {

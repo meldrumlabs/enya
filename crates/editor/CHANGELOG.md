@@ -6,6 +6,36 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Plugin focused pane API**: Lua plugins can now access information about the currently focused pane for sharing context to external services:
+  - `enya.get_focused_pane()` - Returns `{pane_type, title, query, metric_name}` or nil if no pane is focused
+  - Supports all pane types: query, logs, tracing, sql, custom_table, custom_chart, custom_stat, custom_gauge
+  - Enables sharing workflows to Slack, Discord, or other collaboration tools
+- **Share to Slack/Discord example plugin**: New example plugin (`share-to-slack.lua`) demonstrating how to share pane context:
+  - `:share-slack [message]` - Share focused pane context to Slack
+  - `:share-discord [message]` - Share to Discord
+  - `:share-clipboard` - Copy context to clipboard
+  - Includes time range, pane type, query, and metric name
+  - Keybindings: `<leader>ss` (Slack), `<leader>sd` (Discord), `<leader>sy` (clipboard)
+- **Community plugin marketplace**: Plugin overlay now has an "Available" tab to browse and install community plugins:
+  - Press `Tab` or `1`/`2` to switch between Installed and Available tabs
+  - Press `r` to refresh the list of available plugins from the remote registry
+  - Press `i` on an available plugin to install it to `~/.config/enya/plugins/`
+  - Press `x` on an installed plugin to remove it
+  - Uses `plugins/index.toml` in the repo as the plugin registry
+  - **Hot-reload**: Plugins are activated immediately after installation or update (no restart required)
+  - **Braille spinner**: Shows animated progress indicator during plugin installation
+  - **Auto-refresh**: Available plugins list refreshes automatically when opening the overlay
+- **Plugin overlay keybinding**: Press `Space+p` anywhere in the editor to open the plugins overlay
+- **Plugin overlay premium UX**: Enhanced plugin overlay with polished visual design:
+  - **Tab underline indicator**: Active tab highlighted with colored accent underline
+  - **Selected row accent bar**: Vertical accent bar on left side of selected plugin row
+  - **Keyboard hint badges**: Pill-styled keyboard shortcuts with subtle backgrounds
+  - **Confirmation dialog**: Pressing `x` to remove a plugin shows a modal confirmation dialog (`y` to confirm, `n`/`Esc` to cancel)
+  - **Search filter**: Press `/` to search/filter plugins by name or description (works in both Installed and Available tabs)
+  - **Vim navigation**: `G` jumps to last item, `gg` jumps to first item
+  - **Scroll-to-selected**: List automatically scrolls to keep the selected plugin visible when navigating with `j/k`/`G`/`gg`
+  - **Update indicator**: Shows "UPDATE" badge on installed plugins when a newer version is available in the registry
+
 - **Landing page typewriter animation**: Terminal-style typewriter entrance effect when the landing page loads. Logo appears instantly, then text elements type out character by character at 60 cps with a blinking cursor (▌) - tagline, menu items (staggered), and footer hints.
 - **Landing page monospace shortcuts**: Menu item shortcuts now render in a monospace font for a clean, terminal-native look.
 - **About overlay**: New "About" option on landing page opens a dedicated overlay describing Enya as a keyboard-first observability editor that connects metrics, logs, traces, SQL, and git with AI.

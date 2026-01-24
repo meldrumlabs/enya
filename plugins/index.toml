@@ -1,0 +1,17 @@
+# Enya Community Plugins Registry
+#
+# This file lists all available community plugins that can be installed
+# from the Plugins overlay (Available tab).
+#
+# To add a plugin:
+# 1. Create your .lua plugin file in this directory
+# 2. Add an entry below with name, version, description, author, and file
+
+version = 1
+
+[[plugins]]
+name = "share-to-slack"
+version = "0.1.0"
+description = "Share pane context to Slack via webhooks"
+author = "meldrumlabs"
+file = "share-to-slack.lua"

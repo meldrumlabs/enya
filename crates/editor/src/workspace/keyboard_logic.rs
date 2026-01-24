@@ -81,6 +81,8 @@ pub enum KeyboardDecision {
     OpenWhichKey,
     /// Clear focus (Escape)
     ClearFocus,
+    /// Open plugins overlay (Space+p)
+    OpenPluginsOverlay,
 }
 
 /// Minimal context needed for keyboard decision making.
@@ -145,6 +147,7 @@ pub fn determine_space_action(key: egui::Key, is_native: bool) -> Option<Keyboar
         egui::Key::A => Some(KeyboardDecision::ToggleAgentPanel),
         egui::Key::T => Some(KeyboardDecision::ToggleTeamMenu),
         egui::Key::G => Some(KeyboardDecision::ToggleChannelsPanel),
+        egui::Key::P => Some(KeyboardDecision::OpenPluginsOverlay),
         egui::Key::C if is_native => Some(KeyboardDecision::OpenCodebaseFinder),
         _ => None,
     }
@@ -411,6 +414,12 @@ mod tests {
     fn test_space_g_toggles_channels_panel() {
         let result = determine_space_action(egui::Key::G, true);
         assert_eq!(result, Some(KeyboardDecision::ToggleChannelsPanel));
+    }
+
+    #[test]
+    fn test_space_p_opens_plugins_overlay() {
+        let result = determine_space_action(egui::Key::P, true);
+        assert_eq!(result, Some(KeyboardDecision::OpenPluginsOverlay));
     }
 
     #[test]

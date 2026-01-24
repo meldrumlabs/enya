@@ -169,6 +169,10 @@ impl WhichKey {
                         description: "Diagnostics",
                     },
                     Keybinding {
+                        key: "Space+p",
+                        description: "Plugins",
+                    },
+                    Keybinding {
                         key: "gd",
                         description: "Definition",
                     },

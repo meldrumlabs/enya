@@ -39,6 +39,8 @@ pub use enya_plugin::{
     // Hooks
     CommandHook,
     CommandHookResult,
+    // Focused pane info for sharing context
+    FocusedPaneInfo,
     KeyCombo,
     KeyEvent,
     KeybindingConfig,
@@ -73,4 +75,6 @@ pub use enya_plugin::{
 };
 
 // Editor-specific plugin context
-pub use context::{EditorPluginHost, PluginContext, PluginContextRef};
+pub use context::{
+    EditorPluginHost, PluginContext, PluginContextRef, PluginSharedState, PluginSharedStateRef,
+};
