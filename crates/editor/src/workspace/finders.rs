@@ -189,13 +189,13 @@ impl Workspace {
     pub(super) fn show_unified_finder(
         &mut self,
         ctx: &egui::Context,
-        app_state: &AppState,
+        _app_state: &AppState,
     ) -> Option<WorkspaceAction> {
         if !self.unified_finder.is_open() {
             return None;
         }
 
-        self.unified_finder.set_theme(app_state.theme);
+        self.unified_finder.set_theme(self.theme());
 
         // Update codebase search results when in a codebase mode (native only)
         #[cfg(not(target_arch = "wasm32"))]

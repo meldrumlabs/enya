@@ -70,3 +70,41 @@ use web_time::SystemTime;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::SystemTime;
 ```
+
+## Custom Theme Support
+
+The editor supports custom themes from Lua plugins. To ensure custom themes are applied everywhere:
+
+### In `Workspace` code
+Use `self.theme()` instead of `app_state.theme`:
+
+```rust
+// ✅ Correct - use self.theme()
+self.my_overlay.set_theme(self.theme());
+let accent_color = self.theme().accent_primary();
+
+// ❌ Wrong - misses custom plugin themes!
+self.my_overlay.set_theme(app_state.theme);
+```
+
+### In `EnyaApp` code (app/mod.rs)
+Use `self.effective_theme()` instead of `self.state.theme`:
+
+```rust
+// ✅ Correct - use self.effective_theme()
+self.status_line.set_theme(self.effective_theme());
+self.notifications.set_theme(self.effective_theme());
+
+// For ActiveThemeColors:
+let colors = self.effective_theme().active_colors();
+
+// ❌ Wrong - misses custom plugin themes!
+self.status_line.set_theme(self.state.theme);
+```
+
+### Key methods
+- `Workspace::theme()` - cached effective theme for workspace rendering
+- `EnyaApp::effective_theme()` - computes effective theme (custom if active, otherwise builtin)
+- `AppTheme::active_colors()` - extracts `ActiveThemeColors` from any `AppTheme`
+
+This pattern ensures that when users activate a custom theme plugin (like Tokyo Night), all UI components display with the correct theme colors.

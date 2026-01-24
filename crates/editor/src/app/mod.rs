@@ -332,6 +332,18 @@ impl EnyaApp {
         }
     }
 
+    /// Get the effective theme (custom from plugin or builtin from settings).
+    ///
+    /// Use this method instead of `self.state.theme` when rendering UI components
+    /// to ensure custom plugin themes are properly applied.
+    fn effective_theme(&self) -> AppTheme {
+        if let Some(ref custom) = self.resolved_custom_theme {
+            AppTheme::Custom(crate::ui::ActiveThemeColors::from_custom(custom))
+        } else {
+            self.state.theme
+        }
+    }
+
     // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
         // Hide status line on landing page - it's part of the workspace UI, not the landing page
@@ -339,8 +351,8 @@ impl EnyaApp {
             return;
         }
 
-        // Update status line state
-        self.status_line.set_theme(self.state.theme);
+        // Update status line state with effective theme (custom plugin theme if active)
+        self.status_line.set_theme(self.effective_theme());
 
         // Set active theme colors (for custom theme support)
         // Set team status (only shows when connected)
@@ -420,19 +432,18 @@ impl EnyaApp {
             self.status_line.set_sparkline(Some(sparkline));
         }
 
-        let theme = self.state.theme;
         let is_agent_mode = self.workspace.is_agent_mode();
+        let effective_theme = self.effective_theme();
 
         egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(false)
             .show(ctx, |ui| {
-                // Note: viewport filter is now inline in the top toolbar
-
                 // Status line with embedded agent input when in agent mode
                 if is_agent_mode {
                     self.status_line.show_with_extra_content(ui, |ui| {
                         // Render the agent input bar inline within the status line
-                        self.workspace.show_agent_input_bar_inline(ui, ctx, theme);
+                        self.workspace
+                            .show_agent_input_bar_inline(ui, ctx, effective_theme);
                     });
                 } else {
                     self.status_line.show(ui);
@@ -654,8 +665,9 @@ impl EnyaApp {
 
     #[inline]
     fn draw_home(&mut self, ctx: &egui::Context) {
+        let theme = self.effective_theme();
         egui::CentralPanel::default().show(ctx, |ui| {
-            welcome_section_ui(ui, &self.state);
+            welcome_section_ui(ui, theme);
         });
     }
 
@@ -678,12 +690,8 @@ impl EnyaApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             // Update active theme colors (from custom or builtin theme)
-            let active_colors = if let Some(ref custom) = self.resolved_custom_theme {
-                crate::ui::ActiveThemeColors::from_custom(custom)
-            } else {
-                crate::ui::ActiveThemeColors::from_builtin(self.state.theme)
-            };
-            self.workspace.set_active_colors(active_colors);
+            self.workspace
+                .set_active_colors(self.effective_theme().active_colors());
 
             // Update workspace team status and members before rendering
             self.workspace
@@ -1418,12 +1426,7 @@ impl eframe::App for EnyaApp {
         // Replaces native macOS titlebar for seamless theme integration
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // Use custom theme if active, otherwise fall back to builtin theme
-            let theme = if let Some(ref custom) = self.resolved_custom_theme {
-                AppTheme::Custom(crate::ui::ActiveThemeColors::from_custom(custom))
-            } else {
-                self.state.theme
-            };
+            let theme = self.effective_theme();
             let titlebar_height = 32.0;
 
             egui::TopBottomPanel::top("custom_titlebar")
@@ -1526,8 +1529,8 @@ impl eframe::App for EnyaApp {
         // Draw main content
         self.show_main_content(ctx);
 
-        // Draw notifications (on top of everything)
-        self.notifications.set_theme(self.state.theme);
+        // Draw notifications (on top of everything) with effective theme
+        self.notifications.set_theme(self.effective_theme());
         self.notifications.show(ctx);
 
         // Check for possible key board shortcut triggers
