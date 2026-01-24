@@ -18,7 +18,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
-- **Dark theme logo on WASM**: Use original branded logo (not tinted) for Dark theme on WASM builds
+- **Dark theme logo on WASM**: Use original branded logo (not tinted) for Dark theme. Uses `matches!` macro for reliable cross-platform enum matching.
 
 ### Added
 

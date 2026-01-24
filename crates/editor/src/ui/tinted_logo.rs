@@ -107,14 +107,14 @@ pub fn get_tinted_logo_with_opacity(ctx: &Context, theme: AppTheme, opacity: f32
 /// - For Light: loads the grayscale logo as-is (ink on paper aesthetic)
 /// - For other themes: loads the tintable logo with overlay blend tinting
 fn load_logo_for_theme(theme: AppTheme, opacity: f32) -> ColorImage {
-    // Use name-based matching for cross-platform reliability
-    match theme.name() {
-        "Dark" => load_original_logo(),
-        "Light" => load_grayscale_logo(opacity),
-        _ => {
-            let tint = theme.accent_primary().gamma_multiply(opacity);
-            load_tinted_logo(tint)
-        }
+    // Use matches! macro for cross-platform reliability
+    if matches!(theme, AppTheme::Dark) {
+        load_original_logo()
+    } else if matches!(theme, AppTheme::Light) {
+        load_grayscale_logo(opacity)
+    } else {
+        let tint = theme.accent_primary().gamma_multiply(opacity);
+        load_tinted_logo(tint)
     }
 }
 
@@ -254,6 +254,33 @@ mod tests {
         // Should match the original logo dimensions
         let original = load_original_logo();
         assert_eq!(image.size, original.size);
+
+        // Verify actual pixel content matches (not just dimensions)
+        assert_eq!(
+            image.pixels, original.pixels,
+            "Dark theme should use exact original logo pixels"
+        );
+    }
+
+    #[test]
+    fn test_original_differs_from_tinted() {
+        // Verify the original logo and tinted version are actually different
+        let original = load_original_logo();
+        let tinted = load_tinted_logo(Color32::from_rgb(16, 185, 129)); // Enya emerald
+
+        // They should have different pixel content
+        // (either different dimensions or different pixel values)
+        let differs = original.size != tinted.size
+            || original
+                .pixels
+                .iter()
+                .zip(tinted.pixels.iter())
+                .any(|(a, b)| a != b);
+
+        assert!(
+            differs,
+            "Original and tinted logos should be visually different"
+        );
     }
 
     #[test]
