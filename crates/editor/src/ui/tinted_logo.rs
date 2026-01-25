@@ -102,15 +102,39 @@ pub fn get_tinted_logo_with_opacity(ctx: &Context, theme: AppTheme, opacity: f32
     )
 }
 
+/// Enya emerald accent color - distinctive to the Dark theme
+const ENYA_EMERALD: Color32 = Color32::from_rgb(16, 185, 129);
+
+/// Check if theme is the Dark builtin (either directly or as resolved Custom)
+fn is_dark_builtin_theme(theme: &AppTheme) -> bool {
+    match theme {
+        AppTheme::Dark => true,
+        // When themes are resolved, Dark becomes Custom with Enya emerald accent
+        AppTheme::Custom(colors) => colors.is_dark && colors.accent_primary == ENYA_EMERALD,
+        _ => false,
+    }
+}
+
+/// Check if theme is the Light builtin (either directly or as resolved Custom)
+fn is_light_builtin_theme(theme: &AppTheme) -> bool {
+    match theme {
+        AppTheme::Light => true,
+        // Light theme is not dark and has specific characteristics
+        AppTheme::Custom(colors) => {
+            !colors.is_dark && colors.bg_base == Color32::from_rgb(250, 248, 245)
+        }
+        _ => false,
+    }
+}
+
 /// Load the appropriate logo for the given theme.
 /// - For Dark: loads the original branded logo
 /// - For Light: loads the grayscale logo as-is (ink on paper aesthetic)
 /// - For other themes: loads the tintable logo with overlay blend tinting
 fn load_logo_for_theme(theme: AppTheme, opacity: f32) -> ColorImage {
-    // Use matches! macro for cross-platform reliability
-    if matches!(theme, AppTheme::Dark) {
+    if is_dark_builtin_theme(&theme) {
         load_original_logo()
-    } else if matches!(theme, AppTheme::Light) {
+    } else if is_light_builtin_theme(&theme) {
         load_grayscale_logo(opacity)
     } else {
         let tint = theme.accent_primary().gamma_multiply(opacity);
