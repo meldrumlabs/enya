@@ -838,6 +838,9 @@ impl TutorialOverlay {
             return;
         }
 
+        // Clip content to available width to prevent overflow
+        let max_width = ui.available_width() - 10.0;
+
         // Category header
         ui.add_space(8.0);
         ui.label(
@@ -853,7 +856,13 @@ impl TutorialOverlay {
             let is_selected = idx == picker_selected;
             let is_current = idx == current_step;
 
-            let step_text = format!("{:>2}  {}", idx + 1, step.title);
+            // Truncate long titles to fit in column
+            let title = if step.title.len() > 22 {
+                format!("{}…", &step.title[..21])
+            } else {
+                step.title.to_string()
+            };
+            let step_text = format!("{:>2}  {}", idx + 1, title);
 
             let text_color = if is_selected {
                 accent_color
@@ -864,6 +873,8 @@ impl TutorialOverlay {
             };
 
             ui.horizontal(|ui| {
+                ui.set_max_width(max_width);
+
                 // Selection indicator
                 if is_selected {
                     ui.painter().rect_filled(
@@ -879,7 +890,7 @@ impl TutorialOverlay {
                     // Background highlight for selected item
                     let text_rect = egui::Rect::from_min_size(
                         ui.cursor().min - egui::vec2(4.0, 2.0),
-                        egui::vec2(ui.available_width(), typography::MD + 8.0),
+                        egui::vec2(max_width - 8.0, typography::MD + 8.0),
                     );
                     ui.painter().rect_filled(text_rect, 4.0, hover_bg);
                 } else {
@@ -887,10 +898,10 @@ impl TutorialOverlay {
                 }
 
                 // Current step marker
-                let marker = if is_current { "←" } else { "" };
+                let marker = if is_current { " ←" } else { "" };
 
                 ui.label(
-                    RichText::new(format!("{step_text} {marker}"))
+                    RichText::new(format!("{step_text}{marker}"))
                         .color(text_color)
                         .size(typography::MD),
                 );
