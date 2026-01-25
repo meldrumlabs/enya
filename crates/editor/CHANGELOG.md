@@ -6,6 +6,23 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Tutorial: Step picker overlay**: Press `g` during the tutorial to open a two-column overview of all steps organized by category (Navigation, Editing, Time, Git, Workspace, Advanced, Help). Navigate with `j`/`k`, select with `Enter`, or use number keys `1-9` for quick jumps.
+- **Tutorial: Commit annotations step**: New tutorial step teaching the `gc` keybinding to toggle git commit markers on charts, with navigation hints (`]c`/`[c` for next/prev commit)
+
+### Changed
+
+- **Commit annotations hidden by default**: Git commit markers are now hidden by default when loaded. Use `gc` to toggle visibility. Previously, commits were auto-shown when a git repository was configured.
+
+### Removed
+
+- **Demo team annotations**: Removed demo annotations from tutorial charts. Team collaboration features will be added in a future release.
+
+### Fixed
+
+- **Dark theme logo**: Use original branded logo (not tinted) for Dark theme. Detects Dark theme by its Enya emerald accent color (#10B981) to handle resolved Custom theme variants.
+
+### Added
+
 - **Plugin focused pane API**: Lua plugins can now access information about the currently focused pane for sharing context to external services:
   - `enya.get_focused_pane()` - Returns `{pane_type, title, query, metric_name}` or nil if no pane is focused
   - Supports all pane types: query, logs, tracing, sql, custom_table, custom_chart, custom_stat, custom_gauge

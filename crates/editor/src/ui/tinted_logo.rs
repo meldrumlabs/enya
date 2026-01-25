@@ -102,15 +102,39 @@ pub fn get_tinted_logo_with_opacity(ctx: &Context, theme: AppTheme, opacity: f32
     )
 }
 
+/// Enya emerald accent color - distinctive to the Dark theme
+const ENYA_EMERALD: Color32 = Color32::from_rgb(16, 185, 129);
+
+/// Check if theme is the Dark builtin (either directly or as resolved Custom)
+fn is_dark_builtin_theme(theme: &AppTheme) -> bool {
+    match theme {
+        AppTheme::Dark => true,
+        // When themes are resolved, Dark becomes Custom with Enya emerald accent
+        AppTheme::Custom(colors) => colors.is_dark && colors.accent_primary == ENYA_EMERALD,
+        _ => false,
+    }
+}
+
+/// Check if theme is the Light builtin (either directly or as resolved Custom)
+fn is_light_builtin_theme(theme: &AppTheme) -> bool {
+    match theme {
+        AppTheme::Light => true,
+        // Light theme is not dark and has specific characteristics
+        AppTheme::Custom(colors) => {
+            !colors.is_dark && colors.bg_base == Color32::from_rgb(250, 248, 245)
+        }
+        _ => false,
+    }
+}
+
 /// Load the appropriate logo for the given theme.
-/// - For Dark: loads the original branded logo (with optional opacity)
+/// - For Dark: loads the original branded logo
 /// - For Light: loads the grayscale logo as-is (ink on paper aesthetic)
 /// - For other themes: loads the tintable logo with overlay blend tinting
 fn load_logo_for_theme(theme: AppTheme, opacity: f32) -> ColorImage {
-    if theme == AppTheme::Dark {
-        load_original_logo(opacity)
-    } else if theme == AppTheme::Light {
-        // Light uses ink/paper aesthetic - use grayscale logo directly
+    if is_dark_builtin_theme(&theme) {
+        load_original_logo()
+    } else if is_light_builtin_theme(&theme) {
         load_grayscale_logo(opacity)
     } else {
         let tint = theme.accent_primary().gamma_multiply(opacity);
@@ -119,8 +143,8 @@ fn load_logo_for_theme(theme: AppTheme, opacity: f32) -> ColorImage {
 }
 
 /// Load the original branded logo (for Dark theme).
-/// Optionally applies opacity by multiplying the alpha channel.
-fn load_original_logo(opacity: f32) -> ColorImage {
+/// Returns the logo as-is without any modifications.
+fn load_original_logo() -> ColorImage {
     let image = image::load_from_memory(LOGO_BYTES_ORIGINAL)
         .expect("Failed to load original logo")
         .to_rgba8();
@@ -128,10 +152,7 @@ fn load_original_logo(opacity: f32) -> ColorImage {
     let size = [image.width() as usize, image.height() as usize];
     let pixels: Vec<Color32> = image
         .pixels()
-        .map(|pixel| {
-            let alpha = (pixel[3] as f32 * opacity).clamp(0.0, 255.0) as u8;
-            Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], alpha)
-        })
+        .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]))
         .collect();
 
     ColorImage::new(size, pixels)
@@ -209,7 +230,7 @@ mod tests {
     #[test]
     fn test_load_original_logo() {
         // Test that original logo loads without panicking
-        let image = load_original_logo(1.0);
+        let image = load_original_logo();
 
         // Should have non-zero dimensions
         assert!(image.size[0] > 0);
@@ -255,8 +276,35 @@ mod tests {
         let image = load_logo_for_theme(AppTheme::Dark, 1.0);
 
         // Should match the original logo dimensions
-        let original = load_original_logo(1.0);
+        let original = load_original_logo();
         assert_eq!(image.size, original.size);
+
+        // Verify actual pixel content matches (not just dimensions)
+        assert_eq!(
+            image.pixels, original.pixels,
+            "Dark theme should use exact original logo pixels"
+        );
+    }
+
+    #[test]
+    fn test_original_differs_from_tinted() {
+        // Verify the original logo and tinted version are actually different
+        let original = load_original_logo();
+        let tinted = load_tinted_logo(Color32::from_rgb(16, 185, 129)); // Enya emerald
+
+        // They should have different pixel content
+        // (either different dimensions or different pixel values)
+        let differs = original.size != tinted.size
+            || original
+                .pixels
+                .iter()
+                .zip(tinted.pixels.iter())
+                .any(|(a, b)| a != b);
+
+        assert!(
+            differs,
+            "Original and tinted logos should be visually different"
+        );
     }
 
     #[test]
