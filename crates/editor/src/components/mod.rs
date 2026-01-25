@@ -29,7 +29,7 @@ pub use overlay::{
     DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, DynamicCommand, EditExcerpt,
     EditorContext, InfoOverlay, MessageRole, MultiEditOverlay, MultiEditResult, PluginDisplayInfo,
     PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay, SourcePreviewResult,
-    StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
+    StylePicker, StylePickerResult, StyleTab, TutorialAction, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
     WorkspaceFinderResult, WorkspaceItem, parse_commands, strip_command_blocks,
 };

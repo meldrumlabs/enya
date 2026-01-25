@@ -63,7 +63,7 @@ pub use slash_commands::{
 };
 pub use source_preview::{SourcePreviewOverlay, SourcePreviewResult};
 pub use style_picker::{StylePicker, StylePickerResult, StyleTab};
-pub use tutorial::TutorialOverlay;
+pub use tutorial::{TutorialAction, TutorialOverlay};
 pub use unified_finder::{FinderMode, UnifiedFinder, UnifiedFinderAction, UnifiedResult};
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
 pub use which_key::WhichKey;

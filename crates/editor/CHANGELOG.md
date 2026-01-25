@@ -6,6 +6,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Tutorial: Colorscheme step**: New "Colorscheme" step at the beginning of the tutorial lets users select their preferred theme and font. Press `s` to open the style picker, or `→` to skip.
 - **Tutorial: Step picker overlay**: Press `g` during the tutorial to open a two-column overview of all steps organized by category (Navigation, Editing, Time, Git, Workspace, Advanced, Help). Navigate with `j`/`k`, select with `Enter`, or use number keys `1-9` for quick jumps.
 - **Tutorial: Commit annotations step**: New tutorial step teaching the `gc` keybinding to toggle git commit markers on charts, with navigation hints (`]c`/`[c` for next/prev commit)
 

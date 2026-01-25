@@ -23,9 +23,9 @@ use crate::components::{
     PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay, PluginsOverlayResult,
     QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand, SourcePreviewOverlay,
     SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember, TeamMenu,
-    TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TracingPane, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
-    WorkspaceFinderResult,
+    TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TracingPane, TutorialAction, TutorialOverlay,
+    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
+    WorkspaceFinder, WorkspaceFinderResult,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -1511,7 +1511,9 @@ impl Workspace {
 
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());
-        self.tutorial_overlay.show(ctx);
+        if self.tutorial_overlay.show(ctx) == TutorialAction::OpenStylePicker {
+            self.pending_open_style_picker = true;
+        }
 
         // Show plugins overlay modal
         self.plugins_overlay.set_theme(self.theme());
@@ -1915,7 +1917,9 @@ impl Workspace {
 
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());
-        self.tutorial_overlay.show(ctx);
+        if self.tutorial_overlay.show(ctx) == TutorialAction::OpenStylePicker {
+            self.pending_open_style_picker = true;
+        }
 
         // Show plugins overlay modal
         self.plugins_overlay.set_theme(self.theme());
