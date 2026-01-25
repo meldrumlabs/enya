@@ -1,0 +1,777 @@
+//! File opener popup for opening files in external applications.
+//!
+//! Provides a context menu popup that allows users to open files in external
+//! editors, terminals, or file managers. Supports macOS and Linux with
+//! automatic detection of installed applications.
+//!
+//! # Supported Applications
+//!
+//! - **Zed** - Modern code editor
+//! - **VS Code** - Visual Studio Code
+//! - **Ghostty** - GPU-accelerated terminal
+//! - **Finder/Files** - System file manager
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let mut popup = FileOpenerPopup::new();
+//!
+//! // Show popup at a position
+//! if right_clicked {
+//!     popup.open(mouse_pos, file_path);
+//! }
+//!
+//! // Render and handle result
+//! match popup.show(ui, theme) {
+//!     FileOpenerResult::Selected(action) => {
+//!         action.execute(&file_path).ok();
+//!     }
+//!     _ => {}
+//! }
+//! ```
+
+use std::path::Path;
+
+use egui::{Image, Key, RichText, Vec2};
+
+use crate::ui::icons::{APP_FINDER, APP_GHOSTTY, APP_VSCODE, APP_ZED, Icon};
+use crate::ui::semantic_icons;
+use crate::ui::theme::AppTheme;
+use crate::ui::typography;
+
+use super::finder_utils::OverlayStyle;
+
+// ============================================================================
+// External Application Types
+// ============================================================================
+
+/// An external application that can open files or directories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExternalApp {
+    /// Zed code editor
+    Zed,
+    /// Visual Studio Code
+    VSCode,
+    /// Ghostty terminal emulator
+    Ghostty,
+    /// macOS Finder / Linux file manager
+    FileManager,
+}
+
+impl ExternalApp {
+    /// Get the display name for this application.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Zed => "Zed",
+            Self::VSCode => "VS Code",
+            Self::Ghostty => "Ghostty",
+            Self::FileManager => {
+                #[cfg(target_os = "macos")]
+                {
+                    "Finder"
+                }
+                #[cfg(target_os = "linux")]
+                {
+                    "Files"
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+                {
+                    "File Manager"
+                }
+            }
+        }
+    }
+
+    /// Get the icon for this application.
+    pub fn icon(&self) -> &'static Icon {
+        match self {
+            Self::Zed => &APP_ZED,
+            Self::VSCode => &APP_VSCODE,
+            Self::Ghostty => &APP_GHOSTTY,
+            Self::FileManager => &APP_FINDER,
+        }
+    }
+
+    /// Get the action description for the menu.
+    pub fn action_label(&self) -> String {
+        match self {
+            Self::Zed | Self::VSCode => format!("Open in {}", self.name()),
+            Self::Ghostty => format!("Open in {}", self.name()),
+            Self::FileManager => format!("Open in {}", self.name()),
+        }
+    }
+
+    /// Check if this application is installed on the system.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn is_available(&self) -> bool {
+        match self {
+            Self::Zed => Self::check_app_or_command("Zed", "zed"),
+            Self::VSCode => Self::check_app_or_command("Visual Studio Code", "code"),
+            Self::Ghostty => Self::check_app_or_command("Ghostty", "ghostty"),
+            Self::FileManager => true, // Always available
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn is_available(&self) -> bool {
+        false // External apps not available in WASM
+    }
+
+    /// Check if an app bundle exists (macOS) or command is in PATH.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn check_app_or_command(app_name: &str, command: &str) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            // Check for .app bundle first
+            let app_path = format!("/Applications/{app_name}.app");
+            if std::path::Path::new(&app_path).exists() {
+                return true;
+            }
+        }
+
+        // Fall back to checking if command exists in PATH
+        std::process::Command::new("which")
+            .arg(command)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    /// Execute the open action for this application.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn execute(&self, path: &Path) -> Result<(), String> {
+        log::debug!("ExternalApp::execute - app: {self:?}, path: {path:?}");
+
+        // Check if file/directory exists before trying to open
+        if !path.exists() {
+            return Err(format!("File does not exist: {}", path.display()));
+        }
+
+        match self {
+            Self::Zed => Self::open_app("Zed", "zed", path),
+            Self::VSCode => Self::open_app("Visual Studio Code", "code", path),
+            Self::Ghostty => Self::open_terminal(path),
+            Self::FileManager => Self::reveal_in_file_manager(path),
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn execute(&self, _path: &Path) -> Result<(), String> {
+        Err("External apps not available in web mode".into())
+    }
+
+    /// Open an editor app - uses `open -a` on macOS, CLI command on Linux
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
+    fn open_app(app_name: &str, _cli_cmd: &str, path: &Path) -> Result<(), String> {
+        log::debug!("Opening {app_name} with path: {path:?}");
+        std::process::Command::new("open")
+            .args(["-a", app_name])
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("Failed to open {app_name}: {e}"))?;
+        Ok(())
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "macos")))]
+    fn open_app(_app_name: &str, cli_cmd: &str, path: &Path) -> Result<(), String> {
+        log::debug!("Opening {cli_cmd} with path: {path:?}");
+        std::process::Command::new(cli_cmd)
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("Failed to open {cli_cmd}: {e}"))?;
+        Ok(())
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
+    fn open_terminal(path: &Path) -> Result<(), String> {
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+
+        std::process::Command::new("open")
+            .args(["-a", "Ghostty", "--args", "--working-directory"])
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open Ghostty: {e}"))?;
+        Ok(())
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+    fn open_terminal(path: &Path) -> Result<(), String> {
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+
+        std::process::Command::new("ghostty")
+            .arg("--working-directory")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open Ghostty: {e}"))?;
+        Ok(())
+    }
+
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        not(target_os = "macos"),
+        not(target_os = "linux")
+    ))]
+    fn open_terminal(_path: &Path) -> Result<(), String> {
+        Err("Terminal opening not supported on this platform".into())
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
+    fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
+        // Use -R to reveal (select) the file in Finder
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .spawn()
+            .map_err(|e| format!("Failed to reveal in Finder: {e}"))?;
+        Ok(())
+    }
+
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
+    fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
+        // Try nautilus first (GNOME), then xdg-open as fallback
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+
+        if std::process::Command::new("nautilus")
+            .arg("--select")
+            .arg(path)
+            .spawn()
+            .is_ok()
+        {
+            return Ok(());
+        }
+
+        std::process::Command::new("xdg-open")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open file manager: {}", e))?;
+        Ok(())
+    }
+
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        not(target_os = "macos"),
+        not(target_os = "linux")
+    ))]
+    fn reveal_in_file_manager(_path: &Path) -> Result<(), String> {
+        Err("File manager not supported on this platform".into())
+    }
+}
+
+// ============================================================================
+// File Opener Actions (includes non-app actions like Copy)
+// ============================================================================
+
+/// Actions available in the file opener popup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileOpenerAction {
+    /// Open in an external application
+    OpenIn(ExternalApp),
+    /// Copy the full path to clipboard
+    CopyPath,
+    /// Copy the relative path to clipboard (if base path provided)
+    CopyRelativePath,
+}
+
+impl FileOpenerAction {
+    /// Get the display label for this action.
+    pub fn label(&self) -> String {
+        match self {
+            Self::OpenIn(app) => app.action_label(),
+            Self::CopyPath => "Copy path".to_string(),
+            Self::CopyRelativePath => "Copy relative path".to_string(),
+        }
+    }
+}
+
+// ============================================================================
+// File Opener Popup Result
+// ============================================================================
+
+/// Result of showing the file opener popup.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum FileOpenerResult {
+    /// No action taken
+    #[default]
+    None,
+    /// An action was selected
+    Selected(FileOpenerAction),
+    /// Popup was closed without selection
+    Closed,
+}
+
+// ============================================================================
+// File Opener Popup
+// ============================================================================
+
+/// A popup menu for opening files in external applications.
+pub struct FileOpenerPopup {
+    /// Whether the popup is currently open
+    is_open: bool,
+    /// Position to show the popup
+    position: egui::Pos2,
+    /// The file path to operate on
+    file_path: Option<std::path::PathBuf>,
+    /// Base path for relative path calculation
+    base_path: Option<std::path::PathBuf>,
+    /// Currently selected item index
+    selected_index: usize,
+    /// Cached list of available apps (computed once when opened)
+    available_apps: Vec<ExternalApp>,
+    /// Current theme
+    theme: AppTheme,
+}
+
+impl Default for FileOpenerPopup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FileOpenerPopup {
+    /// Create a new file opener popup.
+    pub fn new() -> Self {
+        Self {
+            is_open: false,
+            position: egui::Pos2::ZERO,
+            file_path: None,
+            base_path: None,
+            selected_index: 0,
+            available_apps: Vec::new(),
+            theme: AppTheme::Dark,
+        }
+    }
+
+    /// Set the theme.
+    pub fn set_theme(&mut self, theme: AppTheme) {
+        self.theme = theme;
+    }
+
+    /// Open the popup at the given position for a file path.
+    pub fn open(&mut self, position: egui::Pos2, file_path: std::path::PathBuf) {
+        self.open_with_base(position, file_path, None);
+    }
+
+    /// Open the popup with a base path for relative path calculation.
+    pub fn open_with_base(
+        &mut self,
+        position: egui::Pos2,
+        file_path: std::path::PathBuf,
+        base_path: Option<std::path::PathBuf>,
+    ) {
+        self.is_open = true;
+        self.position = position;
+        self.file_path = Some(file_path);
+        self.base_path = base_path;
+        self.selected_index = 0;
+
+        // Cache available apps
+        self.available_apps = [
+            ExternalApp::Zed,
+            ExternalApp::VSCode,
+            ExternalApp::Ghostty,
+            ExternalApp::FileManager,
+        ]
+        .into_iter()
+        .filter(|app| app.is_available())
+        .collect();
+    }
+
+    /// Close the popup.
+    /// Note: We don't clear file_path/base_path here so they remain accessible
+    /// after the popup closes (for the action handler to use).
+    pub fn close(&mut self) {
+        self.is_open = false;
+    }
+
+    /// Check if the popup is open.
+    pub fn is_open(&self) -> bool {
+        self.is_open
+    }
+
+    /// Get the total number of items in the menu.
+    fn item_count(&self) -> usize {
+        // Apps + separator + Copy actions
+        self.available_apps.len() + 2 // Copy path + Copy relative path
+    }
+
+    /// Build the list of all actions.
+    fn all_actions(&self) -> Vec<FileOpenerAction> {
+        let mut actions: Vec<FileOpenerAction> = self
+            .available_apps
+            .iter()
+            .map(|app| FileOpenerAction::OpenIn(*app))
+            .collect();
+
+        actions.push(FileOpenerAction::CopyPath);
+        if self.base_path.is_some() {
+            actions.push(FileOpenerAction::CopyRelativePath);
+        }
+
+        actions
+    }
+
+    /// Show the popup and return the result.
+    pub fn show(&mut self, ctx: &egui::Context, theme: AppTheme) -> FileOpenerResult {
+        if !self.is_open {
+            return FileOpenerResult::None;
+        }
+
+        self.theme = theme;
+        let mut result = FileOpenerResult::None;
+
+        // Handle keyboard input
+        ctx.input(|i| {
+            if i.key_pressed(Key::Escape) {
+                result = FileOpenerResult::Closed;
+            } else if i.key_pressed(Key::Enter) {
+                let actions = self.all_actions();
+                if self.selected_index < actions.len() {
+                    result = FileOpenerResult::Selected(actions[self.selected_index].clone());
+                }
+            } else if i.key_pressed(Key::ArrowDown) || i.key_pressed(Key::J) {
+                let count = self.item_count();
+                if count > 0 {
+                    self.selected_index = (self.selected_index + 1) % count;
+                }
+            } else if i.key_pressed(Key::ArrowUp) || i.key_pressed(Key::K) {
+                let count = self.item_count();
+                if count > 0 {
+                    self.selected_index = (self.selected_index + count - 1) % count;
+                }
+            }
+        });
+
+        // Show the popup
+        let style = OverlayStyle::frosted_glass(theme);
+        let popup_width = 200.0;
+
+        egui::Area::new(egui::Id::new("file_opener_popup"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(self.position)
+            .show(ctx, |ui| {
+                let frame = style.frame().inner_margin(4.0);
+                frame.show(ui, |ui| {
+                    ui.set_width(popup_width);
+
+                    // Header: "Open in"
+                    ui.horizontal(|ui| {
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new("Open in")
+                                .size(typography::XS)
+                                .color(theme.text_tertiary()),
+                        );
+                    });
+                    ui.add_space(2.0);
+
+                    let actions = self.all_actions();
+                    let apps_count = self.available_apps.len();
+
+                    for (idx, action) in actions.iter().enumerate() {
+                        // Draw separator before copy actions
+                        if idx == apps_count && apps_count > 0 {
+                            ui.add_space(4.0);
+                            let sep_rect = ui.available_rect_before_wrap();
+                            let sep_y = sep_rect.top();
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(sep_rect.left() + 8.0, sep_y),
+                                    egui::pos2(sep_rect.right() - 8.0, sep_y),
+                                ],
+                                egui::Stroke::new(1.0, theme.border_subtle()),
+                            );
+                            ui.add_space(4.0);
+                        }
+
+                        let is_selected = idx == self.selected_index;
+                        let item_result =
+                            self.render_menu_item(ui, action, is_selected, theme, popup_width);
+
+                        if item_result.clicked() {
+                            result = FileOpenerResult::Selected(action.clone());
+                        }
+
+                        if item_result.hovered() {
+                            self.selected_index = idx;
+                        }
+                    }
+                });
+            });
+
+        // Close popup if action was selected or cancelled
+        if matches!(
+            result,
+            FileOpenerResult::Selected(_) | FileOpenerResult::Closed
+        ) {
+            self.close();
+        }
+
+        result
+    }
+
+    /// Render a single menu item.
+    fn render_menu_item(
+        &self,
+        ui: &mut egui::Ui,
+        action: &FileOpenerAction,
+        is_selected: bool,
+        theme: AppTheme,
+        popup_width: f32,
+    ) -> egui::Response {
+        let row_height = 28.0;
+        let icon_size = 16.0;
+        let padding = 8.0;
+
+        let (rect, response) = ui.allocate_exact_size(
+            Vec2::new(popup_width - 8.0, row_height),
+            egui::Sense::click(),
+        );
+
+        // Background for selected/hovered state
+        if is_selected || response.hovered() {
+            ui.painter()
+                .rect_filled(rect, 4.0, theme.accent_primary().gamma_multiply(0.15));
+        }
+
+        // Render icon and label
+        let icon_rect = egui::Rect::from_min_size(
+            rect.left_top() + egui::vec2(padding, (row_height - icon_size) / 2.0),
+            Vec2::splat(icon_size),
+        );
+
+        match action {
+            FileOpenerAction::OpenIn(app) => {
+                // Render app icon
+                let icon = app.icon();
+                let image =
+                    Image::new(icon.as_image_source()).fit_to_exact_size(Vec2::splat(icon_size));
+                image.paint_at(ui, icon_rect);
+            }
+            FileOpenerAction::CopyPath | FileOpenerAction::CopyRelativePath => {
+                // Render copy icon using nerd font
+                let icon_text = RichText::new(semantic_icons::action::COPY)
+                    .size(icon_size)
+                    .color(theme.text_secondary());
+                let icon_pos = icon_rect.center();
+                ui.painter().text(
+                    icon_pos,
+                    egui::Align2::CENTER_CENTER,
+                    icon_text.text(),
+                    typography::monospace(icon_size),
+                    theme.text_secondary(),
+                );
+            }
+        }
+
+        // Render label
+        let label_pos = egui::pos2(icon_rect.right() + padding, rect.center().y);
+        let label_color = if is_selected {
+            theme.text_primary()
+        } else {
+            theme.text_secondary()
+        };
+        ui.painter().text(
+            label_pos,
+            egui::Align2::LEFT_CENTER,
+            action.label(),
+            typography::proportional(13.0),
+            label_color,
+        );
+
+        response
+    }
+
+    /// Get the file path if set.
+    pub fn file_path(&self) -> Option<&std::path::Path> {
+        self.file_path.as_deref()
+    }
+
+    /// Compute relative path from base.
+    pub fn relative_path(&self) -> Option<std::path::PathBuf> {
+        match (&self.file_path, &self.base_path) {
+            (Some(file), Some(base)) => file.strip_prefix(base).ok().map(|p| p.to_path_buf()),
+            _ => None,
+        }
+    }
+}
+
+// ============================================================================
+// Inline File Opener Widget
+// ============================================================================
+
+/// An inline widget that shows app icons directly visible for opening files.
+/// Unlike `FileOpenerPopup`, this renders clickable icons inline without a popup.
+pub struct FileOpenerInline {
+    /// Cached list of available apps (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    available_apps: Vec<ExternalApp>,
+    /// Whether apps have been detected yet (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    apps_detected: bool,
+}
+
+impl Default for FileOpenerInline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FileOpenerInline {
+    /// Create a new inline file opener.
+    pub fn new() -> Self {
+        Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            available_apps: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            apps_detected: false,
+        }
+    }
+
+    /// Ensure available apps are detected (only once).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn ensure_apps_detected(&mut self) {
+        if !self.apps_detected {
+            self.available_apps = [
+                ExternalApp::Zed,
+                ExternalApp::VSCode,
+                ExternalApp::Ghostty,
+                ExternalApp::FileManager,
+            ]
+            .into_iter()
+            .filter(|app| app.is_available())
+            .collect();
+            self.apps_detected = true;
+        }
+    }
+
+    /// Show the inline widget and return selected action if any.
+    /// `file_path` is the path to open, `base_path` is used for constructing full paths.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn show(
+        &mut self,
+        ui: &mut egui::Ui,
+        theme: AppTheme,
+        file_path: &std::path::Path,
+        base_path: Option<&std::path::Path>,
+    ) -> Option<FileOpenerAction> {
+        self.ensure_apps_detected();
+
+        let mut result = None;
+        let icon_size = 16.0;
+        let spacing = 4.0;
+
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = spacing;
+
+            for app in &self.available_apps {
+                let icon = app.icon();
+                let image = Image::new(icon.as_image_source())
+                    .fit_to_exact_size(Vec2::splat(icon_size))
+                    .sense(egui::Sense::click());
+
+                let response = ui.add(image);
+
+                if response.clicked() {
+                    // Compute full path
+                    let full_path = if let Some(base) = base_path {
+                        base.join(file_path)
+                    } else {
+                        file_path.to_path_buf()
+                    };
+                    if let Err(e) = app.execute(&full_path) {
+                        log::warn!("Failed to open in {}: {e}", app.name());
+                    }
+                    result = Some(FileOpenerAction::OpenIn(*app));
+                }
+
+                // Tooltip with app name
+                response.on_hover_text(app.name());
+            }
+
+            // Optional copy button using a simpler icon
+            let copy_btn = ui.add(
+                egui::Button::new(
+                    RichText::new(semantic_icons::action::COPY)
+                        .size(icon_size - 2.0)
+                        .color(theme.text_tertiary()),
+                )
+                .fill(egui::Color32::TRANSPARENT)
+                .stroke(egui::Stroke::NONE),
+            );
+
+            if copy_btn.clicked() {
+                let full_path = if let Some(base) = base_path {
+                    base.join(file_path)
+                } else {
+                    file_path.to_path_buf()
+                };
+                ui.ctx().copy_text(full_path.display().to_string());
+                result = Some(FileOpenerAction::CopyPath);
+            }
+            copy_btn.on_hover_text("Copy path");
+        });
+
+        result
+    }
+
+    /// WASM stub - does nothing in web mode.
+    #[cfg(target_arch = "wasm32")]
+    pub fn show(
+        &mut self,
+        _ui: &mut egui::Ui,
+        _theme: AppTheme,
+        _file_path: &std::path::Path,
+        _base_path: Option<&std::path::Path>,
+    ) -> Option<FileOpenerAction> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_external_app_names() {
+        assert_eq!(ExternalApp::Zed.name(), "Zed");
+        assert_eq!(ExternalApp::VSCode.name(), "VS Code");
+        assert_eq!(ExternalApp::Ghostty.name(), "Ghostty");
+    }
+
+    #[test]
+    fn test_action_labels() {
+        assert_eq!(
+            FileOpenerAction::OpenIn(ExternalApp::Zed).label(),
+            "Open in Zed"
+        );
+        assert_eq!(FileOpenerAction::CopyPath.label(), "Copy path");
+    }
+
+    #[test]
+    fn test_popup_default_closed() {
+        let popup = FileOpenerPopup::new();
+        assert!(!popup.is_open());
+    }
+
+    #[test]
+    fn test_popup_open_close() {
+        let mut popup = FileOpenerPopup::new();
+        popup.open(egui::Pos2::ZERO, std::path::PathBuf::from("/test/path"));
+        assert!(popup.is_open());
+
+        popup.close();
+        assert!(!popup.is_open());
+    }
+}

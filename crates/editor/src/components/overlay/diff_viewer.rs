@@ -17,11 +17,15 @@
 //! - `h` / `l` - Scroll left/right
 //! - `Escape` - Close overlay
 
+use std::path::PathBuf;
+
 use egui::{Color32, Key, RichText};
 use similar::{ChangeTag, TextDiff};
 
 use crate::components::OverlayColors;
+use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
+use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -32,6 +36,8 @@ pub enum DiffViewerResult {
     None,
     /// Overlay was closed.
     Closed,
+    /// An error occurred (e.g., file not found).
+    Error(String),
 }
 
 /// A single file's diff content.
@@ -100,6 +106,12 @@ pub struct DiffViewerOverlay {
     split_view: bool,
     /// Disable keyboard handling (when another overlay is on top).
     keyboard_disabled: bool,
+    /// Repository root path for computing full file paths.
+    repo_root: Option<PathBuf>,
+    /// File opener popup for opening files in external apps.
+    file_opener: FileOpenerPopup,
+    /// Flag to open file opener on next render (triggered by 'o' key).
+    pending_open_file_opener: bool,
 }
 
 impl Default for DiffViewerOverlay {
@@ -122,6 +134,9 @@ impl DiffViewerOverlay {
             scroll_offset_y: 0.0,
             split_view: false,
             keyboard_disabled: false,
+            pending_open_file_opener: false,
+            repo_root: None,
+            file_opener: FileOpenerPopup::new(),
         }
     }
 
@@ -133,6 +148,12 @@ impl DiffViewerOverlay {
     /// Sets the UI theme.
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
+        self.file_opener.set_theme(theme);
+    }
+
+    /// Sets the repository root path for computing full file paths.
+    pub fn set_repo_root(&mut self, path: Option<PathBuf>) {
+        self.repo_root = path;
     }
 
     /// Returns true if the overlay is open.
@@ -171,13 +192,18 @@ impl DiffViewerOverlay {
 
         let mut should_close = false;
 
-        // Handle keyboard input (unless another overlay is on top)
+        // Handle keyboard input (unless another overlay is on top or file opener is open)
         // Use consume_key to prevent multiple processing
-        if !self.keyboard_disabled {
+        if !self.keyboard_disabled && !self.file_opener.is_open() {
             ctx.input_mut(|i| {
                 // Escape to close
                 if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
                     should_close = true;
+                }
+
+                // O - open file opener popup (will be handled when button is rendered)
+                if i.consume_key(egui::Modifiers::NONE, Key::O) {
+                    self.pending_open_file_opener = true;
                 }
 
                 // File navigation: n/p
@@ -305,11 +331,77 @@ impl DiffViewerOverlay {
                 });
             });
 
+        // Show file opener popup if open
+        if self.file_opener.is_open() {
+            match self.file_opener.show(ctx, self.theme) {
+                FileOpenerResult::Selected(action) => {
+                    if let Some(error) = self.handle_file_opener_action(&action, ctx) {
+                        return DiffViewerResult::Error(error);
+                    }
+                }
+                FileOpenerResult::Closed | FileOpenerResult::None => {}
+            }
+        }
+
         DiffViewerResult::None
     }
 
+    /// Handle file opener action. Returns an error message if the action failed.
+    fn handle_file_opener_action(
+        &self,
+        action: &FileOpenerAction,
+        ctx: &egui::Context,
+    ) -> Option<String> {
+        match action {
+            FileOpenerAction::OpenIn(app) => {
+                if let Some(path) = self.file_opener.file_path() {
+                    // Compute full path if we have a repo root
+                    let full_path = if let Some(ref root) = self.repo_root {
+                        root.join(path)
+                    } else {
+                        path.to_path_buf()
+                    };
+                    log::debug!(
+                        "DiffViewer: Opening file - repo_root: {:?}, path: {:?}, full_path: {:?}",
+                        self.repo_root,
+                        path,
+                        full_path
+                    );
+                    if let Err(e) = app.execute(&full_path) {
+                        log::warn!("Failed to open file: {e}");
+                        return Some(e);
+                    }
+                } else {
+                    log::warn!("DiffViewer: No file path available for file opener");
+                    return Some("No file path available".to_string());
+                }
+            }
+            FileOpenerAction::CopyPath => {
+                if let Some(path) = self.file_opener.file_path() {
+                    let full_path = if let Some(ref root) = self.repo_root {
+                        root.join(path)
+                    } else {
+                        path.to_path_buf()
+                    };
+                    ctx.copy_text(full_path.display().to_string());
+                }
+            }
+            FileOpenerAction::CopyRelativePath => {
+                if let Some(path) = self.file_opener.file_path() {
+                    ctx.copy_text(path.display().to_string());
+                }
+            }
+        }
+        None
+    }
+
     /// Renders the header with commit info (no file tabs - those are now in the side panel).
-    fn render_header(&self, ui: &mut egui::Ui, colors: &OverlayColors, separator_color: Color32) {
+    fn render_header(
+        &mut self,
+        ui: &mut egui::Ui,
+        colors: &OverlayColors,
+        separator_color: Color32,
+    ) {
         // ===== Commit info row =====
         ui.add_space(10.0);
         ui.horizontal(|ui| {
@@ -347,7 +439,7 @@ impl DiffViewerOverlay {
                     .font(typography::proportional(typography::MD)),
             );
 
-            // Right side: total stats
+            // Right side: Open in button and total stats
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
 
@@ -370,6 +462,42 @@ impl DiffViewerOverlay {
                         .color(colors.muted_text)
                         .font(typography::proportional(typography::SM)),
                 );
+
+                ui.add_space(12.0);
+
+                // "Open" dropdown button (native only)
+                #[cfg(not(target_arch = "wasm32"))]
+                if let Some(file_diff) = self.file_diffs.get(self.current_file_index) {
+                    let file_path = file_diff.path.clone();
+
+                    // Button with Ghostty icon and "Open" text
+                    let btn = ui.add(
+                        egui::Button::image_and_text(
+                            egui::Image::new(APP_GHOSTTY.as_image_source())
+                                .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                            RichText::new(format!(
+                                "Open {}",
+                                egui_nerdfonts::regular::CHEVRON_DOWN
+                            ))
+                            .size(typography::SM)
+                            .color(self.theme.text_secondary()),
+                        )
+                        .fill(self.theme.bg_elevated())
+                        .stroke(egui::Stroke::new(1.0, self.theme.border_subtle()))
+                        .corner_radius(4.0),
+                    );
+
+                    // Open popup on button click or 'o' key press
+                    if btn.clicked() || self.pending_open_file_opener {
+                        self.pending_open_file_opener = false;
+                        let popup_pos = btn.rect.left_bottom();
+                        self.file_opener.open_with_base(
+                            popup_pos,
+                            std::path::PathBuf::from(&file_path),
+                            self.repo_root.clone(),
+                        );
+                    }
+                }
             });
         });
         ui.add_space(8.0);
@@ -1030,7 +1158,7 @@ impl DiffViewerOverlay {
                         );
                     }
 
-                    // Handle click
+                    // Handle left click on the row - select file
                     if response.clicked() {
                         self.current_file_index = i;
                         self.scroll_offset_x = 0.0;
@@ -1078,9 +1206,9 @@ impl DiffViewerOverlay {
                 // Keyboard hint - show current view mode and available shortcuts
                 let view_mode = if self.split_view { "split" } else { "unified" };
                 let hint = if self.file_diffs.len() > 1 {
-                    format!("s {view_mode} • n/p files • j/k scroll • Esc")
+                    format!("o open • s {view_mode} • n/p files • j/k scroll • Esc")
                 } else {
-                    format!("s {view_mode} • j/k scroll • Esc")
+                    format!("o open • s {view_mode} • j/k scroll • Esc")
                 };
                 ui.label(
                     RichText::new(hint)

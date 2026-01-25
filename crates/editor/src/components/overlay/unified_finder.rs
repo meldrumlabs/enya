@@ -239,6 +239,8 @@ pub enum UnifiedFinderAction {
         /// Full diff content.
         diff: String,
     },
+    /// An error occurred (e.g., file not found).
+    Error(String),
 }
 
 // =============================================================================
@@ -1249,7 +1251,7 @@ impl UnifiedFinder {
     /// Renders the preview pane.
     #[allow(clippy::too_many_arguments)]
     fn render_preview(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
         _colors: &FinderColors,
         text_col: Color32,
@@ -1423,9 +1425,10 @@ impl UnifiedFinder {
                     UnifiedResult::CodebaseResult(search_result) => {
                         // File location with language-specific icon
                         if !search_result.file.as_os_str().is_empty() {
+                            let file_path = search_result.file.clone();
                             ui.horizontal(|ui| {
                                 // Use language-specific file icon
-                                let file_icon = semantic_icons::file_icon(&search_result.file);
+                                let file_icon = semantic_icons::file_icon(&file_path);
                                 ui.label(
                                     RichText::new(file_icon)
                                         .color(self.theme.accent_muted())
@@ -1435,7 +1438,7 @@ impl UnifiedFinder {
                                 ui.label(
                                     RichText::new(format!(
                                         "{}:{}",
-                                        search_result.file.display(),
+                                        file_path.display(),
                                         search_result.line
                                     ))
                                     .color(text_col.gamma_multiply(0.6))

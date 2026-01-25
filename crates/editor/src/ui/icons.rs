@@ -52,3 +52,9 @@ macro_rules! icon_from_path {
 pub const CLOSE_ICON: Icon = icon_from_path!("../../assets/close.png");
 pub const EXTERNAL_LINK: Icon = icon_from_path!("../../assets/external_link.png");
 pub const ICON_COLOR: Icon = icon_from_path!("../../assets/favicon.ico");
+
+// External app icons for file opener
+pub const APP_ZED: Icon = icon_from_path!("../../assets/app_icons/zed.png");
+pub const APP_VSCODE: Icon = icon_from_path!("../../assets/app_icons/vscode.png");
+pub const APP_GHOSTTY: Icon = icon_from_path!("../../assets/app_icons/ghostty.png");
+pub const APP_FINDER: Icon = icon_from_path!("../../assets/app_icons/finder.png");
