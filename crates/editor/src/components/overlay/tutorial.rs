@@ -717,14 +717,17 @@ impl TutorialOverlay {
                                 ui.add_space(20.0);
                                 ui.vertical(|ui| {
                                     // Render in two columns
+                                    // Distribute categories to balance content:
+                                    // Left: Welcome(1) + Navigation(6) + Editing(2) = 9 steps
+                                    // Right: Time(2) + Git(1) + Workspace(4) + Advanced(0-2) + Help(1) = 8-10 steps
                                     ui.columns(2, |columns| {
                                         let left_categories = [
                                             StepCategory::Welcome,
                                             StepCategory::Navigation,
                                             StepCategory::Editing,
-                                            StepCategory::Time,
                                         ];
                                         let right_categories = [
+                                            StepCategory::Time,
                                             StepCategory::Git,
                                             StepCategory::Workspace,
                                             StepCategory::Advanced,
