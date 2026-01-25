@@ -20,6 +20,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Demo data timestamps**: Demo/tutorial charts now generate data relative to current time instead of a hardcoded timestamp from Nov 2023. All time presets (5m, 15m, 1h, 24h, 7d) now show consistent demo data.
 - **Dark theme logo**: Use original branded logo (not tinted) for Dark theme. Detects Dark theme by its Enya emerald accent color (#10B981) to handle resolved Custom theme variants.
 
 ### Added
