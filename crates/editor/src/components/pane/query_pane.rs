@@ -150,6 +150,8 @@ pub struct QueryPane {
     viz_dropdown_open: bool,
     /// Pending action to be consumed by the workspace (set during show, cleared on take)
     pending_action: Option<QueryPaneAction>,
+    /// Whether this pane uses demo data (prevents re-querying on time range change)
+    is_demo: bool,
 }
 
 impl Default for QueryPane {
@@ -190,6 +192,7 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: false,
         }
     }
 
@@ -249,6 +252,7 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: false,
         }
     }
 
@@ -279,6 +283,7 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: true,
         }
     }
 
@@ -312,6 +317,7 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: false,
         }
     }
 
@@ -345,6 +351,7 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: true,
         }
     }
 
@@ -389,6 +396,7 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: true,
         }
     }
 
@@ -420,6 +428,7 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: false,
         }
     }
 
@@ -649,9 +658,18 @@ impl QueryPane {
         self.needs_refresh = false;
     }
 
-    /// Mark pane as needing refresh (called after buffer is saved)
+    /// Mark pane as needing refresh (called after buffer is saved).
+    /// Demo panes are skipped since they use synthetic data.
     pub fn mark_needs_refresh(&mut self) {
-        self.needs_refresh = true;
+        // Don't mark demo panes for refresh - they use synthetic data
+        if !self.is_demo {
+            self.needs_refresh = true;
+        }
+    }
+
+    /// Check if this pane uses demo data (synthetic data, not connected to a backend)
+    pub fn is_demo(&self) -> bool {
+        self.is_demo
     }
 
     /// Check if this pane is currently loading (query in flight)
