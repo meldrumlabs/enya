@@ -23,9 +23,9 @@ use crate::components::{
     PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay, PluginsOverlayResult,
     QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand, SourcePreviewOverlay,
     SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember, TeamMenu,
-    TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TracingPane, TutorialAction, TutorialOverlay,
-    ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult,
-    WorkspaceFinder, WorkspaceFinderResult,
+    TeamMenuAction, TeamStatusInfo, TimeRangePicker, TimeRangePickerResult, TimeRangeToolbar,
+    TracingPane, TutorialAction, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
+    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceFinderResult,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -226,6 +226,8 @@ pub struct Workspace {
     which_key: WhichKey,
     /// Style picker overlay (unified theme + font selection)
     style_picker: StylePicker,
+    /// Time range picker overlay (custom time range selection)
+    time_range_picker: TimeRangePicker,
     /// Tutorial overlay (interactive walkthrough)
     tutorial_overlay: TutorialOverlay,
     /// Plugins overlay (view and manage plugins)
@@ -254,6 +256,8 @@ pub struct Workspace {
     pending_open_workspace_finder: bool,
     /// Flag to open style picker (set by command, handled in show with app_state)
     pending_open_style_picker: bool,
+    /// Flag to open time range picker (set by keyboard tc or button click)
+    pending_open_time_range_picker: bool,
     /// Query executor for running queries against backends (Prometheus, Enya)
     query_executor: QueryExecutor,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
@@ -413,6 +417,7 @@ impl Workspace {
             about_overlay: AboutOverlay::new(),
             which_key: WhichKey::new(),
             style_picker: StylePicker::new(),
+            time_range_picker: TimeRangePicker::new(),
             tutorial_overlay: TutorialOverlay::new(),
             plugins_overlay: PluginsOverlay::new(),
             workspace_creator: WorkspaceCreator::new(),
@@ -427,6 +432,7 @@ impl Workspace {
             diagnostics_visible: false,
             pending_open_workspace_finder: false,
             pending_open_style_picker: false,
+            pending_open_time_range_picker: false,
             query_executor: QueryExecutor::new(async_runtime.clone()),
             next_query_number: 1,
             viewport_filter: ViewportFilter::new(),
@@ -585,6 +591,7 @@ impl Workspace {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let modal_open = self.style_picker.is_open()
+                || self.time_range_picker.is_open()
                 || self.workspace_finder.is_open()
                 || self.unified_finder.is_open()
                 || self.command_palette.is_open()
@@ -787,6 +794,12 @@ impl Workspace {
             );
         }
 
+        // Handle pending time range picker open
+        if self.pending_open_time_range_picker {
+            self.pending_open_time_range_picker = false;
+            self.time_range_picker.open();
+        }
+
         // Show landing page only if explicitly enabled and no charts open
         // (new workspaces start with show_landing=false for a clean empty state)
         if self.show_landing && self.open_charts.is_empty() {
@@ -812,6 +825,7 @@ impl Workspace {
 
         // Check if any overlay is open that should block keyboard input
         let overlay_blocks_input = self.style_picker.is_open()
+            || self.time_range_picker.is_open()
             || self.workspace_finder.is_open()
             || self.unified_finder.is_open()
             || self.command_palette.is_open()
@@ -1155,6 +1169,11 @@ impl Workspace {
                 self.refresh_all_panes();
             }
 
+            // Open time range picker when custom button is clicked
+            if self.time_range_toolbar.custom_clicked() {
+                self.pending_open_time_range_picker = true;
+            }
+
             // Main viewport area (tabbed charts/views)
             // Use a frame that clips content to prevent overflow onto status bar
             egui::CentralPanel::default()
@@ -1378,7 +1397,9 @@ impl Workspace {
             );
             // Disable keyboard when another overlay is on top
             self.diff_viewer.set_keyboard_disabled(
-                self.style_picker.is_open() || self.command_palette.is_open(),
+                self.style_picker.is_open()
+                    || self.time_range_picker.is_open()
+                    || self.command_palette.is_open(),
             );
             match self.diff_viewer.show(ctx) {
                 DiffViewerResult::Error(msg) => {
@@ -1430,6 +1451,20 @@ impl Workspace {
             StylePickerResult::FontSelected(font) => return WorkspaceAction::SetFont(font),
             StylePickerResult::FontPreview(font) => return WorkspaceAction::SetFont(font),
             StylePickerResult::None => {}
+        }
+
+        // Show time range picker modal
+        self.time_range_picker.set_theme(self.theme());
+        match self.time_range_picker.show(ctx) {
+            TimeRangePickerResult::Selected {
+                start_secs,
+                end_secs,
+            } => {
+                self.time_range_toolbar
+                    .set_custom_range(start_secs, end_secs);
+                self.refresh_all_panes();
+            }
+            TimeRangePickerResult::Cancelled | TimeRangePickerResult::None => {}
         }
 
         // Show unified finder modal (Telescope-style)
@@ -1857,6 +1892,20 @@ impl Workspace {
             StylePickerResult::FontSelected(font) => return WorkspaceAction::SetFont(font),
             StylePickerResult::FontPreview(font) => return WorkspaceAction::SetFont(font),
             StylePickerResult::None => {}
+        }
+
+        // Show time range picker modal
+        self.time_range_picker.set_theme(self.theme());
+        match self.time_range_picker.show(ctx) {
+            TimeRangePickerResult::Selected {
+                start_secs,
+                end_secs,
+            } => {
+                self.time_range_toolbar
+                    .set_custom_range(start_secs, end_secs);
+                self.refresh_all_panes();
+            }
+            TimeRangePickerResult::Cancelled | TimeRangePickerResult::None => {}
         }
 
         // Show unified finder modal (Telescope-style)
