@@ -399,9 +399,10 @@ mod leader_key_tests {
     /// Test that the timeout constant is reasonable
     #[test]
     fn test_timeout_value() {
-        // Integration tests see the production value (500ms)
+        // Integration tests see the production value (1000ms)
+        // This gives users ~850ms to react after the leader popup appears (150ms delay)
         // Unit tests in input.rs use a faster 100ms timeout for speed
-        assert_eq!(LEADER_KEY_TIMEOUT_MS, 500);
+        assert_eq!(LEADER_KEY_TIMEOUT_MS, 1000);
     }
 }
 

@@ -18,14 +18,15 @@ use crate::components::overlay::{FinderMode, UnifiedFinder};
 use crate::components::{
     AboutOverlay, AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult,
     Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
-    ContextPane, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LogsPane,
-    MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult, PluginChartPane,
-    PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay, PluginsOverlayResult,
-    QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand, SourcePreviewOverlay,
-    SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember, TeamMenu,
-    TeamMenuAction, TeamStatusInfo, TimeRangePicker, TimeRangePickerResult, TimeRangeToolbar,
-    TracingPane, TutorialAction, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceFinderResult,
+    ContextPane, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LeaderPopup,
+    LogsPane, MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult,
+    PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay,
+    PluginsOverlayResult, QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand,
+    SourcePreviewOverlay, SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember,
+    TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangePicker, TimeRangePickerResult,
+    TimeRangeToolbar, TracingPane, TutorialAction, TutorialOverlay, ViewportFilter,
+    ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
+    WorkspaceFinderResult,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -43,8 +44,8 @@ pub mod grafana;
 // Input handling (navigation, visual-multi mode)
 mod input;
 pub use input::{
-    FocusTarget, LEADER_KEY_TIMEOUT_MS, LeaderKeyState, NavDirection, SectionState,
-    VisualMultiState,
+    FocusTarget, LEADER_KEY_TIMEOUT_MS, LEADER_POPUP_DELAY_MS, LeaderKeyState, NavDirection,
+    SectionState, VisualMultiState,
 };
 
 // Section rendering for collapsible sections
@@ -224,6 +225,8 @@ pub struct Workspace {
     about_overlay: AboutOverlay,
     /// Which-key overlay (shows available keybindings)
     which_key: WhichKey,
+    /// Leader popup (dynamic Space+X command hints, like which-key.nvim)
+    leader_popup: LeaderPopup,
     /// Style picker overlay (unified theme + font selection)
     style_picker: StylePicker,
     /// Time range picker overlay (custom time range selection)
@@ -416,6 +419,7 @@ impl Workspace {
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             about_overlay: AboutOverlay::new(),
             which_key: WhichKey::new(),
+            leader_popup: LeaderPopup::new(),
             style_picker: StylePicker::new(),
             time_range_picker: TimeRangePicker::new(),
             tutorial_overlay: TutorialOverlay::new(),
@@ -1544,6 +1548,16 @@ impl Workspace {
         self.which_key.set_theme(self.theme());
         self.which_key.show(ctx);
 
+        // Show leader popup (dynamic Space+X hints, like which-key.nvim)
+        self.leader_popup.set_theme(self.theme());
+        self.leader_popup
+            .update_visibility(self.leader_keys.last_space_press);
+        #[cfg(not(target_arch = "wasm32"))]
+        let is_native = true;
+        #[cfg(target_arch = "wasm32")]
+        let is_native = false;
+        self.leader_popup.show(ctx, is_native);
+
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());
         if self.tutorial_overlay.show(ctx) == TutorialAction::OpenStylePicker {
@@ -1964,6 +1978,9 @@ impl Workspace {
         self.which_key.set_theme(self.theme());
         self.which_key.show(ctx);
 
+        // Note: Leader popup is NOT shown on landing page - Space+X commands
+        // only make sense in the workspace view with open panes
+
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());
         if self.tutorial_overlay.show(ctx) == TutorialAction::OpenStylePicker {
@@ -2075,31 +2092,9 @@ impl Workspace {
             AnnotationEditorResult::Cancelled | AnnotationEditorResult::None => {}
         }
 
-        // Handle Space+d for diagnostics on landing page
-        // (viewport keyboard handling doesn't run on landing page)
-        if !self.workspace_finder.is_open()
-            && !self.command_palette.is_open()
-            && !self.which_key.is_open()
-            && !self.plugins_overlay.is_open()
-            && !self.diagnostics_pane.is_open()
-        {
-            ctx.input_mut(|input| {
-                // Space - leader key for sequences
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
-                    self.leader_keys.press_space();
-                }
-
-                // Leader key sequences (must follow Space within timeout)
-                if self.leader_keys.is_space_active() {
-                    // Space+d - toggle diagnostics overlay
-                    if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
-                        self.diagnostics_pane.toggle();
-                        self.diagnostics_visible = self.diagnostics_pane.is_open();
-                        self.leader_keys.clear_space();
-                    }
-                }
-            });
-        }
+        // Note: No Space+X keyboard shortcuts on landing page - the UI already provides
+        // clickable options for workspace finder and plugins. All Space+X shortcuts
+        // are workspace-specific and handled in handle_viewport_keyboard().
 
         self.handle_command_result(cmd_result, ctx)
     }

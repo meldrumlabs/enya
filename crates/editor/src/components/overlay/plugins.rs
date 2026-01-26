@@ -579,8 +579,10 @@ impl PluginsOverlay {
                         );
 
                         // Right side: Open button and stats
+                        // Use 52px spacing to align with [config] labels in rows
+                        // (rows are popup_width-32 wide with 20px internal right padding = 52px from edge)
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(16.0);
+                            ui.add_space(52.0);
 
                             // Stats
                             match self.current_tab {
