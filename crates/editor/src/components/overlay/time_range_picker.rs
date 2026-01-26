@@ -13,12 +13,44 @@ use chrono::{
 };
 use egui::{Key, RichText};
 
+use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 use crate::components::util::finder_utils::OverlayStyle;
 use crate::util::now_unix_secs_f64;
+
+/// Category for grouping suggestions
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuggestionCategory {
+    /// Quick duration presets (last 1h, last 24h, etc.)
+    Quick,
+    /// Named date ranges (today, yesterday, this week, etc.)
+    Named,
+    /// Custom date ranges (jan 15 to jan 20)
+    Custom,
+}
+
+impl SuggestionCategory {
+    /// Get the display label for this category
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Quick => "Quick",
+            Self::Named => "Named Dates",
+            Self::Custom => "Custom Range",
+        }
+    }
+
+    /// Get the icon for this category
+    fn icon(&self) -> &'static str {
+        match self {
+            Self::Quick => semantic_icons::time::TIMER,
+            Self::Named => semantic_icons::time::CALENDAR,
+            Self::Custom => semantic_icons::time::CLOCK,
+        }
+    }
+}
 
 /// A time suggestion with display info and parsed values
 #[derive(Debug, Clone)]
@@ -31,6 +63,8 @@ pub struct TimeSuggestion {
     pub start_secs: f64,
     /// End timestamp in seconds (Unix epoch)
     pub end_secs: f64,
+    /// Category for grouping
+    pub category: SuggestionCategory,
 }
 
 /// Result from the time range picker overlay
@@ -111,23 +145,29 @@ impl TimeRangePicker {
         let now = now_unix_secs_f64();
         let query_lower = self.query.to_lowercase();
 
-        // Build suggestions based on query
-        let mut suggestions = Vec::new();
+        // Collect suggestions in separate categories for proper grouping
+        let mut custom_suggestions = Vec::new();
+        let mut quick_suggestions = Vec::new();
+        let mut named_suggestions = Vec::new();
 
         // Try to parse date range first (highest priority if matched)
         if let Some(suggestion) = parse_date_range_query(&self.query) {
-            suggestions.push(suggestion);
+            custom_suggestions.push(suggestion);
         }
 
         // Try to parse custom duration from query (e.g., "2h", "30m", "1d")
         if let Some((duration_secs, label)) = parse_duration_query(&self.query) {
             let desc = format_duration_desc(duration_secs);
-            if !suggestions.iter().any(|s| s.label == label) {
-                suggestions.push(TimeSuggestion {
+            if !custom_suggestions
+                .iter()
+                .any(|s: &TimeSuggestion| s.label == label)
+            {
+                custom_suggestions.push(TimeSuggestion {
                     label,
                     description: desc,
                     start_secs: now - duration_secs,
                     end_secs: now,
+                    category: SuggestionCategory::Quick,
                 });
             }
         }
@@ -137,55 +177,50 @@ impl TimeRangePicker {
         let duration_presets = build_duration_presets(now);
 
         if query_lower.is_empty() {
-            // Show a curated mix when query is empty to demonstrate variety
-            // Mix durations and dates to show what's possible
-            let curated_order = [
+            // Show curated suggestions when empty, organized by category
+            // Quick durations
+            let quick_labels = [
                 "last 1 hour",
                 "last 6 hours",
-                "today",
-                "yesterday",
                 "last 24 hours",
-                "this week",
                 "last 7 days",
-                "last week",
-                "this month",
-                "last 30 days",
             ];
-
-            for label in curated_order {
-                if suggestions.len() >= 10 {
-                    break;
-                }
-                // Try to find in named presets
-                if let Some(preset) = named_presets.iter().find(|p| p.label == label) {
-                    if !suggestions.iter().any(|s| s.label == preset.label) {
-                        suggestions.push(preset.clone());
-                    }
-                }
-                // Try to find in duration presets
+            for label in quick_labels {
                 if let Some(preset) = duration_presets.iter().find(|p| p.label == label) {
-                    if !suggestions.iter().any(|s| s.label == preset.label) {
-                        suggestions.push(preset.clone());
-                    }
+                    quick_suggestions.push(preset.clone());
+                }
+            }
+
+            // Named dates
+            let named_labels = ["today", "yesterday", "this week", "last week", "this month"];
+            for label in named_labels {
+                if let Some(preset) = named_presets.iter().find(|p| p.label == label) {
+                    named_suggestions.push(preset.clone());
                 }
             }
         } else {
             // When user is typing, filter all options by fuzzy match
-            for preset in named_presets {
-                if fuzzy_match(&preset.label, &query_lower)
-                    && !suggestions.iter().any(|s| s.label == preset.label)
-                {
-                    suggestions.push(preset);
+            for preset in duration_presets {
+                if fuzzy_match(&preset.label, &query_lower) {
+                    quick_suggestions.push(preset);
                 }
             }
-            for preset in duration_presets {
-                if fuzzy_match(&preset.label, &query_lower)
-                    && !suggestions.iter().any(|s| s.label == preset.label)
-                {
-                    suggestions.push(preset);
+            for preset in named_presets {
+                if fuzzy_match(&preset.label, &query_lower) {
+                    named_suggestions.push(preset);
                 }
             }
         }
+
+        // Combine in category order: Custom first (user's parsed input), then Quick, then Named
+        let mut suggestions = Vec::new();
+        suggestions.extend(custom_suggestions);
+        suggestions.extend(quick_suggestions);
+        suggestions.extend(named_suggestions);
+
+        // Remove duplicates by label
+        let mut seen = rustc_hash::FxHashSet::default();
+        suggestions.retain(|s| seen.insert(s.label.clone()));
 
         // Limit suggestions
         suggestions.truncate(10);
@@ -243,14 +278,42 @@ impl TimeRangePicker {
                         should_close = true;
                     }
                 }
+                // Number keys 1-9 for quick selection (Cmd/Ctrl + number)
+                let number_keys = [
+                    (Key::Num1, 0),
+                    (Key::Num2, 1),
+                    (Key::Num3, 2),
+                    (Key::Num4, 3),
+                    (Key::Num5, 4),
+                    (Key::Num6, 5),
+                    (Key::Num7, 6),
+                    (Key::Num8, 7),
+                    (Key::Num9, 8),
+                ];
+                for (key, idx) in number_keys {
+                    if i.consume_key(egui::Modifiers::COMMAND, key) {
+                        if let Some(suggestion) = self.suggestions.get(idx) {
+                            result = TimeRangePickerResult::Selected {
+                                start_secs: suggestion.start_secs,
+                                end_secs: suggestion.end_secs,
+                            };
+                            should_close = true;
+                        }
+                    }
+                }
             });
         } else {
             self.just_opened = false;
         }
 
+        // Check if current query parses to a valid time range
+        let has_valid_parse = !self.query.is_empty()
+            && (parse_date_range_query(&self.query).is_some()
+                || parse_duration_query(&self.query).is_some());
+
         // Calculate popup dimensions
         let screen_rect = ctx.available_rect();
-        let popup_width = (screen_rect.width() * 0.45).clamp(400.0, 550.0);
+        let popup_width = (screen_rect.width() * 0.45).clamp(420.0, 520.0);
 
         egui::Area::new(egui::Id::new("time_range_picker_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, -50.0])
@@ -258,71 +321,59 @@ impl TimeRangePicker {
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let separator_color = self.theme.border_subtle();
-                let muted_text = self.theme.text_primary().gamma_multiply(0.6);
+                let muted_text = self.theme.text_primary().gamma_multiply(0.5);
+                let subtle_text = self.theme.text_primary().gamma_multiply(0.35);
                 let accent_color = self.theme.accent_primary();
+                let hover_bg = self.theme.text_primary().gamma_multiply(0.06);
 
                 egui::Frame::new()
                     .fill(overlay_style.bg)
                     .corner_radius(overlay_style.corner_radius)
                     .stroke(egui::Stroke::new(1.0, overlay_style.border))
                     .shadow(egui::epaint::Shadow {
-                        spread: 8,
-                        blur: 24,
-                        color: egui::Color32::from_black_alpha(60),
-                        offset: [0, 4],
+                        spread: 12,
+                        blur: 32,
+                        color: egui::Color32::from_black_alpha(80),
+                        offset: [0, 8],
                     })
                     .show(ui, |ui| {
                         ui.set_width(popup_width);
-                        ui.style_mut().spacing.item_spacing = egui::vec2(8.0, 8.0);
+                        ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 0.0);
 
                         ui.vertical(|ui| {
+                            // Input section with search icon
                             ui.add_space(16.0);
+                            let input_row_response = ui
+                                .horizontal(|ui| {
+                                    ui.add_space(16.0);
 
-                            // Header
-                            ui.horizontal(|ui| {
-                                ui.add_space(16.0);
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} Custom Time Range",
-                                        semantic_icons::time::CALENDAR
-                                    ))
-                                    .color(self.theme.text_primary())
-                                    .size(typography::LG)
-                                    .strong(),
-                                );
-                            });
+                                    // Search icon (changes to checkmark when valid)
+                                    let icon = if has_valid_parse {
+                                        semantic_icons::status::SUCCESS
+                                    } else {
+                                        semantic_icons::action::SEARCH
+                                    };
+                                    let icon_color = if has_valid_parse {
+                                        palette::semantic::SUCCESS
+                                    } else {
+                                        muted_text
+                                    };
+                                    ui.label(
+                                        RichText::new(icon).color(icon_color).size(typography::MD),
+                                    );
 
-                            ui.add_space(8.0);
+                                    ui.add_space(8.0);
 
-                            // Separator
-                            ui.horizontal(|ui| {
-                                ui.add_space(16.0);
-                                let rect = ui.available_rect_before_wrap();
-                                ui.painter().line_segment(
-                                    [
-                                        egui::pos2(rect.left(), rect.top()),
-                                        egui::pos2(rect.left() + popup_width - 32.0, rect.top()),
-                                    ],
-                                    egui::Stroke::new(1.0, separator_color),
-                                );
-                            });
-
-                            ui.add_space(12.0);
-
-                            // Input field
-                            ui.horizontal(|ui| {
-                                ui.add_space(16.0);
-                                ui.vertical(|ui| {
-                                    ui.set_width(popup_width - 32.0);
-
+                                    // Input field with premium styling
                                     let response = ui.add(
                                         egui::TextEdit::singleline(&mut self.query)
-                                            .hint_text("e.g., 2h, yesterday, jan 15 to jan 20")
-                                            .desired_width(popup_width - 48.0)
+                                            .hint_text("Type a time range...")
+                                            .desired_width(popup_width - 100.0)
                                             .font(egui::FontId::new(
                                                 typography::MD,
-                                                egui::FontFamily::Monospace,
-                                            )),
+                                                egui::FontFamily::Proportional,
+                                            ))
+                                            .frame(false),
                                     );
 
                                     if self.request_focus {
@@ -333,91 +384,287 @@ impl TimeRangePicker {
                                     if response.changed() {
                                         query_changed = true;
                                     }
-                                });
-                            });
+                                })
+                                .response;
+
+                            // Focus underline - subtle accent line under input area
+                            let underline_rect = input_row_response.rect;
+                            let underline_color = if has_valid_parse {
+                                palette::semantic::SUCCESS.gamma_multiply(0.6)
+                            } else {
+                                accent_color.gamma_multiply(0.4)
+                            };
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(
+                                        underline_rect.left() + 40.0,
+                                        underline_rect.bottom(),
+                                    ),
+                                    egui::pos2(
+                                        underline_rect.right() - 16.0,
+                                        underline_rect.bottom(),
+                                    ),
+                                ],
+                                egui::Stroke::new(1.5, underline_color),
+                            );
+
+                            ui.add_space(12.0);
+
+                            // Subtle separator
+                            let separator_rect = ui.available_rect_before_wrap();
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(separator_rect.left() + 16.0, separator_rect.top()),
+                                    egui::pos2(
+                                        separator_rect.left() + popup_width - 16.0,
+                                        separator_rect.top(),
+                                    ),
+                                ],
+                                egui::Stroke::new(1.0, separator_color),
+                            );
 
                             ui.add_space(8.0);
 
-                            // Suggestions list
+                            // Suggestions list with category grouping
                             if !self.suggestions.is_empty() {
-                                ui.horizontal(|ui| {
-                                    ui.add_space(16.0);
-                                    ui.vertical(|ui| {
-                                        for (idx, suggestion) in self.suggestions.iter().enumerate()
-                                        {
-                                            let is_selected = idx == self.selected_index;
-                                            let bg_color = if is_selected {
-                                                accent_color.gamma_multiply(0.15)
-                                            } else {
-                                                egui::Color32::TRANSPARENT
-                                            };
-                                            let text_color = if is_selected {
-                                                accent_color
-                                            } else {
-                                                self.theme.text_primary()
-                                            };
+                                let mut current_category: Option<SuggestionCategory> = None;
 
-                                            let response = ui
-                                                .horizontal(|ui| {
-                                                    egui::Frame::new()
-                                                        .fill(bg_color)
-                                                        .corner_radius(4.0)
-                                                        .inner_margin(egui::Margin::symmetric(8, 4))
-                                                        .show(ui, |ui| {
-                                                            ui.set_width(popup_width - 48.0);
-                                                            ui.horizontal(|ui| {
+                                for (idx, suggestion) in self.suggestions.iter().enumerate() {
+                                    // Category header (only show when category changes)
+                                    if current_category != Some(suggestion.category) {
+                                        if current_category.is_some() {
+                                            ui.add_space(8.0);
+                                        }
+                                        current_category = Some(suggestion.category);
+
+                                        ui.horizontal(|ui| {
+                                            ui.add_space(16.0);
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "{} {}",
+                                                    suggestion.category.icon(),
+                                                    suggestion.category.label()
+                                                ))
+                                                .color(subtle_text)
+                                                .size(typography::XS),
+                                            );
+                                        });
+                                        ui.add_space(4.0);
+                                    }
+
+                                    let is_selected = idx == self.selected_index;
+                                    let is_hovered = ui
+                                        .ctx()
+                                        .pointer_hover_pos()
+                                        .map(|_| false)
+                                        .unwrap_or(false);
+
+                                    // Calculate colors based on state
+                                    let bg_color = if is_selected {
+                                        accent_color.gamma_multiply(0.12)
+                                    } else if is_hovered {
+                                        hover_bg
+                                    } else {
+                                        egui::Color32::TRANSPARENT
+                                    };
+
+                                    let label_color = if is_selected {
+                                        accent_color
+                                    } else {
+                                        self.theme.text_primary()
+                                    };
+
+                                    let desc_color = if is_selected {
+                                        accent_color.gamma_multiply(0.7)
+                                    } else {
+                                        muted_text
+                                    };
+
+                                    // Suggestion row - inset from edges for sleek look
+                                    let row_margin = 12.0;
+                                    let row_response = ui
+                                        .horizontal(|ui| {
+                                            ui.add_space(row_margin);
+                                            egui::Frame::new()
+                                                .fill(bg_color)
+                                                .corner_radius(6.0)
+                                                .inner_margin(egui::Margin {
+                                                    left: 10,
+                                                    right: 10,
+                                                    top: 6,
+                                                    bottom: 6,
+                                                })
+                                                .show(ui, |ui| {
+                                                    // Constrain width: total - margins - inner padding
+                                                    let content_width =
+                                                        popup_width - (row_margin * 2.0) - 20.0;
+                                                    ui.set_max_width(content_width);
+                                                    ui.set_min_width(content_width);
+                                                    ui.horizontal(|ui| {
+                                                        // Number badge for quick selection (1-9)
+                                                        if idx < 9 {
+                                                            let badge_bg = self
+                                                                .theme
+                                                                .text_primary()
+                                                                .gamma_multiply(0.08);
+                                                            let badge_color = if is_selected {
+                                                                accent_color.gamma_multiply(0.8)
+                                                            } else {
+                                                                subtle_text
+                                                            };
+                                                            egui::Frame::new()
+                                                                .fill(badge_bg)
+                                                                .corner_radius(3.0)
+                                                                .inner_margin(
+                                                                    egui::Margin::symmetric(4, 1),
+                                                                )
+                                                                .show(ui, |ui| {
+                                                                    ui.label(
+                                                                        RichText::new(format!(
+                                                                            "{}",
+                                                                            idx + 1
+                                                                        ))
+                                                                        .color(badge_color)
+                                                                        .size(typography::XS)
+                                                                        .strong(),
+                                                                    );
+                                                                });
+                                                            ui.add_space(6.0);
+                                                        }
+
+                                                        // Label
+                                                        ui.label(
+                                                            RichText::new(&suggestion.label)
+                                                                .color(label_color)
+                                                                .size(typography::MD),
+                                                        );
+
+                                                        // Right-aligned description and enter hint
+                                                        ui.with_layout(
+                                                            egui::Layout::right_to_left(
+                                                                egui::Align::Center,
+                                                            ),
+                                                            |ui| {
+                                                                // Show enter hint on selected
+                                                                if is_selected {
+                                                                    ui.add_space(4.0);
+                                                                    ui.label(
+                                                                        RichText::new("↵")
+                                                                            .color(
+                                                                                accent_color
+                                                                                    .gamma_multiply(
+                                                                                        0.6,
+                                                                                    ),
+                                                                            )
+                                                                            .size(typography::SM),
+                                                                    );
+                                                                }
+
+                                                                // Description
                                                                 ui.label(
                                                                     RichText::new(
-                                                                        &suggestion.label,
+                                                                        &suggestion.description,
                                                                     )
-                                                                    .color(text_color)
-                                                                    .size(typography::MD),
+                                                                    .color(desc_color)
+                                                                    .size(typography::SM),
                                                                 );
-                                                                ui.with_layout(
-                                                                    egui::Layout::right_to_left(
-                                                                        egui::Align::Center,
-                                                                    ),
-                                                                    |ui| {
-                                                                        ui.label(
-                                                                            RichText::new(
-                                                                                &suggestion
-                                                                                    .description,
-                                                                            )
-                                                                            .color(muted_text)
-                                                                            .size(typography::SM),
-                                                                        );
-                                                                    },
-                                                                );
-                                                            });
-                                                        });
-                                                })
-                                                .response;
+                                                            },
+                                                        );
+                                                    });
+                                                });
+                                        })
+                                        .response;
 
-                                            // Click to select
-                                            if response.interact(egui::Sense::click()).clicked() {
-                                                result = TimeRangePickerResult::Selected {
-                                                    start_secs: suggestion.start_secs,
-                                                    end_secs: suggestion.end_secs,
-                                                };
-                                                should_close = true;
-                                            }
-                                        }
-                                    });
+                                    // Handle hover state for selection
+                                    if row_response.hovered() {
+                                        self.selected_index = idx;
+                                    }
+
+                                    // Click to select
+                                    if row_response.interact(egui::Sense::click()).clicked() {
+                                        result = TimeRangePickerResult::Selected {
+                                            start_secs: suggestion.start_secs,
+                                            end_secs: suggestion.end_secs,
+                                        };
+                                        should_close = true;
+                                    }
+                                }
+                            } else if !self.query.is_empty() {
+                                // No results found - show help
+                                ui.add_space(16.0);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        RichText::new("No matches found")
+                                            .color(muted_text)
+                                            .size(typography::SM),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(
+                                            "Try: 2h, yesterday, last week, jan 15 to jan 20",
+                                        )
+                                        .color(subtle_text)
+                                        .size(typography::XS),
+                                    );
                                 });
+                                ui.add_space(16.0);
                             }
 
-                            ui.add_space(8.0);
+                            ui.add_space(12.0);
 
-                            // Footer with hints
+                            // Footer separator
+                            let footer_rect = ui.available_rect_before_wrap();
+                            ui.painter().line_segment(
+                                [
+                                    egui::pos2(footer_rect.left() + 16.0, footer_rect.top()),
+                                    egui::pos2(
+                                        footer_rect.left() + popup_width - 16.0,
+                                        footer_rect.top(),
+                                    ),
+                                ],
+                                egui::Stroke::new(1.0, separator_color),
+                            );
+
+                            // Footer with keyboard hints
+                            ui.add_space(10.0);
                             ui.horizontal(|ui| {
                                 ui.add_space(16.0);
-                                ui.label(
-                                    RichText::new("↑↓ navigate  Enter select  Esc cancel")
-                                        .color(muted_text)
-                                        .size(typography::XS),
-                                );
-                            });
 
+                                // Keyboard hints as pills
+                                let hint_bg = self.theme.text_primary().gamma_multiply(0.05);
+                                let hints = [
+                                    ("↑↓", "navigate"),
+                                    ("↵", "select"),
+                                    ("⌘1-9", "quick"),
+                                    ("esc", "close"),
+                                ];
+
+                                for (i, (key, action)) in hints.iter().enumerate() {
+                                    if i > 0 {
+                                        ui.add_space(12.0);
+                                    }
+
+                                    egui::Frame::new()
+                                        .fill(hint_bg)
+                                        .corner_radius(3.0)
+                                        .inner_margin(egui::Margin::symmetric(4, 2))
+                                        .show(ui, |ui| {
+                                            ui.label(
+                                                RichText::new(*key)
+                                                    .color(muted_text)
+                                                    .size(typography::XS)
+                                                    .strong(),
+                                            );
+                                        });
+
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(*action)
+                                            .color(subtle_text)
+                                            .size(typography::XS),
+                                    );
+                                }
+                            });
                             ui.add_space(12.0);
                         });
                     });
@@ -538,6 +785,7 @@ fn build_named_date_presets() -> Vec<TimeSuggestion> {
         description: format_date_range_desc(today_start, now_secs),
         start_secs: today_start,
         end_secs: now_secs,
+        category: SuggestionCategory::Named,
     });
 
     // Yesterday: full day
@@ -557,6 +805,7 @@ fn build_named_date_presets() -> Vec<TimeSuggestion> {
         description: format_date_range_desc(yesterday_start, yesterday_end),
         start_secs: yesterday_start,
         end_secs: yesterday_end,
+        category: SuggestionCategory::Named,
     });
 
     // This week: Monday to now
@@ -572,6 +821,7 @@ fn build_named_date_presets() -> Vec<TimeSuggestion> {
         description: format_date_range_desc(week_start, now_secs),
         start_secs: week_start,
         end_secs: now_secs,
+        category: SuggestionCategory::Named,
     });
 
     // Last week: Previous Monday to Sunday
@@ -592,6 +842,7 @@ fn build_named_date_presets() -> Vec<TimeSuggestion> {
         description: format_date_range_desc(last_week_start, last_week_end),
         start_secs: last_week_start,
         end_secs: last_week_end,
+        category: SuggestionCategory::Named,
     });
 
     // This month: 1st of month to now
@@ -606,6 +857,7 @@ fn build_named_date_presets() -> Vec<TimeSuggestion> {
         description: format_date_range_desc(month_start, now_secs),
         start_secs: month_start,
         end_secs: now_secs,
+        category: SuggestionCategory::Named,
     });
 
     presets
@@ -634,6 +886,7 @@ fn build_duration_presets(now: f64) -> Vec<TimeSuggestion> {
             description: desc.to_string(),
             start_secs: now - duration_secs,
             end_secs: now,
+            category: SuggestionCategory::Quick,
         })
         .collect()
 }
@@ -663,6 +916,7 @@ fn parse_date_range_query(query: &str) -> Option<TimeSuggestion> {
                     description: desc,
                     start_secs,
                     end_secs,
+                    category: SuggestionCategory::Custom,
                 });
             }
         }
@@ -676,6 +930,7 @@ fn parse_date_range_query(query: &str) -> Option<TimeSuggestion> {
             description: desc,
             start_secs,
             end_secs,
+            category: SuggestionCategory::Custom,
         });
     }
 

@@ -325,7 +325,7 @@ impl TimeRangeToolbar {
 
             if ui
                 .add(custom_button)
-                .on_hover_text("Custom time range (tc)")
+                .on_hover_text("Custom time range (Space+t)")
                 .clicked()
             {
                 log::debug!("Custom time range clicked");

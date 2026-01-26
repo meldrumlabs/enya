@@ -267,8 +267,16 @@ impl Workspace {
                     return;
                 }
 
-                // Space+t - toggle team menu (only when connected to a team)
+                // Space+t - open time range picker
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
+                    should_open_time_range_picker = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+m - toggle team menu (only when connected to a team)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
                     should_toggle_team_menu = true;
                     self.leader_keys.clear_space();
                     consumed = true;
