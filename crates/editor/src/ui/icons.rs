@@ -56,5 +56,7 @@ pub const ICON_COLOR: Icon = icon_from_path!("../../assets/favicon.ico");
 // External app icons for file opener
 pub const APP_ZED: Icon = icon_from_path!("../../assets/app_icons/zed.png");
 pub const APP_VSCODE: Icon = icon_from_path!("../../assets/app_icons/vscode.png");
+pub const APP_CURSOR: Icon = icon_from_path!("../../assets/app_icons/cursor.png");
 pub const APP_GHOSTTY: Icon = icon_from_path!("../../assets/app_icons/ghostty.png");
+pub const APP_ITERM2: Icon = icon_from_path!("../../assets/app_icons/iterm2.png");
 pub const APP_FINDER: Icon = icon_from_path!("../../assets/app_icons/finder.png");

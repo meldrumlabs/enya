@@ -8,7 +8,9 @@
 //!
 //! - **Zed** - Modern code editor
 //! - **VS Code** - Visual Studio Code
+//! - **Cursor** - AI-powered code editor (VS Code fork)
 //! - **Ghostty** - GPU-accelerated terminal
+//! - **iTerm2** - Feature-rich terminal emulator
 //! - **Finder/Files** - System file manager
 //!
 //! # Usage
@@ -34,7 +36,9 @@ use std::path::Path;
 
 use egui::{Image, Key, RichText, Vec2};
 
-use crate::ui::icons::{APP_FINDER, APP_GHOSTTY, APP_VSCODE, APP_ZED, Icon};
+use crate::ui::icons::{
+    APP_CURSOR, APP_FINDER, APP_GHOSTTY, APP_ITERM2, APP_VSCODE, APP_ZED, Icon,
+};
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -52,8 +56,12 @@ pub enum ExternalApp {
     Zed,
     /// Visual Studio Code
     VSCode,
+    /// Cursor AI code editor (VS Code fork)
+    Cursor,
     /// Ghostty terminal emulator
     Ghostty,
+    /// iTerm2 terminal emulator
+    ITerm2,
     /// macOS Finder / Linux file manager
     FileManager,
 }
@@ -64,7 +72,9 @@ impl ExternalApp {
         match self {
             Self::Zed => "Zed",
             Self::VSCode => "VS Code",
+            Self::Cursor => "Cursor",
             Self::Ghostty => "Ghostty",
+            Self::ITerm2 => "iTerm2",
             Self::FileManager => {
                 #[cfg(target_os = "macos")]
                 {
@@ -87,7 +97,9 @@ impl ExternalApp {
         match self {
             Self::Zed => &APP_ZED,
             Self::VSCode => &APP_VSCODE,
+            Self::Cursor => &APP_CURSOR,
             Self::Ghostty => &APP_GHOSTTY,
+            Self::ITerm2 => &APP_ITERM2,
             Self::FileManager => &APP_FINDER,
         }
     }
@@ -95,8 +107,8 @@ impl ExternalApp {
     /// Get the action description for the menu.
     pub fn action_label(&self) -> String {
         match self {
-            Self::Zed | Self::VSCode => format!("Open in {}", self.name()),
-            Self::Ghostty => format!("Open in {}", self.name()),
+            Self::Zed | Self::VSCode | Self::Cursor => format!("Open in {}", self.name()),
+            Self::Ghostty | Self::ITerm2 => format!("Open in {}", self.name()),
             Self::FileManager => format!("Open in {}", self.name()),
         }
     }
@@ -107,7 +119,9 @@ impl ExternalApp {
         match self {
             Self::Zed => Self::check_app_or_command("Zed", "zed"),
             Self::VSCode => Self::check_app_or_command("Visual Studio Code", "code"),
+            Self::Cursor => Self::check_app_or_command("Cursor", "cursor"),
             Self::Ghostty => Self::check_app_or_command("Ghostty", "ghostty"),
+            Self::ITerm2 => Self::check_app_or_command("iTerm", "iterm2"),
             Self::FileManager => true, // Always available
         }
     }
@@ -150,7 +164,9 @@ impl ExternalApp {
         match self {
             Self::Zed => Self::open_app("Zed", "zed", path),
             Self::VSCode => Self::open_app("Visual Studio Code", "code", path),
-            Self::Ghostty => Self::open_terminal(path),
+            Self::Cursor => Self::open_app("Cursor", "cursor", path),
+            Self::Ghostty => Self::open_terminal("Ghostty", "ghostty", path),
+            Self::ITerm2 => Self::open_terminal("iTerm", "iterm2", path),
             Self::FileManager => Self::reveal_in_file_manager(path),
         }
     }
@@ -183,34 +199,52 @@ impl ExternalApp {
     }
 
     #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
-    fn open_terminal(path: &Path) -> Result<(), String> {
+    fn open_terminal(app_name: &str, _cli_cmd: &str, path: &Path) -> Result<(), String> {
         let dir = if path.is_dir() {
             path
         } else {
             path.parent().unwrap_or(path)
         };
 
-        std::process::Command::new("open")
-            .args(["-a", "Ghostty", "--args", "--working-directory"])
-            .arg(dir)
-            .spawn()
-            .map_err(|e| format!("Failed to open Ghostty: {e}"))?;
+        // iTerm2 uses a different approach - AppleScript for setting working directory
+        if app_name == "iTerm" {
+            let script = format!(
+                r#"tell application "iTerm"
+                    create window with default profile
+                    tell current session of current window
+                        write text "cd '{}'"
+                    end tell
+                end tell"#,
+                dir.display()
+            );
+            std::process::Command::new("osascript")
+                .args(["-e", &script])
+                .spawn()
+                .map_err(|e| format!("Failed to open iTerm2: {e}"))?;
+        } else {
+            // Ghostty and other terminals
+            std::process::Command::new("open")
+                .args(["-a", app_name, "--args", "--working-directory"])
+                .arg(dir)
+                .spawn()
+                .map_err(|e| format!("Failed to open {app_name}: {e}"))?;
+        }
         Ok(())
     }
 
     #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
-    fn open_terminal(path: &Path) -> Result<(), String> {
+    fn open_terminal(_app_name: &str, cli_cmd: &str, path: &Path) -> Result<(), String> {
         let dir = if path.is_dir() {
             path
         } else {
             path.parent().unwrap_or(path)
         };
 
-        std::process::Command::new("ghostty")
+        std::process::Command::new(cli_cmd)
             .arg("--working-directory")
             .arg(dir)
             .spawn()
-            .map_err(|e| format!("Failed to open Ghostty: {e}"))?;
+            .map_err(|e| format!("Failed to open {cli_cmd}: {e}"))?;
         Ok(())
     }
 
@@ -219,7 +253,7 @@ impl ExternalApp {
         not(target_os = "macos"),
         not(target_os = "linux")
     ))]
-    fn open_terminal(_path: &Path) -> Result<(), String> {
+    fn open_terminal(_app_name: &str, _cli_cmd: &str, _path: &Path) -> Result<(), String> {
         Err("Terminal opening not supported on this platform".into())
     }
 
