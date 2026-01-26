@@ -152,6 +152,8 @@ pub struct QueryPane {
     pending_action: Option<QueryPaneAction>,
     /// Whether this pane uses demo data (prevents re-querying on time range change)
     is_demo: bool,
+    /// Pending demo refresh (deferred to next frame so loading animation can show)
+    pending_demo_refresh: bool,
 }
 
 impl Default for QueryPane {
@@ -193,6 +195,7 @@ impl QueryPane {
             viz_dropdown_open: false,
             pending_action: None,
             is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -253,6 +256,7 @@ impl QueryPane {
             viz_dropdown_open: false,
             pending_action: None,
             is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -284,6 +288,7 @@ impl QueryPane {
             viz_dropdown_open: false,
             pending_action: None,
             is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -318,6 +323,7 @@ impl QueryPane {
             viz_dropdown_open: false,
             pending_action: None,
             is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -352,6 +358,7 @@ impl QueryPane {
             viz_dropdown_open: false,
             pending_action: None,
             is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -397,6 +404,7 @@ impl QueryPane {
             viz_dropdown_open: false,
             pending_action: None,
             is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -429,6 +437,7 @@ impl QueryPane {
             viz_dropdown_open: false,
             pending_action: None,
             is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -634,13 +643,24 @@ impl QueryPane {
     }
 
     /// Public method to refresh/reload the pane data.
-    /// For demo panes: regenerates demo data immediately.
+    /// For demo panes: defers refresh to next frame so loading animation shows.
     /// For real panes: marks as needing refresh (query executor will re-query).
     pub fn refresh(&mut self) {
         if self.is_demo {
-            self.refresh_demo_chart();
+            // Defer to next frame so loading animation can render
+            self.pending_demo_refresh = true;
+            self.is_loading = true;
         } else {
             self.needs_refresh = true;
+        }
+    }
+
+    /// Process any pending demo refresh (called each frame in show())
+    fn process_pending_demo_refresh(&mut self) {
+        if self.pending_demo_refresh {
+            self.refresh_demo_chart();
+            self.pending_demo_refresh = false;
+            self.is_loading = false;
         }
     }
 
@@ -723,6 +743,9 @@ impl QueryPane {
     /// Render the query pane
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
+        // Process any pending demo refresh (deferred from previous frame)
+        self.process_pending_demo_refresh();
+
         let mut action = QueryPaneAction::None;
         let text_col = text_color(self.theme);
 
