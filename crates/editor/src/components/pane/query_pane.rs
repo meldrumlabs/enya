@@ -684,11 +684,15 @@ impl QueryPane {
         self.needs_refresh = false;
     }
 
-    /// Mark pane as needing refresh (called after buffer is saved).
-    /// Demo panes are skipped since they use synthetic data.
+    /// Mark pane as needing refresh (called on time range change, buffer save, etc.)
+    /// For demo panes: triggers deferred refresh with loading animation.
+    /// For real panes: marks for re-query through the query executor.
     pub fn mark_needs_refresh(&mut self) {
-        // Don't mark demo panes for refresh - they use synthetic data
-        if !self.is_demo {
+        if self.is_demo {
+            // Deferred refresh with loading animation - same as manual refresh
+            self.pending_demo_refresh = true;
+            self.is_loading = true;
+        } else {
             self.needs_refresh = true;
         }
     }
