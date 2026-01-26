@@ -23,6 +23,7 @@ pub mod source_preview;
 pub mod style_picker;
 #[cfg(not(target_arch = "wasm32"))]
 mod syntax_highlight;
+pub mod time_range_picker;
 pub mod tutorial;
 pub mod unified_finder;
 pub mod viewport_filter;
@@ -63,7 +64,8 @@ pub use slash_commands::{
 };
 pub use source_preview::{SourcePreviewOverlay, SourcePreviewResult};
 pub use style_picker::{StylePicker, StylePickerResult, StyleTab};
-pub use tutorial::TutorialOverlay;
+pub use time_range_picker::{TimeRangePicker, TimeRangePickerResult};
+pub use tutorial::{TutorialAction, TutorialOverlay};
 pub use unified_finder::{FinderMode, UnifiedFinder, UnifiedFinderAction, UnifiedResult};
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
 pub use which_key::WhichKey;

@@ -165,6 +165,7 @@ impl Workspace {
         let mut should_float_focused_pane = false;
         let mut should_focus_agent_panel = false;
         let mut should_undo = false;
+        let mut should_open_time_range_picker = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -266,8 +267,16 @@ impl Workspace {
                     return;
                 }
 
-                // Space+t - toggle team menu (only when connected to a team)
+                // Space+t - open time range picker
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
+                    should_open_time_range_picker = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+m - toggle team menu (only when connected to a team)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
                     should_toggle_team_menu = true;
                     self.leader_keys.clear_space();
                     consumed = true;
@@ -355,6 +364,13 @@ impl Workspace {
                 // tw - Last 7 days (week)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
                     time_range_preset = Some(TimeRangePreset::Last7Days);
+                    self.leader_keys.clear_t();
+                    consumed = true;
+                    return;
+                }
+                // tc - Custom time range picker
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
+                    should_open_time_range_picker = true;
                     self.leader_keys.clear_t();
                     consumed = true;
                     return;
@@ -814,6 +830,11 @@ impl Workspace {
 
         if should_open_plugins_overlay {
             self.plugins_overlay.open();
+            ctx.request_repaint();
+        }
+
+        if should_open_time_range_picker {
+            self.pending_open_time_range_picker = true;
             ctx.request_repaint();
         }
 

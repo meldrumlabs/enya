@@ -150,6 +150,10 @@ pub struct QueryPane {
     viz_dropdown_open: bool,
     /// Pending action to be consumed by the workspace (set during show, cleared on take)
     pending_action: Option<QueryPaneAction>,
+    /// Whether this pane uses demo data (prevents re-querying on time range change)
+    is_demo: bool,
+    /// Pending demo refresh (deferred to next frame so loading animation can show)
+    pending_demo_refresh: bool,
 }
 
 impl Default for QueryPane {
@@ -190,6 +194,8 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -249,6 +255,8 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -279,6 +287,8 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -312,6 +322,8 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -345,6 +357,8 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -389,6 +403,8 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -420,6 +436,8 @@ impl QueryPane {
             edit_requested: false,
             viz_dropdown_open: false,
             pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -616,17 +634,34 @@ impl QueryPane {
         self.visualization.set_theme(theme);
     }
 
-    /// Refresh the visualization based on current saved query
-    fn refresh_chart(&mut self) {
+    /// Refresh the visualization with demo data (for demo panes only)
+    fn refresh_demo_chart(&mut self) {
         let query = self.buffer.saved_content().to_string();
         self.visualization.clear();
         self.visualization.set_metric_name(&query);
         populate_demo_data(&mut self.visualization, &query);
     }
 
-    /// Public method to refresh/reload the pane data
+    /// Public method to refresh/reload the pane data.
+    /// For demo panes: defers refresh to next frame so loading animation shows.
+    /// For real panes: marks as needing refresh (query executor will re-query).
     pub fn refresh(&mut self) {
-        self.refresh_chart();
+        if self.is_demo {
+            // Defer to next frame so loading animation can render
+            self.pending_demo_refresh = true;
+            self.is_loading = true;
+        } else {
+            self.needs_refresh = true;
+        }
+    }
+
+    /// Process any pending demo refresh (called each frame in show())
+    fn process_pending_demo_refresh(&mut self) {
+        if self.pending_demo_refresh {
+            self.refresh_demo_chart();
+            self.pending_demo_refresh = false;
+            self.is_loading = false;
+        }
     }
 
     /// Get a reference to the visualization.
@@ -649,9 +684,22 @@ impl QueryPane {
         self.needs_refresh = false;
     }
 
-    /// Mark pane as needing refresh (called after buffer is saved)
+    /// Mark pane as needing refresh (called on time range change, buffer save, etc.)
+    /// For demo panes: triggers deferred refresh with loading animation.
+    /// For real panes: marks for re-query through the query executor.
     pub fn mark_needs_refresh(&mut self) {
-        self.needs_refresh = true;
+        if self.is_demo {
+            // Deferred refresh with loading animation - same as manual refresh
+            self.pending_demo_refresh = true;
+            self.is_loading = true;
+        } else {
+            self.needs_refresh = true;
+        }
+    }
+
+    /// Check if this pane uses demo data (synthetic data, not connected to a backend)
+    pub fn is_demo(&self) -> bool {
+        self.is_demo
     }
 
     /// Check if this pane is currently loading (query in flight)
@@ -699,6 +747,9 @@ impl QueryPane {
     /// Render the query pane
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
+        // Process any pending demo refresh (deferred from previous frame)
+        self.process_pending_demo_refresh();
+
         let mut action = QueryPaneAction::None;
         let text_col = text_color(self.theme);
 

@@ -6,6 +6,13 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Custom time range picker**: New smart overlay for selecting custom time ranges. Access via `tc` keybinding or click "Custom" button. Features:
+  - **Duration input**: "2h", "30m", "1d", "last 2 hours"
+  - **Named dates**: "today", "yesterday", "this week", "last week", "this month"
+  - **Date ranges**: "jan 15 to jan 20", "2024-01-15 to 2024-01-20"
+  - **Date with time**: "2024-01-15 09:00 to 2024-01-15 18:00"
+  - Fuzzy autocomplete suggestions, keyboard navigation with `↑`/`↓` or `Ctrl+N`/`Ctrl+P`
+- **Tutorial: Colorscheme step**: New "Colorscheme" step at the beginning of the tutorial lets users select their preferred theme and font. Press `s` to open the style picker, or `→` to skip.
 - **Tutorial: Step picker overlay**: Press `g` during the tutorial to open a two-column overview of all steps organized by category (Navigation, Editing, Time, Git, Workspace, Advanced, Help). Navigate with `j`/`k`, select with `Enter`, or use number keys `1-9` for quick jumps.
 - **Tutorial: Commit annotations step**: New tutorial step teaching the `gc` keybinding to toggle git commit markers on charts, with navigation hints (`]c`/`[c` for next/prev commit)
 
@@ -19,6 +26,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Demo data timestamps**: Demo/tutorial charts now generate data relative to current time instead of a hardcoded timestamp from Nov 2023. All time presets (5m, 15m, 1h, 24h, 7d) now show consistent demo data.
+- **Demo panes feel like real setup**: Demo/tutorial panes now show loading animation and visual feedback when time range changes or refresh is triggered, making the tutorial experience identical to real data usage.
+- **Multi-select refresh (r key)**: Fixed `refresh()` to properly handle demo vs real panes with loading animation. Demo panes show loading briefly then regenerate demo data; real panes mark for re-query through the query executor.
 - **Dark theme logo**: Use original branded logo (not tinted) for Dark theme. Detects Dark theme by its Enya emerald accent color (#10B981) to handle resolved Custom theme variants.
 
 ### Added

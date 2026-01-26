@@ -11,6 +11,18 @@ use crate::ui::typography;
 
 use crate::components::util::finder_utils::{OverlayStyle, render_key_badge_large};
 
+/// Actions that can be returned from the tutorial overlay
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum TutorialAction {
+    /// No action needed
+    #[default]
+    None,
+    /// User requested to close the tutorial
+    Close,
+    /// User requested to open the style picker
+    OpenStylePicker,
+}
+
 /// A single step in the tutorial
 #[derive(Clone)]
 pub struct TutorialStep {
@@ -104,6 +116,14 @@ impl TutorialOverlay {
                 key_hint: "→ / Enter",
                 tip: Some("Press → or Enter to continue, ← to go back, g for overview"),
                 icon: semantic_icons::status::INFO,
+                category: StepCategory::Welcome,
+            },
+            TutorialStep {
+                title: "Colorscheme",
+                instruction: "Select your preferred theme and font.",
+                key_hint: "s",
+                tip: Some("Press s to open the style picker, or → to skip"),
+                icon: semantic_icons::nav::SETTINGS,
                 category: StepCategory::Welcome,
             },
             // === Pane Management (grouped) ===
@@ -322,14 +342,17 @@ impl TutorialOverlay {
         }
     }
 
-    /// Show the overlay. Returns true if it was closed this frame.
+    /// The index of the "Customize Your Editor" step
+    const CUSTOMIZE_STEP_INDEX: usize = 1;
+
+    /// Show the overlay. Returns an action if one was requested.
     #[profiling::function]
-    pub fn show(&mut self, ctx: &egui::Context) -> bool {
+    pub fn show(&mut self, ctx: &egui::Context) -> TutorialAction {
         if !self.is_open {
-            return false;
+            return TutorialAction::None;
         }
 
-        let mut should_close = false;
+        let mut action = TutorialAction::None;
 
         // Skip input handling on the first frame after opening
         if self.just_opened {
@@ -376,9 +399,16 @@ impl TutorialOverlay {
             });
         } else {
             // Handle main tutorial input
+            let current_step = self.current_step;
             ctx.input_mut(|i| {
                 if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
-                    should_close = true;
+                    action = TutorialAction::Close;
+                }
+                // 's' to open style picker on the customize step
+                if current_step == Self::CUSTOMIZE_STEP_INDEX
+                    && i.consume_key(egui::Modifiers::NONE, Key::S)
+                {
+                    action = TutorialAction::OpenStylePicker;
                 }
                 // 'g' to open step picker
                 if i.consume_key(egui::Modifiers::NONE, Key::G) {
@@ -415,7 +445,7 @@ impl TutorialOverlay {
                 }
                 // 't' to try/practice (close overlay to practice, resume with :tutorial)
                 if i.consume_key(egui::Modifiers::NONE, Key::T) {
-                    should_close = true;
+                    action = TutorialAction::Close;
                 }
             });
         }
@@ -658,13 +688,14 @@ impl TutorialOverlay {
             self.render_step_picker(ctx);
         }
 
-        if should_close {
+        // Handle close action
+        if action == TutorialAction::Close {
             // Clear egui focus so vim keys work immediately after closing
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
 
-        should_close
+        action
     }
 
     /// Render the step picker overlay

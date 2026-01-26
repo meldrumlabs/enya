@@ -804,11 +804,6 @@ impl TimeSeriesChart {
                 return ChartAction::ResetZoom;
             }
 
-            // Toggle stacked mode: s
-            if input.key_pressed(Key::S) && !input.modifiers.shift {
-                return ChartAction::ToggleStacked;
-            }
-
             // Go to end: G (shift + g)
             if input.key_pressed(Key::G) && input.modifiers.shift {
                 return ChartAction::GoToEnd;
