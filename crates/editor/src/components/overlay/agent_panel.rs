@@ -13,6 +13,8 @@ use std::sync::mpsc::Receiver;
 use crate::chat::ChatColors;
 use crate::components::pane::time_series_chart::TimeSeriesChart;
 use crate::components::pane::{InlineChart, InlineContent, InlineSearchResults, InlineSource};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::{
     ActivityItem, ActivityType, AiModel, AiProvider, ConversationHandoff, MessageRole,
     ResponseStatus, ScrollShadowConfig, ScrollState, normalize_unicode, render_scroll_shadows,
@@ -20,6 +22,8 @@ use crate::components::util::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::{truncate_first_line, truncate_path_suffix};
 use crate::components::widget::ThinkingIndicator;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -50,6 +54,8 @@ pub enum AgentPanelResult {
     ReturnFocusToViewport,
     /// Entered input mode (vim i or Enter pressed) - workspace should release vim focus
     EnteredInputMode,
+    /// An error occurred (e.g., file not found)
+    Error(String),
 }
 
 /// The agent panel component for AI-assisted chat
@@ -100,6 +106,12 @@ pub struct AgentPanel {
     pending_commands: Vec<super::agent_context::AgentCommand>,
     /// Whether to auto-submit the input on next show() call
     pending_submit: bool,
+    /// File opener popup for opening files in external apps (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    file_opener: FileOpenerPopup,
+    /// Repository root path for computing full file paths.
+    #[cfg(not(target_arch = "wasm32"))]
+    repo_path: Option<std::path::PathBuf>,
 }
 
 impl AgentPanel {
@@ -129,6 +141,8 @@ impl AgentPanel {
             editor_context: None,
             pending_commands: Vec::new(),
             pending_submit: false,
+            file_opener: FileOpenerPopup::new(),
+            repo_path: None,
         }
     }
 
@@ -194,10 +208,17 @@ impl AgentPanel {
         }
     }
 
-    /// Set the theme
     /// Set the theme (supports Custom variant with plugin colors)
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
+        #[cfg(not(target_arch = "wasm32"))]
+        self.file_opener.set_theme(theme);
+    }
+
+    /// Sets the repository root path for computing full file paths.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_repo_path(&mut self, path: Option<std::path::PathBuf>) {
+        self.repo_path = path;
     }
 
     /// Open the panel
@@ -406,6 +427,19 @@ impl AgentPanel {
                 self.render_content(ui, ctx);
             });
 
+        // Show file opener popup if open (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.file_opener.is_open() {
+            match self.file_opener.show(ctx, self.theme) {
+                FileOpenerResult::Selected(action) => {
+                    if let Some(error) = self.handle_file_opener_action(&action, ctx) {
+                        return AgentPanelResult::Error(error);
+                    }
+                }
+                FileOpenerResult::Closed | FileOpenerResult::None => {}
+            }
+        }
+
         if matches!(result, AgentPanelResult::Closed) {
             self.close();
         }
@@ -526,11 +560,67 @@ impl AgentPanel {
                 self.render_content(ui, ctx);
             });
 
+        // Show file opener popup if open (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.file_opener.is_open() {
+            match self.file_opener.show(ctx, self.theme) {
+                FileOpenerResult::Selected(action) => {
+                    if let Some(error) = self.handle_file_opener_action(&action, ctx) {
+                        return AgentPanelResult::Error(error);
+                    }
+                }
+                FileOpenerResult::Closed | FileOpenerResult::None => {}
+            }
+        }
+
         if matches!(result, AgentPanelResult::Closed) {
             self.close();
         }
 
         result
+    }
+
+    /// Handle file opener action. Returns an error message if the action failed.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn handle_file_opener_action(
+        &self,
+        action: &FileOpenerAction,
+        ctx: &egui::Context,
+    ) -> Option<String> {
+        match action {
+            FileOpenerAction::OpenIn(app) => {
+                if let Some(path) = self.file_opener.file_path() {
+                    // Compute full path if we have a repo root
+                    let full_path = if let Some(ref root) = self.repo_path {
+                        root.join(path)
+                    } else {
+                        path.to_path_buf()
+                    };
+                    if let Err(e) = app.execute(&full_path) {
+                        log::warn!("Failed to open file: {e}");
+                        return Some(e);
+                    }
+                } else {
+                    return Some("No file path available".to_string());
+                }
+            }
+            FileOpenerAction::CopyPath => {
+                if let Some(path) = self.file_opener.file_path() {
+                    let full_path = if let Some(ref root) = self.repo_path {
+                        root.join(path)
+                    } else {
+                        path.to_path_buf()
+                    };
+                    ctx.copy_text(full_path.display().to_string());
+                }
+            }
+            FileOpenerAction::CopyRelativePath => {
+                if let Some(path) = self.file_opener.file_path() {
+                    ctx.copy_text(path.display().to_string());
+                }
+            }
+        }
+        None
     }
 
     fn panel_frame(&self) -> egui::Frame {
@@ -1184,7 +1274,12 @@ impl AgentPanel {
     }
 
     /// Render an inline source code preview within a message.
-    fn render_inline_source(&self, ui: &mut egui::Ui, source: &InlineSource, colors: &ChatColors) {
+    fn render_inline_source(
+        &mut self,
+        ui: &mut egui::Ui,
+        source: &InlineSource,
+        colors: &ChatColors,
+    ) {
         let accent = self.theme.accent_primary();
         let text_secondary = self.theme.text_secondary();
         let text_tertiary = self.theme.text_tertiary();
@@ -1204,12 +1299,44 @@ impl AgentPanel {
                             .size(14.0),
                     );
                     ui.add_space(6.0);
+
                     ui.label(
                         RichText::new(format!("{}:{}", source.file_path, source.line))
                             .color(accent)
                             .size(typography::SM)
                             .strong(),
                     );
+
+                    // "Open" dropdown button (native only)
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let btn = ui.add(
+                                egui::Button::image_and_text(
+                                    egui::Image::new(APP_GHOSTTY.as_image_source())
+                                        .fit_to_exact_size(egui::vec2(12.0, 12.0)),
+                                    RichText::new(format!(
+                                        "Open {}",
+                                        egui_nerdfonts::regular::CHEVRON_DOWN
+                                    ))
+                                    .size(typography::XS)
+                                    .color(text_secondary),
+                                )
+                                .fill(colors.hover_bg())
+                                .stroke(egui::Stroke::new(1.0, self.theme.border_subtle()))
+                                .corner_radius(4.0),
+                            );
+
+                            if btn.clicked() {
+                                let popup_pos = btn.rect.left_bottom();
+                                self.file_opener.open_with_base(
+                                    popup_pos,
+                                    std::path::PathBuf::from(&source.file_path),
+                                    self.repo_path.clone(),
+                                );
+                            }
+                        });
+                    }
 
                     // Language badge with premium styling
                     if !source.language.is_empty() {

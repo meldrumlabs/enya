@@ -2,6 +2,7 @@
 
 pub mod ai_provider;
 pub mod chat_types;
+pub mod file_opener;
 pub mod finder;
 pub mod finder_utils;
 pub mod id_generator;
@@ -18,6 +19,9 @@ pub use ai_provider::{AiModel, AiProvider};
 pub use chat_types::{
     ActivityItem, ActivityType, ConversationHandoff, HandoffContextPane, MessageRole,
     ResponseStatus,
+};
+pub use file_opener::{
+    ExternalApp, FileOpenerAction, FileOpenerInline, FileOpenerPopup, FileOpenerResult,
 };
 pub use finder::{Finder, FinderConfig, FinderItem, FinderResult};
 pub use finder_utils::{

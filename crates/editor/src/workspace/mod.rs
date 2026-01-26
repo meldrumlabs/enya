@@ -11,7 +11,9 @@ use crate::codebase::CodebaseManager;
 use crate::components::NativePromoOverlay;
 use crate::components::overlay::{AnnotationEditor, AnnotationEditorResult};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::components::overlay::{CodebaseFinder, CodebaseFinderStatus, DiffViewerOverlay};
+use crate::components::overlay::{
+    CodebaseFinder, CodebaseFinderStatus, DiffViewerOverlay, DiffViewerResult,
+};
 use crate::components::overlay::{FinderMode, UnifiedFinder};
 use crate::components::{
     AboutOverlay, AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult,
@@ -23,6 +25,7 @@ use crate::components::{
     SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember, TeamMenu,
     TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TracingPane, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
+    WorkspaceFinderResult,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -521,6 +524,25 @@ impl Workspace {
     #[inline]
     fn theme(&self) -> AppTheme {
         self.render_theme
+    }
+
+    /// Get the workspace directory path for workspace TOML files.
+    ///
+    /// Looks for `.enya/workspaces` in the current directory first,
+    /// then falls back to `$HOME/.enya/workspaces`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn workspace_dir() -> std::path::PathBuf {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let enya_dir = cwd.join(".enya").join("workspaces");
+        if enya_dir.exists() {
+            return enya_dir;
+        }
+
+        // Fallback to home directory
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        std::path::PathBuf::from(&home)
+            .join(".enya")
+            .join("workspaces")
     }
 
     #[profiling::function]
@@ -1033,6 +1055,12 @@ impl Workspace {
                 // but keep panel open (user is now typing in the text input)
                 self.agent_panel_focused = false;
             }
+            AgentPanelResult::Error(msg) => {
+                return WorkspaceAction::Notify {
+                    level: "error".to_string(),
+                    message: msg,
+                };
+            }
             AgentPanelResult::None => {
                 // Don't sync - agent_panel_focused should only change via explicit actions
                 // (ReturnFocusToViewport, Closed, or keyboard transfer).
@@ -1342,17 +1370,40 @@ impl Workspace {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.diff_viewer.set_theme(self.theme());
+            // Set repo root for file opener
+            self.diff_viewer.set_repo_root(
+                self.codebase_manager
+                    .index()
+                    .map(|idx| idx.repo_path.clone()),
+            );
             // Disable keyboard when another overlay is on top
             self.diff_viewer.set_keyboard_disabled(
                 self.style_picker.is_open() || self.command_palette.is_open(),
             );
-            let _ = self.diff_viewer.show(ctx);
+            match self.diff_viewer.show(ctx) {
+                DiffViewerResult::Error(msg) => {
+                    return WorkspaceAction::Notify {
+                        level: "error".to_string(),
+                        message: msg,
+                    };
+                }
+                DiffViewerResult::Closed | DiffViewerResult::None => {}
+            }
         }
 
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(self.theme());
-        if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
-            return WorkspaceAction::LoadWorkspace(selected_workspace);
+        // Set workspace directory for file opener (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let workspace_dir = Self::workspace_dir();
+            self.workspace_finder.set_workspace_dir(Some(workspace_dir));
+        }
+        match self.workspace_finder.show(ctx) {
+            WorkspaceFinderResult::Selected(name) => {
+                return WorkspaceAction::LoadWorkspace(name);
+            }
+            WorkspaceFinderResult::Closed | WorkspaceFinderResult::None => {}
         }
 
         // Show style picker modal (unified theme + font picker)
@@ -1536,6 +1587,12 @@ impl Workspace {
         match self.source_preview.show(ctx) {
             SourcePreviewResult::Closed => {
                 log::debug!("Source preview closed");
+            }
+            SourcePreviewResult::Error(msg) => {
+                return WorkspaceAction::Notify {
+                    level: "error".to_string(),
+                    message: msg,
+                };
             }
             SourcePreviewResult::None => {}
         }
@@ -1761,8 +1818,17 @@ impl Workspace {
 
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(self.theme());
-        if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
-            return WorkspaceAction::LoadWorkspace(selected_workspace);
+        // Set workspace directory for file opener (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let workspace_dir = Self::workspace_dir();
+            self.workspace_finder.set_workspace_dir(Some(workspace_dir));
+        }
+        match self.workspace_finder.show(ctx) {
+            WorkspaceFinderResult::Selected(name) => {
+                return WorkspaceAction::LoadWorkspace(name);
+            }
+            WorkspaceFinderResult::Closed | WorkspaceFinderResult::None => {}
         }
 
         // Show style picker modal (unified theme + font picker)

@@ -445,6 +445,53 @@ pub fn draw_separator_colored(ui: &mut egui::Ui, color: Color32) {
     );
 }
 
+/// Render a keyboard hint with pill badge styling.
+///
+/// This renders a compact key badge followed by a description label,
+/// commonly used in overlay footers to show available keybindings.
+/// Example: `[j/k] nav` or `[Enter] load`
+pub fn render_keyboard_hint_pill(
+    ui: &mut egui::Ui,
+    key: &str,
+    desc: &str,
+    muted_text: Color32,
+    text_col: Color32,
+) {
+    // Key badge with pill background
+    let badge_padding = egui::Vec2::new(6.0, 2.0);
+    let font = typography::monospace(typography::SM);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(key.to_string(), font.clone(), text_col);
+    let badge_size = galley.size() + badge_padding * 2.0;
+
+    let (badge_rect, _) = ui.allocate_exact_size(badge_size, egui::Sense::hover());
+
+    // Draw pill background
+    ui.painter()
+        .rect_filled(badge_rect, 4.0, text_col.gamma_multiply(0.08));
+    // Draw border
+    ui.painter().rect_stroke(
+        badge_rect,
+        4.0,
+        Stroke::new(1.0, text_col.gamma_multiply(0.15)),
+        egui::StrokeKind::Inside,
+    );
+    // Draw key text centered
+    ui.painter().galley(
+        badge_rect.center() - galley.size() / 2.0,
+        galley,
+        text_col.gamma_multiply(0.9),
+    );
+
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new(desc)
+            .color(muted_text)
+            .font(typography::proportional(typography::SM)),
+    );
+}
+
 /// Render a keyboard key badge (like `⌘K` or `Enter`).
 ///
 /// This renders a styled badge with the key text, commonly used

@@ -68,4 +68,4 @@ pub use unified_finder::{FinderMode, UnifiedFinder, UnifiedFinderAction, Unified
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
 pub use which_key::WhichKey;
 pub use workspace_creator::{WorkspaceCreator, WorkspaceCreatorResult};
-pub use workspace_finder::{WorkspaceFinder, WorkspaceItem};
+pub use workspace_finder::{WorkspaceFinder, WorkspaceFinderResult, WorkspaceItem};

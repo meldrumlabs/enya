@@ -292,6 +292,10 @@ impl Workspace {
                 self.diff_viewer.open(&hash, &message, 0, &diff);
                 None
             }
+            UnifiedFinderAction::Error(msg) => Some(WorkspaceAction::Notify {
+                level: "error".to_string(),
+                message: msg,
+            }),
         }
     }
 

@@ -4,13 +4,20 @@
 //! plugins with their status, version, and capabilities. It also supports
 //! browsing and installing community plugins from a remote registry.
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+
 use egui::{Color32, Key, RichText, ScrollArea};
 
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
-use crate::components::util::finder_utils::OverlayStyle;
+use crate::components::util::finder_utils::{OverlayStyle, render_keyboard_hint_pill};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::icons::APP_GHOSTTY;
 
 /// Information about a plugin to display in the overlay.
 #[derive(Debug, Clone)]
@@ -143,6 +150,15 @@ pub struct PluginsOverlay {
     search_focused: bool,
     /// Whether 'g' was pressed (for gg navigation)
     g_pressed: bool,
+    /// File opener popup for opening plugin directory in external apps
+    #[cfg(not(target_arch = "wasm32"))]
+    file_opener: FileOpenerPopup,
+    /// Whether file opener popup should open (set when 'o' is pressed)
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_open_file_opener: bool,
+    /// Cached plugin directory path
+    #[cfg(not(target_arch = "wasm32"))]
+    plugin_directory: Option<PathBuf>,
 }
 
 impl PluginsOverlay {
@@ -165,6 +181,13 @@ impl PluginsOverlay {
             search_filter: String::new(),
             search_focused: false,
             g_pressed: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            file_opener: FileOpenerPopup::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_open_file_opener: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            plugin_directory: dirs::home_dir()
+                .map(|d| d.join(".config").join("enya").join("plugins")),
         }
     }
 
@@ -459,9 +482,16 @@ impl PluginsOverlay {
                 return;
             }
 
-            // o - Open plugin directory
+            // o - Open plugin directory (triggers file opener popup on native)
             if input.consume_key(egui::Modifiers::NONE, Key::O) {
-                result = PluginsOverlayResult::OpenPluginDirectory;
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    self.pending_open_file_opener = true;
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    result = PluginsOverlayResult::OpenPluginDirectory;
+                }
                 return;
             }
 
@@ -548,9 +578,11 @@ impl PluginsOverlay {
                                 .strong(),
                         );
 
-                        // Stats on the right
+                        // Right side: Open button and stats
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.add_space(16.0);
+
+                            // Stats
                             match self.current_tab {
                                 PluginTab::Installed => {
                                     let enabled_count =
@@ -575,6 +607,35 @@ impl PluginsOverlay {
                                             .color(muted_text)
                                             .font(typography::proportional(typography::MD)),
                                     );
+                                }
+                            }
+
+                            ui.add_space(12.0);
+
+                            // "Open" dropdown button for plugins directory (native only)
+                            #[cfg(not(target_arch = "wasm32"))]
+                            if let Some(ref dir) = self.plugin_directory {
+                                let btn = ui.add(
+                                    egui::Button::image_and_text(
+                                        egui::Image::new(APP_GHOSTTY.as_image_source())
+                                            .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                                        RichText::new(format!(
+                                            "Open {}",
+                                            egui_nerdfonts::regular::CHEVRON_DOWN
+                                        ))
+                                        .size(typography::SM)
+                                        .color(self.theme.text_secondary()),
+                                    )
+                                    .fill(self.theme.bg_elevated())
+                                    .stroke(egui::Stroke::new(1.0, self.theme.border_subtle()))
+                                    .corner_radius(4.0),
+                                );
+
+                                // Open popup on button click or 'o' key press
+                                if btn.clicked() || self.pending_open_file_opener {
+                                    self.pending_open_file_opener = false;
+                                    let popup_pos = btn.rect.left_bottom();
+                                    self.file_opener.open(popup_pos, dir.clone());
                                 }
                             }
                         });
@@ -907,32 +968,74 @@ impl PluginsOverlay {
                     // Footer with keyboard hints (compact spacing)
                     ui.horizontal(|ui| {
                         ui.add_space(12.0);
-                        self.keyboard_hint(ui, "Tab", "tab", muted_text, text_col);
+                        render_keyboard_hint_pill(ui, "Tab", "tab", muted_text, text_col);
                         ui.add_space(8.0);
-                        self.keyboard_hint(ui, "j/k", "nav", muted_text, text_col);
+                        render_keyboard_hint_pill(ui, "j/k", "nav", muted_text, text_col);
                         ui.add_space(8.0);
-                        self.keyboard_hint(ui, "/", "search", muted_text, text_col);
+                        render_keyboard_hint_pill(ui, "/", "search", muted_text, text_col);
                         ui.add_space(8.0);
                         match self.current_tab {
                             PluginTab::Installed => {
-                                self.keyboard_hint(ui, "f", "filter", muted_text, text_col);
+                                render_keyboard_hint_pill(ui, "f", "filter", muted_text, text_col);
                                 ui.add_space(8.0);
-                                self.keyboard_hint(ui, "x", "remove", muted_text, text_col);
+                                render_keyboard_hint_pill(ui, "x", "remove", muted_text, text_col);
                             }
                             PluginTab::Available => {
-                                self.keyboard_hint(ui, "r", "refresh", muted_text, text_col);
+                                render_keyboard_hint_pill(ui, "r", "refresh", muted_text, text_col);
                                 ui.add_space(8.0);
-                                self.keyboard_hint(ui, "i", "install", muted_text, text_col);
+                                render_keyboard_hint_pill(ui, "i", "install", muted_text, text_col);
                             }
                         }
                         ui.add_space(8.0);
-                        self.keyboard_hint(ui, "o", "dir", muted_text, text_col);
+                        render_keyboard_hint_pill(ui, "o", "open", muted_text, text_col);
                         ui.add_space(8.0);
-                        self.keyboard_hint(ui, "Esc", "close", muted_text, text_col);
+                        render_keyboard_hint_pill(ui, "Esc", "close", muted_text, text_col);
                     });
                     ui.add_space(12.0);
                 });
             });
+
+        // File opener popup for opening plugin directory in external apps
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Open popup if pending flag is set
+            if self.pending_open_file_opener {
+                self.pending_open_file_opener = false;
+                if let Some(ref plugin_dir) = self.plugin_directory {
+                    // Position near center of screen (popup will appear below this point)
+                    let popup_pos = egui::pos2(
+                        screen_rect.center().x - 100.0,
+                        screen_rect.center().y - 50.0,
+                    );
+                    self.file_opener.open(popup_pos, plugin_dir.clone());
+                }
+            }
+
+            // Show file opener popup and handle result
+            match self.file_opener.show(ctx, self.theme) {
+                FileOpenerResult::Selected(action) => {
+                    if let Some(ref plugin_dir) = self.plugin_directory {
+                        match action {
+                            FileOpenerAction::OpenIn(app) => {
+                                if let Err(e) = app.execute(plugin_dir) {
+                                    log::warn!(
+                                        "Failed to open plugin directory in {}: {e}",
+                                        app.name()
+                                    );
+                                }
+                            }
+                            FileOpenerAction::CopyPath => {
+                                ctx.copy_text(plugin_dir.display().to_string());
+                            }
+                            FileOpenerAction::CopyRelativePath => {
+                                // Not applicable for plugin directory
+                            }
+                        }
+                    }
+                }
+                FileOpenerResult::Closed | FileOpenerResult::None => {}
+            }
+        }
 
         // Confirmation dialog as separate centered overlay
         if let Some(plugin_name) = &self.pending_remove {
@@ -1316,54 +1419,308 @@ impl PluginsOverlay {
 
         response
     }
-
-    /// Show a keyboard hint with pill badge styling.
-    fn keyboard_hint(
-        &self,
-        ui: &mut egui::Ui,
-        key: &str,
-        desc: &str,
-        muted_text: Color32,
-        text_col: Color32,
-    ) {
-        // Key badge with pill background
-        let badge_padding = egui::Vec2::new(6.0, 2.0);
-        let font = typography::monospace(typography::SM);
-        let galley = ui
-            .painter()
-            .layout_no_wrap(key.to_string(), font.clone(), text_col);
-        let badge_size = galley.size() + badge_padding * 2.0;
-
-        let (badge_rect, _) = ui.allocate_exact_size(badge_size, egui::Sense::hover());
-
-        // Draw pill background
-        ui.painter()
-            .rect_filled(badge_rect, 4.0, text_col.gamma_multiply(0.08));
-        // Draw border
-        ui.painter().rect_stroke(
-            badge_rect,
-            4.0,
-            egui::Stroke::new(1.0, text_col.gamma_multiply(0.15)),
-            egui::StrokeKind::Inside,
-        );
-        // Draw key text centered
-        ui.painter().galley(
-            badge_rect.center() - galley.size() / 2.0,
-            galley,
-            text_col.gamma_multiply(0.9),
-        );
-
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new(desc)
-                .color(muted_text)
-                .font(typography::proportional(typography::SM)),
-        );
-    }
 }
 
 impl Default for PluginsOverlay {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_plugins() -> Vec<PluginDisplayInfo> {
+        vec![
+            PluginDisplayInfo {
+                name: "tokyo-night".into(),
+                version: "1.0.0".into(),
+                description: "Tokyo Night color theme".into(),
+                enabled: true,
+                source: PluginSource::Lua,
+                command_count: 0,
+                keybinding_count: 0,
+            },
+            PluginDisplayInfo {
+                name: "vim-mode".into(),
+                version: "2.0.0".into(),
+                description: "Vim keybindings".into(),
+                enabled: true,
+                source: PluginSource::Lua,
+                command_count: 5,
+                keybinding_count: 20,
+            },
+            PluginDisplayInfo {
+                name: "disabled-plugin".into(),
+                version: "1.0.0".into(),
+                description: "A disabled plugin".into(),
+                enabled: false,
+                source: PluginSource::Config,
+                command_count: 0,
+                keybinding_count: 0,
+            },
+            PluginDisplayInfo {
+                name: "metrics-helper".into(),
+                version: "0.5.0".into(),
+                description: "Helper for metrics".into(),
+                enabled: false,
+                source: PluginSource::Lua,
+                command_count: 2,
+                keybinding_count: 1,
+            },
+        ]
+    }
+
+    fn sample_available_plugins() -> Vec<CommunityPluginInfo> {
+        vec![
+            CommunityPluginInfo {
+                name: "tokyo-night".into(),
+                version: "1.1.0".into(), // Newer version available
+                description: "Tokyo Night color theme".into(),
+                author: "author1".into(),
+                file: "tokyo-night.lua".into(),
+                installed: false,
+            },
+            CommunityPluginInfo {
+                name: "gruvbox".into(),
+                version: "1.0.0".into(),
+                description: "Gruvbox color theme".into(),
+                author: "author2".into(),
+                file: "gruvbox.lua".into(),
+                installed: false,
+            },
+            CommunityPluginInfo {
+                name: "catppuccin".into(),
+                version: "2.0.0".into(),
+                description: "Catppuccin theme".into(),
+                author: "author3".into(),
+                file: "catppuccin.lua".into(),
+                installed: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn test_plugins_overlay_default_closed() {
+        let overlay = PluginsOverlay::new();
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn test_plugins_overlay_open_close() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.open();
+        assert!(overlay.is_open());
+
+        overlay.close();
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn test_filtered_plugins_no_filter() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_plugins(sample_plugins());
+
+        let count = overlay.filtered_plugins(PluginTab::Installed).count();
+        // All 4 plugins (sorted by enabled, then source, then name)
+        assert_eq!(count, 4);
+    }
+
+    #[test]
+    fn test_filtered_plugins_enabled_only() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_plugins(sample_plugins());
+        overlay.show_enabled_only = true;
+
+        let count = overlay.filtered_plugins(PluginTab::Installed).count();
+        // Only enabled plugins
+        assert_eq!(count, 2);
+
+        let names: Vec<_> = overlay
+            .filtered_plugins(PluginTab::Installed)
+            .map(|p| &p.name)
+            .collect();
+        assert!(names.contains(&&"tokyo-night".to_string()));
+        assert!(names.contains(&&"vim-mode".to_string()));
+    }
+
+    #[test]
+    fn test_filtered_plugins_search() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_plugins(sample_plugins());
+        overlay.search_filter = "vim".into();
+
+        let filtered: Vec<_> = overlay.filtered_plugins(PluginTab::Installed).collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "vim-mode");
+    }
+
+    #[test]
+    fn test_filtered_plugins_search_by_description() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_plugins(sample_plugins());
+        overlay.search_filter = "keybindings".into();
+
+        let filtered: Vec<_> = overlay.filtered_plugins(PluginTab::Installed).collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "vim-mode");
+    }
+
+    #[test]
+    fn test_filtered_plugins_case_insensitive() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_plugins(sample_plugins());
+        overlay.search_filter = "TOKYO".into();
+
+        let filtered: Vec<_> = overlay.filtered_plugins(PluginTab::Installed).collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "tokyo-night");
+    }
+
+    #[test]
+    fn test_filtered_available_plugins() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_available_plugins(sample_available_plugins());
+        overlay.search_filter = "gruvbox".into();
+
+        let filtered: Vec<_> = overlay.filtered_available_plugins().collect();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "gruvbox");
+    }
+
+    #[test]
+    fn test_update_installed_status() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_plugins(sample_plugins()); // tokyo-night is installed
+        overlay.set_available_plugins(sample_available_plugins());
+
+        // tokyo-night should be marked as installed in available list
+        let tokyo_night = overlay
+            .available_plugins
+            .iter()
+            .find(|p| p.name == "tokyo-night")
+            .unwrap();
+        assert!(tokyo_night.installed);
+
+        // gruvbox should not be marked as installed
+        let gruvbox = overlay
+            .available_plugins
+            .iter()
+            .find(|p| p.name == "gruvbox")
+            .unwrap();
+        assert!(!gruvbox.installed);
+    }
+
+    #[test]
+    fn test_filtered_count_installed() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_plugins(sample_plugins());
+
+        assert_eq!(overlay.filtered_count(PluginTab::Installed), 4);
+
+        overlay.show_enabled_only = true;
+        assert_eq!(overlay.filtered_count(PluginTab::Installed), 2);
+    }
+
+    #[test]
+    fn test_filtered_count_available() {
+        let mut overlay = PluginsOverlay::new();
+        overlay.set_available_plugins(sample_available_plugins());
+
+        assert_eq!(overlay.filtered_count(PluginTab::Available), 3);
+
+        overlay.search_filter = "cat".into();
+        assert_eq!(overlay.filtered_count(PluginTab::Available), 1);
+    }
+
+    #[test]
+    fn test_plugins_sorted_by_enabled_then_source() {
+        let mut overlay = PluginsOverlay::new();
+        let plugins = vec![
+            PluginDisplayInfo {
+                name: "z-disabled-lua".into(),
+                version: "1.0.0".into(),
+                description: "".into(),
+                enabled: false,
+                source: PluginSource::Lua,
+                command_count: 0,
+                keybinding_count: 0,
+            },
+            PluginDisplayInfo {
+                name: "a-enabled-config".into(),
+                version: "1.0.0".into(),
+                description: "".into(),
+                enabled: true,
+                source: PluginSource::Config,
+                command_count: 0,
+                keybinding_count: 0,
+            },
+            PluginDisplayInfo {
+                name: "b-enabled-lua".into(),
+                version: "1.0.0".into(),
+                description: "".into(),
+                enabled: true,
+                source: PluginSource::Lua,
+                command_count: 0,
+                keybinding_count: 0,
+            },
+        ];
+        overlay.set_plugins(plugins);
+
+        let names: Vec<_> = overlay
+            .filtered_plugins(PluginTab::Installed)
+            .map(|p| p.name.as_str())
+            .collect();
+
+        // Order: enabled Lua first, then enabled Config, then disabled
+        assert_eq!(
+            names,
+            vec!["b-enabled-lua", "a-enabled-config", "z-disabled-lua"]
+        );
+    }
+
+    #[test]
+    fn test_plugin_source_display() {
+        assert_eq!(PluginSource::Config.display_name(), "config");
+        assert_eq!(PluginSource::Lua.display_name(), "lua");
+    }
+
+    #[test]
+    fn test_plugins_overlay_result_variants() {
+        // Test that all variants are distinct
+        assert_ne!(PluginsOverlayResult::None, PluginsOverlayResult::Closed);
+        assert_ne!(
+            PluginsOverlayResult::TogglePlugin("test".into()),
+            PluginsOverlayResult::None
+        );
+        assert_eq!(
+            PluginsOverlayResult::InstallPlugin("a".into(), "b".into()),
+            PluginsOverlayResult::InstallPlugin("a".into(), "b".into())
+        );
+    }
+
+    #[test]
+    fn test_set_installing_plugin() {
+        let mut overlay = PluginsOverlay::new();
+        assert!(overlay.installing_plugin.is_none());
+
+        overlay.set_installing_plugin(Some("test-plugin".into()));
+        assert_eq!(overlay.installing_plugin, Some("test-plugin".into()));
+
+        overlay.set_installing_plugin(None);
+        assert!(overlay.installing_plugin.is_none());
+    }
+
+    #[test]
+    fn test_loading_available_state() {
+        let mut overlay = PluginsOverlay::new();
+        assert!(!overlay.loading_available);
+
+        overlay.set_loading_available(true);
+        assert!(overlay.loading_available);
+
+        overlay.set_loading_available(false);
+        assert!(!overlay.loading_available);
     }
 }
