@@ -25,6 +25,7 @@ use crate::components::{
     SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember, TeamMenu,
     TeamMenuAction, TeamStatusInfo, TimeRangeToolbar, TracingPane, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
+    WorkspaceFinderResult,
 };
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
@@ -523,6 +524,25 @@ impl Workspace {
     #[inline]
     fn theme(&self) -> AppTheme {
         self.render_theme
+    }
+
+    /// Get the workspace directory path for workspace TOML files.
+    ///
+    /// Looks for `.enya/workspaces` in the current directory first,
+    /// then falls back to `$HOME/.enya/workspaces`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn workspace_dir() -> std::path::PathBuf {
+        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let enya_dir = cwd.join(".enya").join("workspaces");
+        if enya_dir.exists() {
+            return enya_dir;
+        }
+
+        // Fallback to home directory
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        std::path::PathBuf::from(&home)
+            .join(".enya")
+            .join("workspaces")
     }
 
     #[profiling::function]
@@ -1373,8 +1393,17 @@ impl Workspace {
 
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(self.theme());
-        if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
-            return WorkspaceAction::LoadWorkspace(selected_workspace);
+        // Set workspace directory for file opener (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let workspace_dir = Self::workspace_dir();
+            self.workspace_finder.set_workspace_dir(Some(workspace_dir));
+        }
+        match self.workspace_finder.show(ctx) {
+            WorkspaceFinderResult::Selected(name) => {
+                return WorkspaceAction::LoadWorkspace(name);
+            }
+            WorkspaceFinderResult::Closed | WorkspaceFinderResult::None => {}
         }
 
         // Show style picker modal (unified theme + font picker)
@@ -1789,8 +1818,17 @@ impl Workspace {
 
         // Show workspace finder modal (rendered on top of everything)
         self.workspace_finder.set_theme(self.theme());
-        if let Some(selected_workspace) = self.workspace_finder.show(ctx) {
-            return WorkspaceAction::LoadWorkspace(selected_workspace);
+        // Set workspace directory for file opener (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let workspace_dir = Self::workspace_dir();
+            self.workspace_finder.set_workspace_dir(Some(workspace_dir));
+        }
+        match self.workspace_finder.show(ctx) {
+            WorkspaceFinderResult::Selected(name) => {
+                return WorkspaceAction::LoadWorkspace(name);
+            }
+            WorkspaceFinderResult::Closed | WorkspaceFinderResult::None => {}
         }
 
         // Show style picker modal (unified theme + font picker)

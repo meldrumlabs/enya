@@ -31,7 +31,7 @@ pub use overlay::{
     PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay, SourcePreviewResult,
     StylePicker, StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter,
     ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
-    WorkspaceItem, parse_commands, strip_command_blocks,
+    WorkspaceFinderResult, WorkspaceItem, parse_commands, strip_command_blocks,
 };
 
 // Re-export from widget

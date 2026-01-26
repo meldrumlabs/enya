@@ -34,6 +34,8 @@ use nucleo_matcher::{
 };
 
 use crate::components::util::finder_utils::{FinderColors, FinderKeyboardInput, OverlayStyle};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::{ScrollShadowConfig, ScrollState, render_scroll_shadows};
 use crate::ui::palette;
 use crate::ui::theme::AppTheme;
@@ -285,6 +287,12 @@ pub struct UnifiedFinder {
     /// Cached syntax highlights for source preview (file path -> highlights).
     #[cfg(not(target_arch = "wasm32"))]
     highlight_cache: Option<HighlightCache>,
+    /// File opener popup for opening files in external apps (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    file_opener: FileOpenerPopup,
+    /// Flag to open file opener on next frame (for keyboard shortcut).
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_open_file_opener: bool,
 }
 
 impl Default for UnifiedFinder {
@@ -316,6 +324,10 @@ impl UnifiedFinder {
             last_codebase_search: None,
             #[cfg(not(target_arch = "wasm32"))]
             highlight_cache: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            file_opener: FileOpenerPopup::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_open_file_opener: false,
         }
     }
 
@@ -639,6 +651,22 @@ impl UnifiedFinder {
             self.cycle_mode();
         }
 
+        // 'o' opens file in external app (native only, for codebase results)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let o_pressed = ctx.input(|i| i.key_pressed(egui::Key::O) && !i.modifiers.ctrl);
+            if o_pressed && !self.file_opener.is_open() {
+                // Check if selected result is a codebase result with a file path
+                if let Some(UnifiedResult::CodebaseResult(search_result)) =
+                    self.results.get(self.selected_index)
+                {
+                    if !search_result.file.as_os_str().is_empty() {
+                        self.pending_open_file_opener = true;
+                    }
+                }
+            }
+        }
+
         // Check if debounce period has elapsed and we need to refresh results
         // Only for Metrics mode - codebase modes (All, Alerts, Commits) are handled
         // externally via set_codebase_results() in the workspace
@@ -801,6 +829,34 @@ impl UnifiedFinder {
             if let Some(result) = self.results.get(idx) {
                 action = self.handle_selection(result);
                 should_close = true;
+            }
+        }
+
+        // Show file opener popup and handle result (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.file_opener.set_theme(self.theme);
+            match self.file_opener.show(ctx, self.theme) {
+                FileOpenerResult::Selected(file_action) => {
+                    if let Some(path) = self.file_opener.file_path() {
+                        match &file_action {
+                            FileOpenerAction::OpenIn(app) => {
+                                if let Err(e) = app.execute(path) {
+                                    log::warn!("Failed to open file: {e}");
+                                }
+                            }
+                            FileOpenerAction::CopyPath => {
+                                ctx.copy_text(path.display().to_string());
+                            }
+                            FileOpenerAction::CopyRelativePath => {
+                                if let Some(rel) = self.file_opener.relative_path() {
+                                    ctx.copy_text(rel.display().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                FileOpenerResult::Closed | FileOpenerResult::None => {}
             }
         }
 
@@ -1426,7 +1482,7 @@ impl UnifiedFinder {
                         // File location with language-specific icon
                         if !search_result.file.as_os_str().is_empty() {
                             let file_path = search_result.file.clone();
-                            ui.horizontal(|ui| {
+                            let file_label_response = ui.horizontal(|ui| {
                                 // Use language-specific file icon
                                 let file_icon = semantic_icons::file_icon(&file_path);
                                 ui.label(
@@ -1443,8 +1499,25 @@ impl UnifiedFinder {
                                     ))
                                     .color(text_col.gamma_multiply(0.6))
                                     .size(typography::SM),
-                                );
+                                )
                             });
+
+                            // Handle pending file opener from 'o' key press
+                            if self.pending_open_file_opener {
+                                self.pending_open_file_opener = false;
+                                let popup_pos = file_label_response.response.rect.left_bottom();
+                                // Construct full path
+                                let full_path = if let Some(repo) = &self.repo_path {
+                                    repo.join(&file_path)
+                                } else {
+                                    file_path.clone()
+                                };
+                                self.file_opener.open_with_base(
+                                    popup_pos,
+                                    full_path,
+                                    self.repo_path.clone(),
+                                );
+                            }
                         }
 
                         // Score badge (more subtle)
@@ -1545,6 +1618,13 @@ impl UnifiedFinder {
                     .color(hint_color)
                     .size(typography::XS),
             );
+            // 'o' to open file in external app (native only, only for codebase results with file paths)
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.selected_has_file_path() {
+                ui.add_space(16.0);
+                ui.label(RichText::new("o").color(accent).size(typography::XS));
+                ui.label(RichText::new("open").color(hint_color).size(typography::XS));
+            }
             ui.add_space(16.0);
             ui.label(RichText::new("esc").color(accent).size(typography::XS));
             ui.label(
@@ -1553,6 +1633,17 @@ impl UnifiedFinder {
                     .size(typography::XS),
             );
         });
+    }
+
+    /// Returns true if the currently selected result is a codebase result with a file path.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn selected_has_file_path(&self) -> bool {
+        match self.results.get(self.selected_index) {
+            Some(UnifiedResult::CodebaseResult(search_result)) => {
+                !search_result.file.as_os_str().is_empty()
+            }
+            _ => false,
+        }
     }
 
     /// Handles selection of a result and returns the appropriate action.

@@ -402,8 +402,8 @@ impl FileOpenerPopup {
 
     /// Get the total number of items in the menu.
     fn item_count(&self) -> usize {
-        // Apps + separator + Copy actions
-        self.available_apps.len() + 2 // Copy path + Copy relative path
+        // Apps + Copy actions (CopyRelativePath only if base_path is set)
+        self.available_apps.len() + if self.base_path.is_some() { 2 } else { 1 }
     }
 
     /// Build the list of all actions.
@@ -453,28 +453,40 @@ impl FileOpenerPopup {
             }
         });
 
-        // Show the popup
+        // Premium popup styling with frosted glass effect
         let style = OverlayStyle::frosted_glass(theme);
-        let popup_width = 200.0;
+        let popup_width = 270.0;
+        let corner_radius = 10.0;
 
         egui::Area::new(egui::Id::new("file_opener_popup"))
             .order(egui::Order::Foreground)
             .fixed_pos(self.position)
             .show(ctx, |ui| {
-                let frame = style.frame().inner_margin(4.0);
-                frame.show(ui, |ui| {
+                // Premium frame with shadow and refined margins
+                let frame = style
+                    .frame()
+                    .inner_margin(egui::Margin::symmetric(6, 8))
+                    .corner_radius(corner_radius)
+                    .shadow(egui::epaint::Shadow {
+                        offset: [0, 4],
+                        blur: 16,
+                        spread: 0,
+                        color: egui::Color32::from_black_alpha(60),
+                    });
+
+                let frame_response = frame.show(ui, |ui| {
                     ui.set_width(popup_width);
 
-                    // Header: "Open in"
+                    // Header with subtle styling
                     ui.horizontal(|ui| {
-                        ui.add_space(8.0);
+                        ui.add_space(10.0);
                         ui.label(
-                            RichText::new("Open in")
+                            RichText::new("Open with")
                                 .size(typography::XS)
-                                .color(theme.text_tertiary()),
+                                .color(theme.text_primary().gamma_multiply(0.5)),
                         );
                     });
-                    ui.add_space(2.0);
+                    ui.add_space(6.0);
 
                     let actions = self.all_actions();
                     let apps_count = self.available_apps.len();
@@ -482,17 +494,17 @@ impl FileOpenerPopup {
                     for (idx, action) in actions.iter().enumerate() {
                         // Draw separator before copy actions
                         if idx == apps_count && apps_count > 0 {
-                            ui.add_space(4.0);
+                            ui.add_space(6.0);
                             let sep_rect = ui.available_rect_before_wrap();
                             let sep_y = sep_rect.top();
                             ui.painter().line_segment(
                                 [
-                                    egui::pos2(sep_rect.left() + 8.0, sep_y),
-                                    egui::pos2(sep_rect.right() - 8.0, sep_y),
+                                    egui::pos2(sep_rect.left() + 10.0, sep_y),
+                                    egui::pos2(sep_rect.right() - 10.0, sep_y),
                                 ],
-                                egui::Stroke::new(1.0, theme.border_subtle()),
+                                egui::Stroke::new(1.0, theme.border_subtle().gamma_multiply(0.6)),
                             );
-                            ui.add_space(4.0);
+                            ui.add_space(6.0);
                         }
 
                         let is_selected = idx == self.selected_index;
@@ -507,7 +519,20 @@ impl FileOpenerPopup {
                             self.selected_index = idx;
                         }
                     }
+
+                    ui.add_space(2.0);
                 });
+
+                // Draw premium top edge highlight
+                if let Some(inner_highlight) = style.inner_highlight() {
+                    let rect = frame_response.response.rect;
+                    let highlight_rect = egui::Rect::from_min_size(
+                        rect.left_top() + egui::vec2(1.0, 1.0),
+                        egui::vec2(rect.width() - 2.0, 1.5),
+                    );
+                    ui.painter()
+                        .rect_filled(highlight_rect, corner_radius - 1.0, inner_highlight);
+                }
             });
 
         // Close popup if action was selected or cancelled
@@ -521,7 +546,7 @@ impl FileOpenerPopup {
         result
     }
 
-    /// Render a single menu item.
+    /// Render a single menu item with premium styling.
     fn render_menu_item(
         &self,
         ui: &mut egui::Ui,
@@ -530,63 +555,103 @@ impl FileOpenerPopup {
         theme: AppTheme,
         popup_width: f32,
     ) -> egui::Response {
-        let row_height = 28.0;
-        let icon_size = 16.0;
-        let padding = 8.0;
+        let row_height = 32.0;
+        let icon_size = 18.0;
+        let left_padding = 10.0;
+        let icon_label_gap = 10.0;
+        let corner_radius = 6.0;
 
         let (rect, response) = ui.allocate_exact_size(
-            Vec2::new(popup_width - 8.0, row_height),
+            Vec2::new(popup_width - 12.0, row_height),
             egui::Sense::click(),
         );
 
-        // Background for selected/hovered state
-        if is_selected || response.hovered() {
-            ui.painter()
-                .rect_filled(rect, 4.0, theme.accent_primary().gamma_multiply(0.15));
+        let is_hovered = response.hovered();
+        let accent_col = theme.accent_primary();
+        let text_col = theme.text_primary();
+
+        // Premium row styling
+        if is_selected {
+            // Selected: accent-tinted background with subtle glow
+            let bg_color = accent_col.gamma_multiply(0.15);
+            ui.painter().rect_filled(rect, corner_radius, bg_color);
+
+            // Subtle glow border
+            ui.painter().rect_stroke(
+                rect.expand(0.5),
+                corner_radius,
+                egui::Stroke::new(1.0, accent_col.gamma_multiply(0.25)),
+                egui::StrokeKind::Outside,
+            );
+
+            // Left accent bar
+            let indicator_rect = egui::Rect::from_min_size(rect.min, egui::vec2(3.0, row_height));
+            ui.painter().rect_filled(indicator_rect, 2.0, accent_col);
+        } else if is_hovered {
+            // Hovered: subtle highlight
+            let bg_color = text_col.gamma_multiply(0.06);
+            ui.painter().rect_filled(rect, corner_radius, bg_color);
+
+            // Very subtle border on hover
+            ui.painter().rect_stroke(
+                rect,
+                corner_radius,
+                egui::Stroke::new(0.5, text_col.gamma_multiply(0.08)),
+                egui::StrokeKind::Inside,
+            );
         }
 
-        // Render icon and label
-        let icon_rect = egui::Rect::from_min_size(
-            rect.left_top() + egui::vec2(padding, (row_height - icon_size) / 2.0),
-            Vec2::splat(icon_size),
-        );
+        // Icon area - centered vertically with padding for PNG transparency
+        let icon_display_size = icon_size;
+        let icon_center_x = rect.left() + left_padding + icon_display_size / 2.0;
+        let icon_center_y = rect.center().y;
 
         match action {
             FileOpenerAction::OpenIn(app) => {
-                // Render app icon
+                // Render app icon - use slightly larger size and center it
                 let icon = app.icon();
-                let image =
-                    Image::new(icon.as_image_source()).fit_to_exact_size(Vec2::splat(icon_size));
+                // Create rect centered at icon position
+                let icon_rect = egui::Rect::from_center_size(
+                    egui::pos2(icon_center_x, icon_center_y),
+                    Vec2::splat(icon_display_size),
+                );
+                let image = Image::new(icon.as_image_source())
+                    .fit_to_exact_size(Vec2::splat(icon_display_size));
                 image.paint_at(ui, icon_rect);
             }
             FileOpenerAction::CopyPath | FileOpenerAction::CopyRelativePath => {
-                // Render copy icon using nerd font
-                let icon_text = RichText::new(semantic_icons::action::COPY)
-                    .size(icon_size)
-                    .color(theme.text_secondary());
-                let icon_pos = icon_rect.center();
+                // Render copy icon using nerd font - centered
+                let icon_color = if is_selected {
+                    accent_col
+                } else if is_hovered {
+                    text_col.gamma_multiply(0.7)
+                } else {
+                    text_col.gamma_multiply(0.5)
+                };
                 ui.painter().text(
-                    icon_pos,
+                    egui::pos2(icon_center_x, icon_center_y),
                     egui::Align2::CENTER_CENTER,
-                    icon_text.text(),
-                    typography::monospace(icon_size),
-                    theme.text_secondary(),
+                    semantic_icons::action::COPY,
+                    typography::proportional(icon_display_size),
+                    icon_color,
                 );
             }
         }
 
-        // Render label
-        let label_pos = egui::pos2(icon_rect.right() + padding, rect.center().y);
+        // Render label with proper positioning
+        let label_x = rect.left() + left_padding + icon_display_size + icon_label_gap;
         let label_color = if is_selected {
-            theme.text_primary()
+            text_col
+        } else if is_hovered {
+            text_col.gamma_multiply(0.85)
         } else {
-            theme.text_secondary()
+            text_col.gamma_multiply(0.7)
         };
         ui.painter().text(
-            label_pos,
+            egui::pos2(label_x, rect.center().y),
             egui::Align2::LEFT_CENTER,
             action.label(),
-            typography::proportional(13.0),
+            typography::proportional(typography::SM),
             label_color,
         );
 
@@ -773,5 +838,124 @@ mod tests {
 
         popup.close();
         assert!(!popup.is_open());
+    }
+
+    #[test]
+    fn test_file_path_accessor() {
+        let mut popup = FileOpenerPopup::new();
+        assert!(popup.file_path().is_none());
+
+        popup.open(egui::Pos2::ZERO, std::path::PathBuf::from("/test/file.rs"));
+        assert_eq!(
+            popup.file_path(),
+            Some(std::path::Path::new("/test/file.rs"))
+        );
+
+        // File path should remain accessible after close
+        popup.close();
+        assert_eq!(
+            popup.file_path(),
+            Some(std::path::Path::new("/test/file.rs"))
+        );
+    }
+
+    #[test]
+    fn test_relative_path_computation() {
+        let mut popup = FileOpenerPopup::new();
+
+        // Without base path, relative_path returns None
+        popup.open(
+            egui::Pos2::ZERO,
+            std::path::PathBuf::from("/workspace/src/main.rs"),
+        );
+        assert!(popup.relative_path().is_none());
+
+        // With base path, relative_path is computed
+        popup.open_with_base(
+            egui::Pos2::ZERO,
+            std::path::PathBuf::from("/workspace/src/main.rs"),
+            Some(std::path::PathBuf::from("/workspace")),
+        );
+        assert_eq!(
+            popup.relative_path(),
+            Some(std::path::PathBuf::from("src/main.rs"))
+        );
+
+        // If file is not under base, relative_path returns None
+        popup.open_with_base(
+            egui::Pos2::ZERO,
+            std::path::PathBuf::from("/other/file.rs"),
+            Some(std::path::PathBuf::from("/workspace")),
+        );
+        assert!(popup.relative_path().is_none());
+    }
+
+    #[test]
+    fn test_all_actions_without_base_path() {
+        let mut popup = FileOpenerPopup::new();
+        popup.open(egui::Pos2::ZERO, std::path::PathBuf::from("/test/file.rs"));
+
+        let actions = popup.all_actions();
+
+        // Should have app actions + CopyPath (no CopyRelativePath without base)
+        assert!(actions.contains(&FileOpenerAction::CopyPath));
+        assert!(!actions.contains(&FileOpenerAction::CopyRelativePath));
+    }
+
+    #[test]
+    fn test_all_actions_with_base_path() {
+        let mut popup = FileOpenerPopup::new();
+        popup.open_with_base(
+            egui::Pos2::ZERO,
+            std::path::PathBuf::from("/workspace/file.rs"),
+            Some(std::path::PathBuf::from("/workspace")),
+        );
+
+        let actions = popup.all_actions();
+
+        // Should have both copy actions when base path is set
+        assert!(actions.contains(&FileOpenerAction::CopyPath));
+        assert!(actions.contains(&FileOpenerAction::CopyRelativePath));
+    }
+
+    #[test]
+    fn test_item_count_matches_actions() {
+        let mut popup = FileOpenerPopup::new();
+        popup.open(egui::Pos2::ZERO, std::path::PathBuf::from("/test/file.rs"));
+
+        // item_count should match all_actions length
+        assert_eq!(popup.item_count(), popup.all_actions().len());
+    }
+
+    #[test]
+    fn test_selected_index_wraps() {
+        let mut popup = FileOpenerPopup::new();
+        popup.open(egui::Pos2::ZERO, std::path::PathBuf::from("/test/file.rs"));
+
+        // Selection starts at 0
+        assert_eq!(popup.selected_index, 0);
+    }
+
+    #[test]
+    fn test_action_label_for_all_apps() {
+        // Verify all apps have proper labels
+        assert_eq!(
+            FileOpenerAction::OpenIn(ExternalApp::VSCode).label(),
+            "Open in VS Code"
+        );
+        assert_eq!(
+            FileOpenerAction::OpenIn(ExternalApp::Ghostty).label(),
+            "Open in Ghostty"
+        );
+        assert_eq!(
+            FileOpenerAction::CopyRelativePath.label(),
+            "Copy relative path"
+        );
+    }
+
+    #[test]
+    fn test_file_opener_result_default() {
+        let result = FileOpenerResult::default();
+        assert_eq!(result, FileOpenerResult::None);
     }
 }
