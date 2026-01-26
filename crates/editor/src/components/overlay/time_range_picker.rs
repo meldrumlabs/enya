@@ -119,59 +119,71 @@ impl TimeRangePicker {
             suggestions.push(suggestion);
         }
 
-        // Named date presets
-        let named_presets = build_named_date_presets();
-        for preset in named_presets {
-            if query_lower.is_empty() || fuzzy_match(&preset.label, &query_lower) {
-                // Don't add duplicates
-                if !suggestions.iter().any(|s| s.label == preset.label) {
-                    suggestions.push(preset);
-                }
-            }
-        }
-
-        // Duration presets
-        let duration_presets = [
-            ("last 5 minutes", "5m ago → now", 5.0 * 60.0),
-            ("last 15 minutes", "15m ago → now", 15.0 * 60.0),
-            ("last 30 minutes", "30m ago → now", 30.0 * 60.0),
-            ("last 1 hour", "1h ago → now", 60.0 * 60.0),
-            ("last 2 hours", "2h ago → now", 2.0 * 60.0 * 60.0),
-            ("last 6 hours", "6h ago → now", 6.0 * 60.0 * 60.0),
-            ("last 12 hours", "12h ago → now", 12.0 * 60.0 * 60.0),
-            ("last 24 hours", "24h ago → now", 24.0 * 60.0 * 60.0),
-            ("last 2 days", "2d ago → now", 2.0 * 24.0 * 60.0 * 60.0),
-            ("last 7 days", "7d ago → now", 7.0 * 24.0 * 60.0 * 60.0),
-            ("last 30 days", "30d ago → now", 30.0 * 24.0 * 60.0 * 60.0),
-        ];
-
-        for (label, desc, duration_secs) in duration_presets {
-            if (query_lower.is_empty() || fuzzy_match(label, &query_lower))
-                && !suggestions.iter().any(|s| s.label == label)
-            {
+        // Try to parse custom duration from query (e.g., "2h", "30m", "1d")
+        if let Some((duration_secs, label)) = parse_duration_query(&self.query) {
+            let desc = format_duration_desc(duration_secs);
+            if !suggestions.iter().any(|s| s.label == label) {
                 suggestions.push(TimeSuggestion {
-                    label: label.to_string(),
-                    description: desc.to_string(),
+                    label,
+                    description: desc,
                     start_secs: now - duration_secs,
                     end_secs: now,
                 });
             }
         }
 
-        // Try to parse custom duration from query (e.g., "2h", "30m", "1d")
-        if let Some((duration_secs, label)) = parse_duration_query(&self.query) {
-            let desc = format_duration_desc(duration_secs);
-            // Only add if not already in suggestions
-            if !suggestions.iter().any(|s| s.label == label) {
-                suggestions.insert(
-                    0,
-                    TimeSuggestion {
-                        label,
-                        description: desc,
-                        start_secs: now - duration_secs,
-                        end_secs: now,
-                    },
-                );
+        // Get all available presets
+        let named_presets = build_named_date_presets();
+        let duration_presets = build_duration_presets(now);
+
+        if query_lower.is_empty() {
+            // Show a curated mix when query is empty to demonstrate variety
+            // Mix durations and dates to show what's possible
+            let curated_order = [
+                "last 1 hour",
+                "last 6 hours",
+                "today",
+                "yesterday",
+                "last 24 hours",
+                "this week",
+                "last 7 days",
+                "last week",
+                "this month",
+                "last 30 days",
+            ];
+
+            for label in curated_order {
+                if suggestions.len() >= 10 {
+                    break;
+                }
+                // Try to find in named presets
+                if let Some(preset) = named_presets.iter().find(|p| p.label == label) {
+                    if !suggestions.iter().any(|s| s.label == preset.label) {
+                        suggestions.push(preset.clone());
+                    }
+                }
+                // Try to find in duration presets
+                if let Some(preset) = duration_presets.iter().find(|p| p.label == label) {
+                    if !suggestions.iter().any(|s| s.label == preset.label) {
+                        suggestions.push(preset.clone());
+                    }
+                }
+            }
+        } else {
+            // When user is typing, filter all options by fuzzy match
+            for preset in named_presets {
+                if fuzzy_match(&preset.label, &query_lower)
+                    && !suggestions.iter().any(|s| s.label == preset.label)
+                {
+                    suggestions.push(preset);
+                }
+            }
+            for preset in duration_presets {
+                if fuzzy_match(&preset.label, &query_lower)
+                    && !suggestions.iter().any(|s| s.label == preset.label)
+                {
+                    suggestions.push(preset);
+                }
             }
         }
 
@@ -597,6 +609,33 @@ fn build_named_date_presets() -> Vec<TimeSuggestion> {
     });
 
     presets
+}
+
+/// Build duration-based presets (last X hours/days)
+fn build_duration_presets(now: f64) -> Vec<TimeSuggestion> {
+    let duration_data = [
+        ("last 5 minutes", "5m ago → now", 5.0 * 60.0),
+        ("last 15 minutes", "15m ago → now", 15.0 * 60.0),
+        ("last 30 minutes", "30m ago → now", 30.0 * 60.0),
+        ("last 1 hour", "1h ago → now", 60.0 * 60.0),
+        ("last 2 hours", "2h ago → now", 2.0 * 60.0 * 60.0),
+        ("last 6 hours", "6h ago → now", 6.0 * 60.0 * 60.0),
+        ("last 12 hours", "12h ago → now", 12.0 * 60.0 * 60.0),
+        ("last 24 hours", "24h ago → now", 24.0 * 60.0 * 60.0),
+        ("last 2 days", "2d ago → now", 2.0 * 24.0 * 60.0 * 60.0),
+        ("last 7 days", "7d ago → now", 7.0 * 24.0 * 60.0 * 60.0),
+        ("last 30 days", "30d ago → now", 30.0 * 24.0 * 60.0 * 60.0),
+    ];
+
+    duration_data
+        .into_iter()
+        .map(|(label, desc, duration_secs)| TimeSuggestion {
+            label: label.to_string(),
+            description: desc.to_string(),
+            start_secs: now - duration_secs,
+            end_secs: now,
+        })
+        .collect()
 }
 
 /// Parse a date range query like "jan 15 to jan 20" or "2024-01-15 to 2024-01-20"
