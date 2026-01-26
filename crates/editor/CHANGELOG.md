@@ -6,7 +6,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
-- **Custom time range picker**: New smart overlay for selecting custom time ranges. Access via `tc` keybinding or click "Custom" button. Features natural language input (e.g., "2h", "last 30m", "1d") with fuzzy autocomplete suggestions. Navigate with `↑`/`↓` or `Ctrl+N`/`Ctrl+P`, select with `Enter`.
+- **Custom time range picker**: New smart overlay for selecting custom time ranges. Access via `tc` keybinding or click "Custom" button. Features:
+  - **Duration input**: "2h", "30m", "1d", "last 2 hours"
+  - **Named dates**: "today", "yesterday", "this week", "last week", "this month"
+  - **Date ranges**: "jan 15 to jan 20", "2024-01-15 to 2024-01-20"
+  - **Date with time**: "2024-01-15 09:00 to 2024-01-15 18:00"
+  - Fuzzy autocomplete suggestions, keyboard navigation with `↑`/`↓` or `Ctrl+N`/`Ctrl+P`
 - **Tutorial: Colorscheme step**: New "Colorscheme" step at the beginning of the tutorial lets users select their preferred theme and font. Press `s` to open the style picker, or `→` to skip.
 - **Tutorial: Step picker overlay**: Press `g` during the tutorial to open a two-column overview of all steps organized by category (Navigation, Editing, Time, Git, Workspace, Advanced, Help). Navigate with `j`/`k`, select with `Enter`, or use number keys `1-9` for quick jumps.
 - **Tutorial: Commit annotations step**: New tutorial step teaching the `gc` keybinding to toggle git commit markers on charts, with navigation hints (`]c`/`[c` for next/prev commit)

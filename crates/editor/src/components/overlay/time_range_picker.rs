@@ -3,10 +3,14 @@
 //! This module provides a natural language time range picker with fuzzy
 //! autocomplete suggestions. Users can type expressions like:
 //! - "last 2h", "2h ago", "last 2 hours"
-//! - "yesterday", "today"
+//! - "yesterday", "today", "this week"
 //! - "jan 15 to jan 20"
 //! - "2024-01-15 09:00 to 2024-01-15 18:00"
 
+use chrono::{
+    DateTime, Datelike, Duration as ChronoDuration, Local, NaiveDate, NaiveDateTime, NaiveTime,
+    TimeZone,
+};
 use egui::{Key, RichText};
 
 use crate::ui::semantic_icons;
@@ -110,8 +114,24 @@ impl TimeRangePicker {
         // Build suggestions based on query
         let mut suggestions = Vec::new();
 
-        // Default suggestions when empty or matching
-        let presets = [
+        // Try to parse date range first (highest priority if matched)
+        if let Some(suggestion) = parse_date_range_query(&self.query) {
+            suggestions.push(suggestion);
+        }
+
+        // Named date presets
+        let named_presets = build_named_date_presets();
+        for preset in named_presets {
+            if query_lower.is_empty() || fuzzy_match(&preset.label, &query_lower) {
+                // Don't add duplicates
+                if !suggestions.iter().any(|s| s.label == preset.label) {
+                    suggestions.push(preset);
+                }
+            }
+        }
+
+        // Duration presets
+        let duration_presets = [
             ("last 5 minutes", "5m ago → now", 5.0 * 60.0),
             ("last 15 minutes", "15m ago → now", 15.0 * 60.0),
             ("last 30 minutes", "30m ago → now", 30.0 * 60.0),
@@ -125,8 +145,10 @@ impl TimeRangePicker {
             ("last 30 days", "30d ago → now", 30.0 * 24.0 * 60.0 * 60.0),
         ];
 
-        for (label, desc, duration_secs) in presets {
-            if query_lower.is_empty() || fuzzy_match(label, &query_lower) {
+        for (label, desc, duration_secs) in duration_presets {
+            if (query_lower.is_empty() || fuzzy_match(label, &query_lower))
+                && !suggestions.iter().any(|s| s.label == label)
+            {
                 suggestions.push(TimeSuggestion {
                     label: label.to_string(),
                     description: desc.to_string(),
@@ -283,7 +305,7 @@ impl TimeRangePicker {
 
                                     let response = ui.add(
                                         egui::TextEdit::singleline(&mut self.query)
-                                            .hint_text("e.g., last 2 hours, 30m, 1d")
+                                            .hint_text("e.g., 2h, yesterday, jan 15 to jan 20")
                                             .desired_width(popup_width - 48.0)
                                             .font(egui::FontId::new(
                                                 typography::MD,
@@ -483,6 +505,351 @@ fn format_duration_desc(duration_secs: f64) -> String {
         format!("{}d ago → now", (duration_secs / 86400.0) as i64)
     } else {
         format!("{}w ago → now", (duration_secs / 604800.0) as i64)
+    }
+}
+
+/// Build named date presets (today, yesterday, this week, etc.)
+fn build_named_date_presets() -> Vec<TimeSuggestion> {
+    let now = Local::now();
+    let today = now.date_naive();
+    let mut presets = Vec::new();
+
+    // Today: start of today to now
+    let today_start = today
+        .and_hms_opt(0, 0, 0)
+        .and_then(|dt| Local.from_local_datetime(&dt).single())
+        .map(|dt| dt.timestamp() as f64)
+        .unwrap_or(0.0);
+    let now_secs = now.timestamp() as f64;
+    presets.push(TimeSuggestion {
+        label: "today".to_string(),
+        description: format_date_range_desc(today_start, now_secs),
+        start_secs: today_start,
+        end_secs: now_secs,
+    });
+
+    // Yesterday: full day
+    let yesterday = today - ChronoDuration::days(1);
+    let yesterday_start = yesterday
+        .and_hms_opt(0, 0, 0)
+        .and_then(|dt| Local.from_local_datetime(&dt).single())
+        .map(|dt| dt.timestamp() as f64)
+        .unwrap_or(0.0);
+    let yesterday_end = yesterday
+        .and_hms_opt(23, 59, 59)
+        .and_then(|dt| Local.from_local_datetime(&dt).single())
+        .map(|dt| dt.timestamp() as f64)
+        .unwrap_or(0.0);
+    presets.push(TimeSuggestion {
+        label: "yesterday".to_string(),
+        description: format_date_range_desc(yesterday_start, yesterday_end),
+        start_secs: yesterday_start,
+        end_secs: yesterday_end,
+    });
+
+    // This week: Monday to now
+    let days_since_monday = now.weekday().num_days_from_monday();
+    let monday = today - ChronoDuration::days(days_since_monday as i64);
+    let week_start = monday
+        .and_hms_opt(0, 0, 0)
+        .and_then(|dt| Local.from_local_datetime(&dt).single())
+        .map(|dt| dt.timestamp() as f64)
+        .unwrap_or(0.0);
+    presets.push(TimeSuggestion {
+        label: "this week".to_string(),
+        description: format_date_range_desc(week_start, now_secs),
+        start_secs: week_start,
+        end_secs: now_secs,
+    });
+
+    // Last week: Previous Monday to Sunday
+    let last_monday = monday - ChronoDuration::days(7);
+    let last_sunday = monday - ChronoDuration::days(1);
+    let last_week_start = last_monday
+        .and_hms_opt(0, 0, 0)
+        .and_then(|dt| Local.from_local_datetime(&dt).single())
+        .map(|dt| dt.timestamp() as f64)
+        .unwrap_or(0.0);
+    let last_week_end = last_sunday
+        .and_hms_opt(23, 59, 59)
+        .and_then(|dt| Local.from_local_datetime(&dt).single())
+        .map(|dt| dt.timestamp() as f64)
+        .unwrap_or(0.0);
+    presets.push(TimeSuggestion {
+        label: "last week".to_string(),
+        description: format_date_range_desc(last_week_start, last_week_end),
+        start_secs: last_week_start,
+        end_secs: last_week_end,
+    });
+
+    // This month: 1st of month to now
+    let month_start_date = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap_or(today);
+    let month_start = month_start_date
+        .and_hms_opt(0, 0, 0)
+        .and_then(|dt| Local.from_local_datetime(&dt).single())
+        .map(|dt| dt.timestamp() as f64)
+        .unwrap_or(0.0);
+    presets.push(TimeSuggestion {
+        label: "this month".to_string(),
+        description: format_date_range_desc(month_start, now_secs),
+        start_secs: month_start,
+        end_secs: now_secs,
+    });
+
+    presets
+}
+
+/// Parse a date range query like "jan 15 to jan 20" or "2024-01-15 to 2024-01-20"
+fn parse_date_range_query(query: &str) -> Option<TimeSuggestion> {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return None;
+    }
+
+    // Look for range separators
+    let separators = [" to ", " - ", " → ", ".."];
+    for sep in separators {
+        if let Some(idx) = query.find(sep) {
+            let start_str = query[..idx].trim();
+            let end_str = query[idx + sep.len()..].trim();
+
+            if let (Some(start_secs), Some(end_secs)) = (
+                parse_single_date(start_str, true),
+                parse_single_date(end_str, false),
+            ) {
+                let label = format!("{start_str} to {end_str}");
+                let desc = format_date_range_desc(start_secs, end_secs);
+                return Some(TimeSuggestion {
+                    label,
+                    description: desc,
+                    start_secs,
+                    end_secs,
+                });
+            }
+        }
+    }
+
+    // Try parsing as a single date (implies full day range)
+    if let Some((start_secs, end_secs, label)) = parse_single_date_as_range(&query) {
+        let desc = format_date_range_desc(start_secs, end_secs);
+        return Some(TimeSuggestion {
+            label,
+            description: desc,
+            start_secs,
+            end_secs,
+        });
+    }
+
+    None
+}
+
+/// Parse a single date string into a timestamp
+/// `is_start` determines whether to use start of day (true) or end of day (false)
+fn parse_single_date(input: &str, is_start: bool) -> Option<f64> {
+    let input = input.trim().to_lowercase();
+    let now = Local::now();
+    let today = now.date_naive();
+
+    // Named dates
+    match input.as_str() {
+        "today" => {
+            let dt = if is_start {
+                today.and_hms_opt(0, 0, 0)?
+            } else {
+                today.and_hms_opt(23, 59, 59)?
+            };
+            return Local
+                .from_local_datetime(&dt)
+                .single()
+                .map(|d| d.timestamp() as f64);
+        }
+        "yesterday" => {
+            let date = today - ChronoDuration::days(1);
+            let dt = if is_start {
+                date.and_hms_opt(0, 0, 0)?
+            } else {
+                date.and_hms_opt(23, 59, 59)?
+            };
+            return Local
+                .from_local_datetime(&dt)
+                .single()
+                .map(|d| d.timestamp() as f64);
+        }
+        "tomorrow" => {
+            let date = today + ChronoDuration::days(1);
+            let dt = if is_start {
+                date.and_hms_opt(0, 0, 0)?
+            } else {
+                date.and_hms_opt(23, 59, 59)?
+            };
+            return Local
+                .from_local_datetime(&dt)
+                .single()
+                .map(|d| d.timestamp() as f64);
+        }
+        _ => {}
+    }
+
+    // Try ISO date format: 2024-01-15 or 2024-01-15 09:00
+    if let Some(dt) = parse_iso_datetime(&input, is_start) {
+        return Some(dt);
+    }
+
+    // Try month day format: jan 15, january 15
+    if let Some(dt) = parse_month_day(&input, is_start) {
+        return Some(dt);
+    }
+
+    None
+}
+
+/// Parse a single date as a full day range (start to end)
+fn parse_single_date_as_range(input: &str) -> Option<(f64, f64, String)> {
+    let input = input.trim().to_lowercase();
+    let now = Local::now();
+    let today = now.date_naive();
+
+    // Named dates that represent a range
+    match input.as_str() {
+        "today" | "yesterday" | "tomorrow" => {
+            // Already handled in named presets
+            return None;
+        }
+        _ => {}
+    }
+
+    // Try ISO date (just date, not datetime) -> full day
+    if let Ok(date) = NaiveDate::parse_from_str(&input, "%Y-%m-%d") {
+        let start = date
+            .and_hms_opt(0, 0, 0)
+            .and_then(|dt| Local.from_local_datetime(&dt).single())
+            .map(|d| d.timestamp() as f64)?;
+        let end = date
+            .and_hms_opt(23, 59, 59)
+            .and_then(|dt| Local.from_local_datetime(&dt).single())
+            .map(|d| d.timestamp() as f64)?;
+        return Some((start, end, input.to_string()));
+    }
+
+    // Try month day -> full day
+    if let Some(date) = parse_month_day_to_date(&input, today.year()) {
+        let start = date
+            .and_hms_opt(0, 0, 0)
+            .and_then(|dt| Local.from_local_datetime(&dt).single())
+            .map(|d| d.timestamp() as f64)?;
+        let end = date
+            .and_hms_opt(23, 59, 59)
+            .and_then(|dt| Local.from_local_datetime(&dt).single())
+            .map(|d| d.timestamp() as f64)?;
+        return Some((start, end, input.to_string()));
+    }
+
+    None
+}
+
+/// Parse ISO date/datetime format
+fn parse_iso_datetime(input: &str, is_start: bool) -> Option<f64> {
+    // Try with time: 2024-01-15 09:00 or 2024-01-15T09:00
+    let input_normalized = input.replace(['t', ' '], "T");
+    if input_normalized.contains('T') {
+        // Has time component
+        let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"];
+        for fmt in formats {
+            if let Ok(dt) = NaiveDateTime::parse_from_str(&input_normalized, fmt) {
+                return Local
+                    .from_local_datetime(&dt)
+                    .single()
+                    .map(|d| d.timestamp() as f64);
+            }
+        }
+    }
+
+    // Just date: 2024-01-15
+    if let Ok(date) = NaiveDate::parse_from_str(input, "%Y-%m-%d") {
+        let time = if is_start {
+            NaiveTime::from_hms_opt(0, 0, 0)?
+        } else {
+            NaiveTime::from_hms_opt(23, 59, 59)?
+        };
+        let dt = date.and_time(time);
+        return Local
+            .from_local_datetime(&dt)
+            .single()
+            .map(|d| d.timestamp() as f64);
+    }
+
+    None
+}
+
+/// Parse month day format like "jan 15", "january 15", "15 jan"
+fn parse_month_day(input: &str, is_start: bool) -> Option<f64> {
+    let now = Local::now();
+    let year = now.year();
+
+    let date = parse_month_day_to_date(input, year)?;
+    let time = if is_start {
+        NaiveTime::from_hms_opt(0, 0, 0)?
+    } else {
+        NaiveTime::from_hms_opt(23, 59, 59)?
+    };
+    let dt = date.and_time(time);
+    Local
+        .from_local_datetime(&dt)
+        .single()
+        .map(|d| d.timestamp() as f64)
+}
+
+/// Parse month day to a NaiveDate
+fn parse_month_day_to_date(input: &str, year: i32) -> Option<NaiveDate> {
+    let parts: Vec<&str> = input.split_whitespace().collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    // Try "jan 15" or "15 jan"
+    let (month_str, day_str) = if parts[0].chars().next()?.is_ascii_digit() {
+        (parts[1], parts[0])
+    } else {
+        (parts[0], parts[1])
+    };
+
+    let month = parse_month_name(month_str)?;
+    let day: u32 = day_str.parse().ok()?;
+
+    NaiveDate::from_ymd_opt(year, month, day)
+}
+
+/// Parse month name to month number (1-12)
+fn parse_month_name(name: &str) -> Option<u32> {
+    match name.to_lowercase().as_str() {
+        "jan" | "january" => Some(1),
+        "feb" | "february" => Some(2),
+        "mar" | "march" => Some(3),
+        "apr" | "april" => Some(4),
+        "may" => Some(5),
+        "jun" | "june" => Some(6),
+        "jul" | "july" => Some(7),
+        "aug" | "august" => Some(8),
+        "sep" | "sept" | "september" => Some(9),
+        "oct" | "october" => Some(10),
+        "nov" | "november" => Some(11),
+        "dec" | "december" => Some(12),
+        _ => None,
+    }
+}
+
+/// Format a date range description with readable dates
+fn format_date_range_desc(start_secs: f64, end_secs: f64) -> String {
+    let start = DateTime::from_timestamp(start_secs as i64, 0).map(|dt| dt.with_timezone(&Local));
+    let end = DateTime::from_timestamp(end_secs as i64, 0).map(|dt| dt.with_timezone(&Local));
+
+    match (start, end) {
+        (Some(s), Some(e)) => {
+            let start_fmt = s.format("%b %d %H:%M");
+            let end_fmt = e.format("%b %d %H:%M");
+            format!("{start_fmt} → {end_fmt}")
+        }
+        _ => "invalid range".to_string(),
     }
 }
 
