@@ -625,17 +625,23 @@ impl QueryPane {
         self.visualization.set_theme(theme);
     }
 
-    /// Refresh the visualization based on current saved query
-    fn refresh_chart(&mut self) {
+    /// Refresh the visualization with demo data (for demo panes only)
+    fn refresh_demo_chart(&mut self) {
         let query = self.buffer.saved_content().to_string();
         self.visualization.clear();
         self.visualization.set_metric_name(&query);
         populate_demo_data(&mut self.visualization, &query);
     }
 
-    /// Public method to refresh/reload the pane data
+    /// Public method to refresh/reload the pane data.
+    /// For demo panes: regenerates demo data immediately.
+    /// For real panes: marks as needing refresh (query executor will re-query).
     pub fn refresh(&mut self) {
-        self.refresh_chart();
+        if self.is_demo {
+            self.refresh_demo_chart();
+        } else {
+            self.needs_refresh = true;
+        }
     }
 
     /// Get a reference to the visualization.
