@@ -10,13 +10,25 @@ use egui_tiles::TileId;
 use crate::util::Instant;
 
 /// Default timeout for leader key sequences.
-/// Production: 500ms for comfortable typing.
+/// Production: 1000ms for snappy feel with enough reaction time.
+/// The popup appears after LEADER_POPUP_DELAY_MS (150ms), so users have
+/// ~850ms to see the popup and press a key.
 /// Tests: 100ms for faster test execution.
 #[cfg(not(test))]
-pub const LEADER_KEY_TIMEOUT_MS: u128 = 500;
+pub const LEADER_KEY_TIMEOUT_MS: u128 = 1000;
 
 #[cfg(test)]
 pub const LEADER_KEY_TIMEOUT_MS: u128 = 100;
+
+/// Delay before showing leader popup (ms).
+/// Power users typing quickly won't see it (e.g., typing "Space f" in under 150ms).
+/// Production: 150ms for a responsive feel.
+/// Tests: 30ms for faster test execution.
+#[cfg(not(test))]
+pub const LEADER_POPUP_DELAY_MS: u128 = 150;
+
+#[cfg(test)]
+pub const LEADER_POPUP_DELAY_MS: u128 = 30;
 
 /// Direction for vim-style navigation between panes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,8 +183,12 @@ impl LeaderKeyState {
     }
 
     /// Check if Space leader key is active.
+    ///
+    /// Unlike other leader keys, Space has no timeout - it stays active until
+    /// a valid command is executed, Escape is pressed, or an invalid key clears it.
+    /// This matches neovim's which-key.nvim behavior.
     pub fn is_space_active(&self) -> bool {
-        self.is_active(self.last_space_press)
+        self.last_space_press.is_some()
     }
 
     /// Check if 't' leader key is active.
@@ -1131,67 +1147,75 @@ mod tests {
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_leader_key_timeout_expires() {
+        // Note: Space leader key has NO timeout (neovim which-key behavior)
+        // Test timeout with 't' leader key instead
         let mut state = LeaderKeyState::new();
-        state.press_space();
-        assert!(state.is_space_active());
+        state.press_t();
+        assert!(state.is_t_active());
 
         // Wait for timeout to expire (100ms + buffer)
         std::thread::sleep(std::time::Duration::from_millis(110));
 
         // Should now be inactive
-        assert!(!state.is_space_active());
+        assert!(!state.is_t_active());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_leader_key_active_before_timeout() {
+        // Note: Space leader key has NO timeout (neovim which-key behavior)
+        // Test timeout with 't' leader key instead
         let mut state = LeaderKeyState::new();
-        state.press_space();
+        state.press_t();
 
         // Wait less than timeout
         std::thread::sleep(std::time::Duration::from_millis(40));
 
         // Should still be active
-        assert!(state.is_space_active());
+        assert!(state.is_t_active());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_leader_key_timeout_at_boundary() {
+        // Note: Space leader key has NO timeout (neovim which-key behavior)
+        // Test timeout with 't' leader key instead
         let mut state = LeaderKeyState::new();
-        state.press_space();
+        state.press_t();
 
         // Wait well under the 100ms timeout (use safe margin to avoid OS jitter)
         std::thread::sleep(std::time::Duration::from_millis(50));
 
         // Should still be active (50ms is safely under 100ms timeout)
-        assert!(state.is_space_active(), "Should be active at ~50ms");
+        assert!(state.is_t_active(), "Should be active at ~50ms");
 
         // Wait well past the timeout boundary (100ms more = 150ms total)
         std::thread::sleep(std::time::Duration::from_millis(100));
 
         // Should now be inactive (150ms is safely over 100ms timeout)
-        assert!(!state.is_space_active(), "Should be inactive at ~150ms");
+        assert!(!state.is_t_active(), "Should be inactive at ~150ms");
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_repressing_leader_key_resets_timeout() {
+        // Note: Space leader key has NO timeout (neovim which-key behavior)
+        // Test timeout with 't' leader key instead
         let mut state = LeaderKeyState::new();
-        state.press_space();
+        state.press_t();
 
         // Wait part of timeout (with generous buffer)
         std::thread::sleep(std::time::Duration::from_millis(60));
-        assert!(state.is_space_active());
+        assert!(state.is_t_active());
 
         // Press again to reset
-        state.press_space();
+        state.press_t();
 
         // Wait another 60ms (would have expired if not reset: 60+60=120ms > 100ms)
         std::thread::sleep(std::time::Duration::from_millis(60));
 
         // Should still be active (reset the timer, so only 60ms elapsed since reset)
-        assert!(state.is_space_active());
+        assert!(state.is_t_active());
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1199,18 +1223,38 @@ mod tests {
     fn test_multiple_leader_keys_timeout_independently() {
         let mut state = LeaderKeyState::new();
 
-        // Press space first
-        state.press_space();
+        // Press 'g' first
+        state.press_g();
         std::thread::sleep(std::time::Duration::from_millis(60));
 
         // Press 't' later
         state.press_t();
 
-        // Wait 50ms more - space should timeout (110ms total), t should not (50ms)
+        // Wait 50ms more - 'g' should timeout (110ms total), 't' should not (50ms)
         std::thread::sleep(std::time::Duration::from_millis(50));
 
-        assert!(!state.is_space_active()); // Expired (110ms)
+        assert!(!state.is_g_active()); // Expired (110ms)
         assert!(state.is_t_active()); // Still active (50ms)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_space_leader_key_no_timeout() {
+        // Space leader key has NO timeout - matches neovim which-key behavior
+        // It stays active until explicitly cleared
+        let mut state = LeaderKeyState::new();
+        state.press_space();
+        assert!(state.is_space_active());
+
+        // Wait well past what would be a normal timeout
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        // Should STILL be active (no timeout for space)
+        assert!(state.is_space_active());
+
+        // Only clearing it makes it inactive
+        state.clear_space();
+        assert!(!state.is_space_active());
     }
 
     // ==================== VisualMultiState Extended Tests ====================

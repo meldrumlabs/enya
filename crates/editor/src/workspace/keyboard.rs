@@ -300,6 +300,25 @@ impl Workspace {
                     consumed = true;
                     return;
                 }
+
+                // Escape - cancel space leader key (dismiss the leader popup)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Any other key press dismisses the leader popup (neovim which-key behavior)
+                // Check if any non-modifier key was pressed
+                let any_key_pressed = input
+                    .events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }));
+                if any_key_pressed {
+                    self.leader_keys.clear_space();
+                    // Don't consume - let the key be handled by other handlers
+                    return;
+                }
             }
 
             // t - time range leader key (t5, t1, t3, th, t6, td, tw)

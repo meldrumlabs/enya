@@ -27,12 +27,12 @@ pub use overlay::{
     BufferEditorResult, ChatMessage, CodebaseContext, CommandPalette, CommandResult,
     ConnectionContext, DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource,
     DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, DynamicCommand, EditExcerpt,
-    EditorContext, InfoOverlay, MessageRole, MultiEditOverlay, MultiEditResult, PluginDisplayInfo,
-    PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay, SourcePreviewResult,
-    StylePicker, StylePickerResult, StyleTab, TimeRangePicker, TimeRangePickerResult,
-    TutorialAction, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceFinderResult,
-    WorkspaceItem, parse_commands, strip_command_blocks,
+    EditorContext, InfoOverlay, LeaderPopup, LeaderPopupResult, MessageRole, MultiEditOverlay,
+    MultiEditResult, PluginDisplayInfo, PluginSource, PluginsOverlay, PluginsOverlayResult,
+    SourcePreviewOverlay, SourcePreviewResult, StylePicker, StylePickerResult, StyleTab,
+    TimeRangePicker, TimeRangePickerResult, TutorialAction, TutorialOverlay, ViewportFilter,
+    ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
+    WorkspaceFinderResult, WorkspaceItem, parse_commands, strip_command_blocks,
 };
 
 // Re-export from widget
