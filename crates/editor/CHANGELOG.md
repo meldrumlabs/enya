@@ -6,7 +6,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
-- **Which-key style leader popup**: Inspired by neovim's which-key.nvim plugin (included in LazyVim), a dynamic popup now appears when pressing Space (leader key) showing available Space+X commands with nerd font icons. Key badges are displayed on the right side for clean visual hierarchy. The popup appears after 150ms delay (so power users typing fast sequences won't see it) and stays visible until a command is executed, Escape is pressed, or an invalid key dismisses it (no auto-timeout, matching neovim's behavior). Commands: `f` (find), `w` (workspace), `h` (home), `d` (diagnostics), `a` (agent), `p` (plugins). The leader popup and Space+X shortcuts are only available in workspace view (not on landing page, which has its own UI for navigation).
+- **Which-key style leader popup**: Inspired by neovim's which-key.nvim plugin (included in LazyVim), a dynamic popup now appears when pressing Space (leader key) showing available Space+X commands with nerd font icons. Key badges are displayed on the right side for clean visual hierarchy. The popup appears after 150ms delay (so power users typing fast sequences won't see it) and stays visible until a command is executed, Escape is pressed, or an invalid key dismisses it (no auto-timeout, matching neovim's behavior). Commands: `f` (find), `w` (workspace), `h` (home), `d` (diagnostics), `a` (agent), `t` (time picker), `p` (plugins). The leader popup and Space+X shortcuts are only available in workspace view (not on landing page, which has its own UI for navigation).
 - **Custom time range picker**: New smart overlay for selecting custom time ranges. Access via `tc` keybinding or click "Custom" button. Features:
   - **Duration input**: "2h", "30m", "1d", "last 2 hours"
   - **Named dates**: "today", "yesterday", "this week", "last week", "this month"
@@ -16,6 +16,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Tutorial: Colorscheme step**: New "Colorscheme" step at the beginning of the tutorial lets users select their preferred theme and font. Press `s` to open the style picker, or `→` to skip.
 - **Tutorial: Step picker overlay**: Press `g` during the tutorial to open a two-column overview of all steps organized by category (Navigation, Editing, Time, Git, Workspace, Advanced, Help). Navigate with `j`/`k`, select with `Enter`, or use number keys `1-9` for quick jumps.
 - **Tutorial: Commit annotations step**: New tutorial step teaching the `gc` keybinding to toggle git commit markers on charts, with navigation hints (`]c`/`[c` for next/prev commit)
+- **Tutorial: Tab merging step**: New dedicated step teaching `Ctrl+W t h/j/k/l` to merge panes into tabbed groups. The "Move Panes" step now focuses solely on pane rearrangement.
+- **Tutorial: Cycle visualization step**: New step teaching the `cv` keybinding to cycle through visualization types (line chart, bar chart, table, etc.).
 
 ### Changed
 
