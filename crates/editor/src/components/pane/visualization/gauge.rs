@@ -240,19 +240,22 @@ impl GaugeChart {
         let available_width = ui.available_width();
         let available_height = ui.available_height();
 
-        // Scale gauge based on available space
-        // Use the smaller dimension to ensure it fits, with reasonable min/max
-        let base_size = available_width.min(available_height * 1.2);
-        let gauge_size = base_size.clamp(180.0, 500.0);
+        // Scale gauge to fit within available space.
+        // Work backwards from available height: the arc height is gauge_size * 0.4 + 27,
+        // plus we need room for title, value text, min/max labels, and padding.
+        // Fixed overhead ≈ title(18) + spacing(12) + value(64) + minmax(40) + padding(32) ≈ 166
+        // Arc height = gauge_size * 0.4 + 27
+        // So max gauge_size from height: (available_height - 166) / 0.4
+        let max_from_height = ((available_height - 120.0) / 0.4).max(60.0);
+        let gauge_size = available_width.min(max_from_height).clamp(60.0, 500.0);
 
         // Scale text sizes proportionally
         let scale_factor = gauge_size / 280.0; // 280 was the old fixed size
-        let title_size = (14.0 * scale_factor).clamp(12.0, 18.0);
-        let value_size = (36.0 * scale_factor).clamp(24.0, 64.0);
-        let label_size = (11.0 * scale_factor).clamp(9.0, 14.0);
+        let title_size = (14.0 * scale_factor).clamp(10.0, 18.0);
+        let value_size = (36.0 * scale_factor).clamp(16.0, 64.0);
+        let label_size = (11.0 * scale_factor).clamp(8.0, 14.0);
 
-        // Calculate content height based on scaled sizes (same pattern as stat)
-        // Arc height matches render_arc: radius + stroke/2 + needle + padding
+        // Calculate content height based on scaled sizes
         let arc_height = gauge_size * 0.4 + 12.0 + 15.0;
         let content_height = title_size
             + 12.0
@@ -261,7 +264,7 @@ impl GaugeChart {
             + 40.0
             + VIZ_PADDING_TOP
             + VIZ_PADDING_BOTTOM;
-        let vertical_offset = ((available_height - content_height) / 2.0).max(VIZ_PADDING_TOP);
+        let vertical_offset = ((available_height - content_height) / 2.0).max(0.0);
 
         ui.vertical_centered(|ui| {
             ui.add_space(vertical_offset);
@@ -291,8 +294,8 @@ impl GaugeChart {
                     .strong(),
             );
 
-            // Min/Max labels - positioned to align with arc edges
-            if self.show_min_max {
+            // Min/Max labels - hide when pane is too small to avoid overflow
+            if self.show_min_max && gauge_size >= 120.0 {
                 ui.add_space(8.0);
                 // The arc uses size * 0.4 as radius, so the arc spans 2 * radius = size * 0.8
                 let arc_width = gauge_size * 0.8;
