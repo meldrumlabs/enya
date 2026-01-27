@@ -127,6 +127,11 @@ impl LeaderPopup {
                 label: "Diagnostics",
             },
             LeaderCommand {
+                key: "t",
+                icon: semantic_icons::time::CLOCK,
+                label: "Time picker",
+            },
+            LeaderCommand {
                 key: "a",
                 icon: semantic_icons::action::BRAIN,
                 label: "Agent",

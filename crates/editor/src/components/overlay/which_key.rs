@@ -187,6 +187,10 @@ impl WhichKey {
                 icon: semantic_icons::time::CLOCK,
                 bindings: vec![
                     Keybinding {
+                        key: "Space+t",
+                        description: "Time picker",
+                    },
+                    Keybinding {
                         key: "t5/t1/t3",
                         description: "5/15/30 min",
                     },
