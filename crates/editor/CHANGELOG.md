@@ -17,6 +17,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Tutorial: Step picker overlay**: Press `g` during the tutorial to open a two-column overview of all steps organized by category (Navigation, Editing, Time, Git, Workspace, Advanced, Help). Navigate with `j`/`k`, select with `Enter`, or use number keys `1-9` for quick jumps.
 - **Tutorial: Commit annotations step**: New tutorial step teaching the `gc` keybinding to toggle git commit markers on charts, with navigation hints (`]c`/`[c` for next/prev commit)
 - **Tutorial: Tab merging step**: New dedicated step teaching `Ctrl+W t h/j/k/l` to merge panes into tabbed groups. The "Move Panes" step now focuses solely on pane rearrangement.
+- **Tutorial: Cycle visualization step**: New step teaching the `cv` keybinding to cycle through visualization types (line chart, bar chart, table, etc.).
 
 ### Changed
 
