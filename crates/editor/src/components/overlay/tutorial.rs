@@ -200,6 +200,14 @@ impl TutorialOverlay {
                 icon: semantic_icons::action::SEARCH,
                 category: StepCategory::Editing,
             },
+            TutorialStep {
+                title: "Cycle Visualization",
+                instruction: "Instantly switch how the focused pane displays data — line chart, bar chart, table, and more. One key to flip through every visualization type.",
+                key_hint: "cv",
+                tip: Some("cv=cycle forward through visualization types"),
+                icon: semantic_icons::action::CHART,
+                category: StepCategory::Editing,
+            },
             // === Time Navigation ===
             TutorialStep {
                 title: "Time Range Controls",
@@ -253,10 +261,10 @@ impl TutorialOverlay {
                 category: StepCategory::Workspace,
             },
             TutorialStep {
-                title: "Share Your Dashboard",
-                instruction: "Copy a shareable URL for any pane or the entire workspace. Recipients can view your exact configuration.",
-                key_hint: "yy",
-                tip: Some("Yanks a URL to clipboard (vim-style yank)"),
+                title: "Share",
+                instruction: "Share your work in seconds. Yank a shareable URL, capture a screenshot for Slack, or share the full workspace.",
+                key_hint: "yy / :ss / :share",
+                tip: Some("yy=copy URL, :screenshot=capture PNG, :share=share workspace"),
                 icon: semantic_icons::action::COPY,
                 category: StepCategory::Workspace,
             },
