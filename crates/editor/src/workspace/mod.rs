@@ -2235,7 +2235,7 @@ impl Workspace {
                 WorkspaceAction::None
             }
             CommandResult::OpenTutorial => {
-                self.tutorial_overlay.open_from_start();
+                self.tutorial_overlay.open();
                 WorkspaceAction::None
             }
             CommandResult::PluginCommand(command, args) => {
