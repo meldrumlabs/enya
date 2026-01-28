@@ -64,10 +64,7 @@ impl EditorPluginHost {
             async_runtime,
             theme,
             editor_version: env!("CARGO_PKG_VERSION"),
-            #[cfg(target_arch = "wasm32")]
-            is_wasm: true,
-            #[cfg(not(target_arch = "wasm32"))]
-            is_wasm: false,
+            is_wasm: cfg!(target_arch = "wasm32"),
             shared_state,
         }
     }

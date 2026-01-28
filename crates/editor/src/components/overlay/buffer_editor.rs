@@ -58,7 +58,9 @@ fn highlight_promql(text: &str, theme: AppTheme, font_id: FontId) -> LayoutJob {
     let bytes = text.as_bytes();
 
     while i < text.len() {
-        let c = text[i..].chars().next().unwrap();
+        let Some(c) = text[i..].chars().next() else {
+            break;
+        };
         let c_len = c.len_utf8();
 
         match c {
@@ -120,7 +122,9 @@ fn highlight_promql(text: &str, theme: AppTheme, font_id: FontId) -> LayoutJob {
                 i += c_len;
                 // Find end of string
                 while i < text.len() {
-                    let sc = text[i..].chars().next().unwrap();
+                    let Some(sc) = text[i..].chars().next() else {
+                        break;
+                    };
                     let sc_len = sc.len_utf8();
                     if sc == '\\' && i + sc_len < text.len() {
                         // Skip escaped char
@@ -208,7 +212,9 @@ fn highlight_promql(text: &str, theme: AppTheme, font_id: FontId) -> LayoutJob {
             _ if c.is_alphabetic() || c == '_' || c == ':' => {
                 let start = i;
                 while i < text.len() {
-                    let nc = text[i..].chars().next().unwrap();
+                    let Some(nc) = text[i..].chars().next() else {
+                        break;
+                    };
                     if nc.is_alphanumeric() || nc == '_' || nc == ':' {
                         i += nc.len_utf8();
                     } else {
