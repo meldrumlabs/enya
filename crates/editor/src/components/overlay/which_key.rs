@@ -254,11 +254,11 @@ impl WhichKey {
         self.is_open
     }
 
-    /// Show the overlay. Returns true if it was closed this frame.
+    /// Show the overlay.
     #[profiling::function]
-    pub fn show(&mut self, ctx: &egui::Context) -> bool {
+    pub fn show(&mut self, ctx: &egui::Context) {
         if !self.is_open {
-            return false;
+            return;
         }
 
         let mut should_close = false;
@@ -397,8 +397,6 @@ impl WhichKey {
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
-
-        should_close
     }
 
     /// Render a group of keybindings

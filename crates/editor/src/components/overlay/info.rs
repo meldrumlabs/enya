@@ -48,11 +48,11 @@ impl InfoOverlay {
         self.is_open
     }
 
-    /// Show the overlay. Returns true if it should be closed.
+    /// Show the overlay.
     #[profiling::function]
-    pub fn show(&mut self, ctx: &egui::Context) -> bool {
+    pub fn show(&mut self, ctx: &egui::Context) {
         if !self.is_open {
-            return false;
+            return;
         }
 
         let mut should_close = false;
@@ -255,8 +255,6 @@ impl InfoOverlay {
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
-
-        should_close
     }
 
     fn info_row(

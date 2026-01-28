@@ -64,4 +64,4 @@ pub use plugin::{
     PluginResult, PluginState,
 };
 
-pub use app::EnyaApp;
+pub use app::{AppState, EnyaApp};
