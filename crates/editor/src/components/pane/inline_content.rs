@@ -15,6 +15,8 @@ pub enum InlineContent {
     Source(InlineSource),
     /// Inline search results
     SearchResults(InlineSearchResults),
+    /// An inline git diff view
+    Diff(InlineDiff),
 }
 
 /// Inline time series chart data.
@@ -77,4 +79,60 @@ pub struct SearchResultItem {
     pub score: f32,
     /// Optional snippet or context
     pub snippet: Option<String>,
+}
+
+/// Inline git diff view.
+///
+/// Contains the data needed to render a compact diff within a message.
+#[derive(Debug, Clone)]
+pub struct InlineDiff {
+    /// Commit hash (short form)
+    pub commit_hash: String,
+    /// Commit message
+    pub commit_message: String,
+    /// File diffs
+    pub file_diffs: Vec<InlineDiffFile>,
+    /// Total additions
+    pub additions: usize,
+    /// Total deletions
+    pub deletions: usize,
+}
+
+/// A single file's diff for inline display.
+#[derive(Debug, Clone)]
+pub struct InlineDiffFile {
+    /// File path
+    pub path: String,
+    /// Diff lines
+    pub lines: Vec<InlineDiffLine>,
+    /// Number of additions
+    pub additions: usize,
+    /// Number of deletions
+    pub deletions: usize,
+}
+
+/// A single line in an inline diff.
+#[derive(Debug, Clone)]
+pub struct InlineDiffLine {
+    /// Line content
+    pub content: String,
+    /// Line type: "context", "addition", or "deletion"
+    pub kind: InlineDiffLineKind,
+    /// Old line number
+    pub old_line: Option<usize>,
+    /// New line number
+    pub new_line: Option<usize>,
+}
+
+/// The type of diff line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InlineDiffLineKind {
+    /// Context line (unchanged)
+    Context,
+    /// Added line
+    Addition,
+    /// Removed line
+    Deletion,
+    /// Hunk header (@@)
+    Hunk,
 }

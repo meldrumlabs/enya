@@ -36,8 +36,9 @@ pub mod workspace_finder;
 #[cfg(not(target_arch = "wasm32"))]
 pub use agent_context::build_codebase_context;
 pub use agent_context::{
-    AgentCommand, CodebaseContext, ConnectionContext, DashboardContext, EditorContext,
-    build_connection_context, build_dashboard_context, parse_commands, strip_command_blocks,
+    AgentCommand, CodebaseContext, ConnectionContext, EditorContext, WorkspaceContext,
+    build_connection_context, build_workspace_context, format_pane_context, parse_commands,
+    strip_command_blocks,
 };
 pub use agent_panel::{AgentPanel, AgentPanelResult, ChatMessage};
 #[cfg(not(target_arch = "wasm32"))]

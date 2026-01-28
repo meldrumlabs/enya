@@ -25,13 +25,13 @@ pub use overlay::NativePromoOverlay;
 pub use overlay::{
     AboutOverlay, AgentCommand, AgentPanel, AgentPanelResult, AiProvider, BufferEditor,
     BufferEditorResult, ChatMessage, CodebaseContext, CommandPalette, CommandResult,
-    ConnectionContext, DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource,
-    DiagnosticsFilter, DiagnosticsPane, DiagnosticsPaneAction, DynamicCommand, EditExcerpt,
-    EditorContext, InfoOverlay, LeaderPopup, LeaderPopupResult, MessageRole, MultiEditOverlay,
-    MultiEditResult, PluginDisplayInfo, PluginSource, PluginsOverlay, PluginsOverlayResult,
-    SourcePreviewOverlay, SourcePreviewResult, StylePicker, StylePickerResult, StyleTab,
-    TimeRangePicker, TimeRangePickerResult, TutorialAction, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
+    ConnectionContext, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
+    DiagnosticsPane, DiagnosticsPaneAction, DynamicCommand, EditExcerpt, EditorContext,
+    InfoOverlay, LeaderPopup, LeaderPopupResult, MessageRole, MultiEditOverlay, MultiEditResult,
+    PluginDisplayInfo, PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay,
+    SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TimeRangePicker,
+    TimeRangePickerResult, TutorialAction, TutorialOverlay, ViewportFilter, ViewportFilterResult,
+    WhichKey, WorkspaceContext, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
     WorkspaceFinderResult, WorkspaceItem, parse_commands, strip_command_blocks,
 };
 

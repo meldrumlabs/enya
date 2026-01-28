@@ -14,7 +14,8 @@ pub mod tracing_pane;
 pub mod visualization;
 
 pub use inline_content::{
-    InlineChart, InlineContent, InlineSearchResults, InlineSource, SearchResultItem,
+    InlineChart, InlineContent, InlineDiff, InlineDiffFile, InlineDiffLine, InlineDiffLineKind,
+    InlineSearchResults, InlineSource, SearchResultItem,
 };
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
 pub use plugin::{PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane};

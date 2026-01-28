@@ -20,9 +20,9 @@ pub struct EditorContext {
     /// Codebase information
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<CodebaseContext>,
-    /// Current dashboard state
+    /// Current workspace state
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dashboard: Option<DashboardContext>,
+    pub workspace: Option<WorkspaceContext>,
     /// Project-specific context loaded from ENYA.md
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_context: Option<String>,
@@ -68,7 +68,7 @@ pub struct CommitSummary {
 
 /// Dashboard context
 #[derive(Debug, Clone, Serialize)]
-pub struct DashboardContext {
+pub struct WorkspaceContext {
     /// Current time range description
     pub time_range: String,
     /// Number of panes
@@ -76,6 +76,9 @@ pub struct DashboardContext {
     /// List of open queries
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub queries: Vec<String>,
+    /// Active viewport filter pattern (if filtering panes)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
 }
 
 impl EditorContext {
@@ -103,9 +106,9 @@ impl EditorContext {
         self
     }
 
-    /// Set the dashboard context.
-    pub fn with_dashboard(mut self, dashboard: DashboardContext) -> Self {
-        self.dashboard = Some(dashboard);
+    /// Set the workspace context.
+    pub fn with_workspace(mut self, workspace: WorkspaceContext) -> Self {
+        self.workspace = Some(workspace);
         self
     }
 
@@ -119,10 +122,23 @@ impl EditorContext {
     ///
     /// Returns a formatted string that will be prepended to user prompts.
     pub fn to_prompt_block(&self) -> String {
-        let mut parts = Vec::new();
-
-        parts.push("# Enya Editor Context\n".to_string());
-        parts.push("You are integrated with Enya, a metrics visualization editor. Here is the current state:\n".to_string());
+        let mut parts = vec![
+            "# Enya Editor Context\n".to_string(),
+            "You are integrated with Enya, a metrics visualization editor.\n\n".to_string(),
+            "## CRITICAL: Use Enya Commands, NOT Shell Commands\n\n".to_string(),
+            "**DO NOT** use bash, grep, ripgrep, find, cat, git, or ANY shell commands.\n".to_string(),
+            "**DO NOT** read files directly or scan directories.\n".to_string(),
+            "**DO NOT** use your built-in tools for code search or file operations.\n\n".to_string(),
+            "**INSTEAD**, output Enya command blocks. The codebase is ALREADY INDEXED.\n\n".to_string(),
+            "When the user asks to:\n".to_string(),
+            "- Search code → Output `search_codebase` command (NOT grep/ripgrep)\n".to_string(),
+            "- Show code → Output `show_inline_source` command (NOT cat/read)\n".to_string(),
+            "- Show metrics → Output `show_inline_chart` command\n".to_string(),
+            "- Find files → Output `search_codebase` command (NOT find/ls)\n\n".to_string(),
+            "Example - if user says \"search for http_requests\":\n".to_string(),
+            "```enya-command\n{\"action\": \"search_codebase\", \"query\": \"http_requests\"}\n```\n\n".to_string(),
+            "Here is the current state:\n".to_string(),
+        ];
 
         // Connection
         if let Some(ref conn) = self.connection {
@@ -166,13 +182,16 @@ impl EditorContext {
         }
 
         // Dashboard
-        if let Some(ref dashboard) = self.dashboard {
-            parts.push("\n## Current Dashboard\n".to_string());
-            parts.push(format!("- Time range: {}\n", dashboard.time_range));
-            parts.push(format!("- Panes: {}\n", dashboard.pane_count));
-            if !dashboard.queries.is_empty() {
+        if let Some(ref ws) = self.workspace {
+            parts.push("\n## Current Workspace\n".to_string());
+            parts.push(format!("- Time range: {}\n", ws.time_range));
+            parts.push(format!("- Panes: {}\n", ws.pane_count));
+            if let Some(ref filter) = ws.filter {
+                parts.push(format!("- Active filter: \"{filter}\"\n"));
+            }
+            if !ws.queries.is_empty() {
                 parts.push("- Active queries:\n".to_string());
-                for query in &dashboard.queries {
+                for query in &ws.queries {
                     parts.push(format!("  - {query}\n"));
                 }
             }
@@ -242,6 +261,10 @@ impl EditorContext {
             "  - Use this for finding: metrics by name, alert rules, commit messages, file paths\n"
                 .to_string(),
         );
+        parts.push("- `show_inline_diff`: Show a git diff inline in your response (PREFERRED for showing changes)\n".to_string());
+        parts.push("  - Optional: `commit` (hash, \"HEAD\", \"HEAD~1\", etc. - defaults to HEAD/latest commit if omitted)\n".to_string());
+        parts.push("  - Optional: `file` (specific file path to show diff for)\n".to_string());
+        parts.push("  - Renders a beautiful GitHub-style diff view inline\n".to_string());
         parts.push("- `add_logs_pane`: Create a logs pane for viewing logs (useful for incident investigation)\n".to_string());
         parts.push("  - Optional: `query` (LogQL query), `loki_url` (Loki server URL, uses demo if omitted), `title`\n".to_string());
         parts.push(
@@ -294,13 +317,15 @@ impl EditorContext {
         parts.push("  - Required: `pane` (title/name)\n".to_string());
         parts.push("- `toggle_zen_mode`: Toggle minimal UI mode\n".to_string());
         parts.push("- `exit_fullscreen`: Exit fullscreen/maximized mode\n".to_string());
-        parts.push("\n**Preference**: When showing source code or charts, prefer `show_inline_source` and `show_inline_chart` \n".to_string());
-        parts.push("to keep content in the conversation flow. Only use `show_metric_source` or `show_alert_source` when the user \n".to_string());
+        parts.push("\n## REMINDER: No Shell Commands\n".to_string());
         parts.push(
-            "explicitly asks to \"open\", \"go to\", or \"navigate to\" the source.\n".to_string(),
+            "You MUST output enya-command blocks instead of using bash/grep/find/cat.\n"
+                .to_string(),
         );
-        parts.push("\n**Search preference**: Use `search_codebase` instead of `git log --grep` for searching commits, \n".to_string());
-        parts.push("as it provides faster full-text search with relevance ranking.\n".to_string());
+        parts.push(
+            "The user's codebase is already indexed. Shell access is NOT needed.\n".to_string(),
+        );
+        parts.push("If you catch yourself about to run a shell command, STOP and output the equivalent enya-command instead.\n".to_string());
 
         parts.join("")
     }
@@ -370,6 +395,15 @@ pub enum AgentCommand {
         /// Maximum results to return (default: 10)
         #[serde(default)]
         limit: Option<usize>,
+    },
+    /// Show a git diff inline in the response
+    ShowInlineDiff {
+        /// Commit reference (hash, "HEAD", "HEAD~1", etc.) or empty for working directory changes
+        #[serde(default)]
+        commit: Option<String>,
+        /// Optional file path to show diff for specific file only
+        #[serde(default)]
+        file: Option<String>,
     },
     /// Add a logs pane for viewing logs (demo or Loki backend)
     AddLogsPane {
@@ -619,6 +653,14 @@ impl AgentCommand {
             AgentCommand::ToggleZenMode => "Toggling zen mode".to_string(),
             AgentCommand::ExitFullscreen => "Exiting fullscreen".to_string(),
             AgentCommand::Sync => "Syncing repository and re-indexing codebase".to_string(),
+            AgentCommand::ShowInlineDiff { commit, file } => {
+                let commit_str = commit.as_deref().unwrap_or("working directory");
+                if let Some(f) = file {
+                    format!("Showing diff for '{f}' at {commit_str}")
+                } else {
+                    format!("Showing diff for {commit_str}")
+                }
+            }
         }
     }
 }
@@ -700,7 +742,7 @@ pub fn strip_command_blocks(text: &str) -> String {
 //
 // Usage:
 // - `build_connection_context`: Creates connection context from a QueryExecutor
-// - `build_dashboard_context`: Creates dashboard context from workspace state
+// - `build_workspace_context`: Creates workspace context from current state
 // - `build_codebase_context` (native only): Creates codebase context from CodebaseManager
 //
 // These are intentionally placed in the agent_context module (rather than a
@@ -744,9 +786,9 @@ pub fn build_connection_context(executor: &QueryExecutor) -> ConnectionContext {
     }
 }
 
-/// Build dashboard context from workspace state.
+/// Build workspace context from current workspace state.
 ///
-/// Creates a `DashboardContext` containing the current time range, pane count,
+/// Creates a `WorkspaceContext` containing the current time range, pane count,
 /// and list of active queries. This gives AI agents awareness of what the user
 /// is currently viewing.
 ///
@@ -756,17 +798,116 @@ pub fn build_connection_context(executor: &QueryExecutor) -> ConnectionContext {
 /// * `queries` - List of PromQL queries from open query panes
 ///
 /// # Returns
-/// A `DashboardContext` populated with the dashboard state.
-pub fn build_dashboard_context(
+/// A `WorkspaceContext` populated with the workspace state.
+pub fn build_workspace_context(
     time_range_label: String,
     pane_count: usize,
     queries: Vec<String>,
-) -> DashboardContext {
-    DashboardContext {
+    filter: Option<String>,
+) -> WorkspaceContext {
+    WorkspaceContext {
         time_range: time_range_label,
         pane_count,
         queries,
+        filter,
     }
+}
+
+/// Format a pane's data into a context block for the agent system prompt.
+///
+/// Produces a markdown section with the pane name, query, visualization type,
+/// and a data summary (latest values, min/max for time series; current value for
+/// stat/gauge; bar values for bar charts).
+pub fn format_pane_context(name: &str, query: &str, info: &crate::chat::PaneInfo) -> String {
+    use crate::chat::PaneVisualization;
+
+    let mut out = format!("### Pane '{name}'\n");
+    out.push_str(&format!("- Query: `{query}`\n"));
+    out.push_str(&format!("- Visualization: {:?}\n", info.viz_type));
+
+    match &info.visualization {
+        PaneVisualization::TimeSeries { series } => {
+            if series.is_empty() {
+                out.push_str("- No data\n");
+            } else {
+                out.push_str(&format!("- Series ({}):\n", series.len()));
+                // Limit to 10 series to avoid bloating the prompt
+                for s in series.iter().take(10) {
+                    if s.points.is_empty() {
+                        out.push_str(&format!("  - {}: no data\n", s.name));
+                        continue;
+                    }
+                    let latest = s.points.last().map(|p| p.value).unwrap_or(0.0);
+                    let min = s
+                        .points
+                        .iter()
+                        .map(|p| p.value)
+                        .fold(f64::INFINITY, f64::min);
+                    let max = s
+                        .points
+                        .iter()
+                        .map(|p| p.value)
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    out.push_str(&format!(
+                        "  - {}: latest={latest:.4}, min={min:.4}, max={max:.4} ({} points)\n",
+                        s.name,
+                        s.points.len()
+                    ));
+                }
+                if series.len() > 10 {
+                    out.push_str(&format!("  - ... and {} more series\n", series.len() - 10));
+                }
+            }
+        }
+        PaneVisualization::Stat {
+            value,
+            unit,
+            sparkline,
+        } => {
+            out.push_str(&format!("- Value: {value:.4}{unit}\n"));
+            if !sparkline.is_empty() {
+                let min = sparkline.iter().copied().fold(f64::INFINITY, f64::min);
+                let max = sparkline.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                out.push_str(&format!(
+                    "- Trend: {len} points, range [{min:.4}, {max:.4}]\n",
+                    len = sparkline.len()
+                ));
+            }
+        }
+        PaneVisualization::Gauge {
+            value,
+            min,
+            max,
+            unit,
+        } => {
+            out.push_str(&format!("- Value: {value:.4}{unit} (range: {min}–{max})\n"));
+        }
+        PaneVisualization::BarChart { bars } => {
+            out.push_str(&format!("- Bars ({}):\n", bars.len()));
+            for (label, val) in bars.iter().take(20) {
+                out.push_str(&format!("  - {label}: {val:.4}\n"));
+            }
+            if bars.len() > 20 {
+                out.push_str(&format!("  - ... and {} more\n", bars.len() - 20));
+            }
+        }
+        PaneVisualization::Sparkline { data } => {
+            if !data.is_empty() {
+                let min = data.iter().copied().fold(f64::INFINITY, f64::min);
+                let max = data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let latest = data.last().copied().unwrap_or(0.0);
+                out.push_str(&format!(
+                    "- Sparkline: {len} points, latest={latest:.4}, range [{min:.4}, {max:.4}]\n",
+                    len = data.len()
+                ));
+            }
+        }
+        PaneVisualization::Heatmap => {
+            out.push_str("- Heatmap (data summary not available)\n");
+        }
+    }
+
+    out
 }
 
 /// Build codebase context from the codebase manager (native only).

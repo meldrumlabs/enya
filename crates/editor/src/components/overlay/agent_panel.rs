@@ -12,7 +12,9 @@ use std::sync::mpsc::Receiver;
 
 use crate::chat::ChatColors;
 use crate::components::pane::time_series_chart::TimeSeriesChart;
-use crate::components::pane::{InlineChart, InlineContent, InlineSearchResults, InlineSource};
+use crate::components::pane::{
+    InlineChart, InlineContent, InlineDiff, InlineDiffLineKind, InlineSearchResults, InlineSource,
+};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::{
@@ -54,6 +56,13 @@ pub enum AgentPanelResult {
     EnteredInputMode,
     /// An error occurred (e.g., file not found)
     Error(String),
+    /// Open diff viewer with specific commit
+    OpenDiffViewer {
+        /// Commit hash
+        hash: String,
+        /// Commit message
+        message: String,
+    },
 }
 
 /// The agent panel component for AI-assisted chat.
@@ -94,11 +103,16 @@ pub struct AgentPanel {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) repo_path: Option<std::path::PathBuf>,
     pub(super) selected_message: Option<usize>,
+    pub(super) scroll_to_selected: bool,
     pub(super) search_active: bool,
     pub(super) search_query: String,
     pub(super) search_matches: Vec<usize>,
     pub(super) search_match_idx: usize,
     pub(super) conversation_store: super::conversation_store::ConversationStore,
+    /// Pending diff viewer request (commit hash, message)
+    pending_diff_viewer: Option<(String, String)>,
+    /// Whether keyboard input should be disabled (another overlay is on top)
+    keyboard_disabled: bool,
 }
 
 impl AgentPanel {
@@ -138,11 +152,14 @@ impl AgentPanel {
             #[cfg(not(target_arch = "wasm32"))]
             repo_path: None,
             selected_message: None,
+            scroll_to_selected: false,
             search_active: false,
             search_query: String::new(),
             search_matches: Vec::new(),
             search_match_idx: 0,
             conversation_store: super::conversation_store::ConversationStore::new(),
+            pending_diff_viewer: None,
+            keyboard_disabled: false,
         }
     }
 
@@ -171,6 +188,11 @@ impl AgentPanel {
     /// Clear the editor context.
     pub fn clear_context(&mut self) {
         self.editor_context = None;
+    }
+
+    /// Set whether keyboard input should be disabled (e.g., when diff viewer is open).
+    pub fn set_keyboard_disabled(&mut self, disabled: bool) {
+        self.keyboard_disabled = disabled;
     }
 
     /// Set the AI provider
@@ -248,13 +270,13 @@ impl AgentPanel {
             });
         }
 
-        // Add assistant response from handoff
+        // Add assistant response from handoff (with any inline blocks)
         if !handoff.response.is_empty() {
             self.messages.push(ChatMessage {
                 role: MessageRole::Assistant,
                 content: handoff.display_text,
                 is_streaming: false,
-                inline_blocks: Vec::new(),
+                inline_blocks: handoff.inline_blocks,
             });
         }
 
@@ -431,6 +453,11 @@ impl AgentPanel {
             self.close();
         }
 
+        // Check for pending diff viewer request
+        if let Some((hash, message)) = self.pending_diff_viewer.take() {
+            return AgentPanelResult::OpenDiffViewer { hash, message };
+        }
+
         result
     }
 
@@ -480,11 +507,11 @@ impl AgentPanel {
                 .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
         }
 
-        // Handle keyboard input when panel has vim focus
+        // Handle keyboard input when panel has vim focus (and keyboard not disabled)
         let mut return_focus = false;
         let mut enter_input_mode = false;
         let mut yank_text: Option<String> = None;
-        if self.has_focus {
+        if self.has_focus && !self.keyboard_disabled {
             // Skip vim key detection for one frame after gaining focus
             // This prevents lingering keypresses from being detected immediately
             if self.skip_vim_keys_once {
@@ -521,6 +548,7 @@ impl AgentPanel {
                                 None => 0,
                             };
                             self.selected_message = Some(next);
+                            self.scroll_to_selected = true;
                             self.scroll_to_bottom = false; // don't override selection scroll
                         }
                     }
@@ -534,6 +562,7 @@ impl AgentPanel {
                                 None => self.messages.len() - 1,
                             };
                             self.selected_message = Some(prev);
+                            self.scroll_to_selected = true;
                         }
                     }
                     // y - yank (copy) selected message content
@@ -558,6 +587,7 @@ impl AgentPanel {
                                 (self.search_match_idx + 1) % self.search_matches.len();
                             self.selected_message =
                                 Some(self.search_matches[self.search_match_idx]);
+                            self.scroll_to_selected = true;
                         }
                     }
                     // N (shift+n) - previous search match
@@ -570,12 +600,14 @@ impl AgentPanel {
                             };
                             self.selected_message =
                                 Some(self.search_matches[self.search_match_idx]);
+                            self.scroll_to_selected = true;
                         }
                     }
                     // G - jump to last message
                     else if input.consume_key(egui::Modifiers::SHIFT, Key::G) {
                         if !self.messages.is_empty() {
                             self.selected_message = Some(self.messages.len() - 1);
+                            self.scroll_to_selected = true;
                         }
                     }
                     // g g - jump to first message (single g for simplicity)
@@ -583,6 +615,26 @@ impl AgentPanel {
                         && !self.messages.is_empty()
                     {
                         self.selected_message = Some(0);
+                        self.scroll_to_selected = true;
+                    }
+                    // o - open inline diff in full diff viewer (if selected message has one)
+                    else if input.consume_key(egui::Modifiers::NONE, Key::O) {
+                        if let Some(idx) = self.selected_message {
+                            if let Some(msg) = self.messages.get(idx) {
+                                // Find the first inline diff in the message
+                                for block in &msg.inline_blocks {
+                                    if let InlineContent::Diff(diff) = block {
+                                        if diff.commit_hash != "working" {
+                                            self.pending_diff_viewer = Some((
+                                                diff.commit_hash.clone(),
+                                                diff.commit_message.clone(),
+                                            ));
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 });
             }
@@ -641,6 +693,11 @@ impl AgentPanel {
 
         if matches!(result, AgentPanelResult::Closed) {
             self.close();
+        }
+
+        // Check for pending diff viewer request
+        if let Some((hash, message)) = self.pending_diff_viewer.take() {
+            return AgentPanelResult::OpenDiffViewer { hash, message };
         }
 
         result
@@ -1172,6 +1229,8 @@ impl AgentPanel {
             .auto_shrink([false; 2])
             .stick_to_bottom(true)
             .show(ui, |ui| {
+                // Capture content area bounds for selection border (excludes scrollbar)
+                let content_rect = ui.max_rect();
                 ui.add_space(8.0);
 
                 if self.messages.is_empty() && self.current_activities.is_empty() {
@@ -1239,17 +1298,21 @@ impl AgentPanel {
 
                         // Visual selection highlight for vim j/k navigation
                         if is_selected {
+                            // Use content_rect for horizontal bounds (excludes scrollbar)
                             let rect = egui::Rect::from_min_max(
-                                egui::pos2(ui.clip_rect().left(), before_y),
-                                egui::pos2(ui.clip_rect().right(), after_y),
+                                egui::pos2(content_rect.left() + 4.0, before_y - 2.0),
+                                egui::pos2(content_rect.right() - 4.0, after_y + 2.0),
                             );
                             ui.painter().rect_stroke(
-                                rect.shrink(1.0),
-                                CornerRadius::same(4),
+                                rect,
+                                CornerRadius::same(6),
                                 Stroke::new(1.5, self.theme.accent_primary()),
-                                egui::StrokeKind::Outside,
+                                egui::StrokeKind::Inside,
                             );
-                            ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                            if self.scroll_to_selected {
+                                ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                                self.scroll_to_selected = false;
+                            }
                         }
                         ui.add_space(6.0);
 
@@ -1386,6 +1449,7 @@ impl AgentPanel {
                         self.search_match_idx = 0;
                         if !self.search_matches.is_empty() {
                             self.selected_message = Some(self.search_matches[0]);
+                            self.scroll_to_selected = true;
                         }
                     }
                     self.search_active = false;
@@ -1724,6 +1788,7 @@ impl AgentPanel {
         }
 
         // Render inline content blocks (charts, source, search results)
+        let mut pending_diff: Option<(String, String)> = None;
         for block in &message.inline_blocks {
             ui.add_space(8.0);
             match block {
@@ -1736,7 +1801,18 @@ impl AgentPanel {
                 InlineContent::SearchResults(results) => {
                     self.render_inline_search_results(ui, results, colors);
                 }
+                InlineContent::Diff(diff) => {
+                    if self.render_inline_diff(ui, diff, colors) {
+                        // Store commit info for opening diff viewer
+                        pending_diff =
+                            Some((diff.commit_hash.clone(), diff.commit_message.clone()));
+                    }
+                }
             }
+        }
+        // Set pending diff viewer action (if any inline diff was clicked)
+        if let Some((hash, message)) = pending_diff {
+            self.pending_diff_viewer = Some((hash, message));
         }
 
         // Amp-style thinking indicator with animated pulsing dots
@@ -2063,6 +2139,275 @@ impl AgentPanel {
                     );
                 }
             });
+    }
+
+    /// Render an inline git diff within a message.
+    /// Returns true if the user clicked to open the full diff viewer.
+    fn render_inline_diff(
+        &mut self,
+        ui: &mut egui::Ui,
+        diff: &InlineDiff,
+        colors: &ChatColors,
+    ) -> bool {
+        use egui_nerdfonts::regular;
+
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
+
+        // GitHub-style diff colors
+        let addition_bg = Color32::from_rgba_unmultiplied(46, 160, 67, 25);
+        let deletion_bg = Color32::from_rgba_unmultiplied(248, 81, 73, 25);
+        let addition_text = Color32::from_rgb(63, 185, 80);
+        let deletion_text = Color32::from_rgb(248, 81, 73);
+        let hunk_text = Color32::from_rgb(130, 80, 223);
+
+        let mut open_full_diff = false;
+
+        // Diff container with premium styling
+        egui::Frame::new()
+            .fill(self.theme.bg_elevated())
+            .corner_radius(CornerRadius::same(8))
+            .stroke(Stroke::new(1.0, colors.chart_embed_border()))
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                // Header with commit info
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::SOURCE_COMMIT)
+                            .color(self.theme.accent_primary())
+                            .size(14.0),
+                    );
+                    ui.add_space(6.0);
+
+                    // Commit hash - clickable to open full diff
+                    if !diff.commit_hash.is_empty() && diff.commit_hash != "working" {
+                        let hash_response = ui.add(
+                            egui::Label::new(
+                                RichText::new(&diff.commit_hash)
+                                    .color(self.theme.accent_primary())
+                                    .size(typography::SM)
+                                    .family(egui::FontFamily::Monospace)
+                                    .underline(),
+                            )
+                            .selectable(false)
+                            .sense(egui::Sense::click()),
+                        );
+                        if hash_response.clicked() {
+                            open_full_diff = true;
+                        }
+                        if hash_response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        hash_response.on_hover_text("Click to open full diff viewer");
+                        ui.add_space(8.0);
+                    } else if !diff.commit_hash.is_empty() {
+                        ui.label(
+                            RichText::new(&diff.commit_hash)
+                                .color(self.theme.accent_primary())
+                                .size(typography::SM)
+                                .family(egui::FontFamily::Monospace),
+                        );
+                        ui.add_space(8.0);
+                    }
+
+                    // Commit message (truncated)
+                    let message = if diff.commit_message.len() > 50 {
+                        format!("{}...", &diff.commit_message[..47])
+                    } else {
+                        diff.commit_message.clone()
+                    };
+                    ui.label(
+                        RichText::new(message)
+                            .color(text_primary)
+                            .size(typography::SM),
+                    );
+
+                    // Stats and "Open" button on the right
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // "Open" link to open full diff
+                        if diff.commit_hash != "working" {
+                            let open_response = ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!("{} Open", regular::LINK_EXTERNAL))
+                                        .color(text_tertiary)
+                                        .size(typography::XS),
+                                )
+                                .selectable(false)
+                                .sense(egui::Sense::click()),
+                            );
+                            if open_response.clicked() {
+                                open_full_diff = true;
+                            }
+                            if open_response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            }
+                            open_response.on_hover_text("Open full diff viewer");
+                            ui.add_space(8.0);
+                        }
+
+                        ui.label(
+                            RichText::new(format!("-{}", diff.deletions))
+                                .color(deletion_text)
+                                .size(typography::XS),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(format!("+{}", diff.additions))
+                                .color(addition_text)
+                                .size(typography::XS),
+                        );
+                    });
+                });
+
+                ui.add_space(8.0);
+
+                // Show up to 3 files, with limited lines per file
+                let max_files = 3;
+                let max_lines_per_file = 12;
+
+                for (file_idx, file_diff) in diff.file_diffs.iter().take(max_files).enumerate() {
+                    if file_idx > 0 {
+                        ui.add_space(8.0);
+                    }
+
+                    // File header
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(regular::FILE_DOCUMENT)
+                                .color(text_secondary)
+                                .size(12.0),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new(&file_diff.path)
+                                .color(text_primary)
+                                .size(typography::XS)
+                                .family(egui::FontFamily::Monospace),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            RichText::new(format!(
+                                "+{} -{}",
+                                file_diff.additions, file_diff.deletions
+                            ))
+                            .color(text_tertiary)
+                            .size(typography::XS),
+                        );
+                    });
+
+                    ui.add_space(4.0);
+
+                    // Diff lines in a code-style frame
+                    egui::Frame::new()
+                        .fill(self.theme.bg_surface())
+                        .corner_radius(CornerRadius::same(4))
+                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .show(ui, |ui| {
+                            for (line_idx, line) in
+                                file_diff.lines.iter().take(max_lines_per_file).enumerate()
+                            {
+                                let (bg, text_color, prefix) = match line.kind {
+                                    InlineDiffLineKind::Addition => {
+                                        (addition_bg, addition_text, "+")
+                                    }
+                                    InlineDiffLineKind::Deletion => {
+                                        (deletion_bg, deletion_text, "-")
+                                    }
+                                    InlineDiffLineKind::Context => {
+                                        (Color32::TRANSPARENT, text_tertiary, " ")
+                                    }
+                                    InlineDiffLineKind::Hunk => {
+                                        (Color32::TRANSPARENT, hunk_text, "@")
+                                    }
+                                };
+
+                                let response = ui.horizontal(|ui| {
+                                    // Line number gutter
+                                    let line_num = line.new_line.or(line.old_line).unwrap_or(0);
+                                    if line.kind != InlineDiffLineKind::Hunk && line_num > 0 {
+                                        ui.label(
+                                            RichText::new(format!("{line_num:>4}"))
+                                                .color(text_tertiary.gamma_multiply(0.5))
+                                                .size(typography::XS)
+                                                .family(egui::FontFamily::Monospace),
+                                        );
+                                    } else {
+                                        ui.label(
+                                            RichText::new("    ")
+                                                .size(typography::XS)
+                                                .family(egui::FontFamily::Monospace),
+                                        );
+                                    }
+
+                                    ui.add_space(4.0);
+
+                                    // Prefix (+/-/space)
+                                    ui.label(
+                                        RichText::new(prefix)
+                                            .color(text_color)
+                                            .size(typography::XS)
+                                            .family(egui::FontFamily::Monospace),
+                                    );
+
+                                    // Content
+                                    let content = if line.content.len() > 80 {
+                                        format!("{}...", &line.content[..77])
+                                    } else {
+                                        line.content.clone()
+                                    };
+                                    ui.label(
+                                        RichText::new(content)
+                                            .color(text_color)
+                                            .size(typography::XS)
+                                            .family(egui::FontFamily::Monospace),
+                                    );
+                                });
+
+                                // Background highlight for changed lines
+                                if bg != Color32::TRANSPARENT {
+                                    let rect = response.response.rect;
+                                    ui.painter().rect_filled(
+                                        rect.expand2(egui::vec2(4.0, 0.0)),
+                                        0.0,
+                                        bg,
+                                    );
+                                }
+
+                                // Show truncation indicator
+                                if line_idx == max_lines_per_file - 1
+                                    && file_diff.lines.len() > max_lines_per_file
+                                {
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "... {} more lines",
+                                            file_diff.lines.len() - max_lines_per_file
+                                        ))
+                                        .color(text_tertiary)
+                                        .size(typography::XS)
+                                        .italics(),
+                                    );
+                                }
+                            }
+                        });
+                }
+
+                // "More files" indicator
+                if diff.file_diffs.len() > max_files {
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(format!(
+                            "... and {} more files",
+                            diff.file_diffs.len() - max_files
+                        ))
+                        .color(text_tertiary)
+                        .size(typography::XS)
+                        .italics(),
+                    );
+                }
+            });
+
+        open_full_diff
     }
 
     /// Render an activity item with premium row styling (matching channels panel).

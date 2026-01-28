@@ -14,12 +14,136 @@ use super::{AgentCommand, NavDirection, Workspace, WorkspaceAction};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::InlineSource;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::components::pane::inline_content::{InlineSearchResults, SearchResultItem};
+use crate::components::pane::inline_content::{
+    InlineDiff, InlineDiffFile, InlineDiffLine, InlineDiffLineKind, InlineSearchResults,
+    SearchResultItem,
+};
 use crate::components::pane::logs_pane::LogsBackend;
 use crate::components::pane::query_pane::QueryPaneAction;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
 use crate::components::util::{ActivityItem, ActivityType};
 use crate::components::{Buffer, Component, InlineChart, InlineContent, LogsPane, QueryPane};
+
+/// Parse a unified diff string into `InlineDiffFile` structs for inline display.
+#[cfg(not(target_arch = "wasm32"))]
+fn parse_diff_to_inline_files(diff: &str) -> Vec<InlineDiffFile> {
+    let mut files: Vec<InlineDiffFile> = Vec::new();
+    let mut current_file: Option<InlineDiffFile> = None;
+    let mut old_line_num: usize = 0;
+    let mut new_line_num: usize = 0;
+
+    for line in diff.lines() {
+        // New file header: diff --git a/path b/path
+        if line.starts_with("diff --git") {
+            // Save previous file
+            if let Some(file) = current_file.take() {
+                files.push(file);
+            }
+
+            // Extract path from "diff --git a/path b/path"
+            let path = line
+                .strip_prefix("diff --git a/")
+                .and_then(|s| s.split(" b/").next())
+                .unwrap_or("")
+                .to_string();
+
+            current_file = Some(InlineDiffFile {
+                path,
+                lines: Vec::new(),
+                additions: 0,
+                deletions: 0,
+            });
+            continue;
+        }
+
+        // Skip other metadata lines
+        if line.starts_with("index ")
+            || line.starts_with("--- ")
+            || line.starts_with("+++ ")
+            || line.starts_with("new file mode")
+            || line.starts_with("deleted file mode")
+        {
+            continue;
+        }
+
+        // Parse hunk header for line numbers
+        if line.starts_with("@@") {
+            if let Some((old_start, new_start)) = parse_hunk_header_for_inline(line) {
+                old_line_num = old_start;
+                new_line_num = new_start;
+            }
+
+            if let Some(ref mut file) = current_file {
+                file.lines.push(InlineDiffLine {
+                    content: line.to_string(),
+                    kind: InlineDiffLineKind::Hunk,
+                    old_line: None,
+                    new_line: None,
+                });
+            }
+            continue;
+        }
+
+        // Process diff content lines
+        if let Some(ref mut file) = current_file {
+            if let Some(added) = line.strip_prefix('+') {
+                file.lines.push(InlineDiffLine {
+                    content: added.to_string(),
+                    kind: InlineDiffLineKind::Addition,
+                    old_line: None,
+                    new_line: Some(new_line_num),
+                });
+                new_line_num += 1;
+                file.additions += 1;
+            } else if let Some(removed) = line.strip_prefix('-') {
+                file.lines.push(InlineDiffLine {
+                    content: removed.to_string(),
+                    kind: InlineDiffLineKind::Deletion,
+                    old_line: Some(old_line_num),
+                    new_line: None,
+                });
+                old_line_num += 1;
+                file.deletions += 1;
+            } else if let Some(context) = line.strip_prefix(' ') {
+                file.lines.push(InlineDiffLine {
+                    content: context.to_string(),
+                    kind: InlineDiffLineKind::Context,
+                    old_line: Some(old_line_num),
+                    new_line: Some(new_line_num),
+                });
+                old_line_num += 1;
+                new_line_num += 1;
+            }
+        }
+    }
+
+    // Don't forget the last file
+    if let Some(file) = current_file {
+        files.push(file);
+    }
+
+    files
+}
+
+/// Parse a hunk header to extract starting line numbers.
+/// Format: @@ -old_start,old_count +new_start,new_count @@ optional_context
+#[cfg(not(target_arch = "wasm32"))]
+fn parse_hunk_header_for_inline(line: &str) -> Option<(usize, usize)> {
+    let content = line.strip_prefix("@@")?.trim_start();
+    let content = content.split("@@").next()?.trim();
+
+    let mut parts = content.split_whitespace();
+
+    // Parse old: -start,count or -start
+    let old_part = parts.next()?.strip_prefix('-')?;
+    let old_start: usize = old_part.split(',').next()?.parse().ok()?;
+
+    // Parse new: +start,count or +start
+    let new_part = parts.next()?.strip_prefix('+')?;
+    let new_start: usize = new_part.split(',').next()?.parse().ok()?;
+
+    Some((old_start, new_start))
+}
 
 impl Workspace {
     // ==================== Pane Adding ====================
@@ -721,6 +845,28 @@ impl Workspace {
                     #[cfg(target_arch = "wasm32")]
                     {
                         log::warn!("Sync command not supported in WASM");
+                    }
+                }
+                AgentCommand::ShowInlineDiff { commit, file } => {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        // Get the diff and inject it as inline content
+                        if let Some(diff_content) =
+                            self.get_git_diff_for_inline(commit.as_deref(), file.as_deref())
+                        {
+                            self.inject_inline_content_to_agent_pane(InlineContent::Diff(
+                                diff_content,
+                            ));
+                            log::info!("Agent showed inline diff");
+                            success = true;
+                        } else {
+                            log::warn!("Failed to get git diff");
+                        }
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _ = (commit, file);
+                        log::warn!("ShowInlineDiff command not supported in WASM");
                     }
                 }
             }
@@ -1760,6 +1906,77 @@ impl Workspace {
             .collect()
     }
 
+    /// Collect pane info for a single tile, returning the info and query string.
+    pub(super) fn collect_pane_info_for_tile(
+        &self,
+        tile_id: egui_tiles::TileId,
+    ) -> Option<(crate::chat::PaneInfo, String)> {
+        use crate::chat::PaneVisualization;
+        use crate::components::pane::visualization::VisualizationType;
+
+        let component = match self.viewport_tree.tiles.get(tile_id) {
+            Some(egui_tiles::Tile::Pane(c)) => c,
+            _ => return None,
+        };
+        let query_pane = component.as_any().downcast_ref::<QueryPane>()?;
+        let query_text = query_pane.saved_query().to_string();
+        let viz = query_pane.visualization();
+        let viz_type = viz.viz_type();
+        let name = query_pane.name().to_string();
+
+        let pane_viz = match viz_type {
+            VisualizationType::TimeSeries => {
+                let ts_chart = viz.as_time_series()?;
+                PaneVisualization::TimeSeries {
+                    series: ts_chart.series().to_vec(),
+                }
+            }
+            VisualizationType::Stat => {
+                let stat = viz.as_stat()?;
+                PaneVisualization::Stat {
+                    value: stat.value(),
+                    unit: stat.unit().to_string(),
+                    sparkline: stat.sparkline_data().to_vec(),
+                }
+            }
+            VisualizationType::Gauge => {
+                let gauge = viz.as_gauge()?;
+                PaneVisualization::Gauge {
+                    value: gauge.value(),
+                    min: gauge.min(),
+                    max: gauge.max(),
+                    unit: gauge.unit().to_string(),
+                }
+            }
+            VisualizationType::BarChart => {
+                let bar = viz.as_bar_chart()?;
+                PaneVisualization::BarChart {
+                    bars: bar
+                        .bars()
+                        .iter()
+                        .map(|b| (b.label.clone(), b.value))
+                        .collect(),
+                }
+            }
+            VisualizationType::Sparkline => {
+                let spark = viz.as_sparkline()?;
+                PaneVisualization::Sparkline {
+                    data: spark.data().to_vec(),
+                }
+            }
+            VisualizationType::Heatmap => PaneVisualization::Heatmap,
+        };
+
+        Some((
+            crate::chat::PaneInfo {
+                name,
+                viz_type,
+                visualization: pane_viz,
+            },
+            query_text,
+        ))
+    }
+
     /// Set available commits for # reference autocomplete in chat.
     pub fn set_chat_commits(&mut self, commits: Vec<crate::chat::CommitInfo>) {
         self.channels_panel.set_available_commits(commits);
@@ -1774,6 +1991,52 @@ impl Workspace {
 
     #[cfg(target_arch = "wasm32")]
     pub fn open_diff_viewer_with_content(&mut self, _hash: &str, _message: &str, _diff: &str) {
+        // Diff viewer not available on WASM
+    }
+
+    /// Open the diff viewer for a specific commit hash (fetches diff content automatically).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_diff_viewer_for_commit(&mut self, hash: &str, message: &str) {
+        use std::path::PathBuf;
+        use std::process::Command;
+
+        // Get repo path: prefer codebase manager index, fall back to current directory
+        let repo_path = self
+            .codebase_manager
+            .index()
+            .map(|idx| idx.repo_path.clone())
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        // Fetch the full diff for this commit
+        let diff_output = Command::new("git")
+            .args(["show", hash, "--format=", "--unified=3", "-p"])
+            .current_dir(&repo_path)
+            .output();
+
+        match diff_output {
+            Ok(output) if output.status.success() => {
+                let diff_content = String::from_utf8_lossy(&output.stdout).to_string();
+                if !diff_content.is_empty() {
+                    log::info!("Opening diff viewer for commit: {hash}");
+                    self.diff_viewer.open(hash, message, 0, &diff_content);
+                } else {
+                    log::warn!("No diff content for commit: {hash}");
+                }
+            }
+            Ok(output) => {
+                log::warn!(
+                    "git show failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            Err(e) => {
+                log::warn!("Failed to run git show: {e}");
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_diff_viewer_for_commit(&mut self, _hash: &str, _message: &str) {
         // Diff viewer not available on WASM
     }
 
@@ -2012,14 +2275,128 @@ impl Workspace {
         })
     }
 
-    /// Inject inline content into the agent panel's last assistant message.
+    /// Inject inline content into the active agent conversation.
+    ///
+    /// If the agent panel is open, adds to the last assistant message there.
+    /// If in agent input bar mode, stores for handoff to the panel later.
     fn inject_inline_content_to_agent_pane(&mut self, content: InlineContent) {
         if self.agent_panel.is_open() {
             self.agent_panel.add_inline_content(content);
             log::debug!("Injected inline content into agent panel");
+        } else if self.agent_mode_active {
+            // Store in input bar for handoff when user opens the panel
+            self.agent_input_bar.add_inline_content(content);
+            log::debug!("Stored inline content in agent input bar for handoff");
         } else {
-            log::warn!("Agent panel not open, cannot inject inline content");
+            log::warn!("No active agent conversation for inline content");
         }
+    }
+
+    /// Get a git diff and convert it to `InlineDiff` for display in the agent panel.
+    ///
+    /// If `commit` is provided, shows the diff for that commit.
+    /// If `commit` is None, shows working directory changes (unstaged).
+    /// If `file` is provided, filters to only show that file's diff.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn get_git_diff_for_inline(
+        &self,
+        commit: Option<&str>,
+        file: Option<&str>,
+    ) -> Option<InlineDiff> {
+        use std::path::PathBuf;
+        use std::process::Command;
+
+        // Get repo path: prefer codebase manager index, fall back to current directory
+        let repo_path = self
+            .codebase_manager
+            .index()
+            .map(|idx| idx.repo_path.clone())
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        log::info!(
+            "Getting git diff: commit={:?}, file={:?}, repo_path={}",
+            commit,
+            file,
+            repo_path.display()
+        );
+
+        // Default to HEAD if no commit specified (more useful than working directory for cloned repos)
+        let effective_commit = commit.or(Some("HEAD"));
+
+        // Build the git command based on parameters
+        let diff_output = if let Some(commit_ref) = effective_commit {
+            // Show diff for a specific commit
+            let mut cmd = Command::new("git");
+            cmd.args(["show", commit_ref, "--format=", "--unified=3", "-p"]);
+            if let Some(f) = file {
+                cmd.arg("--").arg(f);
+            }
+            cmd.current_dir(&repo_path).output().ok()?
+        } else {
+            // Show working directory changes (unstaged) - this branch won't be hit now
+            // but kept for potential future use with explicit "working" parameter
+            let mut cmd = Command::new("git");
+            cmd.args(["diff", "--unified=3"]);
+            if let Some(f) = file {
+                cmd.arg("--").arg(f);
+            }
+            cmd.current_dir(&repo_path).output().ok()?
+        };
+
+        if !diff_output.status.success() {
+            log::warn!(
+                "git diff failed: {}",
+                String::from_utf8_lossy(&diff_output.stderr)
+            );
+            return None;
+        }
+
+        let diff_content = String::from_utf8_lossy(&diff_output.stdout);
+        if diff_content.trim().is_empty() {
+            log::info!("No diff content found for commit {effective_commit:?}");
+            return None;
+        }
+
+        // Get commit info for the header
+        let (commit_hash, commit_message) = if let Some(commit_ref) = effective_commit {
+            // Get the actual commit info
+            let hash_output = Command::new("git")
+                .args(["rev-parse", "--short", commit_ref])
+                .current_dir(&repo_path)
+                .output()
+                .ok()?;
+            let hash = String::from_utf8_lossy(&hash_output.stdout)
+                .trim()
+                .to_string();
+
+            let msg_output = Command::new("git")
+                .args(["log", "-1", "--format=%s", commit_ref])
+                .current_dir(&repo_path)
+                .output()
+                .ok()?;
+            let msg = String::from_utf8_lossy(&msg_output.stdout)
+                .trim()
+                .to_string();
+
+            (hash, msg)
+        } else {
+            ("working".to_string(), "Uncommitted changes".to_string())
+        };
+
+        // Parse the diff into file diffs
+        let file_diffs = parse_diff_to_inline_files(&diff_content);
+
+        // Calculate totals
+        let additions: usize = file_diffs.iter().map(|f| f.additions).sum();
+        let deletions: usize = file_diffs.iter().map(|f| f.deletions).sum();
+
+        Some(InlineDiff {
+            commit_hash,
+            commit_message,
+            file_diffs,
+            additions,
+            deletions,
+        })
     }
 
     /// Search the codebase using Tantivy full-text search.

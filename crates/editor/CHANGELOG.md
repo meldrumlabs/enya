@@ -25,6 +25,11 @@ All notable changes to the Enya editor will be documented in this file.
 - **Tutorial: Commit annotations step**: New tutorial step teaching the `gc` keybinding to toggle git commit markers on charts, with navigation hints (`]c`/`[c` for next/prev commit)
 - **Tutorial: Tab merging step**: New dedicated step teaching `Ctrl+W t h/j/k/l` to merge panes into tabbed groups. The "Move Panes" step now focuses solely on pane rearrangement.
 - **Tutorial: Cycle visualization step**: New step teaching the `cv` keybinding to cycle through visualization types (line chart, bar chart, table, etc.).
+- **Agent input bar: Command result badge**: When the AI response contains enya-commands, the Response state shows "✓ N actions applied" in accent color instead of raw text preview. The overlay variant also shows a truncated text summary alongside the badge. Makes it clear when the agent performed actions.
+- **Agent input bar: Character/context indicator**: While typing, a subtle character count appears on the right side. When context panes are attached, shows pane count alongside (e.g., "2 panes  47").
+- **Agent input bar: State transition animations**: State changes (Ready→Typing→Processing→Response) now fade in with a 150ms ease-out cubic animation instead of instant swaps, applied in both overlay and inline modes.
+- **Data-aware agent context**: The agent system prompt now includes rich dashboard state. Selected context panes include visualization type and data summaries (latest/min/max values for time series, current value for stat/gauge, bar values for bar charts). When no panes are explicitly selected, the focused pane is automatically included, enabling natural "explain this spike" workflows. The active viewport filter pattern is also injected into the dashboard context.
+- **Inline git diff rendering**: The agent can now display GitHub-style git diffs inline within conversation messages using the `show_inline_diff` command. Shows commit info header, file stats with +/- badges, and syntax-highlighted diff lines with addition/deletion highlighting. Supports showing diffs for specific commits or working directory changes, with optional file filtering. Inline content (diffs, charts, source) generated while using the quick input bar mode is preserved when handing off to the full agent panel. Click the commit hash or "Open" link to open the full diff viewer, or press `o` when the message is selected via j/k navigation.
 
 ### Changed
 
@@ -40,6 +45,9 @@ All notable changes to the Enya editor will be documented in this file.
 - **Demo panes feel like real setup**: Demo/tutorial panes now show loading animation and visual feedback when time range changes or refresh is triggered, making the tutorial experience identical to real data usage.
 - **Multi-select refresh (r key)**: Fixed `refresh()` to properly handle demo vs real panes with loading animation. Demo panes show loading briefly then regenerate demo data; real panes mark for re-query through the query executor.
 - **Dark theme logo**: Use original branded logo (not tinted) for Dark theme. Detects Dark theme by its Enya emerald accent color (#10B981) to handle resolved Custom theme variants.
+- **Agent panel keyboard conflict with diff viewer**: Fixed keybindings (j/k, o) in the agent panel being captured even when the diff viewer is open. The agent panel now disables its keyboard handling when the diff viewer is active.
+- **Agent panel selection border alignment**: Fixed the vim navigation selection border extending outside the scroll area. Now properly clips to the visible content area.
+- **Agent input bar Esc stop styling**: The "Esc stop" hint during processing now matches the "Esc clear" hint style in the response state, using consistent typography and alignment across both inline and panel modes.
 
 ### Added
 
