@@ -6,7 +6,7 @@
 use egui_tiles::TileId;
 
 /// Role of a message sender in a chat conversation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum MessageRole {
     /// Message from the user
     User,

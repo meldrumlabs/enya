@@ -3,16 +3,19 @@
 pub mod about;
 pub mod agent_context;
 pub mod agent_panel;
+mod agent_streaming;
 pub mod annotation_editor;
 pub mod buffer_editor;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod codebase_finder;
 pub mod command_palette;
+pub mod conversation_store;
 pub mod diagnostics;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod diff_viewer;
 pub mod info;
 pub mod leader_popup;
+pub mod markdown_renderer;
 pub mod multi_edit;
 #[cfg(target_arch = "wasm32")]
 pub mod native_promo;
@@ -22,8 +25,6 @@ mod preview;
 pub mod slash_commands;
 pub mod source_preview;
 pub mod style_picker;
-#[cfg(not(target_arch = "wasm32"))]
-mod syntax_highlight;
 pub mod time_range_picker;
 pub mod tutorial;
 pub mod unified_finder;

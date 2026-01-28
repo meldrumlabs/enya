@@ -86,6 +86,7 @@ poll-promise = "0.3"
 smallvec = "1.13.2"
 nucleo-matcher = "0.3.1"
 ewebsock = "0.7"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"

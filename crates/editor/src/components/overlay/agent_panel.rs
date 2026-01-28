@@ -6,7 +6,7 @@
 use egui::{Color32, CornerRadius, Key, RichText, ScrollArea, Stroke, TextEdit, Vec2};
 
 #[cfg(not(target_arch = "wasm32"))]
-use enya_ai::{AcpClient, AgentEvent};
+use enya_ai::AgentEvent;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Receiver;
 
@@ -19,8 +19,6 @@ use crate::components::util::{
     ActivityItem, ActivityType, AiModel, AiProvider, ConversationHandoff, MessageRole,
     ResponseStatus, ScrollShadowConfig, ScrollState, normalize_unicode, render_scroll_shadows,
 };
-#[cfg(not(target_arch = "wasm32"))]
-use crate::components::util::{truncate_first_line, truncate_path_suffix};
 use crate::components::widget::ThinkingIndicator;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::icons::APP_GHOSTTY;
@@ -58,66 +56,54 @@ pub enum AgentPanelResult {
     Error(String),
 }
 
-/// The agent panel component for AI-assisted chat
+/// The agent panel component for AI-assisted chat.
+///
+/// Fields are `pub(super)` to allow the `agent_streaming` sibling module to
+/// access them without exposing internals outside the overlay module.
 #[allow(dead_code)] // Some fields used only in native builds or for future features
 pub struct AgentPanel {
-    /// Whether the panel is open
-    is_open: bool,
-    /// Whether this panel has keyboard focus (for vim-style navigation)
-    has_focus: bool,
-    /// Skip vim key detection for one frame after gaining focus
-    /// (prevents immediate key detection from lingering keypresses)
-    skip_vim_keys_once: bool,
-    /// Current theme (supports Custom variant with plugin colors)
-    theme: AppTheme,
-    /// Chat message history
-    messages: Vec<ChatMessage>,
-    /// Current input text
-    input_text: String,
-    /// Whether we're currently waiting for a response
-    is_waiting: bool,
-    /// Event receiver for streaming ACP responses
+    pub(super) is_open: bool,
+    pub(super) has_focus: bool,
+    pub(super) skip_vim_keys_once: bool,
+    pub(super) theme: AppTheme,
+    pub(super) messages: Vec<ChatMessage>,
+    pub(super) input_text: String,
+    pub(super) is_waiting: bool,
     #[cfg(not(target_arch = "wasm32"))]
-    event_receiver: Option<Receiver<AgentEvent>>,
-    /// Accumulated response text during streaming
-    response_text: String,
-    /// Whether the input should be focused
-    focus_input: bool,
-    /// Scroll to bottom flag
-    scroll_to_bottom: bool,
-    /// Current model being used (display name)
-    current_model: Option<String>,
-    /// Selected AI provider
-    selected_provider: AiProvider,
-    /// Selected model for next request
-    selected_model: AiModel,
-    /// Current response status for UI display
-    current_status: ResponseStatus,
-    /// Current activities being displayed
-    current_activities: Vec<ActivityItem>,
-    /// Timestamp when request started (for elapsed time display)
-    request_start_time: Option<std::time::Instant>,
-    /// Tokio runtime handle for spawning async tasks
+    pub(super) event_receiver: Option<Receiver<AgentEvent>>,
+    pub(super) response_text: String,
+    pub(super) focus_input: bool,
+    pub(super) scroll_to_bottom: bool,
+    pub(super) is_at_bottom: bool,
+    pub(super) last_response_len: usize,
+    pub(super) stream_settled_len: usize,
+    pub(super) stream_fade_start: Option<crate::util::Instant>,
+    pub(super) current_model: Option<String>,
+    pub(super) selected_provider: AiProvider,
+    pub(super) selected_model: AiModel,
+    pub(super) current_status: ResponseStatus,
+    pub(super) current_activities: Vec<ActivityItem>,
+    pub(super) request_start_time: Option<std::time::Instant>,
     #[cfg(not(target_arch = "wasm32"))]
-    runtime_handle: Option<tokio::runtime::Handle>,
-    /// Editor context to inject into prompts
-    editor_context: Option<super::agent_context::EditorContext>,
-    /// Commands parsed from completed responses (drained on next show())
-    pending_commands: Vec<super::agent_context::AgentCommand>,
-    /// Whether to auto-submit the input on next show() call
-    pending_submit: bool,
-    /// File opener popup for opening files in external apps (native only).
+    pub(super) runtime_handle: Option<tokio::runtime::Handle>,
+    pub(super) editor_context: Option<super::agent_context::EditorContext>,
+    pub(super) pending_commands: Vec<super::agent_context::AgentCommand>,
+    pub(super) pending_submit: bool,
     #[cfg(not(target_arch = "wasm32"))]
-    file_opener: FileOpenerPopup,
-    /// Repository root path for computing full file paths.
+    pub(super) file_opener: FileOpenerPopup,
     #[cfg(not(target_arch = "wasm32"))]
-    repo_path: Option<std::path::PathBuf>,
+    pub(super) repo_path: Option<std::path::PathBuf>,
+    pub(super) selected_message: Option<usize>,
+    pub(super) search_active: bool,
+    pub(super) search_query: String,
+    pub(super) search_matches: Vec<usize>,
+    pub(super) search_match_idx: usize,
+    pub(super) conversation_store: super::conversation_store::ConversationStore,
 }
 
 impl AgentPanel {
-    /// Create a new agent panel with a tokio runtime handle.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn new(runtime_handle: tokio::runtime::Handle) -> Self {
+    /// Shared field initialization for both native and WASM constructors.
+    fn new_common() -> Self {
         let provider = AiProvider::default();
         Self {
             is_open: false,
@@ -127,50 +113,51 @@ impl AgentPanel {
             messages: Vec::new(),
             input_text: String::new(),
             is_waiting: false,
+            #[cfg(not(target_arch = "wasm32"))]
             event_receiver: None,
             response_text: String::new(),
             focus_input: false,
             scroll_to_bottom: false,
+            is_at_bottom: true,
+            last_response_len: 0,
+            stream_settled_len: 0,
+            stream_fade_start: None,
             current_model: None,
             selected_provider: provider,
             selected_model: AiModel::default_for(provider),
             current_status: ResponseStatus::Complete,
             current_activities: Vec::new(),
             request_start_time: None,
-            runtime_handle: Some(runtime_handle),
+            #[cfg(not(target_arch = "wasm32"))]
+            runtime_handle: None,
             editor_context: None,
             pending_commands: Vec::new(),
             pending_submit: false,
+            #[cfg(not(target_arch = "wasm32"))]
             file_opener: FileOpenerPopup::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             repo_path: None,
+            selected_message: None,
+            search_active: false,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            search_match_idx: 0,
+            conversation_store: super::conversation_store::ConversationStore::new(),
         }
+    }
+
+    /// Create a new agent panel with a tokio runtime handle.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new(runtime_handle: tokio::runtime::Handle) -> Self {
+        let mut panel = Self::new_common();
+        panel.runtime_handle = Some(runtime_handle);
+        panel
     }
 
     /// Create a new agent panel (WASM version - no runtime needed).
     #[cfg(target_arch = "wasm32")]
     pub fn new() -> Self {
-        let provider = AiProvider::default();
-        Self {
-            is_open: false,
-            has_focus: false,
-            skip_vim_keys_once: false,
-            theme: AppTheme::default(),
-            messages: Vec::new(),
-            input_text: String::new(),
-            is_waiting: false,
-            response_text: String::new(),
-            focus_input: false,
-            scroll_to_bottom: false,
-            current_model: None,
-            selected_provider: provider,
-            selected_model: AiModel::default_for(provider),
-            current_status: ResponseStatus::Complete,
-            current_activities: Vec::new(),
-            request_start_time: None,
-            editor_context: None,
-            pending_commands: Vec::new(),
-            pending_submit: false,
-        }
+        Self::new_common()
     }
 
     /// Set the editor context for prompt injection.
@@ -496,6 +483,7 @@ impl AgentPanel {
         // Handle keyboard input when panel has vim focus
         let mut return_focus = false;
         let mut enter_input_mode = false;
+        let mut yank_text: Option<String> = None;
         if self.has_focus {
             // Skip vim key detection for one frame after gaining focus
             // This prevents lingering keypresses from being detected immediately
@@ -523,6 +511,79 @@ impl AgentPanel {
                     {
                         enter_input_mode = true;
                     }
+                    // j or Down - select next message
+                    else if input.consume_key(egui::Modifiers::NONE, Key::J)
+                        || input.consume_key(egui::Modifiers::NONE, Key::ArrowDown)
+                    {
+                        if !self.messages.is_empty() {
+                            let next = match self.selected_message {
+                                Some(idx) => (idx + 1).min(self.messages.len() - 1),
+                                None => 0,
+                            };
+                            self.selected_message = Some(next);
+                            self.scroll_to_bottom = false; // don't override selection scroll
+                        }
+                    }
+                    // k or Up - select previous message
+                    else if input.consume_key(egui::Modifiers::NONE, Key::K)
+                        || input.consume_key(egui::Modifiers::NONE, Key::ArrowUp)
+                    {
+                        if !self.messages.is_empty() {
+                            let prev = match self.selected_message {
+                                Some(idx) => idx.saturating_sub(1),
+                                None => self.messages.len() - 1,
+                            };
+                            self.selected_message = Some(prev);
+                        }
+                    }
+                    // y - yank (copy) selected message content
+                    else if input.consume_key(egui::Modifiers::NONE, Key::Y) {
+                        if let Some(idx) = self.selected_message {
+                            if let Some(msg) = self.messages.get(idx) {
+                                yank_text = Some(msg.content.clone());
+                            }
+                        }
+                    }
+                    // / - enter search mode
+                    else if input.consume_key(egui::Modifiers::NONE, Key::Slash) {
+                        self.search_active = true;
+                        self.search_query.clear();
+                        self.search_matches.clear();
+                        self.search_match_idx = 0;
+                    }
+                    // n - next search match
+                    else if input.consume_key(egui::Modifiers::NONE, Key::N) {
+                        if !self.search_matches.is_empty() {
+                            self.search_match_idx =
+                                (self.search_match_idx + 1) % self.search_matches.len();
+                            self.selected_message =
+                                Some(self.search_matches[self.search_match_idx]);
+                        }
+                    }
+                    // N (shift+n) - previous search match
+                    else if input.consume_key(egui::Modifiers::SHIFT, Key::N) {
+                        if !self.search_matches.is_empty() {
+                            self.search_match_idx = if self.search_match_idx == 0 {
+                                self.search_matches.len() - 1
+                            } else {
+                                self.search_match_idx - 1
+                            };
+                            self.selected_message =
+                                Some(self.search_matches[self.search_match_idx]);
+                        }
+                    }
+                    // G - jump to last message
+                    else if input.consume_key(egui::Modifiers::SHIFT, Key::G) {
+                        if !self.messages.is_empty() {
+                            self.selected_message = Some(self.messages.len() - 1);
+                        }
+                    }
+                    // g g - jump to first message (single g for simplicity)
+                    else if input.consume_key(egui::Modifiers::NONE, Key::G)
+                        && !self.messages.is_empty()
+                    {
+                        self.selected_message = Some(0);
+                    }
                 });
             }
         }
@@ -536,6 +597,11 @@ impl AgentPanel {
             self.has_focus = false;
             self.focus_input = true;
             result = AgentPanelResult::EnteredInputMode;
+        }
+
+        // Copy yanked text to clipboard
+        if let Some(text) = yank_text {
+            ui.ctx().copy_text(text);
         }
 
         // Premium left border for visual anchoring (opposite of channels panel's right border)
@@ -650,6 +716,314 @@ impl AgentPanel {
     }
 
     /// Render a subtle divider between sections.
+    fn render_thread_picker(&mut self, ui: &mut egui::Ui) {
+        let text_primary = self.theme.text_primary();
+        let text_secondary = self.theme.text_secondary();
+        let text_tertiary = self.theme.text_tertiary();
+        let accent = self.theme.accent_primary();
+        let colors = self.colors();
+
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // Thread icon
+            ui.label(
+                RichText::new(egui_nerdfonts::regular::COMMENT_TEXT_MULTIPLE_OUTLINE)
+                    .color(text_tertiary)
+                    .size(typography::SM),
+            );
+            ui.add_space(4.0);
+
+            // Current thread name (clickable to open picker)
+            let thread_name = self
+                .conversation_store
+                .active_thread()
+                .map(|t| t.name.as_str())
+                .unwrap_or("No conversation");
+
+            let name_btn = ui.add(
+                egui::Button::new(
+                    RichText::new(thread_name)
+                        .color(text_secondary)
+                        .size(typography::SM),
+                )
+                .frame(false),
+            );
+
+            if name_btn.clicked() {
+                self.conversation_store.picker_open = !self.conversation_store.picker_open;
+                self.conversation_store.renaming = false;
+            }
+
+            // Dropdown arrow
+            ui.label(
+                RichText::new(if self.conversation_store.picker_open {
+                    egui_nerdfonts::regular::CHEVRON_UP
+                } else {
+                    egui_nerdfonts::regular::CHEVRON_DOWN
+                })
+                .color(text_tertiary)
+                .size(typography::XS),
+            );
+
+            // Right-aligned: pin + rename buttons for active thread
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(16.0);
+
+                if let Some(idx) = self.conversation_store.active_idx {
+                    let is_pinned = self
+                        .conversation_store
+                        .threads
+                        .get(idx)
+                        .is_some_and(|t| t.pinned);
+
+                    // Pin button
+                    let pin_icon = if is_pinned {
+                        egui_nerdfonts::regular::PIN
+                    } else {
+                        egui_nerdfonts::regular::PIN_OUTLINE
+                    };
+                    let pin_color = if is_pinned { accent } else { text_tertiary };
+                    let pin_btn = ui.add(
+                        egui::Button::new(RichText::new(pin_icon).size(12.0).color(pin_color))
+                            .frame(false),
+                    );
+                    if pin_btn.hovered() {
+                        let rect = pin_btn.rect.expand(3.0);
+                        ui.painter()
+                            .rect_filled(rect, CornerRadius::same(3), colors.hover_bg());
+                    }
+                    let pin_tip = if is_pinned { "Unpin" } else { "Pin" };
+                    if pin_btn.on_hover_text(pin_tip).clicked() {
+                        self.conversation_store.toggle_pin(idx);
+                    }
+
+                    // Rename button
+                    let rename_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(egui_nerdfonts::regular::PENCIL_OUTLINE)
+                                .size(12.0)
+                                .color(text_tertiary),
+                        )
+                        .frame(false),
+                    );
+                    if rename_btn.hovered() {
+                        let rect = rename_btn.rect.expand(3.0);
+                        ui.painter()
+                            .rect_filled(rect, CornerRadius::same(3), colors.hover_bg());
+                    }
+                    if rename_btn.on_hover_text("Rename").clicked() {
+                        self.conversation_store.renaming = !self.conversation_store.renaming;
+                        if self.conversation_store.renaming {
+                            self.conversation_store.rename_buf = self
+                                .conversation_store
+                                .active_thread()
+                                .map(|t| t.name.clone())
+                                .unwrap_or_default();
+                        }
+                    }
+                }
+            });
+        });
+
+        // Rename inline editor
+        if self.conversation_store.renaming {
+            ui.horizontal(|ui| {
+                ui.add_space(36.0);
+                let rename_id = ui.id().with("thread_rename");
+                let response = ui.add(
+                    TextEdit::singleline(&mut self.conversation_store.rename_buf)
+                        .id(rename_id)
+                        .desired_width(ui.available_width() - 52.0)
+                        .font(typography::proportional(typography::SM))
+                        .text_color(text_primary),
+                );
+                if !response.has_focus() {
+                    response.request_focus();
+                }
+                if response.lost_focus() {
+                    let new_name = self.conversation_store.rename_buf.trim().to_string();
+                    if !new_name.is_empty() {
+                        if let Some(thread) = self.conversation_store.active_thread_mut() {
+                            thread.name = new_name;
+                        }
+                        self.conversation_store.save_active();
+                    }
+                    self.conversation_store.renaming = false;
+                }
+            });
+        }
+
+        // Thread list popup
+        if self.conversation_store.picker_open {
+            ui.add_space(4.0);
+            let picker_bg = self.theme.bg_elevated();
+            let border = self.theme.border_subtle();
+
+            egui::Frame::new()
+                .fill(picker_bg)
+                .corner_radius(CornerRadius::same(6))
+                .stroke(Stroke::new(1.0, border))
+                .inner_margin(egui::Margin::symmetric(4, 4))
+                .show(ui, |ui| {
+                    ui.set_max_width(ui.available_width() - 24.0);
+
+                    // "New conversation" item
+                    let new_btn = ui.add(
+                        egui::Button::new(
+                            RichText::new(format!(
+                                "{}  New conversation",
+                                egui_nerdfonts::regular::PLUS
+                            ))
+                            .color(accent)
+                            .size(typography::SM),
+                        )
+                        .frame(false)
+                        .min_size(Vec2::new(ui.available_width(), 24.0)),
+                    );
+                    if new_btn.hovered() {
+                        ui.painter().rect_filled(
+                            new_btn.rect,
+                            CornerRadius::same(4),
+                            colors.hover_bg(),
+                        );
+                    }
+                    if new_btn.clicked() {
+                        self.start_new_conversation();
+                        self.conversation_store.picker_open = false;
+                    }
+
+                    if !self.conversation_store.threads.is_empty() {
+                        // Thin separator
+                        ui.add_space(2.0);
+                        let rect = ui.available_rect_before_wrap();
+                        ui.painter().hline(
+                            rect.left()..=rect.right(),
+                            rect.top(),
+                            Stroke::new(0.5, border),
+                        );
+                        ui.add_space(2.0);
+                    }
+
+                    // Scrollable thread list
+                    let max_list_height = 200.0;
+                    ScrollArea::vertical()
+                        .id_salt("thread_picker_scroll")
+                        .max_height(max_list_height)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                            let mut switch_to: Option<usize> = None;
+                            let mut delete_idx: Option<usize> = None;
+
+                            for (i, thread) in self.conversation_store.threads.iter().enumerate() {
+                                let is_active = self.conversation_store.active_idx == Some(i);
+                                let item_bg = if is_active {
+                                    colors.selection_bg()
+                                } else {
+                                    egui::Color32::TRANSPARENT
+                                };
+
+                                let frame_response = egui::Frame::new()
+                                    .fill(item_bg)
+                                    .corner_radius(CornerRadius::same(4))
+                                    .inner_margin(egui::Margin::symmetric(6, 3))
+                                    .show(ui, |ui| {
+                                        ui.set_min_width(ui.available_width());
+                                        ui.horizontal(|ui| {
+                                            // Pin indicator
+                                            if thread.pinned {
+                                                ui.label(
+                                                    RichText::new(egui_nerdfonts::regular::PIN)
+                                                        .color(accent)
+                                                        .size(typography::XS),
+                                                );
+                                            }
+
+                                            // Thread name
+                                            let name_color = if is_active {
+                                                text_primary
+                                            } else {
+                                                text_secondary
+                                            };
+                                            ui.label(
+                                                RichText::new(&thread.name)
+                                                    .color(name_color)
+                                                    .size(typography::SM),
+                                            );
+
+                                            // Message count
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    // Delete button (on hover)
+                                                    let del_btn = ui.add(
+                                                        egui::Button::new(
+                                                            RichText::new(
+                                                                egui_nerdfonts::regular::CLOSE,
+                                                            )
+                                                            .size(10.0)
+                                                            .color(text_tertiary),
+                                                        )
+                                                        .frame(false),
+                                                    );
+                                                    if del_btn.on_hover_text("Delete").clicked() {
+                                                        delete_idx = Some(i);
+                                                    }
+
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "{}",
+                                                            thread.messages.len()
+                                                        ))
+                                                        .color(text_tertiary)
+                                                        .size(typography::XS),
+                                                    );
+                                                },
+                                            );
+                                        });
+                                    });
+
+                                // Click to switch
+                                let item_rect = frame_response.response.rect;
+                                let item_response = ui.interact(
+                                    item_rect,
+                                    ui.id().with("thread_item").with(i),
+                                    egui::Sense::click(),
+                                );
+                                if item_response.clicked() && !is_active {
+                                    switch_to = Some(i);
+                                }
+                                if item_response.hovered() && !is_active {
+                                    ui.painter().rect_filled(
+                                        item_rect,
+                                        CornerRadius::same(4),
+                                        colors.hover_bg(),
+                                    );
+                                }
+                            }
+
+                            // Handle actions after iteration
+                            if let Some(idx) = delete_idx {
+                                let was_active = self.conversation_store.active_idx == Some(idx);
+                                self.conversation_store.delete_thread(idx);
+                                if was_active {
+                                    self.load_thread_messages();
+                                }
+                            }
+                            if let Some(idx) = switch_to {
+                                // Save current before switching
+                                if !self.messages.is_empty() {
+                                    self.sync_messages_to_thread();
+                                }
+                                self.conversation_store.switch_to(idx);
+                                self.load_thread_messages();
+                                self.conversation_store.picker_open = false;
+                            }
+                        });
+                });
+        }
+    }
+
     fn render_divider(&self, ui: &mut egui::Ui) {
         ui.add_space(8.0);
         let rect = ui.available_rect_before_wrap();
@@ -776,15 +1150,16 @@ impl AgentPanel {
                             .rect_filled(rect, CornerRadius::same(4), colors.hover_bg());
                     }
 
-                    if clear_btn.on_hover_text("Clear conversation").clicked() {
-                        self.messages.clear();
-                        self.current_activities.clear();
-                        self.response_text.clear();
+                    if clear_btn.on_hover_text("New conversation").clicked() {
+                        self.start_new_conversation();
                     }
                 }
             });
         });
-        ui.add_space(10.0);
+        ui.add_space(6.0);
+
+        // Thread picker row
+        self.render_thread_picker(ui);
 
         // Premium divider
         self.render_divider(ui);
@@ -856,7 +1231,26 @@ impl AgentPanel {
                     for i in 0..message_count {
                         // Clone the message to avoid borrow conflicts
                         let message = self.messages[i].clone();
+                        let is_selected = self.selected_message == Some(i);
+
+                        let before_y = ui.cursor().min.y;
                         self.render_message(ui, &message, &colors);
+                        let after_y = ui.cursor().min.y;
+
+                        // Visual selection highlight for vim j/k navigation
+                        if is_selected {
+                            let rect = egui::Rect::from_min_max(
+                                egui::pos2(ui.clip_rect().left(), before_y),
+                                egui::pos2(ui.clip_rect().right(), after_y),
+                            );
+                            ui.painter().rect_stroke(
+                                rect.shrink(1.0),
+                                CornerRadius::same(4),
+                                Stroke::new(1.5, self.theme.accent_primary()),
+                                egui::StrokeKind::Outside,
+                            );
+                            ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                        }
                         ui.add_space(6.0);
 
                         // Show activities right after the last user message
@@ -872,23 +1266,132 @@ impl AgentPanel {
                     }
                 }
 
-                // Scroll to bottom if needed
-                if self.scroll_to_bottom {
+                // Auto-scroll during streaming if user is at bottom
+                let should_scroll = self.scroll_to_bottom
+                    || (self.is_waiting
+                        && self.is_at_bottom
+                        && self.response_text.len() != self.last_response_len);
+                if should_scroll {
                     ui.scroll_to_cursor(Some(egui::Align::BOTTOM));
                     self.scroll_to_bottom = false;
                 }
+                self.last_response_len = self.response_text.len();
             });
 
-        // Render scroll shadows for the chat area
+        // Track scroll position to detect if user scrolled away from bottom
         let scroll_state = ScrollState::from_scroll_output(
             scroll_output.content_size,
             scroll_output.inner_rect,
             scroll_output.state.offset,
         );
+        self.is_at_bottom = !scroll_state.can_scroll_down;
+
+        // Render scroll shadows
         let shadow_config = ScrollShadowConfig::default()
             .with_color(self.theme.bg_surface())
             .with_opacity(0.6);
         render_scroll_shadows(ui, scroll_output.inner_rect, scroll_state, shadow_config);
+
+        // "Jump to latest" floating button when scrolled up during streaming
+        if self.is_waiting && scroll_state.can_scroll_down {
+            let btn_width = 120.0;
+            let btn_pos = egui::pos2(
+                scroll_output.inner_rect.center().x - btn_width / 2.0,
+                scroll_output.inner_rect.bottom() - 36.0,
+            );
+            let btn_rect = egui::Rect::from_min_size(btn_pos, egui::vec2(btn_width, 26.0));
+
+            // Background pill
+            ui.painter()
+                .rect_filled(btn_rect, CornerRadius::same(13), self.theme.bg_elevated());
+            ui.painter().rect_stroke(
+                btn_rect,
+                CornerRadius::same(13),
+                Stroke::new(1.0, self.theme.border_subtle()),
+                egui::StrokeKind::Outside,
+            );
+
+            // Label + arrow
+            let text_galley = ui.painter().layout_no_wrap(
+                format!("{} Jump to latest", egui_nerdfonts::regular::ARROW_DOWN),
+                typography::proportional(typography::SM),
+                accent,
+            );
+            let text_pos = egui::pos2(
+                btn_rect.center().x - text_galley.size().x / 2.0,
+                btn_rect.center().y - text_galley.size().y / 2.0,
+            );
+            ui.painter().galley(text_pos, text_galley, accent);
+
+            // Click interaction
+            let btn_response = ui.interact(
+                btn_rect,
+                ui.id().with("jump_to_latest"),
+                egui::Sense::click(),
+            );
+            if btn_response.clicked() {
+                self.scroll_to_bottom = true;
+                self.is_at_bottom = true;
+            }
+            if btn_response.hovered() {
+                ui.painter()
+                    .rect_filled(btn_rect, CornerRadius::same(13), colors.hover_bg());
+                // Re-draw text on hover
+                let text_galley = ui.painter().layout_no_wrap(
+                    format!("{} Jump to latest", egui_nerdfonts::regular::ARROW_DOWN),
+                    typography::proportional(typography::SM),
+                    accent,
+                );
+                ui.painter().galley(text_pos, text_galley, accent);
+            }
+        }
+
+        // Search bar (vim / mode)
+        if self.search_active {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.add_space(16.0);
+                ui.label(
+                    RichText::new("/")
+                        .color(self.theme.accent_primary())
+                        .size(typography::SM)
+                        .monospace(),
+                );
+                let search_id = ui.id().with("agent_search");
+                let response = ui.add(
+                    TextEdit::singleline(&mut self.search_query)
+                        .id(search_id)
+                        .desired_width(ui.available_width() - 32.0)
+                        .font(typography::proportional(typography::SM))
+                        .text_color(self.theme.text_primary())
+                        .frame(false),
+                );
+                // Auto-focus the search input
+                if !response.has_focus() {
+                    response.request_focus();
+                }
+                // Enter - execute search, Escape - cancel
+                if response.lost_focus() {
+                    let key_enter = ui.ctx().input(|i| i.key_pressed(Key::Enter));
+                    if key_enter {
+                        // Compute search matches
+                        let query = self.search_query.to_lowercase();
+                        self.search_matches = self
+                            .messages
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, m)| m.content.to_lowercase().contains(&query))
+                            .map(|(i, _)| i)
+                            .collect();
+                        self.search_match_idx = 0;
+                        if !self.search_matches.is_empty() {
+                            self.selected_message = Some(self.search_matches[0]);
+                        }
+                    }
+                    self.search_active = false;
+                }
+            });
+        }
 
         // Premium input divider
         self.render_divider(ui);
@@ -910,16 +1413,35 @@ impl AgentPanel {
                         AiProvider::Claude => "Ask Claude...",
                         AiProvider::Codex => "Ask Codex...",
                     };
+                    // Intercept bare Enter to submit (before TextEdit consumes it).
+                    // Shift+Enter will insert a newline naturally.
+                    let mut enter_to_submit = false;
+                    let input_id = ui.make_persistent_id("agent_panel_input");
+                    let has_input_focus = ui.ctx().memory(|mem| mem.has_focus(input_id));
+                    if has_input_focus {
+                        ui.ctx().input_mut(|input| {
+                            if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
+                                enter_to_submit = true;
+                            }
+                        });
+                    }
+
+                    // Auto-expand height: base 22px, grows with line count, max 120px
+                    let line_count = self.input_text.lines().count().max(1);
+                    let input_height = (line_count as f32 * 16.0).clamp(22.0, 120.0);
+
                     let response = ui.add_sized(
-                        Vec2::new(ui.available_width() - 50.0, 22.0),
-                        TextEdit::singleline(&mut self.input_text)
+                        Vec2::new(ui.available_width() - 50.0, input_height),
+                        TextEdit::multiline(&mut self.input_text)
+                            .id(input_id)
                             .hint_text(
                                 RichText::new(hint_text)
                                     .color(text_tertiary)
                                     .size(typography::MD),
                             )
                             .frame(false)
-                            .font(typography::proportional(typography::MD)),
+                            .font(typography::proportional(typography::MD))
+                            .desired_rows(1),
                     );
 
                     // Only focus input when explicitly requested AND panel doesn't have vim focus
@@ -964,8 +1486,8 @@ impl AgentPanel {
                         }
                     }
 
-                    // Handle Enter to send
-                    if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                    // Handle Enter to send (Shift+Enter inserts newline)
+                    if enter_to_submit {
                         let can_send = !self.input_text.trim().is_empty() && !self.is_waiting;
                         if can_send {
                             self.send_message(ctx);
@@ -1128,12 +1650,28 @@ impl AgentPanel {
                 ui.add_space(4.0);
 
                 // Message content with premium styling
+                // Apply fade-in opacity for newly streamed text
+                let stream_opacity = if message.is_streaming {
+                    self.stream_fade_start
+                        .map(|start| {
+                            let elapsed_ms = start.elapsed().as_millis() as f32;
+                            // Fade from 0.6 to 1.0 over 150ms
+                            (0.6 + 0.4 * (elapsed_ms / 150.0).min(1.0)).min(1.0)
+                        })
+                        .unwrap_or(1.0)
+                } else {
+                    1.0
+                };
+
                 let content_response = egui::Frame::new()
                     .fill(msg_bg)
                     .corner_radius(CornerRadius::same(8))
                     .inner_margin(egui::Margin::symmetric(12, 10))
                     .show(ui, |ui| {
                         ui.set_max_width(ui.available_width() - 32.0);
+                        if stream_opacity < 1.0 {
+                            ui.set_opacity(stream_opacity);
+                        }
                         self.render_message_content(ui, message, colors);
                     });
 
@@ -1171,11 +1709,17 @@ impl AgentPanel {
             if !display_content.is_empty() {
                 // Normalize unicode characters that may not render in our font
                 let normalized = normalize_unicode(&display_content);
-                ui.label(
-                    RichText::new(normalized)
-                        .color(text_primary)
-                        .size(typography::MD),
-                );
+
+                if message.role == MessageRole::Assistant {
+                    // Render assistant messages as markdown
+                    super::markdown_renderer::render_markdown(ui, &normalized, self.theme);
+                } else {
+                    ui.label(
+                        RichText::new(normalized)
+                            .color(text_primary)
+                            .size(typography::MD),
+                    );
+                }
             }
         }
 
@@ -1634,277 +2178,65 @@ impl AgentPanel {
         }
     }
 
-    /// Send the current input as a message
-    #[cfg(not(target_arch = "wasm32"))]
-    fn send_message(&mut self, _ctx: &egui::Context) {
-        let prompt = self.input_text.trim().to_string();
-        if prompt.is_empty() {
-            return;
+    /// Ensure there's an active conversation thread; create one if needed.
+    pub(super) fn ensure_active_thread(&mut self) {
+        if self.conversation_store.active_idx.is_none() {
+            self.conversation_store.new_thread();
         }
-
-        // Add user message
-        self.messages.push(ChatMessage {
-            role: MessageRole::User,
-            content: prompt.clone(),
-            is_streaming: false,
-            inline_blocks: Vec::new(),
-        });
-
-        // Add placeholder for assistant response
-        self.messages.push(ChatMessage {
-            role: MessageRole::Assistant,
-            content: String::new(),
-            is_streaming: true,
-            inline_blocks: Vec::new(),
-        });
-
-        // Clear input and reset state
-        self.input_text.clear();
-        self.is_waiting = true;
-        self.scroll_to_bottom = true;
-        self.request_start_time = Some(std::time::Instant::now());
-        self.response_text.clear();
-        self.current_status = ResponseStatus::Waiting;
-        self.current_activities.clear();
-        self.current_model = Some(self.selected_model.display_name().to_string());
-
-        // Get working directory
-        let working_dir = std::env::current_dir().ok();
-
-        // Create client based on selected provider, with runtime handle for async spawning
-        let client = match (&self.selected_provider, &self.runtime_handle) {
-            (AiProvider::Claude, Some(handle)) => {
-                AcpClient::claude_code_with_runtime(handle.clone())
-            }
-            (AiProvider::Claude, None) => AcpClient::claude_code(),
-            (AiProvider::Codex, Some(handle)) => AcpClient::codex_with_runtime(handle.clone()),
-            (AiProvider::Codex, None) => AcpClient::codex(),
-        };
-
-        // Build system context if available
-        let system_context = self
-            .editor_context
-            .as_ref()
-            .map(|ctx| ctx.to_prompt_block());
-
-        let receiver = client.prompt_with_context(
-            prompt,
-            working_dir,
-            Some(self.selected_model.model_id()),
-            system_context.as_deref(),
-        );
-
-        self.event_receiver = Some(receiver);
     }
 
-    #[cfg(target_arch = "wasm32")]
-    fn send_message(&mut self, _ctx: &egui::Context) {
-        // Add user message
-        self.messages.push(ChatMessage {
-            role: MessageRole::User,
-            content: self.input_text.trim().to_string(),
-            is_streaming: false,
-            inline_blocks: Vec::new(),
-        });
+    /// Save current messages to the active conversation thread.
+    pub(super) fn sync_messages_to_thread(&mut self) {
+        use super::conversation_store::SavedMessage;
+        if let Some(thread) = self.conversation_store.active_thread_mut() {
+            thread.messages = self
+                .messages
+                .iter()
+                .filter(|m| !m.is_streaming)
+                .map(|m| SavedMessage {
+                    role: m.role,
+                    content: m.content.clone(),
+                })
+                .collect();
+            thread.auto_name_from_messages();
+        }
+        self.conversation_store.save_active();
+    }
 
-        // WASM: Claude CLI not available
-        self.messages.push(ChatMessage {
-            role: MessageRole::System,
-            content: "Claude Code CLI is not available in the browser.".to_string(),
-            is_streaming: false,
-            inline_blocks: Vec::new(),
-        });
-
-        self.input_text.clear();
+    /// Load messages from a thread into the panel.
+    fn load_thread_messages(&mut self) {
+        self.messages.clear();
+        self.current_activities.clear();
+        self.response_text.clear();
+        self.selected_message = None;
+        if let Some(thread) = self.conversation_store.active_thread() {
+            self.messages = thread
+                .messages
+                .iter()
+                .map(|m| ChatMessage {
+                    role: m.role,
+                    content: m.content.clone(),
+                    is_streaming: false,
+                    inline_blocks: Vec::new(),
+                })
+                .collect();
+        }
         self.scroll_to_bottom = true;
     }
 
-    /// Cancel the current request
-    fn cancel_request(&mut self) {
-        // Drop the event receiver to stop processing
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.event_receiver = None;
+    /// Start a new conversation thread, saving the current one first.
+    fn start_new_conversation(&mut self) {
+        // Save current thread if it has messages
+        if !self.messages.is_empty() {
+            self.sync_messages_to_thread();
         }
-
-        // Update the last assistant message to indicate it was stopped
-        if let Some(last_msg) = self.messages.last_mut() {
-            if last_msg.role == MessageRole::Assistant && last_msg.is_streaming {
-                last_msg.is_streaming = false;
-                if last_msg.content.is_empty() {
-                    last_msg.content = "(Generation stopped)".to_string();
-                } else {
-                    last_msg.content.push_str("\n\n_(Generation stopped)_");
-                }
-            }
-        }
-
-        // Reset state
-        self.is_waiting = false;
-        self.response_text.clear();
-        self.current_status = ResponseStatus::Complete;
+        self.conversation_store.new_thread();
+        self.messages.clear();
         self.current_activities.clear();
-        self.request_start_time = None;
-    }
-
-    /// Poll the event receiver and update UI state
-    #[cfg(not(target_arch = "wasm32"))]
-    fn poll_streaming_response(&mut self) {
-        let Some(ref receiver) = self.event_receiver else {
-            return;
-        };
-
-        // Process all available events
-        while let Ok(event) = receiver.try_recv() {
-            match event {
-                AgentEvent::TextDelta(text) => {
-                    self.response_text.push_str(&text);
-                    self.current_status = ResponseStatus::Responding;
-                }
-                AgentEvent::ThinkingDelta(text) => {
-                    self.current_status = ResponseStatus::Thinking;
-                    // Update or create thinking activity
-                    if let Some(last) = self.current_activities.last_mut() {
-                        if let ActivityType::Thinking(ref mut thinking_text) = last.activity_type {
-                            if thinking_text.len() < 60 {
-                                thinking_text.push_str(&text);
-                                if thinking_text.len() > 60 {
-                                    thinking_text.truncate(57);
-                                    thinking_text.push_str("...");
-                                }
-                            }
-                        } else {
-                            self.current_activities.push(ActivityItem {
-                                activity_type: ActivityType::Thinking(truncate_first_line(
-                                    &text, 60,
-                                )),
-                                in_progress: true,
-                            });
-                        }
-                    } else {
-                        self.current_activities.push(ActivityItem {
-                            activity_type: ActivityType::Thinking(truncate_first_line(&text, 60)),
-                            in_progress: true,
-                        });
-                    }
-                }
-                AgentEvent::ToolCallStart {
-                    name, raw_input, ..
-                } => {
-                    // Mark previous activities as complete
-                    for activity in &mut self.current_activities {
-                        activity.in_progress = false;
-                    }
-
-                    // Extract summary from raw_input
-                    let summary = raw_input
-                        .as_ref()
-                        .and_then(|v| {
-                            // Check for file path fields first (use path truncation)
-                            if let Some(path) = v
-                                .get("file_path")
-                                .or_else(|| v.get("path"))
-                                .and_then(|s| s.as_str())
-                            {
-                                return Some(truncate_path_suffix(path, 50));
-                            }
-                            // Other fields use regular text truncation
-                            v.get("pattern")
-                                .or_else(|| v.get("command"))
-                                .or_else(|| v.get("description"))
-                                .or_else(|| v.get("prompt"))
-                                .and_then(|s| s.as_str())
-                                .map(|s| truncate_first_line(s, 50))
-                        })
-                        .unwrap_or_default();
-
-                    self.current_activities.push(ActivityItem {
-                        activity_type: ActivityType::ToolUse {
-                            tool: name,
-                            summary,
-                        },
-                        in_progress: true,
-                    });
-                }
-                AgentEvent::ToolResult { is_error, .. } => {
-                    // Mark last tool activity as complete
-                    if let Some(last) = self.current_activities.last_mut() {
-                        last.in_progress = false;
-                    }
-                    if is_error {
-                        // Optionally add error indicator
-                    }
-                }
-                AgentEvent::Done { .. } => {
-                    // Mark all activities as complete
-                    for activity in &mut self.current_activities {
-                        activity.in_progress = false;
-                    }
-                    self.current_status = ResponseStatus::Complete;
-
-                    // Update last message
-                    if let Some(last) = self.messages.last_mut() {
-                        if last.role == MessageRole::Assistant && last.is_streaming {
-                            last.content = self.response_text.clone();
-                            last.is_streaming = false;
-                        }
-                    }
-
-                    // Parse commands from the response
-                    let commands = super::agent_context::parse_commands(&self.response_text);
-                    if !commands.is_empty() {
-                        log::info!("Parsed {} commands from agent response", commands.len());
-                        self.pending_commands.extend(commands);
-                    }
-
-                    self.is_waiting = false;
-                    self.request_start_time = None;
-                    self.event_receiver = None;
-                    return;
-                }
-                AgentEvent::Error(e) => {
-                    // Mark all activities as complete
-                    for activity in &mut self.current_activities {
-                        activity.in_progress = false;
-                    }
-                    self.current_activities.push(ActivityItem {
-                        activity_type: ActivityType::Error(e.to_string()),
-                        in_progress: false,
-                    });
-                    self.current_status = ResponseStatus::Complete;
-
-                    // Update last message with error
-                    if let Some(last) = self.messages.last_mut() {
-                        if last.role == MessageRole::Assistant && last.is_streaming {
-                            if self.response_text.is_empty() {
-                                last.content = format!("Error: {e}");
-                            } else {
-                                last.content = self.response_text.clone();
-                            }
-                            last.is_streaming = false;
-                        }
-                    }
-
-                    self.is_waiting = false;
-                    self.request_start_time = None;
-                    self.event_receiver = None;
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        // Update last message with current response text
-        if let Some(last) = self.messages.last_mut() {
-            if last.role == MessageRole::Assistant && last.is_streaming {
-                last.content = self.response_text.clone();
-            }
-        }
-    }
-
-    /// Poll streaming state (WASM stub)
-    #[cfg(target_arch = "wasm32")]
-    fn poll_streaming_response(&mut self) {
-        // No-op on WASM
+        self.response_text.clear();
+        self.selected_message = None;
+        self.scroll_to_bottom = true;
     }
 }
+// Streaming methods (send_message, cancel_request, poll_streaming_response)
+// are in the `agent_streaming` sibling module.

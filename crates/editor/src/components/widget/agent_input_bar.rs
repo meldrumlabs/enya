@@ -557,14 +557,22 @@ impl AgentInputBar {
         } else {
             base_height
         };
+        // Extra height for multi-line input content
+        let input_lines = self.input.lines().count().max(1);
+        let multiline_extra = if input_lines > 1 {
+            (input_lines - 1) as f32 * 16.0
+        } else {
+            0.0
+        };
+
         let height = match self.state {
-            AgentInputState::Ready => base_height,
+            AgentInputState::Ready => base_height + multiline_extra,
             AgentInputState::Typing => {
                 // Only add extra height for suggestions when there's input
                 if self.input.is_empty() {
                     base_height
                 } else {
-                    base_height + 80.0
+                    base_height + 80.0 + multiline_extra
                 }
             }
             AgentInputState::Processing => base_height + 24.0,
@@ -761,6 +769,20 @@ impl AgentInputBar {
                                 ui.add_space(8.0);
                             }
 
+                            // Intercept bare Enter before TextEdit to use for submission.
+                            // Shift+Enter will pass through to multiline TextEdit as newline.
+                            let mut enter_to_submit = false;
+                            if matches!(
+                                self.state,
+                                AgentInputState::Typing | AgentInputState::Ready
+                            ) {
+                                ui.ctx().input_mut(|input| {
+                                    if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
+                                        enter_to_submit = true;
+                                    }
+                                });
+                            }
+
                             // Main content based on state
                             match self.state {
                                 AgentInputState::Ready => {
@@ -775,6 +797,16 @@ impl AgentInputBar {
                                 AgentInputState::Response => {
                                     self.show_response_state(ui, &colors, &mut result);
                                 }
+                            }
+
+                            // Submit on bare Enter (intercepted before TextEdit)
+                            if enter_to_submit && !self.input.is_empty() {
+                                self.last_query = self.input.clone();
+                                result.query = Some(self.input.clone());
+                                self.input.clear();
+                                self.prev_input.clear();
+                                self.state = AgentInputState::Ready;
+                                self.focus_input = true;
                             }
                         });
 
@@ -1526,14 +1558,15 @@ impl AgentInputBar {
         // Placeholder with quick key hints
         let hint_text = "Ask a question...  /commands  @metrics";
 
-        // Text input that looks like placeholder
+        // Text input that looks like placeholder (multiline for Shift+Enter support)
         let response = ui.add(
-            TextEdit::singleline(&mut self.input)
+            TextEdit::multiline(&mut self.input)
                 .hint_text(hint_text)
                 .desired_width(ui.available_width() - 20.0)
                 .font(typography::proportional(typography::MD))
                 .text_color(colors.text)
-                .frame(false),
+                .frame(false)
+                .desired_rows(1),
         );
 
         // Store the text edit rect for popup positioning
@@ -1559,13 +1592,14 @@ impl AgentInputBar {
         let hint_text = "Ask a question...  /commands  @metrics";
         let text_edit_id = ui.make_persistent_id("agent_input_typing");
         let response = ui.add(
-            TextEdit::singleline(&mut self.input)
+            TextEdit::multiline(&mut self.input)
                 .id(text_edit_id)
                 .hint_text(hint_text)
                 .desired_width(ui.available_width() - 60.0)
                 .font(typography::proportional(typography::MD))
                 .text_color(colors.text)
-                .frame(false),
+                .frame(false)
+                .desired_rows(1),
         );
 
         // Store the text edit rect for popup positioning
