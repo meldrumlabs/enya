@@ -717,10 +717,12 @@ impl CommandPalette {
 
         if navigate_up && self.selected_index > 0 {
             self.selected_index -= 1;
+            ctx.request_repaint(); // Ensure scroll_to_me is processed
         }
 
         if navigate_down && self.selected_index + 1 < self.suggestions.len() {
             self.selected_index += 1;
+            ctx.request_repaint(); // Ensure scroll_to_me is processed
         }
 
         // Tab completion - insert the selected command name
@@ -839,9 +841,17 @@ impl CommandPalette {
                     }
 
                     // Suggestions with scroll shadows
+                    // Calculate scroll offset to keep selected item visible
+                    let row_height = 32.0;
+                    let visible_height = 300.0;
+                    let selected_top = self.selected_index as f32 * row_height;
+                    let selected_bottom = selected_top + row_height;
+                    let scroll_id = egui::Id::new("command_palette_scroll");
+
                     let scroll_output = egui::ScrollArea::vertical()
-                        .max_height(300.0)
-                        .auto_shrink([false, true])
+                        .id_salt(scroll_id)
+                        .max_height(visible_height)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             if self.suggestions.is_empty() {
                                 ui.add_space(12.0);
@@ -856,7 +866,7 @@ impl CommandPalette {
                             } else {
                                 for (i, suggestion) in self.suggestions.iter().enumerate() {
                                     let is_selected = i == self.selected_index;
-                                    self.render_suggestion_row_with_colors(
+                                    let _response = self.render_suggestion_row_with_colors(
                                         ui,
                                         suggestion,
                                         is_selected,
@@ -867,6 +877,31 @@ impl CommandPalette {
                                 }
                             }
                         });
+
+                    // Manually adjust scroll to keep selected item visible
+                    if !self.suggestions.is_empty() {
+                        let current_offset = scroll_output.state.offset.y;
+                        let visible_top = current_offset;
+                        let visible_bottom = current_offset + visible_height;
+
+                        let new_offset = if selected_top < visible_top {
+                            // Selected item is above visible area - scroll up
+                            selected_top
+                        } else if selected_bottom > visible_bottom {
+                            // Selected item is below visible area - scroll down
+                            selected_bottom - visible_height
+                        } else {
+                            // Selected item is visible - no change
+                            current_offset
+                        };
+
+                        if (new_offset - current_offset).abs() > 0.1 {
+                            // Update scroll state
+                            let mut state = scroll_output.state;
+                            state.offset.y = new_offset;
+                            state.store(ui.ctx(), scroll_output.id);
+                        }
+                    }
 
                     // Render scroll shadows
                     let scroll_state = ScrollState::from_scroll_output(
@@ -946,7 +981,7 @@ impl CommandPalette {
         text_col: Color32,
         text_muted: Color32,
         accent_col: Color32,
-    ) {
+    ) -> egui::Response {
         let row_height = 32.0;
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), row_height),
@@ -1030,10 +1065,7 @@ impl CommandPalette {
             );
         }
 
-        // Scroll into view
-        if is_selected {
-            response.scroll_to_me(Some(egui::Align::Center));
-        }
+        response
     }
 
     /// Create text with highlighted match positions
