@@ -841,11 +841,8 @@ impl CommandPalette {
                     }
 
                     // Suggestions with scroll shadows
-                    // Calculate scroll offset to keep selected item visible
                     let row_height = 32.0;
                     let visible_height = 300.0;
-                    let selected_top = self.selected_index as f32 * row_height;
-                    let selected_bottom = selected_top + row_height;
                     let scroll_id = egui::Id::new("command_palette_scroll");
 
                     let scroll_output = egui::ScrollArea::vertical()
@@ -866,7 +863,7 @@ impl CommandPalette {
                             } else {
                                 for (i, suggestion) in self.suggestions.iter().enumerate() {
                                     let is_selected = i == self.selected_index;
-                                    let _response = self.render_suggestion_row_with_colors(
+                                    let response = self.render_suggestion_row_with_colors(
                                         ui,
                                         suggestion,
                                         is_selected,
@@ -874,34 +871,15 @@ impl CommandPalette {
                                         text_muted,
                                         accent_col,
                                     );
+                                    // Use egui's built-in scroll_to_me for selected items
+                                    if is_selected {
+                                        response.scroll_to_me(Some(egui::Align::Center));
+                                    }
                                 }
+                                // Bottom padding to prevent last item from being obscured by scroll shadow
+                                ui.add_space(row_height);
                             }
                         });
-
-                    // Manually adjust scroll to keep selected item visible
-                    if !self.suggestions.is_empty() {
-                        let current_offset = scroll_output.state.offset.y;
-                        let visible_top = current_offset;
-                        let visible_bottom = current_offset + visible_height;
-
-                        let new_offset = if selected_top < visible_top {
-                            // Selected item is above visible area - scroll up
-                            selected_top
-                        } else if selected_bottom > visible_bottom {
-                            // Selected item is below visible area - scroll down
-                            selected_bottom - visible_height
-                        } else {
-                            // Selected item is visible - no change
-                            current_offset
-                        };
-
-                        if (new_offset - current_offset).abs() > 0.1 {
-                            // Update scroll state
-                            let mut state = scroll_output.state;
-                            state.offset.y = new_offset;
-                            state.store(ui.ctx(), scroll_output.id);
-                        }
-                    }
 
                     // Render scroll shadows
                     let scroll_state = ScrollState::from_scroll_output(
