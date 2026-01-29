@@ -81,6 +81,8 @@ pub enum DiagnosticSource {
     DataConnection,
     /// Performance hint
     Performance,
+    /// Plugin load/init/activation error
+    Plugin,
     /// Unknown/other source
     Unknown,
 }
@@ -93,6 +95,7 @@ impl DiagnosticSource {
             Self::QueryValidation => "validation",
             Self::DataConnection => "connection",
             Self::Performance => "performance",
+            Self::Plugin => "plugin",
             Self::Unknown => "unknown",
         }
     }

@@ -498,8 +498,6 @@ impl WorkspaceFinder {
                         .max_height(list_height)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            ui.set_width(popup_width - 16.0);
-
                             let filtered: Vec<_> = self.filtered_workspaces().cloned().collect();
 
                             if filtered.is_empty() {
@@ -532,7 +530,6 @@ impl WorkspaceFinder {
                                         text_col,
                                         accent_color,
                                         muted_text,
-                                        popup_width - 32.0,
                                     );
 
                                     // Scroll to selected item
@@ -607,7 +604,7 @@ impl WorkspaceFinder {
         result
     }
 
-    /// Show a single workspace row.
+    /// Show a single workspace row with premium styling.
     fn show_workspace_row(
         ui: &mut egui::Ui,
         workspace: &WorkspaceItem,
@@ -615,29 +612,40 @@ impl WorkspaceFinder {
         text_col: Color32,
         accent_color: Color32,
         muted_text: Color32,
-        width: f32,
     ) -> egui::Response {
         let row_height = 48.0;
+        let width = ui.available_width();
         let (rect, response) =
-            ui.allocate_exact_size(egui::Vec2::new(width, row_height), egui::Sense::hover());
+            ui.allocate_exact_size(egui::Vec2::new(width, row_height), egui::Sense::click());
 
-        // Background and left accent bar for selected item
+        let is_hovered = response.hovered();
+
+        // Premium row styling
         if is_selected {
-            ui.painter()
-                .rect_filled(rect, 6.0, accent_color.gamma_multiply(0.10));
+            // Selected: accent-tinted background, full width
+            let bg_color = accent_color.gamma_multiply(0.15);
+            ui.painter().rect_filled(rect, 0.0, bg_color);
+
             // Left accent bar
             let bar_rect = egui::Rect::from_min_size(rect.min, egui::Vec2::new(3.0, row_height));
-            ui.painter().rect_filled(bar_rect, 2.0, accent_color);
+            ui.painter().rect_filled(bar_rect, 0.0, accent_color);
+        } else if is_hovered {
+            // Hovered: subtle highlight
+            let bg_color = text_col.gamma_multiply(0.06);
+            ui.painter().rect_filled(rect, 0.0, bg_color);
         }
 
+        // Content area with padding
+        let content_left = rect.min.x + 16.0;
+
         // Folder icon
-        let icon_color = if is_selected {
+        let icon_color = if is_selected || is_hovered {
             accent_color
         } else {
             muted_text
         };
         ui.painter().text(
-            egui::pos2(rect.min.x + 20.0, rect.center().y - 4.0),
+            egui::pos2(content_left + 4.0, rect.center().y - 4.0),
             egui::Align2::LEFT_CENTER,
             semantic_icons::file::FOLDER,
             egui::FontId::proportional(16.0),
@@ -647,7 +655,7 @@ impl WorkspaceFinder {
         // Workspace name
         let name_color = if is_selected { accent_color } else { text_col };
         ui.painter().text(
-            egui::pos2(rect.min.x + 48.0, rect.center().y - 4.0),
+            egui::pos2(content_left + 32.0, rect.center().y - 4.0),
             egui::Align2::LEFT_CENTER,
             &workspace.name,
             typography::proportional(typography::LG),
@@ -656,21 +664,65 @@ impl WorkspaceFinder {
 
         // Description (if any)
         if let Some(desc) = &workspace.description {
-            let desc_truncated = if desc.len() > 50 {
-                format!("{}...", &desc[..47])
-            } else {
-                desc.clone()
-            };
+            let font = typography::proportional(typography::SM);
+            let available_width = width - content_left - 32.0 - 16.0; // content start + icon + right margin
+            let desc_truncated = truncate_to_width(desc, available_width, font.clone(), ui);
             ui.painter().text(
-                egui::pos2(rect.min.x + 48.0, rect.center().y + 14.0),
+                egui::pos2(content_left + 32.0, rect.center().y + 14.0),
                 egui::Align2::LEFT_CENTER,
                 &desc_truncated,
-                typography::proportional(typography::SM),
+                font,
                 muted_text,
             );
         }
 
         response
+    }
+}
+
+/// Truncates a string to fit within a given pixel width, adding "..." if truncated.
+fn truncate_to_width(text: &str, max_width: f32, font: egui::FontId, ui: &egui::Ui) -> String {
+    // Quick check - if the text is short, it probably fits
+    if text.len() < 20 {
+        return text.to_string();
+    }
+
+    let galley = ui.painter().layout_no_wrap(
+        text.to_string(),
+        font.clone(),
+        Color32::WHITE, // Color doesn't matter for width calculation
+    );
+
+    if galley.size().x <= max_width {
+        return text.to_string();
+    }
+
+    // Binary search for the right length
+    let mut low = 0;
+    let mut high = text.chars().count();
+    let chars: Vec<char> = text.chars().collect();
+
+    while low < high {
+        let mid = (low + high).div_ceil(2);
+        let truncated: String = chars[..mid].iter().collect();
+        let test_str = format!("{truncated}...");
+
+        let test_galley = ui
+            .painter()
+            .layout_no_wrap(test_str, font.clone(), Color32::WHITE);
+
+        if test_galley.size().x <= max_width {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+
+    if low == 0 {
+        "...".to_string()
+    } else {
+        let truncated: String = chars[..low].iter().collect();
+        format!("{truncated}...")
     }
 }
 

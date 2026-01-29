@@ -14,17 +14,6 @@ use crate::ui::typography;
 use crate::util::Instant;
 use crate::workspace::LEADER_POPUP_DELAY_MS;
 
-/// Result from showing the leader popup
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LeaderPopupResult {
-    /// Popup is still visible, no action taken
-    None,
-    /// User pressed Escape to dismiss
-    Dismissed,
-    /// Leader key timeout expired
-    TimedOut,
-}
-
 /// A leader key command to display in the popup
 struct LeaderCommand {
     /// The key to press (e.g., "f", "w")

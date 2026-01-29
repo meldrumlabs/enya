@@ -125,13 +125,12 @@ impl NativePromoOverlay {
         self.is_open
     }
 
-    /// Show the overlay. Returns true if it was closed this frame.
-    pub fn show(&mut self, ctx: &egui::Context) -> bool {
+    /// Show the overlay.
+    pub fn show(&mut self, ctx: &egui::Context) {
         if !self.is_open {
-            return false;
+            return;
         }
 
-        let should_close = false;
         let mut should_dismiss = false;
 
         // Skip input handling on the first frame after opening
@@ -294,16 +293,9 @@ impl NativePromoOverlay {
                 });
             });
 
-        if should_close {
-            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
-            self.close();
-        }
-
         if should_dismiss {
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.dismiss();
         }
-
-        should_close || should_dismiss
     }
 }

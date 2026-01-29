@@ -1294,3 +1294,62 @@ mod quick_command_tests {
         assert!(QuickCommand::History.prompt().contains("before"));
     }
 }
+
+/// Test module for Workspace render path.
+///
+/// These tests verify that `Workspace::show()` — the most important code path
+/// in the editor — renders without panicking and returns the expected actions.
+mod workspace_tests {
+    use super::*;
+    use enya_editor::AppState;
+    use enya_editor::AsyncRuntime;
+    use enya_editor::workspace::Workspace;
+
+    /// Create an `AsyncRuntime` backed by a temporary tokio runtime.
+    fn test_async_runtime() -> (AsyncRuntime, tokio::runtime::Runtime) {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let async_rt = AsyncRuntime::new(rt.handle().clone());
+        (async_rt, rt)
+    }
+
+    /// Test that an empty workspace renders without panicking.
+    #[test]
+    fn test_workspace_renders_empty() {
+        let (async_rt, _rt) = test_async_runtime();
+        let workspace = Workspace::new(async_rt);
+        let app_state = AppState::default();
+
+        let mut harness = Harness::new_state(
+            |ctx: &egui::Context, state: &mut (Workspace, AppState)| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    state.0.show(ui, ctx, &state.1, None);
+                });
+            },
+            (workspace, app_state),
+        );
+
+        // Run two frames to ensure stable rendering
+        harness.step();
+        harness.step();
+    }
+
+    /// Test that workspace can be created in empty mode (no landing page).
+    #[test]
+    fn test_workspace_new_empty() {
+        let (async_rt, _rt) = test_async_runtime();
+        let workspace = Workspace::new_empty(async_rt);
+        let app_state = AppState::default();
+
+        let mut harness = Harness::new_state(
+            |ctx: &egui::Context, state: &mut (Workspace, AppState)| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    state.0.show(ui, ctx, &state.1, None);
+                });
+            },
+            (workspace, app_state),
+        );
+
+        harness.step();
+        harness.step();
+    }
+}

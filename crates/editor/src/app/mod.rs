@@ -150,6 +150,9 @@ impl EnyaApp {
         // Create plugin registry
         let mut plugin_registry = PluginRegistry::new();
 
+        // Collect plugin errors to surface in diagnostics pane
+        let mut plugin_errors: Vec<String> = Vec::new();
+
         // Load external plugins from ~/.config/enya/plugins/ (native only)
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -162,12 +165,18 @@ impl EnyaApp {
                     Ok(plugin) => {
                         let name = plugin.manifest().plugin.name.clone();
                         if let Err(e) = plugin_registry.register(plugin, true) {
-                            log::warn!("Failed to register plugin '{name}': {e}");
+                            let msg = format!("Failed to register plugin '{name}': {e}");
+                            log::warn!("{msg}");
+                            plugin_errors.push(msg);
                         } else {
                             log::info!("Loaded plugin: {name}");
                         }
                     }
-                    Err(e) => log::warn!("Failed to load plugin: {e}"),
+                    Err(e) => {
+                        let msg = format!("Failed to load plugin: {e}");
+                        log::warn!("{msg}");
+                        plugin_errors.push(msg);
+                    }
                 }
             }
 
@@ -177,12 +186,18 @@ impl EnyaApp {
                     Ok(plugin) => {
                         let name = plugin.name().to_string();
                         if let Err(e) = plugin_registry.register(plugin, true) {
-                            log::warn!("Failed to register Lua plugin '{name}': {e}");
+                            let msg = format!("Failed to register Lua plugin '{name}': {e}");
+                            log::warn!("{msg}");
+                            plugin_errors.push(msg);
                         } else {
                             log::info!("Loaded Lua plugin: {name}");
                         }
                     }
-                    Err(e) => log::warn!("Failed to load Lua plugin: {e}"),
+                    Err(e) => {
+                        let msg = format!("Failed to load Lua plugin: {e}");
+                        log::warn!("{msg}");
+                        plugin_errors.push(msg);
+                    }
                 }
             }
         }
@@ -198,10 +213,21 @@ impl EnyaApp {
             .collect();
         for id in plugin_ids {
             if let Err(e) = plugin_registry.init_plugin(id) {
-                log::warn!("Failed to initialize plugin {id:?}: {e}");
+                let msg = format!("Failed to initialize plugin {id:?}: {e}");
+                log::warn!("{msg}");
+                plugin_errors.push(msg);
             } else if let Err(e) = plugin_registry.activate_plugin(id) {
-                log::warn!("Failed to activate plugin {id:?}: {e}");
+                let msg = format!("Failed to activate plugin {id:?}: {e}");
+                log::warn!("{msg}");
+                plugin_errors.push(msg);
             }
+        }
+
+        // Surface plugin errors in diagnostics pane
+        for error_msg in plugin_errors {
+            use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticSource};
+            let diagnostic = Diagnostic::warning(error_msg).with_source(DiagnosticSource::Plugin);
+            workspace.add_diagnostic(diagnostic);
         }
 
         // Collect custom themes from plugins
