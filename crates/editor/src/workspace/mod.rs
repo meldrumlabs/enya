@@ -1054,6 +1054,9 @@ impl Workspace {
         self.update_agent_context();
         self.agent_panel.set_theme(self.theme());
         self.agent_panel.set_focus(self.agent_panel_focused);
+        // Provide available metrics for @mention autocomplete
+        let metric_names = self.query_executor.metric_names().to_vec();
+        self.agent_panel.set_available_metrics(metric_names);
         // Disable keyboard when diff viewer is open
         #[cfg(not(target_arch = "wasm32"))]
         self.agent_panel

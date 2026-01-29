@@ -10,6 +10,8 @@ use enya_ai::AgentEvent;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Receiver;
 
+use super::mention_popup::MentionPopup;
+use super::slash_commands::SlashCommandPopup;
 use crate::chat::ChatColors;
 use crate::components::pane::time_series_chart::TimeSeriesChart;
 use crate::components::pane::{
@@ -113,6 +115,12 @@ pub struct AgentPanel {
     pending_diff_viewer: Option<(String, String)>,
     /// Whether keyboard input should be disabled (another overlay is on top)
     keyboard_disabled: bool,
+    /// Mention popup for @metric autocomplete
+    mention_popup: MentionPopup,
+    /// Slash command popup for /command autocomplete
+    slash_command_popup: SlashCommandPopup,
+    /// Previous input text for change detection
+    prev_input_text: String,
 }
 
 impl AgentPanel {
@@ -160,6 +168,9 @@ impl AgentPanel {
             conversation_store: super::conversation_store::ConversationStore::new(),
             pending_diff_viewer: None,
             keyboard_disabled: false,
+            mention_popup: MentionPopup::new(),
+            slash_command_popup: SlashCommandPopup::new(),
+            prev_input_text: String::new(),
         }
     }
 
@@ -222,6 +233,13 @@ impl AgentPanel {
         self.theme = theme;
         #[cfg(not(target_arch = "wasm32"))]
         self.file_opener.set_theme(theme);
+        self.mention_popup.set_theme(theme);
+        self.slash_command_popup.set_theme(theme);
+    }
+
+    /// Set available metrics for @mention autocomplete
+    pub fn set_available_metrics(&mut self, metrics: Vec<String>) {
+        self.mention_popup.set_metrics(metrics);
     }
 
     /// Sets the repository root path for computing full file paths.
@@ -770,6 +788,22 @@ impl AgentPanel {
     /// Get the chat colors helper for the current theme.
     fn colors(&self) -> ChatColors {
         ChatColors::new(self.theme)
+    }
+
+    /// Calculate cursor X position for popup alignment.
+    fn calculate_popup_cursor_x(&self, input_rect: egui::Rect) -> Option<f32> {
+        let char_pos = if self.slash_command_popup.active {
+            self.slash_command_popup.get_slash_position()
+        } else if self.mention_popup.active {
+            self.mention_popup.get_at_position()
+        } else {
+            return None;
+        };
+
+        // Approximate character width for proportional font at MD size
+        let char_width = 8.5;
+        let cursor_x = input_rect.left() + (char_pos as f32 * char_width);
+        Some(cursor_x)
     }
 
     /// Render a subtle divider between sections.
@@ -1479,10 +1513,75 @@ impl AgentPanel {
                     };
                     // Intercept bare Enter to submit (before TextEdit consumes it).
                     // Shift+Enter will insert a newline naturally.
+                    // But first check if popup is handling the key
                     let mut enter_to_submit = false;
+                    let mut popup_handled_key = false;
                     let input_id = ui.make_persistent_id("agent_panel_input");
                     let has_input_focus = ui.ctx().memory(|mem| mem.has_focus(input_id));
-                    if has_input_focus {
+
+                    // Handle popup keyboard input first (before Enter-to-submit)
+                    if has_input_focus
+                        && (self.mention_popup.active || self.slash_command_popup.active)
+                    {
+                        ui.ctx().input_mut(|input| {
+                            // Navigate up
+                            if input.consume_key(egui::Modifiers::NONE, Key::ArrowUp)
+                                || input.consume_key(egui::Modifiers::CTRL, Key::P)
+                                || input.consume_key(egui::Modifiers::CTRL, Key::K)
+                            {
+                                if self.mention_popup.active {
+                                    self.mention_popup.select_prev();
+                                } else {
+                                    self.slash_command_popup.select_prev();
+                                }
+                                popup_handled_key = true;
+                            }
+                            // Navigate down
+                            else if input.consume_key(egui::Modifiers::NONE, Key::ArrowDown)
+                                || input.consume_key(egui::Modifiers::CTRL, Key::N)
+                                || input.consume_key(egui::Modifiers::CTRL, Key::J)
+                            {
+                                if self.mention_popup.active {
+                                    self.mention_popup.select_next();
+                                } else {
+                                    self.slash_command_popup.select_next();
+                                }
+                                popup_handled_key = true;
+                            }
+                            // Select with Enter or Tab
+                            else if input.consume_key(egui::Modifiers::NONE, Key::Enter)
+                                || input.consume_key(egui::Modifiers::NONE, Key::Tab)
+                            {
+                                if self.mention_popup.active {
+                                    if let Some(metric) = self.mention_popup.selected() {
+                                        let at_pos = self.mention_popup.get_at_position();
+                                        let metric_name = metric.to_string();
+                                        let prefix = &self.input_text[..at_pos];
+                                        self.input_text = format!("{prefix}{metric_name} ");
+                                        self.prev_input_text = self.input_text.clone();
+                                    }
+                                    self.mention_popup.close();
+                                } else if let Some(cmd) = self.slash_command_popup.selected() {
+                                    let slash_pos = self.slash_command_popup.get_slash_position();
+                                    let cmd_name = cmd.name;
+                                    let prefix = &self.input_text[..slash_pos];
+                                    self.input_text = format!("{prefix}/{cmd_name} ");
+                                    self.prev_input_text = self.input_text.clone();
+                                    self.slash_command_popup.close();
+                                }
+                                popup_handled_key = true;
+                            }
+                            // Cancel with Escape
+                            else if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                                self.mention_popup.close();
+                                self.slash_command_popup.close();
+                                popup_handled_key = true;
+                            }
+                        });
+                    }
+
+                    // Only check for Enter-to-submit if popup didn't handle it
+                    if has_input_focus && !popup_handled_key {
                         ui.ctx().input_mut(|input| {
                             if input.consume_key(egui::Modifiers::NONE, Key::Enter) {
                                 enter_to_submit = true;
@@ -1507,6 +1606,89 @@ impl AgentPanel {
                             .font(typography::proportional(typography::MD))
                             .desired_rows(1),
                     );
+
+                    // Store rect for popup positioning
+                    let input_rect = response.rect;
+
+                    // Input change detection for @ and / triggers
+                    let input_len = self.input_text.len();
+                    let prev_len = self.prev_input_text.len();
+
+                    if input_len > prev_len {
+                        // Characters were added
+                        let new_chars = &self.input_text[prev_len..];
+
+                        // Check for "/" (only if mention popup is not active)
+                        if !self.mention_popup.active {
+                            if new_chars.contains('/') && !self.slash_command_popup.active {
+                                if let Some(slash_pos) = self.input_text.rfind('/') {
+                                    let is_at_start = slash_pos == 0;
+                                    let is_after_space = slash_pos > 0
+                                        && self.input_text.chars().nth(slash_pos - 1) == Some(' ');
+                                    if is_at_start || is_after_space {
+                                        self.slash_command_popup.start(slash_pos);
+                                    }
+                                }
+                            } else if self.slash_command_popup.active {
+                                let query = &self.input_text
+                                    [self.slash_command_popup.get_slash_position() + 1..];
+                                if query.contains(' ') || query.contains('\n') {
+                                    self.slash_command_popup.close();
+                                } else {
+                                    self.slash_command_popup.set_query(query);
+                                }
+                            }
+                        }
+
+                        // Check for "@" (only if slash popup is not active)
+                        if !self.slash_command_popup.active {
+                            if new_chars.contains('@') {
+                                if let Some(at_pos) = self.input_text.rfind('@') {
+                                    self.mention_popup.start(at_pos);
+                                }
+                            } else if self.mention_popup.active {
+                                let query =
+                                    &self.input_text[self.mention_popup.get_at_position() + 1..];
+                                if query.contains(' ') || query.contains('\n') {
+                                    self.mention_popup.close();
+                                } else {
+                                    self.mention_popup.set_query(query);
+                                }
+                            }
+                        }
+                    } else if input_len < prev_len {
+                        // Characters were deleted
+                        if self.slash_command_popup.active {
+                            let slash_pos = self.slash_command_popup.get_slash_position();
+                            if self.input_text.len() <= slash_pos {
+                                self.slash_command_popup.close();
+                            } else {
+                                let query = &self.input_text[slash_pos + 1..];
+                                self.slash_command_popup.set_query(query);
+                            }
+                        }
+                        if self.mention_popup.active {
+                            let at_pos = self.mention_popup.get_at_position();
+                            if self.input_text.len() <= at_pos {
+                                self.mention_popup.close();
+                            } else {
+                                let query = &self.input_text[at_pos + 1..];
+                                self.mention_popup.set_query(query);
+                            }
+                        }
+                    }
+
+                    self.prev_input_text = self.input_text.clone();
+
+                    // Render popups
+                    if self.mention_popup.active {
+                        let cursor_x = self.calculate_popup_cursor_x(input_rect);
+                        self.mention_popup.show(ui, input_rect, cursor_x);
+                    }
+                    if self.slash_command_popup.active {
+                        let cursor_x = self.calculate_popup_cursor_x(input_rect);
+                        self.slash_command_popup.show(ui, input_rect, cursor_x);
+                    }
 
                     // Only focus input when explicitly requested AND panel doesn't have vim focus
                     // This allows vim navigation to work by default, like channels panel
@@ -1534,7 +1716,8 @@ impl AgentPanel {
 
                     // Handle Escape when text input is focused to return vim focus to panel
                     // (matches ChatView pattern in channels panel)
-                    if response.has_focus() {
+                    // Skip if popup already handled Escape
+                    if response.has_focus() && !popup_handled_key {
                         let mut should_surrender = false;
                         ui.ctx().input_mut(|input| {
                             if input.consume_key(egui::Modifiers::NONE, Key::Escape) {
