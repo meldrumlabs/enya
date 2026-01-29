@@ -17,8 +17,8 @@ use crate::components::overlay::{FinderMode, UnifiedFinder};
 use crate::components::{
     AboutOverlay, AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult,
     Buffer, BufferEditor, BufferEditorResult, CommandPalette, CommandResult, Component,
-    ContextPane, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LeaderPopup,
-    LogsPane, MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult,
+    ContextPane, DiagnosticsPane, InfoOverlay, LandingPage, LandingPageAction, LeaderKey,
+    LeaderPopup, LogsPane, MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult,
     PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay,
     PluginsOverlayResult, QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand,
     SourcePreviewOverlay, SourcePreviewResult, SqlPane, StylePicker, StylePickerResult,
@@ -1613,15 +1613,24 @@ impl Workspace {
         self.which_key.set_theme(self.theme());
         self.which_key.show(ctx);
 
-        // Show leader popup (dynamic Space+X hints, like which-key.nvim)
+        // Show leader popup (dynamic hints, like which-key.nvim)
         self.leader_popup.set_theme(self.theme());
+        // Space has no timeout - stays active until cleared
         self.leader_popup
-            .update_visibility(self.leader_keys.last_space_press);
+            .update_visibility(LeaderKey::Space, self.leader_keys.last_space_press);
+        // G has a timeout - only pass press time if still within timeout window
+        let g_press_time = if self.leader_keys.is_g_active() {
+            self.leader_keys.last_g_press
+        } else {
+            None
+        };
+        self.leader_popup
+            .update_visibility(LeaderKey::G, g_press_time);
         #[cfg(not(target_arch = "wasm32"))]
         let is_native = true;
         #[cfg(target_arch = "wasm32")]
         let is_native = false;
-        self.leader_popup.show(ctx, is_native);
+        self.leader_popup.show_all(ctx, is_native);
 
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());

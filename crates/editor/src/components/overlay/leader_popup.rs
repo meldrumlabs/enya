@@ -1,9 +1,9 @@
-//! Which-key style leader popup for Space+X commands.
+//! Which-key style leader popup for leader key commands.
 //!
 //! Inspired by neovim's which-key.nvim plugin (included in LazyVim), this
-//! component displays available leader key commands when Space is pressed.
+//! component displays available leader key commands when a leader key is pressed.
 //! Unlike the static WhichKey help overlay, this popup appears dynamically
-//! and shows only Space+X commands.
+//! and shows commands for the active leader key (Space, g, etc.).
 
 use egui::RichText;
 
@@ -13,6 +13,33 @@ use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 use crate::util::Instant;
 use crate::workspace::LEADER_POPUP_DELAY_MS;
+
+/// Identifies which leader key triggered the popup
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LeaderKey {
+    /// Space leader key (Space+X commands)
+    Space,
+    /// Go-to leader key (gd, ga, gf commands)
+    G,
+}
+
+impl LeaderKey {
+    /// Display symbol for the popup header
+    pub fn display_symbol(&self) -> &'static str {
+        match self {
+            Self::Space => "␣",
+            Self::G => "g",
+        }
+    }
+
+    /// Unique egui ID for this popup
+    fn popup_id(&self) -> &'static str {
+        match self {
+            Self::Space => "leader_popup_space",
+            Self::G => "leader_popup_g",
+        }
+    }
+}
 
 /// A leader key command to display in the popup
 struct LeaderCommand {
@@ -24,15 +51,19 @@ struct LeaderCommand {
     label: &'static str,
 }
 
-/// Dynamic popup that shows available Space+X commands when Space is pressed.
+/// Dynamic popup that shows available commands when a leader key is pressed.
 ///
 /// This popup appears after a short delay (to let power users type fast sequences
-/// without seeing it) and auto-hides after the leader key timeout.
+/// without seeing it) and auto-hides when the leader key is cleared.
 pub struct LeaderPopup {
-    /// Whether the popup is currently visible
-    is_visible: bool,
-    /// When the popup became visible (for timeout tracking)
-    show_time: Option<Instant>,
+    /// Whether the Space popup is currently visible
+    space_visible: bool,
+    /// When the Space popup became visible
+    space_show_time: Option<Instant>,
+    /// Whether the G popup is currently visible
+    g_visible: bool,
+    /// When the G popup became visible
+    g_show_time: Option<Instant>,
     /// Current theme (supports custom plugin themes)
     theme: AppTheme,
 }
@@ -47,8 +78,10 @@ impl LeaderPopup {
     /// Create a new leader popup
     pub fn new() -> Self {
         Self {
-            is_visible: false,
-            show_time: None,
+            space_visible: false,
+            space_show_time: None,
+            g_visible: false,
+            g_show_time: None,
             theme: AppTheme::default(),
         }
     }
@@ -58,92 +91,155 @@ impl LeaderPopup {
         self.theme = theme;
     }
 
-    /// Check if the popup is currently visible
-    pub fn is_visible(&self) -> bool {
-        self.is_visible
+    /// Check if a specific leader key popup is currently visible
+    pub fn is_visible(&self, leader_key: LeaderKey) -> bool {
+        match leader_key {
+            LeaderKey::Space => self.space_visible,
+            LeaderKey::G => self.g_visible,
+        }
     }
 
     /// Update visibility based on the leader key state.
     ///
     /// The popup shows after `LEADER_POPUP_DELAY_MS` and stays visible until
-    /// Space is cleared (by executing a command, pressing Escape, or invalid key).
-    /// This matches neovim's which-key.nvim behavior - no auto-timeout.
-    pub fn update_visibility(&mut self, space_press_time: Option<Instant>) {
-        match space_press_time {
+    /// the leader key is cleared (by executing a command, pressing Escape, or invalid key).
+    pub fn update_visibility(&mut self, leader_key: LeaderKey, press_time: Option<Instant>) {
+        match leader_key {
+            LeaderKey::Space => self.update_space_visibility(press_time),
+            LeaderKey::G => self.update_g_visibility(press_time),
+        }
+    }
+
+    /// Update Space leader key visibility
+    fn update_space_visibility(&mut self, press_time: Option<Instant>) {
+        match press_time {
             Some(press_time) => {
                 let elapsed = Instant::now().duration_since(press_time).as_millis();
 
                 // Show popup after delay (so power users don't see it)
-                if elapsed >= LEADER_POPUP_DELAY_MS && !self.is_visible {
-                    self.is_visible = true;
-                    self.show_time = Some(Instant::now());
+                if elapsed >= LEADER_POPUP_DELAY_MS && !self.space_visible {
+                    self.space_visible = true;
+                    self.space_show_time = Some(Instant::now());
                 }
             }
             None => {
                 // Space is not active, hide popup
-                self.hide();
+                self.hide(LeaderKey::Space);
             }
         }
     }
 
-    /// Hide the popup
-    pub fn hide(&mut self) {
-        self.is_visible = false;
-        self.show_time = None;
+    /// Update G leader key visibility
+    fn update_g_visibility(&mut self, press_time: Option<Instant>) {
+        match press_time {
+            Some(press_time) => {
+                let elapsed = Instant::now().duration_since(press_time).as_millis();
+
+                // Show popup after delay (so power users don't see it)
+                if elapsed >= LEADER_POPUP_DELAY_MS && !self.g_visible {
+                    self.g_visible = true;
+                    self.g_show_time = Some(Instant::now());
+                }
+            }
+            None => {
+                // G is not active, hide popup
+                self.hide(LeaderKey::G);
+            }
+        }
     }
 
-    /// Build the list of commands to display
-    fn build_commands() -> Vec<LeaderCommand> {
-        vec![
-            LeaderCommand {
-                key: "f",
-                icon: semantic_icons::action::SEARCH,
-                label: "Find anything",
-            },
-            LeaderCommand {
-                key: "w",
-                icon: semantic_icons::file::FOLDER,
-                label: "Workspace",
-            },
-            LeaderCommand {
-                key: "h",
-                icon: semantic_icons::nav::HOME,
-                label: "Home",
-            },
-            LeaderCommand {
-                key: "d",
-                icon: semantic_icons::diagnostic::WARNING,
-                label: "Diagnostics",
-            },
-            LeaderCommand {
-                key: "t",
-                icon: semantic_icons::time::CLOCK,
-                label: "Time picker",
-            },
-            LeaderCommand {
-                key: "a",
-                icon: semantic_icons::action::BRAIN,
-                label: "Agent",
-            },
-            LeaderCommand {
-                key: "p",
-                icon: semantic_icons::action::TOOL,
-                label: "Plugins",
-            },
-        ]
+    /// Hide a specific leader key popup
+    pub fn hide(&mut self, leader_key: LeaderKey) {
+        match leader_key {
+            LeaderKey::Space => {
+                self.space_visible = false;
+                self.space_show_time = None;
+            }
+            LeaderKey::G => {
+                self.g_visible = false;
+                self.g_show_time = None;
+            }
+        }
     }
 
-    /// Show the popup. This is purely visual - keyboard input is handled by keyboard.rs.
-    ///
-    /// The popup will automatically hide when:
-    /// - The space leader key times out (via update_visibility)
-    /// - A valid Space+X command is executed (keyboard.rs clears space)
-    /// - An invalid key is pressed (keyboard.rs clears space)
+    /// Build the list of commands to display for a leader key
+    fn build_commands(leader_key: LeaderKey) -> Vec<LeaderCommand> {
+        match leader_key {
+            LeaderKey::Space => vec![
+                LeaderCommand {
+                    key: "f",
+                    icon: semantic_icons::action::SEARCH,
+                    label: "Find anything",
+                },
+                LeaderCommand {
+                    key: "w",
+                    icon: semantic_icons::file::FOLDER,
+                    label: "Workspace",
+                },
+                LeaderCommand {
+                    key: "h",
+                    icon: semantic_icons::nav::HOME,
+                    label: "Home",
+                },
+                LeaderCommand {
+                    key: "d",
+                    icon: semantic_icons::diagnostic::WARNING,
+                    label: "Diagnostics",
+                },
+                LeaderCommand {
+                    key: "t",
+                    icon: semantic_icons::time::CLOCK,
+                    label: "Time picker",
+                },
+                LeaderCommand {
+                    key: "a",
+                    icon: semantic_icons::action::BRAIN,
+                    label: "Agent",
+                },
+                LeaderCommand {
+                    key: "p",
+                    icon: semantic_icons::action::TOOL,
+                    label: "Plugins",
+                },
+            ],
+            LeaderKey::G => vec![
+                LeaderCommand {
+                    key: "d",
+                    icon: semantic_icons::action::LINK,
+                    label: "Definition",
+                },
+                LeaderCommand {
+                    key: "a",
+                    icon: semantic_icons::status::ALERT,
+                    label: "Alert",
+                },
+                LeaderCommand {
+                    key: "f",
+                    icon: semantic_icons::nav::FULLSCREEN,
+                    label: "Float pane",
+                },
+            ],
+        }
+    }
+
+    /// Show all visible leader key popups.
     ///
     /// Call this every frame when updating overlays.
     #[profiling::function]
-    pub fn show(&mut self, ctx: &egui::Context, _is_native: bool) {
-        if !self.is_visible {
+    pub fn show_all(&mut self, ctx: &egui::Context, is_native: bool) {
+        self.show(ctx, LeaderKey::Space, is_native);
+        self.show(ctx, LeaderKey::G, is_native);
+    }
+
+    /// Show a specific leader key popup. This is purely visual - keyboard input is handled by keyboard.rs.
+    ///
+    /// The popup will automatically hide when:
+    /// - The leader key is cleared (via update_visibility)
+    /// - A valid command is executed (keyboard.rs clears the leader key)
+    /// - An invalid key is pressed (keyboard.rs clears the leader key)
+    #[profiling::function]
+    pub fn show(&mut self, ctx: &egui::Context, leader_key: LeaderKey, _is_native: bool) {
+        if !self.is_visible(leader_key) {
             return;
         }
 
@@ -154,13 +250,13 @@ impl LeaderPopup {
         let key_bg = self.theme.bg_elevated();
         let accent_color = self.theme.accent_primary();
 
-        let commands = Self::build_commands();
+        let commands = Self::build_commands(leader_key);
         let popup_width = 220.0;
 
         // Render the popup
         // IMPORTANT: interactable(false) prevents the Area from capturing focus,
         // which would block keyboard handling in keyboard.rs
-        egui::Area::new(egui::Id::new("leader_popup"))
+        egui::Area::new(egui::Id::new(leader_key.popup_id()))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 50.0]) // Slightly below center
             .order(egui::Order::Foreground)
             .interactable(false)
@@ -168,10 +264,14 @@ impl LeaderPopup {
                 overlay_style.frame().show(ui, |ui| {
                     ui.set_width(popup_width);
 
-                    // Minimal header - centered space symbol
+                    // Minimal header - centered leader key symbol
                     ui.add_space(8.0);
                     ui.vertical_centered(|ui| {
-                        ui.label(RichText::new("␣").color(muted_text).size(typography::LG));
+                        ui.label(
+                            RichText::new(leader_key.display_symbol())
+                                .color(muted_text)
+                                .size(typography::LG),
+                        );
                     });
                     ui.add_space(6.0);
 

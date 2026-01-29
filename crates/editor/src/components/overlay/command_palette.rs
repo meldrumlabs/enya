@@ -717,10 +717,12 @@ impl CommandPalette {
 
         if navigate_up && self.selected_index > 0 {
             self.selected_index -= 1;
+            ctx.request_repaint(); // Ensure scroll_to_me is processed
         }
 
         if navigate_down && self.selected_index + 1 < self.suggestions.len() {
             self.selected_index += 1;
+            ctx.request_repaint(); // Ensure scroll_to_me is processed
         }
 
         // Tab completion - insert the selected command name
@@ -839,9 +841,14 @@ impl CommandPalette {
                     }
 
                     // Suggestions with scroll shadows
+                    let row_height = 32.0;
+                    let visible_height = 300.0;
+                    let scroll_id = egui::Id::new("command_palette_scroll");
+
                     let scroll_output = egui::ScrollArea::vertical()
-                        .max_height(300.0)
-                        .auto_shrink([false, true])
+                        .id_salt(scroll_id)
+                        .max_height(visible_height)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
                             if self.suggestions.is_empty() {
                                 ui.add_space(12.0);
@@ -856,7 +863,7 @@ impl CommandPalette {
                             } else {
                                 for (i, suggestion) in self.suggestions.iter().enumerate() {
                                     let is_selected = i == self.selected_index;
-                                    self.render_suggestion_row_with_colors(
+                                    let response = self.render_suggestion_row_with_colors(
                                         ui,
                                         suggestion,
                                         is_selected,
@@ -864,7 +871,13 @@ impl CommandPalette {
                                         text_muted,
                                         accent_col,
                                     );
+                                    // Use egui's built-in scroll_to_me for selected items
+                                    if is_selected {
+                                        response.scroll_to_me(Some(egui::Align::Center));
+                                    }
                                 }
+                                // Bottom padding to prevent last item from being obscured by scroll shadow
+                                ui.add_space(row_height);
                             }
                         });
 
@@ -946,7 +959,7 @@ impl CommandPalette {
         text_col: Color32,
         text_muted: Color32,
         accent_col: Color32,
-    ) {
+    ) -> egui::Response {
         let row_height = 32.0;
         let (rect, response) = ui.allocate_exact_size(
             egui::vec2(ui.available_width(), row_height),
@@ -1030,10 +1043,7 @@ impl CommandPalette {
             );
         }
 
-        // Scroll into view
-        if is_selected {
-            response.scroll_to_me(Some(egui::Align::Center));
-        }
+        response
     }
 
     /// Create text with highlighted match positions

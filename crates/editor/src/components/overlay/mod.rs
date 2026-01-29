@@ -59,7 +59,7 @@ pub use diagnostics::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use diff_viewer::{DiffViewerOverlay, DiffViewerResult};
 pub use info::InfoOverlay;
-pub use leader_popup::LeaderPopup;
+pub use leader_popup::{LeaderKey, LeaderPopup};
 pub use mention_popup::MentionPopup;
 pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
 #[cfg(target_arch = "wasm32")]

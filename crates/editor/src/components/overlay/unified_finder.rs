@@ -1106,7 +1106,12 @@ impl UnifiedFinder {
         // Get the clip rect for the list area to prevent text overflow
         let list_clip_rect = ui.available_rect_before_wrap();
 
+        // Scroll handling
+        let row_height = 38.0;
+        let scroll_id = egui::Id::new("unified_finder_scroll");
+
         let scroll_output = egui::ScrollArea::vertical()
+            .id_salt(scroll_id)
             .max_height(max_height)
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -1283,11 +1288,14 @@ impl UnifiedFinder {
                         clicked_index = Some(i);
                     }
 
-                    // Scroll into view
+                    // Use egui's built-in scroll_to_me for selected items
                     if is_selected {
                         response.scroll_to_me(Some(egui::Align::Center));
                     }
                 }
+
+                // Bottom padding to prevent last item from being obscured by scroll shadow
+                ui.add_space(row_height);
             });
 
         // Render scroll shadows for the results list
