@@ -1287,36 +1287,16 @@ impl UnifiedFinder {
                     if response.clicked() {
                         clicked_index = Some(i);
                     }
+
+                    // Use egui's built-in scroll_to_me for selected items
+                    if is_selected {
+                        response.scroll_to_me(Some(egui::Align::Center));
+                    }
                 }
+
+                // Bottom padding to prevent last item from being obscured by scroll shadow
+                ui.add_space(row_height);
             });
-
-        // Adjust scroll to keep selected item visible with margin
-        if !self.results.is_empty() {
-            let selected_top = self.selected_index as f32 * row_height;
-            let selected_bottom = selected_top + row_height;
-            let current_offset = scroll_output.state.offset.y;
-            let margin = row_height; // One row margin for early scrolling
-            let visible_top = current_offset + margin;
-            let visible_bottom = current_offset + max_height - margin;
-
-            let new_offset = if selected_top < visible_top {
-                // Selected item is near top - scroll up
-                (selected_top - margin).max(0.0)
-            } else if selected_bottom > visible_bottom {
-                // Selected item is near bottom - scroll down
-                selected_bottom - max_height + margin
-            } else {
-                // Selected item is comfortably visible - no change
-                current_offset
-            };
-
-            if (new_offset - current_offset).abs() > 0.1 {
-                let mut state = scroll_output.state;
-                state.offset.y = new_offset;
-                state.store(ui.ctx(), scroll_output.id);
-                ui.ctx().request_repaint();
-            }
-        }
 
         // Render scroll shadows for the results list
         let scroll_state = ScrollState::from_scroll_output(
