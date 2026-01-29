@@ -664,6 +664,17 @@ impl Workspace {
             self.query_executor.fetch_label_names(ctx);
         }
 
+        // Eagerly fetch metric names for @ mention autocomplete (demo backend only).
+        // Skip if a Prometheus connection is pending or already active — those paths
+        // trigger their own fetch_metric_names() call.
+        if self.query_executor.metric_names().is_empty()
+            && !self.query_executor.is_fetching_metrics()
+            && !self.query_executor.is_connected()
+            && self.pending_connection_endpoint.is_none()
+        {
+            self.query_executor.fetch_metric_names(ctx);
+        }
+
         // Poll codebase manager for clone/index completion (native only with codebase feature)
         #[cfg(not(target_arch = "wasm32"))]
         self.codebase_manager.poll(ctx);
@@ -1043,6 +1054,13 @@ impl Workspace {
         self.update_agent_context();
         self.agent_panel.set_theme(self.theme());
         self.agent_panel.set_focus(self.agent_panel_focused);
+        // Provide available metrics for @mention autocomplete
+        let metric_names = self.query_executor.metric_names().to_vec();
+        self.agent_panel.set_available_metrics(metric_names);
+        // Disable keyboard when diff viewer is open
+        #[cfg(not(target_arch = "wasm32"))]
+        self.agent_panel
+            .set_keyboard_disabled(self.diff_viewer.is_open());
         match self.agent_panel.show_inside(ui, ctx) {
             AgentPanelResult::Closed => {
                 self.agent_panel_focused = false;
@@ -1084,6 +1102,16 @@ impl Workspace {
                 // (ReturnFocusToViewport, Closed, or keyboard transfer).
                 // The panel's internal has_focus tracks vim focus within the panel,
                 // while agent_panel_focused tracks whether the workspace considers the panel active.
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            AgentPanelResult::OpenDiffViewer { hash, message } => {
+                // Open the full diff viewer for this commit
+                log::info!("Opening diff viewer from inline diff: {hash}");
+                self.open_diff_viewer_for_commit(&hash, &message);
+            }
+            #[cfg(target_arch = "wasm32")]
+            AgentPanelResult::OpenDiffViewer { .. } => {
+                // Diff viewer not available on WASM
             }
         }
 
@@ -2953,6 +2981,8 @@ impl Workspace {
     /// Enter agent mode and immediately execute a quick command.
     /// This is used for vim-style operator patterns like `aw`, `ae`, etc.
     pub fn enter_agent_mode_with_command(&mut self, command: QuickCommand) {
+        use crate::components::overlay::format_pane_context;
+
         // Enter agent mode first
         self.enter_agent_mode();
 
@@ -2964,28 +2994,20 @@ impl Workspace {
             }
         }
 
-        // Build context info for the query
-        let context_info: Vec<String> = self
+        // Build rich context from selected panes with data summaries
+        let context_blocks: Vec<String> = self
             .agent_context_panes
             .iter()
             .filter_map(|&tile_id| {
-                if let Some(egui_tiles::Tile::Pane(component)) =
-                    self.viewport_tree.tiles.get(tile_id)
-                {
-                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                        let name = query_pane.name();
-                        let query_text = query_pane.query();
-                        return Some(format!("Pane '{name}': {query_text}"));
-                    }
-                }
-                None
+                let (info, query_text) = self.collect_pane_info_for_tile(tile_id)?;
+                Some(format_pane_context(&info.name, &query_text, &info))
             })
             .collect();
 
-        let context = if context_info.is_empty() {
+        let context = if context_blocks.is_empty() {
             None
         } else {
-            Some(format!("Context panes:\n{}", context_info.join("\n")))
+            Some(format!("## Context Panes\n\n{}", context_blocks.join("\n")))
         };
 
         // Send the quick command query
@@ -3076,6 +3098,20 @@ impl Workspace {
         let metric_names = self.query_executor.metric_names().to_vec();
         self.agent_input_bar.set_available_metrics(metric_names);
 
+        // Estimate context size for token usage indicator
+        let pane_count = if self.agent_context_panes.is_empty() {
+            if self.behavior.focused_tile().is_some() {
+                1
+            } else {
+                0
+            }
+        } else {
+            self.agent_context_panes.len()
+        };
+        let estimated_context = 2000 + (pane_count * 500);
+        self.agent_input_bar
+            .set_context_char_count(estimated_context);
+
         let result = self.agent_input_bar.show(ui);
         self.handle_agent_input_result(result, ctx);
     }
@@ -3099,6 +3135,22 @@ impl Workspace {
         // Provide available metrics for @ mention autocomplete
         let metric_names = self.query_executor.metric_names().to_vec();
         self.agent_input_bar.set_available_metrics(metric_names);
+
+        // Estimate context size for token usage indicator
+        // Base: ~2000 chars for editor context (commands, workspace info)
+        // Per pane: ~500 chars average (varies with data)
+        let pane_count = if self.agent_context_panes.is_empty() {
+            if self.behavior.focused_tile().is_some() {
+                1
+            } else {
+                0
+            }
+        } else {
+            self.agent_context_panes.len()
+        };
+        let estimated_context = 2000 + (pane_count * 500);
+        self.agent_input_bar
+            .set_context_char_count(estimated_context);
 
         let result = self.agent_input_bar.show_inline(ui);
         self.handle_agent_input_result(result, ctx);
@@ -3210,6 +3262,8 @@ impl Workspace {
 
     /// Send a query to the agent with current context panes
     fn send_agent_query_with_context(&mut self, query: &str, ctx: &egui::Context) {
+        use crate::components::overlay::format_pane_context;
+
         // Build full editor context (includes available commands documentation)
         let editor_context = self.build_editor_context();
         let editor_context_block = editor_context
@@ -3217,47 +3271,48 @@ impl Workspace {
             .map(|c| c.to_prompt_block())
             .unwrap_or_default();
 
-        // Build context from selected panes
-        let context_info: Vec<String> = self
-            .agent_context_panes
+        // Determine which panes to include: explicit selection, or fallback to focused pane
+        let pane_ids: Vec<egui_tiles::TileId> = if self.agent_context_panes.is_empty() {
+            // Auto-include focused pane so "explain this spike" works naturally
+            self.behavior.focused_tile().into_iter().collect()
+        } else {
+            self.agent_context_panes.iter().copied().collect()
+        };
+
+        // Build rich context from selected panes with data summaries
+        let context_blocks: Vec<String> = pane_ids
             .iter()
             .filter_map(|&tile_id| {
-                if let Some(egui_tiles::Tile::Pane(component)) =
-                    self.viewport_tree.tiles.get(tile_id)
-                {
-                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                        // Get pane details for context
-                        let name = query_pane.name();
-                        let query_text = query_pane.query();
-                        return Some(format!("Pane '{name}': {query_text}"));
-                    }
-                }
-                None
+                let (info, query_text) = self.collect_pane_info_for_tile(tile_id)?;
+                Some(format_pane_context(&info.name, &query_text, &info))
             })
             .collect();
 
         // Build full context string with editor context and pane context
         let context = {
             let mut parts = vec![editor_context_block];
-            if !context_info.is_empty() {
-                parts.push(format!("\n## Selected Panes\n{}", context_info.join("\n")));
+            if !context_blocks.is_empty() {
+                let header = if self.agent_context_panes.is_empty() {
+                    "\n## Focused Pane\n"
+                } else {
+                    "\n## Selected Panes\n"
+                };
+                parts.push(header.to_string());
+                parts.push(context_blocks.join("\n"));
             }
             Some(parts.join("\n"))
         };
 
         // Send query directly to input bar (it handles AI communication)
         log::info!(
-            "Sending query to agent: '{}' with context ({} chars)",
+            "Sending query to agent: '{}' with context ({} chars, {} panes)",
             query,
-            context.as_ref().map(|c| c.len()).unwrap_or(0)
+            context.as_ref().map(|c| c.len()).unwrap_or(0),
+            pane_ids.len()
         );
         self.agent_input_bar.send_query(query, context.as_deref());
 
         ctx.request_repaint();
-        log::debug!(
-            "Sent query to agent with {} context panes",
-            self.agent_context_panes.len()
-        );
     }
 
     // =========================================================================
@@ -3666,7 +3721,7 @@ impl Workspace {
             CommitSummary, build_codebase_context, load_project_context,
         };
         use crate::components::overlay::agent_context::{
-            EditorContext, build_connection_context, build_dashboard_context,
+            EditorContext, build_connection_context, build_workspace_context,
         };
 
         // Build connection context using shared helper
@@ -3730,15 +3785,28 @@ impl Workspace {
             let time_range = self.time_range_toolbar.time_range();
             let pane_count = self.get_pane_tile_ids().len();
             let queries = self.collect_pane_queries();
+            let filter = {
+                let p = self.viewport_filter.applied_pattern();
+                if p.is_empty() {
+                    None
+                } else {
+                    Some(p.to_string())
+                }
+            };
 
-            build_dashboard_context(time_range.preset.label().to_string(), pane_count, queries)
+            build_workspace_context(
+                time_range.preset.label().to_string(),
+                pane_count,
+                queries,
+                filter,
+            )
         };
 
         // Build the full context
         let context = EditorContext::new()
             .with_connection(connection)
             .with_metrics(metrics)
-            .with_dashboard(dashboard);
+            .with_workspace(dashboard);
 
         // Add codebase context if available
         #[cfg(not(target_arch = "wasm32"))]
@@ -3776,7 +3844,7 @@ impl Workspace {
     /// context pieces, ensuring consistency with `update_agent_context`.
     fn build_editor_context(&self) -> Option<crate::components::EditorContext> {
         use crate::components::overlay::agent_context::{
-            EditorContext, build_connection_context, build_dashboard_context,
+            EditorContext, build_connection_context, build_workspace_context,
         };
         #[cfg(not(target_arch = "wasm32"))]
         use crate::components::overlay::agent_context::{
@@ -3824,15 +3892,28 @@ impl Workspace {
             let time_range = self.time_range_toolbar.time_range();
             let pane_count = self.get_pane_tile_ids().len();
             let queries = self.collect_pane_queries();
+            let filter = {
+                let p = self.viewport_filter.applied_pattern();
+                if p.is_empty() {
+                    None
+                } else {
+                    Some(p.to_string())
+                }
+            };
 
-            build_dashboard_context(time_range.preset.label().to_string(), pane_count, queries)
+            build_workspace_context(
+                time_range.preset.label().to_string(),
+                pane_count,
+                queries,
+                filter,
+            )
         };
 
         // Build the full context
         let context = EditorContext::new()
             .with_connection(connection)
             .with_metrics(metrics)
-            .with_dashboard(dashboard);
+            .with_workspace(dashboard);
 
         #[cfg(not(target_arch = "wasm32"))]
         let context = if let Some(cb) = codebase {

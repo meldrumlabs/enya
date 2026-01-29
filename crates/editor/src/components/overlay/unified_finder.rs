@@ -48,9 +48,9 @@ use crate::ui::semantic_icons;
 #[cfg(not(target_arch = "wasm32"))]
 use super::preview::{render_diff_line_preview, render_source_preview};
 #[cfg(not(target_arch = "wasm32"))]
-use super::syntax_highlight::HighlightCache;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::search::{SearchResult, SearchResultKind};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::HighlightCache;
 
 // =============================================================================
 // FinderMode

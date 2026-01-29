@@ -8,8 +8,8 @@
 
 use egui::{Color32, RichText};
 
-use super::syntax_highlight::{HighlightCache, highlight_line_with_spans};
 use crate::components::util::finder_utils::FinderColors;
+use crate::components::util::{HighlightCache, highlight_line_with_spans};
 use crate::ui::palette; // Keep for semantic::WARNING
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -39,10 +39,10 @@ pub fn render_source_preview(
         if let Some(c) = cache.filter(|c| c.file_path == file_path) {
             // Use cached content and highlights directly
             (
-                c.source_content.as_str(),
-                &c.spans,
-                &c.line_offsets,
-                c.source_content.len(),
+                c.source_content(),
+                c.spans(),
+                c.line_offsets(),
+                c.source_content().len(),
             )
         } else {
             // No cache available - show placeholder

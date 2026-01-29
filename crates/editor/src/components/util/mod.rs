@@ -42,6 +42,8 @@ pub use scroll_shadows::{
     ScrollAreaWithShadows, ScrollShadowConfig, ScrollState, render_scroll_shadows,
 };
 pub use syntax_highlight::SyntaxHighlightData;
+#[cfg(not(target_arch = "wasm32"))]
+pub use syntax_highlight::{HighlightCache, highlight_line_with_spans};
 pub use text_formatting::normalize_unicode;
 #[cfg(not(target_arch = "wasm32"))]
 pub use text_formatting::{truncate_first_line, truncate_path_suffix};
