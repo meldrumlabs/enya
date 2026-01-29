@@ -18,66 +18,15 @@ use super::{
     Channel, ChannelId, ChatColors, ChatMessage, ChatMessageAuthor, ChatState, Thread, ThreadId,
 };
 use crate::components::pane::time_series_chart::{Series, TimeSeriesChart};
-use crate::components::pane::visualization::VisualizationType;
+// Re-import from pane module (these types are shared with non-chat code)
+use crate::components::pane::{CommitInfo, PaneInfo, PaneVisualization};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
-
-/// Snapshot of visualization data for embedding in chat.
-#[derive(Debug, Clone)]
-pub enum PaneVisualization {
-    /// Time series chart with series data.
-    TimeSeries { series: Vec<Series> },
-    /// Stat card with current value and optional sparkline.
-    Stat {
-        value: f64,
-        unit: String,
-        sparkline: Vec<f64>,
-    },
-    /// Gauge with value and range.
-    Gauge {
-        value: f64,
-        min: f64,
-        max: f64,
-        unit: String,
-    },
-    /// Bar chart with labeled bars.
-    BarChart { bars: Vec<(String, f64)> },
-    /// Sparkline (compact trend line).
-    Sparkline { data: Vec<f64> },
-    /// Heatmap placeholder (complex to embed, show as reference).
-    Heatmap,
-}
-
-/// Information about an available pane for @mention autocomplete.
-#[derive(Debug, Clone)]
-pub struct PaneInfo {
-    /// Display name for the pane.
-    pub name: String,
-    /// The visualization type.
-    pub viz_type: VisualizationType,
-    /// Snapshot of the visualization data.
-    pub visualization: PaneVisualization,
-}
 
 /// Part of a message content (text or commit reference).
 enum ContentPart {
     Text(String),
     CommitRef(String),
-}
-
-/// Information about a commit for # reference autocomplete.
-#[derive(Debug, Clone)]
-pub struct CommitInfo {
-    /// Short commit hash (7 chars).
-    pub short_hash: String,
-    /// Full commit hash.
-    pub full_hash: String,
-    /// Commit message (first line).
-    pub message: String,
-    /// Unix timestamp.
-    pub timestamp: i64,
-    /// Full diff content for viewing.
-    pub diff: String,
 }
 
 /// Reference to an embedded chart in a message.

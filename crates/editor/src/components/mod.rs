@@ -38,11 +38,13 @@ pub use overlay::{
 // Re-export from widget
 pub use widget::{
     AgentInputBar, AgentInputBarResult, AgentInputState, Buffer, BufferAction, BufferMode,
-    ContextPane, InlineAgentInput, LandingPage, LandingPageAction, MemberPresence, Notification,
-    NotificationLevel, NotificationManager, QuickCommand, Sparkline, StatusLine, StatusLineResult,
-    StatusMode, TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRange, TimeRangePreset,
-    TimeRangeToolbar,
+    ContextPane, InlineAgentInput, LandingPage, LandingPageAction, Notification, NotificationLevel,
+    NotificationManager, QuickCommand, Sparkline, StatusLine, StatusLineResult, StatusMode,
+    TimeRange, TimeRangePreset, TimeRangeToolbar,
 };
+// Re-export team UI types from team module (not widget)
+#[cfg(feature = "teams")]
+pub use crate::team::ui::{MemberPresence, TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo};
 
 // Re-export from util
 pub use util::{

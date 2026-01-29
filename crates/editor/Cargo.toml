@@ -27,9 +27,9 @@ egui_plot = { workspace = true }
 enya-promql = { workspace = true }
 enya-logql = { workspace = true }
 enya-client = { workspace = true }
-enya-team-api = { workspace = true }
+enya-team-api = { workspace = true, optional = true }
 enya-plugin = { workspace = true }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "js"] }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -134,7 +134,7 @@ egui_kittest = { version = "0.33.3", features = ["snapshot", "wgpu"] }
 
 [features]
 # No default features - all are opt-in. For full functionality:
-# cargo build -p enya-editor --features all-languages,terminal,sql
+# cargo build -p enya-editor --features all-languages,terminal,sql,teams
 default = []
 # Enable SQL pane support with DataFusion query engine (~500 dependencies).
 sql = ["dep:enya-datafusion"]
@@ -151,6 +151,13 @@ all-languages = [
 puffin = ["profiling/profile-with-puffin", "dep:puffin", "dep:puffin_http"]
 # Enable tracy profiling backend (use with tracy profiler)
 tracy = ["profiling/profile-with-tracy"]
+
+
+# Enable team collaboration features (chat, channels, presence).
+# Requires enya-team-api for user/team management.
+# Note that this is experimental and is developed by Meldrum Labs
+teams = ["dep:enya-team-api"]
+
 
 [dependencies.puffin]
 version = "0.19"

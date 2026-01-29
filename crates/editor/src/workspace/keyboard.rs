@@ -35,6 +35,7 @@ impl Workspace {
 
         // When chat split view is active, handle 'Space+g' even if something has focus
         // (unless the chat text input specifically has focus - checked via input consumption)
+        #[cfg(feature = "teams")]
         if self.channels_panel_visible && self.channels_panel.is_split_view_active() {
             let mut close_chat = false;
             ctx.input_mut(|input| {
@@ -107,7 +108,8 @@ impl Workspace {
         }
 
         // When channels panel has focus, let it handle j/k/l navigation
-        // (viewport keyboard handling is skipped)
+        // (viewport keyboard handling is skipped, requires teams feature)
+        #[cfg(feature = "teams")]
         if self.channels_panel_focused {
             return None;
         }
@@ -161,6 +163,7 @@ impl Workspace {
         let mut should_tab_pane_right = false;
         let mut should_tab_pane_up = false;
         let mut should_tab_pane_down = false;
+        #[cfg(feature = "teams")]
         let mut should_focus_channels_panel = false;
         let mut should_float_focused_pane = false;
         let mut should_focus_agent_panel = false;
@@ -283,7 +286,8 @@ impl Workspace {
                     return;
                 }
 
-                // Space+g - toggle channels panel (only when connected to a team)
+                // Space+g - toggle channels panel (only when connected to a team, requires teams feature)
+                #[cfg(feature = "teams")]
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::G) {
                     if self.team_status.is_some() {
                         self.toggle_channels_panel();
@@ -672,26 +676,41 @@ impl Workspace {
             {
                 // Use section navigation if sections are active
                 if self.has_sections() {
-                    // Check if at left edge and should transfer to channels panel
-                    let at_left_edge = self.is_at_section_left_edge();
-                    if at_left_edge && self.channels_panel_visible {
-                        should_focus_channels_panel = true;
-                    } else {
+                    // Check if at left edge and should transfer to channels panel (requires teams feature)
+                    #[cfg(feature = "teams")]
+                    {
+                        let at_left_edge = self.is_at_section_left_edge();
+                        if at_left_edge && self.channels_panel_visible {
+                            should_focus_channels_panel = true;
+                        } else {
+                            self.navigate_sections(NavDirection::Left);
+                        }
+                    }
+                    #[cfg(not(feature = "teams"))]
+                    {
                         self.navigate_sections(NavDirection::Left);
                     }
                 } else if let Some(current_id) = current_focus {
                     let sibling = self.find_sibling_in_direction(current_id, NavDirection::Left);
                     if sibling.is_some() {
                         new_tile_id = sibling;
-                    } else if self.channels_panel_visible {
-                        // At left edge with channels panel visible - focus the panel
+                    } else {
+                        #[cfg(feature = "teams")]
+                        if self.channels_panel_visible {
+                            // At left edge with channels panel visible - focus the panel
+                            should_focus_channels_panel = true;
+                        }
+                    }
+                } else {
+                    #[cfg(feature = "teams")]
+                    if self.channels_panel_visible {
+                        // No focus and channels panel visible - focus the panel
                         should_focus_channels_panel = true;
                     }
-                } else if self.channels_panel_visible {
-                    // No focus and channels panel visible - focus the panel
-                    should_focus_channels_panel = true;
-                } else {
-                    new_tile_id = pane_ids.first().copied();
+                    #[cfg(not(feature = "teams"))]
+                    {
+                        new_tile_id = pane_ids.first().copied();
+                    }
                 }
                 consumed = true;
                 return;
@@ -839,6 +858,7 @@ impl Workspace {
             ctx.request_repaint();
         }
 
+        #[cfg(feature = "teams")]
         if should_toggle_team_menu {
             // Only toggle if team is connected
             if self.team_status.is_some() {
@@ -846,6 +866,9 @@ impl Workspace {
                 ctx.request_repaint();
             }
         }
+        // Drop unused variable when teams feature is disabled
+        #[cfg(not(feature = "teams"))]
+        let _ = should_toggle_team_menu;
 
         if should_open_plugins_overlay {
             self.plugins_overlay.open();
@@ -924,7 +947,8 @@ impl Workspace {
             ctx.request_repaint();
         }
 
-        // Handle focus transfer to channels panel (vim h at left edge)
+        // Handle focus transfer to channels panel (vim h at left edge, requires teams feature)
+        #[cfg(feature = "teams")]
         if should_focus_channels_panel {
             self.channels_panel_focused = true;
             self.channels_panel.set_focus(true);

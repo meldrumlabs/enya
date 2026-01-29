@@ -38,10 +38,11 @@ use egui::{Color32, CornerRadius, RichText, ScrollArea, Stroke, Vec2};
 use egui_nerdfonts::regular;
 use enya_team_api::UserId;
 
-use super::chat_view::{ChatView, ChatViewAction, ChatViewMode, PaneInfo};
+use super::chat_view::{ChatView, ChatViewAction, ChatViewMode};
 use super::thread::ThreadPriority;
 use super::{Channel, ChannelId, ChatColors, ChatState, Thread, ThreadId};
-use crate::components::widget::team_menu::{MemberPresence, TeamMember};
+use crate::components::pane::PaneInfo;
+use crate::team::ui::{MemberPresence, TeamMember};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 

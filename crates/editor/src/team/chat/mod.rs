@@ -40,11 +40,13 @@ pub mod thread;
 pub use channel::{Channel, ChannelId, ChannelKind};
 pub use channels_panel::{ChannelsPanel, ChannelsPanelAction};
 pub use chat_view::{
-    BarData, ChatView, ChatViewAction, ChatViewMode, CommitInfo, EmbeddedChart, InlineBarChart,
-    InlineChart, InlineGauge, InlineStat, InlineTable, InlineVisualization, PaneInfo,
-    PaneVisualization, StatTrend,
+    BarData, ChatView, ChatViewAction, ChatViewMode, EmbeddedChart, InlineBarChart, InlineChart,
+    InlineGauge, InlineStat, InlineTable, InlineVisualization, StatTrend,
 };
+// Re-export pane info types from pane module for backwards compatibility
+pub use crate::components::pane::{CommitInfo, PaneInfo, PaneVisualization};
 pub use message::{ChatMessage, ChatMessageAuthor, Mention, MentionKind, MessageId};
 pub use state::ChatState;
-pub use theme_helpers::ChatColors;
+// Re-export ChatColors from ui module for backwards compatibility
+pub use crate::ui::ChatColors;
 pub use thread::{Thread, ThreadId, ThreadStatus};

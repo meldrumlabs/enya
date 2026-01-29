@@ -11,6 +11,7 @@
 
 use egui::Color32;
 use egui_nerdfonts::regular;
+#[cfg(feature = "teams")]
 use enya_team_api::UserId;
 
 use crate::ui::theme::AppTheme;
@@ -137,7 +138,8 @@ impl AnnotationPriority {
 /// Author information for an annotation.
 #[derive(Debug, Clone)]
 pub struct AnnotationAuthor {
-    /// User ID (from team API).
+    /// User ID (from team API, requires `teams` feature).
+    #[cfg(feature = "teams")]
     pub user_id: Option<UserId>,
     /// Display name.
     pub display_name: String,
@@ -146,6 +148,7 @@ pub struct AnnotationAuthor {
 impl Default for AnnotationAuthor {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "teams")]
             user_id: None,
             display_name: "Anonymous".to_string(),
         }
@@ -156,12 +159,14 @@ impl AnnotationAuthor {
     /// Create an author with just a display name (for local/demo mode).
     pub fn local(name: impl Into<String>) -> Self {
         Self {
+            #[cfg(feature = "teams")]
             user_id: None,
             display_name: name.into(),
         }
     }
 
-    /// Create an author from team user info.
+    /// Create an author from team user info (requires `teams` feature).
+    #[cfg(feature = "teams")]
     pub fn from_user(user_id: UserId, display_name: impl Into<String>) -> Self {
         Self {
             user_id: Some(user_id),

@@ -44,20 +44,21 @@ pub mod util;
 /// Workspace runtime (pane layout) and configuration (serialization).
 pub mod workspace;
 
-/// Team collaboration state management (optional, works without team features).
+/// Team collaboration: state, chat, and UI (optional, requires `teams` feature).
+/// All team-related code is consolidated in this module.
+#[cfg(feature = "teams")]
 pub mod team;
-
-/// Team chat: channels, threads, and messages for collaboration.
-pub mod chat;
 
 /// Plugin system for extending editor functionality.
 pub mod plugin;
 
-pub use chat::{
+// Re-export team types at crate root for backwards compatibility
+#[cfg(feature = "teams")]
+pub use team::{
     Channel, ChannelId, ChannelKind, ChannelsPanel, ChannelsPanelAction, ChatMessage,
-    ChatMessageAuthor, ChatState, Mention, MentionKind, MessageId, Thread, ThreadId, ThreadStatus,
+    ChatMessageAuthor, ChatState, Mention, MentionKind, MessageId, TeamConfig, TeamState, Thread,
+    ThreadId, ThreadStatus,
 };
-pub use team::{TeamConfig, TeamState};
 
 pub use plugin::{
     Plugin, PluginCapabilities, PluginContext, PluginError, PluginId, PluginInfo, PluginRegistry,

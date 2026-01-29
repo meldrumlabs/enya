@@ -4,7 +4,6 @@ use egui_tiles::{Tile, TileId, Tiles};
 
 use crate::AsyncRuntime;
 use crate::app::AppState;
-use crate::chat::{ChannelsPanel, ChannelsPanelAction};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::CodebaseManager;
 #[cfg(target_arch = "wasm32")]
@@ -22,12 +21,15 @@ use crate::components::{
     LogsPane, MultiBufferMode, MultiBufferState, MultiEditOverlay, MultiEditResult,
     PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane, PluginsOverlay,
     PluginsOverlayResult, QueryExecutor, QueryLanguage, QueryPane, QueryState, QuickCommand,
-    SourcePreviewOverlay, SourcePreviewResult, SqlPane, StylePicker, StylePickerResult, TeamMember,
-    TeamMenu, TeamMenuAction, TeamStatusInfo, TimeRangePicker, TimeRangePickerResult,
-    TimeRangeToolbar, TracingPane, TutorialAction, TutorialOverlay, ViewportFilter,
-    ViewportFilterResult, WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder,
-    WorkspaceFinderResult,
+    SourcePreviewOverlay, SourcePreviewResult, SqlPane, StylePicker, StylePickerResult,
+    TimeRangePicker, TimeRangePickerResult, TimeRangeToolbar, TracingPane, TutorialAction,
+    TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey, WorkspaceCreator,
+    WorkspaceCreatorResult, WorkspaceFinder, WorkspaceFinderResult,
 };
+#[cfg(feature = "teams")]
+use crate::components::{TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo};
+#[cfg(feature = "teams")]
+use crate::team::{ChannelsPanel, ChannelsPanelAction};
 use crate::ui::settings_screen::EditorFont;
 use crate::ui::theme::AppTheme;
 use enya_plugin::{
@@ -148,29 +150,36 @@ pub enum WorkspaceAction {
     SharePane(usize),
     /// Quit the application
     QuitApp,
-    /// Toggle team demo mode (for testing UI without backend)
+    /// Toggle team demo mode (for testing UI without backend, requires `teams` feature)
+    #[cfg(feature = "teams")]
     ToggleTeamDemo,
-    /// Connect to team server
+    /// Connect to team server (requires `teams` feature)
+    #[cfg(feature = "teams")]
     TeamConnect { url: String, token: String },
-    /// Disconnect from team server
+    /// Disconnect from team server (requires `teams` feature)
+    #[cfg(feature = "teams")]
     TeamDisconnect,
     /// Open the annotation editor for the focused pane
     OpenAnnotationEditor,
-    /// Send a chat message (with optional inline chart or visualization)
+    /// Send a chat message (with optional inline chart or visualization, requires `teams` feature)
+    #[cfg(feature = "teams")]
     SendChatMessage {
         text: String,
-        chart: Option<crate::chat::InlineChart>,
-        visualization: Option<crate::chat::InlineVisualization>,
-        thread_id: Option<crate::chat::ThreadId>,
+        chart: Option<crate::team::InlineChart>,
+        visualization: Option<crate::team::InlineVisualization>,
+        thread_id: Option<crate::team::ThreadId>,
     },
-    /// Create a new channel
+    /// Create a new channel (requires `teams` feature)
+    #[cfg(feature = "teams")]
     CreateChannel { name: String },
-    /// Create a new thread in a channel
+    /// Create a new thread in a channel (requires `teams` feature)
+    #[cfg(feature = "teams")]
     CreateThread {
-        channel_id: crate::chat::ChannelId,
+        channel_id: crate::team::ChannelId,
         title: String,
     },
-    /// Search commits for # autocomplete in chat
+    /// Search commits for # autocomplete in chat (requires `teams` feature)
+    #[cfg(feature = "teams")]
     SearchChatCommits { query: String },
     /// Open diff viewer from a commit reference in chat
     OpenDiffViewer {
@@ -311,19 +320,25 @@ pub struct Workspace {
     native_promo_overlay: NativePromoOverlay,
     /// Unified finder (Telescope-style fuzzy finder)
     unified_finder: UnifiedFinder,
-    /// Team collaboration menu (only shown when connected to a team)
+    /// Team collaboration menu (only shown when connected to a team, requires `teams` feature)
+    #[cfg(feature = "teams")]
     team_menu: TeamMenu,
-    /// Team collaboration status (only shown when connected to a team)
+    /// Team collaboration status (only shown when connected to a team, requires `teams` feature)
+    #[cfg(feature = "teams")]
     team_status: Option<TeamStatusInfo>,
-    /// Team members for the team menu (populated by EnyaApp from TeamState)
+    /// Team members for the team menu (populated by EnyaApp from TeamState, requires `teams` feature)
+    #[cfg(feature = "teams")]
     team_members: Vec<TeamMember>,
     /// Annotation editor overlay
     annotation_editor: AnnotationEditor,
-    /// Channels panel sidebar (shown when connected to a team)
+    /// Channels panel sidebar (shown when connected to a team, requires `teams` feature)
+    #[cfg(feature = "teams")]
     channels_panel: ChannelsPanel,
-    /// Whether the channels panel sidebar is visible
+    /// Whether the channels panel sidebar is visible (requires `teams` feature)
+    #[cfg(feature = "teams")]
     channels_panel_visible: bool,
-    /// Whether the channels panel has keyboard focus (vim h/l to transfer)
+    /// Whether the channels panel has keyboard focus (vim h/l to transfer, requires `teams` feature)
+    #[cfg(feature = "teams")]
     channels_panel_focused: bool,
 
     // ==================== Collapsible Sections ====================
@@ -471,12 +486,18 @@ impl Workspace {
             #[cfg(target_arch = "wasm32")]
             native_promo_overlay: NativePromoOverlay::new(),
             unified_finder: UnifiedFinder::new(),
+            #[cfg(feature = "teams")]
             team_menu: TeamMenu::new(),
+            #[cfg(feature = "teams")]
             team_status: None,
+            #[cfg(feature = "teams")]
             team_members: Vec::new(),
             annotation_editor: AnnotationEditor::new(),
+            #[cfg(feature = "teams")]
             channels_panel: ChannelsPanel::new(),
+            #[cfg(feature = "teams")]
             channels_panel_visible: false,
+            #[cfg(feature = "teams")]
             channels_panel_focused: false,
             // Section state
             section_configs: Vec::new(),
@@ -561,7 +582,8 @@ impl Workspace {
         ui: &mut egui::Ui,
         ctx: &egui::Context,
         app_state: &AppState,
-        chat_state: Option<&crate::chat::ChatState>,
+        #[cfg(feature = "teams")] chat_state: Option<&crate::team::ChatState>,
+        #[cfg(not(feature = "teams"))] _chat_state: Option<()>,
     ) -> WorkspaceAction {
         // Cache the effective theme for this frame - use self.theme() throughout rendering
         self.render_theme = self.effective_theme(app_state);
@@ -821,21 +843,29 @@ impl Workspace {
             return self.show_landing_page(ui, ctx, app_state);
         }
 
-        // Check if chat split view is active (takes over main area)
+        // Check if chat split view is active (takes over main area) - requires teams feature
+        #[cfg(feature = "teams")]
         let chat_split_view_active = self.channels_panel_visible
             && self.team_status.is_some()
             && self.channels_panel.is_split_view_active();
+        #[cfg(not(feature = "teams"))]
+        let chat_split_view_active = false;
 
         // Left sidebar: Channels panel (when team mode is active, but NOT in split view)
         // When split view is active, the chat takes over the entire central panel
+        #[cfg(feature = "teams")]
         let mut pending_message: Option<(
             String,
-            Option<crate::chat::InlineChart>,
-            Option<crate::chat::InlineVisualization>,
+            Option<crate::team::InlineChart>,
+            Option<crate::team::InlineVisualization>,
         )> = None;
+        #[cfg(feature = "teams")]
         let mut pending_create_channel = false;
-        let mut pending_create_thread: Option<crate::chat::ChannelId> = None;
+        #[cfg(feature = "teams")]
+        let mut pending_create_thread: Option<crate::team::ChannelId> = None;
+        #[cfg(feature = "teams")]
         let mut pending_commit_search: Option<String> = None;
+        #[cfg(feature = "teams")]
         let mut pending_diff_viewer: Option<(String, String, String)> = None;
 
         // Check if any overlay is open that should block keyboard input
@@ -845,6 +875,7 @@ impl Workspace {
             || self.unified_finder.is_open()
             || self.command_palette.is_open()
             || self.which_key.is_open();
+        #[cfg(feature = "teams")]
         self.channels_panel
             .set_overlay_blocks_input(overlay_blocks_input);
 
@@ -855,6 +886,7 @@ impl Workspace {
             }
         }
 
+        #[cfg(feature = "teams")]
         if self.channels_panel_visible && self.team_status.is_some() && !chat_split_view_active {
             if let Some(chat_state) = chat_state {
                 // Update available panes for @-mention autocomplete
@@ -932,6 +964,7 @@ impl Workspace {
         }
 
         // Full-screen chat view (when split view is active, takes over entire central panel)
+        #[cfg(feature = "teams")]
         if chat_split_view_active {
             if let Some(chat_state) = chat_state {
                 // Update available panes for @-mention autocomplete
@@ -1003,8 +1036,8 @@ impl Workspace {
             }
         }
 
-        // Handle pending message (after chat_state borrow is released)
-        // Return action to app so message is added to team_state.chat_state (not the clone)
+        // Handle pending message (after chat_state borrow is released) - requires teams feature
+        #[cfg(feature = "teams")]
         if let Some((text, chart, visualization)) = pending_message {
             let thread_id = self.channels_panel.selected_thread();
             return WorkspaceAction::SendChatMessage {
@@ -1015,7 +1048,8 @@ impl Workspace {
             };
         }
 
-        // Handle pending create channel (after chat_state borrow is released)
+        // Handle pending create channel (after chat_state borrow is released) - requires teams feature
+        #[cfg(feature = "teams")]
         if pending_create_channel {
             // Generate unique channel name with timestamp
             let timestamp = crate::util::now_unix_secs();
@@ -1024,7 +1058,8 @@ impl Workspace {
             };
         }
 
-        // Handle pending create thread (after chat_state borrow is released)
+        // Handle pending create thread (after chat_state borrow is released) - requires teams feature
+        #[cfg(feature = "teams")]
         if let Some(channel_id) = pending_create_thread {
             // Generate unique thread title with timestamp
             let timestamp = crate::util::now_unix_secs();
@@ -1034,12 +1069,14 @@ impl Workspace {
             };
         }
 
-        // Handle pending commit search (for # autocomplete in chat)
+        // Handle pending commit search (for # autocomplete in chat) - requires teams feature
+        #[cfg(feature = "teams")]
         if let Some(query) = pending_commit_search {
             return WorkspaceAction::SearchChatCommits { query };
         }
 
         // Handle pending diff viewer request (from commit click in chat)
+        #[cfg(feature = "teams")]
         if let Some((hash, message, diff)) = pending_diff_viewer {
             return WorkspaceAction::OpenDiffViewer {
                 hash,
@@ -1684,8 +1721,8 @@ impl Workspace {
         // Note: agent_input_bar.poll() is now called at the start of show()
         // to ensure agent-created panes are available for immediate query execution
 
-        // Show team menu (only when connected to a team)
-        // The menu renders as a centered overlay (like unified finder)
+        // Show team menu (only when connected to a team) - requires teams feature
+        #[cfg(feature = "teams")]
         if let Some(ref status) = self.team_status {
             self.team_menu.set_theme(self.theme());
 
@@ -2195,10 +2232,13 @@ impl Workspace {
                 self.add_loki_pane(now_ns - one_hour_ns, now_ns, url);
                 WorkspaceAction::None
             }
+            #[cfg(feature = "teams")]
             CommandResult::TeamDemo => WorkspaceAction::ToggleTeamDemo,
+            #[cfg(feature = "teams")]
             CommandResult::TeamConnect { url, token } => {
                 WorkspaceAction::TeamConnect { url, token }
             }
+            #[cfg(feature = "teams")]
             CommandResult::TeamDisconnect => WorkspaceAction::TeamDisconnect,
             CommandResult::OpenTerminal => {
                 self.add_terminal_pane();
@@ -2720,36 +2760,42 @@ impl Workspace {
         self.section_focus = FocusTarget::SectionHeader(next_section);
     }
 
-    /// Get team collaboration status (for status line display)
+    /// Get team collaboration status (for status line display) - requires `teams` feature
+    #[cfg(feature = "teams")]
     pub fn team_status(&self) -> Option<TeamStatusInfo> {
         self.team_status.clone()
     }
 
-    /// Set team collaboration status (called when connection status changes)
+    /// Set team collaboration status (called when connection status changes) - requires `teams` feature
+    #[cfg(feature = "teams")]
     pub fn set_team_status(&mut self, status: Option<TeamStatusInfo>) {
         self.team_status = status;
     }
 
-    /// Set team members for the team menu (called from EnyaApp with TeamState data)
+    /// Set team members for the team menu (called from EnyaApp with TeamState data) - requires `teams` feature
+    #[cfg(feature = "teams")]
     pub fn set_team_members(&mut self, members: Vec<TeamMember>) {
         self.team_members = members;
     }
 
-    /// Show channels panel when team mode becomes active.
+    /// Show channels panel when team mode becomes active - requires `teams` feature
+    #[cfg(feature = "teams")]
     pub fn show_channels_panel(&mut self) {
         if self.team_status.is_some() && !self.channels_panel_visible {
             self.channels_panel_visible = true;
         }
     }
 
-    /// Hide channels panel (called when disconnecting from team).
+    /// Hide channels panel (called when disconnecting from team) - requires `teams` feature
+    #[cfg(feature = "teams")]
     pub fn hide_channels_panel(&mut self) {
         self.channels_panel_visible = false;
         self.channels_panel_focused = false;
         self.channels_panel.set_focus(false);
     }
 
-    /// Toggle channels panel sidebar visibility
+    /// Toggle channels panel sidebar visibility - requires `teams` feature
+    #[cfg(feature = "teams")]
     pub fn toggle_channels_panel(&mut self) {
         self.channels_panel_visible = !self.channels_panel_visible;
         // Reset focus state when hiding
@@ -2759,12 +2805,14 @@ impl Workspace {
         }
     }
 
-    /// Check if channels panel is visible
+    /// Check if channels panel is visible - requires `teams` feature
+    #[cfg(feature = "teams")]
     pub fn is_channels_panel_visible(&self) -> bool {
         self.channels_panel_visible
     }
 
-    /// Toggle team menu visibility
+    /// Toggle team menu visibility - requires `teams` feature
+    #[cfg(feature = "teams")]
     pub fn toggle_team_menu(&mut self) {
         self.team_menu.toggle();
     }

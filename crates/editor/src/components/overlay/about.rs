@@ -130,11 +130,15 @@ impl AboutOverlay {
                             // Description
                             ui.label(
                                 RichText::new(
-                                    "Connects metrics, logs, traces, SQL, and git with AI in one \
-                                     interface — designed for those who build, ship, and get paged.",
+                                    "Connects metrics, logs, traces, SQL, and git with AI in one interface.",
                                 )
                                 .color(muted_text)
                                 .size(typography::MD),
+                            );
+                            ui.label(
+                                RichText::new("Designed for those who build, ship, and get paged.")
+                                    .color(muted_text)
+                                    .size(typography::MD),
                             );
 
                             ui.add_space(16.0);
@@ -188,7 +192,7 @@ impl AboutOverlay {
                                     );
                                     let meldrum_response = ui.add(
                                         egui::Label::new(
-                                            RichText::new("Meldrum Labs")
+                                            RichText::new("Meldrum Labs & Community")
                                                 .color(accent_color)
                                                 .font(typography::monospace(typography::MD)),
                                         )

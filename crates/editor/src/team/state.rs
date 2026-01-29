@@ -22,10 +22,8 @@ use enya_team_api::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::AsyncRuntime;
 
-use crate::chat::{ChannelId, ChatState, ThreadId};
-use crate::components::TeamMember;
-use crate::components::widget::team_menu::MemberPresence;
-use crate::components::widget::team_status::{TeamStatusInfo, WsState};
+use super::chat::{ChannelId, ChatState, ThreadId};
+use super::ui::{MemberPresence, TeamMember, TeamStatusInfo, WsState};
 
 /// Demo mode info for testing the UI without a backend.
 #[derive(Debug, Clone)]
@@ -550,7 +548,7 @@ impl TeamState {
                 self.demo_mode.as_ref().map(|d| d.current_user_id),
             ) {
                 let msg =
-                    crate::chat::ChatMessage::from_user(user, "You", content).in_thread(thread_id);
+                    super::chat::ChatMessage::from_user(user, "You", content).in_thread(thread_id);
                 self.chat_state.add_message(msg);
             }
             return;
@@ -639,11 +637,11 @@ impl TeamState {
         if self.demo_mode.is_some() {
             // In demo mode, create a local channel
             let now = crate::util::now_unix_secs() as f64;
-            let channel = crate::chat::Channel {
+            let channel = super::chat::Channel {
                 id: uuid::Uuid::new_v4(),
                 name: name.to_string(),
                 description: None,
-                kind: crate::chat::ChannelKind::General,
+                kind: super::chat::ChannelKind::General,
                 unread_count: 0,
                 is_muted: false,
                 is_collapsed: false,
@@ -665,18 +663,18 @@ impl TeamState {
 
     /// Create a new thread in a channel.
     pub fn create_thread(&mut self, channel_id: ChannelId, title: &str, ctx: &egui::Context) {
-        use crate::chat::thread::ThreadPriority;
+        use super::chat::thread::ThreadPriority;
         use enya_team_api::NewThread;
 
         if self.demo_mode.is_some() {
             // In demo mode, create a local thread
             let now = crate::util::now_unix_secs() as f64;
-            let thread = crate::chat::Thread {
+            let thread = super::chat::Thread {
                 id: uuid::Uuid::new_v4(),
                 channel_id,
                 root_message_id: uuid::Uuid::new_v4(), // Placeholder root message
                 title: title.to_string(),
-                status: crate::chat::ThreadStatus::Active,
+                status: super::chat::ThreadStatus::Active,
                 reply_count: 0,
                 unread_count: 0,
                 participant_count: 1,

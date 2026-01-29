@@ -2,6 +2,7 @@ use egui::Color32;
 use icons::Icon;
 
 pub mod active_theme;
+pub mod chat_colors;
 pub mod colors;
 pub mod custom_theme;
 pub mod design;
@@ -15,6 +16,7 @@ pub mod typography;
 pub mod welcome_screen;
 
 pub use active_theme::ActiveThemeColors;
+pub use chat_colors::ChatColors;
 pub use custom_theme::{CustomThemeStore, ResolvedCustomTheme};
 pub use theme::AppTheme;
 
