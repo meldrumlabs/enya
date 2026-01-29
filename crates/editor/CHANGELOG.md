@@ -11,6 +11,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Go-to leader popup (g key)**: A which-key style popup now appears when pressing `g`, showing available go-to commands: `d` (go to definition), `a` (go to alert), `f` (float pane). Uses the same unified design as the Space leader popup with frosted glass styling and key badges.
 - **Agent panel scroll UX**: Auto-scrolls to bottom during streaming when user is at the bottom. When the user scrolls up during an active stream, a floating "Jump to latest" pill button appears at the bottom of the chat area. Clicking it snaps back to the latest content.
 - **Streaming fade-in animation**: During AI response streaming, newly received text chunks fade in from 60% to 100% opacity over 150ms, creating a smooth word-by-word appearance effect.
 - **Multi-line agent input**: The agent input bar (standalone mode) and agent panel input now support multi-line queries via `Shift+Enter`. The input auto-expands in height as lines are added. Bare `Enter` still submits the query. The inline status bar input remains single-line for compact display.
