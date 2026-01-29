@@ -818,8 +818,12 @@ pub fn build_workspace_context(
 /// Produces a markdown section with the pane name, query, visualization type,
 /// and a data summary (latest values, min/max for time series; current value for
 /// stat/gauge; bar values for bar charts).
-pub fn format_pane_context(name: &str, query: &str, info: &crate::chat::PaneInfo) -> String {
-    use crate::chat::PaneVisualization;
+pub fn format_pane_context(
+    name: &str,
+    query: &str,
+    info: &crate::components::pane::PaneInfo,
+) -> String {
+    use crate::components::pane::PaneVisualization;
 
     let mut out = format!("### Pane '{name}'\n");
     out.push_str(&format!("- Query: `{query}`\n"));

@@ -12,7 +12,6 @@ use std::sync::mpsc::Receiver;
 
 use super::mention_popup::MentionPopup;
 use super::slash_commands::SlashCommandPopup;
-use crate::chat::ChatColors;
 use crate::components::pane::time_series_chart::TimeSeriesChart;
 use crate::components::pane::{
     InlineChart, InlineContent, InlineDiff, InlineDiffLineKind, InlineSearchResults, InlineSource,
@@ -24,6 +23,7 @@ use crate::components::util::{
     ResponseStatus, ScrollShadowConfig, ScrollState, normalize_unicode, render_scroll_shadows,
 };
 use crate::components::widget::ThinkingIndicator;
+use crate::ui::ChatColors;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::palette;

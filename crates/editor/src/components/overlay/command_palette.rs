@@ -106,11 +106,14 @@ pub enum CommandResult {
     SetProvider(String),
     /// Set auto-refresh interval (off/10s/30s/1m/5m/15m)
     SetRefresh(String),
-    /// Toggle team demo mode
+    /// Toggle team demo mode (requires `teams` feature)
+    #[cfg(feature = "teams")]
     TeamDemo,
-    /// Connect to team server with URL and token
+    /// Connect to team server with URL and token (requires `teams` feature)
+    #[cfg(feature = "teams")]
     TeamConnect { url: String, token: String },
-    /// Disconnect from team server
+    /// Disconnect from team server (requires `teams` feature)
+    #[cfg(feature = "teams")]
     TeamDisconnect,
     /// Open a terminal pane (native only)
     OpenTerminal,
@@ -209,12 +212,6 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         kind: CommandKind::SingleArg,
     },
     PaletteCommand {
-        name: "team",
-        aliases: &[],
-        description: "Team (demo | connect <url> <token> | disconnect)",
-        kind: CommandKind::SingleArg,
-    },
-    PaletteCommand {
         name: "trace",
         aliases: &["tr", "tracing"],
         description: "Open a tracing pane (optionally with trace ID)",
@@ -279,6 +276,15 @@ const SYNC_COMMAND: PaletteCommand = PaletteCommand {
     kind: CommandKind::SingleArg,
 };
 
+/// Team command (requires teams feature)
+#[cfg(feature = "teams")]
+const TEAM_COMMAND: PaletteCommand = PaletteCommand {
+    name: "team",
+    aliases: &[],
+    description: "Team (demo | connect <url> <token> | disconnect)",
+    kind: CommandKind::SingleArg,
+};
+
 /// Returns all available commands based on enabled features.
 fn available_commands() -> Vec<&'static PaletteCommand> {
     #[allow(unused_mut)] // mut needed when terminal or sql features enabled
@@ -292,6 +298,9 @@ fn available_commands() -> Vec<&'static PaletteCommand> {
 
     #[cfg(not(target_arch = "wasm32"))]
     commands.push(&SYNC_COMMAND);
+
+    #[cfg(feature = "teams")]
+    commands.push(&TEAM_COMMAND);
 
     commands
 }
@@ -598,6 +607,7 @@ impl CommandPalette {
                     CommandResult::SetRefresh(args[0].to_lowercase())
                 }
             }
+            #[cfg(feature = "teams")]
             "team" => {
                 // :team demo - toggle team demo mode
                 // :team connect <url> <token> - connect to server
@@ -630,6 +640,10 @@ impl CommandPalette {
                     }
                 }
             }
+            #[cfg(not(feature = "teams"))]
+            "team" => CommandResult::Error(
+                "Team features are not enabled. Build with --features teams".to_string(),
+            ),
             "terminal" => CommandResult::OpenTerminal,
             "trace" | "tr" | "tracing" => {
                 // Optional trace ID argument

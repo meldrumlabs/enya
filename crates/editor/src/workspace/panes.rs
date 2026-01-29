@@ -1821,8 +1821,10 @@ impl Workspace {
     /// Collect pane info from all open QueryPane components.
     ///
     /// Used by the chat @-mention autocomplete to let users share visualizations in messages.
-    pub(super) fn collect_pane_info(&self) -> Vec<crate::chat::PaneInfo> {
-        use crate::chat::PaneVisualization;
+    /// Only used when the `teams` feature is enabled.
+    #[allow(dead_code)]
+    pub(super) fn collect_pane_info(&self) -> Vec<crate::components::pane::PaneInfo> {
+        use crate::components::pane::PaneVisualization;
         use crate::components::pane::visualization::VisualizationType;
 
         self.get_pane_tile_ids()
@@ -1894,7 +1896,7 @@ impl Workspace {
                             VisualizationType::Heatmap => PaneVisualization::Heatmap,
                         };
 
-                        return Some(crate::chat::PaneInfo {
+                        return Some(crate::components::pane::PaneInfo {
                             name,
                             viz_type,
                             visualization: pane_viz,
@@ -1910,8 +1912,8 @@ impl Workspace {
     pub(super) fn collect_pane_info_for_tile(
         &self,
         tile_id: egui_tiles::TileId,
-    ) -> Option<(crate::chat::PaneInfo, String)> {
-        use crate::chat::PaneVisualization;
+    ) -> Option<(crate::components::pane::PaneInfo, String)> {
+        use crate::components::pane::PaneVisualization;
         use crate::components::pane::visualization::VisualizationType;
 
         let component = match self.viewport_tree.tiles.get(tile_id) {
@@ -1968,7 +1970,7 @@ impl Workspace {
         };
 
         Some((
-            crate::chat::PaneInfo {
+            crate::components::pane::PaneInfo {
                 name,
                 viz_type,
                 visualization: pane_viz,
@@ -1977,8 +1979,9 @@ impl Workspace {
         ))
     }
 
-    /// Set available commits for # reference autocomplete in chat.
-    pub fn set_chat_commits(&mut self, commits: Vec<crate::chat::CommitInfo>) {
+    /// Set available commits for # reference autocomplete in chat (requires `teams` feature).
+    #[cfg(feature = "teams")]
+    pub fn set_chat_commits(&mut self, commits: Vec<crate::components::pane::CommitInfo>) {
         self.channels_panel.set_available_commits(commits);
     }
 

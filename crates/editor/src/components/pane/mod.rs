@@ -3,6 +3,7 @@
 pub mod annotation;
 pub mod inline_content;
 pub mod logs_pane;
+pub mod pane_info;
 pub mod plugin;
 pub mod query_pane;
 pub mod sql;
@@ -30,6 +31,7 @@ pub use super::util::AiProvider as AgentAiProvider;
 pub use annotation::{
     Annotation, AnnotationAuthor, AnnotationId, AnnotationPriority, AnnotationTarget,
 };
+pub use pane_info::{CommitInfo, PaneInfo, PaneVisualization};
 pub use query_pane::{QueryPane, QueryPaneAction};
 pub use time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
 pub use visualization::{

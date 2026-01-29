@@ -4,6 +4,11 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Teams feature flag**: Team collaboration features (chat, channels, presence) are now behind an optional `teams` Cargo feature flag, disabled by default. This decouples the individual user experience from team functionality, reducing binary size and compile time for users who don't need collaboration features. Enable with `--features teams`. Types shared between features (`PaneInfo`, `PaneVisualization`, `CommitInfo`, `ChatColors`) have been moved to always-compiled modules (`components/pane` and `ui`).
+- **Consolidated team module**: All team-related code is now organized under `src/team/` instead of being scattered across multiple locations. The new structure is: `team/state.rs` (TeamState, TeamConfig), `team/chat/` (channels, threads, messages), and `team/ui/` (team_menu, team_status). This improves code organization and makes the feature boundary clearer.
+
 ### Added
 
 - **Agent panel scroll UX**: Auto-scrolls to bottom during streaming when user is at the bottom. When the user scrolls up during an active stream, a floating "Jump to latest" pill button appears at the bottom of the chat area. Clicking it snaps back to the latest content.
@@ -42,6 +47,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **WASM build uuid compatibility**: Added `js` feature to uuid dependency for WASM builds. This fixes the `wasm32-unknown-unknown` target compilation which was failing due to uuid requiring a randomness source.
 - **Demo data timestamps**: Demo/tutorial charts now generate data relative to current time instead of a hardcoded timestamp from Nov 2023. All time presets (5m, 15m, 1h, 24h, 7d) now show consistent demo data.
 - **Demo panes feel like real setup**: Demo/tutorial panes now show loading animation and visual feedback when time range changes or refresh is triggered, making the tutorial experience identical to real data usage.
 - **Multi-select refresh (r key)**: Fixed `refresh()` to properly handle demo vs real panes with loading animation. Demo panes show loading briefly then regenerate demo data; real panes mark for re-query through the query executor.
