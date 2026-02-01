@@ -2989,7 +2989,11 @@ name = "enya"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "enya-editor",
+ "enya-plugin",
  "enya-workspace",
+ "mimalloc",
+ "serde_json",
 ]
 
 [[package]]
@@ -3203,6 +3207,7 @@ dependencies = [
  "serde",
  "tempfile",
  "toml",
+ "ureq",
 ]
 
 [[package]]

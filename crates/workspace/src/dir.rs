@@ -4,21 +4,14 @@ use std::path::PathBuf;
 
 use crate::WorkspaceConfig;
 
-/// Get the workspace directory path.
+/// Get the workspace directory path (`~/.enya/workspaces/`).
 ///
-/// Looks for `.enya/workspaces/` in the current working directory first,
-/// falling back to `~/.enya/workspaces/`.
+/// Creates the directory if it doesn't exist.
 pub fn workspace_dir() -> PathBuf {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let enya_dir = cwd.join(".enya").join("workspaces");
-    if enya_dir.exists() || std::fs::create_dir_all(&enya_dir).is_ok() {
-        return enya_dir;
-    }
-
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let home_enya = PathBuf::from(&home).join(".enya").join("workspaces");
-    let _ = std::fs::create_dir_all(&home_enya);
-    home_enya
+    let dir = PathBuf::from(&home).join(".enya").join("workspaces");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 /// Resolve a workspace name to a file path.

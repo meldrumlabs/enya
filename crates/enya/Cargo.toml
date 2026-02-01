@@ -4,15 +4,25 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Headless observability editor for machines and AI agents"
+description = "Observability editor for humans, machines, and AI agents"
 
 [[bin]]
 name = "enya"
 path = "src/main.rs"
 
+[features]
+default = ["ui"]
+ui = ["dep:enya-editor", "dep:mimalloc"]
+
 [dependencies]
 enya-workspace = { workspace = true }
+enya-plugin = { workspace = true }
 clap = { workspace = true }
+serde_json = { workspace = true }
+
+# GUI dependencies (optional, enabled by default via "ui" feature)
+enya-editor = { path = "../editor", optional = true }
+mimalloc = { workspace = true, optional = true }
 
 [lints]
 workspace = true

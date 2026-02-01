@@ -23,6 +23,7 @@ egui = { workspace = true }
 # Plugin filesystem loading
 dirs = "5.0"
 open = "5.3"
+ureq = "3"
 # Lua scripting support
 mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
 parking_lot = { workspace = true }

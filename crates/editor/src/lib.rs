@@ -66,3 +66,73 @@ pub use plugin::{
 };
 
 pub use app::{AppState, EnyaApp};
+
+/// Launch the native GUI editor.
+///
+/// Handles the complete native app lifecycle: logging, async runtime,
+/// TLS setup, profiling, and eframe window creation.
+///
+/// If `startup_workspace` is `Some`, that workspace will be loaded on the first frame.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_native_app(startup_workspace: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging. Use RUST_LOG env var to control log levels.
+    // Default: enya_editor=info, everything else=warn (to suppress wgpu noise)
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Warn)
+        .env()
+        .with_module_level("enya_editor", log::LevelFilter::Info)
+        .init()
+        .unwrap();
+
+    // Create tokio runtime for async operations (AI agent, background tasks)
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create tokio runtime");
+    let async_runtime = AsyncRuntime::new(tokio_runtime.handle().clone());
+
+    // Initialize puffin profiler server when puffin feature is enabled
+    #[cfg(feature = "puffin")]
+    let _puffin_server = {
+        let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
+        puffin::set_scopes_on(true);
+        log::info!("Puffin profiler server listening on {server_addr}");
+        puffin_http::Server::new(&server_addr).ok()
+    };
+
+    // Setup a CryptoProvider to be able to use wss connections
+    match rustls::crypto::ring::default_provider().install_default() {
+        Ok(()) => {}
+        Err(_) => panic!("failed to install CryptoProvider"),
+    }
+
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1280.0, 800.0])
+            .with_min_inner_size([800.0, 600.0])
+            .with_icon(util::png_to_icon_data(
+                &include_bytes!("../assets/logo.png")[..],
+            ))
+            .with_titlebar_shown(false)
+            .with_titlebar_buttons_shown(false)
+            .with_fullsize_content_view(true)
+            .with_app_id("Enya"),
+        ..Default::default()
+    };
+
+    let result = eframe::run_native(
+        "",
+        native_options,
+        Box::new(move |cc| {
+            let mut app = EnyaApp::new(cc, async_runtime);
+            if let Some(ws) = startup_workspace {
+                app.set_startup_workspace(ws);
+            }
+            Ok(Box::new(app))
+        }),
+    );
+
+    drop(tokio_runtime);
+
+    result.map_err(|e| e.into())
+}
