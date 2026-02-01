@@ -13,10 +13,10 @@ path = "src/main.rs"
 [features]
 default = ["ui"]
 ui = ["dep:enya-editor", "dep:mimalloc"]
+sql = ["enya-headless/sql"]
 
 [dependencies]
-enya-workspace = { workspace = true }
-enya-plugin = { workspace = true }
+enya-headless = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 

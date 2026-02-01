@@ -5,8 +5,6 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use clap::{Parser, Subcommand};
 use std::process::ExitCode;
 
-mod commands;
-
 /// Enya — observability editor for humans, machines, and AI agents
 ///
 /// Run without a subcommand to launch the GUI editor.
@@ -76,6 +74,44 @@ enum Command {
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
+
+    /// Run a query (PromQL by default, SQL with --sql)
+    Query {
+        /// Query expression (PromQL or SQL)
+        expression: String,
+
+        /// Execute as SQL via DataFusion instead of PromQL
+        #[arg(long)]
+        sql: bool,
+
+        /// Backend endpoint URL (e.g. http://localhost:9090 for Prometheus)
+        #[arg(short, long)]
+        endpoint: Option<String>,
+
+        /// Read endpoint from a workspace
+        #[arg(short = 'w', long = "workspace")]
+        query_workspace: Option<String>,
+
+        /// Start of time range (default: 1 hour ago; e.g. "1h", "30m", "2024-01-01T00:00:00Z")
+        #[arg(long, default_value = "1h")]
+        start: String,
+
+        /// End of time range (default: now)
+        #[arg(long, default_value = "now")]
+        end: String,
+
+        /// Query step/resolution for PromQL (e.g. "15s", "1m", "5m")
+        #[arg(long, default_value = "60s")]
+        step: String,
+
+        /// Register a local file as a SQL table (NAME=PATH or just PATH)
+        #[arg(long, value_name = "NAME=PATH")]
+        file: Vec<String>,
+
+        /// Maximum rows to return
+        #[arg(long)]
+        limit: Option<usize>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -108,25 +144,66 @@ fn main() -> ExitCode {
                 endpoint,
                 template,
                 output,
-            } => commands::init(
+            } => enya_headless::workspace::init(
                 name,
                 endpoint.as_deref(),
                 template.as_deref(),
                 output.as_deref(),
                 json,
             ),
-            Command::List => commands::list(json),
-            Command::Show { name } => commands::show(&name, json),
-            Command::Rm { name } => commands::rm(&name, json),
+            Command::List => enya_headless::workspace::list(json),
+            Command::Show { name } => enya_headless::workspace::show(&name, json),
+            Command::Rm { name } => enya_headless::workspace::rm(&name, json),
             Command::Plugins { command: sub } => match sub {
-                None => commands::plugins(json),
+                None => enya_headless::plugins::plugins(json),
                 Some(PluginsCommand::Install { source }) => {
-                    commands::plugins_install(&source, json)
+                    enya_headless::plugins::plugins_install(&source, json)
                 }
-                Some(PluginsCommand::Remove { name }) => commands::plugins_remove(&name, json),
-                Some(PluginsCommand::Commands) => commands::plugins_commands(json),
+                Some(PluginsCommand::Remove { name }) => {
+                    enya_headless::plugins::plugins_remove(&name, json)
+                }
+                Some(PluginsCommand::Commands) => enya_headless::plugins::plugins_commands(json),
             },
-            Command::Exec { command, args } => commands::exec(&command, &args.join(" "), json),
+            Command::Exec { command, args } => {
+                enya_headless::plugins::exec(&command, &args.join(" "), json)
+            }
+            Command::Query {
+                expression,
+                sql,
+                endpoint,
+                query_workspace,
+                start,
+                end,
+                step,
+                file,
+                limit,
+            } => {
+                if sql {
+                    #[cfg(feature = "sql")]
+                    {
+                        enya_headless::query::sql::query(&expression, &file, limit, json)
+                    }
+                    #[cfg(not(feature = "sql"))]
+                    {
+                        let _ = (&expression, &file, limit);
+                        Err(
+                            "SQL queries require the 'sql' feature (rebuild with --features sql)"
+                                .into(),
+                        )
+                    }
+                } else {
+                    enya_headless::query::promql::query(
+                        &expression,
+                        endpoint.as_deref(),
+                        query_workspace.as_deref(),
+                        &start,
+                        &end,
+                        &step,
+                        limit,
+                        json,
+                    )
+                }
+            }
         };
 
         return match result {

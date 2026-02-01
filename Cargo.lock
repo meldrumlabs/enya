@@ -2990,8 +2990,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "enya-editor",
- "enya-plugin",
- "enya-workspace",
+ "enya-headless",
  "mimalloc",
  "serde_json",
 ]
@@ -3168,6 +3167,20 @@ dependencies = [
  "web-sys",
  "web-time",
  "wgpu",
+]
+
+[[package]]
+name = "enya-headless"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "enya-datafusion",
+ "enya-plugin",
+ "enya-workspace",
+ "serde",
+ "serde_json",
+ "tokio",
+ "ureq",
 ]
 
 [[package]]
