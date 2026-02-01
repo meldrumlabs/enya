@@ -1,0 +1,18 @@
+[package]
+name = "enya"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Headless observability editor for machines and AI agents"
+
+[[bin]]
+name = "enya"
+path = "src/main.rs"
+
+[dependencies]
+enya-workspace = { workspace = true }
+clap = { workspace = true }
+
+[lints]
+workspace = true

@@ -9,6 +9,8 @@
 
 mod compact;
 pub mod config;
+#[cfg(not(target_arch = "wasm32"))]
+mod dir;
 mod templates;
 
 // Re-export all public types at crate root for convenience
@@ -17,6 +19,9 @@ pub use config::{
     MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval, SectionConfig, SectionLayout,
     TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use dir::{list_workspaces, resolve_workspace_path, workspace_dir};
 
 pub use templates::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,

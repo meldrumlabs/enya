@@ -37,9 +37,10 @@ members = [
   "crates/plugin",
   # Workspace configuration (shared between editor and CLI)
   "crates/workspace",
+  # CLI tool
+  "crates/enya",
 ]
 # Excluded for faster compilation (editor-focused development):
-# - crates/enya (main server)
 # - crates/agent
 # - crates/metrics-store
 # - crates/log-store
@@ -99,6 +100,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
 
 parking_lot = { version = "0.12", features = ["serde"] }
 simple_logger = { version = "5.1", default-features = false }
