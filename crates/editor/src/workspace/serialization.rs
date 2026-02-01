@@ -10,9 +10,9 @@ use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
     ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
-    LayoutType, LogsConfig, MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval,
-    SectionState, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
-    WorkspaceMeta,
+    LayoutType, LogsConfig, MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
+    SectionState, TimeConfigExt, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
+    WorkspaceMeta, pane_from_query_state, time_config_from_preset_with_refresh,
 };
 use crate::components::{Component, QueryPane};
 
@@ -33,7 +33,7 @@ impl Workspace {
             if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
                 if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
                     let state = query_pane.query_state();
-                    panes.push(PaneConfig::from_query_state(
+                    panes.push(pane_from_query_state(
                         query_pane.saved_query(),
                         query_pane.name(),
                         query_pane.tag(),
@@ -59,7 +59,7 @@ impl Workspace {
                 zen_mode: self.zen_mode,
                 ..Default::default()
             },
-            time: TimeConfig::from_preset_with_refresh(
+            time: time_config_from_preset_with_refresh(
                 self.time_range_toolbar.time_range().preset,
                 self.refresh_interval.unwrap_or_default(),
             ),

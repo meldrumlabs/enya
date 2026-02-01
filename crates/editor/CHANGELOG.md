@@ -6,6 +6,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Extract workspace config into `enya-workspace` crate**: Workspace configuration types (`WorkspaceConfig`, `PaneConfig`, `TimeConfig`, `ViewConfig`, `LayoutConfig`, etc.), compact binary encoding, and workspace templates have been moved to the new standalone `enya-workspace` crate. The editor now depends on `enya-workspace` and re-exports all types, so downstream code is unaffected. Editor-specific conversion methods (using `Granularity`, `VisualizationType`, `AppTheme`, `TimeRangePreset`, `QueryState`) are provided via extension traits (`PaneConfigExt`, `TimeConfigExt`, `ViewConfigExt`) and free functions. This decouples the serializable workspace format from the editor UI, enabling a future CLI tool and other consumers to create/read workspace files without pulling in egui.
+
+### Changed
+
 - **Teams feature flag**: Team collaboration features (chat, channels, presence) are now behind an optional `teams` Cargo feature flag, disabled by default. This decouples the individual user experience from team functionality, reducing binary size and compile time for users who don't need collaboration features. Enable with `--features teams`. Types shared between features (`PaneInfo`, `PaneVisualization`, `CommitInfo`, `ChatColors`) have been moved to always-compiled modules (`components/pane` and `ui`).
 - **Consolidated team module**: All team-related code is now organized under `src/team/` instead of being scattered across multiple locations. The new structure is: `team/state.rs` (TeamState, TeamConfig), `team/chat/` (channels, threads, messages), and `team/ui/` (team_menu, team_status). This improves code organization and makes the feature boundary clearer.
 

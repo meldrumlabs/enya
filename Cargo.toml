@@ -35,6 +35,8 @@ members = [
   "crates/datafusion",
   # Plugin system
   "crates/plugin",
+  # Workspace configuration (shared between editor and CLI)
+  "crates/workspace",
 ]
 # Excluded for faster compilation (editor-focused development):
 # - crates/enya (main server)
@@ -56,6 +58,7 @@ enya-search = { path = "crates/search", version = "0.1.0" }
 enya-team-api = { path = "crates/team-api", version = "0.1.0" }
 enya-datafusion = { path = "crates/datafusion", version = "0.1.0" }
 enya-plugin = { path = "crates/plugin", version = "0.1.0" }
+enya-workspace = { path = "crates/workspace", version = "0.1.0" }
 egui_ghostty = { path = "crates/egui_ghostty" }
 
 # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts

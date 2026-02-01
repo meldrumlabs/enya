@@ -106,9 +106,10 @@ use layout_animation::LayoutAnimator;
 pub use config::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
     DEMO_WORKSPACE_TOML, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
-    LogsConfig, MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval, SectionConfig,
-    SectionLayout, TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError,
-    WorkspaceMeta,
+    LogsConfig, MetricsConfig, PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
+    SectionConfig, SectionLayout, TimeConfig, TimeConfigExt, ViewConfig, ViewConfigExt,
+    WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta, pane_from_query_state,
+    pane_from_query_state_with_viz, time_config_from_preset, time_config_from_preset_with_refresh,
 };
 
 /// Actions that the Workspace needs the App to handle

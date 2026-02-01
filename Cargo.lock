@@ -3081,7 +3081,6 @@ name = "enya-editor"
 version = "0.1.0"
 dependencies = [
  "arboard",
- "base64 0.22.1",
  "chrono",
  "criterion",
  "dirs",
@@ -3104,18 +3103,17 @@ dependencies = [
  "enya-promql",
  "enya-search",
  "enya-team-api",
+ "enya-workspace",
  "gloo-timers",
  "image",
  "insta",
  "js-sys",
  "log",
- "lz4_flex 0.11.5",
  "mimalloc",
  "nohash-hasher",
  "nucleo-matcher",
  "open",
  "parking_lot",
- "postcard",
  "profiling",
  "puffin",
  "puffin_http",
@@ -3223,6 +3221,19 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-time",
+]
+
+[[package]]
+name = "enya-workspace"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "insta",
+ "lz4_flex 0.11.5",
+ "postcard",
+ "rustc-hash 2.1.1",
+ "serde",
+ "toml",
 ]
 
 [[package]]
