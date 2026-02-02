@@ -435,6 +435,26 @@ Syncs the repository by fetching latest git commits and re-indexing the codebase
 
 ---
 
+### `load_workspace`
+
+Loads a saved workspace by name. This is the key command for agent-to-human handoff: after building a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`, etc.), the agent can load it in the GUI for the human to view.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `workspace` | string | Yes | Workspace name (as shown in `enya list`) |
+
+**Example:**
+```json
+{"action": "load_workspace", "workspace": "incident-42"}
+```
+
+**Typical workflow:**
+1. Agent creates workspace via CLI: `enya init incident-42 -e http://prometheus:9090`
+2. Agent adds sections and panes via CLI
+3. Agent loads it in the GUI: `{"action": "load_workspace", "workspace": "incident-42"}`
+
+---
+
 ## Command Preferences
 
 When responding to users:
@@ -449,6 +469,7 @@ When responding to users:
 8. **Organization**: Use `create_section` for Grafana-style collapsible sections to organize related metrics
 9. **Investigation**: Use `create_floating_pane` for temporary investigation panes that don't disrupt the layout
 10. **Focus**: Use `maximize_pane` to fullscreen important metrics during incident response
+11. **Handoff**: Use `load_workspace` to load a workspace built via CLI into the GUI for the human
 
 ## Implementation
 

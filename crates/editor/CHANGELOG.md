@@ -4,6 +4,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`load_workspace` agent command**: AI agents can now programmatically load a saved workspace in the GUI using `{"action": "load_workspace", "workspace": "name"}`. This enables the agent-to-human handoff workflow: an agent builds a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`), then loads it in the editor for the human to view.
+
 ### Changed
 
 - **Extract workspace config into `enya-workspace` crate**: Workspace configuration types (`WorkspaceConfig`, `PaneConfig`, `TimeConfig`, `ViewConfig`, `LayoutConfig`, etc.), compact binary encoding, and workspace templates have been moved to the new standalone `enya-workspace` crate. The editor now depends on `enya-workspace` and re-exports all types, so downstream code is unaffected. Editor-specific conversion methods (using `Granularity`, `VisualizationType`, `AppTheme`, `TimeRangePreset`, `QueryState`) are provided via extension traits (`PaneConfigExt`, `TimeConfigExt`, `ViewConfigExt`) and free functions. This decouples the serializable workspace format from the editor UI, enabling a future CLI tool and other consumers to create/read workspace files without pulling in egui.

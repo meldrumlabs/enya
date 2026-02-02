@@ -202,6 +202,12 @@ enum Command {
         #[arg(long)]
         section: Option<String>,
     },
+
+    /// Open a workspace in the GUI editor
+    Open {
+        /// Workspace name or path
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -225,8 +231,14 @@ enum PluginsCommand {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    // `enya open <name>` is equivalent to `enya --workspace <name>` (launches GUI)
+    let (command, workspace) = match cli.command {
+        Some(Command::Open { name }) => (None, Some(name)),
+        cmd => (cmd, cli.workspace),
+    };
+
     // If a subcommand is provided, run headless CLI
-    if let Some(command) = cli.command {
+    if let Some(command) = command {
         let json = cli.json;
         let result = match command {
             Command::Completions { shell } => {
@@ -346,6 +358,7 @@ fn main() -> ExitCode {
                 pane,
                 section,
             } => enya_headless::workspace::remove_pane(&name, &pane, section.as_deref(), json),
+            Command::Open { .. } => unreachable!("handled above"),
         };
 
         return match result {
@@ -365,10 +378,10 @@ fn main() -> ExitCode {
         };
     }
 
-    // No subcommand: launch GUI editor
+    // No subcommand (or `open`): launch GUI editor
     #[cfg(feature = "ui")]
     {
-        match enya_editor::run_native_app(cli.workspace) {
+        match enya_editor::run_native_app(workspace) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("error: {e}");

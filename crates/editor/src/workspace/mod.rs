@@ -316,6 +316,8 @@ pub struct Workspace {
     /// Pending git repo path to configure (set from workspace creator)
     #[cfg(not(target_arch = "wasm32"))]
     pending_git_repo: Option<String>,
+    /// Pending workspace load (set by agent command, consumed in show())
+    pending_load_workspace: Option<String>,
     /// Native app promo overlay (WASM only)
     #[cfg(target_arch = "wasm32")]
     native_promo_overlay: NativePromoOverlay,
@@ -484,6 +486,7 @@ impl Workspace {
             last_refresh: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_git_repo: None,
+            pending_load_workspace: None,
             #[cfg(target_arch = "wasm32")]
             native_promo_overlay: NativePromoOverlay::new(),
             unified_finder: UnifiedFinder::new(),
@@ -659,6 +662,11 @@ impl Workspace {
                     self.exit_agent_mode();
                 }
             }
+        }
+
+        // Handle pending workspace load from agent command
+        if let Some(name) = self.pending_load_workspace.take() {
+            return WorkspaceAction::LoadWorkspace(name);
         }
 
         // Check auto-refresh timer and trigger refresh if due

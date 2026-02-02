@@ -25,6 +25,9 @@ enya init <name> -o ./my-workspace.toml       # write to specific path
 
 # Delete a workspace
 enya rm <name>
+
+# Open a workspace in the GUI editor
+enya open <name>
 ```
 
 ### Workspace Properties
@@ -361,7 +364,7 @@ enya set incident-42 time.preset 1h
 enya set incident-42 workspace.description "Elevated 5xx errors on API gateway since 14:30 UTC"
 
 # 5. Human opens the workspace in the GUI
-enya --workspace incident-42
+enya open incident-42
 ```
 
 ### Quick Exploration
