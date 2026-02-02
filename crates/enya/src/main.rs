@@ -2,7 +2,8 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use std::process::ExitCode;
 
 /// Enya — observability editor for humans, machines, and AI agents
@@ -75,6 +76,12 @@ enum Command {
         args: Vec<String>,
     },
 
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
+    },
+
     /// Run a query (PromQL by default, SQL with --sql)
     Query {
         /// Query expression (PromQL or SQL)
@@ -112,6 +119,89 @@ enum Command {
         #[arg(long)]
         limit: Option<usize>,
     },
+
+    /// Get a workspace property
+    Get {
+        /// Workspace name or path
+        name: String,
+        /// Property key (e.g. "time.preset", "metrics.endpoint")
+        key: String,
+    },
+
+    /// Set a workspace property
+    Set {
+        /// Workspace name or path
+        name: String,
+        /// Property key (e.g. "time.preset", "metrics.endpoint")
+        key: String,
+        /// New value
+        value: String,
+    },
+
+    /// Add a section to a workspace
+    AddSection {
+        /// Workspace name or path
+        name: String,
+        /// Section name
+        section_name: String,
+        /// Layout: horizontal, vertical, grid, tabs
+        #[arg(long, default_value = "horizontal")]
+        layout: String,
+        /// Number of columns (for grid layout)
+        #[arg(long)]
+        columns: Option<usize>,
+        /// Start section collapsed
+        #[arg(long)]
+        collapsed: bool,
+    },
+
+    /// Add a query pane to a workspace
+    AddPane {
+        /// Workspace name or path
+        name: String,
+        /// Query expression
+        query: String,
+        /// Display name for the pane
+        #[arg(long = "name")]
+        pane_name: Option<String>,
+        /// Target section (defaults to last section)
+        #[arg(long)]
+        section: Option<String>,
+        /// Tag (e.g. "Critical", "Warning")
+        #[arg(long)]
+        tag: Option<String>,
+        /// Unit suffix (e.g. "ms", "req/s")
+        #[arg(long)]
+        unit: Option<String>,
+        /// Granularity (e.g. "1m", "5m", "15m")
+        #[arg(long)]
+        granularity: Option<String>,
+        /// Visualization type (e.g. "time_series", "stat")
+        #[arg(long)]
+        visualization: Option<String>,
+        /// Description text
+        #[arg(long)]
+        description: Option<String>,
+    },
+
+    /// Remove a section from a workspace
+    RemoveSection {
+        /// Workspace name or path
+        name: String,
+        /// Section name to remove
+        section_name: String,
+    },
+
+    /// Remove a pane from a workspace
+    RemovePane {
+        /// Workspace name or path
+        name: String,
+        /// Pane name to remove
+        pane: String,
+        /// Limit search to a specific section
+        #[arg(long)]
+        section: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -139,6 +229,10 @@ fn main() -> ExitCode {
     if let Some(command) = cli.command {
         let json = cli.json;
         let result = match command {
+            Command::Completions { shell } => {
+                clap_complete::generate(shell, &mut Cli::command(), "enya", &mut std::io::stdout());
+                Ok(())
+            }
             Command::Init {
                 name,
                 endpoint,
@@ -204,6 +298,54 @@ fn main() -> ExitCode {
                     )
                 }
             }
+            Command::Get { name, key } => enya_headless::workspace::get(&name, &key, json),
+            Command::Set { name, key, value } => {
+                enya_headless::workspace::set(&name, &key, &value, json)
+            }
+            Command::AddSection {
+                name,
+                section_name,
+                layout,
+                columns,
+                collapsed,
+            } => enya_headless::workspace::add_section(
+                &name,
+                &section_name,
+                &layout,
+                columns,
+                collapsed,
+                json,
+            ),
+            Command::AddPane {
+                name,
+                query,
+                pane_name,
+                section,
+                tag,
+                unit,
+                granularity,
+                visualization,
+                description,
+            } => enya_headless::workspace::add_pane(
+                &name,
+                &query,
+                pane_name.as_deref(),
+                section.as_deref(),
+                tag.as_deref(),
+                unit.as_deref(),
+                granularity.as_deref(),
+                visualization.as_deref(),
+                description.as_deref(),
+                json,
+            ),
+            Command::RemoveSection { name, section_name } => {
+                enya_headless::workspace::remove_section(&name, &section_name, json)
+            }
+            Command::RemovePane {
+                name,
+                pane,
+                section,
+            } => enya_headless::workspace::remove_pane(&name, &pane, section.as_deref(), json),
         };
 
         return match result {

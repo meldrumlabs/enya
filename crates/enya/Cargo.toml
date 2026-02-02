@@ -18,6 +18,7 @@ sql = ["enya-headless/sql"]
 [dependencies]
 enya-headless = { workspace = true }
 clap = { workspace = true }
+clap_complete = { workspace = true }
 serde_json = { workspace = true }
 
 # GUI dependencies (optional, enabled by default via "ui" feature)

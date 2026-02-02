@@ -649,6 +649,17 @@ impl SectionLayout {
     pub fn is_default(&self) -> bool {
         *self == Self::Horizontal
     }
+
+    /// Parse a layout string (e.g. "horizontal", "vertical", "grid", "tabs")
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "horizontal" => Some(Self::Horizontal),
+            "vertical" => Some(Self::Vertical),
+            "grid" => Some(Self::Grid),
+            "tabs" => Some(Self::Tabs),
+            _ => None,
+        }
+    }
 }
 
 /// A section grouping multiple panes with a collapsible header
@@ -917,6 +928,27 @@ fn validate_layout_nodes(nodes: &[LayoutNode], pane_count: usize) -> Result<(), 
 }
 
 // =============================================================================
+// Value Parsing Helpers (for set_value)
+// =============================================================================
+
+fn parse_bool(key: &str, value: &str) -> Result<toml::Value, WorkspaceError> {
+    match value {
+        "true" => Ok(toml::Value::Boolean(true)),
+        "false" => Ok(toml::Value::Boolean(false)),
+        _ => Err(WorkspaceError::Decode(format!(
+            "{key} is a boolean (expected \"true\" or \"false\")"
+        ))),
+    }
+}
+
+fn parse_integer(key: &str, value: &str) -> Result<toml::Value, WorkspaceError> {
+    let i: i64 = value
+        .parse()
+        .map_err(|_| WorkspaceError::Decode(format!("{key} is an integer")))?;
+    Ok(toml::Value::Integer(i))
+}
+
+// =============================================================================
 // WorkspaceConfig Implementation
 // =============================================================================
 
@@ -998,6 +1030,42 @@ impl WorkspaceConfig {
         self.sections.push(section);
     }
 
+    /// Find a section index by name
+    pub fn find_section(&self, name: &str) -> Option<usize> {
+        self.sections.iter().position(|s| s.name == name)
+    }
+
+    /// Find panes matching a name across all sections.
+    /// Returns `Vec<(section_index, pane_index)>`.
+    pub fn find_pane_by_name(&self, name: &str) -> Vec<(usize, usize)> {
+        let mut results = Vec::new();
+        for (si, section) in self.sections.iter().enumerate() {
+            for (pi, pane) in section.panes.iter().enumerate() {
+                if pane.name == name {
+                    results.push((si, pi));
+                }
+            }
+        }
+        results
+    }
+
+    /// Ensure at least one section exists.
+    /// Migrates legacy panes into a "Default" section, or creates an empty one.
+    pub fn ensure_default_section(&mut self) {
+        if self.sections.is_empty() {
+            if !self.panes.is_empty() {
+                let section = SectionConfig {
+                    panes: std::mem::take(&mut self.panes),
+                    ..SectionConfig::new("Default")
+                };
+                self.sections.push(section);
+                self.layout = None;
+            } else {
+                self.sections.push(SectionConfig::new("Default"));
+            }
+        }
+    }
+
     /// Get all panes across all sections (flattened view)
     /// If sections is empty, returns legacy panes
     pub fn all_panes(&self) -> Vec<&PaneConfig> {
@@ -1029,6 +1097,90 @@ impl WorkspaceConfig {
             self.layout = None;
         }
         self
+    }
+
+    /// Get a property value by dot-notation key (e.g. "time.preset", "metrics.endpoint").
+    ///
+    /// The struct always has defaults filled by serde, so this returns the effective
+    /// value even for fields not explicitly set in the TOML file.
+    pub fn get_value(&self, key: &str) -> Result<String, WorkspaceError> {
+        let val = match key {
+            "workspace.name" => self.workspace.name.as_str(),
+            "workspace.description" => self.workspace.description.as_str(),
+            "workspace.endpoint" => self.workspace.endpoint.as_str(),
+            "metrics.endpoint" => self.metrics.endpoint.as_str(),
+            "metrics.api_key" => self.metrics.api_key.as_str(),
+            "logs.endpoint" => self.logs.endpoint.as_str(),
+            "logs.api_key" => self.logs.api_key.as_str(),
+            "logs.default_query" => self.logs.default_query.as_str(),
+            "git.url" => self.git.url.as_str(),
+            "git.branch" => self.git.branch.as_str(),
+            "git.language" => self.git.language.as_str(),
+            "view.theme" => self.view.theme.as_str(),
+            "view.zen_mode" => return Ok(self.view.zen_mode.to_string()),
+            "time.preset" => self.time.preset.as_str(),
+            "time.refresh" => {
+                if self.time.refresh.is_empty() {
+                    return Ok("off".to_string());
+                }
+                self.time.refresh.as_str()
+            }
+            _ => {
+                return Err(WorkspaceError::Decode(format!("unknown property: {key}")));
+            }
+        };
+        Ok(val.to_string())
+    }
+
+    /// Set a property value by dot-notation key.
+    ///
+    /// Works by modifying the serialized TOML table, then round-tripping through
+    /// deserialization for validation. This means any field the struct knows about
+    /// is settable, and invalid values are caught by serde.
+    pub fn set_value(&mut self, key: &str, value: &str) -> Result<(), WorkspaceError> {
+        let (section, field) = key.split_once('.').ok_or_else(|| {
+            WorkspaceError::Decode(format!(
+                "invalid key format: {key} (expected section.field)"
+            ))
+        })?;
+
+        // Serialize current config to TOML value tree
+        let toml_str = self.to_toml()?;
+        let mut root: toml::Value = toml_str.parse().map_err(WorkspaceError::Parse)?;
+
+        let root_table = root
+            .as_table_mut()
+            .ok_or_else(|| WorkspaceError::Decode("config is not a table".into()))?;
+
+        // Ensure the section table exists (may have been skipped by skip_serializing_if)
+        let section_table = root_table
+            .entry(section)
+            .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+            .as_table_mut()
+            .ok_or_else(|| WorkspaceError::Decode(format!("{section} is not a table")))?;
+
+        // Infer the correct TOML type from the existing value or known schema
+        let typed = match section_table.get(field) {
+            Some(toml::Value::Boolean(_)) => parse_bool(key, value)?,
+            Some(toml::Value::Integer(_)) => parse_integer(key, value)?,
+            _ => {
+                // Field doesn't exist yet or is a string — check known booleans/integers
+                match key {
+                    "view.zen_mode" => parse_bool(key, value)?,
+                    "workspace.version" => parse_integer(key, value)?,
+                    _ => toml::Value::String(value.to_string()),
+                }
+            }
+        };
+
+        section_table.insert(field.to_string(), typed);
+
+        // Round-trip: serialize back to string, then deserialize as WorkspaceConfig.
+        // This validates the value through serde (e.g. unknown fields, type mismatches).
+        let new_toml = toml::to_string_pretty(&root).map_err(WorkspaceError::Serialize)?;
+        *self = Self::from_toml(&new_toml)?;
+
+        Ok(())
     }
 
     /// Parse a workspace from TOML string
@@ -2136,6 +2288,81 @@ name = "Memory Usage"
     }
 
     #[test]
+    fn test_section_layout_parse() {
+        assert_eq!(
+            SectionLayout::parse("horizontal"),
+            Some(SectionLayout::Horizontal)
+        );
+        assert_eq!(
+            SectionLayout::parse("Vertical"),
+            Some(SectionLayout::Vertical)
+        );
+        assert_eq!(SectionLayout::parse("GRID"), Some(SectionLayout::Grid));
+        assert_eq!(SectionLayout::parse("tabs"), Some(SectionLayout::Tabs));
+        assert_eq!(SectionLayout::parse("invalid"), None);
+    }
+
+    #[test]
+    fn test_find_section() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_section(SectionConfig::new("API"));
+        ws.add_section(SectionConfig::new("Infra"));
+
+        assert_eq!(ws.find_section("API"), Some(0));
+        assert_eq!(ws.find_section("Infra"), Some(1));
+        assert_eq!(ws.find_section("Missing"), None);
+    }
+
+    #[test]
+    fn test_find_pane_by_name() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_section(
+            SectionConfig::new("S1")
+                .with_pane(PaneConfig::new("q1").with_name("Request Rate"))
+                .with_pane(PaneConfig::new("q2").with_name("Latency")),
+        );
+        ws.add_section(SectionConfig::new("S2").with_pane(PaneConfig::new("q3").with_name("CPU")));
+
+        assert_eq!(ws.find_pane_by_name("Request Rate"), vec![(0, 0)]);
+        assert_eq!(ws.find_pane_by_name("CPU"), vec![(1, 0)]);
+        assert!(ws.find_pane_by_name("Missing").is_empty());
+    }
+
+    #[test]
+    fn test_ensure_default_section_empty() {
+        let mut ws = WorkspaceConfig::new("test");
+        assert!(ws.sections.is_empty());
+
+        ws.ensure_default_section();
+        assert_eq!(ws.sections.len(), 1);
+        assert_eq!(ws.sections[0].name, "Default");
+        assert!(ws.sections[0].panes.is_empty());
+    }
+
+    #[test]
+    fn test_ensure_default_section_with_legacy_panes() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_pane(PaneConfig::new("q1").with_name("P1"));
+        ws.add_pane(PaneConfig::new("q2").with_name("P2"));
+
+        ws.ensure_default_section();
+        assert_eq!(ws.sections.len(), 1);
+        assert_eq!(ws.sections[0].name, "Default");
+        assert_eq!(ws.sections[0].panes.len(), 2);
+        assert!(ws.panes.is_empty());
+    }
+
+    #[test]
+    fn test_ensure_default_section_noop_if_sections_exist() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.add_section(SectionConfig::new("Existing"));
+
+        ws.ensure_default_section();
+        assert_eq!(ws.sections.len(), 1);
+        assert_eq!(ws.sections[0].name, "Existing");
+    }
+
+    #[test]
     fn test_workspace_migrate_to_sections_noop() {
         // Already using sections - should be a no-op
         let mut ws = WorkspaceConfig::new("test");
@@ -2145,6 +2372,97 @@ name = "Memory Usage"
 
         assert_eq!(ws.sections.len(), 1);
         assert_eq!(ws.sections[0].name, "Existing");
+    }
+
+    #[test]
+    fn test_get_value_defaults() {
+        let ws = WorkspaceConfig::new("test-ws");
+        assert_eq!(ws.get_value("workspace.name").unwrap(), "test-ws");
+        assert_eq!(ws.get_value("workspace.description").unwrap(), "");
+        assert_eq!(ws.get_value("workspace.endpoint").unwrap(), "");
+        assert_eq!(ws.get_value("view.theme").unwrap(), "dark");
+        assert_eq!(ws.get_value("view.zen_mode").unwrap(), "false");
+        assert_eq!(ws.get_value("time.preset").unwrap(), "15m");
+        assert_eq!(ws.get_value("time.refresh").unwrap(), "off");
+        assert_eq!(ws.get_value("metrics.endpoint").unwrap(), "");
+        assert_eq!(ws.get_value("git.url").unwrap(), "");
+    }
+
+    #[test]
+    fn test_get_value_with_endpoint() {
+        let ws = WorkspaceConfig::with_endpoint("test-ws", "http://prom:9090");
+        assert_eq!(
+            ws.get_value("workspace.endpoint").unwrap(),
+            "http://prom:9090"
+        );
+    }
+
+    #[test]
+    fn test_get_value_unknown_key() {
+        let ws = WorkspaceConfig::new("test");
+        assert!(ws.get_value("bogus.field").is_err());
+        assert!(ws.get_value("workspace.nonexistent").is_err());
+    }
+
+    #[test]
+    fn test_set_value_string_field() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.set_value("time.preset", "1h").unwrap();
+        assert_eq!(ws.time.preset, "1h");
+
+        ws.set_value("workspace.description", "My dashboard")
+            .unwrap();
+        assert_eq!(ws.workspace.description, "My dashboard");
+    }
+
+    #[test]
+    fn test_set_value_endpoint() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.set_value("metrics.endpoint", "http://prom:9090")
+            .unwrap();
+        assert_eq!(ws.metrics.endpoint, "http://prom:9090");
+    }
+
+    #[test]
+    fn test_set_value_boolean() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.set_value("view.zen_mode", "true").unwrap();
+        assert!(ws.view.zen_mode);
+
+        ws.set_value("view.zen_mode", "false").unwrap();
+        assert!(!ws.view.zen_mode);
+    }
+
+    #[test]
+    fn test_set_value_boolean_invalid() {
+        let mut ws = WorkspaceConfig::new("test");
+        assert!(ws.set_value("view.zen_mode", "yes").is_err());
+    }
+
+    #[test]
+    fn test_set_value_invalid_key_format() {
+        let mut ws = WorkspaceConfig::new("test");
+        assert!(ws.set_value("noperiod", "val").is_err());
+    }
+
+    #[test]
+    fn test_set_value_roundtrip() {
+        let mut ws = WorkspaceConfig::new("roundtrip-test");
+        ws.set_value("workspace.endpoint", "http://localhost:9090")
+            .unwrap();
+        ws.set_value("time.preset", "30m").unwrap();
+        ws.set_value("view.theme", "light").unwrap();
+
+        // Verify all values stuck after multiple set operations
+        assert_eq!(
+            ws.get_value("workspace.endpoint").unwrap(),
+            "http://localhost:9090"
+        );
+        assert_eq!(ws.get_value("time.preset").unwrap(), "30m");
+        assert_eq!(ws.get_value("view.theme").unwrap(), "light");
+        // Other defaults should be preserved
+        assert_eq!(ws.get_value("workspace.name").unwrap(), "roundtrip-test");
+        assert_eq!(ws.get_value("view.zen_mode").unwrap(), "false");
     }
 
     #[test]
