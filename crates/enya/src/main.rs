@@ -2,6 +2,9 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+#[cfg(feature = "serve")]
+mod serve;
+
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::process::ExitCode;
@@ -208,6 +211,24 @@ enum Command {
         /// Workspace name or path
         name: String,
     },
+
+    /// Serve the WASM editor over HTTP with a Prometheus proxy
+    Serve {
+        /// Workspace name or path to TOML file
+        workspace: String,
+
+        /// Port to listen on
+        #[arg(long, default_value = "3030")]
+        port: u16,
+
+        /// Address to bind to
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: String,
+
+        /// Open browser after starting
+        #[arg(long)]
+        open: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -358,6 +379,22 @@ fn main() -> ExitCode {
                 pane,
                 section,
             } => enya_headless::workspace::remove_pane(&name, &pane, section.as_deref(), json),
+            Command::Serve {
+                workspace,
+                port,
+                bind,
+                open,
+            } => {
+                #[cfg(feature = "serve")]
+                {
+                    serve::run(&workspace, port, &bind, open)
+                }
+                #[cfg(not(feature = "serve"))]
+                {
+                    let _ = (&workspace, port, &bind, open);
+                    Err("serve requires the 'serve' feature (rebuild with --features serve)".into())
+                }
+            }
             Command::Open { .. } => unreachable!("handled above"),
         };
 

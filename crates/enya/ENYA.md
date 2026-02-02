@@ -321,6 +321,67 @@ Use `--file` to register local files (Parquet, CSV, JSON). Format: `NAME=PATH` o
 }
 ```
 
+## Serve (Remote / Headless Access)
+
+Serve the WASM editor over HTTP with a built-in Prometheus proxy. Requires the `serve` feature (`--features serve`). The WASM assets are embedded in the binary at compile time.
+
+```sh
+# Serve a workspace on default port (3030)
+enya serve <workspace>
+
+# Custom port and bind address
+enya serve <workspace> --port 8080 --bind 0.0.0.0
+
+# Open browser automatically
+enya serve <workspace> --open
+```
+
+Options:
+- `--port` — Port to listen on (default: 3030)
+- `--bind` — Address to bind to (default: 127.0.0.1)
+- `--open` — Open the browser after starting
+
+The server:
+1. Embeds the WASM editor as static assets (single binary, no external files)
+2. Rewrites the workspace endpoint to route through a local Prometheus proxy (`/proxy/*`)
+3. Forwards API key as `Authorization: Bearer` header to Prometheus (if configured)
+4. Serves the workspace via URL params (`?workspace=<base64>`) — no WASM changes needed
+
+This is ideal for:
+- **Remote/SSH environments** where you can't run a native GUI
+- **Agent handoff over the network**: agent builds workspace, starts server, gives human a URL
+- **Ephemeral investigation dashboards**: spin up, share URL, tear down with Ctrl-C
+
+### Agent Handoff via Serve
+
+```sh
+# Agent builds workspace on a remote server
+enya init incident-42 -e http://prometheus:9090
+enya add-section incident-42 "Error Analysis"
+enya add-pane incident-42 'rate(http_errors_total[5m])' --name "Error Rate" --tag Critical
+enya set incident-42 time.preset 1h
+
+# Agent starts the server
+enya serve incident-42 --port 3030
+# → Serving workspace 'incident-42' at http://localhost:3030
+# → Proxying Prometheus at http://prometheus:9090
+
+# Human connects via SSH tunnel or directly opens the URL
+```
+
+### Building with Serve Support
+
+```sh
+# Step 1: Build WASM editor with Trunk
+cd crates/editor && trunk build --release
+
+# Step 2: Build CLI with embedded WASM assets
+cargo build -p enya --features serve --release
+
+# Or use the just recipe:
+just serve-build
+```
+
 ## Shell Completions
 
 Generate completions for your shell:

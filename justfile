@@ -89,3 +89,12 @@ run: submodules
 # Build the editor (initializes submodules first)
 build: submodules
     cargo build -p enya-editor
+
+# Build the serve binary (trunk first, then cargo with embedded WASM assets)
+serve-build:
+    cd crates/editor && trunk build --release
+    cargo build -p enya --features serve --release
+
+# Run enya serve in development
+serve workspace:
+    cargo run -p enya --features serve -- serve {{workspace}}
