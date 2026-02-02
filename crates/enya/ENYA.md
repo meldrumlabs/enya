@@ -27,6 +27,75 @@ enya init <name> -o ./my-workspace.toml       # write to specific path
 enya rm <name>
 ```
 
+### Workspace Properties
+
+Read and write workspace configuration using dot-notation keys:
+
+```sh
+# Read a property
+enya get <name> time.preset
+enya --json get <name> metrics.endpoint
+
+# Set a property
+enya set <name> time.preset 1h
+enya set <name> metrics.endpoint http://prometheus:9090
+enya set <name> view.zen_mode true
+```
+
+Available keys:
+
+| Key | Description |
+|-----|-------------|
+| `workspace.name` | Workspace display name |
+| `workspace.description` | Description text |
+| `workspace.endpoint` | Inline Prometheus endpoint |
+| `metrics.endpoint` | Prometheus endpoint (takes precedence over workspace.endpoint) |
+| `metrics.api_key` | API key for metrics endpoint |
+| `logs.endpoint` | Loki endpoint |
+| `logs.api_key` | API key for logs endpoint |
+| `logs.default_query` | Default LogQL query |
+| `git.url` | Repository URL for go-to-definition |
+| `git.branch` | Git branch |
+| `git.language` | Language hint |
+| `view.theme` | Theme name (e.g. "dark", "light") |
+| `view.zen_mode` | Boolean — "true" or "false" |
+| `time.preset` | Time range (e.g. "15m", "1h", "6h", "24h") |
+| `time.refresh` | Auto-refresh interval (e.g. "30s", "1m") or empty for off |
+
+### Building Workspaces
+
+Add and remove sections and panes to programmatically construct dashboards:
+
+```sh
+# Add a section
+enya add-section <name> "API Performance"
+enya add-section <name> "Infrastructure" --layout grid --columns 2 --collapsed
+
+# Add panes to a section
+enya add-pane <name> 'rate(http_requests_total[5m])' --name "Request Rate" --section "API Performance"
+enya add-pane <name> 'histogram_quantile(0.99, latency)' --name "Latency p99" --section "API Performance" --tag Critical --unit ms
+enya add-pane <name> 'avg(cpu_usage)' --name "CPU" --visualization stat
+
+# Remove a pane or section
+enya remove-pane <name> "Latency p99"
+enya remove-pane <name> "CPU" --section "Infrastructure"   # disambiguate if name appears in multiple sections
+enya remove-section <name> "Infrastructure"
+```
+
+Options for `add-section`:
+- `--layout` — horizontal (default), vertical, grid, tabs
+- `--columns` — column count for grid layout
+- `--collapsed` — start section collapsed
+
+Options for `add-pane`:
+- `--name` — display name (defaults to query expression)
+- `--section` — target section (defaults to last section)
+- `--tag` — label tag (e.g. "Critical", "Warning")
+- `--unit` — unit suffix (e.g. "ms", "req/s", "%")
+- `--granularity` — query step (e.g. "1m", "5m")
+- `--visualization` — display type (e.g. "time_series", "stat")
+- `--description` — description text
+
 ### JSON shapes
 
 `enya --json list`:
@@ -37,6 +106,36 @@ enya rm <name>
     { "name": "demo", "description": "Interactive demo..." }
   ]
 }
+```
+
+`enya --json get <name> <key>`:
+```json
+{ "workspace": "prod-api", "key": "time.preset", "value": "1h" }
+```
+
+`enya --json set <name> <key> <value>`:
+```json
+{ "workspace": "prod-api", "key": "time.preset", "value": "1h" }
+```
+
+`enya --json add-section <name> <section>`:
+```json
+{ "workspace": "prod-api", "section": "API Performance", "layout": "horizontal" }
+```
+
+`enya --json add-pane <name> <query>`:
+```json
+{ "workspace": "prod-api", "section": "API Performance", "pane": "Request Rate", "query": "rate(http_requests_total[5m])" }
+```
+
+`enya --json remove-pane <name> <pane>`:
+```json
+{ "workspace": "prod-api", "removed_pane": "Request Rate", "section": "API Performance" }
+```
+
+`enya --json remove-section <name> <section>`:
+```json
+{ "workspace": "prod-api", "removed_section": "Infrastructure", "panes_removed": 4 }
 ```
 
 `enya --json show <name>` returns the full workspace config:
@@ -219,31 +318,63 @@ Use `--file` to register local files (Parquet, CSV, JSON). Format: `NAME=PATH` o
 }
 ```
 
-## Typical Agent Workflow
+## Shell Completions
+
+Generate completions for your shell:
 
 ```sh
-# 1. Discover what's available
-enya --json list
-enya --json plugins commands
+enya completions bash > ~/.local/share/bash-completion/completions/enya
+enya completions zsh > ~/.zfunc/_enya
+enya completions fish > ~/.config/fish/completions/enya.fish
+```
 
-# 2. Inspect a workspace
-enya --json show production
+Supported shells: bash, zsh, fish, powershell, elvish.
 
-# 3. Query metrics from a workspace
-enya --json query 'rate(http_requests_total[5m])' -w production
+## Typical Agent Workflow
 
-# 4. Query with explicit endpoint
-enya --json query 'up' -e http://prometheus:9090 --start 2h --step 30s
+### Investigation and Handoff
 
-# 5. Run SQL against local data
-enya --json query --sql 'SELECT * FROM events WHERE level = "error"' --file events.parquet
+The primary agent workflow: investigate a problem, build a workspace with findings, hand it off to a human.
 
-# 6. Create a workspace for investigation
+```sh
+# 1. Create a workspace for the investigation
 enya init incident-42 -e http://prometheus:9090
 
-# 7. Run plugin commands
-enya --json exec check-api http://service:8080/health
+# 2. Query to understand the problem
+enya --json query 'rate(http_errors_total[5m])' -w incident-42
 
-# 8. Clean up
-enya rm incident-42
+# 3. Build a dashboard with the findings
+enya add-section incident-42 "Error Analysis" --layout horizontal
+enya add-pane incident-42 'rate(http_errors_total[5m])' \
+  --name "Error Rate" --section "Error Analysis" --tag Critical
+enya add-pane incident-42 'histogram_quantile(0.99, http_request_duration_seconds_bucket[5m])' \
+  --name "Latency p99" --section "Error Analysis" --unit ms
+
+enya add-section incident-42 "Infrastructure" --layout grid --columns 2
+enya add-pane incident-42 'avg(node_cpu_seconds_total{mode="idle"})' \
+  --name "CPU Idle" --section "Infrastructure"
+enya add-pane incident-42 'node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes' \
+  --name "Memory Available" --section "Infrastructure" --unit "%"
+
+# 4. Configure time range and settings
+enya set incident-42 time.preset 1h
+enya set incident-42 workspace.description "Elevated 5xx errors on API gateway since 14:30 UTC"
+
+# 5. Human opens the workspace in the GUI
+enya --workspace incident-42
+```
+
+### Quick Exploration
+
+```sh
+# Discover workspaces and query metrics
+enya --json list
+enya --json show production
+enya --json query 'up' -e http://prometheus:9090 --start 2h --step 30s
+
+# Run SQL against local data
+enya --json query --sql 'SELECT * FROM events WHERE level = "error"' --file events.parquet
+
+# Run plugin commands
+enya --json exec check-api http://service:8080/health
 ```
