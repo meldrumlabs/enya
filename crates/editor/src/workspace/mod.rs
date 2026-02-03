@@ -106,9 +106,10 @@ use layout_animation::LayoutAnimator;
 pub use config::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
     DEMO_WORKSPACE_TOML, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
-    LogsConfig, MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval, SectionConfig,
-    SectionLayout, TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError,
-    WorkspaceMeta,
+    LogsConfig, MetricsConfig, PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
+    SectionConfig, SectionLayout, TimeConfig, TimeConfigExt, ViewConfig, ViewConfigExt,
+    WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta, pane_from_query_state,
+    pane_from_query_state_with_viz, time_config_from_preset, time_config_from_preset_with_refresh,
 };
 
 /// Actions that the Workspace needs the App to handle
@@ -315,6 +316,8 @@ pub struct Workspace {
     /// Pending git repo path to configure (set from workspace creator)
     #[cfg(not(target_arch = "wasm32"))]
     pending_git_repo: Option<String>,
+    /// Pending workspace load (set by agent command, consumed in show())
+    pending_load_workspace: Option<String>,
     /// Native app promo overlay (WASM only)
     #[cfg(target_arch = "wasm32")]
     native_promo_overlay: NativePromoOverlay,
@@ -483,6 +486,7 @@ impl Workspace {
             last_refresh: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_git_repo: None,
+            pending_load_workspace: None,
             #[cfg(target_arch = "wasm32")]
             native_promo_overlay: NativePromoOverlay::new(),
             unified_finder: UnifiedFinder::new(),
@@ -658,6 +662,11 @@ impl Workspace {
                     self.exit_agent_mode();
                 }
             }
+        }
+
+        // Handle pending workspace load from agent command
+        if let Some(name) = self.pending_load_workspace.take() {
+            return WorkspaceAction::LoadWorkspace(name);
         }
 
         // Check auto-refresh timer and trigger refresh if due

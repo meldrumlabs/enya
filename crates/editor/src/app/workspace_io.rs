@@ -13,55 +13,13 @@ impl EnyaApp {
     /// Get the workspace directory path
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn workspace_dir() -> std::path::PathBuf {
-        // Look for .enya/workspaces in current directory or home
-        let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let enya_dir = cwd.join(".enya").join("workspaces");
-        if enya_dir.exists() || std::fs::create_dir_all(&enya_dir).is_ok() {
-            return enya_dir;
-        }
-
-        // Fallback to home directory
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let home_enya = std::path::PathBuf::from(&home)
-            .join(".enya")
-            .join("workspaces");
-        let _ = std::fs::create_dir_all(&home_enya);
-        home_enya
+        enya_workspace::workspace_dir()
     }
 
     /// List available workspace files from the workspace directory
     #[cfg(not(target_arch = "wasm32"))]
     pub fn list_available_workspaces() -> Vec<(String, Option<String>)> {
-        use crate::workspace::WorkspaceConfig;
-
-        let dir = Self::workspace_dir();
-        let mut workspaces = Vec::new();
-
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "toml") {
-                    if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                        // Try to load workspace to get description
-                        let description = std::fs::read_to_string(&path)
-                            .ok()
-                            .and_then(|content| WorkspaceConfig::from_toml(&content).ok())
-                            .and_then(|ws| {
-                                if ws.workspace.description.is_empty() {
-                                    None
-                                } else {
-                                    Some(ws.workspace.description)
-                                }
-                            });
-                        workspaces.push((name.to_string(), description));
-                    }
-                }
-            }
-        }
-
-        // Sort alphabetically by name
-        workspaces.sort_by(|a, b| a.0.cmp(&b.0));
-        workspaces
+        enya_workspace::list_workspaces()
     }
 
     /// List available workspace files (WASM stub - returns empty)

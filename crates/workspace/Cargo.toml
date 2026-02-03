@@ -1,0 +1,18 @@
+[package]
+name = "enya-workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Workspace configuration types for Enya observability editor"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+base64 = { workspace = true }
+lz4_flex = "0.11"
+postcard = { version = "1.1", features = ["alloc"] }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+insta = "1"

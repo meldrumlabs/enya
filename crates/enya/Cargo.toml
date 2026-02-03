@@ -1,0 +1,55 @@
+[package]
+name = "enya"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Observability editor for humans, machines, and AI agents"
+
+[[bin]]
+name = "enya"
+path = "src/main.rs"
+
+[features]
+default = ["ui"]
+ui = ["dep:enya-editor", "dep:mimalloc"]
+sql = ["enya-headless/sql"]
+serve = [
+    "dep:axum",
+    "dep:tokio",
+    "dep:rust-embed",
+    "dep:reqwest",
+    "dep:mime_guess",
+    "dep:open",
+    "dep:base64",
+]
+
+[dependencies]
+enya-headless = { workspace = true }
+enya-plugin = { workspace = true }
+enya-workspace = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# GUI dependencies (optional, enabled by default via "ui" feature)
+enya-editor = { path = "../editor", optional = true }
+mimalloc = { workspace = true, optional = true }
+
+# Serve dependencies (optional, enabled by "serve" feature)
+axum = { workspace = true, features = ["macros"], optional = true }
+tokio = { workspace = true, features = ["full"], optional = true }
+rust-embed = { workspace = true, features = ["compression"], optional = true }
+reqwest = { workspace = true, optional = true }
+mime_guess = { workspace = true, optional = true }
+open = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+
+[dev-dependencies]
+insta = "1"
+tempfile = "3"
+
+[lints]
+workspace = true

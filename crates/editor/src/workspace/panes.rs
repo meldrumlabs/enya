@@ -869,6 +869,11 @@ impl Workspace {
                         log::warn!("ShowInlineDiff command not supported in WASM");
                     }
                 }
+                AgentCommand::LoadWorkspace { workspace } => {
+                    self.pending_load_workspace = Some(workspace.clone());
+                    log::info!("Agent requested workspace load: {workspace}");
+                    success = true;
+                }
             }
 
             // Create activity item for this command

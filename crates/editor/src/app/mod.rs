@@ -74,6 +74,10 @@ pub struct EnyaApp {
     #[cfg(target_arch = "wasm32")]
     checked_url_workspace: bool,
 
+    // Startup workspace to load on first frame (native only, set via CLI --workspace flag)
+    #[cfg(not(target_arch = "wasm32"))]
+    startup_workspace: Option<String>,
+
     // Team collaboration state (requires `teams` feature)
     #[cfg(feature = "teams")]
     team_state: TeamState,
@@ -339,7 +343,17 @@ impl EnyaApp {
             resolved_custom_theme: None,
             #[cfg(not(target_arch = "wasm32"))]
             install_plugin_ready: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            startup_workspace: None,
         }
+    }
+
+    /// Set a workspace to load on the first frame (native only).
+    ///
+    /// Used by the CLI's `enya --workspace <name>` to open the editor with a specific workspace.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_startup_workspace(&mut self, name: String) {
+        self.startup_workspace = Some(name);
     }
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
@@ -704,6 +718,12 @@ impl EnyaApp {
 
     #[profiling::function]
     fn draw_workspace(&mut self, ctx: &egui::Context) {
+        // On native, load startup workspace on first frame if specified via CLI
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ws_name) = self.startup_workspace.take() {
+            self.load_workspace(&ws_name);
+        }
+
         // On WASM, check for workspace or pane parameter in URL on first frame
         #[cfg(target_arch = "wasm32")]
         if !self.checked_url_workspace {

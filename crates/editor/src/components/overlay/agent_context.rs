@@ -317,6 +317,11 @@ impl EditorContext {
         parts.push("  - Required: `pane` (title/name)\n".to_string());
         parts.push("- `toggle_zen_mode`: Toggle minimal UI mode\n".to_string());
         parts.push("- `exit_fullscreen`: Exit fullscreen/maximized mode\n".to_string());
+        parts.push(
+            "- `load_workspace`: Load a saved workspace by name (for handoff from CLI to GUI)\n"
+                .to_string(),
+        );
+        parts.push("  - Required: `workspace` (workspace name)\n".to_string());
         parts.push("\n## REMINDER: No Shell Commands\n".to_string());
         parts.push(
             "You MUST output enya-command blocks instead of using bash/grep/find/cat.\n"
@@ -508,6 +513,11 @@ pub enum AgentCommand {
     ExitFullscreen,
     /// Sync repository (git fetch/pull and re-index codebase)
     Sync,
+    /// Load a saved workspace by name (for agent-to-human handoff)
+    LoadWorkspace {
+        /// Workspace name to load
+        workspace: String,
+    },
 }
 
 impl AgentCommand {
@@ -660,6 +670,9 @@ impl AgentCommand {
                 } else {
                     format!("Showing diff for {commit_str}")
                 }
+            }
+            AgentCommand::LoadWorkspace { workspace } => {
+                format!("Loading workspace '{workspace}'")
             }
         }
     }
@@ -1508,6 +1521,24 @@ Let me search for that.
                 assert!(title.is_none());
             }
             _ => panic!("Expected AddTerminalPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_load_workspace_command() {
+        let text = r#"
+```enya-command
+{"action": "load_workspace", "workspace": "incident-42"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::LoadWorkspace { workspace } => {
+                assert_eq!(workspace, "incident-42");
+            }
+            _ => panic!("Expected LoadWorkspace command"),
         }
     }
 }

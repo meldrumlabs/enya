@@ -1,0 +1,25 @@
+[package]
+name = "enya-headless"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Headless CLI operations for Enya observability editor"
+
+[features]
+sql = ["dep:enya-datafusion", "dep:tokio"]
+
+[dependencies]
+enya-workspace = { workspace = true }
+enya-plugin = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+ureq = "3"
+chrono = { workspace = true }
+
+# SQL query support (optional, pulls in DataFusion + tokio)
+enya-datafusion = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
+
+[lints]
+workspace = true

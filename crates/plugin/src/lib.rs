@@ -97,7 +97,9 @@ mod theme;
 mod traits;
 mod types;
 
-// Loader and Lua support only available on native platforms
+// Loader, Lua, and headless support only available on native platforms
+#[cfg(not(target_arch = "wasm32"))]
+mod headless;
 #[cfg(not(target_arch = "wasm32"))]
 mod loader;
 #[cfg(not(target_arch = "wasm32"))]
@@ -128,6 +130,10 @@ pub use hooks::{
 
 // Re-export registry
 pub use registry::{PluginId, PluginInfo, PluginRegistry, PluginState};
+
+// Re-export headless host (native only)
+#[cfg(not(target_arch = "wasm32"))]
+pub use headless::HeadlessPluginHost;
 
 // Re-export loader (native only)
 #[cfg(not(target_arch = "wasm32"))]

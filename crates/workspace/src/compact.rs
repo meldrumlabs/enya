@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{
+use crate::config::{
     LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig, WorkspaceConfig,
     WorkspaceError,
 };
@@ -22,7 +22,7 @@ use super::{
 /// Compact workspace representation for URL sharing (postcard binary format)
 /// Uses numeric enums and minimal fields for smallest possible encoding
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct CompactWorkspaceConfig {
+pub(crate) struct CompactWorkspaceConfig {
     pub name: String,
     /// Packed header: bits 0-2 = time preset (0-6), bit 3 = theme (0=dark, 1=light)
     pub header: u8,
@@ -37,7 +37,7 @@ pub(super) struct CompactWorkspaceConfig {
 /// Uses a flat encoding: each node is (type, child_count) followed by its children
 /// Type: 0=horizontal, 1=vertical, 2=tabs, 128+=pane index (128+pane_idx)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct CompactLayout {
+pub(crate) struct CompactLayout {
     /// Flat encoded layout tree
     pub nodes: Vec<u8>,
 }
@@ -45,7 +45,7 @@ pub(super) struct CompactLayout {
 /// Compact single-pane representation for sharing individual queries
 /// Even more minimal than CompactWorkspace - just the essentials
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct CompactSinglePane {
+pub(crate) struct CompactSinglePane {
     /// The query expression
     pub query: String,
     /// Optional display name
@@ -57,7 +57,7 @@ pub(super) struct CompactSinglePane {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct CompactPane {
+pub(crate) struct CompactPane {
     pub query: String,
     /// Optional display name (None = empty string)
     pub name: Option<String>,
