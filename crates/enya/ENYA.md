@@ -321,6 +321,107 @@ Use `--file` to register local files (Parquet, CSV, JSON). Format: `NAME=PATH` o
 }
 ```
 
+## Metrics Discovery
+
+Explore available Prometheus metrics, labels, and metadata. Useful for agents that need to understand what data is available before building queries or workspaces.
+
+All commands use the same endpoint resolution as `enya query`: `--endpoint` flag, `--workspace` config, or `ENYA_PROMETHEUS_URL` env var.
+
+```sh
+# List all metric names
+enya metrics list -e http://prometheus:9090
+enya metrics list -w atlas
+enya metrics list -e http://prometheus:9090 --match '{job="api"}'
+
+# List all label names
+enya metrics labels -e http://prometheus:9090
+enya metrics labels -w atlas --match '{__name__="http_requests_total"}'
+
+# List values for a specific label
+enya metrics label-values job -e http://prometheus:9090
+enya metrics label-values instance -w atlas
+
+# Show metric type and help text
+enya metrics info -e http://prometheus:9090                     # all metrics
+enya metrics info http_requests_total -e http://prometheus:9090 # specific metric
+
+# Find series matching a selector
+enya metrics series '{job="api"}' -e http://prometheus:9090
+enya metrics series 'http_requests_total' -w atlas
+```
+
+### JSON shapes
+
+`enya --json metrics list`:
+```json
+{"metrics": ["cpu_usage", "http_requests_total", "memory_usage"], "count": 3}
+```
+
+`enya --json metrics labels`:
+```json
+{"labels": ["__name__", "env", "host", "job"], "count": 4}
+```
+
+`enya --json metrics label-values job`:
+```json
+{"values": ["api", "frontend", "worker"], "count": 3}
+```
+
+`enya --json metrics info http_requests_total`:
+```json
+{"metrics": [{"metric": "http_requests_total", "type": "counter", "help": "Total HTTP requests", "unit": ""}], "count": 1}
+```
+
+`enya --json metrics series '{job="api"}'`:
+```json
+{"series": [{"__name__": "http_requests_total", "job": "api", "method": "GET"}], "count": 1}
+```
+
+## Watch (Threshold Monitoring)
+
+Poll a PromQL expression at regular intervals and alert when values cross a threshold. Useful for agents that need to monitor a metric and react when conditions are met.
+
+```sh
+# Alert if error rate exceeds 0.01 (polls every 30s by default)
+enya watch atlas "rate(http_errors_total[5m])" --above 0.01
+
+# Must stay above threshold for 5 continuous minutes before alerting
+enya watch atlas "rate(http_errors_total[5m])" --above 0.01 --for 5m
+
+# Alert if any "up" target drops below 1, polling every 15 seconds
+enya watch atlas "up" --below 1 --every 15s
+
+# Use a direct endpoint instead of a workspace
+enya watch "up" --below 1 --endpoint http://prom:9090
+```
+
+### Behavior
+
+- **Exit code 1**: Threshold condition triggered (or sustained for `--for` duration)
+- **Exit code 130**: Clean shutdown via Ctrl-C (standard SIGINT)
+- Uses Prometheus instant query (`/api/v1/query`) on each poll
+- Checks ALL series returned by the expression
+
+### Options
+
+- `--above <value>` — Alert when any value exceeds this threshold
+- `--below <value>` — Alert when any value drops below this threshold
+- `--every <duration>` — Poll interval (default: 30s)
+- `--for <duration>` — Condition must stay triggered for this duration
+- `--endpoint <url>` — Prometheus endpoint URL
+- `<workspace>` — Resolve endpoint from a workspace (optional first arg)
+
+### JSON output
+
+With `--json`, each poll prints a JSON line to stdout:
+
+```json
+{"timestamp":"2024-01-15 10:30:00","status":"ok","value":0.003,"threshold":"> 0.01","series_count":3}
+{"timestamp":"2024-01-15 10:30:30","status":"alert","value":0.015,"threshold":"> 0.01","series_count":3,"triggered_for_secs":30}
+```
+
+Status values: `ok`, `warn` (triggered but `--for` not yet met), `alert` (triggered and exiting), `error`.
+
 ## Serve (Remote / Headless Access)
 
 Serve the WASM editor over HTTP with a built-in Prometheus proxy. Requires the `serve` feature (`--features serve`). The WASM assets are embedded in the binary at compile time.
@@ -394,6 +495,138 @@ enya completions fish > ~/.config/fish/completions/enya.fish
 
 Supported shells: bash, zsh, fish, powershell, elvish.
 
+## Session (Agent Integration)
+
+`enya session` starts a long-running JSON-RPC 2.0 process over stdin/stdout. Agents spawn it once and send requests over the bidirectional channel instead of forking a new process per command.
+
+```sh
+enya session
+```
+
+### Protocol
+
+Newline-delimited JSON-RPC 2.0. Each line on stdin is a request; each line on stdout is a response or notification. Stderr is used for human-readable logs.
+
+**Request:**
+```json
+{"jsonrpc":"2.0","id":1,"method":"workspace.show","params":{"name":"atlas"}}
+```
+
+**Response:**
+```json
+{"jsonrpc":"2.0","id":1,"result":{...}}
+```
+
+**Error:**
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found: bogus"}}
+```
+
+**Notification** (server→client, no `id`):
+```json
+{"jsonrpc":"2.0","method":"watch.status","params":{"watch_id":1,"status":"ok","value":0.003,...}}
+```
+
+### Available Methods
+
+#### Workspace
+
+| Method | Required Params | Optional Params |
+|--------|----------------|-----------------|
+| `workspace.list` | — | — |
+| `workspace.show` | `name` | — |
+| `workspace.init` | — | `name`, `endpoint`, `template` |
+| `workspace.rm` | `name` | — |
+| `workspace.get` | `name`, `key` | — |
+| `workspace.set` | `name`, `key`, `value` | — |
+| `workspace.add_section` | `name`, `section_name` | `layout`, `columns`, `collapsed` |
+| `workspace.add_pane` | `name`, `query` | `pane_name`, `section`, `tag`, `unit`, `granularity`, `visualization`, `description` |
+| `workspace.remove_section` | `name`, `section_name` | — |
+| `workspace.remove_pane` | `name`, `pane` | `section` |
+
+#### Query
+
+| Method | Required Params | Optional Params |
+|--------|----------------|-----------------|
+| `query.instant` | `expression` | `endpoint`, `workspace` |
+| `query.range` | `expression` | `endpoint`, `workspace`, `start`, `end`, `step` |
+
+#### Metrics Discovery
+
+| Method | Required Params | Optional Params |
+|--------|----------------|-----------------|
+| `metrics.list` | — | `endpoint`, `workspace`, `match` |
+| `metrics.labels` | — | `endpoint`, `workspace`, `match` |
+| `metrics.label_values` | `label` | `endpoint`, `workspace` |
+| `metrics.info` | — | `metric`, `endpoint`, `workspace` |
+| `metrics.series` | `selector` | `endpoint`, `workspace` |
+
+#### Watch (background, managed by session)
+
+| Method | Required Params | Optional Params |
+|--------|----------------|-----------------|
+| `watch.start` | `expression` + one of `above`/`below` | `endpoint`, `workspace`, `every`, `for` |
+| `watch.stop` | `watch_id` | — |
+| `watch.list` | — | — |
+
+Watches send notifications to stdout:
+- `watch.status` — periodic status: `{"watch_id":1, "status":"ok"|"warn"|"error", "value":0.003, ...}`
+- `watch.triggered` — threshold crossed (watch auto-stops): `{"watch_id":1, "value":0.015, ...}`
+
+#### Plugins
+
+| Method | Required Params | Optional Params |
+|--------|----------------|-----------------|
+| `plugins.list` | — | — |
+| `plugins.commands` | — | — |
+| `plugins.install` | `source` | — |
+| `plugins.remove` | `name` | — |
+
+#### Exec
+
+| Method | Required Params | Optional Params |
+|--------|----------------|-----------------|
+| `exec.run` | `command` | `args` |
+
+Return shape varies by action type:
+- **Shell**: `{command, shell, exit_code, success, stdout, stderr}`
+- **URL**: `{command, url}`
+- **Notify**: `{command, message}`
+- **Lua**: `{command, plugin, success}`
+
+#### Session
+
+| Method | Params | Returns |
+|--------|--------|---------|
+| `session.info` | — | `{"version":"...", "capabilities":["workspace","query","metrics","watch","plugins"]}` |
+| `session.shutdown` | — | `{"status":"shutting_down"}` (process exits) |
+
+### Example: Agent Integration
+
+```sh
+# Start session (agent spawns this once)
+enya session
+
+# Agent sends requests on stdin:
+{"jsonrpc":"2.0","id":1,"method":"session.info","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"workspace.list","params":{}}
+{"jsonrpc":"2.0","id":3,"method":"workspace.init","params":{"name":"incident-42","endpoint":"http://prometheus:9090"}}
+{"jsonrpc":"2.0","id":4,"method":"workspace.add_section","params":{"name":"incident-42","section_name":"Error Analysis"}}
+{"jsonrpc":"2.0","id":5,"method":"workspace.add_pane","params":{"name":"incident-42","query":"rate(http_errors_total[5m])","pane_name":"Error Rate","section":"Error Analysis"}}
+{"jsonrpc":"2.0","id":6,"method":"query.instant","params":{"expression":"up","workspace":"incident-42"}}
+{"jsonrpc":"2.0","id":7,"method":"watch.start","params":{"expression":"rate(http_errors_total[5m])","above":0.01,"workspace":"incident-42"}}
+{"jsonrpc":"2.0","id":8,"method":"session.shutdown","params":{}}
+```
+
+### Error Codes
+
+| Code | Meaning |
+|------|---------|
+| -32700 | Parse error (invalid JSON) |
+| -32601 | Method not found |
+| -32602 | Invalid params (missing required param, invalid value) |
+| -32603 | Internal error (workspace not found, query failed, etc.) |
+
 ## Typical Agent Workflow
 
 ### Investigation and Handoff
@@ -401,13 +634,18 @@ Supported shells: bash, zsh, fish, powershell, elvish.
 The primary agent workflow: investigate a problem, build a workspace with findings, hand it off to a human.
 
 ```sh
-# 1. Create a workspace for the investigation
+# 1. Discover available metrics
+enya --json metrics list -e http://prometheus:9090
+enya --json metrics info http_errors_total -e http://prometheus:9090
+enya --json metrics label-values job -e http://prometheus:9090
+
+# 2. Create a workspace for the investigation
 enya init incident-42 -e http://prometheus:9090
 
-# 2. Query to understand the problem
+# 3. Query to understand the problem
 enya --json query 'rate(http_errors_total[5m])' -w incident-42
 
-# 3. Build a dashboard with the findings
+# 4. Build a dashboard with the findings
 enya add-section incident-42 "Error Analysis" --layout horizontal
 enya add-pane incident-42 'rate(http_errors_total[5m])' \
   --name "Error Rate" --section "Error Analysis" --tag Critical
@@ -420,11 +658,11 @@ enya add-pane incident-42 'avg(node_cpu_seconds_total{mode="idle"})' \
 enya add-pane incident-42 'node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes' \
   --name "Memory Available" --section "Infrastructure" --unit "%"
 
-# 4. Configure time range and settings
+# 5. Configure time range and settings
 enya set incident-42 time.preset 1h
 enya set incident-42 workspace.description "Elevated 5xx errors on API gateway since 14:30 UTC"
 
-# 5. Human opens the workspace in the GUI
+# 6. Human opens the workspace in the GUI
 enya open incident-42
 ```
 

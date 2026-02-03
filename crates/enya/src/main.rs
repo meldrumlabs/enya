@@ -4,6 +4,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(feature = "serve")]
 mod serve;
+mod session;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -229,6 +230,119 @@ enum Command {
         #[arg(long)]
         open: bool,
     },
+
+    /// Watch a metric and alert when it crosses a threshold
+    Watch {
+        /// Workspace name (for endpoint resolution)
+        workspace: Option<String>,
+
+        /// PromQL expression to watch
+        expression: String,
+
+        /// Alert when any value exceeds this threshold
+        #[arg(long, conflicts_with = "below", required_unless_present = "below")]
+        above: Option<f64>,
+
+        /// Alert when any value drops below this threshold
+        #[arg(long, conflicts_with = "above", required_unless_present = "above")]
+        below: Option<f64>,
+
+        /// Poll interval (e.g. "30s", "1m", "5m")
+        #[arg(long, default_value = "30s")]
+        every: String,
+
+        /// Condition must sustain for this duration before alerting (e.g. "5m", "30m")
+        #[arg(long, value_name = "DURATION")]
+        r#for: Option<String>,
+
+        /// Prometheus endpoint URL
+        #[arg(short, long)]
+        endpoint: Option<String>,
+    },
+
+    /// Discover Prometheus metrics, labels, and metadata
+    Metrics {
+        #[command(subcommand)]
+        command: MetricsCommand,
+    },
+
+    /// Start a JSON-RPC 2.0 session over stdin/stdout (for agent integration)
+    Session,
+}
+
+#[derive(Subcommand)]
+enum MetricsCommand {
+    /// List all metric names
+    List {
+        /// Prometheus endpoint URL
+        #[arg(short, long)]
+        endpoint: Option<String>,
+
+        /// Read endpoint from a workspace
+        #[arg(short = 'w', long = "workspace")]
+        metrics_workspace: Option<String>,
+
+        /// Filter by PromQL match selector (e.g. '{job="api"}')
+        #[arg(long, value_name = "SELECTOR")]
+        r#match: Option<String>,
+    },
+
+    /// List all label names
+    Labels {
+        /// Prometheus endpoint URL
+        #[arg(short, long)]
+        endpoint: Option<String>,
+
+        /// Read endpoint from a workspace
+        #[arg(short = 'w', long = "workspace")]
+        metrics_workspace: Option<String>,
+
+        /// Filter by PromQL match selector
+        #[arg(long, value_name = "SELECTOR")]
+        r#match: Option<String>,
+    },
+
+    /// List values for a specific label
+    LabelValues {
+        /// Label name (e.g. "job", "instance", "env")
+        label: String,
+
+        /// Prometheus endpoint URL
+        #[arg(short, long)]
+        endpoint: Option<String>,
+
+        /// Read endpoint from a workspace
+        #[arg(short = 'w', long = "workspace")]
+        metrics_workspace: Option<String>,
+    },
+
+    /// Show metric type and help text (metadata)
+    Info {
+        /// Metric name (omit for all metrics)
+        metric: Option<String>,
+
+        /// Prometheus endpoint URL
+        #[arg(short, long)]
+        endpoint: Option<String>,
+
+        /// Read endpoint from a workspace
+        #[arg(short = 'w', long = "workspace")]
+        metrics_workspace: Option<String>,
+    },
+
+    /// Find series matching a selector
+    Series {
+        /// PromQL series selector (e.g. '{job="api"}' or 'http_requests_total')
+        selector: String,
+
+        /// Prometheus endpoint URL
+        #[arg(short, long)]
+        endpoint: Option<String>,
+
+        /// Read endpoint from a workspace
+        #[arg(short = 'w', long = "workspace")]
+        metrics_workspace: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -394,6 +508,115 @@ fn main() -> ExitCode {
                     let _ = (&workspace, port, &bind, open);
                     Err("serve requires the 'serve' feature (rebuild with --features serve)".into())
                 }
+            }
+            Command::Metrics { command: sub } => match sub {
+                MetricsCommand::List {
+                    endpoint,
+                    metrics_workspace,
+                    r#match,
+                } => enya_headless::query::discovery::metrics_list(
+                    endpoint.as_deref(),
+                    metrics_workspace.as_deref(),
+                    r#match.as_deref(),
+                    json,
+                ),
+                MetricsCommand::Labels {
+                    endpoint,
+                    metrics_workspace,
+                    r#match,
+                } => enya_headless::query::discovery::metrics_labels(
+                    endpoint.as_deref(),
+                    metrics_workspace.as_deref(),
+                    r#match.as_deref(),
+                    json,
+                ),
+                MetricsCommand::LabelValues {
+                    label,
+                    endpoint,
+                    metrics_workspace,
+                } => enya_headless::query::discovery::metrics_label_values(
+                    endpoint.as_deref(),
+                    metrics_workspace.as_deref(),
+                    &label,
+                    json,
+                ),
+                MetricsCommand::Info {
+                    metric,
+                    endpoint,
+                    metrics_workspace,
+                } => enya_headless::query::discovery::metrics_info(
+                    endpoint.as_deref(),
+                    metrics_workspace.as_deref(),
+                    metric.as_deref(),
+                    json,
+                ),
+                MetricsCommand::Series {
+                    selector,
+                    endpoint,
+                    metrics_workspace,
+                } => enya_headless::query::discovery::metrics_series(
+                    endpoint.as_deref(),
+                    metrics_workspace.as_deref(),
+                    &selector,
+                    json,
+                ),
+            },
+            Command::Watch {
+                workspace,
+                expression,
+                above,
+                below,
+                every,
+                r#for,
+                endpoint,
+            } => {
+                let run_watch = || -> enya_headless::Result<bool> {
+                    let threshold = match (above, below) {
+                        (Some(v), None) => enya_headless::watch::ThresholdOp::Above(v),
+                        (None, Some(v)) => enya_headless::watch::ThresholdOp::Below(v),
+                        _ => unreachable!("clap enforces exactly one of --above/--below"),
+                    };
+                    let every_secs = enya_headless::query::time::parse_duration_secs(&every)?;
+                    let for_secs = r#for
+                        .as_deref()
+                        .map(enya_headless::query::time::parse_duration_secs)
+                        .transpose()?;
+                    let config = enya_headless::watch::WatchConfig {
+                        expression: &expression,
+                        endpoint: endpoint.as_deref(),
+                        workspace: workspace.as_deref(),
+                        threshold,
+                        every: every_secs,
+                        for_duration: for_secs,
+                        json,
+                    };
+                    enya_headless::watch::run(&config)
+                };
+                return match run_watch() {
+                    Ok(true) => ExitCode::FAILURE,
+                    Ok(false) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        if json {
+                            let _ = serde_json::to_writer(
+                                std::io::stdout(),
+                                &serde_json::json!({"error": e.to_string()}),
+                            );
+                            println!();
+                        } else {
+                            eprintln!("error: {e}");
+                        }
+                        ExitCode::FAILURE
+                    }
+                };
+            }
+            Command::Session => {
+                return match session::run() {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("session error: {e}");
+                        ExitCode::FAILURE
+                    }
+                };
             }
             Command::Open { .. } => unreachable!("handled above"),
         };

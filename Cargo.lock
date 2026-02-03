@@ -3024,13 +3024,18 @@ dependencies = [
  "clap_complete",
  "enya-editor",
  "enya-headless",
+ "enya-plugin",
  "enya-workspace",
+ "insta",
  "mimalloc",
  "mime_guess",
  "open",
  "reqwest",
  "rust-embed",
+ "rustc-hash 2.1.1",
+ "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

@@ -1,5 +1,6 @@
 pub mod plugins;
 pub mod query;
+pub mod watch;
 pub mod workspace;
 
 /// Shared result type for headless operations.

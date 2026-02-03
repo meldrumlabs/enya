@@ -1,3 +1,4 @@
+pub mod discovery;
 mod format;
 pub mod promql;
 #[cfg(feature = "sql")]

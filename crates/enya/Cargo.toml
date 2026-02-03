@@ -26,9 +26,12 @@ serve = [
 
 [dependencies]
 enya-headless = { workspace = true }
+enya-plugin = { workspace = true }
 enya-workspace = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 # GUI dependencies (optional, enabled by default via "ui" feature)
@@ -43,6 +46,10 @@ reqwest = { workspace = true, optional = true }
 mime_guess = { workspace = true, optional = true }
 open = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
+
+[dev-dependencies]
+insta = "1"
+tempfile = "3"
 
 [lints]
 workspace = true

@@ -1,3 +1,4 @@
+use super::discovery::{MetricInfo, SeriesEntry};
 use super::promql::PromData;
 use super::time::format_timestamp;
 use crate::Result;
@@ -77,6 +78,125 @@ pub fn print_promql_json(data: &PromData, limit: Option<usize>) -> Result {
             "result_type": data.result_type,
             "series": series,
             "series_count": data.result.len(),
+        })
+    );
+    Ok(())
+}
+
+// -- Discovery output formatters -----------------------------------------------
+
+/// Print a list of strings as a single-column table.
+pub fn print_string_list(header: &str, items: &[String]) -> Result {
+    if items.is_empty() {
+        println!("(empty result)");
+        return Ok(());
+    }
+    println!("{header}");
+    for item in items {
+        println!("{item}");
+    }
+    println!("\n{} items", items.len());
+    Ok(())
+}
+
+/// Print a list of strings as JSON: `{"key": [...], "count": N}`.
+pub fn print_string_list_json(key: &str, items: &[String]) -> Result {
+    println!(
+        "{}",
+        serde_json::json!({
+            key: items,
+            "count": items.len(),
+        })
+    );
+    Ok(())
+}
+
+/// Print metric metadata as a table with METRIC, TYPE, and HELP columns.
+pub fn print_metric_info_table(infos: &[MetricInfo]) -> Result {
+    if infos.is_empty() {
+        println!("(no metadata found)");
+        return Ok(());
+    }
+
+    let w0 = infos
+        .iter()
+        .map(|i| i.metric.len())
+        .max()
+        .unwrap_or(6)
+        .max(6);
+    let w1 = infos
+        .iter()
+        .map(|i| i.metric_type.len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+
+    println!("{:<w0$}  {:<w1$}  HELP", "METRIC", "TYPE");
+    for info in infos {
+        println!(
+            "{:<w0$}  {:<w1$}  {}",
+            info.metric, info.metric_type, info.help
+        );
+    }
+    println!("\n{} metrics", infos.len());
+    Ok(())
+}
+
+/// Print metric metadata as JSON.
+pub fn print_metric_info_json(infos: &[MetricInfo]) -> Result {
+    let items: Vec<serde_json::Value> = infos
+        .iter()
+        .map(|i| {
+            serde_json::json!({
+                "metric": i.metric,
+                "type": i.metric_type,
+                "help": i.help,
+                "unit": i.unit,
+            })
+        })
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({
+            "metrics": items,
+            "count": items.len(),
+        })
+    );
+    Ok(())
+}
+
+/// Print series entries as a table.
+pub fn print_series_table(entries: &[SeriesEntry]) -> Result {
+    if entries.is_empty() {
+        println!("(no matching series)");
+        return Ok(());
+    }
+
+    println!("SERIES");
+    for entry in entries {
+        let mut pairs: Vec<String> = entry
+            .labels
+            .iter()
+            .map(|(k, v)| format!("{k}=\"{v}\""))
+            .collect();
+        pairs.sort();
+        println!("{{{}}}", pairs.join(", "));
+    }
+    println!("\n{} series", entries.len());
+    Ok(())
+}
+
+/// Print series entries as JSON.
+pub fn print_series_json(entries: &[SeriesEntry]) -> Result {
+    let items: Vec<serde_json::Value> = entries
+        .iter()
+        .map(|e| serde_json::json!(e.labels))
+        .collect();
+    println!(
+        "{}",
+        serde_json::json!({
+            "series": items,
+            "count": items.len(),
         })
     );
     Ok(())
