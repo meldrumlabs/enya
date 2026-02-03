@@ -3024,7 +3024,6 @@ dependencies = [
  "clap_complete",
  "enya-editor",
  "enya-headless",
- "enya-plugin",
  "enya-workspace",
  "insta",
  "mimalloc",

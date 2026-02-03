@@ -26,7 +26,6 @@ serve = [
 
 [dependencies]
 enya-headless = { workspace = true }
-enya-plugin = { workspace = true }
 enya-workspace = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }

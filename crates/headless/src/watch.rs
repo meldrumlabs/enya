@@ -8,6 +8,26 @@ pub enum ThresholdOp {
     Below(f64),
 }
 
+/// Event emitted by a single watch tick.
+pub enum WatchEvent {
+    Ok {
+        value: f64,
+        series_count: usize,
+    },
+    Warn {
+        value: f64,
+        series_count: usize,
+        triggered_for_secs: u64,
+    },
+    Alert {
+        value: f64,
+        series_count: usize,
+    },
+    Error {
+        error: String,
+    },
+}
+
 /// Configuration for a watch run.
 pub struct WatchConfig<'a> {
     pub expression: &'a str,
@@ -19,6 +39,58 @@ pub struct WatchConfig<'a> {
     /// Condition must sustain for this many seconds before triggering (None = immediate).
     pub for_duration: Option<u64>,
     pub json: bool,
+}
+
+/// Perform a single watch tick: query the endpoint and check threshold.
+///
+/// `first_triggered` tracks when the threshold was first breached (for `--for` sustain logic).
+/// The caller owns this state across ticks.
+pub fn tick(
+    base_url: &str,
+    expression: &str,
+    threshold: &ThresholdOp,
+    first_triggered: &mut Option<std::time::Instant>,
+    for_duration: Option<u64>,
+) -> WatchEvent {
+    match promql::query_instant(base_url, expression) {
+        Ok(data) => {
+            let (triggered, extreme_val, series_count) = check_threshold(&data, threshold);
+
+            if triggered {
+                let trigger_start = first_triggered.get_or_insert_with(std::time::Instant::now);
+                let triggered_secs = trigger_start.elapsed().as_secs();
+
+                if let Some(for_dur) = for_duration {
+                    if triggered_secs >= for_dur {
+                        WatchEvent::Alert {
+                            value: extreme_val,
+                            series_count,
+                        }
+                    } else {
+                        WatchEvent::Warn {
+                            value: extreme_val,
+                            series_count,
+                            triggered_for_secs: triggered_secs,
+                        }
+                    }
+                } else {
+                    WatchEvent::Alert {
+                        value: extreme_val,
+                        series_count,
+                    }
+                }
+            } else {
+                *first_triggered = None;
+                WatchEvent::Ok {
+                    value: extreme_val,
+                    series_count,
+                }
+            }
+        }
+        Err(e) => WatchEvent::Error {
+            error: e.to_string(),
+        },
+    }
 }
 
 /// Run the watch loop.
@@ -43,52 +115,19 @@ pub fn run(config: &WatchConfig) -> Result<bool> {
     let mut first_triggered: Option<std::time::Instant> = None;
 
     loop {
-        match promql::query_instant(&base_url, config.expression) {
-            Ok(data) => {
-                let (triggered, extreme_val, series_count) =
-                    check_threshold(&data, &config.threshold);
+        let event = tick(
+            &base_url,
+            config.expression,
+            &config.threshold,
+            &mut first_triggered,
+            config.for_duration,
+        );
 
-                if triggered {
-                    let trigger_start = first_triggered.get_or_insert_with(std::time::Instant::now);
-                    let triggered_secs = trigger_start.elapsed().as_secs();
+        let is_alert = matches!(event, WatchEvent::Alert { .. });
+        print_event(config, &event);
 
-                    if let Some(for_dur) = config.for_duration {
-                        if triggered_secs >= for_dur {
-                            print_status(
-                                config,
-                                "ALERT",
-                                extreme_val,
-                                series_count,
-                                Some(triggered_secs),
-                            );
-                            return Ok(true);
-                        }
-                        print_status(
-                            config,
-                            "WARN",
-                            extreme_val,
-                            series_count,
-                            Some(triggered_secs),
-                        );
-                    } else {
-                        print_status(config, "ALERT", extreme_val, series_count, None);
-                        return Ok(true);
-                    }
-                } else {
-                    first_triggered = None;
-                    print_status(config, "OK", extreme_val, series_count, None);
-                }
-            }
-            Err(e) => {
-                if config.json {
-                    println!(
-                        "{}",
-                        serde_json::json!({"timestamp": now_formatted(), "status": "error", "error": e.to_string()})
-                    );
-                } else {
-                    eprintln!("[{}] ERROR  {e}", now_formatted());
-                }
-            }
+        if is_alert {
+            return Ok(true);
         }
 
         std::thread::sleep(std::time::Duration::from_secs(config.every));
@@ -149,6 +188,40 @@ pub fn format_threshold(threshold: &ThresholdOp) -> String {
 
 fn now_formatted() -> String {
     time::format_timestamp(time::now_secs() as f64)
+}
+
+fn print_event(config: &WatchConfig, event: &WatchEvent) {
+    match event {
+        WatchEvent::Ok {
+            value,
+            series_count,
+        } => print_status(config, "OK", *value, *series_count, None),
+        WatchEvent::Warn {
+            value,
+            series_count,
+            triggered_for_secs,
+        } => print_status(
+            config,
+            "WARN",
+            *value,
+            *series_count,
+            Some(*triggered_for_secs),
+        ),
+        WatchEvent::Alert {
+            value,
+            series_count,
+        } => print_status(config, "ALERT", *value, *series_count, None),
+        WatchEvent::Error { error } => {
+            if config.json {
+                println!(
+                    "{}",
+                    serde_json::json!({"timestamp": now_formatted(), "status": "error", "error": error})
+                );
+            } else {
+                eprintln!("[{}] ERROR  {error}", now_formatted());
+            }
+        }
+    }
 }
 
 fn print_status(
