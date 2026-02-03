@@ -1,3 +1,4 @@
+use console::style;
 use enya_plugin::{
     ConfigCommand, ConfigPlugin, HeadlessPluginHost, LuaPlugin, Plugin, PluginContext, PluginLoader,
 };
@@ -347,11 +348,11 @@ pub fn plugins(json: bool) -> Result {
         return Ok(());
     }
 
-    println!("Plugins in {}:\n", result.dir);
+    println!("{}\n", style(format!("Plugins in {}:", result.dir)).bold());
     for item in &result.plugins {
         if let Some(error) = item.get("error") {
             let typ = item["type"].as_str().unwrap_or("unknown");
-            println!("  (error) [{typ}] {error}");
+            println!("  {} [{typ}] {error}", style("(error)").red());
             continue;
         }
         let name = item["name"].as_str().unwrap_or("?");
@@ -359,11 +360,23 @@ pub fn plugins(json: bool) -> Result {
         let desc = item["description"].as_str().unwrap_or("");
         let typ = item["type"].as_str().unwrap_or("?");
         let enabled = item["enabled"].as_bool().unwrap_or(false);
-        let status = if enabled { "" } else { " (disabled)" };
-        if desc.is_empty() {
-            println!("  {name} v{version} [{typ}]{status}");
+        let status = if enabled {
+            String::new()
         } else {
-            println!("  {name} v{version} [{typ}]{status} — {desc}");
+            format!(" {}", style("(disabled)").yellow())
+        };
+        if desc.is_empty() {
+            println!(
+                "  {} {} [{typ}]{status}",
+                style(name).bold(),
+                style(format!("v{version}")).dim()
+            );
+        } else {
+            println!(
+                "  {} {} [{typ}]{status} — {desc}",
+                style(name).bold(),
+                style(format!("v{version}")).dim()
+            );
         }
     }
     Ok(())
@@ -382,7 +395,7 @@ pub fn plugins_commands(json: bool) -> Result {
         return Ok(());
     }
 
-    println!("Plugin commands:\n");
+    println!("{}\n", style("Plugin commands:").bold());
     for item in &result.commands {
         let name = item["name"].as_str().unwrap_or("?");
         let plugin = item["plugin"].as_str().unwrap_or("?");
@@ -400,8 +413,16 @@ pub fn plugins_commands(json: bool) -> Result {
             .unwrap_or_default();
 
         match desc {
-            Some(d) => println!("  {name:20} [{plugin}, {typ}] {d}"),
-            None => println!("  {name:20} [{plugin}, {typ}]"),
+            Some(d) => println!(
+                "  {:20} {} {d}",
+                style(name).bold(),
+                style(format!("[{plugin}, {typ}]")).dim()
+            ),
+            None => println!(
+                "  {:20} {}",
+                style(name).bold(),
+                style(format!("[{plugin}, {typ}]")).dim()
+            ),
         }
         if !aliases.is_empty() {
             println!("  {:20} aliases: {aliases}", "");
@@ -415,7 +436,12 @@ pub fn plugins_install(source: &str, json: bool) -> Result {
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("Installed plugin '{}' to {}", result.installed, result.path);
+        println!(
+            "{} plugin '{}' to {}",
+            style("Installed").green(),
+            result.installed,
+            result.path
+        );
     }
     Ok(())
 }
@@ -425,7 +451,12 @@ pub fn plugins_remove(name: &str, json: bool) -> Result {
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("Removed plugin '{}' ({})", result.removed, result.path);
+        println!(
+            "{} plugin '{}' ({})",
+            style("Removed").green(),
+            result.removed,
+            result.path
+        );
     }
     Ok(())
 }

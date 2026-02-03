@@ -12,10 +12,12 @@ sql = ["dep:enya-datafusion", "dep:tokio"]
 [dependencies]
 enya-workspace = { workspace = true }
 enya-plugin = { workspace = true }
+enya-promql = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 ureq = "3"
 chrono = { workspace = true }
+console = { workspace = true }
 
 # SQL query support (optional, pulls in DataFusion + tokio)
 enya-datafusion = { workspace = true, optional = true }

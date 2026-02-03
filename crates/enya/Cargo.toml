@@ -29,6 +29,7 @@ enya-headless = { workspace = true }
 enya-workspace = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
+console = { workspace = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

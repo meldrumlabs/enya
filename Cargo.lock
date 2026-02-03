@@ -1516,6 +1516,7 @@ dependencies = [
  "encode_unicode",
  "libc",
  "once_cell",
+ "unicode-width",
  "windows-sys 0.59.0",
 ]
 
@@ -3022,6 +3023,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "clap_complete",
+ "console",
  "enya-editor",
  "enya-headless",
  "enya-workspace",
@@ -3217,8 +3219,10 @@ name = "enya-headless"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "console",
  "enya-datafusion",
  "enya-plugin",
+ "enya-promql",
  "enya-workspace",
  "serde",
  "serde_json",

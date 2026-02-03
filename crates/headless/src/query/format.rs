@@ -1,3 +1,5 @@
+use console::style;
+
 use super::discovery::{MetricInfo, SeriesEntry};
 use super::promql::PromData;
 use super::time::format_timestamp;
@@ -44,12 +46,23 @@ pub fn print_promql_table(data: &PromData, limit: Option<usize>) -> Result {
     let w0 = rows.iter().map(|r| r.0.len()).max().unwrap_or(6).max(6);
     let w1 = rows.iter().map(|r| r.1.len()).max().unwrap_or(9).max(9);
 
-    println!("{:<w0$}  {:<w1$}  VALUE", "METRIC", "TIMESTAMP");
+    println!(
+        "{}",
+        style(format!("{:<w0$}  {:<w1$}  VALUE", "METRIC", "TIMESTAMP")).bold()
+    );
     for row in &rows {
         println!("{:<w0$}  {:<w1$}  {}", row.0, row.1, row.2);
     }
 
-    println!("\n{} samples from {} series", rows.len(), data.result.len());
+    println!(
+        "\n{}",
+        style(format!(
+            "{} samples from {} series",
+            rows.len(),
+            data.result.len()
+        ))
+        .dim()
+    );
     Ok(())
 }
 
@@ -91,11 +104,11 @@ pub fn print_string_list(header: &str, items: &[String]) -> Result {
         println!("(empty result)");
         return Ok(());
     }
-    println!("{header}");
+    println!("{}", style(header).bold());
     for item in items {
         println!("{item}");
     }
-    println!("\n{} items", items.len());
+    println!("\n{}", style(format!("{} items", items.len())).dim());
     Ok(())
 }
 
@@ -131,14 +144,17 @@ pub fn print_metric_info_table(infos: &[MetricInfo]) -> Result {
         .unwrap_or(4)
         .max(4);
 
-    println!("{:<w0$}  {:<w1$}  HELP", "METRIC", "TYPE");
+    println!(
+        "{}",
+        style(format!("{:<w0$}  {:<w1$}  HELP", "METRIC", "TYPE")).bold()
+    );
     for info in infos {
         println!(
             "{:<w0$}  {:<w1$}  {}",
             info.metric, info.metric_type, info.help
         );
     }
-    println!("\n{} metrics", infos.len());
+    println!("\n{}", style(format!("{} metrics", infos.len())).dim());
     Ok(())
 }
 
@@ -172,7 +188,7 @@ pub fn print_series_table(entries: &[SeriesEntry]) -> Result {
         return Ok(());
     }
 
-    println!("SERIES");
+    println!("{}", style("SERIES").bold());
     for entry in entries {
         let mut pairs: Vec<String> = entry
             .labels
@@ -182,7 +198,7 @@ pub fn print_series_table(entries: &[SeriesEntry]) -> Result {
         pairs.sort();
         println!("{{{}}}", pairs.join(", "));
     }
-    println!("\n{} series", entries.len());
+    println!("\n{}", style(format!("{} series", entries.len())).dim());
     Ok(())
 }
 
@@ -240,7 +256,7 @@ pub fn print_sql_table(batches: &[enya_datafusion::arrow::array::RecordBatch]) -
         .map(|(i, col)| format!("{:<width$}", col, width = widths[i]))
         .collect::<Vec<_>>()
         .join("  ");
-    println!("{header}");
+    println!("{}", style(&header).bold());
 
     // Separator
     let sep: String = widths
@@ -248,7 +264,7 @@ pub fn print_sql_table(batches: &[enya_datafusion::arrow::array::RecordBatch]) -
         .map(|w| "-".repeat(*w))
         .collect::<Vec<_>>()
         .join("  ");
-    println!("{sep}");
+    println!("{}", style(&sep).dim());
 
     // Rows
     for row in &rows {
@@ -268,7 +284,10 @@ pub fn print_sql_table(batches: &[enya_datafusion::arrow::array::RecordBatch]) -
     }
 
     let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
-    println!("\n{total_rows} rows, {} columns", columns.len());
+    println!(
+        "\n{}",
+        style(format!("{total_rows} rows, {} columns", columns.len())).dim()
+    );
     Ok(())
 }
 

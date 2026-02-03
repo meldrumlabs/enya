@@ -1,3 +1,4 @@
+use console::style;
 use enya_workspace::{
     PaneConfig, SectionConfig, SectionLayout, WorkspaceConfig, list_workspaces,
     resolve_workspace_path, workspace_dir,
@@ -365,7 +366,7 @@ pub fn init(
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("Created {}", result.path);
+        println!("{} {}", style("Created").green(), result.path);
     }
     Ok(())
 }
@@ -383,11 +384,14 @@ pub fn list(json: bool) -> Result {
         return Ok(());
     }
 
-    println!("Workspaces in {}:\n", result.dir);
+    println!(
+        "{}\n",
+        style(format!("Workspaces in {}:", result.dir)).bold()
+    );
     for entry in &result.workspaces {
         match &entry.description {
-            Some(desc) => println!("  {:20} {desc}", entry.name),
-            None => println!("  {}", entry.name),
+            Some(desc) => println!("  {:20} {}", style(&entry.name).bold(), style(desc).dim()),
+            None => println!("  {}", style(&entry.name).bold()),
         }
     }
     Ok(())
@@ -401,25 +405,29 @@ pub fn show(name: &str, json: bool) -> Result {
         return Ok(());
     }
 
-    println!("Name:        {}", ws.workspace.name);
+    println!("{} {}", style("Name:").bold(), ws.workspace.name);
     if !ws.workspace.description.is_empty() {
-        println!("Description: {}", ws.workspace.description);
+        println!(
+            "{} {}",
+            style("Description:").bold(),
+            ws.workspace.description
+        );
     }
     if let Some(ep) = ws.effective_endpoint() {
-        println!("Endpoint:    {ep}");
+        println!("{} {ep}", style("Endpoint:").bold());
     }
     if !ws.logs.is_empty() {
-        println!("Logs:        {}", ws.logs.endpoint);
+        println!("{} {}", style("Logs:").bold(), ws.logs.endpoint);
     }
     if !ws.git.is_empty() {
-        println!("Git:         {}", ws.git.url);
+        println!("{} {}", style("Git:").bold(), ws.git.url);
     }
 
-    println!("Theme:       {}", ws.view.theme);
-    println!("Time:        {}", ws.time.preset);
+    println!("{} {}", style("Theme:").bold(), ws.view.theme);
+    println!("{} {}", style("Time:").bold(), ws.time.preset);
 
     if ws.uses_sections() {
-        println!("Sections:    {}", ws.sections.len());
+        println!("{} {}", style("Sections:").bold(), ws.sections.len());
         for (i, section) in ws.sections.iter().enumerate() {
             let collapsed = if section.collapsed {
                 " (collapsed)"
@@ -427,8 +435,9 @@ pub fn show(name: &str, json: bool) -> Result {
                 ""
             };
             println!(
-                "  [{i}] {} ({} panes, {:?}){collapsed}",
-                section.name,
+                "  {} {} ({} panes, {:?}){collapsed}",
+                style(format!("[{i}]")).dim(),
+                style(&section.name).bold(),
                 section.panes.len(),
                 section.layout,
             );
@@ -444,14 +453,22 @@ pub fn show(name: &str, json: bool) -> Result {
     } else {
         let all_panes = ws.all_panes();
         if !all_panes.is_empty() {
-            println!("Panes:       {} (legacy format)", all_panes.len());
+            println!(
+                "{} {} (legacy format)",
+                style("Panes:").bold(),
+                all_panes.len()
+            );
             for (i, pane) in all_panes.iter().enumerate() {
                 let label = if pane.name.is_empty() {
                     format!("pane {i}")
                 } else {
                     pane.name.clone()
                 };
-                println!("  [{i}] {label}: {}", pane.query);
+                println!(
+                    "  {} {label}: {}",
+                    style(format!("[{i}]")).dim(),
+                    pane.query
+                );
             }
         }
     }
@@ -464,7 +481,7 @@ pub fn rm(name: &str, json: bool) -> Result {
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("Removed {}", result.removed);
+        println!("{} {}", style("Removed").green(), result.removed);
     }
     Ok(())
 }
@@ -484,7 +501,7 @@ pub fn set(name: &str, key: &str, value: &str, json: bool) -> Result {
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("{} = {}", result.key, result.value);
+        println!("{} = {}", style(&result.key).bold(), result.value);
     }
     Ok(())
 }
@@ -501,7 +518,12 @@ pub fn add_section(
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("Added section \"{}\" ({})", result.section, result.layout);
+        println!(
+            "{} section \"{}\" ({})",
+            style("Added").green(),
+            result.section,
+            result.layout
+        );
     }
     Ok(())
 }
@@ -512,7 +534,11 @@ pub fn add_pane(params: &AddPaneParams<'_>, json: bool) -> Result {
         println!("{}", serde_json::to_string(&result)?);
     } else {
         let label = params.pane_name.unwrap_or(params.query);
-        println!("Added pane \"{label}\" to section \"{}\"", result.section);
+        println!(
+            "{} pane \"{label}\" to section \"{}\"",
+            style("Added").green(),
+            result.section
+        );
     }
     Ok(())
 }
@@ -523,8 +549,10 @@ pub fn remove_section(name: &str, section_name: &str, json: bool) -> Result {
         println!("{}", serde_json::to_string(&result)?);
     } else {
         println!(
-            "Removed section \"{}\" ({} panes)",
-            result.removed_section, result.panes_removed
+            "{} section \"{}\" ({} panes)",
+            style("Removed").green(),
+            result.removed_section,
+            result.panes_removed
         );
     }
     Ok(())
@@ -536,8 +564,10 @@ pub fn remove_pane(name: &str, pane: &str, section: Option<&str>, json: bool) ->
         println!("{}", serde_json::to_string(&result)?);
     } else {
         println!(
-            "Removed pane \"{}\" from section \"{}\"",
-            result.removed_pane, result.section
+            "{} pane \"{}\" from section \"{}\"",
+            style("Removed").green(),
+            result.removed_pane,
+            result.section
         );
     }
     Ok(())

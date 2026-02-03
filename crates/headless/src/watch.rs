@@ -1,3 +1,5 @@
+use console::style;
+
 use crate::Result;
 use crate::query::promql::{self, PromData};
 use crate::query::time;
@@ -102,7 +104,8 @@ pub fn run(config: &WatchConfig) -> Result<bool> {
 
     if !config.json {
         eprintln!(
-            "Watching: {}  every {}s  threshold {}",
+            "{}  {}  every {}s  threshold {}",
+            style("Watching:").bold(),
             config.expression,
             config.every,
             format_threshold(&config.threshold),
@@ -132,6 +135,45 @@ pub fn run(config: &WatchConfig) -> Result<bool> {
 
         std::thread::sleep(std::time::Duration::from_secs(config.every));
     }
+}
+
+/// Raw CLI parameters for `run_cli`, before threshold/duration parsing.
+pub struct WatchCliParams<'a> {
+    pub expression: &'a str,
+    pub endpoint: Option<&'a str>,
+    pub workspace: Option<&'a str>,
+    pub above: Option<f64>,
+    pub below: Option<f64>,
+    pub every: &'a str,
+    pub for_duration: Option<&'a str>,
+    pub json: bool,
+}
+
+/// High-level CLI entry point: parse raw CLI args and run the watch loop.
+///
+/// Handles threshold construction from `above`/`below` and duration parsing from
+/// human-readable strings (e.g. "30s", "5m"). Returns `Ok(true)` if threshold triggered.
+pub fn run_cli(params: &WatchCliParams) -> Result<bool> {
+    let threshold = match (params.above, params.below) {
+        (Some(v), None) => ThresholdOp::Above(v),
+        (None, Some(v)) => ThresholdOp::Below(v),
+        _ => return Err("exactly one of --above or --below must be specified".into()),
+    };
+    let every_secs = time::parse_duration_secs(params.every)?;
+    let for_secs = params
+        .for_duration
+        .map(time::parse_duration_secs)
+        .transpose()?;
+    let config = WatchConfig {
+        expression: params.expression,
+        endpoint: params.endpoint,
+        workspace: params.workspace,
+        threshold,
+        every: every_secs,
+        for_duration: for_secs,
+        json: params.json,
+    };
+    run(&config)
 }
 
 /// Check if any value in the PromQL result violates the threshold.
@@ -218,7 +260,7 @@ fn print_event(config: &WatchConfig, event: &WatchEvent) {
                     serde_json::json!({"timestamp": now_formatted(), "status": "error", "error": error})
                 );
             } else {
-                eprintln!("[{}] ERROR  {error}", now_formatted());
+                eprintln!("[{}] {}  {error}", now_formatted(), style("ERROR").red());
             }
         }
     }
@@ -248,13 +290,14 @@ fn print_status(
             Some(s) => format!("  [triggered {s}s]"),
             None => String::new(),
         };
-        let pad = match status {
-            "OK" => "     ",
-            "WARN" => "   ",
-            _ => "  ",
+        let styled_status = match status {
+            "OK" => style(format!("{status:<7}")).green(),
+            "WARN" => style(format!("{status:<7}")).yellow(),
+            "ALERT" => style(format!("{status:<7}")).red().bold(),
+            _ => style(format!("{status:<7}")),
         };
         println!(
-            "[{}] {status}{pad}value={value:.6}  ({})  {series_count} series{triggered_str}",
+            "[{}] {styled_status}value={value:.6}  ({})  {series_count} series{triggered_str}",
             now_formatted(),
             format_threshold(&config.threshold),
         );
