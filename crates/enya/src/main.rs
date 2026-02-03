@@ -260,6 +260,20 @@ enum Command {
         endpoint: Option<String>,
     },
 
+    /// Capture a snapshot of workspace query results at this point in time
+    Snapshot {
+        /// Workspace name or path
+        name: String,
+
+        /// Override Prometheus endpoint URL
+        #[arg(short, long)]
+        endpoint: Option<String>,
+
+        /// Write snapshot to a file instead of stdout
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+
     /// Discover Prometheus metrics, labels, and metadata
     Metrics {
         #[command(subcommand)]
@@ -493,6 +507,16 @@ fn main() -> ExitCode {
                 pane,
                 section,
             } => enya_headless::workspace::remove_pane(&name, &pane, section.as_deref(), json),
+            Command::Snapshot {
+                name,
+                endpoint,
+                output,
+            } => enya_headless::workspace::snapshot_cmd(
+                &name,
+                endpoint.as_deref(),
+                output.as_deref(),
+                json,
+            ),
             Command::Serve {
                 workspace,
                 port,

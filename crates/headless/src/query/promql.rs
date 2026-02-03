@@ -1,5 +1,5 @@
 use enya_workspace::{WorkspaceConfig, resolve_workspace_path};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::format;
 use super::time;
@@ -15,14 +15,14 @@ struct PromResponse {
     data: Option<PromData>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromData {
     pub result_type: String,
     pub result: Vec<PromResult>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct PromResult {
     pub metric: serde_json::Map<String, serde_json::Value>,
     /// Time-series values from range queries (matrix).

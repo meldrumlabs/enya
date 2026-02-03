@@ -4,6 +4,7 @@ use enya_workspace::{
 };
 
 use crate::Result;
+use crate::query::{promql, time};
 
 pub fn init(
     name: Option<String>,
@@ -422,4 +423,110 @@ pub fn remove_section(name: &str, section_name: &str, json: bool) -> Result {
         println!("Removed section \"{section_name}\" ({panes_removed} panes)");
     }
     Ok(())
+}
+
+// -- Snapshot -----------------------------------------------------------------
+
+/// Choose a reasonable query step/resolution based on the time range.
+fn compute_step(range_secs: u64) -> u64 {
+    match range_secs {
+        0..=900 => 15,        // ≤15m → 15s step
+        901..=3600 => 60,     // ≤1h  → 1m step
+        3601..=21600 => 300,  // ≤6h  → 5m step
+        21601..=86400 => 900, // ≤1d  → 15m step
+        _ => 3600,            // >1d  → 1h step
+    }
+}
+
+/// Capture a point-in-time snapshot of all pane query results in a workspace.
+///
+/// For each pane, executes the query as a range query over the workspace's
+/// configured time preset and returns the results as a self-contained JSON blob.
+pub fn snapshot(base_url: &str, ws: &WorkspaceConfig) -> Result<serde_json::Value> {
+    let now = time::now_secs();
+    let preset = &ws.time.preset;
+    let range_secs = time::parse_duration_secs(if preset.is_empty() { "1h" } else { preset })?;
+    let start_secs = now.saturating_sub(range_secs);
+    let step_secs = compute_step(range_secs);
+
+    let mut pane_results: Vec<serde_json::Value> = Vec::new();
+
+    for section in &ws.sections {
+        for pane in &section.panes {
+            let result =
+                match promql::query_range(base_url, &pane.query, start_secs, now, step_secs) {
+                    Ok(data) => serde_json::to_value(&data)
+                        .unwrap_or_else(|e| serde_json::json!({"error": e.to_string()})),
+                    Err(e) => serde_json::json!({"error": e.to_string()}),
+                };
+
+            pane_results.push(serde_json::json!({
+                "section": section.name,
+                "name": pane.name,
+                "query": pane.query,
+                "result": result,
+            }));
+        }
+    }
+
+    Ok(serde_json::json!({
+        "version": 1,
+        "captured_at": now,
+        "captured_at_human": time::format_timestamp(now as f64),
+        "time_range": {
+            "start": start_secs,
+            "end": now,
+            "step": step_secs,
+            "preset": preset,
+        },
+        "workspace": serde_json::to_value(ws)?,
+        "panes": pane_results,
+    }))
+}
+
+/// CLI entry point for `enya snapshot`.
+pub fn snapshot_cmd(
+    name: &str,
+    endpoint: Option<&str>,
+    output: Option<&str>,
+    json: bool,
+) -> Result {
+    let path = resolve_workspace_path(name);
+    let ws = WorkspaceConfig::load(&path)?;
+
+    let base_url = promql::resolve_endpoint(endpoint, Some(name))?;
+
+    let snap = snapshot(&base_url, &ws)?;
+
+    if let Some(out_path) = output {
+        let contents = serde_json::to_string_pretty(&snap)?;
+        std::fs::write(out_path, contents)?;
+        if json {
+            println!("{}", serde_json::json!({"path": out_path}));
+        } else {
+            let pane_count = snap["panes"].as_array().map(|a| a.len()).unwrap_or(0);
+            println!("Snapshot written to {out_path} ({pane_count} panes)");
+        }
+    } else if json {
+        println!("{}", serde_json::to_string(&snap)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(&snap)?);
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_step() {
+        assert_eq!(compute_step(300), 15); // 5m range → 15s step
+        assert_eq!(compute_step(900), 15); // 15m range → 15s step
+        assert_eq!(compute_step(3600), 60); // 1h range → 1m step
+        assert_eq!(compute_step(21600), 300); // 6h range → 5m step
+        assert_eq!(compute_step(86400), 900); // 1d range → 15m step
+        assert_eq!(compute_step(604800), 3600); // 7d range → 1h step
+    }
 }

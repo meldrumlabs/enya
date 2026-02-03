@@ -422,6 +422,65 @@ With `--json`, each poll prints a JSON line to stdout:
 
 Status values: `ok`, `warn` (triggered but `--for` not yet met), `alert` (triggered and exiting), `error`.
 
+## Snapshots
+
+Capture a workspace's current state including all query results at a point in time. Useful for incident reports, sharing state, and preserving data beyond Prometheus retention.
+
+```sh
+# Print snapshot to stdout (pretty-printed JSON)
+enya snapshot atlas
+
+# Compact JSON output
+enya --json snapshot atlas
+
+# Write to a file
+enya snapshot atlas -o snapshot.json
+
+# Override endpoint
+enya snapshot atlas -e http://prometheus:9090
+```
+
+The snapshot captures:
+- Full workspace configuration
+- Timestamp and time range of capture
+- Query results for every pane (executed as range queries over the workspace's time preset)
+- Self-contained JSON — no external references needed
+
+Individual pane query failures are captured as `{"error": "..."}` rather than failing the entire snapshot.
+
+### JSON shape
+
+```json
+{
+  "version": 1,
+  "captured_at": 1704067200,
+  "captured_at_human": "2024-01-01 00:00:00",
+  "time_range": {
+    "start": 1704063600,
+    "end": 1704067200,
+    "step": 60,
+    "preset": "1h"
+  },
+  "workspace": { "...full WorkspaceConfig..." },
+  "panes": [
+    {
+      "section": "API Performance",
+      "name": "Request Rate",
+      "query": "rate(http_requests_total[5m])",
+      "result": {
+        "resultType": "matrix",
+        "result": [
+          {
+            "metric": {"job": "api", "method": "GET"},
+            "values": [[1704063600, "42.5"], [1704063660, "43.1"]]
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
 ## Serve (Remote / Headless Access)
 
 Serve the WASM editor over HTTP with a built-in Prometheus proxy. Requires the `serve` feature (`--features serve`). The WASM assets are embedded in the binary at compile time.
@@ -543,6 +602,7 @@ Newline-delimited JSON-RPC 2.0. Each line on stdin is a request; each line on st
 | `workspace.add_pane` | `name`, `query` | `pane_name`, `section`, `tag`, `unit`, `granularity`, `visualization`, `description` |
 | `workspace.remove_section` | `name`, `section_name` | — |
 | `workspace.remove_pane` | `name`, `pane` | `section` |
+| `workspace.snapshot` | `name` | `endpoint` |
 
 #### Query
 
@@ -615,7 +675,8 @@ enya session
 {"jsonrpc":"2.0","id":5,"method":"workspace.add_pane","params":{"name":"incident-42","query":"rate(http_errors_total[5m])","pane_name":"Error Rate","section":"Error Analysis"}}
 {"jsonrpc":"2.0","id":6,"method":"query.instant","params":{"expression":"up","workspace":"incident-42"}}
 {"jsonrpc":"2.0","id":7,"method":"watch.start","params":{"expression":"rate(http_errors_total[5m])","above":0.01,"workspace":"incident-42"}}
-{"jsonrpc":"2.0","id":8,"method":"session.shutdown","params":{}}
+{"jsonrpc":"2.0","id":8,"method":"workspace.snapshot","params":{"name":"incident-42"}}
+{"jsonrpc":"2.0","id":9,"method":"session.shutdown","params":{}}
 ```
 
 ### Error Codes
@@ -662,7 +723,10 @@ enya add-pane incident-42 'node_memory_MemAvailable_bytes / node_memory_MemTotal
 enya set incident-42 time.preset 1h
 enya set incident-42 workspace.description "Elevated 5xx errors on API gateway since 14:30 UTC"
 
-# 6. Human opens the workspace in the GUI
+# 6. Snapshot the current state (preserves data for later review)
+enya snapshot incident-42 -o incident-42-snapshot.json
+
+# 7. Human opens the workspace in the GUI
 enya open incident-42
 ```
 

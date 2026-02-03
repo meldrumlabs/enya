@@ -181,6 +181,7 @@ fn handle_line(session: &mut Session, line: &str) -> Option<RpcResponse> {
         "workspace.add_pane" => workspace_add_pane(&req.params),
         "workspace.remove_section" => workspace_remove_section(&req.params),
         "workspace.remove_pane" => workspace_remove_pane(&req.params),
+        "workspace.snapshot" => workspace_snapshot(&req.params),
         // Query
         "query.instant" => query_instant(&req.params),
         "query.range" => query_range(&req.params),
@@ -505,6 +506,19 @@ fn workspace_remove_pane(params: &serde_json::Value) -> HandlerResult {
         "removed_pane": pane,
         "section": sec_name,
     }))
+}
+
+fn workspace_snapshot(params: &serde_json::Value) -> HandlerResult {
+    let name = require_str(params, "name")?;
+    let endpoint = param_str(params, "endpoint");
+
+    let path = resolve_workspace_path(&name);
+    let ws = WorkspaceConfig::load(&path).map_err(map_err)?;
+
+    let base_url = enya_headless::query::promql::resolve_endpoint(endpoint.as_deref(), Some(&name))
+        .map_err(map_err)?;
+
+    enya_headless::workspace::snapshot(&base_url, &ws).map_err(map_err)
 }
 
 // -- Query handlers ------------------------------------------------------------
@@ -1665,6 +1679,14 @@ mod tests {
         insta::assert_snapshot!(
             fmt_err(metrics_series(&serde_json::json!({})).unwrap_err()),
             @"(-32602) missing required param: selector"
+        );
+    }
+
+    #[test]
+    fn test_workspace_snapshot_missing_name() {
+        insta::assert_snapshot!(
+            fmt_err(workspace_snapshot(&serde_json::json!({})).unwrap_err()),
+            @"(-32602) missing required param: name"
         );
     }
 
