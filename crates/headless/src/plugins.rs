@@ -1,11 +1,40 @@
+use console::style;
 use enya_plugin::{
     ConfigCommand, ConfigPlugin, HeadlessPluginHost, LuaPlugin, Plugin, PluginContext, PluginLoader,
 };
+use serde::Serialize;
 use std::sync::Arc;
 
 use crate::Result;
 
-pub fn plugins(json: bool) -> Result {
+// -- Result types -------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct PluginsListResult {
+    pub dir: String,
+    pub plugins: Vec<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+pub struct PluginsCommandsResult {
+    pub commands: Vec<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+pub struct PluginInstallResult {
+    pub installed: String,
+    pub path: String,
+}
+
+#[derive(Serialize)]
+pub struct PluginRemoveResult {
+    pub removed: String,
+    pub path: String,
+}
+
+// -- Core functions (return data, no printing) --------------------------------
+
+pub fn plugins_list_core() -> PluginsListResult {
     let loader = PluginLoader::new();
     let dir = loader
         .user_plugin_dir()
@@ -14,7 +43,6 @@ pub fn plugins(json: bool) -> Result {
 
     let mut items: Vec<serde_json::Value> = Vec::new();
 
-    // Load TOML config plugins
     for result in loader.load_all() {
         match result {
             Ok(plugin) => {
@@ -38,7 +66,6 @@ pub fn plugins(json: bool) -> Result {
         }
     }
 
-    // Load Lua plugins
     for result in loader.load_all_lua() {
         match result {
             Ok(plugin) => {
@@ -59,43 +86,16 @@ pub fn plugins(json: bool) -> Result {
         }
     }
 
-    if json {
-        println!("{}", serde_json::json!({"dir": dir, "plugins": items}));
-        return Ok(());
+    PluginsListResult {
+        dir,
+        plugins: items,
     }
-
-    if items.is_empty() {
-        println!("No plugins found in {dir}");
-        return Ok(());
-    }
-
-    println!("Plugins in {dir}:\n");
-    for item in &items {
-        if let Some(error) = item.get("error") {
-            let typ = item["type"].as_str().unwrap_or("unknown");
-            println!("  (error) [{typ}] {error}");
-            continue;
-        }
-        let name = item["name"].as_str().unwrap_or("?");
-        let version = item["version"].as_str().unwrap_or("?");
-        let desc = item["description"].as_str().unwrap_or("");
-        let typ = item["type"].as_str().unwrap_or("?");
-        let enabled = item["enabled"].as_bool().unwrap_or(false);
-        let status = if enabled { "" } else { " (disabled)" };
-        if desc.is_empty() {
-            println!("  {name} v{version} [{typ}]{status}");
-        } else {
-            println!("  {name} v{version} [{typ}]{status} — {desc}");
-        }
-    }
-    Ok(())
 }
 
-pub fn plugins_commands(json: bool) -> Result {
+pub fn plugins_commands_core() -> PluginsCommandsResult {
     let loader = PluginLoader::new();
     let mut items: Vec<serde_json::Value> = Vec::new();
 
-    // Collect commands from TOML config plugins
     for result in loader.load_all() {
         let Ok(plugin) = result else { continue };
         let manifest = plugin.manifest();
@@ -128,7 +128,6 @@ pub fn plugins_commands(json: bool) -> Result {
         }
     }
 
-    // Collect commands from Lua plugins
     for result in loader.load_all_lua() {
         let Ok(plugin) = result else { continue };
         for cmd in plugin.commands() {
@@ -150,45 +149,10 @@ pub fn plugins_commands(json: bool) -> Result {
         }
     }
 
-    if json {
-        println!("{}", serde_json::json!({"commands": items}));
-        return Ok(());
-    }
-
-    if items.is_empty() {
-        println!("No plugin commands found");
-        return Ok(());
-    }
-
-    println!("Plugin commands:\n");
-    for item in &items {
-        let name = item["name"].as_str().unwrap_or("?");
-        let plugin = item["plugin"].as_str().unwrap_or("?");
-        let desc = item.get("description").and_then(|d| d.as_str());
-        let typ = item["type"].as_str().unwrap_or("?");
-        let aliases = item
-            .get("aliases")
-            .and_then(|a| a.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            })
-            .unwrap_or_default();
-
-        match desc {
-            Some(d) => println!("  {name:20} [{plugin}, {typ}] {d}"),
-            None => println!("  {name:20} [{plugin}, {typ}]"),
-        }
-        if !aliases.is_empty() {
-            println!("  {:20} aliases: {aliases}", "");
-        }
-    }
-    Ok(())
+    PluginsCommandsResult { commands: items }
 }
 
-pub fn plugins_install(source: &str, json: bool) -> Result {
+pub fn plugins_install_core(source: &str) -> Result<PluginInstallResult> {
     let source_path = std::path::Path::new(source);
 
     if !source_path.exists() {
@@ -203,7 +167,6 @@ pub fn plugins_install(source: &str, json: bool) -> Result {
         return Err("plugin file must be .toml or .lua".into());
     }
 
-    // Validate the plugin by trying to load it
     let name = if ext == "toml" {
         let plugin = ConfigPlugin::load(source_path)?;
         plugin.manifest().plugin.name.clone()
@@ -212,7 +175,6 @@ pub fn plugins_install(source: &str, json: bool) -> Result {
         plugin.name().to_string()
     };
 
-    // Copy to user plugin directory
     let loader = PluginLoader::new();
     loader.ensure_user_dir()?;
     let dest_dir = loader
@@ -231,28 +193,20 @@ pub fn plugins_install(source: &str, json: bool) -> Result {
     }
 
     std::fs::copy(source_path, &dest)?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({"installed": name, "path": dest.display().to_string()})
-        );
-    } else {
-        println!("Installed plugin '{}' to {}", name, dest.display());
-    }
-    Ok(())
+    Ok(PluginInstallResult {
+        installed: name,
+        path: dest.display().to_string(),
+    })
 }
 
-pub fn plugins_remove(name: &str, json: bool) -> Result {
+pub fn plugins_remove_core(name: &str) -> Result<PluginRemoveResult> {
     let loader = PluginLoader::new();
     let dir = loader
         .user_plugin_dir()
         .ok_or("could not determine plugin directory")?;
 
-    // Search for plugin by name across all files
     let mut found_path: Option<std::path::PathBuf> = None;
 
-    // Check TOML plugins
     for path in loader.discover() {
         if let Ok(plugin) = ConfigPlugin::load(&path) {
             if plugin.manifest().plugin.name == name {
@@ -262,7 +216,6 @@ pub fn plugins_remove(name: &str, json: bool) -> Result {
         }
     }
 
-    // Check Lua plugins if not found
     if found_path.is_none() {
         for path in loader.discover_lua() {
             if let Ok(plugin) = LuaPlugin::load(&path) {
@@ -276,7 +229,6 @@ pub fn plugins_remove(name: &str, json: bool) -> Result {
 
     let path = found_path.ok_or(format!("plugin not found: {name}"))?;
 
-    // Only remove from user plugin directory
     if !path.starts_with(dir) {
         return Err(format!(
             "plugin '{}' is not in user plugin directory (found at {})",
@@ -287,22 +239,16 @@ pub fn plugins_remove(name: &str, json: bool) -> Result {
     }
 
     std::fs::remove_file(&path)?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({"removed": name, "path": path.display().to_string()})
-        );
-    } else {
-        println!("Removed plugin '{}' ({})", name, path.display());
-    }
-    Ok(())
+    Ok(PluginRemoveResult {
+        removed: name.to_string(),
+        path: path.display().to_string(),
+    })
 }
 
-pub fn exec(command: &str, args: &str, json: bool) -> Result {
+/// Core exec: find and execute a plugin command, return structured result.
+pub fn exec_core(command: &str, args: &str) -> Result<serde_json::Value> {
     let loader = PluginLoader::new();
 
-    // Search config plugins for the command
     for result in loader.load_all() {
         let Ok(plugin) = result else { continue };
         let manifest = plugin.manifest();
@@ -313,12 +259,11 @@ pub fn exec(command: &str, args: &str, json: bool) -> Result {
 
         for cmd in &manifest.commands {
             if cmd.name == command || cmd.aliases.contains(&command.to_string()) {
-                return exec_config_command(cmd, args, json);
+                return exec_config_command_core(cmd, args);
             }
         }
     }
 
-    // Search Lua plugins for the command
     for result in loader.load_all_lua() {
         let Ok(mut plugin) = result else { continue };
         for cmd_config in plugin.commands() {
@@ -327,22 +272,15 @@ pub fn exec(command: &str, args: &str, json: bool) -> Result {
                 let ctx = PluginContext::new(host);
                 let success = plugin.execute_command(command, args, &ctx);
 
-                if json {
-                    println!(
-                        "{}",
-                        serde_json::json!({
-                            "command": command,
-                            "plugin": plugin.name(),
-                            "success": success,
-                        })
-                    );
-                }
-
-                if success {
-                    return Ok(());
-                } else {
+                if !success {
                     return Err(format!("command '{command}' failed").into());
                 }
+
+                return Ok(serde_json::json!({
+                    "command": command,
+                    "plugin": plugin.name(),
+                    "success": success,
+                }));
             }
         }
     }
@@ -350,8 +288,8 @@ pub fn exec(command: &str, args: &str, json: bool) -> Result {
     Err(format!("unknown command: {command}").into())
 }
 
-fn exec_config_command(cmd: &ConfigCommand, args: &str, json: bool) -> Result {
-    // Shell command — run synchronously and forward output
+/// Core exec for config commands: captures output and returns structured result.
+pub fn exec_config_command_core(cmd: &ConfigCommand, args: &str) -> Result<serde_json::Value> {
     if let Some(shell) = &cmd.shell {
         let full_cmd = if args.is_empty() {
             shell.clone()
@@ -359,60 +297,192 @@ fn exec_config_command(cmd: &ConfigCommand, args: &str, json: bool) -> Result {
             format!("{shell} {args}")
         };
 
-        let status = std::process::Command::new("sh")
+        let output = std::process::Command::new("sh")
             .arg("-c")
             .arg(&full_cmd)
-            .status()?;
+            .output()?;
 
-        if json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "command": cmd.name,
-                    "shell": full_cmd,
-                    "exit_code": status.code(),
-                    "success": status.success(),
-                })
-            );
-        }
+        let result = serde_json::json!({
+            "command": cmd.name,
+            "shell": full_cmd,
+            "exit_code": output.status.code(),
+            "success": output.status.success(),
+            "stdout": String::from_utf8_lossy(&output.stdout),
+            "stderr": String::from_utf8_lossy(&output.stderr),
+        });
 
-        if !status.success() {
-            return Err(format!("command exited with {status}").into());
+        if !output.status.success() {
+            return Err(format!("command exited with {}", output.status).into());
         }
-        return Ok(());
+        return Ok(result);
     }
 
-    // URL command — print the URL (headless, no browser)
     if let Some(url) = &cmd.url {
         let full_url = if args.is_empty() {
             url.clone()
         } else {
             format!("{url}{args}")
         };
-
-        if json {
-            println!(
-                "{}",
-                serde_json::json!({"command": cmd.name, "url": full_url})
-            );
-        } else {
-            println!("{full_url}");
-        }
-        return Ok(());
+        return Ok(serde_json::json!({"command": cmd.name, "url": full_url}));
     }
 
-    // Notify command — print the message
     if let Some(msg) = &cmd.notify {
-        if json {
-            println!(
-                "{}",
-                serde_json::json!({"command": cmd.name, "message": msg})
-            );
-        } else {
-            println!("{msg}");
-        }
-        return Ok(());
+        return Ok(serde_json::json!({"command": cmd.name, "message": msg}));
     }
 
     Err(format!("command '{}' has no action defined", cmd.name).into())
+}
+
+// -- CLI wrappers (call core + format output) ---------------------------------
+
+pub fn plugins(json: bool) -> Result {
+    let result = plugins_list_core();
+
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+        return Ok(());
+    }
+
+    if result.plugins.is_empty() {
+        println!("No plugins found in {}", result.dir);
+        return Ok(());
+    }
+
+    println!("{}\n", style(format!("Plugins in {}:", result.dir)).bold());
+    for item in &result.plugins {
+        if let Some(error) = item.get("error") {
+            let typ = item["type"].as_str().unwrap_or("unknown");
+            println!("  {} [{typ}] {error}", style("(error)").red());
+            continue;
+        }
+        let name = item["name"].as_str().unwrap_or("?");
+        let version = item["version"].as_str().unwrap_or("?");
+        let desc = item["description"].as_str().unwrap_or("");
+        let typ = item["type"].as_str().unwrap_or("?");
+        let enabled = item["enabled"].as_bool().unwrap_or(false);
+        let status = if enabled {
+            String::new()
+        } else {
+            format!(" {}", style("(disabled)").yellow())
+        };
+        if desc.is_empty() {
+            println!(
+                "  {} {} [{typ}]{status}",
+                style(name).bold(),
+                style(format!("v{version}")).dim()
+            );
+        } else {
+            println!(
+                "  {} {} [{typ}]{status} — {desc}",
+                style(name).bold(),
+                style(format!("v{version}")).dim()
+            );
+        }
+    }
+    Ok(())
+}
+
+pub fn plugins_commands(json: bool) -> Result {
+    let result = plugins_commands_core();
+
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+        return Ok(());
+    }
+
+    if result.commands.is_empty() {
+        println!("No plugin commands found");
+        return Ok(());
+    }
+
+    println!("{}\n", style("Plugin commands:").bold());
+    for item in &result.commands {
+        let name = item["name"].as_str().unwrap_or("?");
+        let plugin = item["plugin"].as_str().unwrap_or("?");
+        let desc = item.get("description").and_then(|d| d.as_str());
+        let typ = item["type"].as_str().unwrap_or("?");
+        let aliases = item
+            .get("aliases")
+            .and_then(|a| a.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            })
+            .unwrap_or_default();
+
+        match desc {
+            Some(d) => println!(
+                "  {:20} {} {d}",
+                style(name).bold(),
+                style(format!("[{plugin}, {typ}]")).dim()
+            ),
+            None => println!(
+                "  {:20} {}",
+                style(name).bold(),
+                style(format!("[{plugin}, {typ}]")).dim()
+            ),
+        }
+        if !aliases.is_empty() {
+            println!("  {:20} aliases: {aliases}", "");
+        }
+    }
+    Ok(())
+}
+
+pub fn plugins_install(source: &str, json: bool) -> Result {
+    let result = plugins_install_core(source)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        println!(
+            "{} plugin '{}' to {}",
+            style("Installed").green(),
+            result.installed,
+            result.path
+        );
+    }
+    Ok(())
+}
+
+pub fn plugins_remove(name: &str, json: bool) -> Result {
+    let result = plugins_remove_core(name)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        println!(
+            "{} plugin '{}' ({})",
+            style("Removed").green(),
+            result.removed,
+            result.path
+        );
+    }
+    Ok(())
+}
+
+pub fn exec(command: &str, args: &str, json: bool) -> Result {
+    let result = exec_core(command, args)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        // Print human-readable output based on result type
+        if let Some(stdout) = result.get("stdout").and_then(|v| v.as_str()) {
+            if !stdout.is_empty() {
+                print!("{stdout}");
+            }
+        }
+        if let Some(stderr) = result.get("stderr").and_then(|v| v.as_str()) {
+            if !stderr.is_empty() {
+                eprint!("{stderr}");
+            }
+        }
+        if let Some(url) = result.get("url").and_then(|v| v.as_str()) {
+            println!("{url}");
+        }
+        if let Some(msg) = result.get("message").and_then(|v| v.as_str()) {
+            println!("{msg}");
+        }
+    }
+    Ok(())
 }

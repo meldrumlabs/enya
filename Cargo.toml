@@ -88,6 +88,7 @@ egui_extras = { version = "0.33.3", default-features = false, features = [
 egui_nerdfonts = { path = "crates/egui_nerdfonts" }
 egui_tiles = { version = "0.14.0", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["wasmbind"] }
+console = "0.15"
 itertools = "0.14.0"
 poll-promise = "0.3"
 smallvec = "1.13.2"

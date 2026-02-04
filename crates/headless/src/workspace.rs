@@ -1,18 +1,118 @@
+use console::style;
 use enya_workspace::{
     PaneConfig, SectionConfig, SectionLayout, WorkspaceConfig, list_workspaces,
     resolve_workspace_path, workspace_dir,
 };
+use serde::Serialize;
 
 use crate::Result;
 use crate::query::{promql, time};
 
-pub fn init(
+// -- Result types -------------------------------------------------------------
+
+#[derive(Serialize)]
+pub struct InitResult {
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Serialize)]
+pub struct ListResult {
+    pub dir: String,
+    pub workspaces: Vec<WorkspaceEntry>,
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceEntry {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RmResult {
+    pub removed: String,
+}
+
+#[derive(Serialize)]
+pub struct GetResult {
+    pub workspace: String,
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Serialize)]
+pub struct SetResult {
+    pub workspace: String,
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Serialize)]
+pub struct AddSectionResult {
+    pub workspace: String,
+    pub section: String,
+    pub layout: String,
+}
+
+#[derive(Serialize)]
+pub struct AddPaneResult {
+    pub workspace: String,
+    pub section: String,
+    pub pane: String,
+    pub query: String,
+}
+
+#[derive(Serialize)]
+pub struct RemoveSectionResult {
+    pub workspace: String,
+    pub removed_section: String,
+    pub panes_removed: usize,
+}
+
+#[derive(Serialize)]
+pub struct RemovePaneResult {
+    pub workspace: String,
+    pub removed_pane: String,
+    pub section: String,
+}
+
+/// Parameters for adding a pane to a workspace.
+pub struct AddPaneParams<'a> {
+    pub name: &'a str,
+    pub query: &'a str,
+    pub pane_name: Option<&'a str>,
+    pub section: Option<&'a str>,
+    pub tag: Option<&'a str>,
+    pub unit: Option<&'a str>,
+    pub granularity: Option<&'a str>,
+    pub visualization: Option<&'a str>,
+    pub description: Option<&'a str>,
+}
+
+// -- Template resolution ------------------------------------------------------
+
+/// Resolve a template name to its TOML content.
+pub fn resolve_template(template: &str) -> Result<&'static str> {
+    match template {
+        "default" => Ok(enya_workspace::DEFAULT_WORKSPACE_TOML),
+        "demo" => Ok(enya_workspace::DEMO_WORKSPACE_TOML),
+        "complex" => Ok(enya_workspace::COMPLEX_VIEWPORT_TOML),
+        "atlas" => Ok(enya_workspace::ATLAS_WORKSPACE_TOML),
+        _ => Err(format!(
+            "unknown template: {template} (available: default, demo, complex, atlas)"
+        )
+        .into()),
+    }
+}
+
+// -- Core functions (return data, no printing) --------------------------------
+
+pub fn init_core(
     name: Option<String>,
     endpoint: Option<&str>,
     template: Option<&str>,
     output: Option<&str>,
-    json: bool,
-) -> Result {
+) -> Result<InitResult> {
     let name = name.unwrap_or_else(|| {
         std::env::current_dir()
             .ok()
@@ -31,18 +131,7 @@ pub fn init(
 
     let ws = match template {
         Some(t) => {
-            let toml_str = match t {
-                "default" => enya_workspace::DEFAULT_WORKSPACE_TOML,
-                "demo" => enya_workspace::DEMO_WORKSPACE_TOML,
-                "complex" => enya_workspace::COMPLEX_VIEWPORT_TOML,
-                "atlas" => enya_workspace::ATLAS_WORKSPACE_TOML,
-                _ => {
-                    return Err(format!(
-                        "unknown template: {t} (available: default, demo, complex, atlas)"
-                    )
-                    .into());
-                }
-            };
+            let toml_str = resolve_template(t)?;
             let mut ws = WorkspaceConfig::from_toml(toml_str)?;
             ws.workspace.name = name.clone();
             if let Some(ep) = endpoint {
@@ -57,256 +146,70 @@ pub fn init(
     };
 
     ws.save(&path)?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({"name": name, "path": path.display().to_string()})
-        );
-    } else {
-        println!("Created {}", path.display());
-    }
-    Ok(())
+    Ok(InitResult {
+        name,
+        path: path.display().to_string(),
+    })
 }
 
-pub fn list(json: bool) -> Result {
+pub fn list_core() -> ListResult {
     let dir = workspace_dir();
     let workspaces = list_workspaces();
-
-    if json {
-        let items: Vec<_> = workspaces
-            .iter()
-            .map(|(name, desc)| {
-                serde_json::json!({
-                    "name": name,
-                    "description": desc,
-                })
-            })
-            .collect();
-        println!(
-            "{}",
-            serde_json::json!({"dir": dir.display().to_string(), "workspaces": items})
-        );
-        return Ok(());
+    ListResult {
+        dir: dir.display().to_string(),
+        workspaces: workspaces
+            .into_iter()
+            .map(|(name, description)| WorkspaceEntry { name, description })
+            .collect(),
     }
-
-    if workspaces.is_empty() {
-        println!("No workspaces found in {}", dir.display());
-        return Ok(());
-    }
-
-    println!("Workspaces in {}:\n", dir.display());
-    for (name, description) in &workspaces {
-        match description {
-            Some(desc) => println!("  {name:20} {desc}"),
-            None => println!("  {name}"),
-        }
-    }
-    Ok(())
 }
 
-pub fn show(name: &str, json: bool) -> Result {
+pub fn show_core(name: &str) -> Result<WorkspaceConfig> {
     let path = resolve_workspace_path(name);
-    let ws = WorkspaceConfig::load(&path)?;
-
-    if json {
-        println!("{}", serde_json::to_string(&ws)?);
-        return Ok(());
-    }
-
-    println!("Name:        {}", ws.workspace.name);
-    if !ws.workspace.description.is_empty() {
-        println!("Description: {}", ws.workspace.description);
-    }
-    if let Some(ep) = ws.effective_endpoint() {
-        println!("Endpoint:    {ep}");
-    }
-    if !ws.logs.is_empty() {
-        println!("Logs:        {}", ws.logs.endpoint);
-    }
-    if !ws.git.is_empty() {
-        println!("Git:         {}", ws.git.url);
-    }
-
-    println!("Theme:       {}", ws.view.theme);
-    println!("Time:        {}", ws.time.preset);
-
-    if ws.uses_sections() {
-        println!("Sections:    {}", ws.sections.len());
-        for (i, section) in ws.sections.iter().enumerate() {
-            let collapsed = if section.collapsed {
-                " (collapsed)"
-            } else {
-                ""
-            };
-            println!(
-                "  [{i}] {} ({} panes, {:?}){collapsed}",
-                section.name,
-                section.panes.len(),
-                section.layout,
-            );
-            for pane in &section.panes {
-                let label = if pane.name.is_empty() {
-                    &pane.query
-                } else {
-                    &pane.name
-                };
-                println!("      - {label}: {}", pane.query);
-            }
-        }
-    } else {
-        let all_panes = ws.all_panes();
-        if !all_panes.is_empty() {
-            println!("Panes:       {} (legacy format)", all_panes.len());
-            for (i, pane) in all_panes.iter().enumerate() {
-                let label = if pane.name.is_empty() {
-                    format!("pane {i}")
-                } else {
-                    pane.name.clone()
-                };
-                println!("  [{i}] {label}: {}", pane.query);
-            }
-        }
-    }
-
-    Ok(())
+    Ok(WorkspaceConfig::load(&path)?)
 }
 
-pub fn rm(name: &str, json: bool) -> Result {
+pub fn rm_core(name: &str) -> Result<RmResult> {
     let path = resolve_workspace_path(name);
     if !path.exists() {
         return Err(format!("workspace not found: {}", path.display()).into());
     }
-
     std::fs::remove_file(&path)?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({"removed": path.display().to_string()})
-        );
-    } else {
-        println!("Removed {}", path.display());
-    }
-    Ok(())
+    Ok(RmResult {
+        removed: path.display().to_string(),
+    })
 }
 
-// -- Property access ----------------------------------------------------------
-
-pub fn get(name: &str, key: &str, json: bool) -> Result {
+pub fn get_core(name: &str, key: &str) -> Result<GetResult> {
     let path = resolve_workspace_path(name);
     let ws = WorkspaceConfig::load(&path)?;
     let value = ws.get_value(key)?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({"workspace": ws.workspace.name, "key": key, "value": value})
-        );
-    } else {
-        println!("{value}");
-    }
-    Ok(())
+    Ok(GetResult {
+        workspace: ws.workspace.name,
+        key: key.to_string(),
+        value,
+    })
 }
 
-pub fn set(name: &str, key: &str, value: &str, json: bool) -> Result {
+pub fn set_core(name: &str, key: &str, value: &str) -> Result<SetResult> {
     let path = resolve_workspace_path(name);
     let mut ws = WorkspaceConfig::load(&path)?;
     ws.set_value(key, value)?;
     ws.save(&path)?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({"workspace": ws.workspace.name, "key": key, "value": value})
-        );
-    } else {
-        println!("{key} = {value}");
-    }
-    Ok(())
+    Ok(SetResult {
+        workspace: ws.workspace.name,
+        key: key.to_string(),
+        value: value.to_string(),
+    })
 }
 
-// -- Section/pane mutations ---------------------------------------------------
-
-#[allow(clippy::too_many_arguments)]
-pub fn add_pane(
-    name: &str,
-    query: &str,
-    pane_name: Option<&str>,
-    section: Option<&str>,
-    tag: Option<&str>,
-    unit: Option<&str>,
-    granularity: Option<&str>,
-    visualization: Option<&str>,
-    description: Option<&str>,
-    json: bool,
-) -> Result {
-    let path = resolve_workspace_path(name);
-    let mut ws = WorkspaceConfig::load(&path)?;
-
-    ws.ensure_default_section();
-
-    let section_idx = if let Some(sec_name) = section {
-        ws.find_section(sec_name).ok_or_else(|| {
-            let available: Vec<&str> = ws.sections.iter().map(|s| s.name.as_str()).collect();
-            format!(
-                "section not found: {sec_name} (available: {})",
-                available.join(", ")
-            )
-        })?
-    } else {
-        ws.sections.len() - 1
-    };
-
-    let mut pane = PaneConfig::new(query);
-    if let Some(n) = pane_name {
-        pane.name = n.to_string();
-    }
-    if let Some(t) = tag {
-        pane.tag = t.to_string();
-    }
-    if let Some(u) = unit {
-        pane.unit = u.to_string();
-    }
-    if let Some(g) = granularity {
-        pane.granularity = g.to_string();
-    }
-    if let Some(v) = visualization {
-        pane.visualization = v.to_string();
-    }
-    if let Some(d) = description {
-        pane.description = d.to_string();
-    }
-
-    let sec_name = ws.sections[section_idx].name.clone();
-    ws.sections[section_idx].panes.push(pane);
-    ws.save(&path)?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "workspace": ws.workspace.name,
-                "section": sec_name,
-                "pane": pane_name.unwrap_or(""),
-                "query": query,
-            })
-        );
-    } else {
-        let label = pane_name.unwrap_or(query);
-        println!("Added pane \"{label}\" to section \"{sec_name}\"");
-    }
-    Ok(())
-}
-
-pub fn add_section(
+pub fn add_section_core(
     name: &str,
     section_name: &str,
     layout: &str,
     columns: Option<usize>,
     collapsed: bool,
-    json: bool,
-) -> Result {
+) -> Result<AddSectionResult> {
     let path = resolve_workspace_path(name);
     let mut ws = WorkspaceConfig::load(&path)?;
 
@@ -328,23 +231,83 @@ pub fn add_section(
 
     ws.add_section(section);
     ws.save(&path)?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "workspace": ws.workspace.name,
-                "section": section_name,
-                "layout": layout,
-            })
-        );
-    } else {
-        println!("Added section \"{section_name}\" ({layout})");
-    }
-    Ok(())
+    Ok(AddSectionResult {
+        workspace: ws.workspace.name,
+        section: section_name.to_string(),
+        layout: layout.to_string(),
+    })
 }
 
-pub fn remove_pane(name: &str, pane: &str, section: Option<&str>, json: bool) -> Result {
+pub fn add_pane_core(params: &AddPaneParams<'_>) -> Result<AddPaneResult> {
+    let path = resolve_workspace_path(params.name);
+    let mut ws = WorkspaceConfig::load(&path)?;
+
+    ws.ensure_default_section();
+
+    let section_idx = if let Some(sec_name) = params.section {
+        ws.find_section(sec_name).ok_or_else(|| {
+            let available: Vec<&str> = ws.sections.iter().map(|s| s.name.as_str()).collect();
+            format!(
+                "section not found: {sec_name} (available: {})",
+                available.join(", ")
+            )
+        })?
+    } else {
+        ws.sections.len() - 1
+    };
+
+    let mut pane = PaneConfig::new(params.query);
+    if let Some(n) = params.pane_name {
+        pane.name = n.to_string();
+    }
+    if let Some(t) = params.tag {
+        pane.tag = t.to_string();
+    }
+    if let Some(u) = params.unit {
+        pane.unit = u.to_string();
+    }
+    if let Some(g) = params.granularity {
+        pane.granularity = g.to_string();
+    }
+    if let Some(v) = params.visualization {
+        pane.visualization = v.to_string();
+    }
+    if let Some(d) = params.description {
+        pane.description = d.to_string();
+    }
+
+    let sec_name = ws.sections[section_idx].name.clone();
+    ws.sections[section_idx].panes.push(pane);
+    ws.save(&path)?;
+
+    Ok(AddPaneResult {
+        workspace: ws.workspace.name,
+        section: sec_name,
+        pane: params.pane_name.unwrap_or("").to_string(),
+        query: params.query.to_string(),
+    })
+}
+
+pub fn remove_section_core(name: &str, section_name: &str) -> Result<RemoveSectionResult> {
+    let path = resolve_workspace_path(name);
+    let mut ws = WorkspaceConfig::load(&path)?;
+
+    let idx = ws
+        .find_section(section_name)
+        .ok_or_else(|| format!("section not found: {section_name}"))?;
+
+    let panes_removed = ws.sections[idx].panes.len();
+    ws.sections.remove(idx);
+    ws.save(&path)?;
+
+    Ok(RemoveSectionResult {
+        workspace: ws.workspace.name,
+        removed_section: section_name.to_string(),
+        panes_removed,
+    })
+}
+
+pub fn remove_pane_core(name: &str, pane: &str, section: Option<&str>) -> Result<RemovePaneResult> {
     let path = resolve_workspace_path(name);
     let mut ws = WorkspaceConfig::load(&path)?;
 
@@ -383,44 +346,229 @@ pub fn remove_pane(name: &str, pane: &str, section: Option<&str>, json: bool) ->
     ws.sections[si].panes.remove(pi);
     ws.save(&path)?;
 
+    Ok(RemovePaneResult {
+        workspace: ws.workspace.name,
+        removed_pane: pane.to_string(),
+        section: sec_name,
+    })
+}
+
+// -- CLI wrappers (call core + format output) ---------------------------------
+
+pub fn init(
+    name: Option<String>,
+    endpoint: Option<&str>,
+    template: Option<&str>,
+    output: Option<&str>,
+    json: bool,
+) -> Result {
+    let result = init_core(name, endpoint, template, output)?;
     if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "workspace": ws.workspace.name,
-                "removed_pane": pane,
-                "section": sec_name,
-            })
-        );
+        println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("Removed pane \"{pane}\" from section \"{sec_name}\"");
+        println!("{} {}", style("Created").green(), result.path);
+    }
+    Ok(())
+}
+
+pub fn list(json: bool) -> Result {
+    let result = list_core();
+
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+        return Ok(());
+    }
+
+    if result.workspaces.is_empty() {
+        println!("No workspaces found in {}", result.dir);
+        return Ok(());
+    }
+
+    println!(
+        "{}\n",
+        style(format!("Workspaces in {}:", result.dir)).bold()
+    );
+    for entry in &result.workspaces {
+        match &entry.description {
+            Some(desc) => println!("  {:20} {}", style(&entry.name).bold(), style(desc).dim()),
+            None => println!("  {}", style(&entry.name).bold()),
+        }
+    }
+    Ok(())
+}
+
+pub fn show(name: &str, json: bool) -> Result {
+    let ws = show_core(name)?;
+
+    if json {
+        println!("{}", serde_json::to_string(&ws)?);
+        return Ok(());
+    }
+
+    println!("{} {}", style("Name:").bold(), ws.workspace.name);
+    if !ws.workspace.description.is_empty() {
+        println!(
+            "{} {}",
+            style("Description:").bold(),
+            ws.workspace.description
+        );
+    }
+    if let Some(ep) = ws.effective_endpoint() {
+        println!("{} {ep}", style("Endpoint:").bold());
+    }
+    if !ws.logs.is_empty() {
+        println!("{} {}", style("Logs:").bold(), ws.logs.endpoint);
+    }
+    if !ws.git.is_empty() {
+        println!("{} {}", style("Git:").bold(), ws.git.url);
+    }
+
+    println!("{} {}", style("Theme:").bold(), ws.view.theme);
+    println!("{} {}", style("Time:").bold(), ws.time.preset);
+
+    if ws.uses_sections() {
+        println!("{} {}", style("Sections:").bold(), ws.sections.len());
+        for (i, section) in ws.sections.iter().enumerate() {
+            let collapsed = if section.collapsed {
+                " (collapsed)"
+            } else {
+                ""
+            };
+            println!(
+                "  {} {} ({} panes, {:?}){collapsed}",
+                style(format!("[{i}]")).dim(),
+                style(&section.name).bold(),
+                section.panes.len(),
+                section.layout,
+            );
+            for pane in &section.panes {
+                let label = if pane.name.is_empty() {
+                    &pane.query
+                } else {
+                    &pane.name
+                };
+                println!("      - {label}: {}", pane.query);
+            }
+        }
+    } else {
+        let all_panes = ws.all_panes();
+        if !all_panes.is_empty() {
+            println!(
+                "{} {} (legacy format)",
+                style("Panes:").bold(),
+                all_panes.len()
+            );
+            for (i, pane) in all_panes.iter().enumerate() {
+                let label = if pane.name.is_empty() {
+                    format!("pane {i}")
+                } else {
+                    pane.name.clone()
+                };
+                println!(
+                    "  {} {label}: {}",
+                    style(format!("[{i}]")).dim(),
+                    pane.query
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn rm(name: &str, json: bool) -> Result {
+    let result = rm_core(name)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        println!("{} {}", style("Removed").green(), result.removed);
+    }
+    Ok(())
+}
+
+pub fn get(name: &str, key: &str, json: bool) -> Result {
+    let result = get_core(name, key)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        println!("{}", result.value);
+    }
+    Ok(())
+}
+
+pub fn set(name: &str, key: &str, value: &str, json: bool) -> Result {
+    let result = set_core(name, key, value)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        println!("{} = {}", style(&result.key).bold(), result.value);
+    }
+    Ok(())
+}
+
+pub fn add_section(
+    name: &str,
+    section_name: &str,
+    layout: &str,
+    columns: Option<usize>,
+    collapsed: bool,
+    json: bool,
+) -> Result {
+    let result = add_section_core(name, section_name, layout, columns, collapsed)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        println!(
+            "{} section \"{}\" ({})",
+            style("Added").green(),
+            result.section,
+            result.layout
+        );
+    }
+    Ok(())
+}
+
+pub fn add_pane(params: &AddPaneParams<'_>, json: bool) -> Result {
+    let result = add_pane_core(params)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        let label = params.pane_name.unwrap_or(params.query);
+        println!(
+            "{} pane \"{label}\" to section \"{}\"",
+            style("Added").green(),
+            result.section
+        );
     }
     Ok(())
 }
 
 pub fn remove_section(name: &str, section_name: &str, json: bool) -> Result {
-    let path = resolve_workspace_path(name);
-    let mut ws = WorkspaceConfig::load(&path)?;
-
-    let idx = ws
-        .find_section(section_name)
-        .ok_or_else(|| format!("section not found: {section_name}"))?;
-
-    let panes_removed = ws.sections[idx].panes.len();
-    ws.sections.remove(idx);
-    ws.save(&path)?;
-
+    let result = remove_section_core(name, section_name)?;
     if json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "workspace": ws.workspace.name,
-                "removed_section": section_name,
-                "panes_removed": panes_removed,
-            })
-        );
+        println!("{}", serde_json::to_string(&result)?);
     } else {
-        println!("Removed section \"{section_name}\" ({panes_removed} panes)");
+        println!(
+            "{} section \"{}\" ({} panes)",
+            style("Removed").green(),
+            result.removed_section,
+            result.panes_removed
+        );
+    }
+    Ok(())
+}
+
+pub fn remove_pane(name: &str, pane: &str, section: Option<&str>, json: bool) -> Result {
+    let result = remove_pane_core(name, pane, section)?;
+    if json {
+        println!("{}", serde_json::to_string(&result)?);
+    } else {
+        println!(
+            "{} pane \"{}\" from section \"{}\"",
+            style("Removed").green(),
+            result.removed_pane,
+            result.section
+        );
     }
     Ok(())
 }
@@ -528,5 +676,14 @@ mod tests {
         assert_eq!(compute_step(21600), 300); // 6h range → 5m step
         assert_eq!(compute_step(86400), 900); // 1d range → 15m step
         assert_eq!(compute_step(604800), 3600); // 7d range → 1h step
+    }
+
+    #[test]
+    fn test_resolve_template() {
+        assert!(resolve_template("default").is_ok());
+        assert!(resolve_template("demo").is_ok());
+        assert!(resolve_template("complex").is_ok());
+        assert!(resolve_template("atlas").is_ok());
+        assert!(resolve_template("nonexistent").is_err());
     }
 }

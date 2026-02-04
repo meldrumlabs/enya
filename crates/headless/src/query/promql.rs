@@ -32,6 +32,42 @@ pub struct PromResult {
     pub value: Option<(f64, String)>,
 }
 
+impl PromData {
+    /// Convert to a JSON value suitable for machine consumption.
+    ///
+    /// Handles both instant queries (single `value` per series) and
+    /// range queries (array of `values` per series).
+    pub fn to_json(&self) -> serde_json::Value {
+        let series: Vec<serde_json::Value> = self
+            .result
+            .iter()
+            .map(|r| {
+                if let Some(ref val) = r.value {
+                    serde_json::json!({
+                        "metric": r.metric,
+                        "value": {"timestamp": val.0, "value": val.1},
+                    })
+                } else {
+                    let values: Vec<serde_json::Value> = r
+                        .values
+                        .iter()
+                        .map(|(ts, v)| serde_json::json!({"timestamp": ts, "value": v}))
+                        .collect();
+                    serde_json::json!({
+                        "metric": r.metric,
+                        "values": values,
+                    })
+                }
+            })
+            .collect();
+        serde_json::json!({
+            "result_type": self.result_type,
+            "series": series,
+            "series_count": self.result.len(),
+        })
+    }
+}
+
 // -- Endpoint resolution ------------------------------------------------------
 
 fn normalize_url(url: &str) -> String {
@@ -65,6 +101,17 @@ pub fn resolve_endpoint(endpoint: Option<&str>, workspace_name: Option<&str>) ->
 
 // -- Query execution ----------------------------------------------------------
 
+fn parse_prom_response(body: &str) -> Result<PromData> {
+    let prom: PromResponse =
+        serde_json::from_str(body).map_err(|e| format!("failed to parse response: {e}"))?;
+
+    if prom.status != "success" {
+        return Err(prom.error.unwrap_or_else(|| "unknown error".into()).into());
+    }
+
+    prom.data.ok_or_else(|| "no data in response".into())
+}
+
 /// Execute a range PromQL query and return raw data.
 pub fn query_range(
     base_url: &str,
@@ -88,14 +135,7 @@ pub fn query_range(
         .read_to_string()
         .map_err(|e| format!("failed to read response: {e}"))?;
 
-    let prom: PromResponse =
-        serde_json::from_str(&body).map_err(|e| format!("failed to parse response: {e}"))?;
-
-    if prom.status != "success" {
-        return Err(prom.error.unwrap_or_else(|| "unknown error".into()).into());
-    }
-
-    prom.data.ok_or_else(|| "no data in response".into())
+    parse_prom_response(&body)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -144,12 +184,5 @@ pub fn query_instant(base_url: &str, expression: &str) -> Result<PromData> {
         .read_to_string()
         .map_err(|e| format!("failed to read response: {e}"))?;
 
-    let prom: PromResponse =
-        serde_json::from_str(&body).map_err(|e| format!("failed to parse response: {e}"))?;
-
-    if prom.status != "success" {
-        return Err(prom.error.unwrap_or_else(|| "unknown error".into()).into());
-    }
-
-    prom.data.ok_or_else(|| "no data in response".into())
+    parse_prom_response(&body)
 }

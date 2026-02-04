@@ -3,13 +3,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
-use enya_plugin::{
-    ConfigPlugin, HeadlessPluginHost, LuaPlugin, Plugin, PluginContext, PluginLoader,
-};
-use enya_workspace::{
-    PaneConfig, SectionConfig, SectionLayout, WorkspaceConfig, list_workspaces,
-    resolve_workspace_path, workspace_dir,
-};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
@@ -246,133 +239,62 @@ fn map_err(e: impl std::fmt::Display) -> (i32, String) {
 // -- Workspace handlers --------------------------------------------------------
 
 fn workspace_list() -> HandlerResult {
-    let dir = workspace_dir();
-    let workspaces = list_workspaces();
-    let items: Vec<_> = workspaces
-        .iter()
-        .map(|(name, desc)| serde_json::json!({"name": name, "description": desc}))
-        .collect();
-    Ok(serde_json::json!({"dir": dir.display().to_string(), "workspaces": items}))
+    let result = enya_headless::workspace::list_core();
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_show(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
-    let path = resolve_workspace_path(&name);
-    let ws = WorkspaceConfig::load(&path).map_err(map_err)?;
+    let ws = enya_headless::workspace::show_core(&name).map_err(map_err)?;
     serde_json::to_value(&ws).map_err(map_err)
 }
 
 fn workspace_init(params: &serde_json::Value) -> HandlerResult {
-    let name = param_str(params, "name").unwrap_or_else(|| {
-        std::env::current_dir()
-            .ok()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or_else(|| "workspace".to_string())
-    });
-
+    let name = param_str(params, "name");
     let endpoint = param_str(params, "endpoint");
     let template = param_str(params, "template");
-
-    let path = workspace_dir().join(format!("{name}.toml"));
-    if path.exists() {
-        return Err((-32603, format!("{} already exists", path.display())));
-    }
-
-    let ws = match template.as_deref() {
-        Some(t) => {
-            let toml_str = match t {
-                "default" => enya_workspace::DEFAULT_WORKSPACE_TOML,
-                "demo" => enya_workspace::DEMO_WORKSPACE_TOML,
-                "complex" => enya_workspace::COMPLEX_VIEWPORT_TOML,
-                "atlas" => enya_workspace::ATLAS_WORKSPACE_TOML,
-                _ => {
-                    return Err((
-                        -32602,
-                        format!("unknown template: {t} (available: default, demo, complex, atlas)"),
-                    ));
-                }
-            };
-            let mut ws = WorkspaceConfig::from_toml(toml_str).map_err(map_err)?;
-            ws.workspace.name = name.clone();
-            if let Some(ep) = &endpoint {
-                ws.workspace.endpoint = ep.clone();
-            }
-            ws
-        }
-        None => match endpoint {
-            Some(ref ep) => WorkspaceConfig::with_endpoint(&name, ep),
-            None => WorkspaceConfig::new(&name),
-        },
-    };
-
-    ws.save(&path).map_err(map_err)?;
-    Ok(serde_json::json!({"name": name, "path": path.display().to_string()}))
+    let result =
+        enya_headless::workspace::init_core(name, endpoint.as_deref(), template.as_deref(), None)
+            .map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_rm(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
-    let path = resolve_workspace_path(&name);
-    if !path.exists() {
-        return Err((-32603, format!("workspace not found: {}", path.display())));
-    }
-    std::fs::remove_file(&path).map_err(map_err)?;
-    Ok(serde_json::json!({"removed": path.display().to_string()}))
+    let result = enya_headless::workspace::rm_core(&name).map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_get(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let key = require_str(params, "key")?;
-    let path = resolve_workspace_path(&name);
-    let ws = WorkspaceConfig::load(&path).map_err(map_err)?;
-    let value = ws.get_value(&key).map_err(map_err)?;
-    Ok(serde_json::json!({"workspace": ws.workspace.name, "key": key, "value": value}))
+    let result = enya_headless::workspace::get_core(&name, &key).map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_set(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let key = require_str(params, "key")?;
     let value = require_str(params, "value")?;
-    let path = resolve_workspace_path(&name);
-    let mut ws = WorkspaceConfig::load(&path).map_err(map_err)?;
-    ws.set_value(&key, &value).map_err(map_err)?;
-    ws.save(&path).map_err(map_err)?;
-    Ok(serde_json::json!({"workspace": ws.workspace.name, "key": key, "value": value}))
+    let result = enya_headless::workspace::set_core(&name, &key, &value).map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_add_section(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let section_name = require_str(params, "section_name")?;
-    let layout_str = param_str(params, "layout").unwrap_or_else(|| "horizontal".to_string());
+    let layout = param_str(params, "layout").unwrap_or_else(|| "horizontal".to_string());
     let columns = param_u64(params, "columns").map(|c| c as usize);
     let collapsed = param_bool(params, "collapsed").unwrap_or(false);
-
-    let path = resolve_workspace_path(&name);
-    let mut ws = WorkspaceConfig::load(&path).map_err(map_err)?;
-
-    if ws.find_section(&section_name).is_some() {
-        return Err((-32603, format!("section already exists: {section_name}")));
-    }
-
-    let section_layout = SectionLayout::parse(&layout_str).ok_or_else(|| {
-        (
-            -32602,
-            format!("invalid layout: {layout_str} (expected: horizontal, vertical, grid, tabs)"),
-        )
-    })?;
-
-    let mut section = SectionConfig::new(&section_name).with_layout(section_layout);
-    if let Some(cols) = columns {
-        section = section.with_columns(cols);
-    }
-    if collapsed {
-        section = section.with_collapsed(true);
-    }
-
-    ws.add_section(section);
-    ws.save(&path).map_err(map_err)?;
-    Ok(
-        serde_json::json!({"workspace": ws.workspace.name, "section": section_name, "layout": layout_str}),
+    let result = enya_headless::workspace::add_section_core(
+        &name,
+        &section_name,
+        &layout,
+        columns,
+        collapsed,
     )
+    .map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
@@ -385,173 +307,49 @@ fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
     let granularity = param_str(params, "granularity");
     let visualization = param_str(params, "visualization");
     let description = param_str(params, "description");
-
-    let path = resolve_workspace_path(&name);
-    let mut ws = WorkspaceConfig::load(&path).map_err(map_err)?;
-    ws.ensure_default_section();
-
-    let section_idx = if let Some(ref sec_name) = section {
-        ws.find_section(sec_name).ok_or_else(|| {
-            let available: Vec<&str> = ws.sections.iter().map(|s| s.name.as_str()).collect();
-            (
-                -32602,
-                format!(
-                    "section not found: {sec_name} (available: {})",
-                    available.join(", ")
-                ),
-            )
-        })?
-    } else {
-        ws.sections.len() - 1
-    };
-
-    let mut pane = PaneConfig::new(&query);
-    if let Some(ref n) = pane_name {
-        pane.name = n.clone();
-    }
-    if let Some(ref t) = tag {
-        pane.tag = t.clone();
-    }
-    if let Some(ref u) = unit {
-        pane.unit = u.clone();
-    }
-    if let Some(ref g) = granularity {
-        pane.granularity = g.clone();
-    }
-    if let Some(ref v) = visualization {
-        pane.visualization = v.clone();
-    }
-    if let Some(ref d) = description {
-        pane.description = d.clone();
-    }
-
-    let sec_name = ws.sections[section_idx].name.clone();
-    ws.sections[section_idx].panes.push(pane);
-    ws.save(&path).map_err(map_err)?;
-    Ok(serde_json::json!({
-        "workspace": ws.workspace.name,
-        "section": sec_name,
-        "pane": pane_name.as_deref().unwrap_or(""),
-        "query": query,
-    }))
+    let result =
+        enya_headless::workspace::add_pane_core(&enya_headless::workspace::AddPaneParams {
+            name: &name,
+            query: &query,
+            pane_name: pane_name.as_deref(),
+            section: section.as_deref(),
+            tag: tag.as_deref(),
+            unit: unit.as_deref(),
+            granularity: granularity.as_deref(),
+            visualization: visualization.as_deref(),
+            description: description.as_deref(),
+        })
+        .map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_remove_section(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let section_name = require_str(params, "section_name")?;
-
-    let path = resolve_workspace_path(&name);
-    let mut ws = WorkspaceConfig::load(&path).map_err(map_err)?;
-
-    let idx = ws
-        .find_section(&section_name)
-        .ok_or_else(|| (-32603, format!("section not found: {section_name}")))?;
-
-    let panes_removed = ws.sections[idx].panes.len();
-    ws.sections.remove(idx);
-    ws.save(&path).map_err(map_err)?;
-    Ok(serde_json::json!({
-        "workspace": ws.workspace.name,
-        "removed_section": section_name,
-        "panes_removed": panes_removed,
-    }))
+    let result =
+        enya_headless::workspace::remove_section_core(&name, &section_name).map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_remove_pane(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let pane = require_str(params, "pane")?;
     let section = param_str(params, "section");
-
-    let path = resolve_workspace_path(&name);
-    let mut ws = WorkspaceConfig::load(&path).map_err(map_err)?;
-
-    let matches = if let Some(ref sec_name) = section {
-        let si = ws
-            .find_section(sec_name)
-            .ok_or_else(|| (-32603, format!("section not found: {sec_name}")))?;
-        ws.sections[si]
-            .panes
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.name == pane)
-            .map(|(pi, _)| (si, pi))
-            .collect::<Vec<_>>()
-    } else {
-        ws.find_pane_by_name(&pane)
-    };
-
-    if matches.is_empty() {
-        return Err((-32603, format!("pane not found: {pane}")));
-    }
-    if matches.len() > 1 {
-        let sections: Vec<&str> = matches
-            .iter()
-            .map(|(si, _)| ws.sections[*si].name.as_str())
-            .collect();
-        return Err((
-            -32603,
-            format!(
-                "multiple panes named \"{pane}\" (in sections: {}). Pass \"section\" to disambiguate.",
-                sections.join(", ")
-            ),
-        ));
-    }
-
-    let (si, pi) = matches[0];
-    let sec_name = ws.sections[si].name.clone();
-    ws.sections[si].panes.remove(pi);
-    ws.save(&path).map_err(map_err)?;
-    Ok(serde_json::json!({
-        "workspace": ws.workspace.name,
-        "removed_pane": pane,
-        "section": sec_name,
-    }))
+    let result = enya_headless::workspace::remove_pane_core(&name, &pane, section.as_deref())
+        .map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn workspace_snapshot(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let endpoint = param_str(params, "endpoint");
-
-    let path = resolve_workspace_path(&name);
-    let ws = WorkspaceConfig::load(&path).map_err(map_err)?;
-
+    let ws = enya_headless::workspace::show_core(&name).map_err(map_err)?;
     let base_url = enya_headless::query::promql::resolve_endpoint(endpoint.as_deref(), Some(&name))
         .map_err(map_err)?;
-
     enya_headless::workspace::snapshot(&base_url, &ws).map_err(map_err)
 }
 
 // -- Query handlers ------------------------------------------------------------
-
-fn promdata_to_json(data: &enya_headless::query::promql::PromData) -> serde_json::Value {
-    let series: Vec<serde_json::Value> = data
-        .result
-        .iter()
-        .map(|r| {
-            if let Some(ref val) = r.value {
-                serde_json::json!({
-                    "metric": r.metric,
-                    "value": {"timestamp": val.0, "value": val.1},
-                })
-            } else {
-                let values: Vec<serde_json::Value> = r
-                    .values
-                    .iter()
-                    .map(|(ts, v)| serde_json::json!({"timestamp": ts, "value": v}))
-                    .collect();
-                serde_json::json!({
-                    "metric": r.metric,
-                    "values": values,
-                })
-            }
-        })
-        .collect();
-    serde_json::json!({
-        "result_type": data.result_type,
-        "series": series,
-        "series_count": data.result.len(),
-    })
-}
 
 fn query_instant(params: &serde_json::Value) -> HandlerResult {
     let expression = require_str(params, "expression")?;
@@ -564,7 +362,7 @@ fn query_instant(params: &serde_json::Value) -> HandlerResult {
 
     let data =
         enya_headless::query::promql::query_instant(&base_url, &expression).map_err(map_err)?;
-    Ok(promdata_to_json(&data))
+    Ok(data.to_json())
 }
 
 fn query_range(params: &serde_json::Value) -> HandlerResult {
@@ -593,7 +391,7 @@ fn query_range(params: &serde_json::Value) -> HandlerResult {
     )
     .map_err(map_err)?;
 
-    Ok(promdata_to_json(&data))
+    Ok(data.to_json())
 }
 
 // -- Metrics discovery handlers -------------------------------------------------
@@ -761,81 +559,79 @@ fn watch_thread(
     stop: Arc<AtomicBool>,
     tx: mpsc::Sender<RpcNotification>,
 ) {
+    use enya_headless::watch::WatchEvent;
+
     let mut first_triggered: Option<std::time::Instant> = None;
+    let threshold_str = enya_headless::watch::format_threshold(&threshold);
 
     while !stop.load(Ordering::SeqCst) {
-        match enya_headless::query::promql::query_instant(base_url, expression) {
-            Ok(data) => {
-                let (triggered, extreme_val, series_count) =
-                    enya_headless::watch::check_threshold(&data, &threshold);
+        let event = enya_headless::watch::tick(
+            base_url,
+            expression,
+            &threshold,
+            &mut first_triggered,
+            for_secs,
+        );
 
-                if triggered {
-                    let trigger_start = first_triggered.get_or_insert_with(std::time::Instant::now);
-                    let triggered_secs = trigger_start.elapsed().as_secs();
-
-                    if let Some(for_dur) = for_secs {
-                        if triggered_secs >= for_dur {
-                            let _ = tx.send(RpcNotification {
-                                jsonrpc: "2.0",
-                                method: "watch.triggered".to_string(),
-                                params: serde_json::json!({
-                                    "watch_id": watch_id,
-                                    "value": extreme_val,
-                                    "threshold": enya_headless::watch::format_threshold(&threshold),
-                                    "series_count": series_count,
-                                }),
-                            });
-                            return;
-                        }
-                    } else {
-                        let _ = tx.send(RpcNotification {
-                            jsonrpc: "2.0",
-                            method: "watch.triggered".to_string(),
-                            params: serde_json::json!({
-                                "watch_id": watch_id,
-                                "value": extreme_val,
-                                "threshold": enya_headless::watch::format_threshold(&threshold),
-                                "series_count": series_count,
-                            }),
-                        });
-                        return;
-                    }
-
-                    let _ = tx.send(RpcNotification {
-                        jsonrpc: "2.0",
-                        method: "watch.status".to_string(),
-                        params: serde_json::json!({
-                            "watch_id": watch_id,
-                            "status": "warn",
-                            "value": extreme_val,
-                            "threshold": enya_headless::watch::format_threshold(&threshold),
-                            "series_count": series_count,
-                            "triggered_for_secs": triggered_secs,
-                        }),
-                    });
-                } else {
-                    first_triggered = None;
-                    let _ = tx.send(RpcNotification {
-                        jsonrpc: "2.0",
-                        method: "watch.status".to_string(),
-                        params: serde_json::json!({
-                            "watch_id": watch_id,
-                            "status": "ok",
-                            "value": extreme_val,
-                            "threshold": enya_headless::watch::format_threshold(&threshold),
-                            "series_count": series_count,
-                        }),
-                    });
-                }
+        match &event {
+            WatchEvent::Ok {
+                value,
+                series_count,
+            } => {
+                let _ = tx.send(RpcNotification {
+                    jsonrpc: "2.0",
+                    method: "watch.status".to_string(),
+                    params: serde_json::json!({
+                        "watch_id": watch_id,
+                        "status": "ok",
+                        "value": value,
+                        "threshold": threshold_str,
+                        "series_count": series_count,
+                    }),
+                });
             }
-            Err(e) => {
+            WatchEvent::Warn {
+                value,
+                series_count,
+                triggered_for_secs,
+            } => {
+                let _ = tx.send(RpcNotification {
+                    jsonrpc: "2.0",
+                    method: "watch.status".to_string(),
+                    params: serde_json::json!({
+                        "watch_id": watch_id,
+                        "status": "warn",
+                        "value": value,
+                        "threshold": threshold_str,
+                        "series_count": series_count,
+                        "triggered_for_secs": triggered_for_secs,
+                    }),
+                });
+            }
+            WatchEvent::Alert {
+                value,
+                series_count,
+            } => {
+                let _ = tx.send(RpcNotification {
+                    jsonrpc: "2.0",
+                    method: "watch.triggered".to_string(),
+                    params: serde_json::json!({
+                        "watch_id": watch_id,
+                        "value": value,
+                        "threshold": threshold_str,
+                        "series_count": series_count,
+                    }),
+                });
+                return;
+            }
+            WatchEvent::Error { error } => {
                 let _ = tx.send(RpcNotification {
                     jsonrpc: "2.0",
                     method: "watch.status".to_string(),
                     params: serde_json::json!({
                         "watch_id": watch_id,
                         "status": "error",
-                        "error": e.to_string(),
+                        "error": error,
                     }),
                 });
             }
@@ -874,207 +670,25 @@ fn watch_list(session: &Session) -> HandlerResult {
 // -- Plugin handlers -----------------------------------------------------------
 
 fn plugins_list() -> HandlerResult {
-    let loader = PluginLoader::new();
-    let dir = loader
-        .user_plugin_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
-
-    let mut items: Vec<serde_json::Value> = Vec::new();
-
-    for result in loader.load_all() {
-        match result {
-            Ok(plugin) => {
-                let manifest = plugin.manifest();
-                items.push(serde_json::json!({
-                    "name": manifest.plugin.name,
-                    "version": manifest.plugin.version,
-                    "description": manifest.plugin.description,
-                    "type": "config",
-                    "enabled": manifest.plugin.enabled,
-                    "commands": manifest.commands.len(),
-                    "keybindings": manifest.keybindings.len(),
-                }));
-            }
-            Err(e) => {
-                items.push(serde_json::json!({"error": e.to_string(), "type": "config"}));
-            }
-        }
-    }
-
-    for result in loader.load_all_lua() {
-        match result {
-            Ok(plugin) => {
-                items.push(serde_json::json!({
-                    "name": plugin.name(),
-                    "version": plugin.version(),
-                    "description": plugin.description(),
-                    "type": "lua",
-                    "enabled": true,
-                }));
-            }
-            Err(e) => {
-                items.push(serde_json::json!({"error": e.to_string(), "type": "lua"}));
-            }
-        }
-    }
-
-    Ok(serde_json::json!({"dir": dir, "plugins": items}))
+    let result = enya_headless::plugins::plugins_list_core();
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn plugins_commands() -> HandlerResult {
-    let loader = PluginLoader::new();
-    let mut items: Vec<serde_json::Value> = Vec::new();
-
-    for result in loader.load_all() {
-        let Ok(plugin) = result else { continue };
-        let manifest = plugin.manifest();
-        if !manifest.plugin.enabled {
-            continue;
-        }
-        for cmd in &manifest.commands {
-            let mut item = serde_json::json!({
-                "name": cmd.name,
-                "plugin": manifest.plugin.name,
-                "type": "config",
-            });
-            if !cmd.description.is_empty() {
-                item["description"] = serde_json::json!(cmd.description);
-            }
-            if !cmd.aliases.is_empty() {
-                item["aliases"] = serde_json::json!(cmd.aliases);
-            }
-            if cmd.accepts_args {
-                item["accepts_args"] = serde_json::json!(true);
-            }
-            if cmd.shell.is_some() {
-                item["action"] = serde_json::json!("shell");
-            } else if cmd.url.is_some() {
-                item["action"] = serde_json::json!("url");
-            } else if cmd.notify.is_some() {
-                item["action"] = serde_json::json!("notify");
-            }
-            items.push(item);
-        }
-    }
-
-    for result in loader.load_all_lua() {
-        let Ok(plugin) = result else { continue };
-        for cmd in plugin.commands() {
-            let mut item = serde_json::json!({
-                "name": cmd.name,
-                "plugin": plugin.name(),
-                "type": "lua",
-            });
-            if !cmd.description.is_empty() {
-                item["description"] = serde_json::json!(cmd.description);
-            }
-            if !cmd.aliases.is_empty() {
-                item["aliases"] = serde_json::json!(cmd.aliases);
-            }
-            if cmd.accepts_args {
-                item["accepts_args"] = serde_json::json!(true);
-            }
-            items.push(item);
-        }
-    }
-
-    Ok(serde_json::json!({"commands": items}))
+    let result = enya_headless::plugins::plugins_commands_core();
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn plugins_install(params: &serde_json::Value) -> HandlerResult {
     let source = require_str(params, "source")?;
-    let source_path = std::path::Path::new(&source);
-
-    if !source_path.exists() {
-        return Err((-32603, format!("file not found: {source}")));
-    }
-
-    let ext = source_path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-    if ext != "toml" && ext != "lua" {
-        return Err((-32602, "plugin file must be .toml or .lua".to_string()));
-    }
-
-    let name = if ext == "toml" {
-        let plugin = ConfigPlugin::load(source_path).map_err(map_err)?;
-        plugin.manifest().plugin.name.clone()
-    } else {
-        let plugin = LuaPlugin::load(source_path).map_err(map_err)?;
-        plugin.name().to_string()
-    };
-
-    let loader = PluginLoader::new();
-    loader.ensure_user_dir().map_err(map_err)?;
-    let dest_dir = loader
-        .user_plugin_dir()
-        .ok_or((-32603, "could not determine plugin directory".to_string()))?;
-
-    let file_name = source_path
-        .file_name()
-        .ok_or((-32602, "invalid source path".to_string()))?;
-    let dest = dest_dir.join(file_name);
-
-    if dest.exists() {
-        return Err((
-            -32603,
-            format!(
-                "{} already exists in plugin directory",
-                file_name.to_string_lossy()
-            ),
-        ));
-    }
-
-    std::fs::copy(source_path, &dest).map_err(map_err)?;
-    Ok(serde_json::json!({"installed": name, "path": dest.display().to_string()}))
+    let result = enya_headless::plugins::plugins_install_core(&source).map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 fn plugins_remove(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
-    let loader = PluginLoader::new();
-    let dir = loader
-        .user_plugin_dir()
-        .ok_or((-32603, "could not determine plugin directory".to_string()))?;
-
-    let mut found_path: Option<std::path::PathBuf> = None;
-
-    for path in loader.discover() {
-        if let Ok(plugin) = ConfigPlugin::load(&path) {
-            if plugin.manifest().plugin.name == name {
-                found_path = Some(path);
-                break;
-            }
-        }
-    }
-
-    if found_path.is_none() {
-        for path in loader.discover_lua() {
-            if let Ok(plugin) = LuaPlugin::load(&path) {
-                if plugin.name() == name {
-                    found_path = Some(path);
-                    break;
-                }
-            }
-        }
-    }
-
-    let path = found_path.ok_or((-32603, format!("plugin not found: {name}")))?;
-
-    if !path.starts_with(dir) {
-        return Err((
-            -32603,
-            format!(
-                "plugin '{}' is not in user plugin directory (found at {})",
-                name,
-                path.display()
-            ),
-        ));
-    }
-
-    std::fs::remove_file(&path).map_err(map_err)?;
-    Ok(serde_json::json!({"removed": name, "path": path.display().to_string()}))
+    let result = enya_headless::plugins::plugins_remove_core(&name).map_err(map_err)?;
+    serde_json::to_value(&result).map_err(map_err)
 }
 
 // -- Exec handler --------------------------------------------------------------
@@ -1082,83 +696,7 @@ fn plugins_remove(params: &serde_json::Value) -> HandlerResult {
 fn exec_run(params: &serde_json::Value) -> HandlerResult {
     let command = require_str(params, "command")?;
     let args = param_str(params, "args").unwrap_or_default();
-    let loader = PluginLoader::new();
-
-    // Search config plugins
-    for result in loader.load_all() {
-        let Ok(plugin) = result else { continue };
-        let manifest = plugin.manifest();
-        if !manifest.plugin.enabled {
-            continue;
-        }
-        for cmd in &manifest.commands {
-            if cmd.name == command || cmd.aliases.contains(&command.to_string()) {
-                return exec_config_command(cmd, &args);
-            }
-        }
-    }
-
-    // Search Lua plugins
-    for result in loader.load_all_lua() {
-        let Ok(mut plugin) = result else { continue };
-        for cmd_config in plugin.commands() {
-            if cmd_config.name == command || cmd_config.aliases.contains(&command.to_string()) {
-                let host = Arc::new(HeadlessPluginHost);
-                let ctx = PluginContext::new(host);
-                let success = plugin.execute_command(&command, &args, &ctx);
-                return Ok(serde_json::json!({
-                    "command": command,
-                    "plugin": plugin.name(),
-                    "success": success,
-                }));
-            }
-        }
-    }
-
-    Err((-32603, format!("unknown command: {command}")))
-}
-
-fn exec_config_command(cmd: &enya_plugin::ConfigCommand, args: &str) -> HandlerResult {
-    if let Some(shell) = &cmd.shell {
-        let full_cmd = if args.is_empty() {
-            shell.clone()
-        } else {
-            format!("{shell} {args}")
-        };
-
-        let output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(&full_cmd)
-            .output()
-            .map_err(map_err)?;
-
-        return Ok(serde_json::json!({
-            "command": cmd.name,
-            "shell": full_cmd,
-            "exit_code": output.status.code(),
-            "success": output.status.success(),
-            "stdout": String::from_utf8_lossy(&output.stdout),
-            "stderr": String::from_utf8_lossy(&output.stderr),
-        }));
-    }
-
-    if let Some(url) = &cmd.url {
-        let full_url = if args.is_empty() {
-            url.clone()
-        } else {
-            format!("{url}{args}")
-        };
-        return Ok(serde_json::json!({"command": cmd.name, "url": full_url}));
-    }
-
-    if let Some(msg) = &cmd.notify {
-        return Ok(serde_json::json!({"command": cmd.name, "message": msg}));
-    }
-
-    Err((
-        -32603,
-        format!("command '{}' has no action defined", cmd.name),
-    ))
+    enya_headless::plugins::exec_core(&command, &args).map_err(map_err)
 }
 
 // -- Session handlers ----------------------------------------------------------
@@ -1178,6 +716,7 @@ fn session_shutdown(session: &mut Session) -> HandlerResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use enya_workspace::WorkspaceConfig;
 
     fn pretty(val: &serde_json::Value) -> String {
         serde_json::to_string_pretty(val).unwrap()
@@ -1609,7 +1148,7 @@ mod tests {
                 "section_name": "Bad",
                 "layout": "diagonal",
             })).unwrap_err()),
-            @"(-32602) invalid layout: diagonal (expected: horizontal, vertical, grid, tabs)"
+            @"(-32603) invalid layout: diagonal (expected: horizontal, vertical, grid, tabs)"
         );
     }
 

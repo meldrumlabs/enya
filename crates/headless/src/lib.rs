@@ -1,3 +1,5 @@
+pub mod check;
+pub mod fmt;
 pub mod plugins;
 pub mod query;
 pub mod watch;
