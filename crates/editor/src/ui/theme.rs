@@ -2165,7 +2165,7 @@ impl AppTheme {
     }
 
     // =========================================================================
-    // Annotation Colors (Team collaboration annotations on charts)
+    // Annotation Colors
     // =========================================================================
 
     /// Normal priority annotation color (notes/comments)

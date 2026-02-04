@@ -1,10 +1,7 @@
 //! Shared theme color helpers for chat-like UI components.
 //!
 //! This module provides consistent colors across chat components
-//! (agent panel, channels panel, chat view, etc.) that adapt to the current theme.
-//!
-//! Note: This is in the `ui` module (not `chat`) so it's available even when
-//! the `teams` feature is disabled, since agent_panel uses these colors.
+//! (agent panel, etc.) that adapt to the current theme.
 
 use egui::Color32;
 

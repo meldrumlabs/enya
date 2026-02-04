@@ -499,22 +499,6 @@ pub mod statusline {
 }
 
 // ============================================================================
-// Social/Team Icons - icons for team collaboration features
-// ============================================================================
-
-pub mod social {
-    use egui_nerdfonts::regular;
-
-    pub const TEAM: &str = regular::ACCOUNT_GROUP;
-    pub const USER: &str = regular::ACCOUNT;
-    pub const USERS: &str = regular::ACCOUNT_MULTIPLE;
-    pub const COMMENT: &str = regular::COMMENT;
-    pub const COMMENTS: &str = regular::COMMENT_MULTIPLE;
-    pub const MENTION: &str = regular::AT;
-    pub const CHAT: &str = regular::CHAT;
-}
-
-// ============================================================================
 // Language Icons - icons for programming languages
 // ============================================================================
 

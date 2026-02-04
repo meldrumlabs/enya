@@ -3,10 +3,6 @@
 //! These types describe pane visualization data and are used for:
 //! - Agent context generation (summarizing pane data for AI)
 //! - Pane sharing and embedding
-//! - Chat @mention autocomplete
-//!
-//! Note: This is in the `pane` module (not `chat`) so it's available even when
-//! the `teams` feature is disabled, since agent_context and workspace use these types.
 
 use super::time_series_chart::Series;
 use super::visualization::VisualizationType;

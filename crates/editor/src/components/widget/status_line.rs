@@ -12,9 +12,6 @@ use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
-#[cfg(feature = "teams")]
-use crate::team::ui::TeamStatusInfo;
-
 /// State for inline agent input in the status line
 pub struct InlineAgentInput<'a> {
     /// The input text buffer
@@ -314,9 +311,6 @@ pub struct StatusLine {
     is_zen_mode: bool,
     /// Whether fullscreen mode is active (display preference badge)
     is_fullscreen: bool,
-    /// Team collaboration status (only shown when connected to a team, requires `teams` feature)
-    #[cfg(feature = "teams")]
-    team_status: Option<TeamStatusInfo>,
 }
 
 impl Default for StatusLine {
@@ -337,8 +331,6 @@ impl Default for StatusLine {
             codebase_status: None,
             is_zen_mode: false,
             is_fullscreen: false,
-            #[cfg(feature = "teams")]
-            team_status: None,
         }
     }
 }
@@ -417,18 +409,6 @@ impl StatusLine {
     /// Set fullscreen state (for display preference badge)
     pub fn set_fullscreen(&mut self, is_fullscreen: bool) {
         self.is_fullscreen = is_fullscreen;
-    }
-
-    /// Set team collaboration status (only shown when connected to a team, requires `teams` feature)
-    #[cfg(feature = "teams")]
-    pub fn set_team_status(&mut self, status: Option<TeamStatusInfo>) {
-        self.team_status = status;
-    }
-
-    /// Set team collaboration status (stub when teams feature is disabled)
-    #[cfg(not(feature = "teams"))]
-    pub fn set_team_status(&mut self, _status: Option<()>) {
-        // No-op when teams feature is disabled
     }
 
     /// Mark the last refresh time (call when data is updated)
@@ -869,65 +849,6 @@ impl StatusLine {
                         padding,
                         false,
                     );
-                }
-            }
-
-            // Team collaboration status (only shown when connected to a team, requires teams feature)
-            #[cfg(feature = "teams")]
-            if let Some(ref team_info) = self.team_status {
-                if team_info.should_show() {
-                    // Separator before team status
-                    self.render_separator_rtl(ui, height);
-
-                    // Build team status text
-                    let mut parts = Vec::new();
-
-                    // Team name (truncated if too long)
-                    if let Some(ref name) = team_info.team_name {
-                        let display_name = if name.len() > 12 {
-                            format!("{}...", &name[..9])
-                        } else {
-                            name.clone()
-                        };
-                        parts.push(display_name);
-                    }
-
-                    // Online count
-                    parts.push(format!("{} online", team_info.online_count));
-
-                    let status_text = parts.join(" | ");
-
-                    // Icon and color based on unread notifications
-                    let (icon, fg_color) = if team_info.unread_count > 0 {
-                        (
-                            semantic_icons::status::NOTIFICATION,
-                            self.theme.accent_primary(),
-                        )
-                    } else {
-                        (semantic_icons::social::TEAM, palette::text::SECONDARY)
-                    };
-
-                    // Add unread badge if any
-                    let content = if team_info.unread_count > 0 {
-                        format!("{status_text} ({})", team_info.unread_count)
-                    } else {
-                        status_text
-                    };
-
-                    let response = self.render_segment_rtl_with_response(
-                        ui,
-                        &content,
-                        Some(icon),
-                        Color32::TRANSPARENT,
-                        fg_color,
-                        height,
-                        padding,
-                        false,
-                    );
-
-                    if response.hovered() {
-                        response.show_tooltip_text("Team collaboration (Space+t)");
-                    }
                 }
             }
         });
