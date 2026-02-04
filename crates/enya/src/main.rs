@@ -10,6 +10,8 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use std::process::ExitCode;
 
+const ART: &[u8] = include_bytes!("../art.txt");
+
 /// Enya — observability editor for humans, machines, and AI agents
 ///
 /// Run without a subcommand to launch the GUI editor.
@@ -380,6 +382,8 @@ enum PluginsCommand {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    print_art();
+
     // `enya open <name>` is equivalent to `enya --workspace <name>` (launches GUI)
     let (command, workspace) = match cli.command {
         Some(Command::Open { name }) => (None, Some(name)),
@@ -680,4 +684,11 @@ fn main() -> ExitCode {
         eprintln!("Use a subcommand: enya init, enya list, enya show, enya rm");
         ExitCode::FAILURE
     }
+}
+
+
+
+pub fn print_art() {
+    let art_str = std::str::from_utf8(ART).expect("Invalid UTF-8 in art.txt");
+    print!("{art_str}");
 }
