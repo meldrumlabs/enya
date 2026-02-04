@@ -133,11 +133,11 @@ impl ExternalApp {
 
     /// Check if an app bundle exists (macOS) or command is in PATH.
     #[cfg(not(target_arch = "wasm32"))]
-    fn check_app_or_command(app_name: &str, command: &str) -> bool {
+    fn check_app_or_command(_app_name: &str, command: &str) -> bool {
         #[cfg(target_os = "macos")]
         {
             // Check for .app bundle first
-            let app_path = format!("/Applications/{app_name}.app");
+            let app_path = format!("/Applications/{_app_name}.app");
             if std::path::Path::new(&app_path).exists() {
                 return true;
             }
@@ -289,7 +289,7 @@ impl ExternalApp {
         std::process::Command::new("xdg-open")
             .arg(dir)
             .spawn()
-            .map_err(|e| format!("Failed to open file manager: {}", e))?;
+            .map_err(|e| format!("Failed to open file manager: {e}"))?;
         Ok(())
     }
 
