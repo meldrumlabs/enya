@@ -12,7 +12,10 @@ Enya is a AI-Native Observability Editor for Builders.
 
 ## Acknowledgements
 
-- Enya takes inspiration from rerun.io for its egui-based UI.
+- rerun.io for inspiration on egui-based UI.
+- PlanetScale for inspiration on series UX.
+- Conductor for inspiration on UX design.
+- Neovim for inspiration on plugin system architecture and keybindings.
 
 ## License
 
