@@ -48,6 +48,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Inline charts use real query data**: `show_inline_chart` now executes the PromQL query through the QueryExecutor and displays real data from Prometheus. Falls back to demo sine wave data when in offline/demo mode.
+- **Unified `show_source` command**: Consolidated `show_metric_source`, `show_inline_source`, and `show_alert_source` into a single `show_source` command. Accepts `source_type` ("metric" or "alert") and `context_lines` parameters. The editor decides inline vs modal display. Legacy command names still parse and execute.
+- **`create_pane` supports floating mode**: Added optional `floating` and `position` parameters to `create_pane`. When `floating: true`, creates a detached investigation pane. The legacy `create_floating_pane` command still works as an alias.
+- **Trimmed agent prompt**: Removed UI-chrome commands from the agent system prompt to reduce cognitive overhead: `exit_fullscreen`, `toggle_zen_mode`, `focus_pane`, `rename_pane`, `duplicate_pane`, `sync`, and `create_floating_pane`. All commands still parse and execute if emitted; they are just no longer advertised.
 - **Commit annotations hidden by default**: Git commit markers are now hidden by default when loaded. Use `gc` to toggle visibility. Previously, commits were auto-shown when a git repository was configured.
 
 ### Removed

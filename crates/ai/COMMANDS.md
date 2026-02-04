@@ -18,16 +18,23 @@ The editor automatically parses these blocks from agent responses and executes t
 
 ### `create_pane`
 
-Creates a new visualization pane with a PromQL query.
+Creates a new visualization pane with a PromQL query. Optionally creates a floating (detached) pane for investigation.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | Yes | PromQL expression to visualize |
 | `title` | string | No | Display title for the pane |
+| `floating` | boolean | No | If true, create a floating pane (default: false) |
+| `position` | [number, number] | No | Position for floating panes as [x, y] pixels from top-left |
 
 **Example:**
 ```json
 {"action": "create_pane", "query": "rate(http_requests_total[5m])", "title": "Request Rate"}
+```
+
+**Example (floating pane for investigation):**
+```json
+{"action": "create_pane", "query": "rate(http_errors_total[5m])", "title": "Error Investigation", "floating": true}
 ```
 
 ---
@@ -82,48 +89,29 @@ Displays a time series chart inline within the agent's response. **Preferred** f
 
 ---
 
-### `show_inline_source`
+### `show_source`
 
-Displays source code preview inline within the agent's response. **Preferred** for showing metric definitions.
+Shows source code for a metric or alert definition. The editor decides whether to show it inline or as a modal based on context. **Preferred** over the legacy `show_metric_source`, `show_inline_source`, and `show_alert_source` commands.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `metric` | string | Yes | Metric name to look up source for |
+| `name` | string | Yes | Metric or alert name to look up |
+| `source_type` | string | No | `"metric"` (default) or `"alert"` |
 | `context_lines` | number | No | Lines of context to show (default: 5) |
 
-**Example:**
+**Example (metric):**
 ```json
-{"action": "show_inline_source", "metric": "http_requests_total", "context_lines": 10}
+{"action": "show_source", "name": "http_requests_total"}
 ```
 
----
-
-### `show_metric_source`
-
-Opens a modal overlay showing the source code definition of a metric. Use when the user explicitly asks to "open", "go to", or "navigate to" the source.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `metric` | string | Yes | Metric name to look up |
-
-**Example:**
+**Example (alert):**
 ```json
-{"action": "show_metric_source", "metric": "http_requests_total"}
+{"action": "show_source", "name": "HighErrorRate", "source_type": "alert"}
 ```
 
----
-
-### `show_alert_source`
-
-Opens a modal overlay showing the alert rule definition. Use when the user explicitly asks to "open", "go to", or "navigate to" the alert.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `alert` | string | Yes | Alert name to look up |
-
-**Example:**
+**Example (with more context):**
 ```json
-{"action": "show_alert_source", "alert": "HighErrorRate"}
+{"action": "show_source", "name": "http_requests_total", "context_lines": 10}
 ```
 
 ---
@@ -313,28 +301,6 @@ Creates a collapsible section for organizing panes (Grafana-style). Useful for g
 
 ---
 
-### `create_floating_pane`
-
-Creates a floating pane that hovers above the main layout. Perfect for investigation workflows where you need to compare data without disrupting the dashboard layout.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query` | string | Yes | PromQL expression to visualize |
-| `title` | string | No | Display title for the pane |
-| `position` | [number, number] | No | Position as [x, y] pixels from top-left |
-
-**Example:**
-```json
-{"action": "create_floating_pane", "query": "rate(http_errors_total[5m])", "title": "Error Investigation"}
-```
-
-**Example (positioned):**
-```json
-{"action": "create_floating_pane", "query": "up", "title": "Service Health", "position": [200, 150]}
-```
-
----
-
 ### `maximize_pane`
 
 Maximizes a pane to fullscreen view. Press the same keybinding again or use this command to exit.
@@ -351,86 +317,6 @@ Maximizes a pane to fullscreen view. Press the same keybinding again or use this
 **Example (focused pane):**
 ```json
 {"action": "maximize_pane", "pane": "focused"}
-```
-
----
-
-### `rename_pane`
-
-Renames a pane. Useful for giving panes meaningful names during investigation.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `pane` | string | Yes | Current pane title/name, or `"focused"` for the currently focused pane |
-| `new_name` | string | Yes | The new name for the pane |
-
-**Example:**
-```json
-{"action": "rename_pane", "pane": "Query 1", "new_name": "Error Rate Analysis"}
-```
-
----
-
-### `duplicate_pane`
-
-Duplicates a pane with the same query. Useful for creating comparison views or making variations.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `pane` | string | Yes | Pane title/name to duplicate, or `"focused"` for the currently focused pane |
-| `new_name` | string | No | Name for the duplicated pane (defaults to "original name (copy)") |
-
-**Example:**
-```json
-{"action": "duplicate_pane", "pane": "Request Rate", "new_name": "Request Rate (yesterday)"}
-```
-
----
-
-### `focus_pane`
-
-Focuses a specific pane. Useful for directing user attention to a particular metric.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `pane` | string | Yes | Pane title/name to focus |
-
-**Example:**
-```json
-{"action": "focus_pane", "pane": "Error Rate"}
-```
-
----
-
-### `toggle_zen_mode`
-
-Toggles zen mode (minimal UI). Hides toolbars and other UI elements for distraction-free viewing.
-
-**Example:**
-```json
-{"action": "toggle_zen_mode"}
-```
-
----
-
-### `exit_fullscreen`
-
-Exits fullscreen/maximized mode. Returns to normal multi-pane view.
-
-**Example:**
-```json
-{"action": "exit_fullscreen"}
-```
-
----
-
-### `sync`
-
-Syncs the repository by fetching latest git commits and re-indexing the codebase (including Tantivy full-text search). Use this when the repository has been updated externally.
-
-**Example:**
-```json
-{"action": "sync"}
 ```
 
 ---
@@ -459,17 +345,16 @@ Loads a saved workspace by name. This is the key command for agent-to-human hand
 
 When responding to users:
 
-1. **Inline commands** (`show_inline_chart`, `show_inline_source`) are preferred for keeping content in the conversation flow
-2. **Modal commands** (`show_metric_source`, `show_alert_source`) should only be used when the user explicitly asks to "open", "go to", or "navigate to" something
-3. **Search**: Use `search_codebase` instead of `git log --grep` for faster full-text search with relevance ranking
-4. **Pane commands** (`add_logs_pane`, `add_tracing_pane`, `add_terminal_pane`) are useful for incident investigation workflows - correlate metrics with logs and traces
-5. **Visualization**: Use `set_visualization` to suggest better chart types based on the data (e.g., gauge for percentages, stat for single values)
-6. **Time ranges**: Use `set_time_range` for relative ranges and `set_absolute_time_range` for specific incidents
-7. **Pane lifecycle**: Use `refresh_pane` after time range changes, and `close_pane` to clean up after investigations
-8. **Organization**: Use `create_section` for Grafana-style collapsible sections to organize related metrics
-9. **Investigation**: Use `create_floating_pane` for temporary investigation panes that don't disrupt the layout
-10. **Focus**: Use `maximize_pane` to fullscreen important metrics during incident response
-11. **Handoff**: Use `load_workspace` to load a workspace built via CLI into the GUI for the human
+1. **Inline commands** (`show_inline_chart`, `show_source`) are preferred for keeping content in the conversation flow
+2. **Search**: Use `search_codebase` instead of `git log --grep` for faster full-text search with relevance ranking
+3. **Pane commands** (`add_logs_pane`, `add_tracing_pane`, `add_terminal_pane`) are useful for incident investigation workflows - correlate metrics with logs and traces
+4. **Visualization**: Use `set_visualization` to suggest better chart types based on the data (e.g., gauge for percentages, stat for single values)
+5. **Time ranges**: Use `set_time_range` for relative ranges and `set_absolute_time_range` for specific incidents
+6. **Pane lifecycle**: Use `refresh_pane` after time range changes, and `close_pane` to clean up after investigations
+7. **Organization**: Use `create_section` for Grafana-style collapsible sections to organize related metrics
+8. **Investigation**: Use `create_pane` with `"floating": true` for temporary investigation panes that don't disrupt the layout
+9. **Focus**: Use `maximize_pane` to fullscreen important metrics during incident response
+10. **Handoff**: Use `load_workspace` to load a workspace built via CLI into the GUI for the human
 
 ## Implementation
 
@@ -485,3 +370,49 @@ Commands are defined in:
 3. Add handler in `Workspace::handle_agent_commands()`
 4. **Update this file** (`crates/ai/COMMANDS.md`)
 5. Update `crates/editor/CHANGELOG.md`
+
+---
+
+## Advanced Commands
+
+These commands are supported but not advertised in the agent prompt. They still parse and execute if emitted. Legacy aliases for consolidated commands are also listed here.
+
+### `create_floating_pane` (legacy)
+
+Use `create_pane` with `"floating": true` instead.
+
+### `show_inline_source` (legacy)
+
+Use `show_source` instead. The editor decides inline vs modal display.
+
+### `show_metric_source` (legacy)
+
+Use `show_source` instead.
+
+### `show_alert_source` (legacy)
+
+Use `show_source` with `"source_type": "alert"` instead.
+
+### `rename_pane`
+
+Renames a pane. Parameters: `pane` (required), `new_name` (required).
+
+### `duplicate_pane`
+
+Duplicates a pane with the same query. Parameters: `pane` (required), `new_name` (optional).
+
+### `focus_pane`
+
+Focuses a specific pane. Parameters: `pane` (required).
+
+### `toggle_zen_mode`
+
+Toggles zen mode (minimal UI).
+
+### `exit_fullscreen`
+
+Exits fullscreen/maximized mode.
+
+### `sync`
+
+Syncs the repository by fetching latest git commits and re-indexing the codebase.
