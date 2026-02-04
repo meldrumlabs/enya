@@ -41,10 +41,6 @@ pub enum KeyboardDecision {
     ToggleDiagnostics,
     /// Toggle agent panel (Space+a)
     ToggleAgentPanel,
-    /// Toggle team menu (Space+t)
-    ToggleTeamMenu,
-    /// Toggle channels panel (Space+g)
-    ToggleChannelsPanel,
     /// Set time range from preset
     SetTimeRange(TimeRangePreset),
     /// Enter visual-multi mode (Ctrl+V)
@@ -61,8 +57,6 @@ pub enum KeyboardDecision {
     MovePaneInDirection(NavDirection),
     /// Tab/merge pane with neighbor (Ctrl+W t h/j/k/l)
     TabPaneInDirection(NavDirection),
-    /// Focus the channels panel
-    FocusChannelsPanel,
     /// Focus the agent panel
     FocusAgentPanel,
     /// Go to definition (gd)
@@ -97,14 +91,10 @@ pub struct KeyboardContext {
     pub any_modal_open: bool,
     /// Whether visual-multi mode is active
     pub visual_multi_active: bool,
-    /// Whether the channels panel has focus
-    pub channels_panel_focused: bool,
     /// Whether the agent panel has focus
     pub agent_panel_focused: bool,
     /// Whether the agent panel is open (for focus transfer)
     pub agent_panel_open: bool,
-    /// Whether the channels panel is visible (for focus transfer)
-    pub channels_panel_visible: bool,
     /// Whether any buffer is in insert mode
     pub any_buffer_in_insert_mode: bool,
     /// Whether we're in agent mode
@@ -126,7 +116,6 @@ impl KeyboardContext {
     pub fn is_navigation_blocked(&self) -> bool {
         self.any_modal_open
             || self.visual_multi_active
-            || self.channels_panel_focused
             || self.agent_panel_focused
             || self.any_buffer_in_insert_mode
             || self.agent_mode_active
@@ -145,8 +134,6 @@ pub fn determine_space_action(key: egui::Key, is_native: bool) -> Option<Keyboar
         egui::Key::H => Some(KeyboardDecision::ShowHome),
         egui::Key::D => Some(KeyboardDecision::ToggleDiagnostics),
         egui::Key::A => Some(KeyboardDecision::ToggleAgentPanel),
-        egui::Key::T => Some(KeyboardDecision::ToggleTeamMenu),
-        egui::Key::G => Some(KeyboardDecision::ToggleChannelsPanel),
         egui::Key::P => Some(KeyboardDecision::OpenPluginsOverlay),
         egui::Key::C if is_native => Some(KeyboardDecision::OpenCodebaseFinder),
         _ => None,
@@ -333,12 +320,6 @@ mod tests {
     #[test]
     fn test_navigation_blocked_by_panel_focus() {
         let ctx = KeyboardContext {
-            channels_panel_focused: true,
-            ..Default::default()
-        };
-        assert!(ctx.is_navigation_blocked());
-
-        let ctx = KeyboardContext {
             agent_panel_focused: true,
             ..Default::default()
         };
@@ -402,18 +383,6 @@ mod tests {
     fn test_space_a_toggles_agent_panel() {
         let result = determine_space_action(egui::Key::A, true);
         assert_eq!(result, Some(KeyboardDecision::ToggleAgentPanel));
-    }
-
-    #[test]
-    fn test_space_t_toggles_team_menu() {
-        let result = determine_space_action(egui::Key::T, true);
-        assert_eq!(result, Some(KeyboardDecision::ToggleTeamMenu));
-    }
-
-    #[test]
-    fn test_space_g_toggles_channels_panel() {
-        let result = determine_space_action(egui::Key::G, true);
-        assert_eq!(result, Some(KeyboardDecision::ToggleChannelsPanel));
     }
 
     #[test]

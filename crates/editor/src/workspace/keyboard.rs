@@ -2,7 +2,7 @@
 //!
 //! This module contains vim-style keyboard navigation handlers for the workspace,
 //! including normal mode navigation (h/j/k/l), visual-multi mode selection,
-//! and leader key sequences (Space+m, Space+w, etc.).
+//! and leader key sequences (Space+w, Space+f, etc.).
 
 use egui_tiles::{Tile, TileId};
 
@@ -31,31 +31,6 @@ impl Workspace {
                 ctx.request_repaint();
                 return None;
             }
-        }
-
-        // When chat split view is active, handle 'Space+g' even if something has focus
-        // (unless the chat text input specifically has focus - checked via input consumption)
-        #[cfg(feature = "teams")]
-        if self.channels_panel_visible && self.channels_panel.is_split_view_active() {
-            let mut close_chat = false;
-            ctx.input_mut(|input| {
-                // Space - leader key for sequences
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
-                    self.leader_keys.press_space();
-                }
-
-                // Space+g - toggle channels panel (closes chat)
-                if self.leader_keys.is_space_active()
-                    && input.consume_key(egui::Modifiers::NONE, egui::Key::G)
-                {
-                    close_chat = true;
-                    self.leader_keys.clear_space();
-                }
-            });
-            if close_chat {
-                self.toggle_channels_panel();
-            }
-            return None;
         }
 
         // Don't handle keys if a text field or modal has focus.
@@ -107,13 +82,6 @@ impl Workspace {
             return self.handle_visual_multi_keyboard(ctx);
         }
 
-        // When channels panel has focus, let it handle j/k/l navigation
-        // (viewport keyboard handling is skipped, requires teams feature)
-        #[cfg(feature = "teams")]
-        if self.channels_panel_focused {
-            return None;
-        }
-
         // When agent panel has focus, let it handle h/j/k/l navigation
         // (viewport keyboard handling is skipped)
         if self.agent_panel_focused {
@@ -143,7 +111,6 @@ impl Workspace {
         let mut should_open_codebase_finder = false;
         let mut should_show_home = false;
         let mut should_toggle_diagnostics = false;
-        let mut should_toggle_team_menu = false;
         let mut should_open_plugins_overlay = false;
         let mut should_edit_buffer = false;
         let mut should_go_to_definition = false;
@@ -163,8 +130,6 @@ impl Workspace {
         let mut should_tab_pane_right = false;
         let mut should_tab_pane_up = false;
         let mut should_tab_pane_down = false;
-        #[cfg(feature = "teams")]
-        let mut should_focus_channels_panel = false;
         let mut should_float_focused_pane = false;
         let mut should_focus_agent_panel = false;
         let mut should_undo = false;
@@ -209,7 +174,7 @@ impl Workspace {
                 }
             }
 
-            // Space - leader key for sequences (Space+m, Space+q, Space+w)
+            // Space - leader key for sequences (Space+w, Space+f, Space+a, etc.)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
                 self.leader_keys.press_space();
                 consumed = true;
@@ -273,25 +238,6 @@ impl Workspace {
                 // Space+t - open time range picker
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
                     should_open_time_range_picker = true;
-                    self.leader_keys.clear_space();
-                    consumed = true;
-                    return;
-                }
-
-                // Space+m - toggle team menu (only when connected to a team)
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::M) {
-                    should_toggle_team_menu = true;
-                    self.leader_keys.clear_space();
-                    consumed = true;
-                    return;
-                }
-
-                // Space+g - toggle channels panel (only when connected to a team, requires teams feature)
-                #[cfg(feature = "teams")]
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::G) {
-                    if self.team_status.is_some() {
-                        self.toggle_channels_panel();
-                    }
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -676,41 +622,14 @@ impl Workspace {
             {
                 // Use section navigation if sections are active
                 if self.has_sections() {
-                    // Check if at left edge and should transfer to channels panel (requires teams feature)
-                    #[cfg(feature = "teams")]
-                    {
-                        let at_left_edge = self.is_at_section_left_edge();
-                        if at_left_edge && self.channels_panel_visible {
-                            should_focus_channels_panel = true;
-                        } else {
-                            self.navigate_sections(NavDirection::Left);
-                        }
-                    }
-                    #[cfg(not(feature = "teams"))]
-                    {
-                        self.navigate_sections(NavDirection::Left);
-                    }
+                    self.navigate_sections(NavDirection::Left);
                 } else if let Some(current_id) = current_focus {
                     let sibling = self.find_sibling_in_direction(current_id, NavDirection::Left);
                     if sibling.is_some() {
                         new_tile_id = sibling;
-                    } else {
-                        #[cfg(feature = "teams")]
-                        if self.channels_panel_visible {
-                            // At left edge with channels panel visible - focus the panel
-                            should_focus_channels_panel = true;
-                        }
                     }
                 } else {
-                    #[cfg(feature = "teams")]
-                    if self.channels_panel_visible {
-                        // No focus and channels panel visible - focus the panel
-                        should_focus_channels_panel = true;
-                    }
-                    #[cfg(not(feature = "teams"))]
-                    {
-                        new_tile_id = pane_ids.first().copied();
-                    }
+                    new_tile_id = pane_ids.first().copied();
                 }
                 consumed = true;
                 return;
@@ -858,18 +777,6 @@ impl Workspace {
             ctx.request_repaint();
         }
 
-        #[cfg(feature = "teams")]
-        if should_toggle_team_menu {
-            // Only toggle if team is connected
-            if self.team_status.is_some() {
-                self.toggle_team_menu();
-                ctx.request_repaint();
-            }
-        }
-        // Drop unused variable when teams feature is disabled
-        #[cfg(not(feature = "teams"))]
-        let _ = should_toggle_team_menu;
-
         if should_open_plugins_overlay {
             self.plugins_overlay.open();
             ctx.request_repaint();
@@ -944,18 +851,6 @@ impl Workspace {
             ctx.request_repaint();
         } else if should_tab_pane_down {
             self.move_pane_to_tab_with(NavDirection::Down);
-            ctx.request_repaint();
-        }
-
-        // Handle focus transfer to channels panel (vim h at left edge, requires teams feature)
-        #[cfg(feature = "teams")]
-        if should_focus_channels_panel {
-            self.channels_panel_focused = true;
-            self.channels_panel.set_focus(true);
-            // Clear viewport pane focus so it doesn't appear highlighted
-            self.behavior.set_focused_tile(None);
-            // Also clear section focus for section-based workspaces
-            self.section_focus = FocusTarget::None;
             ctx.request_repaint();
         }
 

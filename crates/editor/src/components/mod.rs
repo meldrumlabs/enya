@@ -42,9 +42,6 @@ pub use widget::{
     NotificationManager, QuickCommand, Sparkline, StatusLine, StatusLineResult, StatusMode,
     TimeRange, TimeRangePreset, TimeRangeToolbar,
 };
-// Re-export team UI types from team module (not widget)
-#[cfg(feature = "teams")]
-pub use crate::team::ui::{MemberPresence, TeamMember, TeamMenu, TeamMenuAction, TeamStatusInfo};
 
 // Re-export from util
 pub use util::{

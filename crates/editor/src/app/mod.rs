@@ -26,8 +26,6 @@ use crate::components::{
 };
 use crate::connection::ConnectionManager;
 use crate::plugin::{EditorPluginHost, PluginContextRef, PluginRegistry, PluginSharedStateRef};
-#[cfg(feature = "teams")]
-use crate::team::TeamState;
 use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
 use crate::ui::{CustomThemeStore, ResolvedCustomTheme};
@@ -77,10 +75,6 @@ pub struct EnyaApp {
     // Startup workspace to load on first frame (native only, set via CLI --workspace flag)
     #[cfg(not(target_arch = "wasm32"))]
     startup_workspace: Option<String>,
-
-    // Team collaboration state (requires `teams` feature)
-    #[cfg(feature = "teams")]
-    team_state: TeamState,
 
     // Plugin system (registry manages plugins, context provides editor services)
     #[allow(dead_code)] // Will be used when plugin commands are dispatched
@@ -332,9 +326,6 @@ impl EnyaApp {
             is_fullscreen: false,
             #[cfg(target_arch = "wasm32")]
             checked_url_workspace: false,
-            // Team state starts disabled - can be enabled later via connect()
-            #[cfg(feature = "teams")]
-            team_state: TeamState::default(),
             // Plugin system
             plugin_registry,
             plugin_context,
@@ -396,13 +387,6 @@ impl EnyaApp {
 
         // Update status line state with effective theme (custom plugin theme if active)
         self.status_line.set_theme(self.effective_theme());
-
-        // Set team status (only shows when connected, requires teams feature)
-        #[cfg(feature = "teams")]
-        self.status_line
-            .set_team_status(self.team_state.status_info());
-        #[cfg(not(feature = "teams"))]
-        self.status_line.set_team_status(None);
 
         // Set mode based on current UI state
         // Note: Zen/Fullscreen are display preferences, not modes - user stays in Normal mode
@@ -744,26 +728,7 @@ impl EnyaApp {
             self.workspace
                 .set_active_colors(self.effective_theme().active_colors());
 
-            // Update workspace team status and members before rendering (requires teams feature)
-            #[cfg(feature = "teams")]
-            {
-                self.workspace
-                    .set_team_status(self.team_state.status_info());
-                self.workspace
-                    .set_team_members(self.team_state.members().to_vec());
-            }
-            // Pass chat state reference when team mode is active
-            #[cfg(feature = "teams")]
-            let chat_state = if self.team_state.is_connected() {
-                self.workspace.show_channels_panel();
-                Some(self.team_state.chat_state())
-            } else {
-                self.workspace.hide_channels_panel();
-                None
-            };
-            #[cfg(not(feature = "teams"))]
-            let chat_state = None;
-            workspace_action = self.workspace.show(ui, ctx, &self.state, chat_state);
+            workspace_action = self.workspace.show(ui, ctx, &self.state);
 
             // Poll for pane interactions (e.g., chart drilldown clicks)
             self.workspace.poll_pane_interactions();
@@ -911,87 +876,9 @@ impl EnyaApp {
             WorkspaceAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            #[cfg(feature = "teams")]
-            WorkspaceAction::ToggleTeamDemo => {
-                self.team_state.toggle_demo_mode();
-                let msg = if self.team_state.is_demo() {
-                    "Team demo mode enabled"
-                } else {
-                    "Team demo mode disabled"
-                };
-                self.notifications
-                    .notify(Notification::new(msg, NotificationLevel::Info));
-            }
-            #[cfg(feature = "teams")]
-            WorkspaceAction::TeamConnect { url, token } => {
-                // Set the async runtime before connecting (native only)
-                #[cfg(not(target_arch = "wasm32"))]
-                self.team_state
-                    .set_async_runtime(self.async_runtime.clone());
-
-                self.team_state.connect(&url, &token, ctx);
-                self.notifications.notify(Notification::new(
-                    format!("Connecting to team server: {url}"),
-                    NotificationLevel::Info,
-                ));
-            }
-            #[cfg(feature = "teams")]
-            WorkspaceAction::TeamDisconnect => {
-                self.team_state.disconnect();
-                self.notifications.notify(Notification::new(
-                    "Disconnected from team server",
-                    NotificationLevel::Info,
-                ));
-            }
             WorkspaceAction::OpenAnnotationEditor => {
                 // Open annotation editor on the focused pane
                 self.workspace.open_annotation_editor();
-            }
-            #[cfg(feature = "teams")]
-            WorkspaceAction::SendChatMessage {
-                text,
-                chart,
-                visualization,
-                thread_id,
-            } => {
-                // Add message to team_state.chat_state (the authoritative source)
-                use crate::team::ChatMessage;
-                use enya_team_api::UserId;
-
-                let user_id = UserId::new_v4(); // TODO: Get from team_state
-                let mut message = ChatMessage::from_user(user_id, "You", &text);
-                if let Some(chart) = chart {
-                    message = message.with_inline_chart(chart);
-                }
-                if let Some(viz) = visualization {
-                    message = message.with_visualization(viz);
-                }
-                if let Some(tid) = thread_id {
-                    message.thread_id = Some(tid);
-                }
-
-                self.team_state.chat_state_mut().add_message(message);
-            }
-            #[cfg(feature = "teams")]
-            WorkspaceAction::CreateChannel { name } => {
-                self.team_state.create_channel(&name, ctx);
-                self.notifications.notify(Notification::new(
-                    format!("Creating channel: {name}"),
-                    NotificationLevel::Info,
-                ));
-            }
-            #[cfg(feature = "teams")]
-            WorkspaceAction::CreateThread { channel_id, title } => {
-                self.team_state.create_thread(channel_id, &title, ctx);
-                self.notifications.notify(Notification::new(
-                    format!("Creating thread: {title}"),
-                    NotificationLevel::Info,
-                ));
-            }
-            #[cfg(feature = "teams")]
-            WorkspaceAction::SearchChatCommits { query } => {
-                // Search commits in the codebase index and provide to chat
-                self.search_chat_commits(&query);
             }
             WorkspaceAction::OpenDiffViewer {
                 hash,
@@ -1016,52 +903,6 @@ impl EnyaApp {
 
     fn open_command_palette(&mut self) {
         self.workspace.open_command_palette();
-    }
-
-    /// Search commits for # autocomplete in chat.
-    #[cfg(all(not(target_arch = "wasm32"), feature = "teams"))]
-    fn search_chat_commits(&mut self, query: &str) {
-        use crate::components::pane::CommitInfo;
-
-        // Search codebase for commits
-        let results = self
-            .workspace
-            .search_codebase(query, Some("commits"), Some(10));
-
-        // Convert to CommitInfo for the chat
-        let commits: Vec<CommitInfo> = results
-            .into_iter()
-            .filter_map(|r| {
-                if let crate::codebase::SearchResultKind::Commit {
-                    hash,
-                    timestamp,
-                    diff,
-                } = r.kind
-                {
-                    Some(CommitInfo {
-                        short_hash: if hash.len() >= 7 {
-                            hash[..7].to_string()
-                        } else {
-                            hash.clone()
-                        },
-                        full_hash: hash,
-                        message: r.name,
-                        timestamp,
-                        diff,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Provide commits to the channels panel
-        self.workspace.set_chat_commits(commits);
-    }
-
-    #[cfg(all(target_arch = "wasm32", feature = "teams"))]
-    fn search_chat_commits(&mut self, _query: &str) {
-        // Commit search is not available in WASM builds
     }
 
     /// Open the diff viewer with a commit diff.
@@ -1476,10 +1317,6 @@ impl eframe::App for EnyaApp {
 
         // Poll connection manager for completed health checks
         self.poll_connection();
-
-        // Poll team state for events (presence changes, mentions, etc.)
-        #[cfg(feature = "teams")]
-        self.team_state.poll(ctx);
 
         // Poll plugin pane refreshes (auto-refresh based on intervals)
         self.poll_plugin_pane_refreshes();

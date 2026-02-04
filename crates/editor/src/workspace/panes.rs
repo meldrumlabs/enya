@@ -1984,12 +1984,6 @@ impl Workspace {
         ))
     }
 
-    /// Set available commits for # reference autocomplete in chat (requires `teams` feature).
-    #[cfg(feature = "teams")]
-    pub fn set_chat_commits(&mut self, commits: Vec<crate::components::pane::CommitInfo>) {
-        self.channels_panel.set_available_commits(commits);
-    }
-
     /// Open the diff viewer with specific content.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_diff_viewer_with_content(&mut self, hash: &str, message: &str, diff: &str) {

@@ -187,13 +187,6 @@ mod keyboard_logic_tests {
         assert_eq!(decision, Some(KeyboardDecision::ShowHome));
     }
 
-    /// Test Space+t toggles team menu
-    #[test]
-    fn test_space_t_toggles_team_menu() {
-        let decision = determine_space_action(egui::Key::T, true);
-        assert_eq!(decision, Some(KeyboardDecision::ToggleTeamMenu));
-    }
-
     /// Test time range shortcuts (t5, t1, t3, th, etc.)
     #[test]
     fn test_time_range_shortcuts() {
@@ -1322,7 +1315,7 @@ mod workspace_tests {
         let mut harness = Harness::new_state(
             |ctx: &egui::Context, state: &mut (Workspace, AppState)| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    state.0.show(ui, ctx, &state.1, None);
+                    state.0.show(ui, ctx, &state.1);
                 });
             },
             (workspace, app_state),
@@ -1343,7 +1336,7 @@ mod workspace_tests {
         let mut harness = Harness::new_state(
             |ctx: &egui::Context, state: &mut (Workspace, AppState)| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    state.0.show(ui, ctx, &state.1, None);
+                    state.0.show(ui, ctx, &state.1);
                 });
             },
             (workspace, app_state),
