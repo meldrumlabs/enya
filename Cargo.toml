@@ -33,8 +33,8 @@ members = [
   "crates/datafusion",
   # Plugin system
   "crates/plugin",
-  # Workspace configuration (shared between editor and CLI)
-  "crates/workspace",
+  # Configuration types (shared between editor, CLI, and daemon)
+  "crates/config",
   # Headless CLI operations (shared between CLI and future consumers)
   "crates/headless",
   # CLI tool
@@ -58,7 +58,7 @@ enya-ai = { path = "crates/ai", version = "0.1.0" }
 enya-search = { path = "crates/search", version = "0.1.0" }
 enya-datafusion = { path = "crates/datafusion", version = "0.1.0" }
 enya-plugin = { path = "crates/plugin", version = "0.1.0" }
-enya-workspace = { path = "crates/workspace", version = "0.1.0" }
+enya-config = { path = "crates/config", version = "0.1.0" }
 enya-headless = { path = "crates/headless", version = "0.1.0" }
 egui_ghostty = { path = "crates/egui_ghostty" }
 
@@ -146,6 +146,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 rust-embed = "8"
 mime_guess = "2"
 open = "5"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 tracing = "0.1"
 tracing-subscriber = "0.3"

@@ -1,5 +1,5 @@
 use console::style;
-use enya_workspace::{
+use enya_config::{
     PaneConfig, SectionConfig, SectionLayout, WorkspaceConfig, list_workspaces,
     resolve_workspace_path, workspace_dir,
 };
@@ -94,10 +94,10 @@ pub struct AddPaneParams<'a> {
 /// Resolve a template name to its TOML content.
 pub fn resolve_template(template: &str) -> Result<&'static str> {
     match template {
-        "default" => Ok(enya_workspace::DEFAULT_WORKSPACE_TOML),
-        "demo" => Ok(enya_workspace::DEMO_WORKSPACE_TOML),
-        "complex" => Ok(enya_workspace::COMPLEX_VIEWPORT_TOML),
-        "atlas" => Ok(enya_workspace::ATLAS_WORKSPACE_TOML),
+        "default" => Ok(enya_config::DEFAULT_WORKSPACE_TOML),
+        "demo" => Ok(enya_config::DEMO_WORKSPACE_TOML),
+        "complex" => Ok(enya_config::COMPLEX_VIEWPORT_TOML),
+        "atlas" => Ok(enya_config::ATLAS_WORKSPACE_TOML),
         _ => Err(format!(
             "unknown template: {template} (available: default, demo, complex, atlas)"
         )

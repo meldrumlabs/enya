@@ -2887,14 +2887,15 @@ dependencies = [
  "clap",
  "clap_complete",
  "console",
+ "enya-config",
  "enya-editor",
  "enya-headless",
- "enya-workspace",
  "insta",
  "mimalloc",
  "mime_guess",
  "open",
  "reqwest",
+ "rusqlite",
  "rust-embed",
  "rustc-hash 2.1.1",
  "serde",
@@ -2968,6 +2969,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "enya-config"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "insta",
+ "lz4_flex 0.11.5",
+ "postcard",
+ "rustc-hash 2.1.1",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "enya-datafusion"
 version = "0.1.0"
 dependencies = [
@@ -3004,12 +3018,12 @@ dependencies = [
  "enya-build-info",
  "enya-build-tools",
  "enya-client",
+ "enya-config",
  "enya-datafusion",
  "enya-logql",
  "enya-plugin",
  "enya-promql",
  "enya-search",
- "enya-workspace",
  "gloo-timers",
  "image",
  "insta",
@@ -3054,10 +3068,10 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "console",
+ "enya-config",
  "enya-datafusion",
  "enya-plugin",
  "enya-promql",
- "enya-workspace",
  "serde",
  "serde_json",
  "tokio",
@@ -3123,19 +3137,6 @@ dependencies = [
  "serde_json",
  "tantivy",
  "tempfile",
-]
-
-[[package]]
-name = "enya-workspace"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "insta",
- "lz4_flex 0.11.5",
- "postcard",
- "rustc-hash 2.1.1",
- "serde",
- "toml",
 ]
 
 [[package]]
@@ -3209,6 +3210,18 @@ dependencies = [
  "event-listener",
  "pin-project-lite",
 ]
+
+[[package]]
+name = "fallible-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "fallible-streaming-iterator"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 
 [[package]]
 name = "fastdivide"
@@ -3803,6 +3816,15 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash 0.2.0",
+]
+
+[[package]]
+name = "hashlink"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
+dependencies = [
+ "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -4573,6 +4595,17 @@ dependencies = [
  "bitflags 2.10.0",
  "libc",
  "redox_syscall 0.7.0",
+]
+
+[[package]]
+name = "libsqlite3-sys"
+version = "0.30.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -6391,6 +6424,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusqlite"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7753b721174eb8ff87a9a0e799e2d7bc3749323e773db92e0984debb00019d6e"
+dependencies = [
+ "bitflags 2.10.0",
+ "fallible-iterator",
+ "fallible-streaming-iterator",
+ "hashlink",
+ "libsqlite3-sys",
+ "smallvec",
+]
+
+[[package]]
 name = "rust-embed"
 version = "8.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7442,9 +7489,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.46"
+version = "0.3.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9da98b7d9b7dad93488a84b8248efc35352b0b2657397d4167e7ad67e5d535e5"
+checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
 dependencies = [
  "deranged",
  "itoa",
@@ -7465,9 +7512,9 @@ checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
 name = "time-macros"
-version = "0.2.26"
+version = "0.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78cc610bac2dcee56805c99642447d4c5dbde4d01f752ffea0199aee1f601dc4"
+checksum = "2e70e4c5a0e0a8a4823ad65dfe1a6930e4f4d756dcd9dd7939022b5e8c501215"
 dependencies = [
  "num-conv",
  "time-core",
@@ -8023,9 +8070,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "ureq"
-version = "3.1.4"
+version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d39cb1dbab692d82a977c0392ffac19e188bd9186a9f32806f0aaa859d75585a"
+checksum = "fdc97a28575b85cfedf2a7e7d3cc64b3e11bd8ac766666318003abbacc7a21fc"
 dependencies = [
  "base64 0.22.1",
  "cookie_store",
@@ -8107,6 +8154,12 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "vcpkg"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vergen"

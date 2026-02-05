@@ -22,11 +22,12 @@ serve = [
     "dep:mime_guess",
     "dep:open",
     "dep:base64",
+    "dep:rusqlite",
 ]
 
 [dependencies]
 enya-headless = { workspace = true }
-enya-workspace = { workspace = true }
+enya-config = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
 console = { workspace = true }
@@ -46,6 +47,7 @@ reqwest = { workspace = true, optional = true }
 mime_guess = { workspace = true, optional = true }
 open = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta = "1"

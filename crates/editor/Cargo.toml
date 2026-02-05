@@ -27,7 +27,7 @@ egui_plot = { workspace = true }
 enya-promql = { workspace = true }
 enya-logql = { workspace = true }
 enya-client = { workspace = true }
-enya-workspace = { workspace = true }
+enya-config = { workspace = true }
 enya-plugin = { workspace = true }
 image = { workspace = true, features = ["png"] }
 log = { workspace = true }

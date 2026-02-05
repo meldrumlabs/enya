@@ -137,6 +137,13 @@
 //! The bulk of the encoded size comes from query strings and pane names.
 //! Further reduction would require server-side URL shortening or query aliasing.
 
+mod compact;
+mod templates;
+
+pub use templates::{
+    ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
+};
+
 use serde::{Deserialize, Serialize};
 
 /// Current workspace format version
@@ -1190,13 +1197,14 @@ impl WorkspaceConfig {
 
     /// Get the default example workspace
     pub fn default_example() -> Self {
-        Self::from_toml(crate::DEFAULT_WORKSPACE_TOML)
+        Self::from_toml(templates::DEFAULT_WORKSPACE_TOML)
             .expect("DEFAULT_WORKSPACE_TOML should be valid")
     }
 
     /// Get the demo workspace (uses synthetic data, no backend required)
     pub fn default_demo() -> Self {
-        Self::from_toml(crate::DEMO_WORKSPACE_TOML).expect("DEMO_WORKSPACE_TOML should be valid")
+        Self::from_toml(templates::DEMO_WORKSPACE_TOML)
+            .expect("DEMO_WORKSPACE_TOML should be valid")
     }
 
     /// Serialize workspace to TOML string
@@ -1220,17 +1228,17 @@ impl WorkspaceConfig {
 
     /// Decode workspace from base64-encoded data (for URL parameters)
     pub fn from_base64(encoded: &str) -> Result<Self, WorkspaceError> {
-        super::compact::decode_workspace(encoded)
+        compact::decode_workspace(encoded)
     }
 
     /// Encode workspace to base64 (for URL sharing)
     pub fn to_base64(&self) -> Result<String, WorkspaceError> {
-        super::compact::encode_workspace(self)
+        compact::encode_workspace(self)
     }
 
     /// Encode a single pane to base64 (for sharing individual queries)
     pub fn pane_to_base64(&self, pane_index: usize) -> Result<String, WorkspaceError> {
-        super::compact::encode_pane(self, pane_index)
+        compact::encode_pane(self, pane_index)
     }
 
     /// Validate workspace structure

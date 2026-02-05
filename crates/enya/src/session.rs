@@ -716,7 +716,7 @@ fn session_shutdown(session: &mut Session) -> HandlerResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use enya_workspace::WorkspaceConfig;
+    use enya_config::WorkspaceConfig;
 
     fn pretty(val: &serde_json::Value) -> String {
         serde_json::to_string_pretty(val).unwrap()

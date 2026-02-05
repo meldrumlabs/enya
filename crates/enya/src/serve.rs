@@ -1,11 +1,15 @@
+use std::sync::Arc;
+
 use axum::Router;
 use axum::extract::{Path, Request, State};
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get};
 use base64::Engine;
-use enya_workspace::{WorkspaceConfig, resolve_workspace_path};
+use enya_config::{Config, WorkspaceConfig, enya_dir, resolve_workspace_path};
 use rust_embed::Embed;
+
+use crate::db::Db;
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -26,26 +30,37 @@ struct ServeState {
     workspace_param: String,
     /// HTTP client for proxying
     http_client: reqwest::Client,
+    /// SQLite database for persistent daemon state
+    db: Arc<Db>,
 }
 
 pub fn run(workspace: &str, port: u16, bind: &str, open: bool) -> Result {
-    // 1. Load workspace
+    // 1. Load daemon config and workspace
+    let daemon_config = Config::load_or_default();
     let path = resolve_workspace_path(workspace);
     let config = WorkspaceConfig::load(&path)
         .map_err(|e| format!("failed to load workspace '{}': {e}", path.display()))?;
 
-    // 2. Extract upstream endpoint
-    let upstream_url = config
-        .effective_endpoint()
-        .ok_or("workspace has no metrics endpoint configured (set metrics.endpoint)")?
-        .to_string();
-
-    // 3. Extract API key (if any)
-    let effective = config.effective_metrics();
-    let api_key = if effective.api_key.is_empty() {
-        None
+    // 2. Extract upstream endpoint (daemon config takes precedence over workspace)
+    let upstream_url = if !daemon_config.datasources.prometheus.url.is_empty() {
+        daemon_config.datasources.prometheus.url.clone()
     } else {
-        Some(effective.api_key.clone())
+        config
+            .effective_endpoint()
+            .ok_or("no metrics endpoint configured (set datasources.prometheus.url in ~/.enya/config.toml or metrics.endpoint in workspace)")?
+            .to_string()
+    };
+
+    // 3. Extract API key (daemon config takes precedence over workspace)
+    let api_key = if !daemon_config.datasources.prometheus.api_key.is_empty() {
+        Some(daemon_config.datasources.prometheus.api_key.clone())
+    } else {
+        let effective = config.effective_metrics();
+        if effective.api_key.is_empty() {
+            None
+        } else {
+            Some(effective.api_key.clone())
+        }
     };
 
     // 4. Rewrite workspace endpoint to point to our proxy
@@ -64,20 +79,26 @@ pub fn run(workspace: &str, port: u16, bind: &str, open: bool) -> Result {
     let workspace_param =
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(toml_str.as_bytes());
 
-    // 6. Build state
+    // 6. Open database
+    let db_path = enya_dir().join("enya.db");
+    let db = Db::open(&db_path).map_err(|e| format!("failed to open database: {e}"))?;
+
+    // 7. Build state
     let state = ServeState {
         upstream_url,
         api_key,
         workspace_param,
         http_client: reqwest::Client::new(),
+        db: Arc::new(db),
     };
 
-    // 7. Print startup info
+    // 8. Print startup info
     let url = format!("http://localhost:{port}");
     eprintln!("Serving workspace '{}' at {url}", config.workspace.name);
+    eprintln!("Database at {}", db_path.display());
     eprintln!("Proxying Prometheus at {}", state.upstream_url);
 
-    // 8. Start tokio runtime and server
+    // 9. Start tokio runtime and server
     let rt = tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to create tokio runtime: {e}"))?;
 

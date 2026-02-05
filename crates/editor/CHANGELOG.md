@@ -10,7 +10,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
-- **Extract workspace config into `enya-workspace` crate**: Workspace configuration types (`WorkspaceConfig`, `PaneConfig`, `TimeConfig`, `ViewConfig`, `LayoutConfig`, etc.), compact binary encoding, and workspace templates have been moved to the new standalone `enya-workspace` crate. The editor now depends on `enya-workspace` and re-exports all types, so downstream code is unaffected. Editor-specific conversion methods (using `Granularity`, `VisualizationType`, `AppTheme`, `TimeRangePreset`, `QueryState`) are provided via extension traits (`PaneConfigExt`, `TimeConfigExt`, `ViewConfigExt`) and free functions. This decouples the serializable workspace format from the editor UI, enabling a future CLI tool and other consumers to create/read workspace files without pulling in egui.
+- **Renamed `enya-workspace` crate to `enya-config`**: The workspace configuration crate has been renamed from `enya-workspace` to `enya-config` to better reflect its broader scope. All imports updated from `enya_workspace` to `enya_config`.
+
+### Added
+
+- **`Config` type for daemon configuration**: New `Config` struct in `enya-config` for infrastructure/daemon settings (`~/.enya/config.toml`). Covers datasource endpoints (Prometheus, Loki, Tempo) and server bind settings, separate from workspace view configuration.
+
+### Changed
+
+- **Extract workspace config into `enya-config` crate**: Workspace configuration types (`WorkspaceConfig`, `PaneConfig`, `TimeConfig`, `ViewConfig`, `LayoutConfig`, etc.), compact binary encoding, and workspace templates have been moved to the new standalone `enya-config` crate. The editor now depends on `enya-config` and re-exports all types, so downstream code is unaffected. Editor-specific conversion methods (using `Granularity`, `VisualizationType`, `AppTheme`, `TimeRangePreset`, `QueryState`) are provided via extension traits (`PaneConfigExt`, `TimeConfigExt`, `ViewConfigExt`) and free functions. This decouples the serializable workspace format from the editor UI, enabling a future CLI tool and other consumers to create/read workspace files without pulling in egui.
 
 ### Removed
 
