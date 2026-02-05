@@ -58,3 +58,19 @@ pub fn list_workspaces() -> Vec<(String, Option<String>)> {
     workspaces.sort_by(|a, b| a.0.cmp(&b.0));
     workspaces
 }
+
+/// Get the Enya daemon config file path (`~/.enya/config.toml`).
+pub fn config_path() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(&home).join(".enya").join("config.toml")
+}
+
+/// Get the Enya data directory (`~/.enya/`).
+///
+/// Creates the directory if it doesn't exist.
+pub fn enya_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let dir = PathBuf::from(&home).join(".enya");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}

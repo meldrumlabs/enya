@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{
+use super::{
     LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig, WorkspaceConfig,
     WorkspaceError,
 };

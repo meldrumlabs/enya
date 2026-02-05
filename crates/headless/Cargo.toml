@@ -10,7 +10,7 @@ description = "Headless CLI operations for Enya observability editor"
 sql = ["dep:enya-datafusion", "dep:tokio"]
 
 [dependencies]
-enya-workspace = { workspace = true }
+enya-config = { workspace = true }
 enya-plugin = { workspace = true }
 enya-promql = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

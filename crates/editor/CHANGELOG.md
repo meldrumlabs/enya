@@ -10,7 +10,15 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
-- **Extract workspace config into `enya-workspace` crate**: Workspace configuration types (`WorkspaceConfig`, `PaneConfig`, `TimeConfig`, `ViewConfig`, `LayoutConfig`, etc.), compact binary encoding, and workspace templates have been moved to the new standalone `enya-workspace` crate. The editor now depends on `enya-workspace` and re-exports all types, so downstream code is unaffected. Editor-specific conversion methods (using `Granularity`, `VisualizationType`, `AppTheme`, `TimeRangePreset`, `QueryState`) are provided via extension traits (`PaneConfigExt`, `TimeConfigExt`, `ViewConfigExt`) and free functions. This decouples the serializable workspace format from the editor UI, enabling a future CLI tool and other consumers to create/read workspace files without pulling in egui.
+- **Renamed `enya-workspace` crate to `enya-config`**: The workspace configuration crate has been renamed from `enya-workspace` to `enya-config` to better reflect its broader scope. All imports updated from `enya_workspace` to `enya_config`.
+
+### Added
+
+- **`Config` type for daemon configuration**: New `Config` struct in `enya-config` for infrastructure/daemon settings (`~/.enya/config.toml`). Covers datasource endpoints (Prometheus, Loki, Tempo) and server bind settings, separate from workspace view configuration.
+
+### Changed
+
+- **Extract workspace config into `enya-config` crate**: Workspace configuration types (`WorkspaceConfig`, `PaneConfig`, `TimeConfig`, `ViewConfig`, `LayoutConfig`, etc.), compact binary encoding, and workspace templates have been moved to the new standalone `enya-config` crate. The editor now depends on `enya-config` and re-exports all types, so downstream code is unaffected. Editor-specific conversion methods (using `Granularity`, `VisualizationType`, `AppTheme`, `TimeRangePreset`, `QueryState`) are provided via extension traits (`PaneConfigExt`, `TimeConfigExt`, `ViewConfigExt`) and free functions. This decouples the serializable workspace format from the editor UI, enabling a future CLI tool and other consumers to create/read workspace files without pulling in egui.
 
 ### Removed
 
@@ -48,6 +56,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Inline charts use real query data**: `show_inline_chart` now executes the PromQL query through the QueryExecutor and displays real data from Prometheus. Falls back to demo sine wave data when in offline/demo mode.
+- **Unified `show_source` command**: Consolidated `show_metric_source`, `show_inline_source`, and `show_alert_source` into a single `show_source` command. Accepts `source_type` ("metric" or "alert") and `context_lines` parameters. The editor decides inline vs modal display. Legacy command names still parse and execute.
+- **`create_pane` supports floating mode**: Added optional `floating` and `position` parameters to `create_pane`. When `floating: true`, creates a detached investigation pane. The legacy `create_floating_pane` command still works as an alias.
+- **Trimmed agent prompt**: Removed UI-chrome commands from the agent system prompt to reduce cognitive overhead: `exit_fullscreen`, `toggle_zen_mode`, `focus_pane`, `rename_pane`, `duplicate_pane`, `sync`, and `create_floating_pane`. All commands still parse and execute if emitted; they are just no longer advertised.
 - **Commit annotations hidden by default**: Git commit markers are now hidden by default when loaded. Use `gc` to toggle visibility. Previously, commits were auto-shown when a git repository was configured.
 
 ### Removed

@@ -21,8 +21,19 @@ use crate::components::pane::inline_content::{
 use crate::components::pane::logs_pane::LogsBackend;
 use crate::components::pane::query_pane::QueryPaneAction;
 use crate::components::pane::time_series_chart::{DataPoint, Series};
+use crate::components::util::query_executor::ExecuteParams;
 use crate::components::util::{ActivityItem, ActivityType};
 use crate::components::{Buffer, Component, InlineChart, InlineContent, LogsPane, QueryPane};
+
+/// Metadata for a pending inline chart query.
+pub(super) struct PendingInlineChart {
+    /// Query ID used with QueryExecutor.
+    pub(super) query_id: usize,
+    /// Chart title.
+    pub(super) title: String,
+    /// Optional height override.
+    pub(super) height: Option<f32>,
+}
 
 /// Parse a unified diff string into `InlineDiffFile` structs for inline display.
 #[cfg(not(target_arch = "wasm32"))]
@@ -146,6 +157,9 @@ fn parse_hunk_header_for_inline(line: &str) -> Option<(usize, usize)> {
 }
 
 impl Workspace {
+    /// Base ID for inline chart queries, well above normal pane IDs.
+    const INLINE_CHART_ID_BASE: usize = usize::MAX - 10_000;
+
     // ==================== Pane Adding ====================
 
     /// Add a chart for a metric and return a tracking action
@@ -213,6 +227,36 @@ impl Workspace {
             self.show_landing = false;
             log::info!("Agent created query pane: {}", title.unwrap_or(query));
         }
+    }
+
+    /// Add a floating (detached) query pane with a PromQL query.
+    ///
+    /// This is used by the agent to create floating panes for investigation.
+    pub fn add_floating_query_pane(
+        &mut self,
+        query: &str,
+        title: Option<&str>,
+        position: Option<[f32; 2]>,
+    ) {
+        let query_number = self.next_query_number;
+        self.next_query_number += 1;
+
+        let name = title.unwrap_or(query);
+        let pane: Box<dyn Component> = if self.query_executor.is_connected() {
+            Box::new(QueryPane::with_query_named(query, name, query_number))
+        } else {
+            Box::new(QueryPane::with_demo_query_named(query, name, query_number))
+        };
+
+        let offset = (self.floating_panes.count() as f32) * 30.0;
+        let pos = if let Some([x, y]) = position {
+            egui::pos2(x, y)
+        } else {
+            egui::pos2(100.0 + offset, 100.0 + offset)
+        };
+
+        self.floating_panes.add_pane(pane, pos);
+        log::info!("Agent created floating pane: {}", title.unwrap_or(query));
     }
 
     /// Add a terminal pane to the viewport.
@@ -430,8 +474,17 @@ impl Workspace {
             let mut success = false;
 
             match command {
-                AgentCommand::CreatePane { query, title } => {
-                    self.add_query_pane(&query, title.as_deref());
+                AgentCommand::CreatePane {
+                    query,
+                    title,
+                    floating,
+                    position,
+                } => {
+                    if floating.unwrap_or(false) {
+                        self.add_floating_query_pane(&query, title.as_deref(), position);
+                    } else {
+                        self.add_query_pane(&query, title.as_deref());
+                    }
                     success = true;
                 }
                 AgentCommand::SetTimeRange { preset } => {
@@ -486,13 +539,18 @@ impl Workspace {
                     time_range: _,
                     height,
                 } => {
-                    // Generate inline chart data
                     let chart_title = title.unwrap_or_else(|| query.clone());
-                    let chart = self.generate_inline_chart(&query, &chart_title, height);
 
-                    // Find the first agent pane and inject the chart
-                    self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
-                    log::info!("Injected inline chart for query: {query}");
+                    if self.query_executor.is_online() {
+                        // Fire real query and track as pending inline chart
+                        self.request_inline_chart(&query, &chart_title, height, ctx);
+                        log::info!("Requested inline chart for query: {query}");
+                    } else {
+                        // Demo/offline mode: use generated data
+                        let chart = self.generate_demo_inline_chart(&query, &chart_title, height);
+                        self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
+                        log::info!("Injected demo inline chart for query: {query}");
+                    }
                     success = true;
                 }
                 AgentCommand::ShowInlineSource {
@@ -715,30 +773,7 @@ impl Workspace {
                     title,
                     position,
                 } => {
-                    // Create a QueryPane and add it as a floating pane
-                    let query_number = self.next_query_number;
-                    self.next_query_number += 1;
-
-                    let name = title.as_deref().unwrap_or(&query);
-                    let pane: Box<dyn Component> = if self.query_executor.is_connected() {
-                        Box::new(QueryPane::with_query_named(&query, name, query_number))
-                    } else {
-                        Box::new(QueryPane::with_demo_query_named(&query, name, query_number))
-                    };
-
-                    // Calculate position - use provided position or stack offset
-                    let offset = (self.floating_panes.count() as f32) * 30.0;
-                    let pos = if let Some([x, y]) = position {
-                        egui::pos2(x, y)
-                    } else {
-                        egui::pos2(100.0 + offset, 100.0 + offset)
-                    };
-
-                    self.floating_panes.add_pane(pane, pos);
-                    log::info!(
-                        "Agent created floating pane: {}",
-                        title.as_deref().unwrap_or(&query)
-                    );
+                    self.add_floating_query_pane(&query, title.as_deref(), position);
                     success = true;
                 }
                 AgentCommand::MaximizePane { pane } => {
@@ -867,6 +902,40 @@ impl Workspace {
                     {
                         let _ = (commit, file);
                         log::warn!("ShowInlineDiff command not supported in WASM");
+                    }
+                }
+                AgentCommand::ShowSource {
+                    name,
+                    source_type,
+                    context_lines,
+                } => {
+                    let is_alert = source_type.as_deref() == Some("alert");
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        if is_alert {
+                            self.open_alert_definition(&name);
+                            log::info!("Agent showed alert source: {name}");
+                            success = true;
+                        } else {
+                            // Try inline source first, fall back to modal
+                            let lines = context_lines.unwrap_or(5);
+                            if let Some(source) = self.generate_inline_source(&name, lines) {
+                                self.inject_inline_content_to_agent_pane(InlineContent::Source(
+                                    source,
+                                ));
+                                log::info!("Agent showed inline source for: {name}");
+                                success = true;
+                            } else {
+                                self.open_metric_definition(&name);
+                                log::info!("Agent showed metric source (modal): {name}");
+                                success = true;
+                            }
+                        }
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _ = (name, is_alert, context_lines);
+                        log::warn!("ShowSource not available in WASM");
                     }
                 }
                 AgentCommand::LoadWorkspace { workspace } => {
@@ -2043,31 +2112,64 @@ impl Workspace {
 
     // ==================== Inline Content Generation ====================
 
-    /// Generate an inline chart with sample data based on the current time range.
+    /// Request an inline chart by firing a real PromQL query.
     ///
-    /// This uses the demo client to generate realistic-looking data for the chart.
-    fn generate_inline_chart(&self, query: &str, title: &str, height: Option<f32>) -> InlineChart {
-        // Get current time range
+    /// The query is executed asynchronously through the QueryExecutor. Results
+    /// are picked up by `poll_inline_charts()` and injected into the agent panel.
+    fn request_inline_chart(
+        &mut self,
+        query: &str,
+        title: &str,
+        height: Option<f32>,
+        ctx: &egui::Context,
+    ) {
+        let query_id = Self::INLINE_CHART_ID_BASE + self.next_inline_chart_id;
+        self.next_inline_chart_id += 1;
+
+        let time_range = self.time_range_toolbar.time_range();
+        let start_ns = (time_range.start * 1_000_000_000.0) as u128;
+        let end_ns = (time_range.end * 1_000_000_000.0) as u128;
+        let duration_secs = (time_range.end - time_range.start) as u64;
+        let step_secs = (duration_secs / 60).max(1);
+
+        let metric = Self::extract_metric_from_query(query);
+        let params = ExecuteParams {
+            metric: &metric,
+            query,
+            step_secs,
+            start_ns: Some(start_ns),
+            end_ns: Some(end_ns),
+        };
+        self.query_executor.execute_for_pane(query_id, &params, ctx);
+
+        self.pending_inline_charts.push(PendingInlineChart {
+            query_id,
+            title: title.to_string(),
+            height,
+        });
+    }
+
+    /// Generate an inline chart with sample data for demo/offline mode.
+    fn generate_demo_inline_chart(
+        &self,
+        query: &str,
+        title: &str,
+        height: Option<f32>,
+    ) -> InlineChart {
         let time_range = self.time_range_toolbar.time_range();
         let now = time_range.end;
         let start = time_range.start;
         let duration_secs = now - start;
 
-        // Generate sample data points (about 60 points for the chart)
         let num_points = 60;
         let step = duration_secs / num_points as f64;
-
-        // Create a series with generated data
         let mut points = Vec::with_capacity(num_points);
 
-        // Use a simple sine wave with some noise for demo purposes
-        // In a real implementation, this would use actual query results
         let base_value = 50.0;
         let amplitude = 20.0;
 
         for i in 0..num_points {
             let t = start + (i as f64 * step);
-            // Simple pattern based on time
             let phase = (i as f64 / num_points as f64) * std::f64::consts::PI * 4.0;
             let noise = ((t as i64 % 17) as f64 - 8.0) / 8.0 * 5.0;
             let value = base_value + amplitude * phase.sin() + noise;
@@ -2078,9 +2180,7 @@ impl Workspace {
             });
         }
 
-        // Extract metric name from query for series name
         let series_name = Self::extract_metric_from_query(query);
-
         let series = Series::new(&series_name).with_points(points);
 
         InlineChart {
@@ -2191,7 +2291,7 @@ impl Workspace {
     ///
     /// If the agent panel is open, adds to the last assistant message there.
     /// If in agent input bar mode, stores for handoff to the panel later.
-    fn inject_inline_content_to_agent_pane(&mut self, content: InlineContent) {
+    pub(super) fn inject_inline_content_to_agent_pane(&mut self, content: InlineContent) {
         if self.agent_panel.is_open() {
             self.agent_panel.add_inline_content(content);
             log::debug!("Injected inline content into agent panel");

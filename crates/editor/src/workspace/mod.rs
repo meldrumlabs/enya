@@ -242,6 +242,10 @@ pub struct Workspace {
     query_executor: QueryExecutor,
     /// Counter for sequential query pane naming (Query 1, Query 2, ...)
     next_query_number: usize,
+    /// Pending inline chart queries awaiting results from QueryExecutor
+    pending_inline_charts: Vec<panes::PendingInlineChart>,
+    /// Counter for inline chart query IDs
+    next_inline_chart_id: usize,
     /// Workspace filter for filtering visible panes by query content
     viewport_filter: ViewportFilter,
     /// Source code preview overlay for "go to definition"
@@ -406,6 +410,8 @@ impl Workspace {
             pending_open_time_range_picker: false,
             query_executor: QueryExecutor::new(async_runtime.clone()),
             next_query_number: 1,
+            pending_inline_charts: Vec::new(),
+            next_inline_chart_id: 0,
             viewport_filter: ViewportFilter::new(),
             source_preview: SourcePreviewOverlay::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -2898,7 +2904,12 @@ impl Workspace {
                         height: _,
                     } => {
                         log::debug!("Converting ShowInlineChart to CreatePane for Agent Input Bar");
-                        AgentCommand::CreatePane { query, title }
+                        AgentCommand::CreatePane {
+                            query,
+                            title,
+                            floating: None,
+                            position: None,
+                        }
                     }
                     // Pass through all other commands unchanged
                     other => other,

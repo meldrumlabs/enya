@@ -1,4 +1,4 @@
-use enya_workspace::{WorkspaceConfig, resolve_workspace_path};
+use enya_config::{WorkspaceConfig, resolve_workspace_path};
 use serde::{Deserialize, Serialize};
 
 use super::format;

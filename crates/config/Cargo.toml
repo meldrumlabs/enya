@@ -1,10 +1,10 @@
 [package]
-name = "enya-workspace"
+name = "enya-config"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Workspace configuration types for Enya observability editor"
+description = "Configuration types for Enya"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }

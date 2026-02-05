@@ -219,7 +219,7 @@ impl EditorContext {
             "- `create_pane`: Create a new visualization pane with a PromQL query\n".to_string(),
         );
         parts.push("  - Required: `query` (PromQL expression)\n".to_string());
-        parts.push("  - Optional: `title` (pane title)\n".to_string());
+        parts.push("  - Optional: `title` (pane title), `floating` (true for detached pane), `position` ([x, y] pixels)\n".to_string());
         parts.push("- `set_time_range`: Change the dashboard time range\n".to_string());
         parts.push(
             "  - Required: `preset` (e.g., \"15m\", \"1h\", \"6h\", \"24h\", \"7d\")\n".to_string(),
@@ -237,19 +237,11 @@ impl EditorContext {
             "  - Optional: `title`, `time_range` (e.g., \"1h\"), `height` (pixels)\n".to_string(),
         );
         parts.push(
-            "- `show_inline_source`: Show source code inline in your response (PREFERRED)\n"
+            "- `show_source`: Show source code for a metric or alert definition (PREFERRED)\n"
                 .to_string(),
         );
-        parts.push("  - Required: `metric` (metric name to look up)\n".to_string());
-        parts.push(
-            "  - Optional: `context_lines` (number of lines to show, default: 5)\n".to_string(),
-        );
-        parts.push(
-            "- `show_metric_source`: Open modal overlay for source code (use only when user says \"open\" or \"go to\")\n".to_string(),
-        );
-        parts.push("  - Required: `metric` (metric name)\n".to_string());
-        parts.push("- `show_alert_source`: Open modal overlay for alert rule (use only when user says \"open\" or \"go to\")\n".to_string());
-        parts.push("  - Required: `alert` (alert name)\n".to_string());
+        parts.push("  - Required: `name` (metric or alert name)\n".to_string());
+        parts.push("  - Optional: `source_type` (\"metric\" or \"alert\", default: \"metric\"), `context_lines` (default: 5)\n".to_string());
         parts.push("- `search_codebase`: Search the indexed codebase using full-text search (PREFERRED over git log)\n".to_string());
         parts.push("  - Required: `query` (search terms)\n".to_string());
         parts.push("  - Optional: `filter` (\"all\", \"metrics\", \"alerts\", \"commits\"), `limit` (default: 10)\n".to_string());
@@ -257,14 +249,9 @@ impl EditorContext {
             "  - Returns: Ranked results with file paths, line numbers, and relevance scores\n"
                 .to_string(),
         );
-        parts.push(
-            "  - Use this for finding: metrics by name, alert rules, commit messages, file paths\n"
-                .to_string(),
-        );
         parts.push("- `show_inline_diff`: Show a git diff inline in your response (PREFERRED for showing changes)\n".to_string());
         parts.push("  - Optional: `commit` (hash, \"HEAD\", \"HEAD~1\", etc. - defaults to HEAD/latest commit if omitted)\n".to_string());
         parts.push("  - Optional: `file` (specific file path to show diff for)\n".to_string());
-        parts.push("  - Renders a beautiful GitHub-style diff view inline\n".to_string());
         parts.push("- `add_logs_pane`: Create a logs pane for viewing logs (useful for incident investigation)\n".to_string());
         parts.push("  - Optional: `query` (LogQL query), `loki_url` (Loki server URL, uses demo if omitted), `title`\n".to_string());
         parts.push(
@@ -294,29 +281,10 @@ impl EditorContext {
         );
         parts.push("  - Required: `name` (section name)\n".to_string());
         parts.push("  - Optional: `collapsed` (start collapsed, default: false)\n".to_string());
-        parts.push(
-            "- `create_floating_pane`: Create a floating pane for investigation (detached)\n"
-                .to_string(),
-        );
-        parts.push("  - Required: `query` (PromQL expression)\n".to_string());
-        parts.push("  - Optional: `title`, `position` ([x, y] pixels from top-left)\n".to_string());
         parts.push("- `maximize_pane`: Maximize a pane to fullscreen\n".to_string());
         parts.push(
             "  - Required: `pane` (pane title/name or \"focused\" for current pane)\n".to_string(),
         );
-        parts.push("- `rename_pane`: Rename a pane\n".to_string());
-        parts.push(
-            "  - Required: `pane` (current title/name or \"focused\"), `new_name`\n".to_string(),
-        );
-        parts.push("- `duplicate_pane`: Duplicate a pane with same query\n".to_string());
-        parts.push(
-            "  - Required: `pane` (title/name or \"focused\")\n  - Optional: `new_name`\n"
-                .to_string(),
-        );
-        parts.push("- `focus_pane`: Focus a specific pane\n".to_string());
-        parts.push("  - Required: `pane` (title/name)\n".to_string());
-        parts.push("- `toggle_zen_mode`: Toggle minimal UI mode\n".to_string());
-        parts.push("- `exit_fullscreen`: Exit fullscreen/maximized mode\n".to_string());
         parts.push(
             "- `load_workspace`: Load a saved workspace by name (for handoff from CLI to GUI)\n"
                 .to_string(),
@@ -347,6 +315,12 @@ pub enum AgentCommand {
         /// Optional title
         #[serde(default)]
         title: Option<String>,
+        /// If true, create a floating (detached) pane instead of a docked pane
+        #[serde(default)]
+        floating: Option<bool>,
+        /// Position for floating panes as [x, y] pixels from top-left
+        #[serde(default)]
+        position: Option<[f32; 2]>,
     },
     /// Set the time range
     SetTimeRange {
@@ -513,6 +487,17 @@ pub enum AgentCommand {
     ExitFullscreen,
     /// Sync repository (git fetch/pull and re-index codebase)
     Sync,
+    /// Unified source lookup (metric or alert)
+    ShowSource {
+        /// Metric or alert name to look up
+        name: String,
+        /// Source type: "metric" (default) or "alert"
+        #[serde(default)]
+        source_type: Option<String>,
+        /// Number of context lines to show (default: 5)
+        #[serde(default)]
+        context_lines: Option<usize>,
+    },
     /// Load a saved workspace by name (for agent-to-human handoff)
     LoadWorkspace {
         /// Workspace name to load
@@ -526,11 +511,21 @@ impl AgentCommand {
     /// Used for displaying command execution status in the UI.
     pub fn description(&self) -> String {
         match self {
-            AgentCommand::CreatePane { query, title } => {
-                if let Some(t) = title {
-                    format!("Creating pane '{t}'")
+            AgentCommand::CreatePane {
+                query,
+                title,
+                floating,
+                ..
+            } => {
+                let prefix = if floating.unwrap_or(false) {
+                    "Creating floating pane"
                 } else {
-                    format!("Creating pane for query: {}", truncate_str(query, 40))
+                    "Creating pane"
+                };
+                if let Some(t) = title {
+                    format!("{prefix} '{t}'")
+                } else {
+                    format!("{prefix} for query: {}", truncate_str(query, 40))
                 }
             }
             AgentCommand::SetTimeRange { preset } => {
@@ -670,6 +665,12 @@ impl AgentCommand {
                 } else {
                     format!("Showing diff for {commit_str}")
                 }
+            }
+            AgentCommand::ShowSource {
+                name, source_type, ..
+            } => {
+                let kind = source_type.as_deref().unwrap_or("metric");
+                format!("Showing source for {kind} '{name}'")
             }
             AgentCommand::LoadWorkspace { workspace } => {
                 format!("Loading workspace '{workspace}'")
@@ -1021,7 +1022,7 @@ This will show the request rate.
         let commands = parse_commands(text);
         assert_eq!(commands.len(), 1);
         match &commands[0] {
-            AgentCommand::CreatePane { query, title } => {
+            AgentCommand::CreatePane { query, title, .. } => {
                 assert_eq!(query, "rate(http_requests_total[5m])");
                 assert_eq!(title.as_deref(), Some("Request Rate"));
             }

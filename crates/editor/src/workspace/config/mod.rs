@@ -1,10 +1,10 @@
-//! Workspace configuration types, re-exported from `enya-workspace`.
+//! Workspace configuration types, re-exported from `enya-config`.
 //!
 //! This module re-exports all workspace configuration types from the
-//! `enya-workspace` crate and adds editor-specific extension traits
+//! `enya-config` crate and adds editor-specific extension traits
 //! for converting between config strings and editor enum types.
 
-pub use enya_workspace::*;
+pub use enya_config::*;
 
 use crate::components::{Granularity, QueryState, TimeRangePreset, VisualizationType};
 use crate::ui::theme::AppTheme;

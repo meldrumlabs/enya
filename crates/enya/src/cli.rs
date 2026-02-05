@@ -218,10 +218,10 @@ enum Command {
         name: String,
     },
 
-    /// Serve the WASM editor over HTTP with a Prometheus proxy
+    /// Start the Enya agent (API server, Prometheus proxy, WASM editor)
     Serve {
-        /// Workspace name or path to TOML file
-        workspace: String,
+        /// Optional workspace name or path for WASM UI
+        workspace: Option<String>,
 
         /// Port to listen on
         #[arg(long, default_value = "3030")]
@@ -553,7 +553,7 @@ pub fn run() -> ExitCode {
             } => {
                 #[cfg(feature = "serve")]
                 {
-                    crate::serve::run(&workspace, port, &bind, open)
+                    enya_agent::run(workspace.as_deref(), port, &bind, open)
                 }
                 #[cfg(not(feature = "serve"))]
                 {
@@ -638,7 +638,7 @@ pub fn run() -> ExitCode {
                 };
             }
             Command::Session => {
-                return match crate::session::run() {
+                return match enya_agent::run_session() {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {
                         eprintln!("session error: {e}");

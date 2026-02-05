@@ -1,5 +1,5 @@
 use console::style;
-use enya_workspace::{WorkspaceConfig, list_workspaces, resolve_workspace_path};
+use enya_config::{WorkspaceConfig, list_workspaces, resolve_workspace_path};
 use serde::Serialize;
 
 use crate::Result;

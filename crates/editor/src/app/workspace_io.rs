@@ -13,13 +13,13 @@ impl EnyaApp {
     /// Get the workspace directory path
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn workspace_dir() -> std::path::PathBuf {
-        enya_workspace::workspace_dir()
+        enya_config::workspace_dir()
     }
 
     /// List available workspace files from the workspace directory
     #[cfg(not(target_arch = "wasm32"))]
     pub fn list_available_workspaces() -> Vec<(String, Option<String>)> {
-        enya_workspace::list_workspaces()
+        enya_config::list_workspaces()
     }
 
     /// List available workspace files (WASM stub - returns empty)
