@@ -2882,18 +2882,28 @@ dependencies = [
 name = "enya"
 version = "0.1.0"
 dependencies = [
- "axum",
- "base64 0.22.1",
  "clap",
  "clap_complete",
  "console",
- "enya-config",
+ "enya-agent",
  "enya-editor",
  "enya-headless",
- "insta",
  "mimalloc",
+ "serde_json",
+]
+
+[[package]]
+name = "enya-agent"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "enya-config",
+ "enya-headless",
+ "insta",
  "mime_guess",
  "open",
+ "parking_lot",
  "reqwest",
  "rusqlite",
  "rust-embed",

@@ -3,11 +3,6 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod cli;
-#[cfg(feature = "serve")]
-mod db;
-#[cfg(feature = "serve")]
-mod serve;
-mod session;
 
 use std::process::ExitCode;
 

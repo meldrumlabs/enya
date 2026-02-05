@@ -37,11 +37,12 @@ members = [
   "crates/config",
   # Headless CLI operations (shared between CLI and future consumers)
   "crates/headless",
+  # Agent server (API, watch engine, Prometheus proxy)
+  "crates/agent",
   # CLI tool
   "crates/enya",
 ]
 # Excluded for faster compilation (editor-focused development):
-# - crates/agent
 # - crates/metrics-store
 # - crates/log-store
 # - crates/macros
@@ -60,6 +61,7 @@ enya-datafusion = { path = "crates/datafusion", version = "0.1.0" }
 enya-plugin = { path = "crates/plugin", version = "0.1.0" }
 enya-config = { path = "crates/config", version = "0.1.0" }
 enya-headless = { path = "crates/headless", version = "0.1.0" }
+enya-agent = { path = "crates/agent", version = "0.1.0" }
 egui_ghostty = { path = "crates/egui_ghostty" }
 
 # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts

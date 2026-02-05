@@ -1,14 +1,16 @@
-//! SQLite state storage for the Enya daemon.
+//! SQLite state storage for the Enya agent.
 //!
-//! Stores persistent state that survives daemon restarts: watch configurations,
+//! Stores persistent state that survives agent restarts: watch configurations,
 //! events (alerts, resolutions), and eventually investigations and notifications.
 
 use std::path::Path;
-use std::sync::Mutex;
+
+use parking_lot::Mutex;
 
 use rusqlite::{Connection, params};
+use serde::Serialize;
 
-/// SQLite database handle for daemon state.
+/// SQLite database handle for agent state.
 ///
 /// Uses a `Mutex<Connection>` so it can be shared across async tasks via `Arc<Db>`.
 pub struct Db {
@@ -20,7 +22,7 @@ impl Db {
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
         let conn = Connection::open(path)?;
 
-        // WAL mode for concurrent reads while the daemon writes.
+        // WAL mode for concurrent reads while the agent writes.
         conn.pragma_update(None, "journal_mode", "wal")?;
 
         let db = Db {
@@ -43,7 +45,7 @@ impl Db {
 
     /// Run schema migrations.
     fn migrate(&self) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS schema_version (
                 version INTEGER NOT NULL
@@ -100,7 +102,7 @@ impl Db {
 
     /// Insert a new watch, returning its ID.
     pub fn insert_watch(&self, w: &NewWatch) -> rusqlite::Result<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO watches (name, expression, threshold_op, threshold_value,
                                   interval_secs, sustain_secs, endpoint)
@@ -120,7 +122,7 @@ impl Db {
 
     /// List all enabled watches.
     pub fn list_watches(&self) -> rusqlite::Result<Vec<Watch>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, name, expression, threshold_op, threshold_value,
                     interval_secs, sustain_secs, endpoint, enabled
@@ -143,9 +145,37 @@ impl Db {
         rows.collect()
     }
 
+    /// Get a single watch by ID (returns None if not found or disabled).
+    pub fn get_watch(&self, id: i64) -> rusqlite::Result<Option<Watch>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, expression, threshold_op, threshold_value,
+                    interval_secs, sustain_secs, endpoint, enabled
+             FROM watches WHERE id = ?1 AND enabled = 1",
+        )?;
+        let mut rows = stmt.query_map(params![id], |row| {
+            Ok(Watch {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                expression: row.get(2)?,
+                threshold_op: row.get(3)?,
+                threshold_value: row.get(4)?,
+                interval_secs: row.get(5)?,
+                sustain_secs: row.get(6)?,
+                endpoint: row.get(7)?,
+                enabled: row.get(8)?,
+            })
+        })?;
+        match rows.next() {
+            Some(Ok(watch)) => Ok(Some(watch)),
+            Some(Err(e)) => Err(e),
+            None => Ok(None),
+        }
+    }
+
     /// Disable a watch by ID (soft delete).
     pub fn disable_watch(&self, id: i64) -> rusqlite::Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let changed = conn.execute(
             "UPDATE watches SET enabled = 0, updated_at = datetime('now') WHERE id = ?1",
             params![id],
@@ -163,7 +193,7 @@ impl Db {
         value: Option<f64>,
         message: Option<&str>,
     ) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         conn.execute(
             "INSERT INTO events (watch_id, event_type, value, message)
              VALUES (?1, ?2, ?3, ?4)",
@@ -174,7 +204,7 @@ impl Db {
 
     /// Get recent events for a watch.
     pub fn recent_events(&self, watch_id: i64, limit: u32) -> rusqlite::Result<Vec<Event>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, watch_id, event_type, value, message, created_at
              FROM events WHERE watch_id = ?1
@@ -206,7 +236,7 @@ pub struct NewWatch<'a> {
 }
 
 /// A persisted watch configuration.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Watch {
     pub id: i64,
     pub name: String,
@@ -220,7 +250,7 @@ pub struct Watch {
 }
 
 /// A recorded watch event.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Event {
     pub id: i64,
     pub watch_id: i64,
