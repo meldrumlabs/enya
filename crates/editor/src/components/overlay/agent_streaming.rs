@@ -45,7 +45,7 @@ impl AgentPanel {
         self.input_text.clear();
         self.is_waiting = true;
         self.scroll_to_bottom = true;
-        self.request_start_time = Some(std::time::Instant::now());
+        self.request_start_time = Some(crate::util::Instant::now());
         self.response_text.clear();
         self.stream_settled_len = 0;
         self.stream_fade_start = None;

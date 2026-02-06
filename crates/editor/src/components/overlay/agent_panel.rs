@@ -94,7 +94,7 @@ pub struct AgentPanel {
     pub(super) selected_model: AiModel,
     pub(super) current_status: ResponseStatus,
     pub(super) current_activities: Vec<ActivityItem>,
-    pub(super) request_start_time: Option<std::time::Instant>,
+    pub(super) request_start_time: Option<crate::util::Instant>,
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) runtime_handle: Option<tokio::runtime::Handle>,
     pub(super) editor_context: Option<super::agent_context::EditorContext>,

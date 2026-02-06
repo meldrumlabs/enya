@@ -154,7 +154,7 @@ pub struct AgentInputBar {
     /// Processing status message
     processing_status: String,
     /// Processing elapsed time
-    processing_start: Option<std::time::Instant>,
+    processing_start: Option<crate::util::Instant>,
     /// Current activities (tool use, thinking, etc.)
     activities: Vec<ActivityItem>,
     /// Last action that can be undone
@@ -412,7 +412,7 @@ impl AgentInputBar {
     pub fn start_processing(&mut self, status: &str) {
         self.state = AgentInputState::Processing;
         self.processing_status = status.to_string();
-        self.processing_start = Some(std::time::Instant::now());
+        self.processing_start = Some(crate::util::Instant::now());
         self.activities.clear();
     }
 
@@ -1911,7 +1911,7 @@ impl AgentInputBar {
         // Transition to processing state
         self.state = AgentInputState::Processing;
         self.processing_status = "Sending to agent...".to_string();
-        self.processing_start = Some(std::time::Instant::now());
+        self.processing_start = Some(crate::util::Instant::now());
         self.activities.clear();
         self.response_text.clear();
         self.display_text.clear();

@@ -2,7 +2,7 @@
 //!
 //! Implements the Messages API: https://docs.anthropic.com/en/api/messages
 
-use std::io::{BufRead, BufReader};
+use std::io::BufRead;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use serde::{Deserialize, Serialize};
@@ -59,7 +59,7 @@ impl AnthropicClient {
                 tokio::task::spawn_blocking(move || stream_request(&api_key, &request, &tx)).await;
 
             if let Err(e) = result {
-                log::error!("Stream task panicked: {e}");
+                tracing::error!("Stream task panicked: {e}");
             }
         });
 
@@ -125,29 +125,12 @@ fn stream_request(
     tx: &SyncSender<AgentEvent>,
 ) -> Result<(), AgentError> {
     let body = serde_json::to_string(request).map_err(|e| AgentError::Parse(e.to_string()))?;
+    let headers = [("x-api-key", api_key), ("anthropic-version", API_VERSION)];
+    super::http::streaming_post(API_URL, &headers, &body, parse_response, tx)
+}
 
-    let response = ureq::post(API_URL)
-        .header("Content-Type", "application/json")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", API_VERSION)
-        .send(&body);
-
-    let response = match response {
-        Ok(r) => r,
-        Err(ureq::Error::StatusCode(status)) => {
-            return Err(match status {
-                401 => AgentError::Auth("Invalid API key".into()),
-                429 => AgentError::RateLimited {
-                    retry_after_secs: None,
-                },
-                _ => AgentError::Http(format!("HTTP {status}")),
-            });
-        }
-        Err(e) => return Err(AgentError::Http(e.to_string())),
-    };
-
-    let mut body = response.into_body();
-    let reader = BufReader::new(body.as_reader());
+fn parse_response(mut body: ureq::Body, tx: &SyncSender<AgentEvent>) -> Result<(), AgentError> {
+    let reader = std::io::BufReader::new(body.as_reader());
     parse_sse_stream(reader, tx)
 }
 
@@ -168,7 +151,7 @@ fn parse_sse_stream<R: BufRead>(reader: R, tx: &SyncSender<AgentEvent>) -> Resul
         let event: SseEvent = match serde_json::from_str(data) {
             Ok(e) => e,
             Err(e) => {
-                log::warn!("Failed to parse SSE event: {e}");
+                tracing::warn!("Failed to parse SSE event: {e}");
                 continue;
             }
         };

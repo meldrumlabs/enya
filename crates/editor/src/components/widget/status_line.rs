@@ -302,7 +302,7 @@ pub struct StatusLine {
     /// Optional sparkline to display in the status bar
     sparkline: Option<Sparkline>,
     /// Timestamp of last data refresh (for relative time display)
-    last_refresh: Option<std::time::Instant>,
+    last_refresh: Option<crate::util::Instant>,
     /// Diagnostics counts (errors, warnings, infos)
     diagnostics_count: (usize, usize, usize),
     /// Codebase operation status
@@ -414,7 +414,7 @@ impl StatusLine {
     /// Mark the last refresh time (call when data is updated)
     #[allow(dead_code)]
     pub fn mark_refresh(&mut self) {
-        self.last_refresh = Some(std::time::Instant::now());
+        self.last_refresh = Some(crate::util::Instant::now());
     }
 
     /// Render the status line

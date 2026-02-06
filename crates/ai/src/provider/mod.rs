@@ -3,6 +3,7 @@
 //! Supports Anthropic (Claude) and OpenAI APIs with streaming.
 
 mod anthropic;
+mod http;
 mod openai;
 
 pub use anthropic::AnthropicClient;

@@ -2916,6 +2916,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "tower-http",
  "tracing",
@@ -2926,12 +2927,12 @@ name = "enya-ai"
 version = "0.1.0"
 dependencies = [
  "env_logger",
- "log",
  "rustc-hash 2.1.1",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
  "ureq",
 ]
 

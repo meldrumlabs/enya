@@ -9,8 +9,8 @@
 //! - Open a find/replace modal to edit all selected buffers at once
 //! - Preview matches with live highlighting before applying changes
 
+use crate::util::Instant;
 use rustc_hash::FxHashMap;
-use std::time::Instant;
 
 /// A selection range within a buffer (byte offsets).
 #[derive(Debug, Clone, PartialEq, Eq)]

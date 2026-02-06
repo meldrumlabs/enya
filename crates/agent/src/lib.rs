@@ -4,11 +4,14 @@
 mod db;
 #[cfg(feature = "serve")]
 mod engine;
+mod error;
 #[cfg(feature = "serve")]
 mod router;
 mod session;
 
-pub type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+pub use error::Error;
+
+pub type Result<T = ()> = std::result::Result<T, Error>;
 
 /// Start the Enya agent server.
 #[cfg(feature = "serve")]

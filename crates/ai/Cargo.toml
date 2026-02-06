@@ -25,7 +25,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 # Logging
-log.workspace = true
+tracing.workspace = true
 
 # Error handling
 thiserror = "2"
