@@ -2,6 +2,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use console::style;
 use std::process::ExitCode;
+use tracing_subscriber::EnvFilter;
 
 /// Enya — observability editor for humans, machines, and AI agents
 ///
@@ -382,6 +383,21 @@ enum PluginsCommand {
     Commands,
 }
 
+/// Initialize the tracing subscriber for agent commands (serve, session).
+///
+/// Writes to stderr so stdout remains available for JSON-RPC.
+/// Respects `RUST_LOG`; defaults to `info` for enya crates, `warn` elsewhere.
+fn init_tracing() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new("warn,enya_agent=info,enya_headless=info,enya_config=info")
+    });
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_writer(std::io::stderr)
+        .with_target(true)
+        .init();
+}
+
 fn handle_error(e: &dyn std::fmt::Display, json: bool) -> ExitCode {
     if json {
         let _ = serde_json::to_writer(
@@ -553,6 +569,7 @@ pub fn run() -> ExitCode {
             } => {
                 #[cfg(feature = "serve")]
                 {
+                    init_tracing();
                     enya_agent::run(workspace.as_deref(), port, &bind, open)
                 }
                 #[cfg(not(feature = "serve"))]
@@ -638,6 +655,7 @@ pub fn run() -> ExitCode {
                 };
             }
             Command::Session => {
+                init_tracing();
                 return match enya_agent::run_session() {
                     Ok(()) => ExitCode::SUCCESS,
                     Err(e) => {

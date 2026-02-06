@@ -1,3 +1,9 @@
+//! JSON-RPC 2.0 session over stdin/stdout for agent integration.
+//!
+//! Provides a line-delimited JSON-RPC interface for AI agents and CLI tools
+//! to interact with Enya: workspace management, PromQL queries, metric
+//! discovery, watch lifecycle, and plugin operations.
+
 use std::io::{BufRead, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -5,6 +11,7 @@ use std::sync::mpsc;
 
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info, warn};
 
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 type HandlerResult = std::result::Result<serde_json::Value, (i32, String)>;
@@ -94,8 +101,12 @@ impl Session {
     }
 
     fn shutdown(&mut self) {
+        let count = self.watches.len();
         for (_, handle) in self.watches.drain() {
             handle.stop_flag.store(true, Ordering::SeqCst);
+        }
+        if count > 0 {
+            info!(count, "stopped active watches");
         }
     }
 }
@@ -103,6 +114,8 @@ impl Session {
 // -- Entry point ---------------------------------------------------------------
 
 pub fn run() -> Result {
+    info!("session started");
+
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
 
@@ -132,6 +145,7 @@ pub fn run() -> Result {
     }
 
     session.shutdown();
+    info!("session ended");
     Ok(())
 }
 
@@ -140,7 +154,9 @@ fn drain_notifications(
     writer: &mut impl Write,
 ) -> std::io::Result<()> {
     while let Ok(notification) = rx.try_recv() {
-        serde_json::to_writer(&mut *writer, &notification).ok();
+        if let Err(e) = serde_json::to_writer(&mut *writer, &notification) {
+            warn!(method = %notification.method, error = %e, "failed to serialize notification");
+        }
         writer.write_all(b"\n")?;
     }
     writer.flush()
@@ -152,6 +168,7 @@ fn handle_line(session: &mut Session, line: &str) -> Option<RpcResponse> {
     let req: RpcRequest = match serde_json::from_str(line) {
         Ok(r) => r,
         Err(e) => {
+            warn!(error = %e, "failed to parse JSON-RPC request");
             return Some(RpcResponse::err(
                 serde_json::Value::Null,
                 -32700,
@@ -161,6 +178,7 @@ fn handle_line(session: &mut Session, line: &str) -> Option<RpcResponse> {
     };
 
     let id = req.id.clone().unwrap_or(serde_json::Value::Null);
+    debug!(method = %req.method, "rpc request");
 
     let result = match req.method.as_str() {
         // Workspace
@@ -203,7 +221,10 @@ fn handle_line(session: &mut Session, line: &str) -> Option<RpcResponse> {
 
     Some(match result {
         Ok(value) => RpcResponse::ok(id, value),
-        Err((code, msg)) => RpcResponse::err(id, code, msg),
+        Err((code, ref msg)) => {
+            debug!(method = %req.method, code, error = %msg, "rpc error");
+            RpcResponse::err(id, code, msg.clone())
+        }
     })
 }
 
@@ -541,10 +562,11 @@ fn watch_start(session: &mut Session, params: &serde_json::Value) -> HandlerResu
         WatchHandle {
             thread,
             stop_flag,
-            expression,
+            expression: expression.clone(),
         },
     );
 
+    info!(watch_id, expression = %expression, "watch started");
     Ok(serde_json::json!({"watch_id": watch_id}))
 }
 
@@ -652,6 +674,7 @@ fn watch_stop(session: &mut Session, params: &serde_json::Value) -> HandlerResul
 
     if let Some(handle) = session.watches.remove(&watch_id) {
         handle.stop_flag.store(true, Ordering::SeqCst);
+        info!(watch_id, "watch stopped");
         Ok(serde_json::json!({"watch_id": watch_id, "stopped": true}))
     } else {
         Err((-32603, format!("watch not found: {watch_id}")))

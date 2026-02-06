@@ -14,6 +14,8 @@ use base64::Engine;
 use enya_config::{Config, WorkspaceConfig, enya_dir, resolve_workspace_path};
 use rust_embed::Embed;
 use serde::Deserialize;
+use tower_http::trace::TraceLayer;
+use tracing::{info, warn};
 
 use crate::db::{Db, NewWatch};
 
@@ -99,15 +101,15 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
         db: Arc::new(db),
     };
 
-    // 7. Print startup info
+    // 7. Log startup info
     let url = format!("http://localhost:{port}");
-    eprintln!("Enya agent at {url}");
-    eprintln!("Database at {}", db_path.display());
+    info!(url = %url, "enya agent starting");
+    info!(path = %db_path.display(), "database opened");
     if let Some(ref upstream) = state.upstream_url {
-        eprintln!("Proxying Prometheus at {upstream}");
+        info!(upstream = %upstream, "proxying prometheus");
     }
     if workspace.is_some() {
-        eprintln!("Workspace UI at {url}");
+        info!(url = %url, "workspace UI available");
     }
 
     // 9. Start tokio runtime and server
@@ -131,7 +133,7 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
         let listener = tokio::net::TcpListener::bind(addr)
             .await
             .map_err(|e| format!("failed to bind to {addr}: {e}"))?;
-        eprintln!("Listening on {addr}");
+        info!(addr = %addr, "listening");
 
         axum::serve(listener, app)
             .await
@@ -152,6 +154,7 @@ fn router(state: ServeState) -> Router {
         .route("/api/v1/watches/{id}/events", get(watch_events))
         .route("/api/v1/workspaces", get(list_workspaces_handler))
         .fallback(static_handler)
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
@@ -220,6 +223,7 @@ async fn proxy_handler(
             (status, [(header::CONTENT_TYPE, content_type)], resp_body).into_response()
         }
         Err(e) => {
+            warn!(error = %e, upstream = %upstream, "proxy request failed");
             let body = serde_json::json!({"error": format!("proxy error: {e}")});
             (
                 StatusCode::BAD_GATEWAY,

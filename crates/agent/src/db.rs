@@ -6,9 +6,9 @@
 use std::path::Path;
 
 use parking_lot::Mutex;
-
 use rusqlite::{Connection, params};
 use serde::Serialize;
+use tracing::{debug, info};
 
 /// SQLite database handle for agent state.
 ///
@@ -52,18 +52,18 @@ impl Db {
             )",
         )?;
 
-        let current: u32 = conn
-            .query_row(
-                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
+        let current: u32 = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get(0),
+        )?;
 
         if current < 1 {
+            info!("running database migration v1");
             Self::migrate_v1(&conn)?;
         }
 
+        debug!(version = current.max(1), "database schema up to date");
         Ok(())
     }
 
