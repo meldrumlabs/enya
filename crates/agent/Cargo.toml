@@ -17,6 +17,7 @@ serve = [
     "dep:base64",
     "dep:rusqlite",
     "dep:parking_lot",
+    "dep:tower-http",
 ]
 
 [dependencies]
@@ -25,6 +26,7 @@ enya-config = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
+tracing = { workspace = true }
 
 # Serve dependencies (optional, enabled by "serve" feature)
 axum = { workspace = true, features = ["macros", "json", "query"], optional = true }
@@ -36,6 +38,7 @@ open = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta = "1"

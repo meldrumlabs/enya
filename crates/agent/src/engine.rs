@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rustc_hash::{FxHashMap, FxHashSet};
+use tracing::{error, info, warn};
 
 use enya_headless::watch::{self, ThresholdOp, WatchEvent};
 
@@ -18,7 +19,7 @@ const SYNC_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Run the watch engine as a long-lived background task.
 pub async fn run(db: Arc<Db>) {
-    eprintln!("Watch engine started");
+    info!("watch engine started");
     let mut tasks: FxHashMap<i64, tokio::task::JoinHandle<()>> = FxHashMap::default();
 
     loop {
@@ -30,6 +31,7 @@ pub async fn run(db: Arc<Db>) {
 /// Synchronize running tasks with the current set of enabled watches.
 fn sync_watches(db: &Arc<Db>, tasks: &mut FxHashMap<i64, tokio::task::JoinHandle<()>>) {
     let Ok(watches) = db.list_watches() else {
+        warn!("failed to load watches from database, skipping sync cycle");
         return;
     };
 
@@ -40,7 +42,7 @@ fn sync_watches(db: &Arc<Db>, tasks: &mut FxHashMap<i64, tokio::task::JoinHandle
         let keep = active.contains(id);
         if !keep {
             handle.abort();
-            eprintln!("engine: stopped watch {id}");
+            info!(watch_id = id, "stopped watch");
         }
         keep
     });
@@ -48,7 +50,7 @@ fn sync_watches(db: &Arc<Db>, tasks: &mut FxHashMap<i64, tokio::task::JoinHandle
     // Start tasks for new watches
     for watch in watches {
         if let Entry::Vacant(slot) = tasks.entry(watch.id) {
-            eprintln!("engine: starting watch {} ({})", watch.id, watch.name);
+            info!(watch_id = watch.id, name = %watch.name, "starting watch");
             let db = db.clone();
             slot.insert(tokio::spawn(run_watch(db, watch)));
         }
@@ -89,7 +91,7 @@ async fn run_watch(db: Arc<Db>, watch: Watch) {
         })
         .await
         else {
-            eprintln!("engine: watch {id}: tick panicked");
+            error!(watch_id = id, "tick task panicked");
             continue;
         };
 
@@ -115,7 +117,14 @@ fn record_transition(db: &Db, watch_id: i64, event: &WatchEvent, alerting: &mut 
         _ => return,
     };
 
+    match event_type {
+        "alert" => warn!(watch_id, value = ?value, "watch alert: {message}"),
+        "resolve" => info!(watch_id, value = ?value, "watch resolved: {message}"),
+        "error" => error!(watch_id, "watch error: {message}"),
+        _ => {}
+    }
+
     if let Err(e) = db.insert_event(watch_id, event_type, value, Some(&message)) {
-        eprintln!("engine: watch {watch_id}: failed to record {event_type}: {e}");
+        error!(watch_id, event_type, error = %e, "failed to record event");
     }
 }
