@@ -165,6 +165,10 @@ pub enum AgentError {
     #[error("HTTP error: {0}")]
     Http(String),
 
+    /// Agent process spawn or I/O error
+    #[error("Process error: {0}")]
+    Process(String),
+
     /// Failed to parse response
     #[error("Parse error: {0}")]
     Parse(String),

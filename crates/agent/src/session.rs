@@ -13,7 +13,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 
-type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+type Result = std::result::Result<(), crate::Error>;
 type HandlerResult = std::result::Result<serde_json::Value, (i32, String)>;
 
 // -- JSON-RPC 2.0 types -------------------------------------------------------

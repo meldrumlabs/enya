@@ -19,7 +19,7 @@ use tracing::{info, warn};
 
 use crate::db::{Db, NewWatch};
 
-type Result = std::result::Result<(), Box<dyn std::error::Error>>;
+type Result = std::result::Result<(), crate::Error>;
 
 /// Maximum request body size for proxied requests (10 MB).
 const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
@@ -72,8 +72,12 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
     // 4. Optionally encode workspace for WASM UI redirect
     let workspace_param = if let Some(ws) = workspace {
         let path = resolve_workspace_path(ws);
-        let config = WorkspaceConfig::load(&path)
-            .map_err(|e| format!("failed to load workspace '{}': {e}", path.display()))?;
+        let config = WorkspaceConfig::load(&path).map_err(|e| {
+            crate::Error::Config(format!(
+                "failed to load workspace '{}': {e}",
+                path.display()
+            ))
+        })?;
 
         let mut serve_config = config;
         serve_config.metrics.endpoint = format!("http://localhost:{port}/proxy");
@@ -82,7 +86,7 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
 
         let toml_str = serve_config
             .to_toml()
-            .map_err(|e| format!("failed to encode workspace: {e}"))?;
+            .map_err(|e| crate::Error::Config(format!("failed to encode workspace: {e}")))?;
         Some(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(toml_str.as_bytes()))
     } else {
         None
@@ -90,7 +94,8 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
 
     // 5. Open database
     let db_path = enya_dir().join("enya.db");
-    let db = Db::open(&db_path).map_err(|e| format!("failed to open database: {e}"))?;
+    let db = Db::open(&db_path)
+        .map_err(|e| crate::Error::Config(format!("failed to open database: {e}")))?;
 
     // 6. Build state
     let state = ServeState {
@@ -113,8 +118,7 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
     }
 
     // 9. Start tokio runtime and server
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| format!("failed to create tokio runtime: {e}"))?;
+    let rt = tokio::runtime::Runtime::new().map_err(crate::Error::Io)?;
 
     rt.block_on(async move {
         // Spawn watch engine as a background task
@@ -124,7 +128,7 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
         let app = router(state);
         let addr: std::net::SocketAddr = format!("{bind}:{port}")
             .parse()
-            .map_err(|e| format!("invalid bind address: {e}"))?;
+            .map_err(|e| crate::Error::Config(format!("invalid bind address: {e}")))?;
 
         if open {
             let _ = open::that(&url);
@@ -132,12 +136,10 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
 
         let listener = tokio::net::TcpListener::bind(addr)
             .await
-            .map_err(|e| format!("failed to bind to {addr}: {e}"))?;
+            .map_err(crate::Error::Io)?;
         info!(addr = %addr, "listening");
 
-        axum::serve(listener, app)
-            .await
-            .map_err(|e| format!("server error: {e}"))?;
+        axum::serve(listener, app).await.map_err(crate::Error::Io)?;
 
         Ok(())
     })

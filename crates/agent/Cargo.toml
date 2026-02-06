@@ -27,6 +27,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 tracing = { workspace = true }
+thiserror = "2"
 
 # Serve dependencies (optional, enabled by "serve" feature)
 axum = { workspace = true, features = ["macros", "json", "query"], optional = true }
