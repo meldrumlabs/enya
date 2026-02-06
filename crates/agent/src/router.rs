@@ -121,9 +121,12 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
     let rt = tokio::runtime::Runtime::new().map_err(crate::Error::Io)?;
 
     rt.block_on(async move {
+        // Create shutdown broadcast channel
+        let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
+
         // Spawn watch engine as a background task
         let engine_db = state.db.clone();
-        tokio::spawn(crate::engine::run(engine_db));
+        tokio::spawn(crate::engine::run(engine_db, shutdown_tx.subscribe()));
 
         let app = router(state);
         let addr: std::net::SocketAddr = format!("{bind}:{port}")
@@ -139,7 +142,14 @@ pub fn run(workspace: Option<&str>, port: u16, bind: &str, open: bool) -> Result
             .map_err(crate::Error::Io)?;
         info!(addr = %addr, "listening");
 
-        axum::serve(listener, app).await.map_err(crate::Error::Io)?;
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async move {
+                let _ = tokio::signal::ctrl_c().await;
+                info!("shutdown signal received");
+                let _ = shutdown_tx.send(());
+            })
+            .await
+            .map_err(crate::Error::Io)?;
 
         Ok(())
     })

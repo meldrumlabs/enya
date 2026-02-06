@@ -18,13 +18,26 @@ use crate::db::{Db, Watch};
 const SYNC_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Run the watch engine as a long-lived background task.
-pub async fn run(db: Arc<Db>) {
+///
+/// The engine polls the database for enabled watches every [`SYNC_INTERVAL`] seconds.
+/// When the shutdown receiver fires, all watch tasks are aborted and the loop exits.
+pub async fn run(db: Arc<Db>, mut shutdown: tokio::sync::broadcast::Receiver<()>) {
     info!("watch engine started");
     let mut tasks: FxHashMap<i64, tokio::task::JoinHandle<()>> = FxHashMap::default();
 
     loop {
         sync_watches(&db, &mut tasks);
-        tokio::time::sleep(SYNC_INTERVAL).await;
+        tokio::select! {
+            _ = tokio::time::sleep(SYNC_INTERVAL) => {}
+            _ = shutdown.recv() => {
+                info!("watch engine shutting down");
+                for (id, handle) in tasks.drain() {
+                    handle.abort();
+                    info!(watch_id = id, "stopped watch");
+                }
+                break;
+            }
+        }
     }
 }
 
