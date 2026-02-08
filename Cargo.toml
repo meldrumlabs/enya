@@ -5,8 +5,8 @@ rust-version = "1.88"
 authors = ["Meldrum Labs"]
 categories = ["observability", "metrics"]
 keywords = ["observability", "metrics", "logging", "timeseries"]
-description = "Data Systems Observability"
-license = "MIT OR Apache-2.0"
+description = "Observability for humans and AI agents"
+license = "MIT"
 homepage = "https://meldrumlabs.com"
 readme = "README.md"
 repository = "https://github.com/meldrumlabs/enya"
@@ -42,11 +42,6 @@ members = [
   # CLI tool
   "crates/enya",
 ]
-# Excluded for faster compilation (editor-focused development):
-# - crates/metrics-store
-# - crates/log-store
-# - crates/macros
-# - examples/*
 
 [workspace.dependencies]
 enya-promql = { path = "crates/promql", version = "0.1.0" }

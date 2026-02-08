@@ -120,7 +120,7 @@ impl AboutOverlay {
 
                             // Tagline
                             ui.label(
-                                RichText::new("A keyboard-first observability editor")
+                                RichText::new("Observability for builders")
                                     .color(value_color)
                                     .size(typography::LG),
                             );
@@ -130,15 +130,10 @@ impl AboutOverlay {
                             // Description
                             ui.label(
                                 RichText::new(
-                                    "Connects metrics, logs, traces, SQL, and git with AI in one interface.",
+                                    "Neovim meets Grafana, reimagined for human and agent collaboration.",
                                 )
                                 .color(muted_text)
                                 .size(typography::MD),
-                            );
-                            ui.label(
-                                RichText::new("Designed for those who build, ship, and get paged.")
-                                    .color(muted_text)
-                                    .size(typography::MD),
                             );
 
                             ui.add_space(16.0);
