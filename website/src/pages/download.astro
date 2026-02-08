@@ -1,0 +1,545 @@
+---
+import ThemeProvider from '../components/ThemeProvider.astro';
+---
+
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Download - Enya</title>
+		<link rel="icon" type="image/x-icon" href="/favicon.ico" />
+		<meta name="description" content="Download Enya for macOS, Windows, Linux, or try in browser" />
+		<meta property="og:image" content="/img/enya.png" />
+		<meta property="og:image:alt" content="Enya" />
+	</head>
+	<body>
+		<ThemeProvider />
+		<div class="page">
+			<header class="header">
+				<div class="header-content">
+					<div class="title-wrapper">
+						<a href="/" class="site-title">
+							<img src="/img/enya.png" alt="Enya" />
+						</a>
+					</div>
+					<div class="right-group">
+						<div class="header-links">
+							<a href="/docs" class="header-link">docs</a>
+							<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="header-link" id="github-link">github</a>
+						</div>
+						<button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Toggle menu" aria-expanded="false">
+							<span class="menu-icon menu-icon-bars">☰</span>
+							<span class="menu-icon menu-icon-times">✕</span>
+						</button>
+					</div>
+					<div class="mobile-menu" id="mobile-menu">
+						<a href="/docs" class="mobile-menu-link">docs</a>
+						<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="mobile-menu-link" id="mobile-github-link">github</a>
+					</div>
+				</div>
+			</header>
+			<main class="main">
+				<section class="downloads-section">
+					<div class="downloads-content">
+						<h1 class="downloads-title">Download Enya</h1>
+						<p class="downloads-subtitle">Available for Web, macOS, Windows, and Linux</p>
+						<div class="downloads-grid">
+							<a href="/editor" class="download-card download-card-featured">
+								<div class="download-icon">
+									<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<circle cx="12" cy="12" r="10"/>
+										<path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+										<path d="M2 12h20"/>
+									</svg>
+								</div>
+								<h3 class="download-platform">Try in Browser</h3>
+								<p class="download-detail">WASM • No install required</p>
+							</a>
+							<a href="https://github.com/meldrumlabs/enya/releases" target="_blank" rel="noopener noreferrer" class="download-card">
+								<div class="download-icon">
+									<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+									</svg>
+								</div>
+								<h3 class="download-platform">macOS</h3>
+								<p class="download-detail">10.15 or later</p>
+							</a>
+							<a href="https://github.com/meldrumlabs/enya/releases" target="_blank" rel="noopener noreferrer" class="download-card">
+								<div class="download-icon">
+									<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<rect x="3" y="3" width="8" height="8"/>
+										<rect x="13" y="3" width="8" height="8"/>
+										<rect x="3" y="13" width="8" height="8"/>
+										<rect x="13" y="13" width="8" height="8"/>
+									</svg>
+								</div>
+								<h3 class="download-platform">Windows</h3>
+								<p class="download-detail">Windows 10 or later</p>
+							</a>
+							<a href="https://github.com/meldrumlabs/enya/releases" target="_blank" rel="noopener noreferrer" class="download-card">
+								<div class="download-icon">
+									<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+										<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+									</svg>
+								</div>
+								<h3 class="download-platform">Linux</h3>
+								<p class="download-detail">AppImage, .deb, .rpm</p>
+							</a>
+						</div>
+					</div>
+				</section>
+			</main>
+			<footer class="footer">
+				<div class="footer-bottom">
+					<div class="copyright-wrapper">
+						© 2025 Meldrum Labs AB · MIT License
+					</div>
+				</div>
+			</footer>
+		</div>
+	</body>
+</html>
+
+<style>
+	@font-face {
+		font-family: 'Departure Mono';
+		src: url('/fonts/DepartureMono-Regular.otf') format('opentype');
+		font-weight: normal;
+		font-style: normal;
+		font-display: swap;
+	}
+
+	:root {
+		--obsidian-base: #08080A;
+		--obsidian-surface: #121215;
+		--obsidian-elevated: #1A1A1E;
+		--obsidian-hover: #242428;
+		--obsidian-active: #2C2C32;
+		--obsidian-border-subtle: #26262C;
+		--obsidian-border-default: #34343C;
+		--obsidian-border-focus: #375048;
+		--obsidian-text-primary: #F8F8FC;
+		--obsidian-text-secondary: #9E9EA8;
+		--obsidian-text-tertiary: #646470;
+		--obsidian-accent: #10B981;
+		--obsidian-accent-hover: #34D399;
+		--obsidian-accent-muted: #142822;
+		--obsidian-accent-glow: rgba(16, 185, 129, 0.12);
+	}
+
+	html, body {
+		font-family: 'Departure Mono', monospace, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+		margin: 0;
+		padding: 0;
+		height: 100%;
+		background-color: var(--obsidian-base);
+		color: var(--obsidian-text-primary);
+	}
+
+	html {
+		height: 100%;
+	}
+
+	body {
+		min-height: 100vh;
+	}
+
+	.page {
+		display: flex;
+		flex-direction: column;
+		min-height: 100vh;
+	}
+
+	.header {
+		z-index: 100;
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		max-width: 100%;
+		padding: 1rem 1.5rem;
+		background-color: var(--obsidian-base);
+		box-sizing: border-box;
+		overflow: visible;
+	}
+
+	.header-content {
+		display: flex;
+		gap: 1rem;
+		justify-content: space-between;
+		align-items: center;
+		height: 100%;
+		width: 100%;
+		max-width: 100%;
+		box-sizing: border-box;
+		position: relative;
+	}
+
+	.title-wrapper {
+		overflow: clip;
+		padding: 0.25rem;
+		margin: -0.25rem;
+		min-width: 0;
+		flex-shrink: 1;
+	}
+
+	.site-title {
+		display: inline-flex;
+		align-items: center;
+		text-decoration: none;
+	}
+
+	.site-title img {
+		height: 3rem;
+		width: auto;
+		max-width: 100%;
+	}
+
+	.right-group {
+		display: flex;
+		align-items: center;
+		flex-shrink: 0;
+		margin-left: auto;
+	}
+
+	.header-links {
+		display: flex;
+		gap: 1.5rem;
+		align-items: center;
+	}
+
+	.header-link {
+		font-size: 0.875rem;
+		font-family: monospace;
+		color: var(--obsidian-text-primary);
+		text-decoration: none;
+		transition: color 0.15s ease;
+	}
+
+	.header-link:hover {
+		color: var(--obsidian-accent-hover);
+	}
+
+	.header-link .star-count {
+		display: inline-block;
+		color: var(--obsidian-text-secondary) !important;
+		font-weight: normal;
+		margin-left: 0.25rem;
+		transition: none !important;
+	}
+
+	.mobile-menu-toggle {
+		display: none;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.5rem;
+		margin: -0.5rem;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+		width: 2rem;
+		height: 2rem;
+		color: var(--obsidian-text-primary);
+	}
+
+	.menu-icon {
+		position: absolute;
+		font-size: 1.2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: opacity 0.2s ease;
+	}
+
+	.menu-icon-bars {
+		opacity: 1;
+	}
+
+	.menu-icon-times {
+		opacity: 0;
+	}
+
+	.mobile-menu-toggle[aria-expanded="true"] .menu-icon-bars {
+		opacity: 0;
+	}
+
+	.mobile-menu-toggle[aria-expanded="true"] .menu-icon-times {
+		opacity: 1;
+	}
+
+	.mobile-menu {
+		display: none;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1rem 0;
+		border-top: 1px solid var(--obsidian-border-default);
+		background-color: var(--obsidian-base);
+		position: absolute;
+		top: 100%;
+		left: -1.5rem;
+		right: -1.5rem;
+		z-index: 1000;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+		padding-left: 1.5rem;
+		padding-right: 1.5rem;
+	}
+
+	.mobile-menu.open {
+		display: flex;
+	}
+
+	.mobile-menu-link {
+		font-size: 0.875rem;
+		font-family: monospace;
+		color: var(--obsidian-text-primary);
+		text-decoration: none;
+		transition: color 0.15s ease;
+		padding: 0.5rem 0;
+	}
+
+	.mobile-menu-link:hover {
+		color: var(--obsidian-accent-hover);
+	}
+
+	.mobile-menu-link .star-count {
+		display: inline-block;
+		color: var(--obsidian-text-secondary) !important;
+		font-weight: normal;
+		margin-left: 0.25rem;
+		transition: none !important;
+	}
+
+	@media (max-width: 768px) {
+		.header-links {
+			display: none;
+		}
+
+		.mobile-menu-toggle {
+			display: flex;
+		}
+	}
+
+	.main {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		padding-top: 5rem;
+	}
+
+	.downloads-section {
+		width: 100%;
+		padding: 6rem 1.5rem;
+		background-color: var(--obsidian-base);
+		flex: 1;
+		display: flex;
+		align-items: center;
+	}
+
+	.downloads-content {
+		max-width: 1000px;
+		margin: 0 auto;
+		text-align: center;
+		width: 100%;
+	}
+
+	.downloads-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 2.5rem;
+		font-weight: bold;
+		color: var(--obsidian-accent);
+		margin: 0 0 1rem 0;
+	}
+
+	.downloads-subtitle {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.125rem;
+		color: var(--obsidian-text-secondary);
+		margin: 0 0 3rem 0;
+	}
+
+	.downloads-grid {
+		display: grid;
+		grid-template-columns: repeat(4, 1fr);
+		gap: 1.5rem;
+		max-width: 1000px;
+		margin: 0 auto;
+	}
+
+	.download-card {
+		background-color: var(--obsidian-surface);
+		border: 2px solid var(--obsidian-border-default);
+		border-radius: 0.5rem;
+		padding: 2.5rem 1.5rem;
+		transition: all 0.2s ease;
+		text-decoration: none;
+		color: inherit;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+	}
+
+	.download-card:hover {
+		border-color: var(--obsidian-accent);
+		transform: translateY(-2px);
+	}
+
+	.download-card-featured {
+		border-color: var(--obsidian-accent);
+		background-color: var(--obsidian-accent-muted);
+	}
+
+	.download-card-featured:hover {
+		background-color: rgba(16, 185, 129, 0.12);
+	}
+
+	.download-icon {
+		color: var(--obsidian-accent);
+		margin-bottom: 0.5rem;
+	}
+
+	.download-platform {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.25rem;
+		font-weight: bold;
+		color: var(--obsidian-text-primary);
+		margin: 0;
+	}
+
+	.download-detail {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: var(--obsidian-text-tertiary);
+		margin: 0;
+	}
+
+	@media (max-width: 900px) {
+		.downloads-grid {
+			grid-template-columns: repeat(2, 1fr);
+		}
+	}
+
+	@media (max-width: 768px) {
+		.downloads-section {
+			padding: 4rem 1rem;
+		}
+
+		.downloads-title {
+			font-size: 2rem;
+		}
+
+		.downloads-subtitle {
+			font-size: 1rem;
+		}
+
+		.downloads-grid {
+			grid-template-columns: 1fr;
+			gap: 1rem;
+		}
+
+		.download-card {
+			padding: 2rem 1.5rem;
+		}
+	}
+
+	.footer {
+		width: 100%;
+		max-width: 100%;
+		border-top: 1px solid var(--obsidian-border-subtle);
+		padding: 1.5rem;
+		background-color: var(--obsidian-base);
+		margin-top: auto;
+		box-sizing: border-box;
+		overflow: hidden;
+	}
+
+	.footer-bottom {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.copyright-wrapper {
+		font-size: 0.875rem;
+		font-family: 'Departure Mono', monospace;
+		text-align: center;
+		color: var(--obsidian-text-secondary);
+	}
+
+	@media (max-width: 768px) {
+		.footer {
+			padding: 2rem 1rem 1rem 1rem;
+		}
+	}
+
+	@media (min-width: 50rem) {
+		.header {
+			padding: 1rem 2rem;
+		}
+
+		.footer {
+			padding: 3rem 2rem 1.5rem 2rem;
+		}
+	}
+</style>
+
+<script>
+	document.addEventListener('DOMContentLoaded', () => {
+		// Mobile menu toggle
+		const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+		const mobileMenu = document.getElementById('mobile-menu');
+
+		if (mobileMenuToggle && mobileMenu) {
+			mobileMenuToggle.addEventListener('click', () => {
+				const isExpanded = mobileMenuToggle.getAttribute('aria-expanded') === 'true';
+				mobileMenuToggle.setAttribute('aria-expanded', (!isExpanded).toString());
+				mobileMenu.classList.toggle('open', !isExpanded);
+			});
+
+			const mobileMenuLinks = mobileMenu.querySelectorAll('.mobile-menu-link');
+			mobileMenuLinks.forEach(link => {
+				link.addEventListener('click', () => {
+					mobileMenuToggle.setAttribute('aria-expanded', 'false');
+					mobileMenu.classList.remove('open');
+				});
+			});
+		}
+
+		// Fetch GitHub star count
+		const githubLink = document.getElementById('github-link');
+		const mobileGithubLink = document.getElementById('mobile-github-link');
+
+		const updateGithubLinks = (stars: number) => {
+			let formattedStars;
+			if (stars >= 1000) {
+				formattedStars = (stars / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+			} else {
+				formattedStars = stars.toString();
+			}
+
+			const starHtml = `github <span class="star-count">[${formattedStars}★]</span>`;
+
+			if (githubLink) {
+				githubLink.innerHTML = starHtml;
+			}
+			if (mobileGithubLink) {
+				mobileGithubLink.innerHTML = starHtml;
+			}
+		};
+
+		if (githubLink || mobileGithubLink) {
+			fetch('https://api.github.com/repos/meldrumlabs/enya')
+				.then(response => response.json())
+				.then(data => {
+					if (data.stargazers_count) {
+						updateGithubLinks(data.stargazers_count);
+					}
+				})
+				.catch(error => {
+					console.error('Failed to fetch GitHub stars:', error);
+				});
+		}
+	});
+</script>

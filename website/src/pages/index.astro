@@ -36,7 +36,15 @@ async fn main() -> Result<()> {
 						<div class="header-links">
 							<a href="/docs" class="header-link">docs</a>
 							<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="header-link" id="github-link">github</a>
-						</div>
+							</div>
+						<a href="/download" class="header-download">
+							<svg class="header-download-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+								<polyline points="7 10 12 15 17 10"/>
+								<line x1="12" y1="15" x2="12" y2="3"/>
+							</svg>
+							get
+						</a>
 						<button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Toggle menu" aria-expanded="false">
 							<span class="menu-icon menu-icon-bars">☰</span>
 							<span class="menu-icon menu-icon-times">✕</span>
@@ -45,14 +53,15 @@ async fn main() -> Result<()> {
 					<div class="mobile-menu" id="mobile-menu">
 						<a href="/docs" class="mobile-menu-link">docs</a>
 						<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="mobile-menu-link" id="mobile-github-link">github</a>
+						<a href="/download" class="mobile-menu-link">download</a>
 					</div>
 				</div>
 			</header>
 			<main class="main">
                 <div class="hero-section">
                     <img src="/img/enya.png" alt="Enya" class="hero-logo" />
-                    <h1 class="hero-tagline">Metrics at editor speed</h1>
-                    <p class="hero-headline">A keyboard-first observability editor that connects metrics, code, and AI.</p>
+                    <h1 class="hero-tagline">Observability for Builders</h1>
+                    <p class="hero-headline">A shared interface for humans and AI agents.</p>
                     <div class="hero-buttons">
                         <a href="#" class="hero-button-primary" id="download-button">
                             <svg class="download-icon-btn" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -64,117 +73,78 @@ async fn main() -> Result<()> {
                         </a>
                         <a href="/editor" class="hero-button-secondary">Try in Browser</a>
                     </div>
-                    <a href="/docs" class="hero-learn-more">Learn more →</a>
+                    <div class="hero-links">
+                        <a href="/docs" class="hero-text-link">Learn more →</a>
+                    </div>
                 </div>
 			</main>
-			<section class="feature-showcase">
-				<div class="feature-section">
-					<div class="feature-content">
-						<h2 class="feature-heading">Find Metrics Instantly</h2>
-						<p class="feature-text">Fuzzy finder (telescope-style) to search through thousands of metrics with minimal keystrokes. Live chart previews show data as you navigate, letting you explore your entire observability stack at the speed of thought.</p>
-					</div>
-					<div class="feature-media">
-						<video autoplay loop muted playsinline>
-							<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
-						</video>
-					</div>
+			<section class="demo-section">
+				<div class="demo-content">
+					<video autoplay loop muted playsinline class="demo-video">
+						<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
+					</video>
 				</div>
 			</section>
-			<section class="feature-showcase feature-showcase-alt">
-				<div class="feature-section">
-					<div class="feature-content">
-						<h2 class="feature-heading">Visual Multi-Select</h2>
-						<p class="feature-text">Select and edit multiple panes simultaneously with <code>Ctrl+V</code>. Make coordinated changes across your entire dashboard—update queries, refresh data, or close panes in bulk with vim-style navigation.</p>
-					</div>
-					<div class="feature-media">
-						<img src="/img/demos/enya_hero.png" alt="Visual multi-select mode" />
-					</div>
-				</div>
-			</section>
-			<section class="feature-showcase">
-				<div class="feature-section">
-					<div class="feature-content">
-						<h2 class="feature-heading">Context-Aware Completion</h2>
-						<p class="feature-text">Inline autocomplete provides real-time suggestions for PromQL queries—functions, aggregations, metric names, and label selectors—all without configuration. Labels are fetched dynamically from your Prometheus backend.</p>
-					</div>
-					<div class="feature-media">
-						<img src="/img/demos/enya_hero.png" alt="Query autocompletion" />
-					</div>
-				</div>
-			</section>
-			<section class="features">
+			<section class="features-section">
 				<div class="features-content">
-					<h2 class="features-title">Core Features</h2>
-					<div class="features-grid">
-						<div class="feature-card">
-							<h3 class="feature-title">AI Native</h3>
-							<p class="feature-description">AI agents with access to both your Prometheus metrics and application codebase for intelligent observability workflows</p>
-						</div>
-						<div class="feature-card">
-							<h3 class="feature-title">Prometheus Compatible</h3>
-							<p class="feature-description">Works with any Prometheus compatible endpoint with full PromQL support, including completion and inline hints</p>
-						</div>
-						<a href="/docs/editor" class="feature-card">
-							<h3 class="feature-title">Codebase-Aware</h3>
-							<p class="feature-description">Integrates with your codebase and analyzes your code allowing you to quickly jump between metric graphs and where in the code it is generated from</p>
-						</a>
-						<a href="/docs/editor" class="feature-card">
-							<h3 class="feature-title">Keyboard-Driven</h3>
-							<p class="feature-description">Neovim-inspired workflows with h/j/k/l navigation, command palette, splits, and visual-multi mode</p>
-						</a>
-						<a href="/docs/editor" class="feature-card">
-							<h3 class="feature-title">i3-Style Layouts</h3>
-							<p class="feature-description">Flexible tiling workspaces with horizontal/vertical splits, tabs, and custom proportions—all defined in TOML</p>
-						</a>
-					</div>
+					<h2 class="features-title">What is Enya?</h2>
+					<p class="features-tagline">Neovim meets Grafana, reimagined for human and agent collaboration.</p>
+				<ul class="features-list">
+					<li class="feature-item">
+						<span class="feature-name">AI Native</span>
+						<span class="feature-desc">Agents with access to metrics, logs, traces, and your codebase. Supports Codex and Claude through ACP.</span>
+					</li>
+					<li class="feature-item">
+						<span class="feature-name">Multi-Backend</span>
+						<span class="feature-desc">One interface for Metrics, Logs, Traces, SQL, and Git.</span>
+					</li>
+					<li class="feature-item">
+						<span class="feature-name">Codebase-Aware</span>
+						<span class="feature-desc">Jump from observability data to source code. Uses tree-sitter to analyze your codebase for Prometheus metrics and alerts.</span>
+					</li>
+					<li class="feature-item">
+						<span class="feature-name">Shared Workspaces</span>
+						<span class="feature-desc">Both you and AI agents create, edit, and iterate in the same workspace. Dashboards, queries, and runbooks — built together.</span>
+					</li>
+					<li class="feature-item">
+						<span class="feature-name">Extensible</span>
+						<span class="feature-desc">Neovim-inspired, modal editing, and fully customizable. Create your own Lua plugins that hook into the editor.</span>
+					</li>
+					<li class="feature-item">
+						<span class="feature-name">Fast</span>
+						<span class="feature-desc">Built in Rust. Native performance for queries, rendering, and navigation. No JavaScript. No Electron.</span>
+					</li>
+									</ul>
 				</div>
 			</section>
-			<section class="downloads-section" id="downloads">
-				<div class="downloads-content">
-					<h2 class="downloads-title">Try Enya</h2>
-					<p class="downloads-subtitle">Available for Web, macOS, Windows, and Linux</p>
-					<div class="downloads-grid downloads-grid-four">
-						<a href="/editor" class="download-card download-card-featured">
-							<div class="download-icon">
-								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-									<circle cx="12" cy="12" r="10"/>
-									<path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
-									<path d="M2 12h20"/>
-								</svg>
-							</div>
-							<h3 class="download-platform">Try in Browser</h3>
-							<p class="download-detail">WASM • No install required</p>
-						</a>
-						<a href="/downloads/enya-macos.dmg" class="download-card">
-							<div class="download-icon">
-								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
-								</svg>
-							</div>
-							<h3 class="download-platform">macOS</h3>
-							<p class="download-detail">10.15 or later</p>
-						</a>
-						<a href="/downloads/enya-windows.exe" class="download-card">
-							<div class="download-icon">
-								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<rect x="3" y="3" width="8" height="8"/>
-									<rect x="13" y="3" width="8" height="8"/>
-									<rect x="3" y="13" width="8" height="8"/>
-									<rect x="13" y="13" width="8" height="8"/>
-								</svg>
-							</div>
-							<h3 class="download-platform">Windows</h3>
-							<p class="download-detail">Windows 10 or later</p>
-						</a>
-						<a href="/downloads/enya-linux.AppImage" class="download-card">
-							<div class="download-icon">
-								<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
-								</svg>
-							</div>
-							<h3 class="download-platform">Linux</h3>
-							<p class="download-detail">AppImage, .deb, .rpm</p>
-						</a>
+			<section class="faq-section">
+				<div class="faq-content">
+					<h2 class="faq-title">FAQ</h2>
+					<div class="faq-list">
+						<details class="faq-item">
+							<summary class="faq-question">Where do I start?</summary>
+							<p class="faq-answer">Head over to the <a href="/download">download section</a> and either give it a try in the browser using the tutorial or download the native app.</p>
+						</details>
+						<details class="faq-item">
+							<summary class="faq-question">Which backends work with Enya?</summary>
+							<div class="faq-answer">Enya supports multiple open-source backends.<br/><br/><span class="backend-label">Metrics</span> Prometheus<br/><span class="backend-label">Logs</span> Loki<br/><span class="backend-label">Traces</span> Tempo<br/><span class="backend-label">SQL</span> Apache DataFusion (Arrow Flight)</div>
+						</details>
+						<details class="faq-item">
+							<summary class="faq-question">Can I connect my own AI?</summary>
+							<p class="faq-answer">Yes. Enya works with Claude Code, Codex, and other agents via the Agent Client Protocol (ACP).</p>
+						</details>
+						<details class="faq-item">
+							<summary class="faq-question">Is Enya free?</summary>
+							<p class="faq-answer">Yes. Enya is free and open source under the MIT License.</p>
+						</details>
+						<details class="faq-item">
+							<summary class="faq-question">Which features are native only?</summary>
+							<p class="faq-answer">Codebase indexing, AI agents, and the plugin ecosystem require the native app. The browser version is great for exploring metrics and viewing snapshots — ideal for teammates who don't have the native app installed.</p>
+						</details>
+						<details class="faq-item">
+							<summary class="faq-question">Does Enya support teams?</summary>
+							<p class="faq-answer">Not yet. Meldrum Labs is building team features so your observability knowledge lives in one place — not scattered across Slack threads and Grafana screenshots.<br/><br/>We're looking for early design partners to help shape what comes next. Let's build together — reach out on <a href="https://www.linkedin.com/in/max-meldrum-1a46a291/" target="_blank" rel="noopener noreferrer">LinkedIn</a> or <a href="mailto:contact@meldrumlabs.com">email</a>.</p>
+						</details>
 					</div>
 				</div>
 			</section>
@@ -185,99 +155,12 @@ async fn main() -> Result<()> {
 					<p class="open-source-team">Interested in being a design partner? <a href="mailto:contact@meldrumlabs.com">Get in touch</a></p>
 				</div>
 			</section>
-			<section class="teams-section">
-				<div class="teams-header">
-					<h2 class="teams-title">Enya for Teams</h2>
-					<p class="teams-text">Collaborate on incidents, share knowledge, and debug faster together.</p>
-				</div>
-				<div class="teams-showcase">
-					<div class="teams-showcase-item">
-						<div class="teams-showcase-media">
-							<div class="teams-placeholder">
-								<span class="teams-placeholder-icon">👥</span>
-								<span class="teams-placeholder-text">Real-time Collaboration</span>
-							</div>
-						</div>
-						<div class="teams-showcase-content">
-							<h3 class="teams-showcase-title">Debug Together in Real-Time</h3>
-							<p class="teams-showcase-desc">Multiple team members can investigate the same incident simultaneously. See cursors, annotations, and discoveries as they happen.</p>
-						</div>
-					</div>
-					<div class="teams-showcase-item teams-showcase-item-alt">
-						<div class="teams-showcase-media">
-							<div class="teams-placeholder">
-								<span class="teams-placeholder-icon">📊</span>
-								<span class="teams-placeholder-text">Shared Dashboards</span>
-							</div>
-						</div>
-						<div class="teams-showcase-content">
-							<h3 class="teams-showcase-title">Shared Dashboards & Queries</h3>
-							<p class="teams-showcase-desc">Save and share your most useful dashboards and queries with the team. No more recreating the same views.</p>
-						</div>
-					</div>
-					<div class="teams-showcase-item">
-						<div class="teams-showcase-media">
-							<div class="teams-placeholder">
-								<span class="teams-placeholder-icon">📝</span>
-								<span class="teams-placeholder-text">Team Annotations</span>
-							</div>
-						</div>
-						<div class="teams-showcase-content">
-							<h3 class="teams-showcase-title">Annotate Metrics & Incidents</h3>
-							<p class="teams-showcase-desc">Leave notes on metric spikes, deployments, and incidents. Build institutional knowledge that persists.</p>
-						</div>
-					</div>
-				</div>
-				</section>
-			<section class="pricing-section" id="pricing">
-				<div class="pricing-header">
-					<h2 class="pricing-title">Choose Your Path</h2>
-					<p class="pricing-subtitle">Start solo or scale with your team</p>
-				</div>
-				<div class="pricing-cards">
-					<div class="pricing-card">
-						<div class="pricing-card-header">
-							<h3 class="pricing-card-title">Open Source</h3>
-							<div class="pricing-card-price">Free</div>
-							<p class="pricing-card-desc">For individual builders exploring metrics</p>
-						</div>
-						<ul class="pricing-card-features">
-							<li>Full editor functionality</li>
-							<li>Prometheus & PromQL support</li>
-							<li>AI-powered query assistance</li>
-							<li>Codebase integration</li>
-							<li>Keyboard-driven workflows</li>
-							<li>Community support</li>
-						</ul>
-						<a href="#downloads" class="pricing-card-cta">Download</a>
-					</div>
-					<div class="pricing-card pricing-card-featured">
-						<div class="pricing-card-badge">For Teams</div>
-						<div class="pricing-card-header">
-							<h3 class="pricing-card-title">Teams</h3>
-							<div class="pricing-card-price">Custom</div>
-							<p class="pricing-card-desc">For teams that debug together</p>
-						</div>
-						<ul class="pricing-card-features">
-							<li>Everything in Open Source</li>
-							<li>Real-time collaboration</li>
-							<li>Shared dashboards & queries</li>
-							<li>Team annotations</li>
-							<li>Audit logging</li>
-							<li>Self-hosted or cloud</li>
-							<li>Direct founder access</li>
-						</ul>
-						<a href="mailto:teams@meldrumlabs.com" class="pricing-card-cta pricing-card-cta-primary">Talk to Us</a>
-					</div>
-				</div>
-			</section>
 			<footer class="footer">
-				<div class="footer-content">
+				<div class="footer-bottom">
 					<div class="copyright-wrapper">
-						Copyright © 2025 Meldrum Labs AB. All rights reserved.
-					</div>
-					<div class="license-wrapper">
-						Enya is licensed under <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">MIT</a>
+						© 2025 Meldrum Labs AB · MIT License
+						<br/>
+						<span class="trademark-notice">Apache Arrow and Apache DataFusion are trademarks of the Apache Software Foundation.</span>
 					</div>
 				</div>
 			</footer>
@@ -433,6 +316,29 @@ async fn main() -> Result<()> {
 		color: var(--obsidian-accent-hover);
 	}
 
+	.header-download {
+		font-size: 0.875rem;
+		font-family: monospace;
+		color: var(--obsidian-base);
+		background-color: var(--obsidian-accent);
+		text-decoration: none;
+		padding: 0.35rem 0.75rem;
+		border-radius: 0.25rem;
+		transition: all 0.15s ease;
+		margin-left: 1rem;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+	}
+
+	.header-download:hover {
+		background-color: var(--obsidian-accent-hover);
+	}
+
+	.header-download-icon {
+		flex-shrink: 0;
+	}
+
 	.header-link .star-count {
 		display: inline-block;
 		color: var(--obsidian-text-secondary) !important;
@@ -536,6 +442,10 @@ async fn main() -> Result<()> {
 			display: none;
 		}
 
+		.header-download {
+			display: none;
+		}
+
 		.mobile-menu-toggle {
 			display: flex;
 		}
@@ -580,7 +490,6 @@ async fn main() -> Result<()> {
 		margin: 0.5rem 0 0.5rem 0;
 		text-align: center;
 		letter-spacing: 0.08em;
-		text-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
 	}
 
 	@media (max-width: 768px) {
@@ -774,384 +683,156 @@ async fn main() -> Result<()> {
 		border-color: var(--obsidian-accent);
 		color: var(--obsidian-accent);
 		background-color: var(--obsidian-hover);
-		box-shadow: 0 4px 12px var(--obsidian-accent-glow);
 	}
 
-	.hero-learn-more {
+	.hero-links {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		margin-top: 1.5rem;
+	}
+
+	.hero-text-link {
 		font-family: 'Departure Mono', monospace;
 		font-size: 0.875rem;
 		color: var(--obsidian-text-secondary);
-		font-weight: 500;
 		text-decoration: none;
-		margin-top: 1rem;
-		display: inline-block;
-		transition: all 0.15s ease;
+		transition: color 0.15s ease;
 	}
 
-	.hero-learn-more:hover {
+	.hero-text-link:hover {
 		color: var(--obsidian-accent);
-		transform: translateX(4px);
-		text-shadow: 0 0 8px var(--obsidian-accent-glow);
+	}
+
+	.hero-link-separator {
+		color: var(--obsidian-text-tertiary);
 	}
 
 	@media (max-width: 768px) {
-		.hero-buttons {
-			flex-direction: column;
-			width: 100%;
-			padding: 0 1rem;
-			box-sizing: border-box;
-		}
-
-		.hero-button-primary,
-		.hero-button-secondary {
+		.hero-button-primary {
 			width: 100%;
 			text-align: center;
 		}
 	}
 
-	.feature-showcase {
+	/* Demo Section */
+	.demo-section {
 		width: 100%;
-		padding: 6rem 1.5rem;
+		padding: 4rem 1.5rem 6rem 1.5rem;
 		background-color: var(--obsidian-base);
 	}
 
-	.feature-showcase-alt {
-		background-color: #050507;
-	}
-
-	.feature-section {
-		max-width: 800px;
+	.demo-content {
+		max-width: 900px;
 		margin: 0 auto;
-		display: flex;
-		flex-direction: column;
-		gap: 2rem;
-		align-items: center;
-		text-align: center;
 	}
 
-	.feature-content {
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-	}
-
-	.feature-heading {
-		font-family: 'Departure Mono', monospace;
-		font-size: 2.5rem;
-		font-weight: bold;
-		color: var(--obsidian-text-primary);
-		margin: 0;
-		line-height: 1.2;
-	}
-
-	.feature-text {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.125rem;
-		color: var(--obsidian-text-secondary);
-		line-height: 1.8;
-		margin: 0;
-	}
-
-	.feature-media {
-		width: 100%;
-		height: auto;
-	}
-
-	.media-placeholder {
-		width: 100%;
-		aspect-ratio: 4 / 3;
-		background-color: var(--obsidian-surface);
-		border: 2px dashed var(--obsidian-border-default);
-		border-radius: 0.5rem;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 1rem;
-		padding: 2rem;
-		box-sizing: border-box;
-	}
-
-	.placeholder-text {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.5rem;
-		color: var(--obsidian-accent);
-		margin: 0;
-		font-weight: bold;
-	}
-
-	.placeholder-hint {
-		font-family: 'Departure Mono', monospace;
-		font-size: 0.875rem;
-		color: var(--obsidian-text-tertiary);
-		margin: 0;
-		text-align: center;
-	}
-
-	.feature-media img,
-	.feature-media video {
+	.demo-video {
 		width: 100%;
 		height: auto;
 		aspect-ratio: 16 / 9;
 		object-fit: cover;
 		border-radius: 0.5rem;
 		border: 1px solid var(--obsidian-border-default);
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 20px var(--obsidian-accent-glow);
-	}
-
-	@media (max-width: 1024px) {
-		.feature-section {
-			grid-template-columns: 1fr;
-			gap: 3rem;
-		}
-
-		.feature-section-reverse {
-			direction: ltr;
-		}
-
-		.feature-heading {
-			font-size: 2rem;
-		}
-
-		.feature-text {
-			font-size: 1rem;
-		}
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 	}
 
 	@media (max-width: 768px) {
-		.feature-showcase {
-			padding: 4rem 1rem;
-		}
-
-		.feature-section {
-			gap: 2rem;
-		}
-
-		.feature-heading {
-			font-size: 1.75rem;
-		}
-
-		.placeholder-text {
-			font-size: 1.125rem;
-		}
-
-		.placeholder-hint {
-			font-size: 0.75rem;
+		.demo-section {
+			padding: 2rem 1rem 4rem 1rem;
 		}
 	}
 
-	.downloads-section {
+	/* Core Features Section */
+	.features-section {
 		width: 100%;
-		padding: 6rem 1.5rem;
-		background-color: #050507;
-	}
-
-	.downloads-content {
-		max-width: 1200px;
-		margin: 0 auto;
-		text-align: center;
-	}
-
-	.downloads-title {
-		font-family: 'Departure Mono', monospace;
-		font-size: 2.5rem;
-		font-weight: bold;
-		color: var(--obsidian-accent);
-		margin: 0 0 1rem 0;
-		text-shadow: 0 0 20px var(--obsidian-accent-glow);
-	}
-
-	.downloads-subtitle {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.125rem;
-		color: var(--obsidian-text-secondary);
-		margin: 0 0 3rem 0;
-	}
-
-	.downloads-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 2rem;
-		max-width: 900px;
-		margin: 0 auto;
-	}
-
-	.downloads-grid-four {
-		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-		max-width: 1200px;
-	}
-
-	.download-card {
-		background-color: var(--obsidian-surface);
-		border: 2px solid var(--obsidian-border-default);
-		border-radius: 0.5rem;
-		padding: 3rem 2rem;
-		transition: all 0.2s ease;
-		text-decoration: none;
-		color: inherit;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 1rem;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-	}
-
-	.download-card:hover {
-		border-color: var(--obsidian-accent);
-		transform: translateY(-4px);
-		box-shadow: 0 8px 24px var(--obsidian-accent-glow), 0 4px 16px rgba(0, 0, 0, 0.3);
-	}
-
-	.download-card-featured {
-		border-color: var(--obsidian-accent);
-		background-color: var(--obsidian-accent-muted);
-		box-shadow: 0 0 20px var(--obsidian-accent-glow), 0 4px 12px rgba(0, 0, 0, 0.2);
-	}
-
-	.download-card-featured:hover {
-		background-color: rgba(16, 185, 129, 0.12);
-		box-shadow: 0 0 30px rgba(16, 185, 129, 0.2), 0 8px 24px rgba(0, 0, 0, 0.3);
-	}
-
-	.download-icon {
-		color: var(--obsidian-accent);
-		margin-bottom: 0.5rem;
-	}
-
-	.download-platform {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.5rem;
-		font-weight: bold;
-		color: var(--obsidian-text-primary);
-		margin: 0;
-	}
-
-	.download-detail {
-		font-family: 'Departure Mono', monospace;
-		font-size: 0.875rem;
-		color: var(--obsidian-text-tertiary);
-		margin: 0;
-	}
-
-	@media (max-width: 768px) {
-		.downloads-section {
-			padding: 4rem 1rem;
-		}
-
-		.downloads-title {
-			font-size: 2rem;
-		}
-
-		.downloads-subtitle {
-			font-size: 1rem;
-		}
-
-		.downloads-grid {
-			grid-template-columns: 1fr;
-			gap: 1.5rem;
-		}
-
-		.download-card {
-			padding: 2rem 1.5rem;
-		}
-	}
-
-	.features {
-		width: 100%;
-		padding: 4rem 1.5rem;
+		padding: 5rem 1.5rem;
 		background-color: var(--obsidian-base);
-		border-top: 1px solid var(--obsidian-border-subtle);
 	}
 
 	.features-content {
-		max-width: 1200px;
+		max-width: 700px;
 		margin: 0 auto;
 	}
 
 	.features-title {
 		font-family: 'Departure Mono', monospace;
-		font-size: 2rem;
+		font-size: 1.5rem;
 		font-weight: normal;
 		color: var(--obsidian-accent);
 		text-align: center;
-		margin: 0 0 3rem 0;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		text-shadow: 0 0 20px var(--obsidian-accent-glow);
-	}
-
-	.features-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 2rem;
-		width: 100%;
-	}
-
-	.feature-card {
-		background-color: var(--obsidian-surface);
-		border: 1px solid var(--obsidian-border-default);
-		border-radius: 0.5rem;
-		padding: 2rem;
-		transition: all 0.2s ease;
-		text-decoration: none;
-		color: inherit;
-		display: block;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-	}
-
-	.feature-card:hover {
-		border-color: var(--obsidian-accent);
-		transform: translateY(-4px);
-		cursor: pointer;
-		box-shadow: 0 8px 24px var(--obsidian-accent-glow), 0 4px 12px rgba(0, 0, 0, 0.3);
-	}
-
-	.feature-title {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.25rem;
-		font-weight: normal;
-		color: var(--obsidian-accent);
 		margin: 0 0 1rem 0;
-		letter-spacing: 0.05em;
 	}
 
-	.feature-description {
+	.features-tagline {
 		font-family: 'Departure Mono', monospace;
-		font-size: 0.875rem;
-		color: var(--obsidian-text-secondary);
+		font-size: 1rem;
+		color: var(--obsidian-text-primary);
+		text-align: center;
+		margin: 0 0 2rem 0;
 		line-height: 1.6;
-		margin: 0;
 	}
 
-	.feature-description strong {
-		font-weight: 900;
+	.features-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: grid;
+		grid-template-columns: repeat(2, 1fr);
+		gap: 1.5rem;
+	}
+
+	.feature-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.feature-name {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.9rem;
+		color: var(--obsidian-accent);
+		font-weight: bold;
+	}
+
+	.feature-desc {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.8rem;
 		color: var(--obsidian-text-secondary);
-		text-shadow: 0.5px 0 0 currentColor, -0.5px 0 0 currentColor;
+		line-height: 1.5;
 	}
 
 	@media (max-width: 768px) {
-		.features {
+		.features-section {
 			padding: 3rem 1rem;
 		}
 
 		.features-title {
-			font-size: 1.5rem;
-			margin-bottom: 2rem;
+			font-size: 1.25rem;
 		}
 
-		.features-grid {
+		.features-tagline {
+			font-size: 0.9rem;
+		}
+
+		.features-list {
 			grid-template-columns: 1fr;
-			gap: 1.5rem;
+			gap: 1.25rem;
 		}
 
-		.feature-card {
-			padding: 1.5rem;
+		.feature-name {
+			font-size: 0.85rem;
+		}
+
+		.feature-desc {
+			font-size: 0.75rem;
 		}
 	}
 
+	/* Open Source Section */
 	.open-source-section {
 		width: 100%;
-		padding: 4rem 1.5rem;
+		padding: 5rem 1.5rem;
 		background-color: var(--obsidian-base);
 		border-top: 1px solid var(--obsidian-border-subtle);
 	}
@@ -1164,27 +845,25 @@ async fn main() -> Result<()> {
 
 	.open-source-title {
 		font-family: 'Departure Mono', monospace;
-		font-size: 1.75rem;
+		font-size: 1.5rem;
 		font-weight: bold;
 		color: var(--obsidian-accent);
-		margin: 0 0 1.5rem 0;
-		text-shadow: 0 0 20px var(--obsidian-accent-glow);
+		margin: 0 0 1rem 0;
 	}
 
 	.open-source-text {
 		font-family: 'Departure Mono', monospace;
-		font-size: 1.125rem;
+		font-size: 1rem;
 		color: var(--obsidian-text-primary);
-		margin: 0 0 1rem 0;
+		margin: 0 0 0.75rem 0;
 		line-height: 1.6;
 	}
 
 	.open-source-team {
 		font-family: 'Departure Mono', monospace;
-		font-size: 1rem;
+		font-size: 0.9rem;
 		color: var(--obsidian-text-secondary);
 		margin: 0;
-		line-height: 1.6;
 	}
 
 	.open-source-team a {
@@ -1195,7 +874,6 @@ async fn main() -> Result<()> {
 
 	.open-source-team a:hover {
 		color: var(--obsidian-accent-hover);
-		text-shadow: 0 0 8px var(--obsidian-accent-glow);
 	}
 
 	@media (max-width: 768px) {
@@ -1204,415 +882,15 @@ async fn main() -> Result<()> {
 		}
 
 		.open-source-title {
-			font-size: 1.5rem;
-		}
-
-		.open-source-text {
-			font-size: 1rem;
-		}
-
-		.open-source-team {
-			font-size: 0.875rem;
-		}
-	}
-
-	.pricing-section {
-		width: 100%;
-		padding: 5rem 1.5rem;
-		background-color: var(--obsidian-base);
-		border-top: 1px solid var(--obsidian-border-subtle);
-	}
-
-	.pricing-header {
-		max-width: 700px;
-		margin: 0 auto 3rem auto;
-		text-align: center;
-	}
-
-	.pricing-title {
-		font-family: 'Departure Mono', monospace;
-		font-size: 2.5rem;
-		font-weight: bold;
-		color: var(--obsidian-text-primary);
-		margin: 0 0 1rem 0;
-	}
-
-	.pricing-subtitle {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.125rem;
-		color: var(--obsidian-text-secondary);
-		margin: 0;
-	}
-
-	.pricing-cards {
-		max-width: 800px;
-		margin: 0 auto;
-		display: grid;
-		grid-template-columns: repeat(2, 1fr);
-		gap: 2rem;
-	}
-
-	.pricing-card {
-		background-color: var(--obsidian-surface);
-		border: 2px solid var(--obsidian-border-default);
-		border-radius: 0.5rem;
-		padding: 2.5rem 2rem;
-		display: flex;
-		flex-direction: column;
-		transition: all 0.2s ease;
-		position: relative;
-	}
-
-	.pricing-card:hover {
-		border-color: var(--obsidian-accent);
-		transform: translateY(-4px);
-		box-shadow: 0 8px 24px var(--obsidian-accent-glow);
-	}
-
-	.pricing-card-featured {
-		border-color: var(--obsidian-accent);
-		background-color: var(--obsidian-accent-muted);
-		box-shadow: 0 0 20px var(--obsidian-accent-glow);
-	}
-
-	.pricing-card-featured:hover {
-		background-color: rgba(16, 185, 129, 0.12);
-		box-shadow: 0 0 30px rgba(16, 185, 129, 0.25), 0 8px 24px rgba(0, 0, 0, 0.3);
-	}
-
-	.pricing-card-badge {
-		position: absolute;
-		top: -0.75rem;
-		left: 50%;
-		transform: translateX(-50%);
-		background-color: var(--obsidian-accent);
-		color: var(--obsidian-base);
-		font-family: 'Departure Mono', monospace;
-		font-size: 0.75rem;
-		font-weight: bold;
-		padding: 0.25rem 1rem;
-		border-radius: 1rem;
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-
-	.pricing-card-header {
-		text-align: center;
-		margin-bottom: 2rem;
-		padding-bottom: 2rem;
-		border-bottom: 1px solid var(--obsidian-border-default);
-	}
-
-	.pricing-card-title {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.5rem;
-		font-weight: bold;
-		color: var(--obsidian-accent);
-		margin: 0 0 0.75rem 0;
-	}
-
-	.pricing-card-price {
-		font-family: 'Departure Mono', monospace;
-		font-size: 2.5rem;
-		font-weight: bold;
-		color: var(--obsidian-text-primary);
-		margin-bottom: 0.5rem;
-	}
-
-	.pricing-card-desc {
-		font-family: 'Departure Mono', monospace;
-		font-size: 0.875rem;
-		color: var(--obsidian-text-secondary);
-		margin: 0;
-	}
-
-	.pricing-card-features {
-		list-style: none;
-		padding: 0;
-		margin: 0 0 2rem 0;
-		flex-grow: 1;
-	}
-
-	.pricing-card-features li {
-		font-family: 'Departure Mono', monospace;
-		font-size: 0.875rem;
-		color: var(--obsidian-text-secondary);
-		padding: 0.5rem 0;
-		padding-left: 1.5rem;
-		position: relative;
-	}
-
-	.pricing-card-features li::before {
-		content: '→';
-		position: absolute;
-		left: 0;
-		color: var(--obsidian-accent);
-	}
-
-	.pricing-card-cta {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1rem;
-		padding: 0.875rem 2rem;
-		text-decoration: none;
-		border: 2px solid var(--obsidian-border-default);
-		color: var(--obsidian-text-primary);
-		background-color: transparent;
-		text-align: center;
-		transition: all 0.2s ease;
-		letter-spacing: 0.05em;
-		border-radius: 0.375rem;
-	}
-
-	.pricing-card-cta:hover {
-		border-color: var(--obsidian-accent);
-		color: var(--obsidian-accent);
-		box-shadow: 0 4px 12px var(--obsidian-accent-glow);
-	}
-
-	.pricing-card-cta-primary {
-		border-color: var(--obsidian-accent);
-		background-color: var(--obsidian-accent);
-		color: var(--obsidian-base);
-		font-weight: bold;
-	}
-
-	.pricing-card-cta-primary:hover {
-		background-color: var(--obsidian-accent-hover);
-		border-color: var(--obsidian-accent-hover);
-		color: var(--obsidian-base);
-		box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
-	}
-
-	@media (max-width: 768px) {
-		.pricing-section {
-			padding: 3rem 1rem;
-		}
-
-		.pricing-title {
-			font-size: 1.75rem;
-		}
-
-		.pricing-subtitle {
-			font-size: 1rem;
-		}
-
-		.pricing-cards {
-			grid-template-columns: 1fr;
-			gap: 2rem;
-		}
-
-		.pricing-card {
-			padding: 2rem 1.5rem;
-		}
-
-		.pricing-card-featured {
-			order: -1;
-		}
-
-		.pricing-card-price {
-			font-size: 2rem;
-		}
-	}
-
-	.teams-section {
-		width: 100%;
-		padding: 5rem 1.5rem;
-		background-color: #050507;
-		border-top: 1px solid var(--obsidian-border-subtle);
-	}
-
-	.teams-header {
-		max-width: 700px;
-		margin: 0 auto 4rem auto;
-		text-align: center;
-	}
-
-	.teams-title {
-		font-family: 'Departure Mono', monospace;
-		font-size: 2.5rem;
-		font-weight: bold;
-		color: var(--obsidian-text-primary);
-		margin: 0 0 1rem 0;
-	}
-
-	.teams-text {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.125rem;
-		color: var(--obsidian-text-secondary);
-		margin: 0;
-		line-height: 1.6;
-	}
-
-	.teams-showcase {
-		max-width: 1000px;
-		margin: 0 auto;
-		display: flex;
-		flex-direction: column;
-		gap: 4rem;
-	}
-
-	.teams-showcase-item {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 3rem;
-		align-items: center;
-	}
-
-	.teams-showcase-item-alt {
-		direction: rtl;
-	}
-
-	.teams-showcase-item-alt > * {
-		direction: ltr;
-	}
-
-	.teams-showcase-media {
-		width: 100%;
-	}
-
-	.teams-placeholder {
-		width: 100%;
-		aspect-ratio: 16 / 10;
-		background-color: var(--obsidian-surface);
-		border: 2px dashed var(--obsidian-border-default);
-		border-radius: 0.5rem;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 1rem;
-		transition: all 0.2s ease;
-	}
-
-	.teams-placeholder:hover {
-		border-color: var(--obsidian-accent);
-		box-shadow: 0 0 20px var(--obsidian-accent-glow);
-	}
-
-	.teams-placeholder-icon {
-		font-size: 3rem;
-	}
-
-	.teams-placeholder-text {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1rem;
-		color: var(--obsidian-text-tertiary);
-	}
-
-	.teams-showcase-content {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-	}
-
-	.teams-showcase-title {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1.5rem;
-		font-weight: bold;
-		color: var(--obsidian-text-primary);
-		margin: 0;
-	}
-
-	.teams-showcase-desc {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1rem;
-		color: var(--obsidian-text-secondary);
-		line-height: 1.7;
-		margin: 0;
-	}
-
-	.teams-footer {
-		max-width: 500px;
-		margin: 4rem auto 0 auto;
-		text-align: center;
-	}
-
-	.teams-features {
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		margin-bottom: 2rem;
-		text-align: left;
-	}
-
-	.teams-feature {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1rem;
-		color: var(--obsidian-text-secondary);
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-	}
-
-	.teams-feature-icon {
-		color: var(--obsidian-accent);
-		font-weight: bold;
-	}
-
-	.teams-cta {
-		font-family: 'Departure Mono', monospace;
-		font-size: 1rem;
-		padding: 0.875rem 2rem;
-		text-decoration: none;
-		border: 2px solid var(--obsidian-accent);
-		color: var(--obsidian-accent);
-		background-color: transparent;
-		transition: all 0.2s ease;
-		letter-spacing: 0.05em;
-		display: inline-block;
-		border-radius: 0.375rem;
-	}
-
-	.teams-cta:hover {
-		background-color: var(--obsidian-accent);
-		color: var(--obsidian-base);
-		box-shadow: 0 4px 16px var(--obsidian-accent-glow);
-	}
-
-	@media (max-width: 768px) {
-		.teams-section {
-			padding: 3rem 1rem;
-		}
-
-		.teams-header {
-			margin-bottom: 2rem;
-		}
-
-		.teams-title {
-			font-size: 1.75rem;
-		}
-
-		.teams-text {
-			font-size: 1rem;
-		}
-
-		.teams-showcase {
-			gap: 3rem;
-		}
-
-		.teams-showcase-item {
-			grid-template-columns: 1fr;
-			gap: 1.5rem;
-		}
-
-		.teams-showcase-item-alt {
-			direction: ltr;
-		}
-
-		.teams-showcase-title {
 			font-size: 1.25rem;
 		}
 
-		.teams-showcase-desc {
-			font-size: 0.875rem;
+		.open-source-text {
+			font-size: 0.9rem;
 		}
 
-		.teams-footer {
-			margin-top: 3rem;
-		}
-
-		.teams-feature {
-			font-size: 0.875rem;
+		.open-source-team {
+			font-size: 0.8rem;
 		}
 	}
 
@@ -1620,22 +898,18 @@ async fn main() -> Result<()> {
 		width: 100%;
 		max-width: 100%;
 		border-top: 1px solid var(--obsidian-border-subtle);
-		padding: 1rem 1.5rem;
+		padding: 1.5rem;
 		background-color: var(--obsidian-base);
 		margin-top: auto;
 		box-sizing: border-box;
 		overflow: hidden;
 	}
 
-	.footer-content {
+	.footer-bottom {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
 		align-items: center;
-		height: 100%;
-		width: 100%;
-		max-width: 100%;
-		box-sizing: border-box;
 	}
 
 	.copyright-wrapper {
@@ -1643,6 +917,13 @@ async fn main() -> Result<()> {
 		font-family: 'Departure Mono', monospace;
 		text-align: center;
 		color: var(--obsidian-text-secondary);
+	}
+
+	.trademark-notice {
+		font-size: 0.7rem;
+		color: var(--obsidian-text-tertiary);
+		display: inline-block;
+		margin-top: 0.5rem;
 	}
 
 	.license-wrapper {
@@ -1662,10 +943,172 @@ async fn main() -> Result<()> {
 		color: var(--obsidian-text-primary);
 	}
 
-	@media (min-width: 50rem) {
-		.header,
+	@media (max-width: 768px) {
 		.footer {
+			padding: 2rem 1rem 1rem 1rem;
+		}
+
+		.footer-grid {
+			grid-template-columns: 1fr;
+			gap: 1.5rem;
+			text-align: center;
+		}
+
+		.footer-section {
+			align-items: center;
+		}
+	}
+
+	@media (min-width: 50rem) {
+		.header {
 			padding: 1rem 2rem;
+		}
+
+		.footer {
+			padding: 3rem 2rem 1.5rem 2rem;
+		}
+	}
+
+	/* Stats Bar */
+	.stats-bar {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		gap: 1rem;
+		margin-top: 3rem;
+		padding: 1rem 0;
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: var(--obsidian-text-tertiary);
+	}
+
+	.stat-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.stat-value {
+		color: var(--obsidian-text-secondary);
+		font-weight: bold;
+	}
+
+	.stat-separator {
+		color: var(--obsidian-border-default);
+	}
+
+	@media (max-width: 768px) {
+		.stats-bar {
+			flex-direction: column;
+			gap: 0.5rem;
+		}
+
+		.stat-separator {
+			display: none;
+		}
+	}
+
+	/* FAQ Section */
+	.faq-section {
+		width: 100%;
+		padding: 6rem 1.5rem;
+		background-color: var(--obsidian-base);
+		border-top: 1px solid var(--obsidian-border-subtle);
+	}
+
+	.faq-content {
+		max-width: 600px;
+		margin: 0 auto;
+	}
+
+	.faq-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1.5rem;
+		font-weight: normal;
+		color: var(--obsidian-text-primary);
+		text-align: center;
+		margin: 0 0 2.5rem 0;
+	}
+
+	.faq-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.faq-item {
+		border: 1px solid var(--obsidian-border-subtle);
+		border-radius: 0.25rem;
+		background-color: var(--obsidian-surface);
+	}
+
+	.faq-question {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.9rem;
+		color: var(--obsidian-text-primary);
+		padding: 1rem 1.25rem;
+		cursor: pointer;
+		list-style: none;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.faq-question::-webkit-details-marker {
+		display: none;
+	}
+
+	.faq-question::after {
+		content: '+';
+		color: var(--obsidian-text-tertiary);
+		font-size: 1.25rem;
+		transition: transform 0.2s ease;
+	}
+
+	.faq-item[open] .faq-question::after {
+		content: '−';
+	}
+
+	.faq-answer {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		color: var(--obsidian-text-secondary);
+		padding: 0 1.25rem 1rem 1.25rem;
+		margin: 0;
+		line-height: 1.7;
+	}
+
+	.backend-label {
+		color: var(--obsidian-accent);
+		display: inline-block;
+		width: 5rem;
+	}
+
+	.faq-answer a {
+		color: var(--obsidian-accent);
+		text-decoration: none;
+		transition: color 0.15s ease;
+	}
+
+	.faq-answer a:hover {
+		color: var(--obsidian-accent-hover);
+	}
+
+	@media (max-width: 768px) {
+		.faq-section {
+			padding: 4rem 1rem;
+		}
+
+		.faq-title {
+			font-size: 1.25rem;
+		}
+
+		.faq-question {
+			font-size: 0.85rem;
+		}
+
+		.faq-answer {
+			font-size: 0.8rem;
 		}
 	}
 </style>
@@ -1687,7 +1130,7 @@ async fn main() -> Result<()> {
 			} else if (userAgent.indexOf('linux') !== -1 || platform.indexOf('linux') !== -1) {
 				return { name: 'Linux', download: '/downloads/enya-linux.AppImage' };
 			} else {
-				return { name: 'Your OS', download: '#downloads' };
+				return { name: 'Your OS', download: '/download' };
 			}
 		}
 
@@ -1741,6 +1184,12 @@ async fn main() -> Result<()> {
 
 			if (mobileGithubLink) {
 				mobileGithubLink.innerHTML = starHtml;
+			}
+
+			// Update stats bar
+			const statsStars = document.getElementById('stats-stars');
+			if (statsStars) {
+				statsStars.textContent = formattedStars;
 			}
 		};
 
