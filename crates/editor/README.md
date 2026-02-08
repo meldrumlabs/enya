@@ -17,8 +17,6 @@ src/
     widget/         Status line, sparkline, time controls, ...
     util/           Shared helpers
   ui/               Theme, colors, typography, icons, settings
-  chat/             Team channels and messages
-  team/             Collaboration state
   codebase/         Git repo + metrics-rs discovery (native only)
   util/             WASM-compatible time helpers
 ```
