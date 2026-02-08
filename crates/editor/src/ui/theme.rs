@@ -11,21 +11,14 @@ use egui::style::Selection;
 use egui::style::TextCursorStyle;
 use egui::style::Widgets;
 
+use super::active_theme::ActiveThemeColors;
+
 /// Application theme presets
 ///
 /// Each theme is a complete color scheme including backgrounds, accents, and UI colors.
 /// The default theme is Dark (Obsidian Glass with Enya Emerald accent).
 #[derive(
-    Clone,
-    Copy,
-    Eq,
-    PartialEq,
-    PartialOrd,
-    Hash,
-    Default,
-    Debug,
-    serde::Deserialize,
-    serde::Serialize,
+    Clone, Copy, Eq, PartialEq, Hash, Default, Debug, serde::Deserialize, serde::Serialize,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum AppTheme {
@@ -56,6 +49,9 @@ pub enum AppTheme {
     Midsommar,
     /// Skärgård theme - Stockholm archipelago with Baltic blue accent #1E4D6B
     Skargard,
+    /// Custom theme from plugin - carries resolved colors directly
+    #[serde(skip)]
+    Custom(ActiveThemeColors),
 }
 
 impl AppTheme {
@@ -75,6 +71,7 @@ impl AppTheme {
             Self::Ink => "Ink",
             Self::Midsommar => "Midsommar",
             Self::Skargard => "Skärgård",
+            Self::Custom(_) => "Custom",
         }
     }
 
@@ -99,23 +96,22 @@ impl AppTheme {
 
     /// Returns true if this is a dark theme
     pub fn is_dark(&self) -> bool {
-        !matches!(
-            self,
-            Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard
-        )
+        match self {
+            Self::Custom(colors) => colors.is_dark,
+            Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => false,
+            _ => true,
+        }
     }
 
     /// Returns true if this is a light theme
     pub fn is_light(&self) -> bool {
-        matches!(
-            self,
-            Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard
-        )
+        !self.is_dark()
     }
 
-    /// Cycle to the next theme
+    /// Cycle to the next theme (Custom themes cycle back to Dark)
     pub fn next(&mut self) {
         let themes = Self::all();
+        // Custom themes aren't in the list, so start from 0 (Dark)
         let current_idx = themes.iter().position(|t| *t == *self).unwrap_or(0);
         let next_idx = (current_idx + 1) % themes.len();
         *self = themes[next_idx];
@@ -144,6 +140,13 @@ impl AppTheme {
     /// Get the egui Visuals for this theme
     pub fn visuals(&self) -> Visuals {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    super::design::dark_theme(*self)
+                } else {
+                    super::design::light_theme(*self)
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 super::design::light_theme(*self)
             }
@@ -158,6 +161,7 @@ impl AppTheme {
     /// Main canvas background color
     pub fn bg_base(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_base,
             Self::Light => Color32::from_rgb(250, 248, 245), // Warm cream paper #FAF8F5
             Self::Nord => Color32::from_rgb(46, 52, 64),     // Nord polar night
             Self::Midnight => Color32::from_rgb(10, 11, 16), // Deep space blue #0A0B10
@@ -177,6 +181,7 @@ impl AppTheme {
     /// Surface/panel background color
     pub fn bg_surface(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(245, 242, 237), // Parchment #F5F2ED
             Self::Nord => Color32::from_rgb(59, 66, 82),
             Self::Midnight => Color32::from_rgb(18, 20, 28), // Deep navy #12141C
@@ -196,6 +201,7 @@ impl AppTheme {
     /// Elevated elements (cards, dropdowns)
     pub fn bg_elevated(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_elevated,
             Self::Light => Color32::from_rgb(240, 236, 230), // Aged paper #F0ECE6
             Self::Nord => Color32::from_rgb(67, 76, 94),
             Self::Midnight => Color32::from_rgb(26, 29, 40), // Lighter navy #1A1D28
@@ -215,6 +221,7 @@ impl AppTheme {
     /// Hover state background
     pub fn bg_hover(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_hover,
             Self::Light => Color32::from_rgb(232, 228, 220), // Darker paper #E8E4DC
             Self::Nord => Color32::from_rgb(76, 86, 106),
             Self::Midnight => Color32::from_rgb(34, 38, 52), // Hover navy #222634
@@ -234,6 +241,7 @@ impl AppTheme {
     /// Selected item background
     pub fn bg_selected(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_muted,
             Self::Light => Color32::from_rgb(225, 220, 210), // Selected paper #E1DCD2
             Self::Nord => Color32::from_rgb(30, 50, 60),     // Blue tint
             Self::Midnight => Color32::from_rgb(25, 40, 65), // Blue selection #192841
@@ -253,6 +261,7 @@ impl AppTheme {
     /// Card background (slightly darker than elevated)
     pub fn bg_card(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(245, 242, 237), // Parchment #F5F2ED
             Self::Nord => Color32::from_rgb(60, 68, 84),
             Self::Midnight => Color32::from_rgb(20, 22, 32), // Card navy
@@ -272,6 +281,7 @@ impl AppTheme {
     /// Inset background (darker than surface, for inputs)
     pub fn bg_inset(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_base,
             Self::Light => Color32::from_rgb(255, 253, 250), // Bright paper #FFFDF a
             Self::Nord => Color32::from_rgb(52, 58, 72),
             Self::Midnight => Color32::from_rgb(14, 15, 22), // Inset navy
@@ -295,6 +305,7 @@ impl AppTheme {
     /// Subtle divider color
     pub fn border_subtle(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.border_subtle,
             Self::Light => Color32::from_rgb(220, 215, 205), // Subtle paper edge #DCD7CD
             Self::Nord => Color32::from_rgb(76, 86, 106),
             Self::Midnight => Color32::from_rgb(40, 44, 58), // Subtle navy border
@@ -314,6 +325,7 @@ impl AppTheme {
     /// Default border color
     pub fn border_default(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.border_default,
             Self::Light => Color32::from_rgb(200, 195, 185), // Paper edge #C8C3B9
             Self::Nord => Color32::from_rgb(94, 105, 128),
             Self::Midnight => Color32::from_rgb(55, 60, 78), // Navy border
@@ -333,6 +345,7 @@ impl AppTheme {
     /// Focus border color
     pub fn border_focus(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.border_focus,
             Self::Light => Color32::from_rgb(100, 100, 100), // Dark gray ink #646464
             Self::Nord => Color32::from_rgb(59, 66, 82),
             Self::Midnight => Color32::from_rgb(59, 130, 246), // Electric blue focus
@@ -356,6 +369,7 @@ impl AppTheme {
     /// Primary text color
     pub fn text_primary(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_primary,
             Self::Light => Color32::from_rgb(30, 30, 30), // Rich black ink #1E1E1E
             Self::Nord => Color32::from_rgb(236, 239, 244),
             Self::Midnight => Color32::from_rgb(228, 228, 231), // Off-white #E4E4E7
@@ -375,6 +389,7 @@ impl AppTheme {
     /// Secondary text color
     pub fn text_secondary(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_secondary,
             Self::Light => Color32::from_rgb(80, 80, 80), // Lighter ink #505050
             Self::Nord => Color32::from_rgb(180, 190, 200),
             Self::Midnight => Color32::from_rgb(161, 161, 170), // Silver #A1A1AA
@@ -394,6 +409,7 @@ impl AppTheme {
     /// Tertiary/muted text color
     pub fn text_tertiary(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(120, 115, 110), // Faded ink #78736E
             Self::Nord => Color32::from_rgb(120, 130, 145),
             Self::Midnight => Color32::from_rgb(113, 113, 122), // Darker silver #71717A
@@ -417,6 +433,7 @@ impl AppTheme {
     /// Primary accent color
     pub fn accent_primary(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_primary,
             Self::Dark => Color32::from_rgb(16, 185, 129), // #10B981 Enya Emerald
             Self::Nord => Color32::from_rgb(136, 192, 208), // #88C0D0
             Self::Light => Color32::from_rgb(50, 50, 50),  // Charcoal ink #323232
@@ -436,6 +453,7 @@ impl AppTheme {
     /// Hover accent color (brighter)
     pub fn accent_hover(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_hover,
             Self::Dark => Color32::from_rgb(52, 211, 153),
             Self::Light => Color32::from_rgb(30, 30, 30), // Rich black ink hover #1E1E1E
             Self::Nord => Color32::from_rgb(143, 188, 187),
@@ -455,6 +473,7 @@ impl AppTheme {
     /// Muted accent color (for subtle backgrounds)
     pub fn accent_muted(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_muted,
             Self::Dark => Color32::from_rgb(20, 40, 34),
             Self::Light => Color32::from_rgb(240, 236, 228), // Light sepia tint #F0ECE4
             Self::Nord => Color32::from_rgb(20, 35, 45),
@@ -474,6 +493,12 @@ impl AppTheme {
     /// Accent glow color (semi-transparent)
     pub fn accent_glow(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => Color32::from_rgba_premultiplied(
+                colors.accent_primary.r(),
+                colors.accent_primary.g(),
+                colors.accent_primary.b(),
+                30,
+            ),
             Self::Dark => Color32::from_rgba_premultiplied(16, 185, 129, 30),
             Self::Light => Color32::from_rgba_premultiplied(50, 50, 50, 40),
             Self::Nord => Color32::from_rgba_premultiplied(136, 192, 208, 30),
@@ -493,6 +518,7 @@ impl AppTheme {
     /// Selection background color
     pub fn accent_selection(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_muted,
             Self::Dark => Color32::from_rgb(24, 52, 42),
             Self::Nord => Color32::from_rgb(30, 50, 60),
             Self::Light => Color32::from_rgb(230, 225, 215), // Warm sepia selection #E6E1D7
@@ -516,6 +542,7 @@ impl AppTheme {
     /// Overlay background (frosted glass)
     pub fn overlay_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.overlay_bg,
             Self::Light => Color32::from_rgba_unmultiplied(250, 248, 245, 250),
             Self::Nord => Color32::from_rgba_unmultiplied(46, 52, 64, 245),
             Self::Midnight => Color32::from_rgba_unmultiplied(14, 16, 24, 245),
@@ -535,6 +562,7 @@ impl AppTheme {
     /// Overlay background (deep/premium glass)
     pub fn overlay_bg_deep(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.overlay_bg,
             Self::Light => Color32::from_rgba_unmultiplied(245, 242, 237, 248),
             Self::Nord => Color32::from_rgba_unmultiplied(40, 46, 56, 235),
             Self::Midnight => Color32::from_rgba_unmultiplied(10, 12, 20, 235),
@@ -554,6 +582,7 @@ impl AppTheme {
     /// Overlay border color
     pub fn overlay_border(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.overlay_border,
             Self::Light => Color32::from_rgba_unmultiplied(200, 195, 185, 220),
             Self::Nord => Color32::from_rgba_unmultiplied(76, 86, 106, 160),
             Self::Midnight => Color32::from_rgba_unmultiplied(55, 60, 80, 160),
@@ -573,6 +602,7 @@ impl AppTheme {
     /// Overlay inner highlight (top edge glow for glass effect)
     pub fn overlay_highlight(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.overlay_highlight,
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 Color32::from_rgba_unmultiplied(255, 255, 252, 100)
             }
@@ -583,6 +613,7 @@ impl AppTheme {
     /// Overlay inner highlight (stronger for premium glass)
     pub fn overlay_highlight_strong(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.overlay_highlight,
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 Color32::from_rgba_unmultiplied(255, 255, 252, 150)
             }
@@ -597,6 +628,7 @@ impl AppTheme {
     /// Popup background (darker for distinction from main UI)
     pub fn popup_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_elevated,
             Self::Light => Color32::from_rgb(245, 242, 237),
             Self::Nord => Color32::from_rgb(46, 52, 64),
             Self::Midnight => Color32::from_rgb(14, 16, 24),
@@ -616,6 +648,7 @@ impl AppTheme {
     /// Popup border color (subtle accent tint)
     pub fn popup_border(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.border_default,
             Self::Light => Color32::from_rgb(200, 195, 185),
             Self::Nord => Color32::from_rgb(76, 86, 106),
             Self::Midnight => Color32::from_rgb(50, 60, 85),
@@ -639,6 +672,12 @@ impl AppTheme {
     /// Backdrop color (dimming overlay)
     pub fn backdrop_color(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => Color32::from_rgba_unmultiplied(
+                colors.bg_base.r(),
+                colors.bg_base.g(),
+                colors.bg_base.b(),
+                if colors.is_dark { 200 } else { 60 },
+            ),
             Self::Light => Color32::from_rgba_unmultiplied(50, 48, 45, 60),
             Self::Nord => Color32::from_rgba_unmultiplied(25, 30, 40, 200),
             Self::Midnight => Color32::from_rgba_unmultiplied(5, 8, 15, 200),
@@ -658,6 +697,12 @@ impl AppTheme {
     /// Backdrop color (stronger for premium modals)
     pub fn backdrop_color_strong(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => Color32::from_rgba_unmultiplied(
+                colors.bg_base.r(),
+                colors.bg_base.g(),
+                colors.bg_base.b(),
+                if colors.is_dark { 210 } else { 80 },
+            ),
             Self::Light => Color32::from_rgba_unmultiplied(50, 48, 45, 80),
             Self::Nord => Color32::from_rgba_unmultiplied(25, 30, 40, 210),
             Self::Midnight => Color32::from_rgba_unmultiplied(5, 8, 15, 210),
@@ -677,6 +722,13 @@ impl AppTheme {
     /// Backdrop vignette color (edge darkening). Returns None for light themes.
     pub fn backdrop_vignette(&self) -> Option<Color32> {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    Some(Color32::from_rgba_unmultiplied(0, 0, 0, 40))
+                } else {
+                    None
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => None,
             _ => Some(Color32::from_rgba_unmultiplied(0, 0, 0, 40)),
         }
@@ -685,6 +737,18 @@ impl AppTheme {
     /// Backdrop accent glow color. Returns None for light themes.
     pub fn backdrop_accent_glow(&self) -> Option<Color32> {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    Some(Color32::from_rgba_unmultiplied(
+                        colors.accent_primary.r(),
+                        colors.accent_primary.g(),
+                        colors.accent_primary.b(),
+                        8,
+                    ))
+                } else {
+                    None
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => None,
             Self::Dark => Some(Color32::from_rgba_unmultiplied(16, 185, 129, 8)),
             Self::Nord => Some(Color32::from_rgba_unmultiplied(136, 192, 208, 8)),
@@ -705,6 +769,7 @@ impl AppTheme {
     /// Match highlight color (for search results)
     pub fn highlight_match(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_muted,
             Self::Light => Color32::from_rgb(255, 245, 180),
             Self::Nord => Color32::from_rgb(40, 60, 80),
             Self::Midnight => Color32::from_rgb(30, 50, 80),
@@ -725,6 +790,7 @@ impl AppTheme {
     /// This is a bright, visible color for text foreground use (not background)
     pub fn highlight_match_text(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.highlight_match,
             Self::Light => Color32::from_rgb(180, 100, 0),
             Self::Nord => Color32::from_rgb(235, 203, 139),
             Self::Midnight => Color32::from_rgb(96, 165, 250), // Electric blue
@@ -744,6 +810,12 @@ impl AppTheme {
     /// Line highlight color (for target lines in source preview)
     pub fn highlight_line(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => Color32::from_rgba_unmultiplied(
+                colors.accent_primary.r(),
+                colors.accent_primary.g(),
+                colors.accent_primary.b(),
+                if colors.is_dark { 30 } else { 60 },
+            ),
             Self::Light => Color32::from_rgba_unmultiplied(255, 220, 120, 80),
             Self::Nord => Color32::from_rgba_unmultiplied(235, 203, 139, 30),
             Self::Midnight => Color32::from_rgba_unmultiplied(59, 130, 246, 30),
@@ -767,6 +839,7 @@ impl AppTheme {
     /// Zen mode badge background
     pub fn badge_zen_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_primary,
             Self::Light => Color32::from_rgb(100, 90, 80),
             Self::Nord => Color32::from_rgb(180, 142, 173),
             Self::Midnight => Color32::from_rgb(167, 139, 250), // Violet
@@ -791,6 +864,7 @@ impl AppTheme {
     /// Fullscreen badge background
     pub fn badge_fullscreen_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(60, 60, 60),
             Self::Nord => Color32::from_rgb(136, 192, 208),
             Self::Midnight => Color32::from_rgb(56, 189, 248), // Sky blue
@@ -819,6 +893,7 @@ impl AppTheme {
     /// Normal mode color (viewing/navigating)
     pub fn mode_normal(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(100, 150, 220),
             Self::Nord => Color32::from_rgb(129, 161, 193),
             Self::Midnight => Color32::from_rgb(96, 165, 250), // Sky blue
@@ -838,6 +913,7 @@ impl AppTheme {
     /// Insert mode color (editing)
     pub fn mode_insert(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(100, 180, 100),
             Self::Nord => Color32::from_rgb(163, 190, 140),
             Self::Midnight => Color32::from_rgb(52, 211, 153), // Green
@@ -857,6 +933,7 @@ impl AppTheme {
     /// Buffer border color (inactive)
     pub fn buffer_border(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.border_default,
             Self::Light => Color32::from_rgb(200, 195, 185),
             Self::Nord => Color32::from_rgb(76, 86, 106),
             Self::Midnight => Color32::from_rgb(55, 60, 78),
@@ -876,6 +953,7 @@ impl AppTheme {
     /// Buffer background color
     pub fn buffer_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(250, 248, 245),
             Self::Nord => Color32::from_rgb(52, 58, 72),
             Self::Midnight => Color32::from_rgb(16, 18, 26),
@@ -895,6 +973,7 @@ impl AppTheme {
     /// Buffer content background (inner area)
     pub fn buffer_content_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_base,
             Self::Light => Color32::from_rgb(255, 253, 250),
             Self::Nord => Color32::from_rgb(46, 52, 64),
             Self::Midnight => Color32::from_rgb(12, 14, 20),
@@ -918,6 +997,7 @@ impl AppTheme {
     /// Success color
     pub fn semantic_success(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(45, 100, 45),
             Self::Nord => Color32::from_rgb(163, 190, 140),
             Self::Midnight => Color32::from_rgb(52, 211, 153),
@@ -937,6 +1017,7 @@ impl AppTheme {
     /// Warning color
     pub fn semantic_warning(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.warning,
             Self::Light => Color32::from_rgb(180, 120, 30),
             Self::Nord => Color32::from_rgb(235, 203, 139),
             Self::Midnight => Color32::from_rgb(251, 191, 36), // Amber
@@ -956,6 +1037,7 @@ impl AppTheme {
     /// Error color
     pub fn semantic_error(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(180, 40, 40),
             Self::Nord => Color32::from_rgb(191, 97, 106),
             Self::Midnight => Color32::from_rgb(248, 113, 113), // Red
@@ -975,6 +1057,7 @@ impl AppTheme {
     /// Info color
     pub fn semantic_info(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(50, 80, 140),
             Self::Nord => Color32::from_rgb(129, 161, 193),
             Self::Midnight => Color32::from_rgb(96, 165, 250), // Blue
@@ -998,6 +1081,7 @@ impl AppTheme {
     /// Keyword color
     pub fn syntax_keyword(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_primary,
             Self::Light => Color32::from_rgb(30, 30, 30),
             Self::Nord => Color32::from_rgb(180, 142, 173),
             Self::Midnight => Color32::from_rgb(199, 146, 234), // Purple
@@ -1017,6 +1101,7 @@ impl AppTheme {
     /// Key/property color
     pub fn syntax_key(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(50, 50, 50),
             Self::Nord => Color32::from_rgb(129, 161, 193),
             Self::Midnight => Color32::from_rgb(96, 165, 250), // Blue
@@ -1036,6 +1121,7 @@ impl AppTheme {
     /// Value/string color
     pub fn syntax_value(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(70, 70, 70),
             Self::Nord => Color32::from_rgb(163, 190, 140),
             Self::Midnight => Color32::from_rgb(52, 211, 153), // Green
@@ -1055,6 +1141,7 @@ impl AppTheme {
     /// Operator/punctuation color
     pub fn syntax_punctuation(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_secondary,
             Self::Light => Color32::from_rgb(100, 95, 90),
             Self::Nord => Color32::from_rgb(180, 190, 200),
             Self::Midnight => Color32::from_rgb(148, 163, 184), // Slate
@@ -1074,6 +1161,7 @@ impl AppTheme {
     /// Comment color
     pub fn syntax_comment(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(140, 135, 125),
             Self::Nord => Color32::from_rgb(97, 110, 136),
             Self::Midnight => Color32::from_rgb(100, 116, 139), // Slate gray
@@ -1093,6 +1181,7 @@ impl AppTheme {
     /// Function color
     pub fn syntax_function(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_hover,
             Self::Light => Color32::from_rgb(40, 40, 40),
             Self::Nord => Color32::from_rgb(136, 192, 208),
             Self::Midnight => Color32::from_rgb(56, 189, 248), // Cyan
@@ -1112,6 +1201,7 @@ impl AppTheme {
     /// Type/class color
     pub fn syntax_type(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.warning,
             Self::Light => Color32::from_rgb(60, 60, 60),
             Self::Nord => Color32::from_rgb(235, 203, 139),
             Self::Midnight => Color32::from_rgb(251, 191, 36), // Amber
@@ -1131,6 +1221,7 @@ impl AppTheme {
     /// Number/constant color
     pub fn syntax_number(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(55, 55, 55),
             Self::Nord => Color32::from_rgb(180, 142, 173),
             Self::Midnight => Color32::from_rgb(248, 113, 113), // Red
@@ -1150,6 +1241,7 @@ impl AppTheme {
     /// Variable color
     pub fn syntax_variable(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_primary,
             Self::Light => Color32::from_rgb(45, 45, 45),
             Self::Nord => Color32::from_rgb(236, 239, 244),
             Self::Midnight => Color32::from_rgb(228, 228, 231), // Off-white
@@ -1173,6 +1265,13 @@ impl AppTheme {
     /// Scrollbar track color
     pub fn scrollbar_track(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 8)
+                } else {
+                    Color32::from_rgba_unmultiplied(80, 75, 70, 15)
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 Color32::from_rgba_unmultiplied(80, 75, 70, 15)
             }
@@ -1183,6 +1282,12 @@ impl AppTheme {
     /// Scrollbar thumb color
     pub fn scrollbar_thumb(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => Color32::from_rgba_unmultiplied(
+                colors.text_secondary.r(),
+                colors.text_secondary.g(),
+                colors.text_secondary.b(),
+                120,
+            ),
             Self::Light => Color32::from_rgba_unmultiplied(120, 115, 105, 160),
             Self::Nord => Color32::from_rgba_unmultiplied(129, 161, 193, 120),
             Self::Midnight => Color32::from_rgba_unmultiplied(96, 165, 250, 80),
@@ -1202,6 +1307,12 @@ impl AppTheme {
     /// Scrollbar thumb highlight color
     pub fn scrollbar_thumb_highlight(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => Color32::from_rgba_unmultiplied(
+                colors.accent_primary.r(),
+                colors.accent_primary.g(),
+                colors.accent_primary.b(),
+                160,
+            ),
             Self::Light => Color32::from_rgba_unmultiplied(80, 75, 70, 200),
             Self::Nord => Color32::from_rgba_unmultiplied(143, 188, 187, 160),
             Self::Midnight => Color32::from_rgba_unmultiplied(96, 165, 250, 140),
@@ -1221,6 +1332,13 @@ impl AppTheme {
     /// Scrollbar cap highlight color
     pub fn scrollbar_cap(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    Color32::from_rgba_unmultiplied(255, 255, 255, 25)
+                } else {
+                    Color32::from_rgba_unmultiplied(255, 252, 245, 80)
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 Color32::from_rgba_unmultiplied(255, 252, 245, 80)
             }
@@ -1235,6 +1353,7 @@ impl AppTheme {
     /// Agent panel background
     pub fn agent_panel_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.overlay_bg,
             Self::Light => Color32::from_rgba_unmultiplied(248, 245, 240, 252),
             Self::Nord => Color32::from_rgba_unmultiplied(46, 52, 64, 250),
             Self::Midnight => Color32::from_rgba_unmultiplied(14, 16, 24, 250),
@@ -1254,6 +1373,7 @@ impl AppTheme {
     /// Agent panel border
     pub fn agent_panel_border(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.border_default,
             Self::Light => Color32::from_rgb(200, 195, 185),
             Self::Nord => Color32::from_rgb(76, 86, 106),
             Self::Midnight => Color32::from_rgb(55, 60, 78),
@@ -1273,6 +1393,7 @@ impl AppTheme {
     /// User message background in chat
     pub fn chat_user_msg_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_elevated,
             Self::Light => Color32::from_rgb(240, 236, 228),
             Self::Nord => Color32::from_rgb(67, 76, 94),
             Self::Midnight => Color32::from_rgb(26, 29, 40),
@@ -1296,6 +1417,13 @@ impl AppTheme {
     /// Error diagnostic background
     pub fn diagnostic_error_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    colors.error.gamma_multiply(0.15)
+                } else {
+                    Color32::from_rgb(255, 240, 235)
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 Color32::from_rgb(255, 240, 235)
             } // Warm rose-tinted paper
@@ -1306,6 +1434,13 @@ impl AppTheme {
     /// Warning diagnostic background
     pub fn diagnostic_warning_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    colors.warning.gamma_multiply(0.15)
+                } else {
+                    Color32::from_rgb(255, 248, 230)
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 Color32::from_rgb(255, 248, 230)
             } // Warm amber-tinted paper
@@ -1316,6 +1451,13 @@ impl AppTheme {
     /// Info diagnostic background
     pub fn diagnostic_info_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    colors.info.gamma_multiply(0.15)
+                } else {
+                    Color32::from_rgb(240, 240, 248)
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 Color32::from_rgb(240, 240, 248)
             } // Subtle gray-blue paper
@@ -1326,6 +1468,13 @@ impl AppTheme {
     /// Hint diagnostic background
     pub fn diagnostic_hint_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => {
+                if colors.is_dark {
+                    colors.success.gamma_multiply(0.15)
+                } else {
+                    Color32::from_rgb(242, 250, 242)
+                }
+            }
             Self::Light | Self::Stockholm | Self::Midsommar | Self::Skargard => {
                 Color32::from_rgb(242, 250, 242)
             } // Subtle sage paper
@@ -1345,6 +1494,19 @@ impl AppTheme {
 
         // Build gradient from background through muted accent to bright accent
         match self {
+            Self::Custom(colors) => {
+                // Simple gradient using available colors
+                [
+                    bg,
+                    colors.bg_surface,
+                    colors.bg_elevated,
+                    colors.bg_hover,
+                    colors.accent_muted,
+                    colors.accent_muted,
+                    accent,
+                    accent_hover,
+                ]
+            }
             Self::Light => [
                 Color32::from_rgb(250, 248, 245),
                 Color32::from_rgb(235, 230, 220),
@@ -1486,6 +1648,7 @@ impl AppTheme {
     /// These colors are designed to be distinct and harmonious
     pub fn chart_palette(&self) -> [Color32; 8] {
         match self {
+            Self::Custom(colors) => colors.chart_palette,
             // === Dark Themes ===
             Self::Dark => [
                 Color32::from_rgb(16, 185, 129),  // Emerald (accent)
@@ -1628,6 +1791,228 @@ impl AppTheme {
         palette[index % palette.len()]
     }
 
+    /// Execution plan palette for query plan visualization.
+    ///
+    /// Returns 12 distinct colors optimized for execution plan operators:
+    /// 0: Scan/Read (I/O), 1: Filter/Limit, 2: Join, 3: Aggregate/Group,
+    /// 4: Sort/Order, 5: Project, 6: Hash, 7: Remote/Exchange,
+    /// 8: Union/Interleave, 9: Cooperative/Yield, 10: Other Exec, 11: Reserved
+    ///
+    /// These colors are designed to be maximally distinct within each theme.
+    pub fn plan_palette(&self) -> [Color32; 12] {
+        match self {
+            Self::Custom(colors) => {
+                // Derive 12 colors from chart_palette (8) + semantic colors
+                let c = colors.chart_palette;
+                [
+                    colors.info,         // 0: Scan
+                    colors.success,      // 1: Filter
+                    colors.warning,      // 2: Join
+                    c[2],                // 3: Aggregate
+                    colors.error,        // 4: Sort
+                    c[4],                // 5: Project
+                    c[3],                // 6: Hash
+                    c[5],                // 7: Remote
+                    c[6],                // 8: Union
+                    c[7],                // 9: Cooperative
+                    colors.accent_hover, // 10: Other Exec
+                    colors.text_muted,   // 11: Reserved
+                ]
+            }
+            // === Dark Themes ===
+            Self::Dark => [
+                Color32::from_rgb(96, 165, 250),  // 0: Scan - Sky blue
+                Color32::from_rgb(52, 211, 153),  // 1: Filter - Emerald
+                Color32::from_rgb(251, 146, 60),  // 2: Join - Orange
+                Color32::from_rgb(192, 132, 252), // 3: Aggregate - Violet
+                Color32::from_rgb(248, 113, 113), // 4: Sort - Red
+                Color32::from_rgb(45, 212, 191),  // 5: Project - Teal
+                Color32::from_rgb(250, 204, 21),  // 6: Hash - Yellow
+                Color32::from_rgb(34, 211, 238),  // 7: Remote - Cyan
+                Color32::from_rgb(244, 114, 182), // 8: Union - Pink
+                Color32::from_rgb(163, 230, 53),  // 9: Cooperative - Lime
+                Color32::from_rgb(251, 191, 36),  // 10: Other Exec - Amber
+                Color32::from_rgb(156, 163, 175), // 11: Reserved - Gray
+            ],
+            Self::Nord => [
+                Color32::from_rgb(129, 161, 193), // 0: Scan - Frost blue (nord9)
+                Color32::from_rgb(163, 190, 140), // 1: Filter - Aurora green (nord14)
+                Color32::from_rgb(208, 135, 112), // 2: Join - Aurora orange (nord12)
+                Color32::from_rgb(180, 142, 173), // 3: Aggregate - Aurora purple (nord15)
+                Color32::from_rgb(191, 97, 106),  // 4: Sort - Aurora red (nord11)
+                Color32::from_rgb(143, 188, 187), // 5: Project - Frost teal (nord7)
+                Color32::from_rgb(235, 203, 139), // 6: Hash - Aurora yellow (nord13)
+                Color32::from_rgb(136, 192, 208), // 7: Remote - Frost cyan (nord8)
+                Color32::from_rgb(200, 160, 190), // 8: Union - Soft pink
+                Color32::from_rgb(183, 210, 140), // 9: Cooperative - Light green
+                Color32::from_rgb(220, 180, 130), // 10: Other Exec - Warm amber
+                Color32::from_rgb(147, 161, 176), // 11: Reserved - Polar gray
+            ],
+            Self::Midnight => [
+                Color32::from_rgb(96, 165, 250),  // 0: Scan - Electric blue
+                Color32::from_rgb(52, 211, 153),  // 1: Filter - Cyber teal
+                Color32::from_rgb(251, 146, 60),  // 2: Join - Neon orange
+                Color32::from_rgb(192, 132, 252), // 3: Aggregate - Neon purple
+                Color32::from_rgb(248, 113, 113), // 4: Sort - Neon red
+                Color32::from_rgb(34, 197, 194),  // 5: Project - Deep teal
+                Color32::from_rgb(251, 191, 36),  // 6: Hash - Neon amber
+                Color32::from_rgb(34, 211, 238),  // 7: Remote - Bright cyan
+                Color32::from_rgb(244, 114, 182), // 8: Union - Hot pink
+                Color32::from_rgb(190, 242, 100), // 9: Cooperative - Neon lime
+                Color32::from_rgb(253, 224, 71),  // 10: Other Exec - Bright yellow
+                Color32::from_rgb(148, 163, 184), // 11: Reserved - Slate
+            ],
+            Self::Catppuccin => [
+                Color32::from_rgb(137, 180, 250), // 0: Scan - Blue
+                Color32::from_rgb(166, 227, 161), // 1: Filter - Green
+                Color32::from_rgb(250, 179, 135), // 2: Join - Peach
+                Color32::from_rgb(203, 166, 247), // 3: Aggregate - Mauve
+                Color32::from_rgb(243, 139, 168), // 4: Sort - Red
+                Color32::from_rgb(148, 226, 213), // 5: Project - Teal
+                Color32::from_rgb(249, 226, 175), // 6: Hash - Yellow
+                Color32::from_rgb(137, 220, 235), // 7: Remote - Sky
+                Color32::from_rgb(245, 194, 231), // 8: Union - Pink
+                Color32::from_rgb(179, 238, 165), // 9: Cooperative - Light green
+                Color32::from_rgb(245, 169, 127), // 10: Other Exec - Marmalade
+                Color32::from_rgb(147, 153, 178), // 11: Reserved - Overlay
+            ],
+            Self::Ayu => [
+                Color32::from_rgb(127, 193, 202), // 0: Scan - Blue
+                Color32::from_rgb(149, 230, 203), // 1: Filter - Mint
+                Color32::from_rgb(255, 180, 84),  // 2: Join - Orange
+                Color32::from_rgb(172, 128, 255), // 3: Aggregate - Purple
+                Color32::from_rgb(247, 118, 142), // 4: Sort - Magenta
+                Color32::from_rgb(89, 186, 163),  // 5: Project - Cyan
+                Color32::from_rgb(255, 238, 153), // 6: Hash - Yellow
+                Color32::from_rgb(95, 215, 255),  // 7: Remote - Bright cyan
+                Color32::from_rgb(255, 150, 200), // 8: Union - Pink
+                Color32::from_rgb(200, 240, 130), // 9: Cooperative - Lime
+                Color32::from_rgb(255, 200, 120), // 10: Other Exec - Light orange
+                Color32::from_rgb(140, 150, 165), // 11: Reserved - Gray
+            ],
+            Self::Bergman => [
+                Color32::from_rgb(143, 162, 192), // 0: Scan - Slate blue
+                Color32::from_rgb(160, 185, 165), // 1: Filter - Sage
+                Color32::from_rgb(200, 160, 140), // 2: Join - Warm tan
+                Color32::from_rgb(175, 155, 180), // 3: Aggregate - Dusty lavender
+                Color32::from_rgb(195, 140, 140), // 4: Sort - Muted rose
+                Color32::from_rgb(150, 175, 175), // 5: Project - Sea gray
+                Color32::from_rgb(200, 190, 150), // 6: Hash - Warm cream
+                Color32::from_rgb(130, 165, 185), // 7: Remote - Steel blue
+                Color32::from_rgb(190, 160, 175), // 8: Union - Mauve
+                Color32::from_rgb(175, 195, 155), // 9: Cooperative - Moss
+                Color32::from_rgb(210, 175, 145), // 10: Other Exec - Sand
+                Color32::from_rgb(160, 160, 165), // 11: Reserved - Neutral
+            ],
+            Self::Aurora => [
+                Color32::from_rgb(100, 180, 200), // 0: Scan - Sky blue
+                Color32::from_rgb(130, 200, 160), // 1: Filter - Aurora green
+                Color32::from_rgb(220, 170, 130), // 2: Join - Warm amber
+                Color32::from_rgb(175, 160, 210), // 3: Aggregate - Soft purple
+                Color32::from_rgb(210, 140, 150), // 4: Sort - Dusty rose
+                Color32::from_rgb(139, 198, 198), // 5: Project - Teal
+                Color32::from_rgb(210, 200, 140), // 6: Hash - Pale gold
+                Color32::from_rgb(120, 190, 210), // 7: Remote - Light cyan
+                Color32::from_rgb(200, 160, 180), // 8: Union - Pink
+                Color32::from_rgb(170, 210, 150), // 9: Cooperative - Light green
+                Color32::from_rgb(230, 185, 130), // 10: Other Exec - Peach
+                Color32::from_rgb(160, 165, 175), // 11: Reserved - Cool gray
+            ],
+            Self::Graphite => [
+                Color32::from_rgb(140, 160, 180), // 0: Scan - Gunmetal
+                Color32::from_rgb(145, 175, 145), // 1: Filter - Patina green
+                Color32::from_rgb(255, 149, 0),   // 2: Join - Industrial orange
+                Color32::from_rgb(160, 140, 170), // 3: Aggregate - Steel purple
+                Color32::from_rgb(200, 130, 120), // 4: Sort - Rust
+                Color32::from_rgb(120, 155, 165), // 5: Project - Slate teal
+                Color32::from_rgb(200, 175, 110), // 6: Hash - Brass
+                Color32::from_rgb(130, 165, 190), // 7: Remote - Steel blue
+                Color32::from_rgb(180, 145, 160), // 8: Union - Dusty pink
+                Color32::from_rgb(165, 185, 130), // 9: Cooperative - Olive
+                Color32::from_rgb(220, 160, 100), // 10: Other Exec - Copper
+                Color32::from_rgb(150, 155, 160), // 11: Reserved - Graphite
+            ],
+            Self::Ink => [
+                Color32::from_rgb(130, 145, 170), // 0: Scan - Slate
+                Color32::from_rgb(140, 160, 145), // 1: Filter - Sage gray
+                Color32::from_rgb(175, 150, 130), // 2: Join - Warm gray
+                Color32::from_rgb(155, 145, 165), // 3: Aggregate - Lavender gray
+                Color32::from_rgb(170, 135, 140), // 4: Sort - Dusty rose
+                Color32::from_rgb(135, 155, 160), // 5: Project - Cool teal
+                Color32::from_rgb(175, 170, 140), // 6: Hash - Khaki
+                Color32::from_rgb(140, 160, 175), // 7: Remote - Steel
+                Color32::from_rgb(165, 145, 160), // 8: Union - Mauve gray
+                Color32::from_rgb(155, 170, 145), // 9: Cooperative - Moss
+                Color32::from_rgb(180, 160, 135), // 10: Other Exec - Sand
+                Color32::from_rgb(145, 150, 155), // 11: Reserved - Charcoal
+            ],
+            Self::Skargard => [
+                Color32::from_rgb(100, 160, 190), // 0: Scan - Baltic blue
+                Color32::from_rgb(130, 180, 160), // 1: Filter - Sea foam
+                Color32::from_rgb(190, 150, 120), // 2: Join - Driftwood
+                Color32::from_rgb(145, 150, 175), // 3: Aggregate - Storm purple
+                Color32::from_rgb(175, 130, 135), // 4: Sort - Muted coral
+                Color32::from_rgb(110, 165, 165), // 5: Project - Deep teal
+                Color32::from_rgb(185, 175, 130), // 6: Hash - Sand
+                Color32::from_rgb(90, 155, 180),  // 7: Remote - Ocean blue
+                Color32::from_rgb(165, 145, 165), // 8: Union - Sea lavender
+                Color32::from_rgb(145, 180, 145), // 9: Cooperative - Kelp
+                Color32::from_rgb(200, 165, 125), // 10: Other Exec - Amber
+                Color32::from_rgb(140, 150, 160), // 11: Reserved - Stone
+            ],
+
+            // === Light Themes ===
+            Self::Light => [
+                Color32::from_rgb(37, 99, 235),   // 0: Scan - Blue
+                Color32::from_rgb(22, 163, 74),   // 1: Filter - Green
+                Color32::from_rgb(234, 88, 12),   // 2: Join - Orange
+                Color32::from_rgb(147, 51, 234),  // 3: Aggregate - Purple
+                Color32::from_rgb(220, 38, 38),   // 4: Sort - Red
+                Color32::from_rgb(20, 184, 166),  // 5: Project - Teal
+                Color32::from_rgb(202, 138, 4),   // 6: Hash - Yellow
+                Color32::from_rgb(6, 182, 212),   // 7: Remote - Cyan
+                Color32::from_rgb(219, 39, 119),  // 8: Union - Pink
+                Color32::from_rgb(132, 204, 22),  // 9: Cooperative - Lime
+                Color32::from_rgb(245, 158, 11),  // 10: Other Exec - Amber
+                Color32::from_rgb(107, 114, 128), // 11: Reserved - Gray
+            ],
+            Self::Stockholm => [
+                Color32::from_rgb(30, 64, 175),  // 0: Scan - Indigo
+                Color32::from_rgb(21, 128, 61),  // 1: Filter - Green
+                Color32::from_rgb(180, 83, 9),   // 2: Join - Amber
+                Color32::from_rgb(126, 34, 206), // 3: Aggregate - Violet
+                Color32::from_rgb(185, 28, 28),  // 4: Sort - Red
+                Color32::from_rgb(17, 94, 89),   // 5: Project - Teal
+                Color32::from_rgb(161, 98, 7),   // 6: Hash - Yellow
+                Color32::from_rgb(14, 116, 144), // 7: Remote - Cyan
+                Color32::from_rgb(190, 24, 93),  // 8: Union - Pink
+                Color32::from_rgb(101, 163, 13), // 9: Cooperative - Lime
+                Color32::from_rgb(217, 119, 6),  // 10: Other Exec - Orange
+                Color32::from_rgb(75, 85, 99),   // 11: Reserved - Gray
+            ],
+            Self::Midsommar => [
+                Color32::from_rgb(55, 90, 130),  // 0: Scan - Slate blue
+                Color32::from_rgb(60, 120, 80),  // 1: Filter - Forest
+                Color32::from_rgb(165, 100, 55), // 2: Join - Sienna
+                Color32::from_rgb(110, 70, 135), // 3: Aggregate - Plum
+                Color32::from_rgb(155, 60, 60),  // 4: Sort - Brick
+                Color32::from_rgb(50, 115, 110), // 5: Project - Teal
+                Color32::from_rgb(145, 115, 45), // 6: Hash - Olive
+                Color32::from_rgb(50, 110, 135), // 7: Remote - Steel blue
+                Color32::from_rgb(145, 70, 100), // 8: Union - Mauve
+                Color32::from_rgb(95, 135, 55),  // 9: Cooperative - Moss
+                Color32::from_rgb(175, 120, 60), // 10: Other Exec - Copper
+                Color32::from_rgb(100, 95, 90),  // 11: Reserved - Warm gray
+            ],
+        }
+    }
+
+    /// Get a plan operator color by index (wraps around)
+    pub fn plan_color(&self, index: usize) -> Color32 {
+        let palette = self.plan_palette();
+        palette[index % palette.len()]
+    }
+
     /// Terminal palette for ANSI color mapping in the embedded terminal.
     ///
     /// Returns 6 colors for the 6 chromatic ANSI colors: Red, Green, Yellow, Blue, Magenta, Cyan.
@@ -1638,6 +2023,14 @@ impl AppTheme {
     /// (errors are red, success is green) while chart colors just need to be distinct.
     pub fn terminal_palette(&self) -> [Color32; 6] {
         match self {
+            Self::Custom(colors) => [
+                colors.error,          // Red
+                colors.success,        // Green
+                colors.warning,        // Yellow
+                colors.info,           // Blue
+                colors.accent_primary, // Magenta (using accent as substitute)
+                colors.accent_hover,   // Cyan (using accent hover as substitute)
+            ],
             // === Dark Themes ===
             Self::Dark => [
                 Color32::from_rgb(248, 113, 133), // Red - Soft coral
@@ -1751,6 +2144,7 @@ impl AppTheme {
     /// Commit marker color for git annotations on charts
     pub fn chart_commit_marker(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_primary,
             // Dark themes - vibrant markers
             Self::Dark => Color32::from_rgb(180, 155, 255), // Violet
             Self::Nord => Color32::from_rgb(180, 142, 173), // Aurora purple
@@ -1771,12 +2165,13 @@ impl AppTheme {
     }
 
     // =========================================================================
-    // Annotation Colors (Team collaboration annotations on charts)
+    // Annotation Colors
     // =========================================================================
 
     /// Normal priority annotation color (notes/comments)
     pub fn annotation_normal(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(59, 130, 246),
             Self::Nord => Color32::from_rgb(136, 192, 208),
             Self::Midnight => Color32::from_rgb(96, 165, 250),
@@ -1796,6 +2191,7 @@ impl AppTheme {
     /// Important priority annotation color (highlighted)
     pub fn annotation_important(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.warning,
             Self::Light => Color32::from_rgb(245, 158, 11),
             Self::Nord => Color32::from_rgb(235, 203, 139),
             Self::Midnight => Color32::from_rgb(251, 191, 36),
@@ -1815,6 +2211,7 @@ impl AppTheme {
     /// Critical priority annotation color (alert-style)
     pub fn annotation_critical(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(220, 38, 38),
             Self::Nord => Color32::from_rgb(191, 97, 106),
             Self::Midnight => Color32::from_rgb(248, 113, 113),
@@ -1834,6 +2231,7 @@ impl AppTheme {
     /// Resolved annotation color (dimmed/inactive)
     pub fn annotation_resolved(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(156, 163, 175),
             Self::Nord => Color32::from_rgb(76, 86, 106),
             Self::Midnight => Color32::from_rgb(113, 113, 122),
@@ -1857,6 +2255,7 @@ impl AppTheme {
     /// Addition line background - subtle tint spanning full line
     pub fn diff_added_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.success.gamma_multiply(0.15),
             Self::Light => Color32::from_rgb(230, 255, 237),
             Self::Nord => Color32::from_rgb(35, 55, 45),
             Self::Midnight => Color32::from_rgb(18, 35, 30),
@@ -1876,6 +2275,7 @@ impl AppTheme {
     /// Deletion line background - subtle tint spanning full line
     pub fn diff_removed_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.error.gamma_multiply(0.15),
             Self::Light => Color32::from_rgb(255, 235, 235),
             Self::Nord => Color32::from_rgb(55, 40, 45),
             Self::Midnight => Color32::from_rgb(40, 22, 28),
@@ -1895,6 +2295,7 @@ impl AppTheme {
     /// Word-level addition highlight - brighter for inline changes
     pub fn diff_added_word_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.success.gamma_multiply(0.35),
             Self::Light => Color32::from_rgb(172, 242, 189),
             Self::Nord => Color32::from_rgb(55, 90, 70),
             Self::Midnight => Color32::from_rgb(30, 70, 55),
@@ -1914,6 +2315,7 @@ impl AppTheme {
     /// Word-level deletion highlight - brighter for inline changes
     pub fn diff_removed_word_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.error.gamma_multiply(0.35),
             Self::Light => Color32::from_rgb(255, 200, 200),
             Self::Nord => Color32::from_rgb(100, 55, 60),
             Self::Midnight => Color32::from_rgb(80, 40, 45),
@@ -1933,6 +2335,7 @@ impl AppTheme {
     /// Addition text color - high contrast for readability
     pub fn diff_added_text(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(36, 138, 61),
             Self::Nord => Color32::from_rgb(163, 190, 140),
             Self::Midnight => Color32::from_rgb(52, 211, 153),
@@ -1952,6 +2355,7 @@ impl AppTheme {
     /// Deletion text color - high contrast for readability
     pub fn diff_removed_text(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(207, 34, 46),
             Self::Nord => Color32::from_rgb(191, 97, 106),
             Self::Midnight => Color32::from_rgb(248, 113, 113),
@@ -1971,6 +2375,7 @@ impl AppTheme {
     /// Context line text color - dimmed for less visual weight
     pub fn diff_context_text(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(87, 96, 106),
             Self::Nord => Color32::from_rgb(120, 130, 145),
             Self::Midnight => Color32::from_rgb(113, 113, 122),
@@ -1990,6 +2395,7 @@ impl AppTheme {
     /// Addition gutter stripe color
     pub fn diff_added_gutter(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(52, 168, 83),
             Self::Nord => Color32::from_rgb(163, 190, 140),
             Self::Midnight => Color32::from_rgb(52, 211, 153),
@@ -2009,6 +2415,7 @@ impl AppTheme {
     /// Deletion gutter stripe color
     pub fn diff_removed_gutter(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(234, 67, 53),
             Self::Nord => Color32::from_rgb(191, 97, 106),
             Self::Midnight => Color32::from_rgb(248, 113, 113),
@@ -2028,6 +2435,7 @@ impl AppTheme {
     /// Line number text color
     pub fn diff_line_number(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(140, 150, 160),
             Self::Nord => Color32::from_rgb(76, 86, 106),
             Self::Midnight => Color32::from_rgb(70, 80, 100),
@@ -2047,6 +2455,7 @@ impl AppTheme {
     /// Line number background color
     pub fn diff_line_number_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(246, 248, 250),
             Self::Nord => Color32::from_rgb(40, 46, 56),
             Self::Midnight => Color32::from_rgb(12, 14, 20),
@@ -2066,6 +2475,7 @@ impl AppTheme {
     /// Hunk header background
     pub fn diff_hunk_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.accent_muted,
             Self::Light => Color32::from_rgb(240, 245, 255),
             Self::Nord => Color32::from_rgb(40, 50, 70),
             Self::Midnight => Color32::from_rgb(20, 30, 55),
@@ -2085,6 +2495,7 @@ impl AppTheme {
     /// Hunk header text color
     pub fn diff_hunk_text(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(47, 93, 158),
             Self::Nord => Color32::from_rgb(129, 161, 193),
             Self::Midnight => Color32::from_rgb(96, 165, 250),
@@ -2104,6 +2515,7 @@ impl AppTheme {
     /// File header text color
     pub fn diff_file_header(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.text_primary,
             Self::Light => Color32::from_rgb(36, 41, 47),
             Self::Nord => Color32::from_rgb(236, 239, 244),
             Self::Midnight => Color32::from_rgb(228, 228, 231),
@@ -2123,6 +2535,7 @@ impl AppTheme {
     /// File header background color
     pub fn diff_file_header_bg(&self) -> Color32 {
         match self {
+            Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(246, 248, 250),
             Self::Nord => Color32::from_rgb(46, 52, 64),
             Self::Midnight => Color32::from_rgb(16, 18, 26),
@@ -2136,6 +2549,17 @@ impl AppTheme {
             Self::Midsommar => Color32::from_rgb(250, 250, 240), // File header bg midsommar
             Self::Skargard => Color32::from_rgb(242, 246, 248), // File header bg skargard
             Self::Dark => Color32::from_rgb(22, 27, 34),
+        }
+    }
+
+    /// Get the active theme colors for this theme.
+    ///
+    /// This is a convenience method that extracts `ActiveThemeColors` from
+    /// either a custom theme (directly carried) or a builtin theme (computed).
+    pub fn active_colors(&self) -> super::ActiveThemeColors {
+        match self {
+            Self::Custom(colors) => *colors,
+            _ => super::ActiveThemeColors::from_builtin(*self),
         }
     }
 }

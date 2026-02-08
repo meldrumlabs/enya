@@ -20,9 +20,12 @@ pub struct EditorContext {
     /// Codebase information
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<CodebaseContext>,
-    /// Current dashboard state
+    /// Current workspace state
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dashboard: Option<DashboardContext>,
+    pub workspace: Option<WorkspaceContext>,
+    /// Project-specific context loaded from ENYA.md
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_context: Option<String>,
 }
 
 /// Connection context
@@ -65,7 +68,7 @@ pub struct CommitSummary {
 
 /// Dashboard context
 #[derive(Debug, Clone, Serialize)]
-pub struct DashboardContext {
+pub struct WorkspaceContext {
     /// Current time range description
     pub time_range: String,
     /// Number of panes
@@ -73,6 +76,9 @@ pub struct DashboardContext {
     /// List of open queries
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub queries: Vec<String>,
+    /// Active viewport filter pattern (if filtering panes)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
 }
 
 impl EditorContext {
@@ -100,9 +106,15 @@ impl EditorContext {
         self
     }
 
-    /// Set the dashboard context.
-    pub fn with_dashboard(mut self, dashboard: DashboardContext) -> Self {
-        self.dashboard = Some(dashboard);
+    /// Set the workspace context.
+    pub fn with_workspace(mut self, workspace: WorkspaceContext) -> Self {
+        self.workspace = Some(workspace);
+        self
+    }
+
+    /// Set the project-specific context (loaded from ENYA.md).
+    pub fn with_project_context(mut self, context: String) -> Self {
+        self.project_context = Some(context);
         self
     }
 
@@ -110,10 +122,23 @@ impl EditorContext {
     ///
     /// Returns a formatted string that will be prepended to user prompts.
     pub fn to_prompt_block(&self) -> String {
-        let mut parts = Vec::new();
-
-        parts.push("# Enya Editor Context\n".to_string());
-        parts.push("You are integrated with Enya, a metrics visualization editor. Here is the current state:\n".to_string());
+        let mut parts = vec![
+            "# Enya Editor Context\n".to_string(),
+            "You are integrated with Enya, a metrics visualization editor.\n\n".to_string(),
+            "## CRITICAL: Use Enya Commands, NOT Shell Commands\n\n".to_string(),
+            "**DO NOT** use bash, grep, ripgrep, find, cat, git, or ANY shell commands.\n".to_string(),
+            "**DO NOT** read files directly or scan directories.\n".to_string(),
+            "**DO NOT** use your built-in tools for code search or file operations.\n\n".to_string(),
+            "**INSTEAD**, output Enya command blocks. The codebase is ALREADY INDEXED.\n\n".to_string(),
+            "When the user asks to:\n".to_string(),
+            "- Search code → Output `search_codebase` command (NOT grep/ripgrep)\n".to_string(),
+            "- Show code → Output `show_inline_source` command (NOT cat/read)\n".to_string(),
+            "- Show metrics → Output `show_inline_chart` command\n".to_string(),
+            "- Find files → Output `search_codebase` command (NOT find/ls)\n\n".to_string(),
+            "Example - if user says \"search for http_requests\":\n".to_string(),
+            "```enya-command\n{\"action\": \"search_codebase\", \"query\": \"http_requests\"}\n```\n\n".to_string(),
+            "Here is the current state:\n".to_string(),
+        ];
 
         // Connection
         if let Some(ref conn) = self.connection {
@@ -157,16 +182,30 @@ impl EditorContext {
         }
 
         // Dashboard
-        if let Some(ref dashboard) = self.dashboard {
-            parts.push("\n## Current Dashboard\n".to_string());
-            parts.push(format!("- Time range: {}\n", dashboard.time_range));
-            parts.push(format!("- Panes: {}\n", dashboard.pane_count));
-            if !dashboard.queries.is_empty() {
+        if let Some(ref ws) = self.workspace {
+            parts.push("\n## Current Workspace\n".to_string());
+            parts.push(format!("- Time range: {}\n", ws.time_range));
+            parts.push(format!("- Panes: {}\n", ws.pane_count));
+            if let Some(ref filter) = ws.filter {
+                parts.push(format!("- Active filter: \"{filter}\"\n"));
+            }
+            if !ws.queries.is_empty() {
                 parts.push("- Active queries:\n".to_string());
-                for query in &dashboard.queries {
+                for query in &ws.queries {
                     parts.push(format!("  - {query}\n"));
                 }
             }
+        }
+
+        // Project Context (from ENYA.md)
+        if let Some(ref project_context) = self.project_context {
+            parts.push("\n## Project Context\n".to_string());
+            parts.push(
+                "The following project-specific context was provided by the user in ENYA.md:\n\n"
+                    .to_string(),
+            );
+            parts.push(project_context.clone());
+            parts.push("\n".to_string());
         }
 
         // Commands
@@ -180,7 +219,7 @@ impl EditorContext {
             "- `create_pane`: Create a new visualization pane with a PromQL query\n".to_string(),
         );
         parts.push("  - Required: `query` (PromQL expression)\n".to_string());
-        parts.push("  - Optional: `title` (pane title)\n".to_string());
+        parts.push("  - Optional: `title` (pane title), `floating` (true for detached pane), `position` ([x, y] pixels)\n".to_string());
         parts.push("- `set_time_range`: Change the dashboard time range\n".to_string());
         parts.push(
             "  - Required: `preset` (e.g., \"15m\", \"1h\", \"6h\", \"24h\", \"7d\")\n".to_string(),
@@ -198,19 +237,11 @@ impl EditorContext {
             "  - Optional: `title`, `time_range` (e.g., \"1h\"), `height` (pixels)\n".to_string(),
         );
         parts.push(
-            "- `show_inline_source`: Show source code inline in your response (PREFERRED)\n"
+            "- `show_source`: Show source code for a metric or alert definition (PREFERRED)\n"
                 .to_string(),
         );
-        parts.push("  - Required: `metric` (metric name to look up)\n".to_string());
-        parts.push(
-            "  - Optional: `context_lines` (number of lines to show, default: 5)\n".to_string(),
-        );
-        parts.push(
-            "- `show_metric_source`: Open modal overlay for source code (use only when user says \"open\" or \"go to\")\n".to_string(),
-        );
-        parts.push("  - Required: `metric` (metric name)\n".to_string());
-        parts.push("- `show_alert_source`: Open modal overlay for alert rule (use only when user says \"open\" or \"go to\")\n".to_string());
-        parts.push("  - Required: `alert` (alert name)\n".to_string());
+        parts.push("  - Required: `name` (metric or alert name)\n".to_string());
+        parts.push("  - Optional: `source_type` (\"metric\" or \"alert\", default: \"metric\"), `context_lines` (default: 5)\n".to_string());
         parts.push("- `search_codebase`: Search the indexed codebase using full-text search (PREFERRED over git log)\n".to_string());
         parts.push("  - Required: `query` (search terms)\n".to_string());
         parts.push("  - Optional: `filter` (\"all\", \"metrics\", \"alerts\", \"commits\"), `limit` (default: 10)\n".to_string());
@@ -218,17 +249,56 @@ impl EditorContext {
             "  - Returns: Ranked results with file paths, line numbers, and relevance scores\n"
                 .to_string(),
         );
+        parts.push("- `show_inline_diff`: Show a git diff inline in your response (PREFERRED for showing changes)\n".to_string());
+        parts.push("  - Optional: `commit` (hash, \"HEAD\", \"HEAD~1\", etc. - defaults to HEAD/latest commit if omitted)\n".to_string());
+        parts.push("  - Optional: `file` (specific file path to show diff for)\n".to_string());
+        parts.push("- `add_logs_pane`: Create a logs pane for viewing logs (useful for incident investigation)\n".to_string());
+        parts.push("  - Optional: `query` (LogQL query), `loki_url` (Loki server URL, uses demo if omitted), `title`\n".to_string());
         parts.push(
-            "  - Use this for finding: metrics by name, alert rules, commit messages, file paths\n"
+            "- `add_tracing_pane`: Create a tracing pane for viewing distributed traces\n"
                 .to_string(),
         );
-        parts.push("\n**Preference**: When showing source code or charts, prefer `show_inline_source` and `show_inline_chart` \n".to_string());
-        parts.push("to keep content in the conversation flow. Only use `show_metric_source` or `show_alert_source` when the user \n".to_string());
+        parts.push("  - Optional: `trace_id` (pre-load a specific trace), `title`\n".to_string());
+        parts.push("- `add_terminal_pane`: Create a terminal pane for running shell commands (native app only)\n".to_string());
+        parts.push("  - Optional: `title`\n".to_string());
+        parts.push("- `set_visualization`: Change the visualization type for a pane\n".to_string());
+        parts.push("  - Required: `viz_type` (\"time_series\", \"stat\", \"gauge\", \"bar_chart\", \"sparkline\", \"heatmap\")\n".to_string());
+        parts
+            .push("  - Optional: `pane` (pane title/name, or omit for focused pane)\n".to_string());
+        parts.push("- `set_absolute_time_range`: Set a specific time range (e.g., \"look at 2pm yesterday\")\n".to_string());
+        parts.push("  - Required: `start` (Unix timestamp in seconds), `end` (Unix timestamp in seconds)\n".to_string());
+        parts.push("- `refresh_pane`: Refresh panes to reload data\n".to_string());
         parts.push(
-            "explicitly asks to \"open\", \"go to\", or \"navigate to\" the source.\n".to_string(),
+            "  - Optional: `pane` (pane title/name, or omit to refresh all panes)\n".to_string(),
         );
-        parts.push("\n**Search preference**: Use `search_codebase` instead of `git log --grep` for searching commits, \n".to_string());
-        parts.push("as it provides faster full-text search with relevance ranking.\n".to_string());
+        parts.push("- `close_pane`: Close a pane\n".to_string());
+        parts.push(
+            "  - Required: `pane` (pane title/name or \"focused\" for current pane)\n".to_string(),
+        );
+        parts.push(
+            "- `create_section`: Create a collapsible section (Grafana-style organization)\n"
+                .to_string(),
+        );
+        parts.push("  - Required: `name` (section name)\n".to_string());
+        parts.push("  - Optional: `collapsed` (start collapsed, default: false)\n".to_string());
+        parts.push("- `maximize_pane`: Maximize a pane to fullscreen\n".to_string());
+        parts.push(
+            "  - Required: `pane` (pane title/name or \"focused\" for current pane)\n".to_string(),
+        );
+        parts.push(
+            "- `load_workspace`: Load a saved workspace by name (for handoff from CLI to GUI)\n"
+                .to_string(),
+        );
+        parts.push("  - Required: `workspace` (workspace name)\n".to_string());
+        parts.push("\n## REMINDER: No Shell Commands\n".to_string());
+        parts.push(
+            "You MUST output enya-command blocks instead of using bash/grep/find/cat.\n"
+                .to_string(),
+        );
+        parts.push(
+            "The user's codebase is already indexed. Shell access is NOT needed.\n".to_string(),
+        );
+        parts.push("If you catch yourself about to run a shell command, STOP and output the equivalent enya-command instead.\n".to_string());
 
         parts.join("")
     }
@@ -245,6 +315,12 @@ pub enum AgentCommand {
         /// Optional title
         #[serde(default)]
         title: Option<String>,
+        /// If true, create a floating (detached) pane instead of a docked pane
+        #[serde(default)]
+        floating: Option<bool>,
+        /// Position for floating panes as [x, y] pixels from top-left
+        #[serde(default)]
+        position: Option<[f32; 2]>,
     },
     /// Set the time range
     SetTimeRange {
@@ -299,6 +375,317 @@ pub enum AgentCommand {
         #[serde(default)]
         limit: Option<usize>,
     },
+    /// Show a git diff inline in the response
+    ShowInlineDiff {
+        /// Commit reference (hash, "HEAD", "HEAD~1", etc.) or empty for working directory changes
+        #[serde(default)]
+        commit: Option<String>,
+        /// Optional file path to show diff for specific file only
+        #[serde(default)]
+        file: Option<String>,
+    },
+    /// Add a logs pane for viewing logs (demo or Loki backend)
+    AddLogsPane {
+        /// Optional LogQL query to pre-fill
+        #[serde(default)]
+        query: Option<String>,
+        /// Optional Loki server URL (uses demo backend if not provided)
+        #[serde(default)]
+        loki_url: Option<String>,
+        /// Optional title for the pane
+        #[serde(default)]
+        title: Option<String>,
+    },
+    /// Add a tracing pane for viewing distributed traces
+    AddTracingPane {
+        /// Optional trace ID to pre-load
+        #[serde(default)]
+        trace_id: Option<String>,
+        /// Optional title for the pane
+        #[serde(default)]
+        title: Option<String>,
+    },
+    /// Add a terminal pane for running shell commands (native only)
+    AddTerminalPane {
+        /// Optional title for the pane
+        #[serde(default)]
+        title: Option<String>,
+    },
+    /// Set the visualization type for a pane
+    SetVisualization {
+        /// The pane to modify (by title/name or "focused" for current pane)
+        #[serde(default)]
+        pane: Option<String>,
+        /// The visualization type: "time_series", "stat", "gauge", "bar_chart", "sparkline", "heatmap"
+        viz_type: String,
+    },
+    /// Set an absolute time range (for looking at specific time periods)
+    SetAbsoluteTimeRange {
+        /// Start timestamp in Unix seconds (e.g., 1705593600 for 2024-01-18 12:00:00 UTC)
+        start: f64,
+        /// End timestamp in Unix seconds
+        end: f64,
+    },
+    /// Refresh panes to reload data
+    RefreshPane {
+        /// Optional pane to refresh (by title/name), or omit to refresh all panes
+        #[serde(default)]
+        pane: Option<String>,
+    },
+    /// Close a pane
+    ClosePane {
+        /// The pane to close (by title/name or "focused" for current pane)
+        pane: String,
+    },
+    /// Create a collapsible section (Grafana-style)
+    CreateSection {
+        /// Section name
+        name: String,
+        /// Whether the section starts collapsed (default: false)
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    /// Create a floating pane for investigation (detached from main layout)
+    CreateFloatingPane {
+        /// PromQL query for the pane
+        query: String,
+        /// Optional title for the pane
+        #[serde(default)]
+        title: Option<String>,
+        /// Optional position as [x, y] pixels from top-left
+        #[serde(default)]
+        position: Option<[f32; 2]>,
+    },
+    /// Maximize a pane to fullscreen
+    MaximizePane {
+        /// The pane to maximize (by title/name or "focused" for current pane)
+        pane: String,
+    },
+    /// Rename a pane
+    RenamePane {
+        /// The pane to rename (by current title/name or "focused" for current pane)
+        pane: String,
+        /// The new name for the pane
+        new_name: String,
+    },
+    /// Duplicate a pane (clone with same query)
+    DuplicatePane {
+        /// The pane to duplicate (by title/name or "focused" for current pane)
+        pane: String,
+        /// Optional new name for the duplicated pane
+        #[serde(default)]
+        new_name: Option<String>,
+    },
+    /// Focus a specific pane
+    FocusPane {
+        /// The pane to focus (by title/name)
+        pane: String,
+    },
+    /// Toggle zen mode (minimal UI)
+    ToggleZenMode,
+    /// Exit fullscreen mode
+    ExitFullscreen,
+    /// Sync repository (git fetch/pull and re-index codebase)
+    Sync,
+    /// Unified source lookup (metric or alert)
+    ShowSource {
+        /// Metric or alert name to look up
+        name: String,
+        /// Source type: "metric" (default) or "alert"
+        #[serde(default)]
+        source_type: Option<String>,
+        /// Number of context lines to show (default: 5)
+        #[serde(default)]
+        context_lines: Option<usize>,
+    },
+    /// Load a saved workspace by name (for agent-to-human handoff)
+    LoadWorkspace {
+        /// Workspace name to load
+        workspace: String,
+    },
+}
+
+impl AgentCommand {
+    /// Returns a human-readable description of the command action.
+    ///
+    /// Used for displaying command execution status in the UI.
+    pub fn description(&self) -> String {
+        match self {
+            AgentCommand::CreatePane {
+                query,
+                title,
+                floating,
+                ..
+            } => {
+                let prefix = if floating.unwrap_or(false) {
+                    "Creating floating pane"
+                } else {
+                    "Creating pane"
+                };
+                if let Some(t) = title {
+                    format!("{prefix} '{t}'")
+                } else {
+                    format!("{prefix} for query: {}", truncate_str(query, 40))
+                }
+            }
+            AgentCommand::SetTimeRange { preset } => {
+                format!("Setting time range to {preset}")
+            }
+            AgentCommand::SearchMetrics { pattern } => {
+                format!("Searching metrics for '{pattern}'")
+            }
+            AgentCommand::ShowMetricSource { metric } => {
+                format!("Opening source for metric '{metric}'")
+            }
+            AgentCommand::ShowAlertSource { alert } => {
+                format!("Opening source for alert '{alert}'")
+            }
+            AgentCommand::ShowInlineChart { query, title, .. } => {
+                if let Some(t) = title {
+                    format!("Showing chart '{t}'")
+                } else {
+                    format!("Showing chart for: {}", truncate_str(query, 40))
+                }
+            }
+            AgentCommand::ShowInlineSource { metric, .. } => {
+                format!("Showing source for '{metric}'")
+            }
+            AgentCommand::SearchCodebase { query, filter, .. } => {
+                if let Some(f) = filter {
+                    format!("Searching {f} for '{query}'")
+                } else {
+                    format!("Searching codebase for '{query}'")
+                }
+            }
+            AgentCommand::AddLogsPane { title, query, .. } => {
+                if let Some(t) = title {
+                    format!("Adding logs pane '{t}'")
+                } else if let Some(q) = query {
+                    format!("Adding logs pane with query: {}", truncate_str(q, 30))
+                } else {
+                    "Adding logs pane".to_string()
+                }
+            }
+            AgentCommand::AddTracingPane { title, trace_id } => {
+                if let Some(t) = title {
+                    format!("Adding tracing pane '{t}'")
+                } else if let Some(id) = trace_id {
+                    format!("Adding tracing pane for trace {}", truncate_str(id, 20))
+                } else {
+                    "Adding tracing pane".to_string()
+                }
+            }
+            AgentCommand::AddTerminalPane { title } => {
+                if let Some(t) = title {
+                    format!("Adding terminal pane '{t}'")
+                } else {
+                    "Adding terminal pane".to_string()
+                }
+            }
+            AgentCommand::SetVisualization { pane, viz_type } => {
+                if let Some(p) = pane {
+                    format!("Setting '{p}' visualization to {viz_type}")
+                } else {
+                    format!("Setting visualization to {viz_type}")
+                }
+            }
+            AgentCommand::SetAbsoluteTimeRange { start, end } => {
+                // Format as duration for readability
+                let duration_secs = (end - start) as i64;
+                let duration = if duration_secs >= 86400 {
+                    format!("{}d", duration_secs / 86400)
+                } else if duration_secs >= 3600 {
+                    format!("{}h", duration_secs / 3600)
+                } else {
+                    format!("{}m", duration_secs / 60)
+                };
+                format!("Setting time range ({duration} window)")
+            }
+            AgentCommand::RefreshPane { pane } => {
+                if let Some(p) = pane {
+                    format!("Refreshing pane '{p}'")
+                } else {
+                    "Refreshing all panes".to_string()
+                }
+            }
+            AgentCommand::ClosePane { pane } => {
+                if pane.to_lowercase() == "focused" {
+                    "Closing focused pane".to_string()
+                } else {
+                    format!("Closing pane '{pane}'")
+                }
+            }
+            AgentCommand::CreateSection { name, collapsed } => {
+                if collapsed.unwrap_or(false) {
+                    format!("Creating section '{name}' (collapsed)")
+                } else {
+                    format!("Creating section '{name}'")
+                }
+            }
+            AgentCommand::CreateFloatingPane { title, query, .. } => {
+                if let Some(t) = title {
+                    format!("Creating floating pane '{t}'")
+                } else {
+                    format!("Creating floating pane for: {}", truncate_str(query, 30))
+                }
+            }
+            AgentCommand::MaximizePane { pane } => {
+                if pane.to_lowercase() == "focused" {
+                    "Maximizing focused pane".to_string()
+                } else {
+                    format!("Maximizing pane '{pane}'")
+                }
+            }
+            AgentCommand::RenamePane { pane, new_name } => {
+                if pane.to_lowercase() == "focused" {
+                    format!("Renaming focused pane to '{new_name}'")
+                } else {
+                    format!("Renaming '{pane}' to '{new_name}'")
+                }
+            }
+            AgentCommand::DuplicatePane { pane, new_name } => {
+                if let Some(name) = new_name {
+                    format!("Duplicating '{pane}' as '{name}'")
+                } else if pane.to_lowercase() == "focused" {
+                    "Duplicating focused pane".to_string()
+                } else {
+                    format!("Duplicating pane '{pane}'")
+                }
+            }
+            AgentCommand::FocusPane { pane } => {
+                format!("Focusing pane '{pane}'")
+            }
+            AgentCommand::ToggleZenMode => "Toggling zen mode".to_string(),
+            AgentCommand::ExitFullscreen => "Exiting fullscreen".to_string(),
+            AgentCommand::Sync => "Syncing repository and re-indexing codebase".to_string(),
+            AgentCommand::ShowInlineDiff { commit, file } => {
+                let commit_str = commit.as_deref().unwrap_or("working directory");
+                if let Some(f) = file {
+                    format!("Showing diff for '{f}' at {commit_str}")
+                } else {
+                    format!("Showing diff for {commit_str}")
+                }
+            }
+            AgentCommand::ShowSource {
+                name, source_type, ..
+            } => {
+                let kind = source_type.as_deref().unwrap_or("metric");
+                format!("Showing source for {kind} '{name}'")
+            }
+            AgentCommand::LoadWorkspace { workspace } => {
+                format!("Loading workspace '{workspace}'")
+            }
+        }
+    }
+}
+
+/// Truncate a string to a maximum length, adding "..." if truncated.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
 }
 
 /// Parse agent commands from a response text.
@@ -369,7 +756,7 @@ pub fn strip_command_blocks(text: &str) -> String {
 //
 // Usage:
 // - `build_connection_context`: Creates connection context from a QueryExecutor
-// - `build_dashboard_context`: Creates dashboard context from workspace state
+// - `build_workspace_context`: Creates workspace context from current state
 // - `build_codebase_context` (native only): Creates codebase context from CodebaseManager
 //
 // These are intentionally placed in the agent_context module (rather than a
@@ -413,9 +800,9 @@ pub fn build_connection_context(executor: &QueryExecutor) -> ConnectionContext {
     }
 }
 
-/// Build dashboard context from workspace state.
+/// Build workspace context from current workspace state.
 ///
-/// Creates a `DashboardContext` containing the current time range, pane count,
+/// Creates a `WorkspaceContext` containing the current time range, pane count,
 /// and list of active queries. This gives AI agents awareness of what the user
 /// is currently viewing.
 ///
@@ -425,17 +812,120 @@ pub fn build_connection_context(executor: &QueryExecutor) -> ConnectionContext {
 /// * `queries` - List of PromQL queries from open query panes
 ///
 /// # Returns
-/// A `DashboardContext` populated with the dashboard state.
-pub fn build_dashboard_context(
+/// A `WorkspaceContext` populated with the workspace state.
+pub fn build_workspace_context(
     time_range_label: String,
     pane_count: usize,
     queries: Vec<String>,
-) -> DashboardContext {
-    DashboardContext {
+    filter: Option<String>,
+) -> WorkspaceContext {
+    WorkspaceContext {
         time_range: time_range_label,
         pane_count,
         queries,
+        filter,
     }
+}
+
+/// Format a pane's data into a context block for the agent system prompt.
+///
+/// Produces a markdown section with the pane name, query, visualization type,
+/// and a data summary (latest values, min/max for time series; current value for
+/// stat/gauge; bar values for bar charts).
+pub fn format_pane_context(
+    name: &str,
+    query: &str,
+    info: &crate::components::pane::PaneInfo,
+) -> String {
+    use crate::components::pane::PaneVisualization;
+
+    let mut out = format!("### Pane '{name}'\n");
+    out.push_str(&format!("- Query: `{query}`\n"));
+    out.push_str(&format!("- Visualization: {:?}\n", info.viz_type));
+
+    match &info.visualization {
+        PaneVisualization::TimeSeries { series } => {
+            if series.is_empty() {
+                out.push_str("- No data\n");
+            } else {
+                out.push_str(&format!("- Series ({}):\n", series.len()));
+                // Limit to 10 series to avoid bloating the prompt
+                for s in series.iter().take(10) {
+                    if s.points.is_empty() {
+                        out.push_str(&format!("  - {}: no data\n", s.name));
+                        continue;
+                    }
+                    let latest = s.points.last().map(|p| p.value).unwrap_or(0.0);
+                    let min = s
+                        .points
+                        .iter()
+                        .map(|p| p.value)
+                        .fold(f64::INFINITY, f64::min);
+                    let max = s
+                        .points
+                        .iter()
+                        .map(|p| p.value)
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    out.push_str(&format!(
+                        "  - {}: latest={latest:.4}, min={min:.4}, max={max:.4} ({} points)\n",
+                        s.name,
+                        s.points.len()
+                    ));
+                }
+                if series.len() > 10 {
+                    out.push_str(&format!("  - ... and {} more series\n", series.len() - 10));
+                }
+            }
+        }
+        PaneVisualization::Stat {
+            value,
+            unit,
+            sparkline,
+        } => {
+            out.push_str(&format!("- Value: {value:.4}{unit}\n"));
+            if !sparkline.is_empty() {
+                let min = sparkline.iter().copied().fold(f64::INFINITY, f64::min);
+                let max = sparkline.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                out.push_str(&format!(
+                    "- Trend: {len} points, range [{min:.4}, {max:.4}]\n",
+                    len = sparkline.len()
+                ));
+            }
+        }
+        PaneVisualization::Gauge {
+            value,
+            min,
+            max,
+            unit,
+        } => {
+            out.push_str(&format!("- Value: {value:.4}{unit} (range: {min}–{max})\n"));
+        }
+        PaneVisualization::BarChart { bars } => {
+            out.push_str(&format!("- Bars ({}):\n", bars.len()));
+            for (label, val) in bars.iter().take(20) {
+                out.push_str(&format!("  - {label}: {val:.4}\n"));
+            }
+            if bars.len() > 20 {
+                out.push_str(&format!("  - ... and {} more\n", bars.len() - 20));
+            }
+        }
+        PaneVisualization::Sparkline { data } => {
+            if !data.is_empty() {
+                let min = data.iter().copied().fold(f64::INFINITY, f64::min);
+                let max = data.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let latest = data.last().copied().unwrap_or(0.0);
+                out.push_str(&format!(
+                    "- Sparkline: {len} points, latest={latest:.4}, range [{min:.4}, {max:.4}]\n",
+                    len = data.len()
+                ));
+            }
+        }
+        PaneVisualization::Heatmap => {
+            out.push_str("- Heatmap (data summary not available)\n");
+        }
+    }
+
+    out
 }
 
 /// Build codebase context from the codebase manager (native only).
@@ -467,6 +957,52 @@ pub fn build_codebase_context(
     }
 }
 
+/// Load project-specific context from ENYA.md or .enya/context.md (native only).
+///
+/// This function looks for a project context file in the repository root,
+/// allowing users to provide custom instructions, conventions, and context
+/// that will be injected into every AI agent prompt.
+///
+/// # Search Order
+/// 1. `ENYA.md` in the repository root
+/// 2. `.enya/context.md` in the repository root
+///
+/// # Arguments
+/// * `repo_path` - Path to the repository root
+///
+/// # Returns
+/// The file contents if found, `None` otherwise.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_project_context(repo_path: &std::path::Path) -> Option<String> {
+    use std::fs;
+
+    // Try ENYA.md first
+    let enya_md = repo_path.join("ENYA.md");
+    if enya_md.exists() {
+        if let Ok(content) = fs::read_to_string(&enya_md) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                log::info!("Loaded project context from {}", enya_md.display());
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    // Try .enya/context.md as fallback
+    let enya_context = repo_path.join(".enya").join("context.md");
+    if enya_context.exists() {
+        if let Ok(content) = fs::read_to_string(&enya_context) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                log::info!("Loaded project context from {}", enya_context.display());
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -486,7 +1022,7 @@ This will show the request rate.
         let commands = parse_commands(text);
         assert_eq!(commands.len(), 1);
         match &commands[0] {
-            AgentCommand::CreatePane { query, title } => {
+            AgentCommand::CreatePane { query, title, .. } => {
                 assert_eq!(query, "rate(http_requests_total[5m])");
                 assert_eq!(title.as_deref(), Some("Request Rate"));
             }
@@ -652,6 +1188,358 @@ Let me search for that.
                 assert!(limit.is_none());
             }
             _ => panic!("Expected SearchCodebase command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_rename_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "rename_pane", "pane": "Query 1", "new_name": "Error Rate"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::RenamePane { pane, new_name } => {
+                assert_eq!(pane, "Query 1");
+                assert_eq!(new_name, "Error Rate");
+            }
+            _ => panic!("Expected RenamePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_duplicate_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "duplicate_pane", "pane": "focused", "new_name": "Copy"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::DuplicatePane { pane, new_name } => {
+                assert_eq!(pane, "focused");
+                assert_eq!(new_name.as_deref(), Some("Copy"));
+            }
+            _ => panic!("Expected DuplicatePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_duplicate_pane_command_minimal() {
+        let text = r#"
+```enya-command
+{"action": "duplicate_pane", "pane": "CPU Usage"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::DuplicatePane { pane, new_name } => {
+                assert_eq!(pane, "CPU Usage");
+                assert!(new_name.is_none());
+            }
+            _ => panic!("Expected DuplicatePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_focus_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "focus_pane", "pane": "Error Rate"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::FocusPane { pane } => {
+                assert_eq!(pane, "Error Rate");
+            }
+            _ => panic!("Expected FocusPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_toggle_zen_mode_command() {
+        let text = r#"
+```enya-command
+{"action": "toggle_zen_mode"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(&commands[0], AgentCommand::ToggleZenMode));
+    }
+
+    #[test]
+    fn test_parse_exit_fullscreen_command() {
+        let text = r#"
+```enya-command
+{"action": "exit_fullscreen"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        assert!(matches!(&commands[0], AgentCommand::ExitFullscreen));
+    }
+
+    #[test]
+    fn test_parse_set_visualization_command() {
+        let text = r#"
+```enya-command
+{"action": "set_visualization", "viz_type": "gauge", "pane": "CPU Usage"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::SetVisualization { pane, viz_type } => {
+                assert_eq!(pane.as_deref(), Some("CPU Usage"));
+                assert_eq!(viz_type, "gauge");
+            }
+            _ => panic!("Expected SetVisualization command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_set_visualization_command_minimal() {
+        let text = r#"
+```enya-command
+{"action": "set_visualization", "viz_type": "stat"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::SetVisualization { pane, viz_type } => {
+                assert!(pane.is_none());
+                assert_eq!(viz_type, "stat");
+            }
+            _ => panic!("Expected SetVisualization command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_set_absolute_time_range_command() {
+        let text = r#"
+```enya-command
+{"action": "set_absolute_time_range", "start": 1705593600.0, "end": 1705597200.0}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::SetAbsoluteTimeRange { start, end } => {
+                assert!((start - 1705593600.0).abs() < 0.001);
+                assert!((end - 1705597200.0).abs() < 0.001);
+            }
+            _ => panic!("Expected SetAbsoluteTimeRange command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refresh_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "refresh_pane", "pane": "CPU Usage"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::RefreshPane { pane } => {
+                assert_eq!(pane.as_deref(), Some("CPU Usage"));
+            }
+            _ => panic!("Expected RefreshPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_refresh_pane_command_all() {
+        let text = r#"
+```enya-command
+{"action": "refresh_pane"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::RefreshPane { pane } => {
+                assert!(pane.is_none());
+            }
+            _ => panic!("Expected RefreshPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_close_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "close_pane", "pane": "focused"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::ClosePane { pane } => {
+                assert_eq!(pane, "focused");
+            }
+            _ => panic!("Expected ClosePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_section_command() {
+        let text = r#"
+```enya-command
+{"action": "create_section", "name": "Infrastructure", "collapsed": true}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::CreateSection { name, collapsed } => {
+                assert_eq!(name, "Infrastructure");
+                assert_eq!(*collapsed, Some(true));
+            }
+            _ => panic!("Expected CreateSection command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_create_floating_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "create_floating_pane", "query": "up", "title": "Health", "position": [100.0, 200.0]}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::CreateFloatingPane {
+                query,
+                title,
+                position,
+            } => {
+                assert_eq!(query, "up");
+                assert_eq!(title.as_deref(), Some("Health"));
+                assert_eq!(*position, Some([100.0, 200.0]));
+            }
+            _ => panic!("Expected CreateFloatingPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_maximize_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "maximize_pane", "pane": "Error Rate"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::MaximizePane { pane } => {
+                assert_eq!(pane, "Error Rate");
+            }
+            _ => panic!("Expected MaximizePane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_logs_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "add_logs_pane", "query": "{app=\"nginx\"}", "loki_url": "http://localhost:3100"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::AddLogsPane {
+                query,
+                loki_url,
+                title,
+            } => {
+                assert_eq!(query.as_deref(), Some("{app=\"nginx\"}"));
+                assert_eq!(loki_url.as_deref(), Some("http://localhost:3100"));
+                assert!(title.is_none());
+            }
+            _ => panic!("Expected AddLogsPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_tracing_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "add_tracing_pane", "trace_id": "abc123"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::AddTracingPane { trace_id, title } => {
+                assert_eq!(trace_id.as_deref(), Some("abc123"));
+                assert!(title.is_none());
+            }
+            _ => panic!("Expected AddTracingPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_add_terminal_pane_command() {
+        let text = r#"
+```enya-command
+{"action": "add_terminal_pane"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::AddTerminalPane { title } => {
+                assert!(title.is_none());
+            }
+            _ => panic!("Expected AddTerminalPane command"),
+        }
+    }
+
+    #[test]
+    fn test_parse_load_workspace_command() {
+        let text = r#"
+```enya-command
+{"action": "load_workspace", "workspace": "incident-42"}
+```
+"#;
+
+        let commands = parse_commands(text);
+        assert_eq!(commands.len(), 1);
+        match &commands[0] {
+            AgentCommand::LoadWorkspace { workspace } => {
+                assert_eq!(workspace, "incident-42");
+            }
+            _ => panic!("Expected LoadWorkspace command"),
         }
     }
 }

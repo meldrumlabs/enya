@@ -1,0 +1,23 @@
+[package]
+name = "enya-logql"
+description = "LogQL parser and autocomplete for Enya"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["logql", "loki", "parser", "autocomplete"]
+categories = ["parsing", "development-tools"]
+
+[dependencies]
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "logql_bench"
+harness = false
+
+[lints]
+workspace = true

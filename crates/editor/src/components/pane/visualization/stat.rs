@@ -2,7 +2,6 @@
 
 use egui::{Color32, RichText, Stroke};
 
-use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 
 use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
@@ -263,14 +262,14 @@ impl StatChart {
     /// Render the stat chart
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         let available_width = ui.available_width();
         let available_height = ui.available_height();
 
         // Scale based on available space
         let base_size = available_width.min(available_height * 1.5);
-        let scale_factor = (base_size / 200.0).clamp(0.8, 2.0);
+        let scale_factor = (base_size / 200.0).clamp(0.5, 2.0);
 
         // Scale text sizes proportionally
         let title_size = (14.0 * scale_factor).clamp(12.0, 20.0);
@@ -336,7 +335,7 @@ impl StatChart {
             // Sparkline at bottom
             if self.show_sparkline && self.sparkline_data.len() >= 2 {
                 ui.add_space(VIZ_PADDING_TOP);
-                let sparkline_width = (available_width * 0.8).clamp(200.0, 500.0);
+                let sparkline_width = (available_width * 0.8).clamp(80.0, 500.0);
                 self.render_sparkline(ui, sparkline_width);
             }
 

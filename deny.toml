@@ -24,6 +24,8 @@ ignore = [
   "RUSTSEC-2026-0002", # lru unsound (via tantivy) - tantivy 0.25.0 pins lru 0.12.5
   # serial port support for embedded terminal - no maintained alternative
   "RUSTSEC-2017-0008", # serial unmaintained (via ghostty terminal emulation)
+  # transitive dependency via structopt/clap_derive - waiting for upstream
+  "RUSTSEC-2024-0370", # proc-macro-error unmaintained
 ]
 
 [bans]
@@ -47,6 +49,7 @@ allow = [
   "ISC",                            # https://www.tldrlegal.com/license/isc-license
   "MIT",                            # https://tldrlegal.com/license/mit-license
   "MPL-2.0",                        # https://www.mozilla.org/en-US/MPL/2.0/FAQ/ - see Q11. Used by webpki-roots on Linux.
+  "OpenSSL",                        # https://www.openssl.org/source/license.html - used by aws-lc-sys (rustls backend)
   "Unicode-3.0",                    # https://www.unicode.org/license.txt
   "Zlib",                           # https://tldrlegal.com/license/zlib-libpng-license-(zlib)
   "CDLA-Permissive-2.0",

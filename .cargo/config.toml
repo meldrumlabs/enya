@@ -15,7 +15,12 @@ rustflags = ["--cfg", "tokio_unstable", "-C", "link-arg=-fuse-ld=mold"]
 
 # Configure getrandom to use JS backend for WASM builds
 [target.wasm32-unknown-unknown]
-rustflags = ["--cfg", "tokio_unstable", "--cfg", "getrandom_backend=\"wasm_js\""]
+rustflags = [
+  "--cfg",
+  "tokio_unstable",
+  "--cfg",
+  "getrandom_backend=\"wasm_js\"",
+]
 
 # Network and registry settings
 [net]

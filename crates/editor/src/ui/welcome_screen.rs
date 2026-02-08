@@ -1,9 +1,9 @@
 use egui::NumExt;
 
-use crate::app::AppState;
+use crate::ui::theme::AppTheme;
 use crate::ui::tinted_logo::get_tinted_logo;
 
-pub fn welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState) {
+pub fn welcome_section_ui(ui: &mut egui::Ui, theme: AppTheme) {
     egui::Frame {
         inner_margin: egui::Margin::same(5),
         ..Default::default()
@@ -20,17 +20,17 @@ pub fn welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState) {
             .auto_shrink(false)
             .show(&mut child_ui, |ui| {
                 ui.set_min_width(MIN_WIDTH);
-                show_welcome_section_ui(ui, app_state);
+                show_welcome_section_ui(ui, theme);
             });
     });
 }
 
-pub fn show_welcome_section_ui(ui: &mut egui::Ui, app_state: &AppState) {
+pub fn show_welcome_section_ui(ui: &mut egui::Ui, theme: AppTheme) {
     ui.vertical_centered_justified(|ui| {
-        let accent = app_state.theme.accent_primary();
+        let accent = theme.accent_primary();
 
         // Get the overlay-blended tinted logo
-        let texture = get_tinted_logo(ui.ctx(), app_state.theme);
+        let texture = get_tinted_logo(ui.ctx(), theme);
         let image = egui::Image::from_texture(egui::load::SizedTexture::from_handle(&texture));
         ui.add(image.max_width(250.0).max_height(250.0));
 

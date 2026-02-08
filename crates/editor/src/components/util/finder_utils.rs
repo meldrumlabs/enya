@@ -9,6 +9,7 @@
 
 use egui::{Color32, Key, RichText, Stroke, TextFormat, text::LayoutJob};
 
+use crate::ui::active_theme::ActiveThemeColors;
 use crate::ui::colors::text_color;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -75,6 +76,23 @@ impl OverlayStyle {
                 color: Color32::from_black_alpha(80), // Deeper shadow for more lift
             },
             inner_highlight,
+        }
+    }
+
+    /// Frosted glass style using active theme colors (builtin or custom)
+    pub fn frosted_glass_active(colors: &ActiveThemeColors) -> Self {
+        Self {
+            bg: colors.overlay_bg,
+            border: colors.overlay_border,
+            corner_radius: 14.0,
+            stroke_width: 1.0,
+            shadow: egui::epaint::Shadow {
+                offset: [0, 8],
+                blur: 32,
+                spread: 0,
+                color: Color32::from_black_alpha(80),
+            },
+            inner_highlight: Some(colors.overlay_highlight),
         }
     }
 
@@ -386,6 +404,19 @@ impl OverlayColors {
             badge_bg: theme.bg_hover(),
         }
     }
+
+    /// Create overlay colors from ActiveThemeColors (for custom themes)
+    pub fn from_active(colors: &ActiveThemeColors) -> Self {
+        Self {
+            text: colors.text_primary,
+            muted_text: colors.text_primary.gamma_multiply(0.6),
+            faint_text: colors.text_primary.gamma_multiply(0.4),
+            accent: colors.accent_hover,
+            separator: colors.border_subtle,
+            elevated_bg: colors.bg_elevated,
+            badge_bg: colors.bg_hover,
+        }
+    }
 }
 
 // =============================================================================
@@ -411,6 +442,53 @@ pub fn draw_separator_colored(ui: &mut egui::Ui, color: Color32) {
         ui.available_rect_before_wrap().x_range(),
         ui.cursor().top(),
         Stroke::new(1.0, color),
+    );
+}
+
+/// Render a keyboard hint with pill badge styling.
+///
+/// This renders a compact key badge followed by a description label,
+/// commonly used in overlay footers to show available keybindings.
+/// Example: `[j/k] nav` or `[Enter] load`
+pub fn render_keyboard_hint_pill(
+    ui: &mut egui::Ui,
+    key: &str,
+    desc: &str,
+    muted_text: Color32,
+    text_col: Color32,
+) {
+    // Key badge with pill background
+    let badge_padding = egui::Vec2::new(6.0, 2.0);
+    let font = typography::monospace(typography::SM);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(key.to_string(), font.clone(), text_col);
+    let badge_size = galley.size() + badge_padding * 2.0;
+
+    let (badge_rect, _) = ui.allocate_exact_size(badge_size, egui::Sense::hover());
+
+    // Draw pill background
+    ui.painter()
+        .rect_filled(badge_rect, 4.0, text_col.gamma_multiply(0.08));
+    // Draw border
+    ui.painter().rect_stroke(
+        badge_rect,
+        4.0,
+        Stroke::new(1.0, text_col.gamma_multiply(0.15)),
+        egui::StrokeKind::Inside,
+    );
+    // Draw key text centered
+    ui.painter().galley(
+        badge_rect.center() - galley.size() / 2.0,
+        galley,
+        text_col.gamma_multiply(0.9),
+    );
+
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new(desc)
+            .color(muted_text)
+            .font(typography::proportional(typography::SM)),
     );
 }
 
@@ -489,6 +567,171 @@ pub fn render_key_badge_large(
         5.0,
         Color32::from_rgba_unmultiplied(255, 255, 255, 20),
     );
+}
+
+// =============================================================================
+// Stat Badge Rendering
+// =============================================================================
+
+/// Render a simple stat badge (e.g., "128 rows", "5 cols").
+///
+/// Uses muted colors from OverlayColors for a subtle appearance.
+pub fn render_stat_badge(ui: &mut egui::Ui, text: &str, colors: &OverlayColors) {
+    egui::Frame::new()
+        .fill(colors.badge_bg)
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new(text)
+                    .color(colors.muted_text)
+                    .font(typography::proportional(typography::XS)),
+            );
+        });
+}
+
+/// Render a stat badge with an icon prefix (e.g., clock icon + "123ms").
+///
+/// The icon is rendered in faint_text color, the value in muted_text.
+pub fn render_stat_badge_with_icon(
+    ui: &mut egui::Ui,
+    icon: &str,
+    value: &str,
+    colors: &OverlayColors,
+) {
+    egui::Frame::new()
+        .fill(colors.badge_bg)
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 3.0;
+                ui.label(RichText::new(icon).color(colors.faint_text).size(10.0));
+                ui.label(
+                    RichText::new(value)
+                        .color(colors.muted_text)
+                        .font(typography::proportional(typography::XS)),
+                );
+            });
+        });
+}
+
+/// Render a colored badge with custom fill and text color.
+///
+/// Useful for diff stats, status indicators, etc. The fill is automatically
+/// made semi-transparent (15% opacity) and a subtle stroke is added.
+pub fn render_colored_badge(ui: &mut egui::Ui, text: &str, color: Color32) {
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.15))
+        .stroke(Stroke::new(1.0, color.gamma_multiply(0.5)))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(6, 2))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).color(color).size(11.0));
+        });
+}
+
+// =============================================================================
+// Split Panel Rendering
+// =============================================================================
+
+/// Render a split-panel header with left and right labels.
+///
+/// Commonly used for diff views to show "staging" vs "production" etc.
+pub fn render_split_header(
+    ui: &mut egui::Ui,
+    left_label: &str,
+    right_label: &str,
+    left_color: Color32,
+    right_color: Color32,
+    separator_color: Color32,
+) {
+    let available_width = ui.available_width();
+    let side_width = (available_width - 12.0) / 2.0;
+
+    ui.horizontal(|ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(side_width, 20.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(8.0);
+                ui.label(RichText::new(left_label).color(left_color).strong());
+            },
+        );
+        ui.add_space(4.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(side_width, 20.0),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.add_space(8.0);
+                ui.label(RichText::new(right_label).color(right_color).strong());
+            },
+        );
+    });
+
+    // Separator below headers
+    ui.painter().hline(
+        ui.available_rect_before_wrap().x_range(),
+        ui.cursor().top(),
+        Stroke::new(1.0, separator_color),
+    );
+    ui.add_space(4.0);
+}
+
+/// Render side-by-side panels with a vertical separator.
+///
+/// Takes closures for rendering the left and right content.
+/// The `id_salt` is used to create unique IDs for scroll areas.
+pub fn render_split_panels<L, R>(
+    ui: &mut egui::Ui,
+    height: f32,
+    separator_color: Color32,
+    id_salt: &str,
+    left_content: L,
+    right_content: R,
+) where
+    L: FnOnce(&mut egui::Ui),
+    R: FnOnce(&mut egui::Ui),
+{
+    let available_width = ui.available_width();
+    let side_width = (available_width - 12.0) / 2.0;
+
+    ui.horizontal(|ui| {
+        // Left panel
+        ui.allocate_ui_with_layout(
+            egui::vec2(side_width, height),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                ui.set_max_width(side_width);
+                egui::ScrollArea::vertical()
+                    .id_salt(format!("{id_salt}_left"))
+                    .auto_shrink([false, false])
+                    .show(ui, left_content);
+            },
+        );
+
+        // Center separator
+        let separator_rect = ui.available_rect_before_wrap();
+        ui.painter().vline(
+            separator_rect.left(),
+            separator_rect.y_range(),
+            Stroke::new(1.0, separator_color),
+        );
+        ui.add_space(4.0);
+
+        // Right panel
+        ui.allocate_ui_with_layout(
+            egui::vec2(side_width, height),
+            egui::Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                ui.set_max_width(side_width);
+                egui::ScrollArea::vertical()
+                    .id_salt(format!("{id_salt}_right"))
+                    .auto_shrink([false, false])
+                    .show(ui, right_content);
+            },
+        );
+    });
 }
 
 /// Draw a semi-transparent backdrop overlay covering the entire screen.

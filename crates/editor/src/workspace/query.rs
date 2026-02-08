@@ -7,7 +7,7 @@
 //! are queried simultaneously, and results are processed as they arrive.
 
 use super::{Workspace, WorkspaceAction};
-use crate::components::util::query_executor::populate_from_response;
+use crate::components::util::query_executor::{populate_from_response, response_to_series};
 use crate::components::{Diagnostic, DiagnosticSource, ExecuteParams, QueryPane, QueryPollResult};
 
 impl Workspace {
@@ -102,6 +102,33 @@ impl Workspace {
         // 1. Poll for ALL completed query results (parallel execution)
         let completed_results = self.query_executor.poll_all();
         for (pane_id, poll_result) in completed_results {
+            // Check if this is a pending inline chart query
+            if let Some(idx) = self
+                .pending_inline_charts
+                .iter()
+                .position(|p| p.query_id == pane_id)
+            {
+                let pending = self.pending_inline_charts.remove(idx);
+                match poll_result {
+                    QueryPollResult::Complete { response, .. } => {
+                        use crate::components::pane::inline_content::InlineContent;
+                        let series = response_to_series(&response);
+                        let chart = crate::components::pane::inline_content::InlineChart {
+                            title: pending.title,
+                            series,
+                            height: pending.height,
+                        };
+                        self.inject_inline_content_to_agent_pane(InlineContent::Chart(chart));
+                        log::info!("Inline chart completed with real data");
+                    }
+                    QueryPollResult::Error(error) => {
+                        log::warn!("Inline chart query failed: {error}");
+                    }
+                    QueryPollResult::Pending => {}
+                }
+                continue;
+            }
+
             // Find the pane by its component ID
             let mut pane_found = false;
             for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {

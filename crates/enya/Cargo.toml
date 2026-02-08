@@ -1,0 +1,36 @@
+[package]
+name = "enya"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Observability editor for humans, machines, and AI agents"
+
+[[bin]]
+name = "enya"
+path = "src/main.rs"
+
+[features]
+default = ["ui"]
+ui = ["dep:enya-editor", "dep:mimalloc"]
+sql = ["enya-headless/sql"]
+serve = ["enya-agent/serve"]
+
+[dependencies]
+enya-headless = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+console = { workspace = true }
+serde_json = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# GUI dependencies (optional, enabled by default via "ui" feature)
+enya-editor = { path = "../editor", optional = true }
+mimalloc = { workspace = true, optional = true }
+
+# Agent (session always available; HTTP server gated behind "serve" feature)
+enya-agent = { workspace = true }
+
+
+[lints]
+workspace = true

@@ -9,10 +9,14 @@ use std::ops::Range;
 use std::path::PathBuf;
 
 use egui::{Color32, Key, RichText, text::LayoutJob};
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 #[cfg(not(target_arch = "wasm32"))]
 use tree_sitter_highlight::{HighlightConfiguration, HighlightEvent, Highlighter};
 
-use crate::ui::colors::text_color;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
@@ -67,6 +71,8 @@ pub enum SourcePreviewResult {
     None,
     /// Overlay was closed.
     Closed,
+    /// An error occurred (e.g., file not found).
+    Error(String),
 }
 
 /// The kind of preview being shown.
@@ -137,6 +143,12 @@ pub struct SourcePreviewOverlay {
     /// Path to the repository root for constructing full paths.
     #[cfg(not(target_arch = "wasm32"))]
     repo_path: PathBuf,
+    /// File opener popup for opening files in external apps.
+    #[cfg(not(target_arch = "wasm32"))]
+    file_opener: FileOpenerPopup,
+    /// Flag to open file opener on next render (triggered by 'o' key).
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_open_file_opener: bool,
 }
 
 impl Default for SourcePreviewOverlay {
@@ -182,12 +194,18 @@ impl SourcePreviewOverlay {
             current_location_index: 0,
             #[cfg(not(target_arch = "wasm32"))]
             repo_path: PathBuf::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            file_opener: FileOpenerPopup::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_open_file_opener: false,
         }
     }
 
     /// Set the theme.
     pub fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
+        #[cfg(not(target_arch = "wasm32"))]
+        self.file_opener.set_theme(theme);
     }
 
     /// Open the overlay.
@@ -494,39 +512,57 @@ impl HttpHandler {
         #[cfg(not(target_arch = "wasm32"))]
         let mut next_location: Option<usize> = None;
 
-        // Handle keyboard input
-        ctx.input(|i| {
-            // Escape to close
-            if i.key_pressed(Key::Escape) {
-                should_close = true;
-            }
-            // Vim-style horizontal scrolling: h/l
-            let scroll_step = 50.0;
-            if i.key_pressed(Key::H) {
-                self.scroll_offset_x = (self.scroll_offset_x - scroll_step).max(0.0);
-            }
-            if i.key_pressed(Key::L) {
-                self.scroll_offset_x += scroll_step;
-            }
+        // Check if file opener is open (to disable other keyboard handling)
+        #[cfg(not(target_arch = "wasm32"))]
+        let file_opener_open = self.file_opener.is_open();
+        #[cfg(target_arch = "wasm32")]
+        let file_opener_open = false;
 
-            // N/P navigation for cycling through multiple locations
-            #[cfg(not(target_arch = "wasm32"))]
-            if self.metric_locations.len() > 1 {
-                // N - next location (vim quickfix-style)
-                if i.key_pressed(Key::N) && !i.modifiers.shift {
-                    next_location =
-                        Some((self.current_location_index + 1) % self.metric_locations.len());
+        // Handle keyboard input - use consume_key to prevent multiple processing
+        // Skip if file opener is open
+        if !file_opener_open {
+            ctx.input_mut(|i| {
+                // Escape to close
+                if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                    should_close = true;
                 }
-                // Shift+N or P - previous location
-                if i.key_pressed(Key::P) || (i.key_pressed(Key::N) && i.modifiers.shift) {
-                    next_location = Some(if self.current_location_index == 0 {
-                        self.metric_locations.len() - 1
-                    } else {
-                        self.current_location_index - 1
-                    });
+
+                // O - open file opener popup (will be handled when button is rendered)
+                #[cfg(not(target_arch = "wasm32"))]
+                if i.consume_key(egui::Modifiers::NONE, Key::O) {
+                    self.pending_open_file_opener = true;
                 }
-            }
-        });
+
+                // Vim-style horizontal scrolling: h/l
+                let scroll_step = 50.0;
+                if i.consume_key(egui::Modifiers::NONE, Key::H) {
+                    self.scroll_offset_x = (self.scroll_offset_x - scroll_step).max(0.0);
+                }
+                if i.consume_key(egui::Modifiers::NONE, Key::L) {
+                    self.scroll_offset_x += scroll_step;
+                }
+
+                // N/P navigation for cycling through multiple locations
+                #[cfg(not(target_arch = "wasm32"))]
+                if self.metric_locations.len() > 1 {
+                    // N - next location (vim quickfix-style)
+                    if i.consume_key(egui::Modifiers::NONE, Key::N) {
+                        next_location =
+                            Some((self.current_location_index + 1) % self.metric_locations.len());
+                    }
+                    // Shift+N or P - previous location
+                    if i.consume_key(egui::Modifiers::NONE, Key::P)
+                        || i.consume_key(egui::Modifiers::SHIFT, Key::N)
+                    {
+                        next_location = Some(if self.current_location_index == 0 {
+                            self.metric_locations.len() - 1
+                        } else {
+                            self.current_location_index - 1
+                        });
+                    }
+                }
+            });
+        }
 
         // Apply location change outside the input closure
         #[cfg(not(target_arch = "wasm32"))]
@@ -546,9 +582,10 @@ impl HttpHandler {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (Custom variant handles plugin colors internally)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let separator_color = self.theme.border_subtle();
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
+                let muted_text = self.theme.text_tertiary();
                 let accent_color = self.theme.accent_hover();
 
                 overlay_style.frame().show(ui, |ui| {
@@ -572,7 +609,22 @@ impl HttpHandler {
                 });
             });
 
+        // Show file opener popup if open (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.file_opener.is_open() {
+            match self.file_opener.show(ctx, self.theme) {
+                FileOpenerResult::Selected(action) => {
+                    if let Some(error) = self.handle_file_opener_action(&action, ctx) {
+                        return SourcePreviewResult::Error(error);
+                    }
+                }
+                FileOpenerResult::Closed | FileOpenerResult::None => {}
+            }
+        }
+
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
             return SourcePreviewResult::Closed;
         }
@@ -580,7 +632,36 @@ impl HttpHandler {
         SourcePreviewResult::None
     }
 
-    fn render_header(&self, ui: &mut egui::Ui, accent_color: Color32, separator_color: Color32) {
+    /// Handle file opener action. Returns an error message if the action failed.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn handle_file_opener_action(
+        &self,
+        action: &FileOpenerAction,
+        ctx: &egui::Context,
+    ) -> Option<String> {
+        match action {
+            FileOpenerAction::OpenIn(app) => {
+                if let Err(e) = app.execute(&self.full_path) {
+                    log::warn!("Failed to open file: {e}");
+                    return Some(e);
+                }
+            }
+            FileOpenerAction::CopyPath => {
+                ctx.copy_text(self.full_path.display().to_string());
+            }
+            FileOpenerAction::CopyRelativePath => {
+                ctx.copy_text(self.relative_path.clone());
+            }
+        }
+        None
+    }
+
+    fn render_header(
+        &mut self,
+        ui: &mut egui::Ui,
+        accent_color: Color32,
+        separator_color: Color32,
+    ) {
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             ui.add_space(16.0);
@@ -611,8 +692,7 @@ impl HttpHandler {
                 }
             }
 
-            // Reserve space for badge (~100px) and margins
-            let max_path_width = ui.available_width() - 120.0;
+            // Truncate path if too long
             let truncated_path = if path_text.chars().count() > 70 {
                 let truncated: String = path_text.chars().take(67).collect();
                 format!("{truncated}...")
@@ -620,19 +700,17 @@ impl HttpHandler {
                 path_text
             };
 
-            ui.add_sized(
-                [max_path_width.max(100.0), ui.spacing().interact_size.y],
-                egui::Label::new(
-                    RichText::new(&truncated_path)
-                        .color(accent_color)
-                        .font(typography::monospace(typography::LG))
-                        .strong(),
-                ),
+            ui.label(
+                RichText::new(&truncated_path)
+                    .color(accent_color)
+                    .font(typography::monospace(typography::LG))
+                    .strong(),
             );
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
 
+                // Type badge first (renders on the right in right_to_left layout)
                 match self.preview_kind {
                     PreviewKind::Metric => {
                         // Metric kind badge
@@ -698,6 +776,38 @@ impl HttpHandler {
                         }
                     }
                 }
+
+                // "Open" dropdown button (native only) - renders to the left of badge
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    ui.add_space(8.0);
+                    let btn = ui.add(
+                        egui::Button::image_and_text(
+                            egui::Image::new(APP_GHOSTTY.as_image_source())
+                                .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                            RichText::new(format!(
+                                "Open {}",
+                                egui_nerdfonts::regular::CHEVRON_DOWN
+                            ))
+                            .size(typography::SM)
+                            .color(self.theme.text_secondary()),
+                        )
+                        .fill(self.theme.bg_elevated())
+                        .stroke(egui::Stroke::new(1.0, self.theme.border_subtle()))
+                        .corner_radius(4.0),
+                    );
+
+                    // Open popup on button click or 'o' key press
+                    if btn.clicked() || self.pending_open_file_opener {
+                        self.pending_open_file_opener = false;
+                        let popup_pos = btn.rect.left_bottom();
+                        self.file_opener.open_with_base(
+                            popup_pos,
+                            std::path::PathBuf::from(&self.relative_path),
+                            Some(self.repo_path.clone()),
+                        );
+                    }
+                }
             });
         });
         ui.add_space(12.0);
@@ -738,7 +848,7 @@ impl HttpHandler {
                 ui.add_space(16.0);
                 ui.label(
                     RichText::new("No source code available")
-                        .color(text_color(self.theme).gamma_multiply(0.5))
+                        .color(self.theme.text_primary().gamma_multiply(0.5))
                         .font(typography::proportional(typography::MD)),
                 );
             });
@@ -831,62 +941,56 @@ impl HttpHandler {
             ui.cursor().top(),
             egui::Stroke::new(1.0, separator_color),
         );
-        ui.add_space(8.0);
-
-        let key_color = self.theme.text_tertiary();
+        ui.add_space(6.0);
 
         match self.preview_kind {
             PreviewKind::Metric => {
                 ui.horizontal(|ui| {
                     ui.add_space(16.0);
 
+                    // Show labels in monospace (like diff_viewer shows file path)
+                    if !self.labels.is_empty() {
+                        ui.label(
+                            RichText::new(self.labels.join(", "))
+                                .color(muted_text)
+                                .font(typography::monospace(typography::SM)),
+                        );
+                    }
+
                     // Show location indicator if multiple locations exist
                     #[cfg(not(target_arch = "wasm32"))]
                     if self.metric_locations.len() > 1 {
+                        if !self.labels.is_empty() {
+                            ui.add_space(12.0);
+                        }
                         ui.label(
                             RichText::new(format!(
                                 "[{}/{}]",
                                 self.current_location_index + 1,
                                 self.metric_locations.len()
                             ))
-                            .color(muted_text)
-                            .font(typography::proportional(typography::MD)),
+                            .color(muted_text.gamma_multiply(0.8))
+                            .font(typography::proportional(typography::SM)),
                         );
-                        ui.add_space(12.0);
-                    }
-
-                    // Show labels if any
-                    if !self.labels.is_empty() {
-                        ui.label(
-                            RichText::new("Labels: ")
-                                .color(key_color)
-                                .font(typography::proportional(typography::MD)),
-                        );
-                        ui.label(
-                            RichText::new(self.labels.join(", "))
-                                .color(text_color(self.theme))
-                                .font(typography::monospace(typography::MD)),
-                        );
-                        ui.add_space(16.0);
                     }
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(16.0);
 
-                        // Show hint with N/P if multiple locations
+                        // Show hint with N/P if multiple locations (using XS for subtlety)
                         #[cfg(not(target_arch = "wasm32"))]
                         let hint = if self.metric_locations.len() > 1 {
-                            "N/P to cycle • Esc to close"
+                            "o open • n/p cycle • Esc"
                         } else {
-                            "Esc to close"
+                            "o open • Esc"
                         };
                         #[cfg(target_arch = "wasm32")]
                         let hint = "Esc to close";
 
                         ui.label(
                             RichText::new(hint)
-                                .color(muted_text)
-                                .font(typography::proportional(typography::MD)),
+                                .color(muted_text.gamma_multiply(0.7))
+                                .font(typography::proportional(typography::XS)),
                         );
                     });
                 });
@@ -897,25 +1001,32 @@ impl HttpHandler {
                 ui.vertical(|ui| {
                     ui.set_max_width(content_width);
 
-                    // Show alert name
+                    // Show alert name on left, hints on right
                     ui.horizontal(|ui| {
                         ui.add_space(16.0);
                         ui.label(
-                            RichText::new("Alert: ")
-                                .color(key_color)
-                                .font(typography::proportional(typography::MD)),
-                        );
-                        ui.label(
                             RichText::new(&self.metric_name)
-                                .color(text_color(self.theme))
-                                .font(typography::monospace(typography::MD))
-                                .strong(),
+                                .color(muted_text)
+                                .font(typography::monospace(typography::SM)),
                         );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.add_space(16.0);
+                            #[cfg(not(target_arch = "wasm32"))]
+                            let hint = "o open • Esc";
+                            #[cfg(target_arch = "wasm32")]
+                            let hint = "Esc to close";
+                            ui.label(
+                                RichText::new(hint)
+                                    .color(muted_text.gamma_multiply(0.7))
+                                    .font(typography::proportional(typography::XS)),
+                            );
+                        });
                     });
 
                     // Show message if available - constrained to popup width
                     if let Some(ref message) = self.alert_message {
-                        ui.add_space(4.0);
+                        ui.add_space(2.0);
                         ui.horizontal(|ui| {
                             ui.add_space(16.0);
                             // Use a fixed max width based on popup size (leave room for margins)
@@ -924,30 +1035,17 @@ impl HttpHandler {
                                 [max_msg_width, ui.spacing().interact_size.y],
                                 egui::Label::new(
                                     RichText::new(message)
-                                        .color(muted_text)
-                                        .font(typography::proportional(typography::SM)),
+                                        .color(muted_text.gamma_multiply(0.6))
+                                        .font(typography::proportional(typography::XS)),
                                 )
                                 .truncate(),
                             );
                         });
                     }
-
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(16.0);
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.add_space(16.0);
-                            ui.label(
-                                RichText::new("Esc to close")
-                                    .color(muted_text)
-                                    .font(typography::proportional(typography::MD)),
-                            );
-                        });
-                    });
                 });
             }
         }
-        ui.add_space(12.0);
+        ui.add_space(8.0);
     }
 
     /// Highlight a line of Rust code using cached tree-sitter spans.
@@ -956,7 +1054,7 @@ impl HttpHandler {
     fn highlight_rust_line(&self, line_num: usize, line: &str) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::MD);
-        let default_color = text_color(self.theme);
+        let default_color = self.theme.text_primary();
 
         // If we have no highlight spans or line offsets, fall back to plain text
         if self.highlight_spans.is_empty() || self.line_offsets.is_empty() {
@@ -1045,7 +1143,7 @@ impl HttpHandler {
     fn highlight_rust_line(&self, _line_num: usize, line: &str) -> LayoutJob {
         let mut job = LayoutJob::default();
         let font_id = typography::monospace(typography::MD);
-        let default_color = text_color(self.theme);
+        let default_color = self.theme.text_primary();
         job.append(line, 0.0, egui::TextFormat::simple(font_id, default_color));
         job
     }

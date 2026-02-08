@@ -8,69 +8,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
-fn main() -> eframe::Result {
-    // Initialize logging. Use RUST_LOG env var to control log levels.
-    // Default: enya_editor=info, everything else=warn (to suppress wgpu noise)
-    // Example: RUST_LOG=enya_editor=debug,warn cargo run
-    simple_logger::SimpleLogger::new()
-        .with_level(log::LevelFilter::Warn)
-        .env()
-        .with_module_level("enya_editor", log::LevelFilter::Info)
-        .init()
-        .unwrap();
-
-    // Create tokio runtime for async operations (AI agent, background tasks)
-    // This runs on background threads, keeping the UI thread responsive
-    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .expect("Failed to create tokio runtime");
-    let async_runtime = enya_editor::AsyncRuntime::new(tokio_runtime.handle().clone());
-
-    // Initialize puffin profiler server when puffin feature is enabled
-    // Connect with puffin_viewer to see profiling data
-    #[cfg(feature = "puffin")]
-    let _puffin_server = {
-        let server_addr = format!("127.0.0.1:{}", puffin_http::DEFAULT_PORT);
-        puffin::set_scopes_on(true);
-        log::info!("Puffin profiler server listening on {server_addr}");
-        puffin_http::Server::new(&server_addr).ok()
-    };
-
-    // Setup a CryptoProvider to be able to use wss connections
-    match rustls::crypto::ring::default_provider().install_default() {
-        Ok(()) => {} // Do nothing crypto provider install successful
-        Err(_) => panic!("failed to install CryptoProvider"),
-    }
-
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1280.0, 800.0])
-            .with_min_inner_size([800.0, 600.0])
-            .with_icon(
-                enya_editor::util::png_to_icon_data(&include_bytes!("../assets/logo.png")[..]), //.expect("Failed to load icon"),
-            )
-            // Custom titlebar with custom traffic light buttons (close/minimize/fullscreen)
-            // drawn in app.rs for seamless theme integration
-            .with_titlebar_shown(false)
-            .with_titlebar_buttons_shown(false)
-            .with_fullsize_content_view(true)
-            // Set app identifier for Wayland and macOS app identification
-            .with_app_id("Enya"),
-        ..Default::default()
-    };
-
-    // Keep the tokio runtime alive for the duration of the app.
-    // Move ownership into the closure so it's dropped when eframe exits.
-    let result = eframe::run_native(
-        "",
-        native_options,
-        Box::new(move |cc| Ok(Box::new(enya_editor::EnyaApp::new(cc, async_runtime)))),
-    );
-
-    drop(tokio_runtime);
-
-    result
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    enya_editor::run_native_app(None)
 }
 
 // When compiling to web using trunk:

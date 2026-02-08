@@ -1,14 +1,25 @@
-//! Inline completion popup for PromQL queries.
+//! Inline completion popup for PromQL and LogQL queries.
 //!
 //! Provides context-aware suggestions while typing queries.
 
 use egui::{Color32, Key};
+use enya_logql::completion as logql_completion;
 use enya_promql::completion as promql_completion;
 
 use crate::ui::palette;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
+
+/// Query language mode for completion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QueryLanguage {
+    /// PromQL (Prometheus Query Language)
+    #[default]
+    PromQL,
+    /// LogQL (Loki Query Language)
+    LogQL,
+}
 
 /// A suggestion item for the completion popup
 #[derive(Debug, Clone)]
@@ -40,6 +51,10 @@ pub enum CompletionKind {
     Duration,
     /// Metric name like node_cpu_seconds_total
     Metric,
+    /// LogQL parser like json, logfmt
+    Parser,
+    /// LogQL stage like line_format, label_format
+    Stage,
 }
 
 impl CompletionKind {
@@ -52,6 +67,8 @@ impl CompletionKind {
             Self::Function => "function",
             Self::Duration => "duration",
             Self::Metric => "metric",
+            Self::Parser => "parser",
+            Self::Stage => "stage",
         }
     }
 
@@ -64,6 +81,8 @@ impl CompletionKind {
             Self::Function => semantic_icons::completion::FUNCTION,
             Self::Duration => semantic_icons::completion::DURATION,
             Self::Metric => semantic_icons::completion::METRIC,
+            Self::Parser => semantic_icons::completion::FUNCTION, // Use function icon for parsers
+            Self::Stage => semantic_icons::completion::OPERATOR,  // Use operator icon for stages
         }
     }
 }
@@ -77,6 +96,13 @@ pub enum CompletionResult {
     Selected(CompletionItem),
     /// User dismissed the popup
     Dismissed,
+}
+
+/// Stored completion context (either PromQL or LogQL).
+#[derive(Debug, Clone)]
+enum CompletionContext {
+    PromQL(promql_completion::Context),
+    LogQL(logql_completion::Context),
 }
 
 /// Inline completion popup for query input
@@ -96,7 +122,9 @@ pub struct QueryCompletion {
     /// Known metric names (for suggesting inside functions)
     known_metrics: Vec<String>,
     /// Current completion context
-    current_context: Option<promql_completion::Context>,
+    current_context: Option<CompletionContext>,
+    /// Query language mode
+    language: QueryLanguage,
 }
 
 impl Default for QueryCompletion {
@@ -116,7 +144,29 @@ impl QueryCompletion {
             known_tag_values: rustc_hash::FxHashMap::default(),
             known_metrics: Vec::new(),
             current_context: None,
+            language: QueryLanguage::PromQL,
         }
+    }
+
+    /// Create a new completion popup for a specific language.
+    pub fn with_language(language: QueryLanguage) -> Self {
+        Self {
+            language,
+            ..Self::new()
+        }
+    }
+
+    /// Set the query language mode.
+    pub fn set_language(&mut self, language: QueryLanguage) {
+        self.language = language;
+        // Clear current context when switching languages
+        self.current_context = None;
+        self.close();
+    }
+
+    /// Get the current query language.
+    pub fn language(&self) -> QueryLanguage {
+        self.language
     }
 
     /// Set the theme
@@ -165,10 +215,99 @@ impl QueryCompletion {
         self.items.clear();
         self.selected_index = 0;
 
-        self.update_promql(input, cursor);
+        match self.language {
+            QueryLanguage::PromQL => self.update_promql(input, cursor),
+            QueryLanguage::LogQL => self.update_logql(input, cursor),
+        }
 
         // Show popup if we have items
         self.is_open = !self.items.is_empty();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Completion helpers - reduce duplication in update_promql/update_logql
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Add a completion item with the given text and kind.
+    fn push_item(&mut self, text: &str, kind: CompletionKind) {
+        self.items.push(CompletionItem {
+            text: text.to_string(),
+            label: text.to_string(),
+            icon: kind.icon(),
+            kind,
+        });
+    }
+
+    /// Add all syntax suggestions as operators.
+    fn push_operators<'a>(&mut self, suggestions: impl Iterator<Item = &'a str>) {
+        for s in suggestions {
+            self.push_item(s, CompletionKind::Operator);
+        }
+    }
+
+    /// Add all syntax suggestions as durations.
+    fn push_durations<'a>(&mut self, suggestions: impl Iterator<Item = &'a str>) {
+        for s in suggestions {
+            self.push_item(s, CompletionKind::Duration);
+        }
+    }
+
+    /// Add known tag keys, optionally filtered by a partial prefix.
+    fn push_tag_keys(&mut self, partial: Option<&str>) {
+        let partial_lower = partial.map(|p| p.to_lowercase());
+        // Collect matching keys first to avoid borrowing issues
+        let matching: Vec<_> = self
+            .known_tag_keys
+            .iter()
+            .filter(|key| {
+                partial_lower
+                    .as_ref()
+                    .is_none_or(|p| key.to_lowercase().starts_with(p))
+            })
+            .cloned()
+            .collect();
+        for key in matching {
+            self.push_item(&key, CompletionKind::TagKey);
+        }
+    }
+
+    /// Add known tag values for a key, optionally filtered by a partial prefix.
+    fn push_tag_values(&mut self, key: &str, partial: &str) {
+        // Collect matching values first to avoid borrowing issues
+        let matching: Vec<_> = self
+            .known_tag_values
+            .get(key)
+            .map(|values| {
+                let partial_lower = partial.to_lowercase();
+                values
+                    .iter()
+                    .filter(|v| partial.is_empty() || v.to_lowercase().starts_with(&partial_lower))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        for value in matching {
+            self.push_item(&value, CompletionKind::TagValue);
+        }
+    }
+
+    /// Add known metrics, optionally filtered by a partial prefix.
+    fn push_metrics(&mut self, partial: Option<&str>) {
+        let partial_lower = partial.map(|p| p.to_lowercase());
+        // Collect matching metrics first to avoid borrowing issues
+        let matching: Vec<_> = self
+            .known_metrics
+            .iter()
+            .filter(|metric| {
+                partial_lower
+                    .as_ref()
+                    .is_none_or(|p| metric.to_lowercase().starts_with(p))
+            })
+            .cloned()
+            .collect();
+        for metric in matching {
+            self.push_item(&metric, CompletionKind::Metric);
+        }
     }
 
     /// Update completion for PromQL mode
@@ -176,40 +315,24 @@ impl QueryCompletion {
         use promql_completion::Context;
 
         let ctx = promql_completion::analyze(input, cursor);
-        self.current_context = Some(ctx.clone());
+        self.current_context = Some(CompletionContext::PromQL(ctx.clone()));
 
-        // Get syntax suggestions from promql
         let suggestions = promql_completion::syntax_suggestions(&ctx);
 
         match &ctx {
             Context::Empty | Context::ExpectExpr => {
-                // Suggest functions/aggregations
                 for s in suggestions {
                     let kind = if enya_promql::is_callable(s) {
                         CompletionKind::Function
                     } else {
                         CompletionKind::Keyword
                     };
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: kind.icon(),
-                        kind,
-                    });
+                    self.push_item(s, kind);
                 }
-                // Also suggest metric names
-                for metric in &self.known_metrics {
-                    self.items.push(CompletionItem {
-                        text: metric.clone(),
-                        label: metric.clone(),
-                        icon: CompletionKind::Metric.icon(),
-                        kind: CompletionKind::Metric,
-                    });
-                }
+                self.push_metrics(None);
             }
 
             Context::InName(partial) => {
-                // Filter functions/keywords by partial match
                 for s in suggestions {
                     let kind = if enya_promql::is_callable(s) {
                         CompletionKind::Function
@@ -218,121 +341,37 @@ impl QueryCompletion {
                     } else {
                         CompletionKind::Operator
                     };
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: kind.icon(),
-                        kind,
-                    });
+                    self.push_item(s, kind);
                 }
-                // Also suggest metric names filtered by partial
-                let partial_lower = partial.to_lowercase();
-                for metric in &self.known_metrics {
-                    if metric.to_lowercase().starts_with(&partial_lower) {
-                        self.items.push(CompletionItem {
-                            text: metric.clone(),
-                            label: metric.clone(),
-                            icon: CompletionKind::Metric.icon(),
-                            kind: CompletionKind::Metric,
-                        });
-                    }
-                }
+                self.push_metrics(Some(partial));
             }
 
             Context::InSelector => {
-                // Suggest label names (no partial typed yet)
                 for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::TagKey.icon(),
-                        kind: CompletionKind::TagKey,
-                    });
+                    self.push_item(s, CompletionKind::TagKey);
                 }
-                // Add all known label names
-                for key in &self.known_tag_keys {
-                    self.items.push(CompletionItem {
-                        text: key.clone(),
-                        label: key.clone(),
-                        icon: CompletionKind::TagKey.icon(),
-                        kind: CompletionKind::TagKey,
-                    });
-                }
+                self.push_tag_keys(None);
             }
 
             Context::InLabelName(partial) => {
-                // Suggest label names filtered by partial match
                 for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::TagKey.icon(),
-                        kind: CompletionKind::TagKey,
-                    });
+                    self.push_item(s, CompletionKind::TagKey);
                 }
-                // Add known label names filtered by partial
-                let partial_lower = partial.to_lowercase();
-                for key in &self.known_tag_keys {
-                    if key.to_lowercase().starts_with(&partial_lower) {
-                        self.items.push(CompletionItem {
-                            text: key.clone(),
-                            label: key.clone(),
-                            icon: CompletionKind::TagKey.icon(),
-                            kind: CompletionKind::TagKey,
-                        });
-                    }
-                }
+                self.push_tag_keys(Some(partial));
             }
 
-            Context::ExpectLabelOp => {
-                // Suggest label operators
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Operator.icon(),
-                        kind: CompletionKind::Operator,
-                    });
-                }
+            Context::ExpectLabelOp
+            | Context::ExpectLabelCommaOrClose
+            | Context::ExpectGroupingOpen => {
+                self.push_operators(suggestions);
             }
 
             Context::InLabelValue { key, partial } => {
-                // Suggest label values
-                if let Some(values) = self.known_tag_values.get(key) {
-                    let partial_lower = partial.to_lowercase();
-                    for value in values {
-                        if partial.is_empty() || value.to_lowercase().starts_with(&partial_lower) {
-                            self.items.push(CompletionItem {
-                                text: value.clone(),
-                                label: value.clone(),
-                                icon: CompletionKind::TagValue.icon(),
-                                kind: CompletionKind::TagValue,
-                            });
-                        }
-                    }
-                }
-            }
-
-            Context::ExpectLabelCommaOrClose => {
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Operator.icon(),
-                        kind: CompletionKind::Operator,
-                    });
-                }
+                self.push_tag_values(key, partial);
             }
 
             Context::InDuration(_) => {
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Duration.icon(),
-                        kind: CompletionKind::Duration,
-                    });
-                }
+                self.push_durations(suggestions);
             }
 
             Context::ExpectModifier | Context::ExpectBinaryOp => {
@@ -342,62 +381,145 @@ impl QueryCompletion {
                     } else {
                         CompletionKind::Operator
                     };
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: kind.icon(),
-                        kind,
-                    });
-                }
-            }
-
-            Context::ExpectGroupingOpen => {
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Operator.icon(),
-                        kind: CompletionKind::Operator,
-                    });
+                    self.push_item(s, kind);
                 }
             }
 
             Context::InGroupingLabels | Context::InGroupingLabelName(_) => {
-                // Suggest closing paren and label names
-                for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Operator.icon(),
-                        kind: CompletionKind::Operator,
-                    });
-                }
-                // Add known label names
+                self.push_operators(suggestions);
                 let partial = match &ctx {
-                    Context::InGroupingLabelName(p) => p.to_lowercase(),
-                    _ => String::new(),
+                    Context::InGroupingLabelName(p) => Some(p.as_str()),
+                    _ => None,
                 };
-                for key in &self.known_tag_keys {
-                    if partial.is_empty() || key.to_lowercase().starts_with(&partial) {
-                        self.items.push(CompletionItem {
-                            text: key.clone(),
-                            label: key.clone(),
-                            icon: CompletionKind::TagKey.icon(),
-                            kind: CompletionKind::TagKey,
-                        });
-                    }
-                }
+                self.push_tag_keys(partial);
             }
 
             Context::ExpectAtModifier => {
                 for s in suggestions {
-                    self.items.push(CompletionItem {
-                        text: s.to_string(),
-                        label: s.to_string(),
-                        icon: CompletionKind::Function.icon(),
-                        kind: CompletionKind::Function,
-                    });
+                    self.push_item(s, CompletionKind::Function);
                 }
+            }
+        }
+    }
+
+    /// Update completion for LogQL mode
+    fn update_logql(&mut self, input: &str, cursor: usize) {
+        use logql_completion::Context;
+
+        let ctx = logql_completion::analyze(input, cursor);
+        self.current_context = Some(CompletionContext::LogQL(ctx.clone()));
+
+        let suggestions = logql_completion::syntax_suggestions(&ctx);
+
+        match &ctx {
+            Context::Empty | Context::ExpectExpr => {
+                for s in suggestions {
+                    let kind = if s == "{" {
+                        CompletionKind::Operator
+                    } else if enya_logql::is_callable(s) {
+                        CompletionKind::Function
+                    } else {
+                        CompletionKind::Keyword
+                    };
+                    self.push_item(s, kind);
+                }
+            }
+
+            Context::InName(partial) => {
+                for s in suggestions {
+                    let kind = if enya_logql::is_callable(s) {
+                        CompletionKind::Function
+                    } else if enya_logql::is_keyword(s) {
+                        CompletionKind::Keyword
+                    } else {
+                        CompletionKind::Operator
+                    };
+                    self.push_item(s, kind);
+                }
+                self.push_metrics(Some(partial));
+            }
+
+            Context::InSelector => {
+                for s in suggestions {
+                    self.push_item(s, CompletionKind::TagKey);
+                }
+                self.push_tag_keys(None);
+            }
+
+            Context::InLabelName(partial) => {
+                for s in suggestions {
+                    self.push_item(s, CompletionKind::TagKey);
+                }
+                self.push_tag_keys(Some(partial));
+            }
+
+            Context::ExpectLabelOp
+            | Context::ExpectLabelCommaOrClose
+            | Context::ExpectGroupingOpen
+            | Context::ExpectLineFilterPattern => {
+                self.push_operators(suggestions);
+            }
+
+            Context::InLabelValue { key, partial } => {
+                self.push_tag_values(key, partial);
+            }
+
+            Context::InDuration(_) => {
+                self.push_durations(suggestions);
+            }
+
+            Context::ExpectStage => {
+                for s in suggestions {
+                    let kind = if enya_logql::is_parser(s) {
+                        CompletionKind::Parser
+                    } else if s.starts_with('|') || s.starts_with('!') {
+                        CompletionKind::Operator
+                    } else {
+                        CompletionKind::Stage
+                    };
+                    self.push_item(s, kind);
+                }
+            }
+
+            Context::InStageName(partial) => {
+                let partial_lower = partial.to_lowercase();
+                for s in suggestions {
+                    if s.starts_with(&partial_lower) {
+                        let kind = if enya_logql::is_parser(s) {
+                            CompletionKind::Parser
+                        } else {
+                            CompletionKind::Stage
+                        };
+                        self.push_item(s, kind);
+                    }
+                }
+            }
+
+            Context::ExpectModifier | Context::ExpectBinaryOpOrPipe => {
+                for s in suggestions {
+                    let kind = if enya_logql::is_keyword(s) {
+                        CompletionKind::Keyword
+                    } else {
+                        CompletionKind::Operator
+                    };
+                    self.push_item(s, kind);
+                }
+            }
+
+            Context::InGroupingLabels | Context::InGroupingLabelName(_) => {
+                for s in suggestions {
+                    let kind = if s == ")" {
+                        CompletionKind::Operator
+                    } else {
+                        CompletionKind::TagKey
+                    };
+                    self.push_item(s, kind);
+                }
+                let partial = match &ctx {
+                    Context::InGroupingLabelName(p) => Some(p.as_str()),
+                    _ => None,
+                };
+                self.push_tag_keys(partial);
             }
         }
     }
@@ -427,7 +549,14 @@ impl QueryCompletion {
         let item = self.selected_item()?;
         let ctx = self.current_context.as_ref()?;
 
-        self.apply_promql_completion(input, cursor, item, ctx)
+        match ctx {
+            CompletionContext::PromQL(promql_ctx) => {
+                self.apply_promql_completion(input, cursor, item, promql_ctx)
+            }
+            CompletionContext::LogQL(logql_ctx) => {
+                self.apply_logql_completion(input, cursor, item, logql_ctx)
+            }
+        }
     }
 
     /// Apply completion for PromQL context
@@ -479,7 +608,119 @@ impl QueryCompletion {
             | Context::InLabelName(partial)
             | Context::InGroupingLabelName(partial) => {
                 // Replace the partial with the full text
-                let word_start = find_word_start(input, cursor, partial);
+                // PromQL uses '@' and ':' as extra delimiters
+                let word_start = find_word_start(input, cursor, partial, &['@', ':']);
+                let before = &input[..word_start];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = word_start + item.text.len();
+                (new_input, new_cursor)
+            }
+
+            Context::InSelector | Context::InGroupingLabels => {
+                // Insert at cursor
+                let before = &input[..cursor];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = cursor + item.text.len();
+                (new_input, new_cursor)
+            }
+
+            Context::InLabelValue { partial, .. } => {
+                // Find where the value starts (after the quote or = operator)
+                let before_cursor = &input[..cursor];
+
+                // Look for the quote or the = operator
+                let value_start = before_cursor
+                    .rfind('"')
+                    .or_else(|| before_cursor.rfind('\''))
+                    .or_else(|| before_cursor.rfind('='))
+                    .map(|i| i + 1)
+                    .unwrap_or(cursor.saturating_sub(partial.len()));
+
+                let before = &input[..value_start];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = value_start + item.text.len();
+                (new_input, new_cursor)
+            }
+
+            Context::InDuration(partial) => {
+                // Find where the duration starts (after the opening bracket)
+                let before_cursor = &input[..cursor];
+                let duration_start = before_cursor
+                    .rfind('[')
+                    .map(|i| i + 1)
+                    .unwrap_or(cursor.saturating_sub(partial.len()));
+
+                let before = &input[..duration_start];
+                let after = &input[cursor..];
+                let new_input = format!("{before}{}{after}", item.text);
+                let new_cursor = duration_start + item.text.len();
+                (new_input, new_cursor)
+            }
+        };
+
+        Some((new_input, new_cursor))
+    }
+
+    /// Apply completion for LogQL context
+    fn apply_logql_completion(
+        &self,
+        input: &str,
+        cursor: usize,
+        item: &CompletionItem,
+        ctx: &logql_completion::Context,
+    ) -> Option<(String, usize)> {
+        use logql_completion::Context;
+
+        let (new_input, new_cursor) = match ctx {
+            Context::Empty
+            | Context::ExpectExpr
+            | Context::ExpectLabelOp
+            | Context::ExpectLabelCommaOrClose
+            | Context::ExpectModifier
+            | Context::ExpectGroupingOpen
+            | Context::ExpectBinaryOpOrPipe
+            | Context::ExpectStage
+            | Context::ExpectLineFilterPattern => {
+                // Insert at cursor, possibly with space before
+                let before = &input[..cursor];
+                let after = &input[cursor..];
+
+                let needs_space = !before.is_empty()
+                    && !before.ends_with(char::is_whitespace)
+                    && !before.ends_with('(')
+                    && !before.ends_with('{')
+                    && !before.ends_with('[')
+                    && !before.ends_with('|');
+                let prefix = if needs_space { " " } else { "" };
+
+                // Add trailing space after keywords, functions, and parsers
+                let needs_suffix = matches!(
+                    item.kind,
+                    CompletionKind::Keyword
+                        | CompletionKind::Function
+                        | CompletionKind::Parser
+                        | CompletionKind::Stage
+                ) && !item.text.ends_with('(')
+                    && !item.text.ends_with(')')
+                    && !after.starts_with(char::is_whitespace)
+                    && !after.starts_with('(');
+                let suffix = if needs_suffix { " " } else { "" };
+
+                let new_input = format!("{before}{prefix}{}{suffix}{after}", item.text);
+                let new_cursor = cursor + prefix.len() + item.text.len() + suffix.len();
+                (new_input, new_cursor)
+            }
+
+            Context::InName(partial)
+            | Context::InLabelName(partial)
+            | Context::InGroupingLabelName(partial)
+            | Context::InStageName(partial) => {
+                // Replace the partial with the full text
+                // LogQL uses '|' as extra delimiter
+                let word_start = find_word_start(input, cursor, partial, &['|']);
                 let before = &input[..word_start];
                 let after = &input[cursor..];
                 let new_input = format!("{before}{}{after}", item.text);
@@ -806,34 +1047,21 @@ impl QueryCompletion {
     }
 }
 
-/// Find the start of a word for PromQL completion (partial replacement)
-fn find_word_start(input: &str, cursor: usize, partial: &str) -> usize {
+/// Common delimiters shared by both PromQL and LogQL.
+const COMMON_DELIMITERS: &[char] = &[
+    '(', ')', '{', '}', '[', ']', ',', '=', '!', '~', '<', '>', '+', '-', '*', '/', '%', '^',
+];
+
+/// Find the start of a word for completion (partial replacement).
+///
+/// Scans backwards from `cursor` to find the last delimiter character,
+/// returning the position after it. Language-specific delimiters are
+/// provided via `extra_delimiters`.
+fn find_word_start(input: &str, cursor: usize, partial: &str, extra_delimiters: &[char]) -> usize {
     let before = &input[..cursor];
     before
         .rfind(|c: char| {
-            c.is_whitespace()
-                || matches!(
-                    c,
-                    '(' | ')'
-                        | '{'
-                        | '}'
-                        | '['
-                        | ']'
-                        | ','
-                        | '='
-                        | '!'
-                        | '~'
-                        | '<'
-                        | '>'
-                        | '+'
-                        | '-'
-                        | '*'
-                        | '/'
-                        | '%'
-                        | '^'
-                        | '@'
-                        | ':'
-                )
+            c.is_whitespace() || COMMON_DELIMITERS.contains(&c) || extra_delimiters.contains(&c)
         })
         .map(|i| i + 1)
         .unwrap_or(cursor.saturating_sub(partial.len()))
@@ -955,5 +1183,108 @@ mod tests {
             labels.contains(&"node_cpu_seconds_total"),
             "Expected node_cpu_seconds_total in {labels:?}"
         );
+    }
+
+    // Tests for LogQL mode
+    #[test]
+    fn test_completion_logql_empty() {
+        let mut completion = QueryCompletion::with_language(QueryLanguage::LogQL);
+        completion.update("", 0);
+        assert!(completion.is_open());
+
+        // Should have LogQL functions/aggregations and stream selector
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"sum"), "Expected sum in {labels:?}");
+        assert!(labels.contains(&"rate"), "Expected rate in {labels:?}");
+        assert!(labels.contains(&"{"), "Expected {{ in {labels:?}");
+    }
+
+    #[test]
+    fn test_completion_logql_stream_selector() {
+        let mut completion = QueryCompletion::with_language(QueryLanguage::LogQL);
+        completion.set_tag_keys(vec!["app".to_string(), "env".to_string()]);
+        completion.update("{", 1);
+        assert!(completion.is_open());
+
+        // Should suggest label names
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"app"), "Expected app in {labels:?}");
+        assert!(labels.contains(&"env"), "Expected env in {labels:?}");
+    }
+
+    #[test]
+    fn test_completion_logql_after_pipe() {
+        let mut completion = QueryCompletion::with_language(QueryLanguage::LogQL);
+        completion.update("{app=\"nginx\"} | ", 16);
+        assert!(completion.is_open());
+
+        // Should suggest parsers and filter expressions
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            labels.contains(&"json"),
+            "Expected json parser in {labels:?}"
+        );
+        assert!(
+            labels.contains(&"logfmt"),
+            "Expected logfmt parser in {labels:?}"
+        );
+    }
+
+    #[test]
+    fn test_completion_logql_typing_parser() {
+        let mut completion = QueryCompletion::with_language(QueryLanguage::LogQL);
+        completion.update("{app=\"nginx\"} | js", 18);
+        assert!(completion.is_open());
+
+        // Should filter to parsers matching "js"
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"json"), "Expected json in {labels:?}");
+        // logfmt shouldn't match
+        assert!(
+            !labels.contains(&"logfmt"),
+            "Unexpected logfmt in {labels:?}"
+        );
+    }
+
+    #[test]
+    fn test_completion_logql_duration() {
+        let mut completion = QueryCompletion::with_language(QueryLanguage::LogQL);
+        completion.update("rate({app=\"nginx\"}[", 19);
+        assert!(completion.is_open());
+
+        // Should suggest durations
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"5m"), "Expected 5m in {labels:?}");
+        assert!(labels.contains(&"1h"), "Expected 1h in {labels:?}");
+    }
+
+    #[test]
+    fn test_completion_language_switch() {
+        let mut completion = QueryCompletion::new();
+        assert_eq!(completion.language(), QueryLanguage::PromQL);
+
+        completion.set_language(QueryLanguage::LogQL);
+        assert_eq!(completion.language(), QueryLanguage::LogQL);
+
+        // After switching, should use LogQL completions
+        completion.update("{app=\"nginx\"} | ", 16);
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(
+            labels.contains(&"json"),
+            "Expected json parser in {labels:?}"
+        );
+    }
+
+    #[test]
+    fn test_completion_logql_label_value() {
+        let mut completion = QueryCompletion::with_language(QueryLanguage::LogQL);
+        completion.set_tag_keys(vec!["app".to_string()]);
+        completion.set_tag_values("app", vec!["nginx".to_string(), "api".to_string()]);
+        completion.update("{app=\"", 6);
+        assert!(completion.is_open());
+
+        let labels: Vec<_> = completion.items.iter().map(|i| i.label.as_str()).collect();
+        assert!(labels.contains(&"nginx"), "Expected nginx in {labels:?}");
+        assert!(labels.contains(&"api"), "Expected api in {labels:?}");
     }
 }

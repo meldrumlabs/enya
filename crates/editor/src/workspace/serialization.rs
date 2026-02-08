@@ -9,9 +9,10 @@ use rustc_hash::FxHashMap;
 use egui_tiles::{Tile, TileId, Tiles};
 
 use super::{
-    ConnectionConfig, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig,
-    RefreshInterval, TimeConfig, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
-    WorkspaceMeta,
+    ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
+    LayoutType, LogsConfig, MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
+    SectionState, TimeConfigExt, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
+    WorkspaceMeta, pane_from_query_state, time_config_from_preset_with_refresh,
 };
 use crate::components::{Component, QueryPane};
 
@@ -32,7 +33,7 @@ impl Workspace {
             if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
                 if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
                     let state = query_pane.query_state();
-                    panes.push(PaneConfig::from_query_state(
+                    panes.push(pane_from_query_state(
                         query_pane.saved_query(),
                         query_pane.name(),
                         query_pane.tag(),
@@ -50,17 +51,20 @@ impl Workspace {
                 version: WORKSPACE_VERSION,
                 endpoint: endpoint.map(|e| e.to_string()).unwrap_or_default(),
             },
-            connection: ConnectionConfig::default(),
+            metrics: MetricsConfig::default(),
+            logs: LogsConfig::default(),
             git: GitConfig::default(),
             view: ViewConfig {
                 // Theme is NOT included - it's a user preference, not workspace setting
                 zen_mode: self.zen_mode,
                 ..Default::default()
             },
-            time: TimeConfig::from_preset_with_refresh(
+            time: time_config_from_preset_with_refresh(
                 self.time_range_toolbar.time_range().preset,
                 self.refresh_interval.unwrap_or_default(),
             ),
+            plugins: PluginsConfig::default(),
+            sections: Vec::new(),
             panes,
             layout: self.extract_layout_from_tree(),
         }
@@ -87,10 +91,29 @@ impl Workspace {
         // Reset query counter for new workspace
         self.next_query_number = 1;
 
-        // Phase 1: Insert all panes and collect their TileIds
-        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(config.panes.len());
+        // Initialize section state if workspace uses sections
+        if config.uses_sections() {
+            self.section_configs = config.sections.clone();
+            self.section_states = config
+                .sections
+                .iter()
+                .map(|s| SectionState::new(s.collapsed))
+                .collect();
+            self.section_focus = FocusTarget::first();
+        } else {
+            self.section_configs.clear();
+            self.section_states.clear();
+            self.section_focus = FocusTarget::None;
+        }
 
-        for pane_config in &config.panes {
+        // Get all panes (from sections if present, otherwise from legacy panes field)
+        let all_panes = config.all_panes();
+        let pane_count = all_panes.len();
+
+        // Phase 1: Insert all panes and collect their TileIds
+        let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(pane_count);
+
+        for pane_config in &all_panes {
             let query_number = self.next_query_number;
             self.next_query_number += 1;
 
@@ -127,7 +150,7 @@ impl Workspace {
         // Phase 2: Build the layout tree
         let root_id = if let Some(layout) = &config.layout {
             // Validate layout references before building
-            if let Err(e) = layout.validate(config.panes.len()) {
+            if let Err(e) = layout.validate(pane_count) {
                 log::warn!("Invalid layout config: {e}. Falling back to tabs.");
                 self.viewport_tree
                     .tiles
@@ -147,7 +170,7 @@ impl Workspace {
         self.viewport_tree.root = Some(root_id);
 
         // Hide landing page if we have panes
-        if !config.panes.is_empty() {
+        if !all_panes.is_empty() {
             self.show_landing = false;
         }
 
@@ -173,6 +196,16 @@ impl Workspace {
         } else {
             Some(effective_conn.endpoint.clone())
         };
+
+        // Sync behavior.focused_tile() with section_focus for compatibility
+        // with features that rely on tile-based focus (visual-multi, etc.)
+        if self.has_sections() {
+            let tile_id = self.section_focus_to_tile_id();
+            self.behavior.set_focused_tile(tile_id);
+        } else if !pane_tile_ids.is_empty() {
+            // For non-section workspaces, focus the first pane (top-left)
+            self.behavior.set_focused_tile(Some(pane_tile_ids[0]));
+        }
 
         // Return connection config if present (for logging/tracking in caller)
         if effective_conn.is_empty() {

@@ -4,6 +4,10 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use rayon::prelude::*;
 
 /// Error type for repository operations.
 #[derive(Debug)]
@@ -177,7 +181,11 @@ fn unshallow_if_needed(repo_path: &Path) -> Result<(), RepoError> {
 }
 
 /// Gets the current HEAD commit hash.
-fn get_head_commit(repo_path: &Path) -> Result<String, RepoError> {
+///
+/// # Errors
+///
+/// Returns an error if the git command fails or the repository is invalid.
+pub fn get_head_commit(repo_path: &Path) -> Result<String, RepoError> {
     let output = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(repo_path)
@@ -187,6 +195,26 @@ fn get_head_commit(repo_path: &Path) -> Result<String, RepoError> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(RepoError(format!("git rev-parse failed: {stderr}")));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Gets the current HEAD commit message (subject line only).
+///
+/// # Errors
+///
+/// Returns an error if the git command fails or the repository is invalid.
+pub fn get_head_commit_message(repo_path: &Path) -> Result<String, RepoError> {
+    let output = Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| RepoError(format!("Failed to run git log: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(RepoError(format!("git log failed: {stderr}")));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -259,6 +287,59 @@ pub fn fetch_commit_history(
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse_git_log_output(&stdout)
+}
+
+/// Counts the total number of commits in the repository.
+///
+/// This is a fast operation that doesn't fetch commit data.
+///
+/// # Errors
+///
+/// Returns an error if the git command fails.
+pub fn count_commits(repo_path: &Path) -> Result<usize, RepoError> {
+    let output = Command::new("git")
+        .args(["rev-list", "--count", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| RepoError(format!("Failed to run git rev-list --count: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(RepoError(format!("git rev-list --count failed: {stderr}")));
+    }
+
+    let count_str = String::from_utf8_lossy(&output.stdout);
+    count_str
+        .trim()
+        .parse::<usize>()
+        .map_err(|e| RepoError(format!("Failed to parse commit count: {e}")))
+}
+
+/// Fetches all commits for indexing purposes.
+///
+/// Returns all commits in reverse chronological order (newest first).
+/// This is used for building the complete search index.
+/// Includes the list of files changed in each commit.
+///
+/// # Errors
+///
+/// Returns an error if the git command fails.
+pub fn fetch_all_commits(repo_path: &Path) -> Result<Vec<CommitInfo>, RepoError> {
+    // Use --name-only to get files changed, with a record separator to parse
+    // Format: hash|timestamp|message\n\nfile1\nfile2\n\n (commits separated by empty line)
+    let output = Command::new("git")
+        .args(["log", "--format=%H|%ct|%s", "--name-only"])
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| RepoError(format!("Failed to run git log: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(RepoError(format!("git log failed: {stderr}")));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_git_log_with_files(&stdout))
 }
 
 /// Fetches recent commits for indexing purposes.
@@ -366,6 +447,315 @@ pub fn fetch_recent_commits_with_diffs(
             }
         }
     }
+
+    Ok(commits)
+}
+
+/// Progress callback for commit fetching.
+///
+/// Called periodically during diff fetching with:
+/// - `current`: Number of commits processed so far
+/// - `total`: Total number of commits to process
+/// - `current_item`: Description of a recently processed commit
+pub type ProgressCallback = Box<dyn Fn(usize, usize, Option<&str>) + Send + Sync>;
+
+/// Unique delimiter used to separate commits in batch git log output.
+const COMMIT_DELIMITER: &str = "\n__ENYA_COMMIT_BOUNDARY__\n";
+
+/// Fetches all commits with their diffs in a single git command (batch mode).
+///
+/// This is significantly faster than fetching diffs individually because it
+/// avoids the overhead of spawning many git processes. Uses a single `git log -p`
+/// command to get all commits and diffs, then parses the output.
+///
+/// **Note:** This function skips merge commits (`--no-merges`) and only follows
+/// the main branch history (`--first-parent`), excluding feature branch commits.
+/// This reduces redundant diff processing and focuses on the mainline history.
+///
+/// Semantic extraction is still parallelized with rayon for CPU efficiency.
+///
+/// # Arguments
+///
+/// * `repo_path` - Path to the git repository
+/// * `since_commit` - If provided, only fetch commits after this SHA (for incremental indexing)
+/// * `progress` - Optional progress callback for UI updates
+///
+/// # Returns
+///
+/// A vector of `CommitInfo` with diffs and semantics populated.
+///
+/// # Errors
+///
+/// Returns an error if the git command fails.
+pub fn fetch_all_commits_with_diffs_batch(
+    repo_path: &Path,
+    since_commit: Option<&str>,
+    progress: Option<&ProgressCallback>,
+) -> Result<Vec<CommitInfo>, RepoError> {
+    // Build the git log command with patches
+    // Format: delimiter + hash|timestamp|subject + newline + diff
+    let format_arg = format!("{}%H|%ct|%s", COMMIT_DELIMITER.trim_start());
+
+    let mut args = vec![
+        "log".to_string(),
+        format!("--format={format_arg}"),
+        "-p".to_string(),             // Include patches (diffs)
+        "--unified=3".to_string(),    // 3 lines of context
+        "--no-merges".to_string(),    // Skip merge commits (large, redundant diffs)
+        "--first-parent".to_string(), // Follow only main branch, skip feature branch commits
+    ];
+    // NOTE: Do NOT use --name-only with -p, it overrides patch output!
+
+    // For incremental indexing: only get commits since the last indexed one
+    if let Some(since) = since_commit {
+        args.push(format!("{since}..HEAD"));
+    }
+
+    log::info!(
+        "Fetching commits with diffs in batch mode from: {}{}",
+        repo_path.display(),
+        since_commit.map_or(String::new(), |s| format!(
+            " (since {})",
+            &s[..7.min(s.len())]
+        ))
+    );
+
+    let output = Command::new("git")
+        .args(&args)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| RepoError(format!("Failed to run git log -p: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(RepoError(format!("git log -p failed: {stderr}")));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse the batch output into commits with diffs
+    let mut commits = parse_batch_log_output(&stdout);
+    let total = commits.len();
+
+    if total == 0 {
+        log::info!("No commits to process");
+        return Ok(commits);
+    }
+
+    log::info!("Parsing diffs and extracting semantics for {total} commits");
+
+    // Phase 2: Extract semantics in parallel (CPU-bound, benefits from parallelization)
+    let processed = Arc::new(AtomicUsize::new(0));
+
+    commits.par_iter_mut().for_each(|commit| {
+        // Extract semantic information from the diff
+        commit.semantics = crate::diff::extract_semantics(&commit.diff);
+
+        // Truncate large diffs after semantic extraction
+        if commit.diff.len() > MAX_DIFF_SIZE {
+            let truncated_diff = format!(
+                "{}\n\n[... diff truncated, {} bytes total ...]",
+                &commit.diff[..MAX_DIFF_SIZE],
+                commit.diff.len()
+            );
+            commit.diff = truncated_diff;
+        }
+
+        // Update progress atomically
+        let count = processed.fetch_add(1, Ordering::Relaxed) + 1;
+
+        // Report progress periodically
+        if let Some(ref callback) = progress {
+            if count % 50 == 0 || count == total {
+                let short_hash = &commit.hash[..7.min(commit.hash.len())];
+                let first_line = commit.message.lines().next().unwrap_or("");
+                // Use char_indices to find a safe truncation boundary (Unicode-safe)
+                let truncated = if first_line.chars().count() > 35 {
+                    let boundary = first_line
+                        .char_indices()
+                        .nth(32)
+                        .map_or(first_line.len(), |(i, _)| i);
+                    format!("{}...", &first_line[..boundary])
+                } else {
+                    first_line.to_string()
+                };
+                let item_desc = format!("{short_hash} {truncated}");
+                callback(count, total, Some(&item_desc));
+            }
+        }
+    });
+
+    log::info!(
+        "Completed batch diff fetching for {} commits",
+        commits.len()
+    );
+
+    Ok(commits)
+}
+
+/// Parses the output of `git log -p` with our custom format.
+///
+/// The format uses `COMMIT_DELIMITER` to separate commits, with each commit
+/// having: hash|timestamp|subject followed by the diff.
+fn parse_batch_log_output(output: &str) -> Vec<CommitInfo> {
+    let mut commits = Vec::new();
+
+    // Split by our delimiter
+    for section in output.split(COMMIT_DELIMITER.trim()) {
+        let section = section.trim();
+        if section.is_empty() {
+            continue;
+        }
+
+        // First line is: hash|timestamp|subject
+        let mut lines = section.lines();
+        let Some(header) = lines.next() else {
+            continue;
+        };
+
+        // Parse header: hash|timestamp|subject
+        let mut parts = header.splitn(3, '|');
+        let Some(hash) = parts.next() else { continue };
+        let Some(timestamp_str) = parts.next() else {
+            continue;
+        };
+        let message = parts.next().unwrap_or("");
+
+        // Validate hash (should be 40 hex chars)
+        let hash = hash.trim();
+        if hash.len() < 40 || !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+
+        let timestamp = timestamp_str.trim().parse::<i64>().unwrap_or(0);
+
+        // Rest is the diff (and file list from --name-only)
+        let diff: String = lines.collect::<Vec<_>>().join("\n");
+
+        // Extract files changed from the diff header lines
+        let files_changed = extract_files_from_diff(&diff);
+
+        commits.push(CommitInfo {
+            hash: hash.to_string(),
+            timestamp,
+            message: message.to_string(),
+            files_changed,
+            diff,
+            semantics: DiffSemantics::default(),
+        });
+    }
+
+    commits
+}
+
+/// Extracts file paths from a diff's header lines.
+fn extract_files_from_diff(diff: &str) -> Vec<String> {
+    let mut files = Vec::new();
+
+    for line in diff.lines() {
+        // Look for "diff --git a/path b/path" lines
+        if let Some(rest) = line.strip_prefix("diff --git a/") {
+            // Format: "path/to/file b/path/to/file"
+            if let Some(space_idx) = rest.find(" b/") {
+                let file_path = &rest[..space_idx];
+                if !files.contains(&file_path.to_string()) {
+                    files.push(file_path.to_string());
+                }
+            }
+        }
+    }
+
+    files
+}
+
+/// Fetches all commits with their diffs in parallel for full indexing.
+///
+/// This function fetches the complete git history and processes diffs
+/// in parallel using rayon for significant performance improvements.
+///
+/// **Note:** Consider using `fetch_all_commits_with_diffs_batch` instead,
+/// which is faster for large repositories as it uses a single git command.
+///
+/// # Arguments
+///
+/// * `repo_path` - Path to the git repository
+/// * `progress` - Optional progress callback for UI updates
+///
+/// # Returns
+///
+/// A vector of `CommitInfo` with diffs and semantics populated.
+///
+/// # Errors
+///
+/// Returns an error if fetching commit metadata fails.
+/// Individual diff fetch failures are logged but don't fail the operation.
+#[deprecated(
+    since = "0.1.0",
+    note = "Use fetch_all_commits_with_diffs_batch for better performance"
+)]
+pub fn fetch_all_commits_with_diffs_parallel(
+    repo_path: &Path,
+    progress: Option<&ProgressCallback>,
+) -> Result<Vec<CommitInfo>, RepoError> {
+    // Phase 1: Fetch commit metadata (fast - single git command)
+    let mut commits = fetch_all_commits(repo_path)?;
+
+    if commits.is_empty() {
+        return Ok(commits);
+    }
+
+    let total = commits.len();
+    log::info!(
+        "Fetching diffs for {} commits in parallel from: {}",
+        total,
+        repo_path.display()
+    );
+
+    // Atomic counter for progress tracking across threads
+    let processed = Arc::new(AtomicUsize::new(0));
+
+    // Phase 2: Fetch diffs and extract semantics in parallel
+    let repo_path = repo_path.to_path_buf();
+    commits.par_iter_mut().for_each(|commit| {
+        // Fetch diff for this commit
+        match fetch_commit_diff(&repo_path, &commit.hash) {
+            Ok(diff) => {
+                commit.semantics = crate::diff::extract_semantics(&diff);
+                commit.diff = diff;
+            }
+            Err(e) => {
+                log::warn!("Failed to fetch diff for {}: {e}", &commit.hash[..8]);
+            }
+        }
+
+        // Update progress atomically
+        let count = processed.fetch_add(1, Ordering::Relaxed) + 1;
+
+        // Report progress periodically (every 50 commits) to reduce callback overhead
+        if let Some(ref callback) = progress {
+            if count % 50 == 0 || count == total {
+                let short_hash = &commit.hash[..7.min(commit.hash.len())];
+                let first_line = commit.message.lines().next().unwrap_or("");
+                // Use char_indices to find a safe truncation boundary (Unicode-safe)
+                let truncated = if first_line.chars().count() > 35 {
+                    let boundary = first_line
+                        .char_indices()
+                        .nth(32)
+                        .map_or(first_line.len(), |(i, _)| i);
+                    format!("{}...", &first_line[..boundary])
+                } else {
+                    first_line.to_string()
+                };
+                let item_desc = format!("{short_hash} {truncated}");
+                callback(count, total, Some(&item_desc));
+            }
+        }
+    });
+
+    log::info!(
+        "Completed parallel diff fetching for {} commits",
+        commits.len()
+    );
 
     Ok(commits)
 }
@@ -614,5 +1004,134 @@ src/main.rs
         let commits = parse_git_log_with_files(output);
         assert_eq!(commits.len(), 1);
         assert!(commits[0].files_changed.is_empty());
+    }
+
+    #[test]
+    fn test_parse_batch_log_output_with_diff_content() {
+        // Regression test: ensure batch parsing preserves actual diff content,
+        // not just file names. The --name-only flag conflicts with -p and must
+        // NOT be used together, otherwise diffs are empty.
+        let output = "__ENYA_COMMIT_BOUNDARY__
+abc123def456789012345678901234567890abcd|1700000000|Add new feature
+
+diff --git a/src/main.rs b/src/main.rs
+index 1234567..abcdefg 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,5 @@
+ fn main() {
++    println!(\"Hello, world!\");
++    do_something();
+ }
+diff --git a/src/lib.rs b/src/lib.rs
+index 2345678..bcdefgh 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1 +1,3 @@
++pub fn do_something() {
++}
+";
+        let commits = parse_batch_log_output(output);
+
+        assert_eq!(commits.len(), 1);
+        let commit = &commits[0];
+
+        // Verify metadata
+        assert_eq!(commit.hash, "abc123def456789012345678901234567890abcd");
+        assert_eq!(commit.timestamp, 1_700_000_000);
+        assert_eq!(commit.message, "Add new feature");
+
+        // CRITICAL: Verify diff content is present, not just file names
+        // This is the regression test - if --name-only is used with -p,
+        // the diff would only contain file names without actual changes
+        assert!(
+            commit.diff.contains(r#"println!("Hello, world!");"#),
+            "Diff should contain actual code changes, not just file names. Got: {}",
+            &commit.diff[..200.min(commit.diff.len())]
+        );
+        assert!(
+            commit.diff.contains("pub fn do_something()"),
+            "Diff should contain function definition"
+        );
+        assert!(
+            commit.diff.contains("@@ -1,3 +1,5 @@"),
+            "Diff should contain hunk headers"
+        );
+
+        // Verify files are extracted from diff headers
+        assert_eq!(commit.files_changed.len(), 2);
+        assert!(commit.files_changed.contains(&"src/main.rs".to_string()));
+        assert!(commit.files_changed.contains(&"src/lib.rs".to_string()));
+    }
+
+    #[test]
+    fn test_parse_batch_log_output_multiple_commits() {
+        let output = "__ENYA_COMMIT_BOUNDARY__
+abc123def456789012345678901234567890abcd|1700000000|First commit
+
+diff --git a/file1.rs b/file1.rs
+--- a/file1.rs
++++ b/file1.rs
+@@ -1 +1,2 @@
++// added line
+__ENYA_COMMIT_BOUNDARY__
+def456789012345678901234567890abcdef1234|1700001000|Second commit
+
+diff --git a/file2.rs b/file2.rs
+--- a/file2.rs
++++ b/file2.rs
+@@ -1 +1,2 @@
++// another line
+";
+        let commits = parse_batch_log_output(output);
+
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].hash, "abc123def456789012345678901234567890abcd");
+        assert_eq!(commits[0].message, "First commit");
+        assert!(commits[0].diff.contains("// added line"));
+
+        assert_eq!(commits[1].hash, "def456789012345678901234567890abcdef1234");
+        assert_eq!(commits[1].message, "Second commit");
+        assert!(commits[1].diff.contains("// another line"));
+    }
+
+    #[test]
+    fn test_parse_batch_log_output_empty() {
+        let commits = parse_batch_log_output("");
+        assert!(commits.is_empty());
+    }
+
+    #[test]
+    fn test_extract_files_from_diff() {
+        let diff = "diff --git a/src/main.rs b/src/main.rs
+index 1234567..abcdefg 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,5 @@
+ fn main() {}
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1 +1,2 @@
++pub fn foo() {}
+";
+        let files = extract_files_from_diff(diff);
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0], "src/main.rs");
+        assert_eq!(files[1], "src/lib.rs");
+    }
+
+    #[test]
+    fn test_extract_files_from_diff_no_duplicates() {
+        // Same file modified multiple times in one diff should only appear once
+        let diff = "diff --git a/src/main.rs b/src/main.rs
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -1,3 +1,5 @@
+ fn main() {}
+";
+        let files = extract_files_from_diff(diff);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0], "src/main.rs");
     }
 }

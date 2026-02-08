@@ -1,6 +1,5 @@
 use egui::{Color32, Key, RichText, Stroke, TextEdit, Vec2};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -40,8 +39,6 @@ pub struct Buffer {
     name: String,
     /// Current theme
     theme: AppTheme,
-    /// API key (required by Component trait)
-    api_key: String,
     /// Cursor position in the content (for insert mode)
     cursor_pos: usize,
 }
@@ -65,7 +62,6 @@ impl Buffer {
             modified: false,
             name: String::new(),
             theme: AppTheme::default(),
-            api_key: String::new(),
             cursor_pos: 0,
         }
     }
@@ -157,11 +153,6 @@ impl Buffer {
         self.theme = theme;
     }
 
-    /// Set the API key
-    pub fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
-    }
-
     /// Get the display title for this buffer
     pub fn display_title(&self) -> String {
         let name = if self.name.is_empty() {
@@ -197,7 +188,7 @@ impl Buffer {
     /// Returns a `BufferAction` indicating what action should be taken
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> BufferAction {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
 
         // Buffer frame with mode-dependent styling
         let border_color = if self.mode == BufferMode::Insert {
@@ -352,7 +343,7 @@ impl Buffer {
 
     /// Render the query with basic syntax highlighting
     fn render_highlighted_query(&self, ui: &mut egui::Ui) {
-        let text_col = text_color(self.theme);
+        let text_col = self.theme.text_primary();
         let keyword_color = self.theme.syntax_keyword();
         let operator_color = self.theme.syntax_key();
         let value_color = self.theme.syntax_value();
@@ -496,14 +487,6 @@ impl crate::components::Component for Buffer {
 
     fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
-    }
-
-    fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed
     }
 
     fn label(&self) -> egui::RichText {

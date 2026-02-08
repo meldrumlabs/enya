@@ -21,9 +21,6 @@ Install [just](https://github.com/casey/just) command runner:
 # macOS
 brew install just
 
-# Arch Linux
-pacman -S just
-
 # Other platforms: https://github.com/casey/just#installation
 ```
 
@@ -74,15 +71,15 @@ When opening a PR:
 - Gate feature-specific tests with `#[cfg(feature = "...")]`
 - Run `just check-wasm` for editor changes
 
+## AI-Assisted Contributions
+
+AI-assisted PRs are welcome. However, please create an [issue](https://github.com/meldrumlabs/enya/issues) or reach out to the maintainers before starting work. Without prior alignment on scope and approach, there is a risk your PR will be rejected.
+
 ## Security & Dependencies
 
 - Run `just deny` before PRs to check for vulnerable or unlicensed dependencies
 - Use `just machete` to detect unused crates
 - Never commit secrets or credentials
-
-## Editor Changes
-
-When modifying `enya-editor`, update the changelog at `crates/editor/CHANGELOG.md` under the `[Unreleased]` section following the [Keep a Changelog](https://keepachangelog.com/) format.
 
 ## Questions?
 

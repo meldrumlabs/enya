@@ -11,7 +11,6 @@ use egui_plot::{
 
 use super::annotation::{Annotation, AnnotationId, AnnotationTarget};
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::tinted_logo::get_tinted_logo_with_opacity;
@@ -312,6 +311,14 @@ pub enum ChartInteraction {
     DeleteAnnotation { id: AnnotationId },
     /// User wants to resolve an annotation.
     ResolveAnnotation { id: AnnotationId },
+    /// User double-clicked on the chart for logs drilldown.
+    /// Opens a logs pane centered around this timestamp.
+    DrilldownLogs {
+        /// The timestamp in seconds (Unix epoch) where the user clicked
+        timestamp_secs: f64,
+        /// The metric name for context
+        metric_name: String,
+    },
 }
 
 /// A time series chart component
@@ -326,14 +333,12 @@ pub struct TimeSeriesChart {
     commits: Vec<CommitMarker>,
     /// Whether to show commit markers
     show_commits: bool,
-    /// Team annotations (comments pinned to chart points/ranges)
+    /// Annotations (comments pinned to chart points/ranges)
     annotations: Vec<Annotation>,
     /// Whether to show annotations
     show_annotations: bool,
     /// Current theme
     pub(crate) theme: AppTheme,
-    /// API key (not used currently, but required by Component trait)
-    api_key: String,
     /// Whether to show the legend
     show_legend: bool,
     /// Y-axis label
@@ -352,6 +357,8 @@ pub struct TimeSeriesChart {
     annotation_mode: bool,
     /// Compact mode for inline display (no background, no interaction)
     compact: bool,
+    /// Pending interaction to be consumed by the parent (set on double-click, cleared on take)
+    pending_interaction: Option<ChartInteraction>,
 }
 
 impl Default for TimeSeriesChart {
@@ -373,7 +380,6 @@ impl TimeSeriesChart {
             annotations: Vec::new(),
             show_annotations: true,
             theme: AppTheme::default(),
-            api_key: String::new(),
             show_legend: true,
             y_label: None,
             unit: String::new(),
@@ -382,6 +388,7 @@ impl TimeSeriesChart {
             stacked: false,
             annotation_mode: false,
             compact: false,
+            pending_interaction: None,
         }
     }
 
@@ -541,9 +548,8 @@ impl TimeSeriesChart {
         });
     }
 
-    /// Set all commit markers at once
+    /// Set all commit markers at once (does not auto-enable visibility)
     pub fn set_commits(&mut self, commits: Vec<CommitMarker>) {
-        self.show_commits = !commits.is_empty();
         self.commits = commits;
         self.commits.sort_by(|a, b| {
             a.timestamp
@@ -652,6 +658,12 @@ impl TimeSeriesChart {
     /// Check if annotation mode is active.
     pub fn is_annotation_mode(&self) -> bool {
         self.annotation_mode
+    }
+
+    /// Take the pending interaction (returns and clears it).
+    /// Call this after `show()` to check if the user triggered a drilldown.
+    pub fn take_interaction(&mut self) -> Option<ChartInteraction> {
+        self.pending_interaction.take()
     }
 
     /// Get the number of unresolved annotations.
@@ -792,11 +804,6 @@ impl TimeSeriesChart {
                 return ChartAction::ResetZoom;
             }
 
-            // Toggle stacked mode: s
-            if input.key_pressed(Key::S) && !input.modifiers.shift {
-                return ChartAction::ToggleStacked;
-            }
-
             // Go to end: G (shift + g)
             if input.key_pressed(Key::G) && input.modifiers.shift {
                 return ChartAction::GoToEnd;
@@ -886,7 +893,7 @@ impl TimeSeriesChart {
     /// Render the chart
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let text_color = text_color(self.theme);
+        let text_color = self.theme.text_primary();
 
         // Calculate scale factor based on available space
         let available_width = ui.available_width();
@@ -1016,8 +1023,8 @@ impl TimeSeriesChart {
         let grid_color = self.theme.border_subtle().gamma_multiply(0.25);
         ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_color);
 
-        // Legend above the chart (only show if multiple series)
-        if self.show_legend && self.series.len() > 1 {
+        // Legend above the chart (show if any series exist)
+        if self.show_legend && !self.series.is_empty() {
             const MAX_VISIBLE_SERIES: usize = 5;
             let total_series = self.series.len();
             let show_overflow = total_series > MAX_VISIBLE_SERIES;
@@ -1028,6 +1035,7 @@ impl TimeSeriesChart {
             };
 
             ui.horizontal_wrapped(|ui| {
+                ui.add_space(4.0); // Left margin for focus border clearance
                 ui.spacing_mut().item_spacing.x = legend_item_spacing;
 
                 // Show first N series
@@ -1586,6 +1594,27 @@ impl TimeSeriesChart {
             }
         });
 
+        // Detect double-click for logs drilldown (only when not in compact or annotation mode)
+        if !self.compact && !self.annotation_mode && plot_response.response.double_clicked() {
+            // Get the pointer position and convert to plot coordinates
+            if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                // Convert screen position to plot coordinates
+                let plot_point = plot_response.transform.value_from_position(pointer_pos);
+                let timestamp_secs = plot_point.x;
+
+                self.pending_interaction = Some(ChartInteraction::DrilldownLogs {
+                    timestamp_secs,
+                    metric_name: self.metric_name.clone(),
+                });
+
+                log::debug!(
+                    "Chart drilldown triggered at timestamp {} for metric '{}'",
+                    timestamp_secs,
+                    self.metric_name
+                );
+            }
+        }
+
         // Render commit labels below the plot, positioned at their timestamp's X coordinate
         if self.show_commits && !commits_to_render.is_empty() {
             let transform = plot_response.transform;
@@ -1660,14 +1689,6 @@ impl crate::components::Component for TimeSeriesChart {
 
     fn set_theme(&mut self, theme: AppTheme) {
         self.theme = theme;
-    }
-
-    fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed
     }
 
     fn label(&self) -> egui::RichText {

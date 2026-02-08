@@ -9,34 +9,38 @@ pub mod widget;
 
 // Re-export from pane
 pub use pane::{
-    AgentAiProvider, AgentPane, AgentPaneAction, Bar, BarChartViz, CommitMarker, DataPoint,
-    GaugeChart, HeatmapCell, HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSource,
-    QueryPane, QueryPaneAction, Series, SparklineViz, StatChart, Threshold, TimeSeriesChart,
+    AgentAiProvider, Bar, BarChartViz, CommitMarker, DataPoint, GaugeChart, HeatmapCell,
+    HeatmapLabels, HeatmapViz, InlineChart, InlineContent, InlineSearchResults, InlineSource,
+    LogsBackend, LogsPane, LogsPaneAction, PluginChartPane, PluginGaugePane, PluginStatPane,
+    PluginTablePane, QueryPane, QueryPaneAction, SearchResultItem, Series, SparklineViz, SqlPane,
+    SqlPaneAction, StatChart, Threshold, TimeSeriesChart, TracingPane, TracingPaneAction,
     Visualization, VisualizationType,
 };
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "terminal"))]
 pub use pane::{TerminalPane, TerminalPaneAction};
 
 // Re-export from overlay
 #[cfg(target_arch = "wasm32")]
 pub use overlay::NativePromoOverlay;
 pub use overlay::{
-    AgentCommand, AgentPanel, AgentPanelResult, AiProvider, BufferEditor, BufferEditorResult,
-    ChatMessage, CodebaseContext, CommandPalette, CommandResult, ConnectionContext,
-    DashboardContext, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
-    DiagnosticsPane, DiagnosticsPaneAction, EditExcerpt, EditorContext, InfoOverlay, MessageRole,
-    MultiEditOverlay, MultiEditResult, SourcePreviewOverlay, SourcePreviewResult, StylePicker,
-    StylePickerResult, StyleTab, TutorialOverlay, ViewportFilter, ViewportFilterResult, WhichKey,
-    WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceItem, parse_commands,
-    strip_command_blocks,
+    AboutOverlay, AgentCommand, AgentPanel, AgentPanelResult, AiProvider, BufferEditor,
+    BufferEditorResult, ChatMessage, CodebaseContext, CommandPalette, CommandResult,
+    ConnectionContext, Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter,
+    DiagnosticsPane, DiagnosticsPaneAction, DynamicCommand, EditExcerpt, EditorContext,
+    InfoOverlay, LeaderKey, LeaderPopup, MessageRole, MultiEditOverlay, MultiEditResult,
+    PluginDisplayInfo, PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay,
+    SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TimeRangePicker,
+    TimeRangePickerResult, TutorialAction, TutorialOverlay, ViewportFilter, ViewportFilterResult,
+    WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceFinderResult,
+    WorkspaceItem, parse_commands, strip_command_blocks,
 };
 
 // Re-export from widget
 pub use widget::{
     AgentInputBar, AgentInputBarResult, AgentInputState, Buffer, BufferAction, BufferMode,
-    ContextPane, LandingPage, LandingPageAction, MemberPresence, Notification, NotificationLevel,
-    NotificationManager, QuickCommand, Sparkline, StatusLine, StatusMode, TeamMember, TeamMenu,
-    TeamMenuAction, TeamStatusInfo, TimeRange, TimeRangePreset, TimeRangeToolbar,
+    ContextPane, InlineAgentInput, LandingPage, LandingPageAction, Notification, NotificationLevel,
+    NotificationManager, QuickCommand, Sparkline, StatusLine, StatusLineResult, StatusMode,
+    TimeRange, TimeRangePreset, TimeRangeToolbar,
 };
 
 // Re-export from util
@@ -44,8 +48,8 @@ pub use util::{
     Backend, CompletionItem, CompletionKind, CompletionResult, ExecuteParams, Finder, FinderColors,
     FinderConfig, FinderItem, FinderKeyboardInput, FinderResult, Granularity, MultiBufferMode,
     MultiBufferState, OverlayColors, OverlayStyle, OverlayStyleVariant, QueryCompletion,
-    QueryExecutor, QueryPollResult, QueryState, Selection, ValidationResult, draw_backdrop,
-    draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
+    QueryExecutor, QueryLanguage, QueryPollResult, QueryState, Selection, ValidationResult,
+    draw_backdrop, draw_separator, draw_separator_colored, is_valid_query, next_id, next_id_usize,
     render_key_badge, render_key_badge_large, validate_query,
 };
 
@@ -59,8 +63,6 @@ pub trait Component: Any {
     fn name(&self) -> String;
     /// Saves the current theme for the component
     fn set_theme(&mut self, theme: AppTheme);
-    fn set_api_key(&mut self, key: &str);
-    fn set_staging_api_key(&mut self, key: &str);
     /// Returns a RichText label for the given component
     fn label(&self) -> egui::RichText;
 
@@ -68,6 +70,10 @@ pub trait Component: Any {
     fn description(&self) -> &str {
         ""
     }
+
+    /// Set whether a workspace overlay is blocking keyboard input.
+    /// Default implementation does nothing - components can override if needed.
+    fn set_overlay_blocks_input(&mut self, _blocks: bool) {}
 
     /// Get a reference to self as Any (for downcasting)
     fn as_any(&self) -> &dyn Any;

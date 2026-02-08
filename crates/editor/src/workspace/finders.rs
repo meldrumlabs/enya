@@ -189,13 +189,13 @@ impl Workspace {
     pub(super) fn show_unified_finder(
         &mut self,
         ctx: &egui::Context,
-        app_state: &AppState,
+        _app_state: &AppState,
     ) -> Option<WorkspaceAction> {
         if !self.unified_finder.is_open() {
             return None;
         }
 
-        self.unified_finder.set_theme(app_state.theme);
+        self.unified_finder.set_theme(self.theme());
 
         // Update codebase search results when in a codebase mode (native only)
         #[cfg(not(target_arch = "wasm32"))]
@@ -283,17 +283,19 @@ impl Workspace {
                 None
             }
             #[cfg(not(target_arch = "wasm32"))]
-            UnifiedFinderAction::OpenDiffViewer { hash, diff } => {
+            UnifiedFinderAction::OpenDiffViewer {
+                hash,
+                message,
+                diff,
+            } => {
                 log::info!("Opening diff viewer for commit: {hash}");
-                // We need the commit message for the title - just use the hash for now
-                self.diff_viewer.open(
-                    &hash,
-                    &format!("Commit {}", &hash[..7.min(hash.len())]),
-                    0,
-                    &diff,
-                );
+                self.diff_viewer.open(&hash, &message, 0, &diff);
                 None
             }
+            UnifiedFinderAction::Error(msg) => Some(WorkspaceAction::Notify {
+                level: "error".to_string(),
+                message: msg,
+            }),
         }
     }
 

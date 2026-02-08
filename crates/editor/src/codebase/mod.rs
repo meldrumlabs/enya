@@ -11,7 +11,7 @@ use rustc_hash::FxHashMap;
 pub use enya_analyzer::{
     AlertRule, CodebaseIndex, CommitInfo, IndexProgress, MetricInstrumentation, MetricKind,
     Scanner, ScannerRegistry, build_index_with_progress, fetch_commit_history,
-    fetch_recent_commits,
+    fetch_recent_commits, get_head_commit, get_head_commit_message,
 };
 
 // Full-text search module (native only)
@@ -54,6 +54,10 @@ pub enum CodebaseStatus {
         metrics_count: usize,
         /// Language that was scanned
         language: Option<String>,
+        /// HEAD commit message (subject line)
+        head_commit_msg: Option<String>,
+        /// HEAD commit hash (short form)
+        head_commit_hash: Option<String>,
     },
     /// An error occurred.
     Error { url: String, message: String },
@@ -117,6 +121,26 @@ impl CodebaseStatus {
     pub fn metrics_count(&self) -> Option<usize> {
         match self {
             Self::Ready { metrics_count, .. } => Some(*metrics_count),
+            _ => None,
+        }
+    }
+
+    /// Returns the HEAD commit message if ready.
+    pub fn head_commit_msg(&self) -> Option<&str> {
+        match self {
+            Self::Ready {
+                head_commit_msg, ..
+            } => head_commit_msg.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Returns the HEAD commit hash if ready.
+    pub fn head_commit_hash(&self) -> Option<&str> {
+        match self {
+            Self::Ready {
+                head_commit_hash, ..
+            } => head_commit_hash.as_deref(),
             _ => None,
         }
     }
@@ -357,6 +381,11 @@ impl CodebaseManager {
         // Reset per-frame flags
         self.commits_updated = false;
 
+        // Request continuous repaints during fetching (so UI stays responsive)
+        if matches!(self.status, CodebaseStatus::Fetching { .. }) {
+            ctx.request_repaint();
+        }
+
         // Update indexing progress from the shared atomics
         if let Some(ref progress) = self.indexing_progress {
             let (current, total) = progress.get();
@@ -374,6 +403,12 @@ impl CodebaseManager {
                     ctx.request_repaint();
                 }
             }
+        }
+
+        // Request continuous repaints during Tantivy indexing
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.tantivy_progress.is_some() {
+            ctx.request_repaint();
         }
 
         // Check for completed Tantivy index build (native only)
@@ -433,6 +468,8 @@ impl CodebaseManager {
                         repo_name,
                         metrics_count,
                         language,
+                        head_commit_msg,
+                        head_commit_hash,
                         ..
                     } = &self.status
                     {
@@ -441,6 +478,8 @@ impl CodebaseManager {
                             repo_name: repo_name.clone(),
                             metrics_count: *metrics_count,
                             language: language.clone(),
+                            head_commit_msg: head_commit_msg.clone(),
+                            head_commit_hash: head_commit_hash.clone(),
                         };
                     } else {
                         // Fallback if we somehow weren't ready before
@@ -449,11 +488,22 @@ impl CodebaseManager {
                         } else {
                             Some(self.language.clone())
                         };
+                        // Get the head commit message and hash
+                        let head_commit_msg = self
+                            .index
+                            .as_ref()
+                            .and_then(|idx| get_head_commit_message(&idx.repo_path).ok());
+                        let head_commit_hash = self
+                            .index
+                            .as_ref()
+                            .and_then(|idx| get_head_commit(&idx.repo_path).ok());
                         self.status = CodebaseStatus::Ready {
                             repo_name: extract_repo_name(&url),
                             metrics_count: self.index.as_ref().map_or(0, |i| i.metrics.len()),
                             language,
                             url,
+                            head_commit_msg,
+                            head_commit_hash,
                         };
                     }
                 }
@@ -479,77 +529,109 @@ impl CodebaseManager {
                     self.tantivy_progress = Some(progress.clone());
 
                     std::thread::spawn(move || {
-                        // Phase 1: Fetch commit metadata (fast)
                         progress.set_phase(search::TantivyPhase::FetchingCommits);
-                        progress.set_current_item(Some("Loading commit list...".to_string()));
 
-                        log::info!(
-                            "Fetching commits for Tantivy index from: {}",
-                            repo_path.display()
-                        );
+                        // Check for existing index to enable incremental updates
+                        let existing_index = TantivyCodebaseIndex::open_or_create(&repo_path).ok();
+                        let last_indexed_commit = existing_index
+                            .as_ref()
+                            .and_then(|idx| idx.indexed_commit().map(ToString::to_string));
 
-                        // First get basic commit info (fast - just git log)
-                        let mut commits = enya_analyzer::fetch_recent_commits(&repo_path, 1000)
-                            .unwrap_or_else(|e| {
-                                log::warn!("Failed to fetch commits for indexing: {e}");
-                                Vec::new()
-                            });
-
-                        // Phase 2: Load diffs for each commit (slower - shows progress)
-                        if !commits.is_empty() {
-                            progress.set_total(commits.len());
-                            for (i, commit) in commits.iter_mut().enumerate() {
-                                // Update progress with commit info
-                                let short_hash = &commit.hash[..7.min(commit.hash.len())];
-                                let first_line = commit.message.lines().next().unwrap_or("");
-                                let truncated = if first_line.len() > 35 {
-                                    format!("{}...", &first_line[..32])
-                                } else {
-                                    first_line.to_string()
-                                };
-                                progress.increment(Some(format!("{short_hash} {truncated}")));
-
-                                // Fetch diff for this commit
-                                match enya_analyzer::fetch_commit_diff(&repo_path, &commit.hash) {
-                                    Ok(diff) => {
-                                        commit.semantics = enya_analyzer::extract_semantics(&diff);
-                                        commit.diff = diff;
-                                    }
-                                    Err(e) => {
-                                        log::warn!(
-                                            "Failed to fetch diff for {}: {e}",
-                                            &commit.hash[..8]
-                                        );
-                                    }
-                                }
-
-                                // Request repaint periodically for smooth updates
-                                if i % 10 == 0 {
-                                    ctx_clone.request_repaint();
-                                }
-                            }
+                        let is_incremental = last_indexed_commit.is_some();
+                        if let Some(ref commit) = last_indexed_commit {
+                            progress.set_current_item(Some(format!(
+                                "Checking for new commits since {}...",
+                                &commit[..7.min(commit.len())]
+                            )));
+                        } else {
+                            progress.set_current_item(Some(
+                                "Loading full commit history...".to_string(),
+                            ));
                         }
 
-                        log::info!(
-                            "Fetched {} commits with diffs for Tantivy indexing",
-                            commits.len()
-                        );
+                        // Create progress callback for diff fetching
+                        let progress_clone = progress.clone();
+                        let ctx_for_progress = ctx_clone.clone();
+                        let last_repaint =
+                            std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                        let last_repaint_clone = Arc::clone(&last_repaint);
 
-                        let result = TantivyCodebaseIndex::open_or_create(&repo_path).and_then(
-                            |mut tantivy_index| {
-                                tantivy_index.rebuild_with_progress(
-                                    &index_clone,
-                                    &commits,
-                                    Some(&progress),
-                                )?;
-                                Ok(tantivy_index)
-                            },
-                        );
+                        let progress_callback: enya_analyzer::ProgressCallback =
+                            Box::new(move |current, total, item| {
+                                progress_clone.set_total(total);
+                                progress_clone
+                                    .set_progress_atomic(current, item.map(ToString::to_string));
+
+                                let last =
+                                    last_repaint_clone.load(std::sync::atomic::Ordering::Relaxed);
+                                if (current >= last + 100 || current == total)
+                                    && last_repaint_clone
+                                        .compare_exchange(
+                                            last,
+                                            current,
+                                            std::sync::atomic::Ordering::Relaxed,
+                                            std::sync::atomic::Ordering::Relaxed,
+                                        )
+                                        .is_ok()
+                                {
+                                    ctx_for_progress.request_repaint();
+                                }
+                            });
+
+                        // Fetch commits with batch mode (single git command for all diffs)
+                        // If we have a last indexed commit, only fetch new commits (incremental)
+                        let commits = enya_analyzer::fetch_all_commits_with_diffs_batch(
+                            &repo_path,
+                            last_indexed_commit.as_deref(),
+                            Some(&progress_callback),
+                        )
+                        .unwrap_or_else(|e| {
+                            log::warn!("Failed to fetch commits for indexing: {e}");
+                            Vec::new()
+                        });
+
+                        ctx_clone.request_repaint();
+
+                        // Build or update the Tantivy index
+                        let result = if is_incremental && !commits.is_empty() {
+                            // Incremental update: add new commits to existing index
+                            log::info!(
+                                "Incremental update: adding {} new commits to index",
+                                commits.len()
+                            );
+                            existing_index.ok_or(IndexError::NotInitialized).and_then(
+                                |mut tantivy_index| {
+                                    tantivy_index.add_commits(&commits, Some(&progress))?;
+                                    Ok(tantivy_index)
+                                },
+                            )
+                        } else if is_incremental && commits.is_empty() {
+                            // No new commits - just return existing index
+                            log::info!("No new commits to index");
+                            existing_index.ok_or(IndexError::NotInitialized)
+                        } else {
+                            // Full rebuild
+                            log::info!("Full index rebuild with {} commits", commits.len());
+                            TantivyCodebaseIndex::open_or_create(&repo_path).and_then(
+                                |mut tantivy_index| {
+                                    tantivy_index.rebuild_with_progress(
+                                        &index_clone,
+                                        &commits,
+                                        Some(&progress),
+                                    )?;
+                                    Ok(tantivy_index)
+                                },
+                            )
+                        };
 
                         *pending_tantivy.lock() = Some(result);
                         ctx_clone.request_repaint();
                     });
                 }
+
+                // Get the head commit message and hash
+                let head_commit_msg = get_head_commit_message(&index.repo_path).ok();
+                let head_commit_hash = get_head_commit(&index.repo_path).ok();
 
                 self.index = Some(index);
                 self.status = CodebaseStatus::Ready {
@@ -557,6 +639,8 @@ impl CodebaseManager {
                     repo_name,
                     metrics_count,
                     language,
+                    head_commit_msg,
+                    head_commit_hash,
                 };
                 self.indexing_progress = None; // Clear progress tracker
             }

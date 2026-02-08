@@ -38,7 +38,7 @@ impl NotificationLevel {
     }
 
     /// Get the accent color for this notification level
-    /// Uses theme-aware semantic colors
+    /// Uses theme-aware semantic colors (Custom variant handles plugin colors internally)
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
             Self::Info => theme.semantic_info(),
@@ -240,9 +240,8 @@ impl NotificationManager {
         width: f32,
         theme: AppTheme,
     ) -> f32 {
+        // Extract colors from theme (Custom variant handles plugin colors internally)
         let accent_color = notification.level.color(theme);
-
-        // Theme-aware colors for frosted glass effect
         let bg_color = theme.bg_surface().gamma_multiply(0.95);
         let border_color = theme.border_subtle();
         let text_color = theme.text_primary();

@@ -5,7 +5,6 @@
 
 use egui::{Color32, Key, RichText};
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
@@ -38,7 +37,7 @@ pub struct WhichKey {
     is_open: bool,
     /// Skip input on the first frame after opening (to avoid immediate close)
     just_opened: bool,
-    /// Current theme
+    /// Current theme (can be Custom with plugin colors)
     theme: AppTheme,
     /// Keybinding groups
     groups: Vec<KeybindingGroup>,
@@ -92,6 +91,10 @@ impl WhichKey {
                     Keybinding {
                         key: "z",
                         description: "Zen mode",
+                    },
+                    Keybinding {
+                        key: "gf",
+                        description: "Float pane",
                     },
                     Keybinding {
                         key: "Ctrl+V",
@@ -166,6 +169,10 @@ impl WhichKey {
                         description: "Diagnostics",
                     },
                     Keybinding {
+                        key: "Space+p",
+                        description: "Plugins",
+                    },
+                    Keybinding {
                         key: "gd",
                         description: "Definition",
                     },
@@ -179,6 +186,10 @@ impl WhichKey {
                 name: "Time Range",
                 icon: semantic_icons::time::CLOCK,
                 bindings: vec![
+                    Keybinding {
+                        key: "Space+t",
+                        description: "Time picker",
+                    },
                     Keybinding {
                         key: "t5/t1/t3",
                         description: "5/15/30 min",
@@ -243,11 +254,11 @@ impl WhichKey {
         self.is_open
     }
 
-    /// Show the overlay. Returns true if it was closed this frame.
+    /// Show the overlay.
     #[profiling::function]
-    pub fn show(&mut self, ctx: &egui::Context) -> bool {
+    pub fn show(&mut self, ctx: &egui::Context) {
         if !self.is_open {
-            return false;
+            return;
         }
 
         let mut should_close = false;
@@ -279,9 +290,11 @@ impl WhichKey {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
+                // Extract colors from theme (handles both builtin and custom themes)
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);
                 let separator_color = self.theme.border_subtle();
-                let muted_text = text_color(self.theme).gamma_multiply(0.6);
+                let text_col = self.theme.text_primary();
+                let muted_text = self.theme.text_tertiary();
                 let key_bg = self.theme.bg_elevated();
                 let accent_color = self.theme.accent_primary();
 
@@ -301,7 +314,7 @@ impl WhichKey {
                         ui.add_space(8.0);
                         ui.label(
                             RichText::new("Keyboard Shortcuts")
-                                .color(text_color(self.theme))
+                                .color(text_col)
                                 .size(18.0)
                                 .strong(),
                         );
@@ -333,10 +346,10 @@ impl WhichKey {
                                     Self::render_group(
                                         &mut columns[col],
                                         group,
-                                        self.theme,
                                         accent_color,
                                         muted_text,
                                         key_bg,
+                                        text_col,
                                     );
                                     columns[col].add_space(12.0);
                                 }
@@ -380,20 +393,20 @@ impl WhichKey {
             });
 
         if should_close {
+            // Clear egui focus so vim keys work immediately after closing
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             self.close();
         }
-
-        should_close
     }
 
     /// Render a group of keybindings
     fn render_group(
         ui: &mut egui::Ui,
         group: &KeybindingGroup,
-        theme: AppTheme,
         accent_color: Color32,
         muted_text: Color32,
         key_bg: Color32,
+        text_col: Color32,
     ) {
         // Group header with icon
         ui.horizontal(|ui| {
@@ -418,7 +431,7 @@ impl WhichKey {
                 ui.add_space(16.0); // Indent under group header
 
                 // Key badge
-                render_key_badge(ui, binding.key, key_bg, text_color(theme));
+                render_key_badge(ui, binding.key, key_bg, text_col);
 
                 ui.add_space(6.0);
 

@@ -241,6 +241,16 @@ impl Visualization {
         }
     }
 
+    /// Take any pending interaction from the visualization (only time series supports this).
+    /// Call after `show()` to check if the user double-clicked for logs drilldown.
+    pub fn take_interaction(&mut self) -> Option<super::time_series_chart::ChartInteraction> {
+        match self {
+            Self::TimeSeries(chart) => chart.take_interaction(),
+            // Other visualization types don't support interactions yet
+            _ => None,
+        }
+    }
+
     /// Add a series to the time series chart (no-op for other types)
     pub fn add_series(&mut self, series: Series) {
         if let Self::TimeSeries(chart) = self {

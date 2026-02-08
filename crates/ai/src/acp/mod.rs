@@ -50,6 +50,7 @@
 
 mod client;
 mod config;
+mod protocol;
 
 pub use client::AcpClient;
 pub use config::{AgentConfig, AgentKind};

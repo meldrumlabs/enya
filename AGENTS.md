@@ -4,7 +4,7 @@ This guide keeps contributors aligned with the current enya workspace. Scan it b
 
 ## Project Structure & Module Organization
 
-The workspace in `Cargo.toml` centers on `crates/*`: `enya` (Axum server), `metrics-store` (time-series LSM backed by SlateDB), `log-store` (Tantivy search), `build-info`, and `editor` (egui/eframe). Shared spikes live in `examples/*`; static media live in `assets/`. Unit tests sit beside their modules, and cross-crate integration tests belong in each crate's `tests/` directory so `cargo nextest` discovers them automatically.
+The workspace in `Cargo.toml` centers on `crates/*`: `enya` (CLI binary), `editor` (egui/eframe UI), `agent` (JSON-RPC session and HTTP server), `ai` (LLM provider integration), `client` (Prometheus/Loki backends), `analyzer` (git repo analysis and syntax highlighting), `promql`/`logql` (query parsers), `search` (Tantivy full-text search), `datafusion` (SQL engine), `plugin` (Lua plugin system), `config` (shared configuration), `headless` (headless API), `build-info`/`build-tools` (build utilities), and `egui_ghostty`/`ghostty_vt`/`ghostty_vt_sys` (terminal emulator). Static media live in `assets/`. Unit tests sit beside their modules, and cross-crate integration tests belong in `crates/integration-tests/` so `cargo nextest` discovers them automatically.
 
 ## Build, Test, and Development Commands
 
@@ -22,7 +22,7 @@ Run `just install` one time to fetch `cargo-nextest`, `cargo-machete`, and `carg
 
 ## Coding Style & Naming Conventions
 
-The workspace targets Rust 2024 (`rust-toolchain`, `rust-version = 1.85`). Always format with `cargo fmt --all` and keep `cargo clippy` clean; warnings are denied in CI. Follow idiomatic Rust naming (`snake_case` modules, `CamelCase` types, `SCREAMING_SNAKE_CASE` consts). Prefer `tracing` spans over direct logging, and respect the project’s “unsafe forbidden” posture unless a crate documents an exception.
+The workspace targets Rust 2024 edition (`rust-version = 1.88`). Always format with `cargo fmt --all` and keep `cargo clippy` clean; warnings are denied in CI. Follow idiomatic Rust naming (`snake_case` modules, `CamelCase` types, `SCREAMING_SNAKE_CASE` consts). Prefer `tracing` spans over direct logging, and respect the project’s “unsafe forbidden” posture unless a crate documents an exception.
 
 ## Testing Guidelines
 

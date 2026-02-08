@@ -1,0 +1,49 @@
+[package]
+name = "enya-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Enya agent: JSON-RPC session, HTTP server, watch engine"
+
+[features]
+serve = [
+    "dep:axum",
+    "dep:tokio",
+    "dep:rust-embed",
+    "dep:reqwest",
+    "dep:mime_guess",
+    "dep:open",
+    "dep:base64",
+    "dep:rusqlite",
+    "dep:parking_lot",
+    "dep:tower-http",
+]
+
+[dependencies]
+enya-headless = { workspace = true }
+enya-config = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rustc-hash = { workspace = true }
+tracing = { workspace = true }
+thiserror = "2"
+
+# Serve dependencies (optional, enabled by "serve" feature)
+axum = { workspace = true, features = ["macros", "json", "query"], optional = true }
+tokio = { workspace = true, features = ["full"], optional = true }
+rust-embed = { workspace = true, features = ["compression"], optional = true }
+reqwest = { workspace = true, optional = true }
+mime_guess = { workspace = true, optional = true }
+open = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+rusqlite = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+
+[dev-dependencies]
+insta = "1"
+tempfile = "3"
+
+[lints]
+workspace = true

@@ -1,5 +1,6 @@
 use egui::{Color32, RichText};
 
+use crate::components::pane::time_series_chart::ChartInteraction;
 use crate::components::pane::visualization::{
     Visualization, VisualizationType, populate_demo_data,
 };
@@ -128,8 +129,6 @@ pub struct QueryPane {
     visualization: Visualization,
     /// Current theme
     theme: AppTheme,
-    /// API key
-    api_key: String,
     /// Whether the buffer edit area is expanded (shown)
     buffer_expanded: bool,
     /// Query state (aggregation, granularity, time range)
@@ -149,6 +148,12 @@ pub struct QueryPane {
     edit_requested: bool,
     /// Whether the visualization type dropdown is open
     viz_dropdown_open: bool,
+    /// Pending action to be consumed by the workspace (set during show, cleared on take)
+    pending_action: Option<QueryPaneAction>,
+    /// Whether this pane uses demo data (prevents re-querying on time range change)
+    is_demo: bool,
+    /// Pending demo refresh (deferred to next frame so loading animation can show)
+    pending_demo_refresh: bool,
 }
 
 impl Default for QueryPane {
@@ -179,7 +184,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -189,6 +193,9 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
+            pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -238,7 +245,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -248,6 +254,9 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
+            pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -268,7 +277,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -278,6 +286,9 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
+            pending_action: None,
+            is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -301,7 +312,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -311,6 +321,9 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
+            pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -334,7 +347,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -344,6 +356,9 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
+            pending_action: None,
+            is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -378,7 +393,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -388,6 +402,9 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
+            pending_action: None,
+            is_demo: true,
+            pending_demo_refresh: false,
         }
     }
 
@@ -409,7 +426,6 @@ impl QueryPane {
             buffer,
             visualization,
             theme: AppTheme::default(),
-            api_key: String::new(),
             buffer_expanded: false,
             query_state: QueryState::default(),
             tag: String::new(),
@@ -419,6 +435,9 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
+            pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
         }
     }
 
@@ -495,6 +514,12 @@ impl QueryPane {
     /// Get the user-defined tag
     pub fn tag(&self) -> &str {
         &self.tag
+    }
+
+    /// Take the pending action (returns and clears it).
+    /// Call this after rendering to check for drilldown interactions.
+    pub fn take_pending_action(&mut self) -> Option<QueryPaneAction> {
+        self.pending_action.take()
     }
 
     /// Set the user-defined tag
@@ -609,22 +634,34 @@ impl QueryPane {
         self.visualization.set_theme(theme);
     }
 
-    /// Set API key
-    pub fn set_api_key(&mut self, key: &str) {
-        self.api_key = key.to_string();
-    }
-
-    /// Refresh the visualization based on current saved query
-    fn refresh_chart(&mut self) {
+    /// Refresh the visualization with demo data (for demo panes only)
+    fn refresh_demo_chart(&mut self) {
         let query = self.buffer.saved_content().to_string();
         self.visualization.clear();
         self.visualization.set_metric_name(&query);
         populate_demo_data(&mut self.visualization, &query);
     }
 
-    /// Public method to refresh/reload the pane data
+    /// Public method to refresh/reload the pane data.
+    /// For demo panes: defers refresh to next frame so loading animation shows.
+    /// For real panes: marks as needing refresh (query executor will re-query).
     pub fn refresh(&mut self) {
-        self.refresh_chart();
+        if self.is_demo {
+            // Defer to next frame so loading animation can render
+            self.pending_demo_refresh = true;
+            self.is_loading = true;
+        } else {
+            self.needs_refresh = true;
+        }
+    }
+
+    /// Process any pending demo refresh (called each frame in show())
+    fn process_pending_demo_refresh(&mut self) {
+        if self.pending_demo_refresh {
+            self.refresh_demo_chart();
+            self.pending_demo_refresh = false;
+            self.is_loading = false;
+        }
     }
 
     /// Get a reference to the visualization.
@@ -647,9 +684,22 @@ impl QueryPane {
         self.needs_refresh = false;
     }
 
-    /// Mark pane as needing refresh (called after buffer is saved)
+    /// Mark pane as needing refresh (called on time range change, buffer save, etc.)
+    /// For demo panes: triggers deferred refresh with loading animation.
+    /// For real panes: marks for re-query through the query executor.
     pub fn mark_needs_refresh(&mut self) {
-        self.needs_refresh = true;
+        if self.is_demo {
+            // Deferred refresh with loading animation - same as manual refresh
+            self.pending_demo_refresh = true;
+            self.is_loading = true;
+        } else {
+            self.needs_refresh = true;
+        }
+    }
+
+    /// Check if this pane uses demo data (synthetic data, not connected to a backend)
+    pub fn is_demo(&self) -> bool {
+        self.is_demo
     }
 
     /// Check if this pane is currently loading (query in flight)
@@ -697,6 +747,9 @@ impl QueryPane {
     /// Render the query pane
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) -> QueryPaneAction {
+        // Process any pending demo refresh (deferred from previous frame)
+        self.process_pending_demo_refresh();
+
         let mut action = QueryPaneAction::None;
         let text_col = text_color(self.theme);
 
@@ -772,6 +825,18 @@ impl QueryPane {
                 render_loading_state(ui, self.theme);
             } else {
                 self.visualization.show(ui);
+
+                // Check for chart interactions (e.g., double-click for drilldown)
+                if let Some(ChartInteraction::DrilldownLogs {
+                    timestamp_secs,
+                    metric_name,
+                }) = self.visualization.take_interaction()
+                {
+                    action = QueryPaneAction::DrilldownLogs {
+                        timestamp_secs,
+                        metric_name,
+                    };
+                }
             }
         });
 
@@ -918,17 +983,29 @@ impl QueryPane {
             }
         }
 
+        // Store actions that need to be consumed by the workspace (e.g., drilldown)
+        if matches!(action, QueryPaneAction::DrilldownLogs { .. }) {
+            self.pending_action = Some(action.clone());
+        }
+
         action
     }
 }
 
 /// Actions that can result from query pane interaction
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum QueryPaneAction {
     /// No action
     None,
     /// Query was changed (buffer saved)
     QueryChanged,
+    /// User double-clicked on chart for logs drilldown
+    DrilldownLogs {
+        /// Timestamp in seconds where user clicked
+        timestamp_secs: f64,
+        /// The metric name for context
+        metric_name: String,
+    },
 }
 
 /// Implement Component trait so QueryPane can be used in the dashboard
@@ -947,14 +1024,6 @@ impl crate::components::Component for QueryPane {
 
     fn set_theme(&mut self, theme: AppTheme) {
         QueryPane::set_theme(self, theme);
-    }
-
-    fn set_api_key(&mut self, key: &str) {
-        QueryPane::set_api_key(self, key);
-    }
-
-    fn set_staging_api_key(&mut self, _key: &str) {
-        // Not needed
     }
 
     fn label(&self) -> egui::RichText {

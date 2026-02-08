@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use egui::RichText;
 
-use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
@@ -183,6 +182,8 @@ pub struct TimeRangeToolbar {
     theme: AppTheme,
     /// Whether the time range changed this frame
     changed: bool,
+    /// Whether the custom button was clicked this frame
+    custom_clicked: bool,
 }
 
 impl Default for TimeRangeToolbar {
@@ -198,6 +199,7 @@ impl TimeRangeToolbar {
             auto_refresh: false,
             theme: AppTheme::default(),
             changed: false,
+            custom_clicked: false,
         }
     }
 
@@ -239,6 +241,17 @@ impl TimeRangeToolbar {
         self.changed = true;
     }
 
+    /// Set a custom absolute time range.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_secs` - Start timestamp in seconds (Unix epoch)
+    /// * `end_secs` - End timestamp in seconds (Unix epoch)
+    pub fn set_custom_range(&mut self, start_secs: f64, end_secs: f64) {
+        self.time_range = TimeRange::custom(start_secs, end_secs);
+        self.changed = true;
+    }
+
     /// Check if the time range changed this frame
     pub fn changed(&self) -> bool {
         self.changed
@@ -247,6 +260,11 @@ impl TimeRangeToolbar {
     /// Check if auto-refresh is enabled
     pub fn auto_refresh(&self) -> bool {
         self.auto_refresh
+    }
+
+    /// Check if the custom button was clicked this frame
+    pub fn custom_clicked(&self) -> bool {
+        self.custom_clicked
     }
 
     /// Render the toolbar (without countdown)
@@ -259,7 +277,8 @@ impl TimeRangeToolbar {
     #[profiling::function]
     pub fn show_with_countdown(&mut self, ui: &mut egui::Ui, countdown_secs: Option<u64>) {
         self.changed = false;
-        let text_color = text_color(self.theme);
+        self.custom_clicked = false;
+        let text_color = self.theme.text_primary();
 
         // Get accent colors based on theme for better visibility
         let accent_color = self.theme.accent_primary();
@@ -306,11 +325,11 @@ impl TimeRangeToolbar {
 
             if ui
                 .add(custom_button)
-                .on_hover_text("Custom time range")
+                .on_hover_text("Custom time range (Space+t)")
                 .clicked()
             {
-                // Future: open a date picker modal
                 log::debug!("Custom time range clicked");
+                self.custom_clicked = true;
             }
 
             ui.separator();

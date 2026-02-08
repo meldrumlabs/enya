@@ -342,3 +342,129 @@ pub fn highlight_color(idx: usize, theme: AppTheme) -> Color32 {
 pub fn highlight_color(_idx: usize, theme: AppTheme) -> Color32 {
     text_color(theme)
 }
+
+/// Cache for syntax-highlighted source files read from disk.
+///
+/// Wraps [`SyntaxHighlightData`] with a file path and disk I/O.
+/// Used by the unified finder and source preview overlays.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone)]
+pub struct HighlightCache {
+    /// The file path this cache is for.
+    pub file_path: std::path::PathBuf,
+    /// Inner highlight data (source content, line offsets, spans).
+    pub data: SyntaxHighlightData,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl HighlightCache {
+    /// Creates a new highlight cache for the given file.
+    ///
+    /// Returns `None` if the file cannot be read or is empty.
+    #[must_use]
+    pub fn new(file_path: std::path::PathBuf) -> Option<Self> {
+        let source_content = std::fs::read_to_string(&file_path).ok()?;
+        if source_content.is_empty() {
+            return None;
+        }
+        let lang = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let data = SyntaxHighlightData::new(&source_content, lang);
+        Some(Self { file_path, data })
+    }
+
+    /// Access the cached source content.
+    pub fn source_content(&self) -> &str {
+        &self.data.source_content
+    }
+
+    /// Access the cached highlight spans.
+    pub fn spans(&self) -> &[HighlightSpan] {
+        &self.data.spans
+    }
+
+    /// Access the cached line offsets.
+    pub fn line_offsets(&self) -> &[usize] {
+        &self.data.line_offsets
+    }
+}
+
+/// Highlight a line of code using pre-computed tree-sitter spans.
+///
+/// Standalone function for callers that hold spans/offsets separately.
+/// `line_num` is 1-indexed.
+#[cfg(not(target_arch = "wasm32"))]
+#[must_use]
+pub fn highlight_line_with_spans(
+    line_num: usize,
+    line: &str,
+    highlight_spans: &[HighlightSpan],
+    line_offsets: &[usize],
+    source_len: usize,
+    theme: AppTheme,
+) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    let font_id = typography::monospace(typography::SM);
+    let default_color = text_color(theme);
+
+    if highlight_spans.is_empty() || line_offsets.is_empty() {
+        job.append(line, 0.0, egui::TextFormat::simple(font_id, default_color));
+        return job;
+    }
+
+    let line_idx = line_num.saturating_sub(1);
+    let line_start = line_offsets.get(line_idx).copied().unwrap_or(0);
+    let line_end = line_offsets
+        .get(line_idx + 1)
+        .copied()
+        .unwrap_or(source_len);
+
+    let mut current_pos = 0usize;
+    let mut line_spans: Vec<(usize, usize, Color32)> = Vec::new();
+
+    for span in highlight_spans {
+        if span.range.end <= line_start || span.range.start >= line_end {
+            continue;
+        }
+        let span_start_in_line = span.range.start.saturating_sub(line_start);
+        let span_end_in_line = span.range.end.saturating_sub(line_start).min(line.len());
+        if span_start_in_line >= span_end_in_line {
+            continue;
+        }
+        let color = highlight_color(span.highlight_idx, theme);
+        line_spans.push((span_start_in_line, span_end_in_line, color));
+    }
+
+    line_spans.sort_by_key(|(start, _, _)| *start);
+
+    for (span_start, span_end, color) in line_spans {
+        if span_start > current_pos {
+            if let Some(text) = line.get(current_pos..span_start) {
+                job.append(
+                    text,
+                    0.0,
+                    egui::TextFormat::simple(font_id.clone(), default_color),
+                );
+            }
+        }
+        if let Some(text) = line.get(span_start..span_end) {
+            job.append(text, 0.0, egui::TextFormat::simple(font_id.clone(), color));
+        }
+        current_pos = span_end;
+    }
+
+    if current_pos < line.len() {
+        if let Some(text) = line.get(current_pos..) {
+            job.append(
+                text,
+                0.0,
+                egui::TextFormat::simple(font_id.clone(), default_color),
+            );
+        }
+    }
+
+    if job.is_empty() && line.is_empty() {
+        job.append("", 0.0, egui::TextFormat::simple(font_id, default_color));
+    }
+
+    job
+}

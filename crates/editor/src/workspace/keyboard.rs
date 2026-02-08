@@ -2,11 +2,11 @@
 //!
 //! This module contains vim-style keyboard navigation handlers for the workspace,
 //! including normal mode navigation (h/j/k/l), visual-multi mode selection,
-//! and leader key sequences (Space+m, Space+w, etc.).
+//! and leader key sequences (Space+w, Space+f, etc.).
 
 use egui_tiles::{Tile, TileId};
 
-use super::{NavDirection, Workspace, WorkspaceAction};
+use super::{FocusTarget, NavDirection, Workspace, WorkspaceAction};
 use crate::components::{
     Buffer, BufferMode, EditExcerpt, QueryPane, QuickCommand, TimeRangePreset,
 };
@@ -16,40 +16,33 @@ impl Workspace {
     /// Returns an optional WorkspaceAction if a key triggered an action.
     #[profiling::function]
     pub fn handle_viewport_keyboard(&mut self, ctx: &egui::Context) -> Option<WorkspaceAction> {
-        // When chat split view is active, handle ':' and 'Space+g' even if something has focus
-        // (unless the chat text input specifically has focus - checked via input consumption)
-        if self.channels_panel_visible && self.channels_panel.is_split_view_active() {
-            let mut close_chat = false;
+        // Global ':' handler - command palette should ALWAYS be openable on top of any overlay
+        // (except when command palette itself is already open, or a text field has focus)
+        // This is checked FIRST, before any overlay blocks, so :style works on top of diff viewer, etc.
+        if !self.command_palette.is_open() && !ctx.memory(|mem| mem.focused().is_some()) {
             let mut open_command_palette = false;
             ctx.input_mut(|input| {
-                // ':' - open command palette
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::Colon) {
                     open_command_palette = true;
-                }
-
-                // Space - leader key for sequences
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
-                    self.leader_keys.press_space();
-                }
-
-                // Space+g - toggle channels panel (closes chat)
-                if self.leader_keys.is_space_active()
-                    && input.consume_key(egui::Modifiers::NONE, egui::Key::G)
-                {
-                    close_chat = true;
-                    self.leader_keys.clear_space();
                 }
             });
             if open_command_palette {
                 self.command_palette.open();
+                ctx.request_repaint();
+                return None;
             }
-            if close_chat {
-                self.toggle_channels_panel();
-            }
-            return None;
         }
 
-        // Don't handle keys if a text field or modal has focus
+        // Don't handle keys if a text field or modal has focus.
+        //
+        // IMPORTANT: When closing overlays or text inputs that should return to vim navigation,
+        // you must clear BOTH widget-level AND global egui focus:
+        //   1. response.surrender_focus()  - clears widget-level focus
+        //   2. ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL))  - clears global focus
+        //
+        // If only widget-level focus is cleared, this check still returns early and vim keys
+        // won't work until the user clicks elsewhere. See chat_view.rs and style_picker.rs
+        // for examples of the correct pattern.
         if ctx.memory(|mem| mem.focused().is_some()) {
             return None;
         }
@@ -68,10 +61,12 @@ impl Workspace {
             || self.which_key.is_open()
             || self.viewport_filter.is_open()
             || self.tutorial_overlay.is_open()
+            || self.plugins_overlay.is_open()
             || self.source_preview.is_open()
-            || self.agent_panel.is_open()
             || self.style_picker.is_open()
             || codebase_finder_open
+        // Note: agent_panel.is_open() intentionally NOT checked here.
+        // The agent panel can be open while viewport has focus (agent_panel_focused is checked separately).
         {
             return None;
         }
@@ -85,6 +80,12 @@ impl Workspace {
         // Handle visual-multi mode keyboard shortcuts
         if self.visual_multi_state.is_some() {
             return self.handle_visual_multi_keyboard(ctx);
+        }
+
+        // When agent panel has focus, let it handle h/j/k/l navigation
+        // (viewport keyboard handling is skipped)
+        if self.agent_panel_focused {
+            return None;
         }
 
         // Check if any buffer is in insert mode - if so, don't handle navigation keys
@@ -110,7 +111,7 @@ impl Workspace {
         let mut should_open_codebase_finder = false;
         let mut should_show_home = false;
         let mut should_toggle_diagnostics = false;
-        let mut should_toggle_team_menu = false;
+        let mut should_open_plugins_overlay = false;
         let mut should_edit_buffer = false;
         let mut should_go_to_definition = false;
         let mut should_go_to_alert = false;
@@ -129,6 +130,10 @@ impl Workspace {
         let mut should_tab_pane_right = false;
         let mut should_tab_pane_up = false;
         let mut should_tab_pane_down = false;
+        let mut should_float_focused_pane = false;
+        let mut should_focus_agent_panel = false;
+        let mut should_undo = false;
+        let mut should_open_time_range_picker = false;
 
         ctx.input_mut(|input| {
             // yy - share focused pane (vim-style yank)
@@ -169,7 +174,7 @@ impl Workspace {
                 }
             }
 
-            // Space - leader key for sequences (Space+m, Space+q, Space+w)
+            // Space - leader key for sequences (Space+w, Space+f, Space+a, etc.)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Space) {
                 self.leader_keys.press_space();
                 consumed = true;
@@ -212,6 +217,9 @@ impl Workspace {
 
                 // Space+a - open/focus agent pane (Claude Code)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                    log::info!(
+                        "Keyboard: Space+a pressed, setting should_toggle_agent_panel = true"
+                    );
                     should_toggle_agent_panel = true;
                     self.leader_keys.clear_space();
                     consumed = true;
@@ -227,21 +235,38 @@ impl Workspace {
                     return;
                 }
 
-                // Space+t - toggle team menu (only when connected to a team)
+                // Space+t - open time range picker
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
-                    should_toggle_team_menu = true;
+                    should_open_time_range_picker = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
                 }
 
-                // Space+g - toggle channels panel (only when connected to a team)
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::G) {
-                    if self.team_status.is_some() {
-                        self.toggle_channels_panel();
-                    }
+                // Space+p - open plugins overlay
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
+                    should_open_plugins_overlay = true;
                     self.leader_keys.clear_space();
                     consumed = true;
+                    return;
+                }
+
+                // Escape - cancel space leader key (dismiss the leader popup)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Any other key press dismisses the leader popup (neovim which-key behavior)
+                // Check if any non-modifier key was pressed
+                let any_key_pressed = input
+                    .events
+                    .iter()
+                    .any(|e| matches!(e, egui::Event::Key { pressed: true, .. }));
+                if any_key_pressed {
+                    self.leader_keys.clear_space();
+                    // Don't consume - let the key be handled by other handlers
                     return;
                 }
             }
@@ -312,6 +337,13 @@ impl Workspace {
                     consumed = true;
                     return;
                 }
+                // tc - Custom time range picker
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::C) {
+                    should_open_time_range_picker = true;
+                    self.leader_keys.clear_t();
+                    consumed = true;
+                    return;
+                }
             }
 
             // Go-to shortcuts (must follow 'g' within timeout)
@@ -337,6 +369,14 @@ impl Workspace {
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::P) {
                     log::debug!("gp shortcut triggered - showing definition demo");
                     should_show_definition_demo = true;
+                    self.leader_keys.clear_g();
+                    consumed = true;
+                    return;
+                }
+                // gf - float focused pane (detach to floating window)
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
+                    log::debug!("gf shortcut triggered - float focused pane");
+                    should_float_focused_pane = true;
                     self.leader_keys.clear_g();
                     consumed = true;
                     return;
@@ -441,6 +481,7 @@ impl Workspace {
 
             // a - agent operator (aw, ae, ay, ac, ar, af, as, ah) or just enter agent mode
             if input.consume_key(egui::Modifiers::NONE, egui::Key::A) {
+                log::info!("Keyboard: standalone 'a' pressed (agent operator), NOT Space+a");
                 // Record 'a' press time for agent operator detection
                 self.leader_keys.press_a();
                 consumed = true;
@@ -579,8 +620,14 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
             {
-                if let Some(current_id) = current_focus {
-                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
+                // Use section navigation if sections are active
+                if self.has_sections() {
+                    self.navigate_sections(NavDirection::Left);
+                } else if let Some(current_id) = current_focus {
+                    let sibling = self.find_sibling_in_direction(current_id, NavDirection::Left);
+                    if sibling.is_some() {
+                        new_tile_id = sibling;
+                    }
                 } else {
                     new_tile_id = pane_ids.first().copied();
                 }
@@ -592,8 +639,26 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
             {
-                if let Some(current_id) = current_focus {
-                    new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
+                // Use section navigation if sections are active
+                if self.has_sections() {
+                    // Check if at right edge and should transfer to agent panel
+                    let at_right_edge = self.is_at_section_right_edge();
+                    if at_right_edge && self.agent_panel.is_open() {
+                        should_focus_agent_panel = true;
+                    } else {
+                        self.navigate_sections(NavDirection::Right);
+                    }
+                } else if let Some(current_id) = current_focus {
+                    let sibling = self.find_sibling_in_direction(current_id, NavDirection::Right);
+                    if sibling.is_some() {
+                        new_tile_id = sibling;
+                    } else if self.agent_panel.is_open() {
+                        // At right edge with agent panel open - focus the panel
+                        should_focus_agent_panel = true;
+                    }
+                } else if self.agent_panel.is_open() {
+                    // No focus and agent panel open - focus the panel
+                    should_focus_agent_panel = true;
                 } else {
                     new_tile_id = pane_ids.first().copied();
                 }
@@ -605,7 +670,10 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
             {
-                if let Some(current_id) = current_focus {
+                // Use section navigation if sections are active
+                if self.has_sections() {
+                    self.navigate_sections(NavDirection::Down);
+                } else if let Some(current_id) = current_focus {
                     new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
                 } else {
                     new_tile_id = pane_ids.first().copied();
@@ -618,11 +686,21 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
             {
-                if let Some(current_id) = current_focus {
+                // Use section navigation if sections are active
+                if self.has_sections() {
+                    self.navigate_sections(NavDirection::Up);
+                } else if let Some(current_id) = current_focus {
                     new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
                 } else {
                     new_tile_id = pane_ids.first().copied();
                 }
+                consumed = true;
+                return;
+            }
+
+            // u - undo last action (vim-style)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::U) {
+                should_undo = true;
                 consumed = true;
                 return;
             }
@@ -646,10 +724,18 @@ impl Workspace {
             if let Some(tile_id) = current_focus {
                 // Find the pane index for the focused tile
                 if let Some(pane_index) = self.get_pane_index(tile_id) {
+                    // Trigger yank flash visual effect
+                    self.behavior.trigger_yank_flash(tile_id);
                     ctx.request_repaint();
                     return Some(WorkspaceAction::SharePane(pane_index));
                 }
             }
+        }
+
+        // Handle undo action (u)
+        if should_undo {
+            self.execute_undo();
+            ctx.request_repaint();
         }
 
         // Handle time range preset changes (t5, t1, th, td, tw, etc.)
@@ -691,17 +777,36 @@ impl Workspace {
             ctx.request_repaint();
         }
 
-        if should_toggle_team_menu {
-            // Only toggle if team is connected
-            if self.team_status.is_some() {
-                self.toggle_team_menu();
-                ctx.request_repaint();
-            }
+        if should_open_plugins_overlay {
+            self.plugins_overlay.open();
+            ctx.request_repaint();
+        }
+
+        if should_open_time_range_picker {
+            self.pending_open_time_range_picker = true;
+            ctx.request_repaint();
         }
 
         if should_toggle_agent_panel {
-            // Create or focus an agent pane instead of toggling the overlay
-            self.focus_or_create_agent_pane();
+            // Toggle the agent panel (right-side layout panel)
+            log::info!("Keyboard: toggling agent panel");
+            self.agent_panel.toggle();
+            // Set focus state based on whether panel is now open
+            if self.agent_panel.is_open() {
+                log::info!("Keyboard: agent panel opened, setting agent_panel_focused = true");
+                self.agent_panel_focused = true;
+                self.agent_panel.set_focus(true);
+                // Clear viewport pane focus so it doesn't appear highlighted
+                self.behavior.set_focused_tile(None);
+                self.section_focus = FocusTarget::None;
+                // Clear egui widget focus so vim keys work immediately in the panel
+                // (otherwise a TextEdit or ComboBox from viewport might still consume keys)
+                ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+            } else {
+                log::info!("Keyboard: agent panel closed, setting agent_panel_focused = false");
+                self.agent_panel_focused = false;
+                self.agent_panel.set_focus(false);
+            }
             ctx.request_repaint();
         }
 
@@ -749,6 +854,19 @@ impl Workspace {
             ctx.request_repaint();
         }
 
+        // Handle focus transfer to agent panel (vim l at right edge)
+        if should_focus_agent_panel {
+            self.agent_panel_focused = true;
+            self.agent_panel.set_focus(true);
+            // Clear viewport pane focus so it doesn't appear highlighted
+            self.behavior.set_focused_tile(None);
+            // Also clear section focus for section-based workspaces
+            self.section_focus = FocusTarget::None;
+            // Clear egui widget focus so vim keys work immediately in the panel
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+            ctx.request_repaint();
+        }
+
         if should_open_which_key {
             self.which_key.open();
         } else if should_enter_visual_multi {
@@ -779,6 +897,8 @@ impl Workspace {
             self.toggle_zen_mode();
         } else if should_toggle_fullscreen {
             self.toggle_fullscreen();
+        } else if should_float_focused_pane {
+            self.float_focused_pane(None);
         } else if should_close_focused {
             if let Some(tile_id) = current_focus {
                 self.close_tile(tile_id);
@@ -811,7 +931,23 @@ impl Workspace {
     ) -> Option<WorkspaceAction> {
         let pane_ids = self.get_pane_tile_ids();
 
-        // Get current cursor position from visual-multi state
+        // Get current cursor position from visual-multi state, validating it still exists
+        let cursor_tile_id = self
+            .visual_multi_state
+            .as_ref()
+            .and_then(|s| s.cursor_tile_id)
+            .filter(|id| pane_ids.contains(id));
+
+        // If cursor was invalid, reset to first pane
+        if cursor_tile_id.is_none() {
+            if let Some(state) = self.visual_multi_state.as_mut() {
+                if let Some(&first_pane) = pane_ids.first() {
+                    state.set_cursor(first_pane);
+                }
+            }
+        }
+
+        // Re-read cursor after potential reset
         let cursor_tile_id = self
             .visual_multi_state
             .as_ref()
@@ -889,11 +1025,8 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
             {
-                if let Some(current_id) = cursor_tile_id {
-                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
-                } else {
-                    new_cursor_id = pane_ids.first().copied();
-                }
+                new_cursor_id =
+                    self.visual_multi_navigate(cursor_tile_id, NavDirection::Down, &pane_ids);
                 consumed = true;
                 return;
             }
@@ -902,11 +1035,8 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
             {
-                if let Some(current_id) = cursor_tile_id {
-                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
-                } else {
-                    new_cursor_id = pane_ids.first().copied();
-                }
+                new_cursor_id =
+                    self.visual_multi_navigate(cursor_tile_id, NavDirection::Up, &pane_ids);
                 consumed = true;
                 return;
             }
@@ -915,11 +1045,8 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
             {
-                if let Some(current_id) = cursor_tile_id {
-                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Left);
-                } else {
-                    new_cursor_id = pane_ids.first().copied();
-                }
+                new_cursor_id =
+                    self.visual_multi_navigate(cursor_tile_id, NavDirection::Left, &pane_ids);
                 consumed = true;
                 return;
             }
@@ -928,11 +1055,8 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
             {
-                if let Some(current_id) = cursor_tile_id {
-                    new_cursor_id = self.find_sibling_in_direction(current_id, NavDirection::Right);
-                } else {
-                    new_cursor_id = pane_ids.first().copied();
-                }
+                new_cursor_id =
+                    self.visual_multi_navigate(cursor_tile_id, NavDirection::Right, &pane_ids);
                 consumed = true;
             }
         });
@@ -1039,6 +1163,46 @@ impl Workspace {
             return self.find_sibling_recursive(root_id, current_id, direction);
         }
         None
+    }
+
+    /// Navigate in visual-multi mode, handling both sections and regular workspaces.
+    /// When sections are active, uses flat list navigation.
+    /// Otherwise, uses tree-based sibling navigation.
+    fn visual_multi_navigate(
+        &self,
+        cursor_tile_id: Option<TileId>,
+        direction: NavDirection,
+        pane_ids: &[TileId],
+    ) -> Option<TileId> {
+        if self.has_sections() {
+            // For sections, use flat list navigation (panes are ordered by section)
+            if let Some(current_id) = cursor_tile_id {
+                if let Some(current_idx) = pane_ids.iter().position(|&id| id == current_id) {
+                    let new_idx = match direction {
+                        NavDirection::Down | NavDirection::Right => {
+                            if current_idx + 1 < pane_ids.len() {
+                                current_idx + 1
+                            } else {
+                                current_idx
+                            }
+                        }
+                        NavDirection::Up | NavDirection::Left => current_idx.saturating_sub(1),
+                    };
+                    pane_ids.get(new_idx).copied()
+                } else {
+                    pane_ids.first().copied()
+                }
+            } else {
+                pane_ids.first().copied()
+            }
+        } else {
+            // For regular workspaces, use tree-based navigation
+            if let Some(current_id) = cursor_tile_id {
+                self.find_sibling_in_direction(current_id, direction)
+            } else {
+                pane_ids.first().copied()
+            }
+        }
     }
 
     /// Recursively search for a sibling in the given direction.

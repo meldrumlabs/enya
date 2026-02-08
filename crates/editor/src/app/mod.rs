@@ -15,6 +15,8 @@ mod workspace_io;
 
 pub use state::{AppState, UIState};
 
+use std::sync::Arc;
+
 use egui::Theme;
 
 use crate::AsyncRuntime;
@@ -23,9 +25,10 @@ use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
 };
 use crate::connection::ConnectionManager;
-use crate::team::TeamState;
+use crate::plugin::{EditorPluginHost, PluginContextRef, PluginRegistry, PluginSharedStateRef};
 use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
+use crate::ui::{CustomThemeStore, ResolvedCustomTheme};
 use crate::workspace::{Workspace, WorkspaceAction};
 
 use state::EditorMetrics;
@@ -69,8 +72,27 @@ pub struct EnyaApp {
     #[cfg(target_arch = "wasm32")]
     checked_url_workspace: bool,
 
-    // Team collaboration state (disabled by default, can be enabled with TeamConfig)
-    team_state: TeamState,
+    // Startup workspace to load on first frame (native only, set via CLI --workspace flag)
+    #[cfg(not(target_arch = "wasm32"))]
+    startup_workspace: Option<String>,
+
+    // Plugin system (registry manages plugins, context provides editor services)
+    #[allow(dead_code)] // Will be used when plugin commands are dispatched
+    plugin_registry: PluginRegistry,
+    #[allow(dead_code)] // Will be used when plugins interact with editor
+    plugin_context: PluginContextRef,
+    /// Shared state for plugins (focused pane info, etc.)
+    plugin_shared_state: PluginSharedStateRef,
+
+    // Custom themes from plugins
+    custom_themes: CustomThemeStore,
+
+    // Currently active resolved custom theme (for rendering)
+    resolved_custom_theme: Option<ResolvedCustomTheme>,
+
+    // Delay plugin installation by one frame to allow spinner to render
+    #[cfg(not(target_arch = "wasm32"))]
+    install_plugin_ready: bool,
 }
 
 impl EnyaApp {
@@ -111,7 +133,182 @@ impl EnyaApp {
         state.theme = state.settings.theme;
 
         // Initialize workspace with async runtime
-        let workspace = Workspace::new(async_runtime.clone());
+        let mut workspace = Workspace::new(async_runtime.clone());
+
+        // Initialize plugin system
+        let plugin_shared_state = EditorPluginHost::create_shared_state();
+        let plugin_host = EditorPluginHost::new(
+            command_sender.clone(),
+            async_runtime.clone(),
+            state.theme,
+            plugin_shared_state.clone(),
+        );
+        let plugin_host_ref: Arc<dyn crate::plugin::PluginHost> = Arc::new(plugin_host);
+        let plugin_context: PluginContextRef =
+            Arc::new(enya_plugin::PluginContext::new(plugin_host_ref.clone()));
+
+        // Create plugin registry
+        let mut plugin_registry = PluginRegistry::new();
+
+        // Collect plugin errors to surface in diagnostics pane
+        let mut plugin_errors: Vec<String> = Vec::new();
+
+        // Load external plugins from ~/.config/enya/plugins/ (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use crate::plugin::{Plugin, PluginLoader};
+            let loader = PluginLoader::new();
+
+            // Load TOML config plugins
+            for result in loader.load_all() {
+                match result {
+                    Ok(plugin) => {
+                        let name = plugin.manifest().plugin.name.clone();
+                        if let Err(e) = plugin_registry.register(plugin, true) {
+                            let msg = format!("Failed to register plugin '{name}': {e}");
+                            log::warn!("{msg}");
+                            plugin_errors.push(msg);
+                        } else {
+                            log::info!("Loaded plugin: {name}");
+                        }
+                    }
+                    Err(e) => {
+                        let msg = format!("Failed to load plugin: {e}");
+                        log::warn!("{msg}");
+                        plugin_errors.push(msg);
+                    }
+                }
+            }
+
+            // Load Lua script plugins
+            for result in loader.load_all_lua() {
+                match result {
+                    Ok(plugin) => {
+                        let name = plugin.name().to_string();
+                        if let Err(e) = plugin_registry.register(plugin, true) {
+                            let msg = format!("Failed to register Lua plugin '{name}': {e}");
+                            log::warn!("{msg}");
+                            plugin_errors.push(msg);
+                        } else {
+                            log::info!("Loaded Lua plugin: {name}");
+                        }
+                    }
+                    Err(e) => {
+                        let msg = format!("Failed to load Lua plugin: {e}");
+                        log::warn!("{msg}");
+                        plugin_errors.push(msg);
+                    }
+                }
+            }
+        }
+
+        // Initialize the registry with the plugin context
+        plugin_registry.init(enya_plugin::PluginContext::new(plugin_host_ref));
+
+        // Initialize and activate all plugins
+        let plugin_ids: Vec<_> = plugin_registry
+            .list_plugins()
+            .iter()
+            .map(|p| p.id)
+            .collect();
+        for id in plugin_ids {
+            if let Err(e) = plugin_registry.init_plugin(id) {
+                let msg = format!("Failed to initialize plugin {id:?}: {e}");
+                log::warn!("{msg}");
+                plugin_errors.push(msg);
+            } else if let Err(e) = plugin_registry.activate_plugin(id) {
+                let msg = format!("Failed to activate plugin {id:?}: {e}");
+                log::warn!("{msg}");
+                plugin_errors.push(msg);
+            }
+        }
+
+        // Surface plugin errors in diagnostics pane
+        for error_msg in plugin_errors {
+            use crate::components::overlay::diagnostics::{Diagnostic, DiagnosticSource};
+            let diagnostic = Diagnostic::warning(error_msg).with_source(DiagnosticSource::Plugin);
+            workspace.add_diagnostic(diagnostic);
+        }
+
+        // Collect custom themes from plugins
+        let mut custom_themes = CustomThemeStore::new();
+        let custom_theme_list: Vec<(String, String, crate::ui::ActiveThemeColors)> =
+            plugin_registry
+                .all_themes()
+                .into_iter()
+                .map(|t| {
+                    custom_themes.register(t.clone());
+                    // Resolve the theme to get colors for the style picker preview
+                    let resolved =
+                        crate::ui::custom_theme::ResolvedCustomTheme::from_definition(&t);
+                    let colors = crate::ui::ActiveThemeColors::from_custom(&resolved);
+                    (t.name, t.display_name, colors)
+                })
+                .collect();
+        workspace.set_custom_themes(custom_theme_list);
+
+        // Collect and register custom table pane types from plugins
+        for config in plugin_registry.all_custom_table_panes() {
+            workspace.register_custom_table_pane(config);
+        }
+
+        // Collect and register custom chart pane types from plugins
+        for config in plugin_registry.all_custom_chart_panes() {
+            workspace.register_custom_chart_pane(config);
+        }
+
+        // Collect and register custom stat pane types from plugins
+        for config in plugin_registry.all_custom_stat_panes() {
+            workspace.register_custom_stat_pane(config);
+        }
+
+        // Collect and register custom gauge pane types from plugins
+        for config in plugin_registry.all_custom_gauge_panes() {
+            workspace.register_custom_gauge_pane(config);
+        }
+
+        // Collect plugin commands and pass to command palette
+        let plugin_commands: Vec<crate::components::DynamicCommand> = plugin_registry
+            .all_commands()
+            .into_iter()
+            .map(|(info, cmd)| crate::components::DynamicCommand {
+                name: cmd.name.clone(),
+                aliases: cmd.aliases.clone(),
+                description: cmd.description.clone(),
+                accepts_args: cmd.accepts_args,
+                source: info.name.clone(),
+            })
+            .collect();
+        workspace.set_plugin_commands(plugin_commands);
+
+        // Collect plugin info for the plugins overlay
+        let plugins_info: Vec<crate::components::PluginDisplayInfo> = plugin_registry
+            .list_plugins()
+            .iter()
+            .map(|info| {
+                // Determine the source type based on plugin characteristics
+                let source = if info.name.ends_with(".lua") || info.description.contains("Lua") {
+                    crate::components::PluginSource::Lua
+                } else {
+                    crate::components::PluginSource::Config
+                };
+
+                // Get commands and keybindings for this plugin
+                let commands = plugin_registry.commands_for_plugin(info.id);
+                let keybindings = plugin_registry.keybindings_for_plugin(info.id);
+
+                crate::components::PluginDisplayInfo {
+                    name: info.name.clone(),
+                    version: info.version.clone(),
+                    description: info.description.clone(),
+                    enabled: info.state == enya_plugin::PluginState::Active,
+                    source,
+                    command_count: commands.len(),
+                    keybinding_count: keybindings.len(),
+                }
+            })
+            .collect();
+        workspace.set_plugins(plugins_info);
 
         Self {
             state,
@@ -129,9 +326,25 @@ impl EnyaApp {
             is_fullscreen: false,
             #[cfg(target_arch = "wasm32")]
             checked_url_workspace: false,
-            // Team state starts disabled - can be enabled later via connect()
-            team_state: TeamState::default(),
+            // Plugin system
+            plugin_registry,
+            plugin_context,
+            plugin_shared_state,
+            custom_themes,
+            resolved_custom_theme: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            install_plugin_ready: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            startup_workspace: None,
         }
+    }
+
+    /// Set a workspace to load on the first frame (native only).
+    ///
+    /// Used by the CLI's `enya --workspace <name>` to open the editor with a specific workspace.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_startup_workspace(&mut self, name: String) {
+        self.startup_workspace = Some(name);
     }
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
@@ -144,6 +357,27 @@ impl EnyaApp {
         }
     }
 
+    /// Get the egui Visuals for the current theme (builtin or custom)
+    fn current_visuals(&self) -> egui::Visuals {
+        if let Some(ref custom) = self.resolved_custom_theme {
+            crate::ui::design::custom_theme_visuals(custom)
+        } else {
+            self.state.visuals()
+        }
+    }
+
+    /// Get the effective theme (custom from plugin or builtin from settings).
+    ///
+    /// Use this method instead of `self.state.theme` when rendering UI components
+    /// to ensure custom plugin themes are properly applied.
+    fn effective_theme(&self) -> AppTheme {
+        if let Some(ref custom) = self.resolved_custom_theme {
+            AppTheme::Custom(crate::ui::ActiveThemeColors::from_custom(custom))
+        } else {
+            self.state.theme
+        }
+    }
+
     // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
         // Hide status line on landing page - it's part of the workspace UI, not the landing page
@@ -151,12 +385,8 @@ impl EnyaApp {
             return;
         }
 
-        // Update status line state
-        self.status_line.set_theme(self.state.theme);
-
-        // Set team status (only shows when connected)
-        self.status_line
-            .set_team_status(self.team_state.status_info());
+        // Update status line state with effective theme (custom plugin theme if active)
+        self.status_line.set_theme(self.effective_theme());
 
         // Set mode based on current UI state
         // Note: Zen/Fullscreen are display preferences, not modes - user stays in Normal mode
@@ -177,6 +407,14 @@ impl EnyaApp {
             UIState::Home => StatusMode::Home,
         };
         self.status_line.set_mode(mode);
+
+        // Set agent provider name (shown as mode badge when in Agent mode)
+        if mode == StatusMode::Agent {
+            self.status_line
+                .set_agent_provider_name(Some(self.workspace.agent_provider_name()));
+        } else {
+            self.status_line.set_agent_provider_name(None);
+        }
 
         // Set open tabs count from workspace
         self.status_line
@@ -223,18 +461,22 @@ impl EnyaApp {
             self.status_line.set_sparkline(Some(sparkline));
         }
 
-        let theme = self.state.theme;
+        let is_agent_mode = self.workspace.is_agent_mode();
+        let effective_theme = self.effective_theme();
+
         egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(false)
             .show(ctx, |ui| {
-                // Show agent input bar above status line (if in agent mode)
-                self.workspace.show_agent_input_bar(ui, ctx, theme);
-
-                // Show viewport filter bar above status line (if filter is open)
-                self.workspace.show_viewport_filter_bar(ui);
-
-                // Status line at the bottom
-                self.status_line.show(ui);
+                // Status line with embedded agent input when in agent mode
+                if is_agent_mode {
+                    self.status_line.show_with_extra_content(ui, |ui| {
+                        // Render the agent input bar inline within the status line
+                        self.workspace
+                            .show_agent_input_bar_inline(ui, ctx, effective_theme);
+                    });
+                } else {
+                    self.status_line.show(ui);
+                }
             });
     }
 
@@ -277,13 +519,13 @@ impl EnyaApp {
             UICommand::Theme(theme) => {
                 self.state.theme = theme;
                 self.state.settings.theme = theme; // Persist to settings
-                egui_ctx.set_visuals(self.state.visuals());
+                egui_ctx.set_visuals(self.current_visuals());
                 egui_ctx.request_repaint();
             }
             UICommand::NextTheme => {
                 self.state.theme.next();
                 self.state.settings.theme = self.state.theme; // Persist to settings
-                egui_ctx.set_visuals(self.state.visuals());
+                egui_ctx.set_visuals(self.current_visuals());
                 egui_ctx.request_repaint();
             }
 
@@ -300,18 +542,172 @@ impl EnyaApp {
             UICommand::OpenCommandPalette => {
                 self.open_command_palette();
             }
+
+            UICommand::Notify { level, message } => {
+                // Log the notification from plugins
+                match level.as_str() {
+                    "error" => log::error!("[plugin] {message}"),
+                    "warn" | "warning" => log::warn!("[plugin] {message}"),
+                    "info" => log::info!("[plugin] {message}"),
+                    _ => log::debug!("[plugin] {message}"),
+                }
+                // TODO: Show visual notification in UI
+            }
+
+            UICommand::Repaint => {
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Pane Commands ====================
+            UICommand::PluginAddQueryPane { query, title } => {
+                self.workspace.add_query_pane(&query, title.as_deref());
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginAddLogsPane => {
+                self.workspace.add_logs_pane_from_plugin();
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginAddTracingPane { trace_id } => {
+                self.workspace.add_tracing_pane(trace_id.as_deref());
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginAddTerminalPane => {
+                self.workspace.add_terminal_pane();
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginAddSqlPane => {
+                self.workspace.add_sql_pane();
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginCloseFocusedPane => {
+                self.workspace.close_focused_pane();
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginFocusPane { direction } => {
+                self.workspace.focus_pane_in_direction(&direction);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Time Range Commands ====================
+            UICommand::PluginSetTimeRangePreset { preset } => {
+                self.workspace.set_time_range_preset_from_plugin(&preset);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginSetTimeRangeAbsolute { start_ms, end_ms } => {
+                // Convert milliseconds back to seconds for the workspace API
+                let start_secs = start_ms as f64 / 1000.0;
+                let end_secs = end_ms as f64 / 1000.0;
+                self.workspace
+                    .set_time_range_absolute_from_plugin(start_secs, end_secs);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Custom Pane Commands ====================
+            UICommand::PluginRegisterCustomTablePane { config } => {
+                self.workspace.register_custom_table_pane(config);
+            }
+            UICommand::PluginAddCustomTablePane { pane_type } => {
+                self.workspace.add_custom_table_pane(&pane_type);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomTableData { pane_id, data } => {
+                self.workspace.update_custom_table_data(pane_id, data);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomTableDataByType { pane_type, data } => {
+                self.workspace
+                    .update_custom_table_data_by_type(&pane_type, data);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Custom Chart Pane Commands ====================
+            UICommand::PluginRegisterCustomChartPane { config } => {
+                self.workspace.register_custom_chart_pane(config);
+            }
+            UICommand::PluginAddCustomChartPane { pane_type } => {
+                self.workspace.add_custom_chart_pane(&pane_type);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomChartDataByType {
+                pane_type,
+                series,
+                error,
+            } => {
+                // Convert hashable series back to plugin format
+                let chart_data = if let Some(err) = error {
+                    enya_plugin::CustomChartData::with_error(err)
+                } else {
+                    let plugin_series: Vec<enya_plugin::ChartSeries> =
+                        series.iter().map(|s| s.to_plugin()).collect();
+                    enya_plugin::CustomChartData::with_series(plugin_series)
+                };
+                self.workspace
+                    .update_custom_chart_data_by_type(&pane_type, chart_data);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Custom Stat Pane Commands ====================
+            UICommand::PluginRegisterCustomStatPane { config } => {
+                self.workspace.register_custom_stat_pane(config);
+            }
+            UICommand::PluginAddCustomStatPane { pane_type } => {
+                self.workspace.add_custom_stat_pane(&pane_type);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomStatDataByType { pane_type, data } => {
+                // Convert hashable data back to plugin format
+                let stat_data = data.to_plugin();
+                self.workspace
+                    .update_custom_stat_data_by_type(&pane_type, stat_data);
+                egui_ctx.request_repaint();
+            }
+
+            // ==================== Plugin Custom Gauge Pane Commands ====================
+            UICommand::PluginRegisterCustomGaugePane { config } => {
+                self.workspace.register_custom_gauge_pane(config);
+            }
+            UICommand::PluginAddCustomGaugePane { pane_type } => {
+                self.workspace.add_custom_gauge_pane(&pane_type);
+                egui_ctx.request_repaint();
+            }
+            UICommand::PluginUpdateCustomGaugeDataByType { pane_type, data } => {
+                // Convert hashable data back to plugin format
+                let gauge_data = data.to_plugin();
+                self.workspace
+                    .update_custom_gauge_data_by_type(&pane_type, gauge_data);
+                egui_ctx.request_repaint();
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            UICommand::InstallCommunityPlugin { name, file } => {
+                self.install_community_plugin(&name, &file);
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            UICommand::RefreshCommunityPlugins => {
+                self.refresh_community_plugins();
+            }
+            #[cfg(target_arch = "wasm32")]
+            UICommand::InstallCommunityPlugin { .. } | UICommand::RefreshCommunityPlugins => {
+                // Community plugins not supported on WASM
+            }
         }
     }
 
     #[inline]
     fn draw_home(&mut self, ctx: &egui::Context) {
+        let theme = self.effective_theme();
         egui::CentralPanel::default().show(ctx, |ui| {
-            welcome_section_ui(ui, &self.state);
+            welcome_section_ui(ui, theme);
         });
     }
 
     #[profiling::function]
     fn draw_workspace(&mut self, ctx: &egui::Context) {
+        // On native, load startup workspace on first frame if specified via CLI
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ws_name) = self.startup_workspace.take() {
+            self.load_workspace(&ws_name);
+        }
+
         // On WASM, check for workspace or pane parameter in URL on first frame
         #[cfg(target_arch = "wasm32")]
         if !self.checked_url_workspace {
@@ -328,20 +724,41 @@ impl EnyaApp {
         let mut workspace_action = WorkspaceAction::None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Update workspace team status and members before rendering
+            // Update active theme colors (from custom or builtin theme)
             self.workspace
-                .set_team_status(self.team_state.status_info());
-            self.workspace
-                .set_team_members(self.team_state.members().to_vec());
-            // Pass chat state reference when team mode is active
-            let chat_state = if self.team_state.is_connected() {
-                self.workspace.show_channels_panel();
-                Some(self.team_state.chat_state())
-            } else {
-                self.workspace.hide_channels_panel();
-                None
-            };
-            workspace_action = self.workspace.show(ui, ctx, &self.state, chat_state);
+                .set_active_colors(self.effective_theme().active_colors());
+
+            workspace_action = self.workspace.show(ui, ctx, &self.state);
+
+            // Poll for pane interactions (e.g., chart drilldown clicks)
+            self.workspace.poll_pane_interactions();
+
+            // Poll for community plugin actions (native only)
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if self.workspace.take_pending_refresh_plugins() {
+                    self.refresh_community_plugins();
+                }
+                // Delay plugin installation by one frame to allow spinner to render
+                if self.workspace.has_pending_install_plugin() {
+                    if self.install_plugin_ready {
+                        // Second frame: actually install
+                        if let Some((name, file)) = self.workspace.take_pending_install_plugin() {
+                            self.install_community_plugin(&name, &file);
+                        }
+                        self.install_plugin_ready = false;
+                    } else {
+                        // First frame: just set ready flag, let UI render spinner
+                        self.install_plugin_ready = true;
+                    }
+                }
+                // Handle plugin removal
+                if self.workspace.has_pending_remove_plugin() {
+                    if let Some(name) = self.workspace.take_pending_remove_plugin() {
+                        self.remove_plugin(&name);
+                    }
+                }
+            }
         });
 
         // Handle actions from the viewport (e.g., from command palette)
@@ -352,7 +769,30 @@ impl EnyaApp {
         match action {
             WorkspaceAction::None => {}
             WorkspaceAction::SetTheme(theme) => {
+                // Clear custom theme and set builtin theme
+                self.state.custom_theme = None;
+                self.resolved_custom_theme = None;
                 self.command_sender.send_ui(UICommand::Theme(theme));
+            }
+            WorkspaceAction::SetCustomTheme(name) => {
+                // Resolve the custom theme
+                if let Some(def) = self.custom_themes.get(&name) {
+                    let resolved = ResolvedCustomTheme::from_definition(def);
+                    log::info!(
+                        "[theme] Resolved custom theme: {} (base: {})",
+                        resolved.display_name,
+                        if resolved.is_dark { "dark" } else { "light" }
+                    );
+                    // Set the base theme (dark or light) for fallback colors
+                    let base = if resolved.is_dark {
+                        AppTheme::Dark
+                    } else {
+                        AppTheme::Light
+                    };
+                    self.command_sender.send_ui(UICommand::Theme(base));
+                    self.resolved_custom_theme = Some(resolved);
+                }
+                self.state.set_custom_theme(name.clone());
             }
             WorkspaceAction::NextTheme => {
                 self.command_sender.send_ui(UICommand::NextTheme);
@@ -365,7 +805,25 @@ impl EnyaApp {
             }
             WorkspaceAction::SetThemeAndFont(theme, font) => {
                 // Restore both theme and font (used when cancelling style picker)
+                self.state.custom_theme = None;
+                self.resolved_custom_theme = None;
                 self.command_sender.send_ui(UICommand::Theme(theme));
+                self.state.settings.font = font;
+                fonts::setup_fonts(ctx, font);
+            }
+            WorkspaceAction::SetCustomThemeAndFont(name, font) => {
+                // Restore custom theme and font (used when cancelling style picker)
+                if let Some(def) = self.custom_themes.get(&name) {
+                    let resolved = ResolvedCustomTheme::from_definition(def);
+                    let base = if resolved.is_dark {
+                        AppTheme::Dark
+                    } else {
+                        AppTheme::Light
+                    };
+                    self.command_sender.send_ui(UICommand::Theme(base));
+                    self.resolved_custom_theme = Some(resolved);
+                }
+                self.state.set_custom_theme(name);
                 self.state.settings.font = font;
                 fonts::setup_fonts(ctx, font);
             }
@@ -418,84 +876,27 @@ impl EnyaApp {
             WorkspaceAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            WorkspaceAction::ToggleTeamDemo => {
-                self.team_state.toggle_demo_mode();
-                let msg = if self.team_state.is_demo() {
-                    "Team demo mode enabled"
-                } else {
-                    "Team demo mode disabled"
-                };
-                self.notifications
-                    .notify(Notification::new(msg, NotificationLevel::Info));
-            }
-            WorkspaceAction::TeamConnect { url, token } => {
-                // Set the async runtime before connecting (native only)
-                #[cfg(not(target_arch = "wasm32"))]
-                self.team_state
-                    .set_async_runtime(self.async_runtime.clone());
-
-                self.team_state.connect(&url, &token, ctx);
-                self.notifications.notify(Notification::new(
-                    format!("Connecting to team server: {url}"),
-                    NotificationLevel::Info,
-                ));
-            }
-            WorkspaceAction::TeamDisconnect => {
-                self.team_state.disconnect();
-                self.notifications.notify(Notification::new(
-                    "Disconnected from team server",
-                    NotificationLevel::Info,
-                ));
-            }
             WorkspaceAction::OpenAnnotationEditor => {
                 // Open annotation editor on the focused pane
                 self.workspace.open_annotation_editor();
             }
-            WorkspaceAction::SendChatMessage {
-                text,
-                chart,
-                visualization,
-                thread_id,
+            WorkspaceAction::OpenDiffViewer {
+                hash,
+                message,
+                diff,
             } => {
-                // Add message to team_state.chat_state (the authoritative source)
-                use crate::chat::ChatMessage;
-                use enya_team_api::UserId;
-
-                let user_id = UserId::new_v4(); // TODO: Get from team_state
-                let mut message = ChatMessage::from_user(user_id, "You", &text);
-                if let Some(chart) = chart {
-                    message = message.with_inline_chart(chart);
+                // Open the diff viewer with the commit message as title
+                self.open_diff_viewer(&hash, &message, &diff);
+            }
+            WorkspaceAction::PluginCommand { command, args } => {
+                // Dispatch to plugin registry
+                if !self.plugin_registry.execute_command(&command, &args) {
+                    // No plugin handled the command
+                    self.notifications.notify(Notification::new(
+                        format!("Unknown command: {command}"),
+                        NotificationLevel::Error,
+                    ));
                 }
-                if let Some(viz) = visualization {
-                    message = message.with_visualization(viz);
-                }
-                if let Some(tid) = thread_id {
-                    message.thread_id = Some(tid);
-                }
-
-                self.team_state.chat_state_mut().add_message(message);
-            }
-            WorkspaceAction::CreateChannel { name } => {
-                self.team_state.create_channel(&name, ctx);
-                self.notifications.notify(Notification::new(
-                    format!("Creating channel: {name}"),
-                    NotificationLevel::Info,
-                ));
-            }
-            WorkspaceAction::CreateThread { channel_id, title } => {
-                self.team_state.create_thread(channel_id, &title, ctx);
-                self.notifications.notify(Notification::new(
-                    format!("Creating thread: {title}"),
-                    NotificationLevel::Info,
-                ));
-            }
-            WorkspaceAction::SearchChatCommits { query } => {
-                // Search commits in the codebase index and provide to chat
-                self.search_chat_commits(&query);
-            }
-            WorkspaceAction::OpenDiffViewer { hash, diff } => {
-                // Open the diff viewer pane with the commit diff
-                self.open_diff_viewer(&hash, &diff);
             }
         }
     }
@@ -504,55 +905,10 @@ impl EnyaApp {
         self.workspace.open_command_palette();
     }
 
-    /// Search commits for # autocomplete in chat.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn search_chat_commits(&mut self, query: &str) {
-        use crate::chat::CommitInfo;
-
-        // Search codebase for commits
-        let results = self
-            .workspace
-            .search_codebase(query, Some("commits"), Some(10));
-
-        // Convert to CommitInfo for the chat
-        let commits: Vec<CommitInfo> = results
-            .into_iter()
-            .filter_map(|r| {
-                if let crate::codebase::SearchResultKind::Commit {
-                    hash,
-                    timestamp,
-                    diff,
-                } = r.kind
-                {
-                    Some(CommitInfo {
-                        short_hash: if hash.len() >= 7 {
-                            hash[..7].to_string()
-                        } else {
-                            hash.clone()
-                        },
-                        full_hash: hash,
-                        message: r.name,
-                        timestamp,
-                        diff,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // Provide commits to the channels panel
-        self.workspace.set_chat_commits(commits);
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn search_chat_commits(&mut self, _query: &str) {
-        // Commit search is not available in WASM builds
-    }
-
     /// Open the diff viewer with a commit diff.
-    fn open_diff_viewer(&mut self, hash: &str, diff: &str) {
-        self.workspace.open_diff_viewer_with_content(hash, diff);
+    fn open_diff_viewer(&mut self, hash: &str, message: &str, diff: &str) {
+        self.workspace
+            .open_diff_viewer_with_content(hash, message, diff);
     }
 
     /// Poll the connection manager for completed health checks
@@ -579,6 +935,364 @@ impl EnyaApp {
             }
         }
     }
+
+    /// Poll plugin panes for auto-refresh based on their refresh intervals.
+    ///
+    /// This checks which plugin pane types need to be refreshed and triggers
+    /// their refresh callbacks.
+    fn poll_plugin_pane_refreshes(&mut self) {
+        // Get all refreshable pane types from the plugin registry
+        let refreshable = self.plugin_registry.all_refreshable_pane_types();
+        if refreshable.is_empty() {
+            return;
+        }
+
+        // Check which pane types need to be refreshed
+        let pending = self.workspace.get_pending_plugin_refreshes(&refreshable);
+        if pending.is_empty() {
+            return;
+        }
+
+        // Trigger refresh for each pending pane type
+        for pane_type in pending {
+            if self.plugin_registry.trigger_pane_refresh(&pane_type) {
+                // Mark as refreshed after successful trigger
+                self.workspace.mark_plugin_pane_refreshed(&pane_type);
+                log::debug!("Auto-refreshed plugin pane type '{pane_type}'");
+            }
+        }
+    }
+
+    /// Update plugin shared state with current focused pane information.
+    ///
+    /// This is called each frame to keep the plugin system informed about
+    /// which pane is currently focused, enabling features like "share to Slack".
+    fn update_plugin_shared_state(&self) {
+        let focused_pane_info = self.workspace.get_focused_pane_info();
+        let mut state = self.plugin_shared_state.write();
+        state.focused_pane = focused_pane_info;
+    }
+
+    // ==================== Community Plugin Methods ====================
+
+    /// Refresh the installed plugins list and commands from the registry.
+    ///
+    /// Call this after installing/updating a plugin to update the plugins overlay
+    /// and command palette with new commands.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn refresh_installed_plugins(&mut self) {
+        // Refresh plugin commands for the command palette
+        let plugin_commands: Vec<crate::components::DynamicCommand> = self
+            .plugin_registry
+            .all_commands()
+            .into_iter()
+            .map(|(info, cmd)| crate::components::DynamicCommand {
+                name: cmd.name.clone(),
+                aliases: cmd.aliases.clone(),
+                description: cmd.description.clone(),
+                accepts_args: cmd.accepts_args,
+                source: info.name.clone(),
+            })
+            .collect();
+        self.workspace.set_plugin_commands(plugin_commands);
+
+        // Refresh installed plugins list for the plugins overlay
+        let plugins_info: Vec<crate::components::PluginDisplayInfo> = self
+            .plugin_registry
+            .list_plugins()
+            .iter()
+            .map(|info| {
+                // Determine the source type based on plugin characteristics
+                let source = if info.name.ends_with(".lua") || info.description.contains("Lua") {
+                    crate::components::PluginSource::Lua
+                } else {
+                    crate::components::PluginSource::Config
+                };
+
+                // Get commands and keybindings for this plugin
+                let commands = self.plugin_registry.commands_for_plugin(info.id);
+                let keybindings = self.plugin_registry.keybindings_for_plugin(info.id);
+
+                crate::components::PluginDisplayInfo {
+                    name: info.name.clone(),
+                    version: info.version.clone(),
+                    description: info.description.clone(),
+                    enabled: info.state == enya_plugin::PluginState::Active,
+                    source,
+                    command_count: commands.len(),
+                    keybinding_count: keybindings.len(),
+                }
+            })
+            .collect();
+        self.workspace.set_plugins(plugins_info);
+    }
+
+    /// Refresh the list of available community plugins from the remote registry.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn refresh_community_plugins(&mut self) {
+        use crate::components::overlay::plugins::CommunityPluginInfo;
+
+        let plugins_url = std::env::var("ENYA_PLUGINS_URL").unwrap_or_else(|_| {
+            "https://raw.githubusercontent.com/meldrumlabs/enya/main/plugins".to_string()
+        });
+
+        self.workspace.set_plugins_loading(true);
+
+        let index_url = format!("{plugins_url}/index.toml");
+
+        match ureq::get(&index_url).call() {
+            Ok(response) => match response.into_body().read_to_string() {
+                Ok(body) => match body.parse::<toml::Table>() {
+                    Ok(table) => {
+                        let mut plugins = Vec::new();
+                        if let Some(toml::Value::Array(plugin_array)) = table.get("plugins") {
+                            for plugin in plugin_array {
+                                if let toml::Value::Table(p) = plugin {
+                                    let name = p
+                                        .get("name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let version = p
+                                        .get("version")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("0.0.0")
+                                        .to_string();
+                                    let description = p
+                                        .get("description")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let author = p
+                                        .get("author")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown")
+                                        .to_string();
+                                    let file = p
+                                        .get("file")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+
+                                    if !name.is_empty() && !file.is_empty() {
+                                        plugins.push(CommunityPluginInfo {
+                                            name,
+                                            version,
+                                            description,
+                                            author,
+                                            file,
+                                            installed: false,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        self.workspace.set_available_plugins(plugins);
+                        log::info!("Refreshed community plugins list");
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to parse community plugins index: {e}");
+                        self.workspace.set_plugins_loading(false);
+                    }
+                },
+                Err(e) => {
+                    log::warn!("Failed to read community plugins index: {e}");
+                    self.workspace.set_plugins_loading(false);
+                }
+            },
+            Err(e) => {
+                log::warn!("Failed to fetch community plugins index: {e}");
+                self.workspace.set_plugins_loading(false);
+            }
+        }
+    }
+
+    /// Remove an installed plugin by unregistering it and deleting the file.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn remove_plugin(&mut self, name: &str) {
+        use crate::components::Notification;
+        use crate::components::NotificationLevel;
+
+        // Unregister the plugin from the registry
+        if let Err(e) = self.plugin_registry.unregister_plugin_by_name(name) {
+            log::warn!("Failed to unregister plugin '{name}': {e}");
+        }
+
+        // Find and delete the plugin file
+        let Some(home_dir) = dirs::home_dir() else {
+            self.notifications.notify(Notification::new(
+                "Failed to remove plugin: could not find home directory",
+                NotificationLevel::Error,
+            ));
+            return;
+        };
+
+        let plugins_dir = home_dir.join(".config").join("enya").join("plugins");
+
+        // Look for .lua file with plugin name
+        let plugin_file = plugins_dir.join(format!("{name}.lua"));
+        if plugin_file.exists() {
+            if let Err(e) = std::fs::remove_file(&plugin_file) {
+                self.notifications.notify(Notification::new(
+                    format!("Failed to delete plugin file: {e}"),
+                    NotificationLevel::Error,
+                ));
+                return;
+            }
+        }
+
+        // Refresh the installed plugins list
+        self.refresh_installed_plugins();
+
+        self.notifications.notify(Notification::new(
+            format!("Plugin '{name}' removed"),
+            NotificationLevel::Success,
+        ));
+        log::info!("Removed plugin: {name}");
+    }
+
+    /// Install a community plugin by downloading it to the local plugins directory.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn install_community_plugin(&mut self, name: &str, file: &str) {
+        use crate::components::Notification;
+        use crate::components::NotificationLevel;
+        use std::io::Write;
+
+        let plugins_url = std::env::var("ENYA_PLUGINS_URL").unwrap_or_else(|_| {
+            "https://raw.githubusercontent.com/meldrumlabs/enya/main/plugins".to_string()
+        });
+
+        let plugin_url = format!("{plugins_url}/{file}");
+
+        let Some(home_dir) = dirs::home_dir() else {
+            self.notifications.notify(Notification::new(
+                "Failed to install plugin: could not find home directory",
+                NotificationLevel::Error,
+            ));
+            return;
+        };
+
+        let plugins_dir = home_dir.join(".config").join("enya").join("plugins");
+
+        if let Err(e) = std::fs::create_dir_all(&plugins_dir) {
+            self.notifications.notify(Notification::new(
+                format!("Failed to create plugins directory: {e}"),
+                NotificationLevel::Error,
+            ));
+            return;
+        }
+
+        let plugin_path = plugins_dir.join(file);
+
+        match ureq::get(&plugin_url).call() {
+            Ok(response) => match response.into_body().read_to_string() {
+                Ok(content) => match std::fs::File::create(&plugin_path) {
+                    Ok(mut file_handle) => {
+                        if let Err(e) = file_handle.write_all(content.as_bytes()) {
+                            self.notifications.notify(Notification::new(
+                                format!("Failed to write plugin file: {e}"),
+                                NotificationLevel::Error,
+                            ));
+                            return;
+                        }
+
+                        // Check if plugin is already registered (update vs fresh install)
+                        let already_registered = self.plugin_registry.info_by_name(name).is_some();
+
+                        // For updates, unregister the old version first for hot-reload
+                        if already_registered {
+                            if let Err(e) = self.plugin_registry.unregister_plugin_by_name(name) {
+                                log::warn!("Failed to unregister old plugin '{name}': {e}");
+                            }
+                        }
+
+                        // Load and activate the plugin (works for both fresh install and update)
+                        match crate::plugin::LuaPlugin::load(&plugin_path) {
+                            Ok(plugin) => match self.plugin_registry.register(plugin, true) {
+                                Ok(id) => {
+                                    if let Err(e) = self.plugin_registry.init_plugin(id) {
+                                        log::warn!("Failed to initialize plugin '{name}': {e}");
+                                        self.notifications.notify(Notification::new(
+                                            format!(
+                                                "Installed plugin '{name}'. Restart Enya to activate."
+                                            ),
+                                            NotificationLevel::Success,
+                                        ));
+                                    } else if let Err(e) = self.plugin_registry.activate_plugin(id)
+                                    {
+                                        log::warn!("Failed to activate plugin '{name}': {e}");
+                                        self.notifications.notify(Notification::new(
+                                            format!(
+                                                "Installed plugin '{name}'. Restart Enya to activate."
+                                            ),
+                                            NotificationLevel::Success,
+                                        ));
+                                    } else {
+                                        let action = if already_registered {
+                                            "updated"
+                                        } else {
+                                            "installed"
+                                        };
+                                        self.notifications.notify(Notification::new(
+                                            format!("Plugin '{name}' {action} and activated!"),
+                                            NotificationLevel::Success,
+                                        ));
+                                        log::info!(
+                                            "{} and activated community plugin: {name}",
+                                            if already_registered {
+                                                "Updated"
+                                            } else {
+                                                "Installed"
+                                            }
+                                        );
+                                        // Refresh installed plugins list to update the UI
+                                        self.refresh_installed_plugins();
+                                    }
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to register plugin '{name}': {e}");
+                                    self.notifications.notify(Notification::new(
+                                        format!(
+                                            "Installed plugin '{name}'. Restart Enya to activate."
+                                        ),
+                                        NotificationLevel::Success,
+                                    ));
+                                }
+                            },
+                            Err(e) => {
+                                log::warn!("Failed to load plugin '{name}': {e}");
+                                self.notifications.notify(Notification::new(
+                                    format!("Installed plugin '{name}'. Restart Enya to activate."),
+                                    NotificationLevel::Success,
+                                ));
+                            }
+                        }
+
+                        log::info!("Installed community plugin: {name} to {plugin_path:?}");
+                        self.refresh_community_plugins();
+                    }
+                    Err(e) => {
+                        self.notifications.notify(Notification::new(
+                            format!("Failed to create plugin file: {e}"),
+                            NotificationLevel::Error,
+                        ));
+                    }
+                },
+                Err(e) => {
+                    self.notifications.notify(Notification::new(
+                        format!("Failed to read plugin content: {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            },
+            Err(e) => {
+                self.notifications.notify(Notification::new(
+                    format!("Failed to download plugin: {e}"),
+                    NotificationLevel::Error,
+                ));
+            }
+        }
+    }
 }
 
 impl eframe::App for EnyaApp {
@@ -595,8 +1309,8 @@ impl eframe::App for EnyaApp {
         // Record frame time for editor metrics sparkline
         self.editor_metrics.record_frame();
 
-        // Set theme for the context
-        ctx.set_visuals(self.state.visuals());
+        // Set theme for the context (use custom theme colors if active)
+        ctx.set_visuals(self.current_visuals());
 
         // Handle screenshot events
         self.handle_screenshot_events(ctx);
@@ -604,14 +1318,17 @@ impl eframe::App for EnyaApp {
         // Poll connection manager for completed health checks
         self.poll_connection();
 
-        // Poll team state for events (presence changes, mentions, etc.)
-        self.team_state.poll(ctx);
+        // Poll plugin pane refreshes (auto-refresh based on intervals)
+        self.poll_plugin_pane_refreshes();
+
+        // Update plugin shared state with current focused pane info
+        self.update_plugin_shared_state();
 
         // Custom titlebar with window controls and drag area
         // Replaces native macOS titlebar for seamless theme integration
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let theme = self.state.theme;
+            let theme = self.effective_theme();
             let titlebar_height = 32.0;
 
             egui::TopBottomPanel::top("custom_titlebar")
@@ -714,8 +1431,8 @@ impl eframe::App for EnyaApp {
         // Draw main content
         self.show_main_content(ctx);
 
-        // Draw notifications (on top of everything)
-        self.notifications.set_theme(self.state.theme);
+        // Draw notifications (on top of everything) with effective theme
+        self.notifications.set_theme(self.effective_theme());
         self.notifications.show(ctx);
 
         // Check for possible key board shortcut triggers

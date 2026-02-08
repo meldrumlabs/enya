@@ -4,6 +4,4 @@
 //! like Prometheus running in testcontainers.
 
 #[cfg(test)]
-mod cloud;
-#[cfg(test)]
 mod prometheus;

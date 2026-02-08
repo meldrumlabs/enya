@@ -1,6 +1,6 @@
-//! Chart annotations for team collaboration.
+//! Chart annotations.
 //!
-//! Annotations allow team members to pin comments to specific points or time ranges
+//! Annotations allow users to pin comments to specific points or time ranges
 //! on charts. Each annotation includes:
 //! - A target (point or time range)
 //! - A message/comment
@@ -11,7 +11,6 @@
 
 use egui::Color32;
 use egui_nerdfonts::regular;
-use enya_team_api::UserId;
 
 use crate::ui::theme::AppTheme;
 
@@ -137,8 +136,6 @@ impl AnnotationPriority {
 /// Author information for an annotation.
 #[derive(Debug, Clone)]
 pub struct AnnotationAuthor {
-    /// User ID (from team API).
-    pub user_id: Option<UserId>,
     /// Display name.
     pub display_name: String,
 }
@@ -146,26 +143,16 @@ pub struct AnnotationAuthor {
 impl Default for AnnotationAuthor {
     fn default() -> Self {
         Self {
-            user_id: None,
             display_name: "Anonymous".to_string(),
         }
     }
 }
 
 impl AnnotationAuthor {
-    /// Create an author with just a display name (for local/demo mode).
+    /// Create an author with just a display name.
     pub fn local(name: impl Into<String>) -> Self {
         Self {
-            user_id: None,
             display_name: name.into(),
-        }
-    }
-
-    /// Create an author from team user info.
-    pub fn from_user(user_id: UserId, display_name: impl Into<String>) -> Self {
-        Self {
-            user_id: Some(user_id),
-            display_name: display_name.into(),
         }
     }
 }

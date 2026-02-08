@@ -1,0 +1,35 @@
+[package]
+name = "enya-plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+license.workspace = true
+description = "Plugin system for Enya editor"
+
+[dependencies]
+# Core dependencies
+bitflags = "2.4"
+log = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+toml = { workspace = true }
+
+# For hook types (Key, Modifiers, Color32)
+egui = { workspace = true }
+
+# Native-only dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Plugin filesystem loading
+dirs = "5.0"
+open = "5.3"
+ureq = "3"
+# Lua scripting support
+mlua = { version = "0.10", features = ["lua54", "vendored", "send"] }
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

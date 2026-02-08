@@ -1,16 +1,21 @@
 //! ACP client implementation.
 //!
 //! This module provides a client wrapper for connecting to ACP-compatible
-//! AI coding agents. The implementation is designed to be extended as the
-//! ACP protocol stabilizes.
+//! AI coding agents via JSON-RPC 2.0 over stdio.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+use tracing::{debug, info, trace, warn};
 
 use super::config::AgentConfig;
+use super::protocol::{
+    ClaudeCodeMeta, ClaudeCodeOptions, ClientCapabilities, ClientInfo, InitializeParams,
+    PromptContent, RpcRequest, RpcResponse, SessionMeta, SessionNewParams, SessionNewResult,
+    SessionPromptParams,
+};
 use crate::types::{AgentError, AgentEvent, StopReason};
 
 /// Client name sent to agents during initialization.
@@ -213,43 +218,38 @@ impl AcpClient {
 fn spawn_agent(config: &AgentConfig) -> Result<Child, AgentError> {
     let mut cmd = Command::new(&config.command);
 
-    // Add arguments
     for arg in &config.args {
         cmd.arg(arg);
     }
 
-    // Set working directory
     if let Some(ref dir) = config.working_dir {
         cmd.current_dir(dir);
     }
 
-    // Set environment variables
     for (key, value) in &config.env {
         cmd.env(key, value);
     }
 
-    // Remove environment variables
     for key in &config.env_remove {
         cmd.env_remove(key);
     }
 
-    // Configure stdio for ACP communication
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit());
 
     cmd.spawn()
-        .map_err(|e| AgentError::Http(format!("Failed to spawn agent: {e}")))
+        .map_err(|e| AgentError::Process(format!("failed to spawn '{}': {e}", config.command)))
 }
 
 /// Default model when none is specified.
 const DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250514";
 
-/// Run the ACP session.
+/// Run a complete ACP session over JSON-RPC 2.0.
 ///
-/// This is a simplified implementation that spawns the agent and reads
-/// its output line by line. Full ACP protocol support with JSON-RPC
-/// will be added in a future version.
+/// Spawns the agent process, performs the initialize handshake, creates
+/// a session, sends the prompt, and streams responses back through the
+/// channel.
 #[allow(clippy::too_many_lines)]
 async fn run_acp_session(
     config: &AgentConfig,
@@ -259,11 +259,11 @@ async fn run_acp_session(
     tx: SyncSender<AgentEvent>,
 ) -> Result<(), AgentError> {
     let model_id = model.unwrap_or(DEFAULT_MODEL);
-    log::info!(
-        "Starting ACP session with {} ({}) using model {}",
-        config.kind.display_name(),
-        config.command,
-        model_id
+    info!(
+        agent = config.kind.display_name(),
+        command = %config.command,
+        model = model_id,
+        "starting ACP session"
     );
 
     // Spawn the agent process
@@ -272,78 +272,72 @@ async fn run_acp_session(
     let stdin = child
         .stdin
         .take()
-        .ok_or_else(|| AgentError::Http("Failed to get agent stdin".into()))?;
+        .ok_or_else(|| AgentError::Process("failed to get agent stdin".into()))?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| AgentError::Http("Failed to get agent stdout".into()))?;
+        .ok_or_else(|| AgentError::Process("failed to get agent stdout".into()))?;
 
     let mut reader = BufReader::new(stdout).lines();
     let mut writer = tokio::io::BufWriter::new(stdin);
 
     // Send initialization
-    // Note: protocolVersion must be a number (1), not a string
-    let init_msg = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": 1,
-            "clientInfo": {
-                "name": CLIENT_NAME,
-                "version": CLIENT_VERSION
+    let init_msg = RpcRequest::new(
+        1,
+        "initialize",
+        InitializeParams {
+            protocol_version: 1,
+            client_info: ClientInfo {
+                name: CLIENT_NAME,
+                version: CLIENT_VERSION,
             },
-            "clientCapabilities": {
-                "terminal": true
-            }
-        }
-    });
+            client_capabilities: ClientCapabilities { terminal: true },
+        },
+    );
     send_message(&mut writer, &init_msg).await?;
-    read_response(&mut reader, "Init").await?;
+    read_response(&mut reader, "init").await?;
 
     // Create session
-    // Pass Claude Code options via _meta.claudeCode.options to configure the model
     let cwd = config
         .working_dir
         .as_ref()
         .map_or_else(|| ".".to_string(), |p| p.display().to_string());
-    let session_msg = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 2,
-        "method": "session/new",
-        "params": {
-            "cwd": cwd,
-            "mcpServers": [],
-            "_meta": {
-                "claudeCode": {
-                    "options": {
-                        "model": model_id
-                    }
-                }
-            }
-        }
-    });
+    let session_msg = RpcRequest::new(
+        2,
+        "session/new",
+        SessionNewParams {
+            cwd,
+            mcp_servers: vec![],
+            meta: SessionMeta {
+                claude_code: ClaudeCodeMeta {
+                    options: ClaudeCodeOptions {
+                        model: model_id.to_string(),
+                    },
+                },
+            },
+        },
+    );
     send_message(&mut writer, &session_msg).await?;
     let session_id = read_session_id(&mut reader).await?;
 
-    // Send prompt
-    // Note: prompt must be an array at params.prompt, not params.content
-    // If system context is provided, prepend it to the prompt
+    // Send prompt (system context is prepended if provided)
     let full_prompt = if let Some(ctx) = system_context {
         format!("{ctx}\n\n---\n\n{prompt}")
     } else {
         prompt.to_string()
     };
 
-    let prompt_msg = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 3,
-        "method": "session/prompt",
-        "params": {
-            "sessionId": session_id,
-            "prompt": [{"type": "text", "text": full_prompt}]
-        }
-    });
+    let prompt_msg = RpcRequest::new(
+        3,
+        "session/prompt",
+        SessionPromptParams {
+            session_id,
+            prompt: vec![PromptContent {
+                content_type: "text",
+                text: full_prompt,
+            }],
+        },
+    );
     send_message(&mut writer, &prompt_msg).await?;
 
     // Read streaming responses
@@ -354,19 +348,25 @@ async fn run_acp_session(
     Ok(())
 }
 
-/// Send a JSON-RPC message to the agent.
-async fn send_message(
+/// Send a typed JSON-RPC message to the agent.
+async fn send_message<T: serde::Serialize>(
     writer: &mut tokio::io::BufWriter<tokio::process::ChildStdin>,
-    msg: &serde_json::Value,
+    msg: &T,
 ) -> Result<(), AgentError> {
+    let json = serde_json::to_string(msg)
+        .map_err(|e| AgentError::Process(format!("failed to serialize message: {e}")))?;
     writer
-        .write_all(format!("{msg}\n").as_bytes())
+        .write_all(json.as_bytes())
         .await
-        .map_err(|e| AgentError::Http(format!("Failed to write: {e}")))?;
+        .map_err(|e| AgentError::Process(format!("failed to write: {e}")))?;
+    writer
+        .write_all(b"\n")
+        .await
+        .map_err(|e| AgentError::Process(format!("failed to write: {e}")))?;
     writer
         .flush()
         .await
-        .map_err(|e| AgentError::Http(format!("Failed to flush: {e}")))
+        .map_err(|e| AgentError::Process(format!("failed to flush: {e}")))
 }
 
 /// Read a response from the agent.
@@ -377,9 +377,9 @@ async fn read_response(
     if let Some(line) = reader
         .next_line()
         .await
-        .map_err(|e| AgentError::Http(format!("Failed to read: {e}")))?
+        .map_err(|e| AgentError::Process(format!("failed to read: {e}")))?
     {
-        log::debug!("{label} response: {line}");
+        debug!(label, "response: {line}");
         Ok(Some(line))
     } else {
         Ok(None)
@@ -390,15 +390,20 @@ async fn read_response(
 async fn read_session_id(
     reader: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
 ) -> Result<String, AgentError> {
-    if let Some(line) = read_response(reader, "Session").await? {
-        if let Ok(resp) = serde_json::from_str::<serde_json::Value>(&line) {
-            return Ok(resp
-                .get("result")
-                .and_then(|r| r.get("sessionId"))
-                .and_then(|s| s.as_str())
-                .unwrap_or("default")
-                .to_string());
+    if let Some(line) = read_response(reader, "session").await? {
+        if let Ok(resp) = serde_json::from_str::<RpcResponse<SessionNewResult>>(&line) {
+            if let Some(ref error) = resp.error {
+                warn!(code = error.code, message = %error.message, "session/new returned error");
+            }
+            if let Some(result) = resp.result {
+                if let Some(id) = result.session_id {
+                    return Ok(id);
+                }
+            }
+            warn!("session/new response missing sessionId, using fallback");
         }
+    } else {
+        warn!("no response from session/new, using fallback");
     }
     Ok("default".to_string())
 }
@@ -411,9 +416,9 @@ async fn read_streaming_responses(
     while let Some(line) = reader
         .next_line()
         .await
-        .map_err(|e| AgentError::Http(format!("Failed to read: {e}")))?
+        .map_err(|e| AgentError::Process(format!("failed to read: {e}")))?
     {
-        log::trace!("ACP message: {line}");
+        trace!("ACP message: {line}");
 
         if let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) {
             // Check for notifications
@@ -432,7 +437,14 @@ async fn read_streaming_responses(
                             "tool_use" => StopReason::ToolUse,
                             "max_tokens" => StopReason::MaxTokens,
                             "stop_sequence" => StopReason::StopSequence,
-                            _ => StopReason::EndTurn,
+                            "end_turn" => StopReason::EndTurn,
+                            other => {
+                                debug!(
+                                    reason = other,
+                                    "unknown stop reason, defaulting to EndTurn"
+                                );
+                                StopReason::EndTurn
+                            }
                         };
                         let _ = tx.send(AgentEvent::Done {
                             stop_reason,
@@ -447,13 +459,27 @@ async fn read_streaming_responses(
     Ok(())
 }
 
+/// Extract a tool call or update ID from the update payload.
+///
+/// Tries `toolCallId` first, then falls back to `id`.
+fn extract_tool_id(update: &serde_json::Value) -> String {
+    if let Some(id) = update.get("toolCallId").and_then(|i| i.as_str()) {
+        return id.to_string();
+    }
+    if let Some(id) = update.get("id").and_then(|i| i.as_str()) {
+        debug!("tool ID resolved from 'id' field instead of 'toolCallId'");
+        return id.to_string();
+    }
+    warn!("tool call/update missing toolCallId and id, using 'unknown'");
+    "unknown".to_string()
+}
+
 /// Process a session update notification and emit appropriate events.
 fn process_session_update(params: &serde_json::Value, tx: &SyncSender<AgentEvent>) {
     let Some(update) = params.get("update") else {
         return;
     };
 
-    // Check the session update type
     let Some(update_type) = update.get("sessionUpdate").and_then(|u| u.as_str()) else {
         return;
     };
@@ -474,41 +500,38 @@ fn process_session_update(params: &serde_json::Value, tx: &SyncSender<AgentEvent
             }
         }
         "tool_call" => {
-            // Extract tool ID - try multiple locations
-            let id = update
-                .get("toolCallId")
-                .or_else(|| update.get("id"))
-                .and_then(|i| i.as_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let id = extract_tool_id(update);
 
-            // Extract tool name - check multiple possible locations
-            let name = update
-                .get("name")
+            // Extract tool name — check multiple locations for cross-agent compat
+            let name = if let Some(n) = update.get("name").and_then(|n| n.as_str()) {
+                n.to_string()
+            } else if let Some(n) = update
+                .get("_meta")
+                .and_then(|m| m.get("claudeCode"))
+                .and_then(|c| c.get("toolName"))
                 .and_then(|n| n.as_str())
-                .or_else(|| {
-                    // Check _meta.claudeCode.toolName
-                    update
-                        .get("_meta")
-                        .and_then(|m| m.get("claudeCode"))
-                        .and_then(|c| c.get("toolName"))
-                        .and_then(|n| n.as_str())
-                })
-                .or_else(|| {
-                    // Fall back to title field
-                    update.get("title").and_then(|t| t.as_str())
-                })
-                .unwrap_or("unknown")
-                .to_string();
+            {
+                debug!(
+                    name = n,
+                    "tool name resolved from _meta.claudeCode.toolName"
+                );
+                n.to_string()
+            } else if let Some(n) = update.get("title").and_then(|t| t.as_str()) {
+                debug!(name = n, "tool name resolved from title field");
+                n.to_string()
+            } else {
+                warn!("tool_call missing name in all locations, using 'unknown'");
+                "unknown".to_string()
+            };
 
-            // Extract raw input for summary generation
             // rawInput can be either a JSON object or a JSON string
             let raw_input = update.get("rawInput").and_then(|r| {
                 if r.is_object() {
                     Some(r.clone())
+                } else if let Some(s) = r.as_str() {
+                    serde_json::from_str::<serde_json::Value>(s).ok()
                 } else {
-                    r.as_str()
-                        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                    None
                 }
             });
 
@@ -519,12 +542,7 @@ fn process_session_update(params: &serde_json::Value, tx: &SyncSender<AgentEvent
             });
         }
         "tool_call_update" => {
-            let id = update
-                .get("toolCallId")
-                .or_else(|| update.get("id"))
-                .and_then(|i| i.as_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let id = extract_tool_id(update);
 
             if let Some(status) = update.get("status").and_then(|s| s.as_str()) {
                 if status == "completed" || status == "error" {

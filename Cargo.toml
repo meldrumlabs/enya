@@ -5,8 +5,8 @@ rust-version = "1.88"
 authors = ["Meldrum Labs"]
 categories = ["observability", "metrics"]
 keywords = ["observability", "metrics", "logging", "timeseries"]
-description = "Data Systems Observability"
-license = "MIT OR Apache-2.0"
+description = "Observability for humans and AI agents"
+license = "MIT"
 homepage = "https://meldrumlabs.com"
 readme = "README.md"
 repository = "https://github.com/meldrumlabs/enya"
@@ -18,10 +18,9 @@ members = [
   "crates/editor",
   "crates/analyzer",
   "crates/promql",
+  "crates/logql",
   "crates/client",
   "crates/search",
-  "crates/team-api",
-  "crates/cloud",
   "crates/build-info",
   "crates/build-tools",
   "crates/egui_nerdfonts",
@@ -30,52 +29,66 @@ members = [
   "crates/ghostty_vt_sys",
   "crates/ghostty_vt",
   "crates/egui_ghostty",
+  # DataFusion SQL engine
+  "crates/datafusion",
+  # Plugin system
+  "crates/plugin",
+  # Configuration types (shared between editor, CLI, and daemon)
+  "crates/config",
+  # Headless CLI operations (shared between CLI and future consumers)
+  "crates/headless",
+  # Agent server (API, watch engine, Prometheus proxy)
+  "crates/agent",
+  # CLI tool
+  "crates/enya",
 ]
-# Excluded for faster compilation (editor-focused development):
-# - crates/datafusion-enya (heavy DataFusion dependency)
-# - crates/enya (main server)
-# - crates/agent
-# - crates/metrics-store
-# - crates/log-store
-# - crates/macros
-# - examples/*
 
 [workspace.dependencies]
 enya-promql = { path = "crates/promql", version = "0.1.0" }
+enya-logql = { path = "crates/logql", version = "0.1.0" }
 enya-build-tools = { path = "crates/build-tools" }
 enya-build-info = { path = "crates/build-info" }
 enya-client = { path = "crates/client", version = "0.1.0" }
 enya-analyzer = { path = "crates/analyzer", version = "0.1.0" }
 enya-ai = { path = "crates/ai", version = "0.1.0" }
 enya-search = { path = "crates/search", version = "0.1.0" }
-enya-team-api = { path = "crates/team-api", version = "0.1.0" }
+enya-datafusion = { path = "crates/datafusion", version = "0.1.0" }
+enya-plugin = { path = "crates/plugin", version = "0.1.0" }
+enya-config = { path = "crates/config", version = "0.1.0" }
+enya-headless = { path = "crates/headless", version = "0.1.0" }
+enya-agent = { path = "crates/agent", version = "0.1.0" }
 egui_ghostty = { path = "crates/egui_ghostty" }
 
 # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so disable default_fonts
-egui = { version = "0.33.2", default-features = false }
-eframe = { version = "0.33.2", default-features = false, features = [
+egui = { version = "0.33.3", default-features = false }
+eframe = { version = "0.33.3", default-features = false, features = [
   # We bundle our own fonts (Departure Mono, Maple Mono, etc.) so skip egui's defaults
-  "wgpu",          # Use the wgpu rendering backend (supports web screenshots).
-  "persistence",   # Enable restoring app state when restarting the app.
+  "wgpu",        # Use the wgpu rendering backend (supports web screenshots).
+  "persistence", # Enable restoring app state when restarting the app.
+  "accesskit",   # Platform accessibility APIs (required for egui_kittest compatibility).
   # x11/wayland added conditionally per-platform in editor crate
 ] }
 # wgpu with explicit backend support
 wgpu = { version = "27.0", default-features = false, features = [
-  "metal",   # macOS Metal backend
-  "vulkan",  # Linux/Windows Vulkan backend
-  "webgl",   # Web WebGL backend
-  "wgsl",    # WGSL shader support
+  "metal",  # macOS Metal backend
+  "vulkan", # Linux/Windows Vulkan backend
+  "webgl",  # Web WebGL backend
+  "wgsl",   # WGSL shader support
 ] }
 egui_plot = "0.34.0"
-egui_extras = { version = "0.33.2", default-features = false, features = ["image"] }
+egui_extras = { version = "0.33.3", default-features = false, features = [
+  "image",
+] }
 egui_nerdfonts = { path = "crates/egui_nerdfonts" }
 egui_tiles = { version = "0.14.0", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["wasmbind"] }
+console = "0.15"
 itertools = "0.14.0"
 poll-promise = "0.3"
 smallvec = "1.13.2"
 nucleo-matcher = "0.3.1"
 ewebsock = "0.7"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
@@ -85,12 +98,18 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
 base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 
 parking_lot = { version = "0.12", features = ["serde"] }
 simple_logger = { version = "5.1", default-features = false }
 env_logger = "0.11"
 mimalloc = "0.1.43"
-rustls = { version = "0.23.22", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23.22", default-features = false, features = [
+  "ring",
+  "std",
+  "tls12",
+] }
 
 wasm-bindgen-futures = "0.4"
 wasm-bindgen = "0.2"
@@ -116,10 +135,19 @@ pprof = { version = "0.15", default-features = false, features = [
   "prost-codec",
 ] }
 tokio = "1.48"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+] }
+
+rust-embed = "8"
+mime_guess = "2"
+open = "5"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tower-http = { version = "0.6", features = ["trace"] }
 metrics = "0.24"
 
 sketches-ddsketch = "0.3.0"
@@ -132,15 +160,19 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 disallowed_types = "deny"
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)', 'cfg(getrandom_backend)'] }
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(tokio_unstable)',
+  'cfg(getrandom_backend)',
+  'cfg(feature, values("serve"))',
+] }
 
 [profile.dev]
 lto = "off"
 opt-level = 0
-debug = 0              # No debug info for faster builds (use debug = 1 if needed)
-panic = "abort"        # Smaller binaries, faster builds
-incremental = true     # Enable incremental compilation
-codegen-units = 256    # More parallelism for faster builds
+debug = 0           # No debug info for faster builds (use debug = 1 if needed)
+panic = "abort"     # Smaller binaries, faster builds
+incremental = true  # Enable incremental compilation
+codegen-units = 256 # More parallelism for faster builds
 
 # Optimize proc-macros and build scripts even in dev mode
 [profile.dev.build-override]
@@ -159,10 +191,10 @@ lto = "off"
 opt-level = 0
 debug = 0
 panic = "abort"
-incremental = false    # Disable incremental in CI (not useful, wastes cache space)
+incremental = false # Disable incremental in CI (not useful, wastes cache space)
 
 [profile.release]
-opt-level = 2          # Good balance for wasm size and speed
-lto = "thin"           # Enable thin LTO for smaller binaries
-codegen-units = 1      # Better optimization at cost of compile time
-strip = true           # Strip symbols for smaller binaries
+opt-level = 2     # Good balance for wasm size and speed
+lto = "thin"      # Enable thin LTO for smaller binaries
+codegen-units = 1 # Better optimization at cost of compile time
+strip = true      # Strip symbols for smaller binaries

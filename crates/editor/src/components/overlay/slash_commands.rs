@@ -350,7 +350,7 @@ impl SlashCommandPopup {
 
         let popup_pos = egui::pos2(popup_x, popup_y);
 
-        // Premium Obsidian Glass styling
+        // Premium Obsidian Glass styling (Custom variant handles plugin colors internally)
         let style = OverlayStyle::frosted_glass(self.theme);
 
         // Accent color

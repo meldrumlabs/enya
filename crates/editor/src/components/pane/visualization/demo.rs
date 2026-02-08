@@ -8,8 +8,8 @@
 //! when rendering, allowing colors to change dynamically with theme switches.
 
 use crate::ui::palette;
+use crate::util::now_unix_secs_f64;
 
-use super::super::annotation::{Annotation, AnnotationAuthor, AnnotationPriority};
 use super::super::time_series_chart::{CommitMarker, DataPoint, Series, TimeSeriesChart};
 
 use super::Threshold;
@@ -66,16 +66,19 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
     let hash = query
         .bytes()
         .fold(0u64, |acc, b| acc.wrapping_add(b as u64));
-    let now = 1_700_000_000.0;
-    let duration = 86400.0;
+    // Use current time so demo data aligns with time presets
+    // Data spans from (now - duration) to now
+    let now = now_unix_secs_f64();
+    let duration = 86400.0; // 24 hours of data
     let num_points = 240;
+    let start = now - duration;
 
     // Series 1
     let base1 = 50.0 + (hash % 50) as f64;
     let freq1 = 200.0 + (hash % 100) as f64;
     let points1: Vec<DataPoint> = (0..num_points)
         .map(|i| {
-            let t = now + (i as f64 / num_points as f64) * duration;
+            let t = start + (i as f64 / num_points as f64) * duration;
             let base = base1 + 20.0 * (t / freq1).sin();
             let noise = (t * 17.0).sin() * 5.0;
             DataPoint {
@@ -96,7 +99,7 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
     let freq2 = 150.0 + (hash % 80) as f64;
     let points2: Vec<DataPoint> = (0..num_points)
         .map(|i| {
-            let t = now + (i as f64 / num_points as f64) * duration;
+            let t = start + (i as f64 / num_points as f64) * duration;
             let base = base2 + 15.0 * (t / freq2).cos();
             let noise = (t * 23.0).sin() * 3.0;
             DataPoint {
@@ -112,62 +115,32 @@ fn populate_time_series_demo(chart: &mut TimeSeriesChart, query: &str) {
             .with_points(points2),
     );
 
-    // Add demo commit markers
+    // Add demo commit markers (spread across the time range)
     chart.add_commit(CommitMarker::new(
         "a1b2c3d",
-        now + duration * 0.1,
+        start + duration * 0.1,
         "Fix connection pooling",
     ));
     chart.add_commit(CommitMarker::new(
         "e4f5g6h",
-        now + duration * 0.35,
+        start + duration * 0.35,
         "Add retry logic",
     ));
     chart.add_commit(CommitMarker::new(
         "i7j8k9l",
-        now + duration * 0.5,
+        start + duration * 0.5,
         "Update dependencies",
     ));
     chart.add_commit(CommitMarker::new(
         "m0n1o2p",
-        now + duration * 0.7,
+        start + duration * 0.7,
         "Refactor auth module",
     ));
     chart.add_commit(CommitMarker::new(
         "q3r4s5t",
-        now + duration * 0.9,
+        start + duration * 0.9,
         "Performance improvements",
     ));
-
-    // Add demo annotations to showcase team collaboration features
-    chart.add_annotation(
-        Annotation::at_point(
-            now + duration * 0.15,
-            "Latency spike after deploy - investigating",
-        )
-        .with_author(AnnotationAuthor::local("Alice Chen"))
-        .with_priority(AnnotationPriority::Important),
-    );
-    chart.add_annotation(
-        Annotation::at_range(
-            now + duration * 0.4,
-            now + duration * 0.45,
-            "Planned maintenance window",
-        )
-        .with_author(AnnotationAuthor::local("Bob Smith")),
-    );
-    chart.add_annotation(
-        Annotation::at_point(
-            now + duration * 0.6,
-            "Root cause: connection pool exhaustion - fixed in next release",
-        )
-        .with_author(AnnotationAuthor::local("Alice Chen"))
-        .with_priority(AnnotationPriority::Critical),
-    );
-    let mut resolved_ann = Annotation::at_point(now + duration * 0.8, "Fixed in v2.3.1")
-        .with_author(AnnotationAuthor::local("Carol Davis"));
-    resolved_ann.resolve();
-    chart.add_annotation(resolved_ann);
 }
 
 /// Populate demo data for stat visualization
@@ -347,9 +320,12 @@ fn populate_sparkline_demo(spark: &mut SparklineViz, query: &str) {
 
 /// Populate demo data with many series (12 API endpoints) for testing legend overflow
 fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
-    let now = 1_700_000_000.0;
-    let duration = 86400.0;
+    // Use current time so demo data aligns with time presets
+    // Data spans from (now - duration) to now
+    let now = now_unix_secs_f64();
+    let duration = 86400.0; // 24 hours of data
     let num_points = 120;
+    let start = now - duration;
 
     // API endpoints for the demo
     let endpoints = [
@@ -381,7 +357,7 @@ fn populate_many_series_demo(chart: &mut TimeSeriesChart, query: &str) {
 
         let points: Vec<DataPoint> = (0..num_points)
             .map(|j| {
-                let t = now + (j as f64 / num_points as f64) * duration;
+                let t = start + (j as f64 / num_points as f64) * duration;
                 let value = base + 15.0 * ((t / freq) + phase).sin() + (t * 13.0).sin() * 3.0;
                 DataPoint {
                     timestamp: t,
