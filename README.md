@@ -92,7 +92,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, coding style, a
 - [PlanetScale](https://planetscale.com) for inspiration on series UX
 - [Conductor](https://conductor.build) for inspiration on UX design
 - [Neovim](https://neovim.io) for inspiration on plugin system architecture and keybindings
-- [gpui-ghostty](https://github.com/Xuanwo/gpui-ghostty) for inspiration on terminal emulator integration
+- [gpui-ghostty](https://github.com/Xuanwo/gpui-ghostty) by [Xuanwo](https://github.com/Xuanwo) for inspiration on terminal emulator integration
 
 ## License
 
