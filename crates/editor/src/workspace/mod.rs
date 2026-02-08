@@ -36,9 +36,6 @@ use enya_plugin::{
 // Workspace configuration module (serialization)
 pub mod config;
 
-// Grafana dashboard JSON import
-pub mod grafana;
-
 // Input handling (navigation, visual-multi mode)
 mod input;
 pub use input::{
