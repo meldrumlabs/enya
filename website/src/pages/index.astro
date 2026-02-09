@@ -80,9 +80,17 @@ async fn main() -> Result<()> {
 			</main>
 			<section class="demo-section">
 				<div class="demo-content">
-					<video autoplay loop muted playsinline class="demo-video">
+					<div class="demo-toggle" role="radiogroup" aria-label="Demo mode">
+						<button class="demo-toggle-option active" id="toggle-human" role="radio" aria-checked="true" data-mode="human">human</button>
+						<span class="demo-toggle-dot" aria-hidden="true">&middot;</span>
+						<button class="demo-toggle-option" id="toggle-agent" role="radio" aria-checked="false" data-mode="agent">agent</button>
+					</div>
+					<video id="demo-video" autoplay loop muted playsinline class="demo-video">
 						<source src="/img/demos/fuzzy_finder.mp4" type="video/mp4" />
 					</video>
+					<div class="demo-coming-soon" id="demo-coming-soon">
+						<span class="demo-coming-soon-text">coming soon</span>
+					</div>
 				</div>
 			</section>
 			<section class="features-section">
@@ -92,27 +100,27 @@ async fn main() -> Result<()> {
 				<ul class="features-list">
 					<li class="feature-item">
 						<span class="feature-name">AI Native</span>
-						<span class="feature-desc">Agents with access to metrics, logs, traces, and your codebase. Supports Codex and Claude through ACP.</span>
+						<span class="feature-desc">Built from the ground up for AI. Agents have access to the same commands you do. Supports Codex and Claude through ACP.</span>
 					</li>
 					<li class="feature-item">
 						<span class="feature-name">Multi-Backend</span>
-						<span class="feature-desc">One interface for Metrics, Logs, Traces, SQL, and Git.</span>
+						<span class="feature-desc">Metrics, logs, traces, SQL, and Git — all in one interface.</span>
 					</li>
 					<li class="feature-item">
 						<span class="feature-name">Codebase-Aware</span>
-						<span class="feature-desc">Jump from observability data to source code. Uses tree-sitter to analyze your codebase for Prometheus metrics and alerts.</span>
+						<span class="feature-desc">Uses tree-sitter to analyze metrics, alerts, and source definitions across your codebase.</span>
 					</li>
 					<li class="feature-item">
 						<span class="feature-name">Shared Workspaces</span>
-						<span class="feature-desc">Both you and AI agents create, edit, and iterate in the same workspace. Dashboards, queries, and runbooks — built together.</span>
+						<span class="feature-desc">Both you and AI agents create, edit, and iterate in the same workspace.</span>
 					</li>
 					<li class="feature-item">
 						<span class="feature-name">Extensible</span>
-						<span class="feature-desc">Neovim-inspired, modal editing, and fully customizable. Create your own Lua plugins that hook into the editor.</span>
+						<span class="feature-desc">Neovim-inspired modal editing with Lua plugins. Fully customizable.</span>
 					</li>
 					<li class="feature-item">
-						<span class="feature-name">Fast</span>
-						<span class="feature-desc">Built in Rust. Native performance for queries, rendering, and navigation. No JavaScript. No Electron.</span>
+						<span class="feature-name">Fast <img src="/img/ferris.svg" alt="Ferris" class="ferris-logo" /></span>
+						<span class="feature-desc">Built in Rust on top of egui. Runs natively on desktop and web through WASM.</span>
 					</li>
 									</ul>
 				</div>
@@ -143,7 +151,7 @@ async fn main() -> Result<()> {
 						</details>
 						<details class="faq-item">
 							<summary class="faq-question">Does Enya support teams?</summary>
-							<p class="faq-answer">Not yet. Meldrum Labs is building team features so your observability knowledge lives in one place — not scattered across Slack threads and Grafana screenshots.<br/><br/>We're looking for early design partners to help shape what comes next. Let's build together — reach out on <a href="https://www.linkedin.com/in/max-meldrum-1a46a291/" target="_blank" rel="noopener noreferrer">LinkedIn</a> or <a href="mailto:contact@meldrumlabs.com">email</a>.</p>
+							<p class="faq-answer">Not yet. <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> is building team features so your observability knowledge lives in one place — not scattered across Slack threads and Grafana screenshots.<br/><br/>We're looking for early design partners to help shape what comes next. Let's build together — reach out on <a href="https://www.linkedin.com/in/max-meldrum-1a46a291/" target="_blank" rel="noopener noreferrer">LinkedIn</a> or <a href="mailto:contact@meldrumlabs.com">email</a>.</p>
 						</details>
 					</div>
 				</div>
@@ -151,14 +159,14 @@ async fn main() -> Result<()> {
 			<section class="open-source-section">
 				<div class="open-source-content">
 					<h2 class="open-source-title">By Builders, For Builders.</h2>
-					<p class="open-source-text">Enya is developed by Meldrum Labs and licensed under MIT.</p>
+					<p class="open-source-text">Enya is developed by <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> and licensed under MIT.</p>
 					<p class="open-source-team">Interested in being a design partner? <a href="mailto:contact@meldrumlabs.com">Get in touch</a></p>
 				</div>
 			</section>
 			<footer class="footer">
 				<div class="footer-bottom">
 					<div class="copyright-wrapper">
-						© 2025 Meldrum Labs AB · MIT License
+						© 2025 <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> AB · MIT License
 						<br/>
 						<span class="trademark-notice">Apache Arrow and Apache DataFusion are trademarks of the Apache Software Foundation.</span>
 					</div>
@@ -727,6 +735,44 @@ async fn main() -> Result<()> {
 		margin: 0 auto;
 	}
 
+	/* Demo Toggle */
+	.demo-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.demo-toggle-option {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.7rem;
+		letter-spacing: 0.1em;
+		color: var(--obsidian-text-tertiary);
+		background: none;
+		border: none;
+		padding: 0 0 2px 0;
+		cursor: pointer;
+		transition: color 0.2s ease, border-color 0.2s ease;
+		border-bottom: 1px solid transparent;
+	}
+
+	.demo-toggle-option:hover {
+		color: var(--obsidian-text-secondary);
+	}
+
+	.demo-toggle-option.active {
+		color: var(--obsidian-accent);
+		border-bottom-color: var(--obsidian-accent);
+	}
+
+	.demo-toggle-dot {
+		color: var(--obsidian-text-tertiary);
+		font-size: 0.5rem;
+		line-height: 1;
+		user-select: none;
+		opacity: 0.5;
+	}
+
 	.demo-video {
 		width: 100%;
 		height: auto;
@@ -735,6 +781,33 @@ async fn main() -> Result<()> {
 		border-radius: 0.5rem;
 		border: 1px solid var(--obsidian-border-default);
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+		transition: opacity 0.3s ease;
+	}
+
+	.demo-video.hidden {
+		display: none;
+	}
+
+	.demo-coming-soon {
+		display: none;
+		width: 100%;
+		aspect-ratio: 16 / 9;
+		border-radius: 0.5rem;
+		border: 1px solid var(--obsidian-border-default);
+		background-color: var(--obsidian-surface);
+		align-items: center;
+		justify-content: center;
+	}
+
+	.demo-coming-soon.visible {
+		display: flex;
+	}
+
+	.demo-coming-soon-text {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.875rem;
+		letter-spacing: 0.1em;
+		color: var(--obsidian-text-tertiary);
 	}
 
 	@media (max-width: 768px) {
@@ -802,6 +875,14 @@ async fn main() -> Result<()> {
 		line-height: 1.5;
 	}
 
+	.ferris-logo {
+		display: inline-block;
+		width: 1.2em;
+		height: 0.85em;
+		vertical-align: -0.05em;
+		filter: sepia(1) saturate(5) brightness(0.7) hue-rotate(100deg);
+	}
+
 	@media (max-width: 768px) {
 		.features-section {
 			padding: 3rem 1rem;
@@ -857,6 +938,18 @@ async fn main() -> Result<()> {
 		color: var(--obsidian-text-primary);
 		margin: 0 0 0.75rem 0;
 		line-height: 1.6;
+	}
+
+	.open-source-text a {
+		color: var(--obsidian-text-primary);
+		text-decoration: none;
+		border-bottom: 1px solid var(--obsidian-text-tertiary);
+		transition: color 0.15s ease, border-color 0.15s ease;
+	}
+
+	.open-source-text a:hover {
+		color: var(--obsidian-accent);
+		border-bottom-color: var(--obsidian-accent);
 	}
 
 	.open-source-team {
@@ -917,6 +1010,18 @@ async fn main() -> Result<()> {
 		font-family: 'Departure Mono', monospace;
 		text-align: center;
 		color: var(--obsidian-text-secondary);
+	}
+
+	.copyright-wrapper a {
+		color: var(--obsidian-text-secondary);
+		text-decoration: none;
+		border-bottom: 1px solid var(--obsidian-text-tertiary);
+		transition: color 0.15s ease, border-color 0.15s ease;
+	}
+
+	.copyright-wrapper a:hover {
+		color: var(--obsidian-accent);
+		border-bottom-color: var(--obsidian-accent);
 	}
 
 	.trademark-notice {
@@ -1159,6 +1264,47 @@ async fn main() -> Result<()> {
 				link.addEventListener('click', () => {
 					mobileMenuToggle.setAttribute('aria-expanded', 'false');
 					mobileMenu.classList.remove('open');
+				});
+			});
+		}
+
+		// Demo toggle: Human / Agent switching
+		const toggleHuman = document.getElementById('toggle-human');
+		const toggleAgent = document.getElementById('toggle-agent');
+		const demoVideo = document.getElementById('demo-video') as HTMLVideoElement | null;
+		const comingSoon = document.getElementById('demo-coming-soon');
+
+		if (toggleHuman && toggleAgent && demoVideo && comingSoon) {
+			function switchDemo(mode: string) {
+				const isAgent = mode === 'agent';
+
+				toggleHuman.classList.toggle('active', !isAgent);
+				toggleHuman.setAttribute('aria-checked', String(!isAgent));
+				toggleAgent.classList.toggle('active', isAgent);
+				toggleAgent.setAttribute('aria-checked', String(isAgent));
+
+				demoVideo.classList.toggle('hidden', isAgent);
+				comingSoon.classList.toggle('visible', isAgent);
+
+				if (!isAgent) {
+					demoVideo.play().catch(() => {});
+				}
+			}
+
+			toggleHuman.addEventListener('click', () => switchDemo('human'));
+			toggleAgent.addEventListener('click', () => switchDemo('agent'));
+
+			[toggleHuman, toggleAgent].forEach(btn => {
+				btn.addEventListener('keydown', (e) => {
+					if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+						e.preventDefault();
+						switchDemo('agent');
+						toggleAgent.focus();
+					} else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+						e.preventDefault();
+						switchDemo('human');
+						toggleHuman.focus();
+					}
 				});
 			});
 		}
