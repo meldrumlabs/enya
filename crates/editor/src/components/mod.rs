@@ -42,6 +42,8 @@ pub use widget::{
     NotificationManager, QuickCommand, Sparkline, StatusLine, StatusLineResult, StatusMode,
     TimeRange, TimeRangePreset, TimeRangeToolbar,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use widget::{UpdateBanner, UpdateBannerAction};
 
 // Re-export from util
 pub use util::{

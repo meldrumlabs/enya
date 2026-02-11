@@ -38,6 +38,10 @@ pub mod connection;
 /// UI primitives: colors, typography, icons, design tokens, and theme definitions.
 pub mod ui;
 
+/// Update checker for new version notifications (native only).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod update_checker;
+
 /// General utilities including WASM-compatible time handling.
 pub mod util;
 
