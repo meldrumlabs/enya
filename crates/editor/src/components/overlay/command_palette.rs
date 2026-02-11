@@ -128,6 +128,8 @@ pub enum CommandResult {
     SyncCodebase,
     /// Open the tutorial overlay
     OpenTutorial,
+    /// Open the settings overlay
+    OpenSettings,
     /// Try to execute a plugin command (command name, args)
     PluginCommand(String, String),
     /// No-op (command not recognized or cancelled)
@@ -236,6 +238,12 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         name: "tutorial",
         aliases: &["tut"],
         description: "Open the interactive tutorial",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "settings",
+        aliases: &["set", "prefs", "preferences"],
+        description: "Open settings (AI, styling, connections)",
         kind: CommandKind::NoArgs,
     },
 ];
@@ -612,6 +620,7 @@ impl CommandPalette {
             }
             "dock" | "dk" => CommandResult::DockAllPanes,
             "tutorial" | "tut" => CommandResult::OpenTutorial,
+            "settings" | "set" | "prefs" | "preferences" => CommandResult::OpenSettings,
             "sync" => {
                 if args.is_empty() {
                     CommandResult::Error("Usage: :sync git".to_string())

@@ -6,6 +6,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Token usage display in agent panel**: After each AI response, a subtle footer shows the model name, token counts (total, input, output), and request duration. Re-exported `TokenUsage` from `enya-ai` crate.
+- **AI tutorial steps**: Added three new tutorial steps for AI features: "AI Agent Setup" (API key and prerequisites), "Ask the AI Agent" (expanded with @metric mention tip), and "Agent Quick Actions" (single-key agent operators aw/ae/ay/ac/ar/af).
+- **Settings overlay**: New settings overlay (`:settings` command or landing page) with AI tab (provider, model, API key), Styling tab (side-by-side theme/font panels with color swatches and code previews), Connection tab (Prometheus and Loki endpoint/API key), and Codebase tab (git repo URL). Premium card-style input UX with labels above inputs, bordered input boxes, section grouping, focus glow, and dropdown chevrons. Auto-saves on close. Vim-style navigation (j/k, Tab for tabs, Enter to edit/cycle, h/l switch panels). Per-provider API key storage. Settings persist via eframe.
+
 - **`load_workspace` agent command**: AI agents can now programmatically load a saved workspace in the GUI using `{"action": "load_workspace", "workspace": "name"}`. This enables the agent-to-human handoff workflow: an agent builds a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`), then loads it in the editor for the human to view.
 
 ### Changed

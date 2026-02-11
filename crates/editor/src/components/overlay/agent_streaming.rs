@@ -52,6 +52,8 @@ impl AgentPanel {
         self.current_status = ResponseStatus::Waiting;
         self.current_activities.clear();
         self.current_model = Some(self.selected_model.display_name().to_string());
+        self.last_token_usage = None;
+        self.last_request_duration = None;
 
         // Get working directory
         let working_dir = std::env::current_dir().ok();
@@ -228,12 +230,16 @@ impl AgentPanel {
                         // Optionally add error indicator
                     }
                 }
-                AgentEvent::Done { .. } => {
+                AgentEvent::Done { usage, .. } => {
                     // Mark all activities as complete
                     for activity in &mut self.current_activities {
                         activity.in_progress = false;
                     }
                     self.current_status = ResponseStatus::Complete;
+
+                    // Capture token usage and request duration
+                    self.last_token_usage = usage.map(|u| (u.input_tokens, u.output_tokens));
+                    self.last_request_duration = self.request_start_time.map(|t| t.elapsed());
 
                     // Update last message
                     if let Some(last) = self.messages.last_mut() {

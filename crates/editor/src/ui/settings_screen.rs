@@ -54,6 +54,7 @@ impl EditorFont {
     }
 }
 
+use crate::components::util::{AiModel, AiProvider};
 use crate::ui::theme::AppTheme;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -73,6 +74,27 @@ pub struct AppSettings {
     /// Current UI theme (user preference, not per-workspace)
     #[serde(default)]
     pub theme: AppTheme,
+    /// Selected AI provider
+    #[serde(default)]
+    pub ai_provider: AiProvider,
+    /// Selected AI model (None = use provider default)
+    #[serde(default)]
+    pub ai_model: Option<AiModel>,
+    /// Anthropic API key (for Claude provider)
+    #[serde(default)]
+    pub anthropic_api_key: String,
+    /// OpenAI API key (for Codex provider)
+    #[serde(default)]
+    pub openai_api_key: String,
+    /// Git repository URL for codebase integration
+    #[serde(default)]
+    pub git_repo_url: String,
+    /// Default Prometheus endpoint for new workspaces
+    #[serde(default)]
+    pub default_prometheus_endpoint: String,
+    /// Default Loki endpoint for new workspaces
+    #[serde(default)]
+    pub default_loki_endpoint: String,
 }
 
 /// Entry for a recently opened plot/chart

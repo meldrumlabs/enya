@@ -121,6 +121,10 @@ pub struct AgentPanel {
     slash_command_popup: SlashCommandPopup,
     /// Previous input text for change detection
     prev_input_text: String,
+    /// Token usage from the last completed response (input, output)
+    pub(super) last_token_usage: Option<(u32, u32)>,
+    /// Duration of the last completed request
+    pub(super) last_request_duration: Option<std::time::Duration>,
 }
 
 impl AgentPanel {
@@ -171,6 +175,8 @@ impl AgentPanel {
             mention_popup: MentionPopup::new(),
             slash_command_popup: SlashCommandPopup::new(),
             prev_input_text: String::new(),
+            last_token_usage: None,
+            last_request_duration: None,
         }
     }
 
@@ -1321,6 +1327,14 @@ impl AgentPanel {
 
                     // Iterate by index to avoid borrow conflicts with &mut self methods
                     let message_count = self.messages.len();
+                    let last_assistant_idx = self
+                        .messages
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, m)| m.role == MessageRole::Assistant && !m.is_streaming)
+                        .map(|(i, _)| i);
+
                     for i in 0..message_count {
                         // Clone the message to avoid borrow conflicts
                         let message = self.messages[i].clone();
@@ -1328,6 +1342,18 @@ impl AgentPanel {
 
                         let before_y = ui.cursor().min.y;
                         self.render_message(ui, &message, &colors);
+
+                        // Show token usage footer after the last completed assistant message
+                        if Some(i) == last_assistant_idx {
+                            if let Some(usage) = &self.last_token_usage {
+                                self.render_token_usage_footer(
+                                    ui,
+                                    usage,
+                                    self.last_request_duration,
+                                );
+                            }
+                        }
+
                         let after_y = ui.cursor().min.y;
 
                         // Visual selection highlight for vim j/k navigation
@@ -2593,6 +2619,71 @@ impl AgentPanel {
         open_full_diff
     }
 
+    /// Render a subtle token usage footer below a completed assistant message.
+    fn render_token_usage_footer(
+        &self,
+        ui: &mut egui::Ui,
+        usage: &(u32, u32),
+        duration: Option<std::time::Duration>,
+    ) {
+        let text_tertiary = self.theme.text_tertiary();
+        let (input_tokens, output_tokens) = *usage;
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.add_space(16.0);
+
+            // Model name
+            if let Some(model) = &self.current_model {
+                ui.label(
+                    RichText::new(model)
+                        .color(text_tertiary)
+                        .size(typography::XS),
+                );
+                ui.label(
+                    RichText::new(" · ")
+                        .color(text_tertiary)
+                        .size(typography::XS),
+                );
+            }
+
+            // Token counts
+            let total = input_tokens + output_tokens;
+            let token_text = format!(
+                "{}  in: {}  out: {}",
+                format_token_count(total),
+                format_token_count(input_tokens),
+                format_token_count(output_tokens),
+            );
+            ui.label(
+                RichText::new(token_text)
+                    .color(text_tertiary)
+                    .size(typography::XS),
+            );
+
+            // Duration
+            if let Some(dur) = duration {
+                let secs = dur.as_secs_f32();
+                let time_str = if secs < 1.0 {
+                    "<1s".to_string()
+                } else if secs < 10.0 {
+                    format!("{secs:.1}s")
+                } else if secs < 60.0 {
+                    format!("{secs:.0}s")
+                } else {
+                    let mins = (secs / 60.0).floor() as u32;
+                    let s = (secs % 60.0).floor() as u32;
+                    format!("{mins}:{s:02}")
+                };
+                ui.label(
+                    RichText::new(format!(" · {time_str}"))
+                        .color(text_tertiary)
+                        .size(typography::XS),
+                );
+            }
+        });
+    }
+
     /// Render an activity item with premium row styling (matching channels panel).
     fn render_activity(&self, ui: &mut egui::Ui, activity: &ActivityItem, _colors: &ChatColors) {
         use egui_nerdfonts::regular;
@@ -2766,5 +2857,16 @@ impl AgentPanel {
         self.scroll_to_bottom = true;
     }
 }
+/// Format a token count for display (e.g., 1234 → "1.2k", 567 → "567").
+fn format_token_count(tokens: u32) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M tokens", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}k tokens", tokens as f64 / 1_000.0)
+    } else {
+        format!("{tokens} tokens")
+    }
+}
+
 // Streaming methods (send_message, cancel_request, poll_streaming_response)
 // are in the `agent_streaming` sibling module.

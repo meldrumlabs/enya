@@ -898,6 +898,19 @@ impl EnyaApp {
                     ));
                 }
             }
+            WorkspaceAction::SaveSettings {
+                ai_provider,
+                ai_model,
+                git_repo_url,
+                default_prometheus_endpoint,
+                default_loki_endpoint,
+            } => {
+                self.state.settings.ai_provider = ai_provider;
+                self.state.settings.ai_model = ai_model;
+                self.state.settings.git_repo_url = git_repo_url;
+                self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
+                self.state.settings.default_loki_endpoint = default_loki_endpoint;
+            }
         }
     }
 

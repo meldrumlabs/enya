@@ -4,7 +4,7 @@
 //! used by the `AgentPanel` overlay and `AgentInputBar` widget.
 
 /// Available AI providers for agent chat.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum AiProvider {
     /// Claude Code (Anthropic) - default
     #[default]
@@ -41,7 +41,7 @@ impl AiProvider {
 }
 
 /// Available AI models (varies by provider).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AiModel {
     // Claude models
     /// Claude Sonnet 4.5
