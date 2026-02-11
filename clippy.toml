@@ -5,4 +5,5 @@ disallowed-types = [
   { path = "std::sync::RwLock", reason = "use parking_lot::RwLock instead" },
   { path = "std::collections::HashMap", reason = "use rustc_hash::FxHashMap instead for better performance" },
   { path = "std::collections::HashSet", reason = "use rustc_hash::FxHashSet instead for better performance" },
+  { path = "std::time::SystemTime", reason = "panics in WASM; use crate::util::now_unix_secs/now_unix_secs_f64/now_unix_nanos (editor), or add #[allow] for native-only crates" },
 ]

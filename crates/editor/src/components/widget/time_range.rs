@@ -110,22 +110,7 @@ impl TimeRange {
 
     /// Get the current timestamp in seconds
     pub fn now() -> f64 {
-        // Use web_time on WASM, std::time on native
-        #[cfg(target_arch = "wasm32")]
-        {
-            use web_time::SystemTime;
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .map(|d| d.as_secs_f64())
-                .unwrap_or(0.0)
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs_f64())
-                .unwrap_or(0.0)
-        }
+        crate::util::now_unix_secs_f64()
     }
 
     /// Get the duration of this time range

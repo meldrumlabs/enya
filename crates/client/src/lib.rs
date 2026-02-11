@@ -71,6 +71,7 @@ pub fn now_unix_secs() -> u64 {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
+        #[allow(clippy::disallowed_types)]
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())

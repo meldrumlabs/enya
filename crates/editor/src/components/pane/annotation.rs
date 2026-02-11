@@ -271,22 +271,7 @@ impl Annotation {
 
 /// Get current Unix timestamp in seconds (WASM-compatible).
 fn now_unix_secs() -> f64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use web_time::SystemTime;
-        SystemTime::now()
-            .duration_since(web_time::UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use std::time::SystemTime;
-        SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0)
-    }
+    crate::util::now_unix_secs_f64()
 }
 
 #[cfg(test)]

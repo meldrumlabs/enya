@@ -47,6 +47,7 @@ pub struct WatchConfig<'a> {
 ///
 /// `first_triggered` tracks when the threshold was first breached (for `--for` sustain logic).
 /// The caller owns this state across ticks.
+#[allow(clippy::disallowed_types)] // headless is native-only
 pub fn tick(
     base_url: &str,
     expression: &str,
@@ -115,6 +116,7 @@ pub fn run(config: &WatchConfig) -> Result<bool> {
         }
     }
 
+    #[allow(clippy::disallowed_types)] // headless is native-only
     let mut first_triggered: Option<std::time::Instant> = None;
 
     loop {
