@@ -24,11 +24,15 @@ use crate::command::{CommandReceiver, CommandSender, UICommand, UICommandSender,
 use crate::components::{
     Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::{UpdateBanner, UpdateBannerAction};
 use crate::connection::ConnectionManager;
 use crate::plugin::{EditorPluginHost, PluginContextRef, PluginRegistry, PluginSharedStateRef};
 use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
 use crate::ui::{CustomThemeStore, ResolvedCustomTheme};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::update_checker::UpdateChecker;
 use crate::workspace::{Workspace, WorkspaceAction};
 
 use state::EditorMetrics;
@@ -42,6 +46,10 @@ pub struct EnyaApp {
 
     // Agent connection manager
     connection: ConnectionManager,
+
+    // Update checker for new version notifications (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    update_checker: UpdateChecker,
 
     // Channels for ui commands
     pub command_sender: CommandSender,
@@ -310,12 +318,17 @@ impl EnyaApp {
             .collect();
         workspace.set_plugins(plugins_info);
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let dismissed_update_version = state.settings.dismissed_update_version.clone();
+
         Self {
             state,
             workspace,
             command_sender,
             command_receiver,
             connection: ConnectionManager::new(async_runtime.clone()),
+            #[cfg(not(target_arch = "wasm32"))]
+            update_checker: UpdateChecker::new(async_runtime.clone(), dismissed_update_version),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
             editor_metrics: EditorMetrics::default(),
@@ -1447,6 +1460,37 @@ impl eframe::App for EnyaApp {
         // Draw notifications (on top of everything) with effective theme
         self.notifications.set_theme(self.effective_theme());
         self.notifications.show(ctx);
+
+        // Poll for update availability and show banner if needed (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.update_checker.poll(ctx);
+            if let Some(update_info) = self.update_checker.available_update().cloned() {
+                let mut banner = UpdateBanner::new(
+                    update_info.version.clone(),
+                    update_info.release_url.clone(),
+                    update_info.release_notes.clone(),
+                    update_info.download_url.is_some(),
+                );
+                banner.set_theme(self.effective_theme());
+                banner.set_downloading(self.update_checker.is_downloading());
+                match banner.show(ctx) {
+                    UpdateBannerAction::SeeChanges(url) => {
+                        ctx.open_url(egui::OpenUrl::new_tab(&url));
+                    }
+                    UpdateBannerAction::Restart => {
+                        if let Some(ref url) = update_info.download_url {
+                            self.update_checker.download_and_update(url, ctx);
+                        }
+                    }
+                    UpdateBannerAction::Dismissed(version) => {
+                        self.state.settings.dismissed_update_version = Some(version.clone());
+                        self.update_checker.dismiss(version);
+                    }
+                    UpdateBannerAction::None => {}
+                }
+            }
+        }
 
         // Check for possible key board shortcut triggers
         self.check_keyboard_shortcuts(ctx);
