@@ -23,6 +23,7 @@ pub mod native_promo;
 pub mod plugins;
 #[cfg(not(target_arch = "wasm32"))]
 mod preview;
+pub mod settings;
 pub mod slash_commands;
 pub mod source_preview;
 pub mod style_picker;
@@ -65,6 +66,7 @@ pub use multi_edit::{EditExcerpt, MultiEditOverlay, MultiEditResult};
 #[cfg(target_arch = "wasm32")]
 pub use native_promo::NativePromoOverlay;
 pub use plugins::{PluginDisplayInfo, PluginSource, PluginsOverlay, PluginsOverlayResult};
+pub use settings::{SettingsOverlay, SettingsResult};
 pub use slash_commands::{
     SLASH_COMMANDS, SlashCommand, SlashCommandCategory, SlashCommandPopup, SlashCommandResult,
 };

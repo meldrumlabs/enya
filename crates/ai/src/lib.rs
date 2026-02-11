@@ -69,4 +69,4 @@ pub mod types;
 pub use acp::{AcpClient, AgentConfig, AgentKind};
 pub use provider::Provider;
 pub use tool::{AgentTool, ToolCategory, ToolContext, ToolOutput};
-pub use types::{AgentError, AgentEvent, Message, Role};
+pub use types::{AgentError, AgentEvent, Message, Role, TokenUsage};
