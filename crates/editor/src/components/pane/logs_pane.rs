@@ -1501,22 +1501,7 @@ impl crate::components::Component for LogsPane {
 
 /// Get current Unix time in nanoseconds.
 fn now_unix_ns() -> i64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use web_time::SystemTime;
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as i64)
-            .unwrap_or(0)
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use std::time::SystemTime;
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as i64)
-            .unwrap_or(0)
-    }
+    crate::util::now_unix_nanos()
 }
 
 /// Format a nanosecond timestamp as HH:MM:SS.mmm.

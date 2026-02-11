@@ -37,7 +37,7 @@ pub use scanner::{AlertRule, MetricInstrumentation, MetricKind, Scanner, Scanner
 /// Get the current Unix timestamp in seconds.
 #[inline]
 #[must_use]
-#[allow(clippy::cast_possible_wrap)]
+#[allow(clippy::cast_possible_wrap, clippy::disallowed_types)]
 pub fn now_unix_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

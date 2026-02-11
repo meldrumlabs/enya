@@ -5,6 +5,7 @@
 //! stream back as events.
 
 use std::sync::Arc;
+#[allow(clippy::disallowed_types)] // datafusion is native-only
 use std::time::Instant;
 
 use datafusion::prelude::*;
