@@ -14,6 +14,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **`load_workspace` agent command**: AI agents can now programmatically load a saved workspace in the GUI using `{"action": "load_workspace", "workspace": "name"}`. This enables the agent-to-human handoff workflow: an agent builds a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`), then loads it in the editor for the human to view.
 
+### Fixed
+
+- **WASM UI too small at default browser zoom**: Applied a 1.5x zoom factor to the WASM build so content (text, buttons, landing page) is readable at 100% browser zoom without requiring manual zoom.
+
 ### Changed
 
 - **Renamed `enya-workspace` crate to `enya-config`**: The workspace configuration crate has been renamed from `enya-workspace` to `enya-config` to better reflect its broader scope. All imports updated from `enya_workspace` to `enya_config`.

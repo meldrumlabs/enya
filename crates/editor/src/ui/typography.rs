@@ -26,6 +26,10 @@ pub const XL: f32 = 14.0;
 /// Heading text (titles, headers)
 pub const HEADING: f32 = 16.0;
 
+/// Default zoom factor for WASM builds to compensate for small rendering.
+#[cfg(target_arch = "wasm32")]
+pub const WASM_ZOOM_FACTOR: f32 = 1.5;
+
 /// Create a proportional FontId with the given size
 #[inline]
 pub fn proportional(size: f32) -> FontId {

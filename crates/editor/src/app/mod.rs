@@ -119,6 +119,11 @@ impl EnyaApp {
         // Set up fonts with user's preferred font from saved settings
         fonts::setup_fonts(&cc.egui_ctx, state.settings.font);
 
+        // Scale up the UI on WASM to compensate for browser rendering making content appear small
+        #[cfg(target_arch = "wasm32")]
+        cc.egui_ctx
+            .set_zoom_factor(crate::ui::typography::WASM_ZOOM_FACTOR);
+
         // Always start with Dashboard (ignore persisted ui_state)
         state.ui_state = UIState::Dashboard;
 
