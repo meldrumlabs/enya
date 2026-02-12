@@ -1,9 +1,9 @@
-use std::time::SystemTime;
-
 use crate::Result;
 
 /// Get the current time as Unix seconds.
+#[allow(clippy::disallowed_types)] // headless is native-only
 pub fn now_secs() -> u64 {
+    use std::time::SystemTime;
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()

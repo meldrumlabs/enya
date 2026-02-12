@@ -1,6 +1,7 @@
 // Re-export web-time's Instant for WASM, std::time::Instant for native
 // web-time is a drop-in replacement that works in browsers (used by egui/eframe/rerun)
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::disallowed_types)]
 pub use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 pub use web_time::Instant;
@@ -8,6 +9,7 @@ pub use web_time::Instant;
 /// Get the current Unix timestamp in seconds.
 /// Works on both native and WASM platforms.
 #[inline]
+#[allow(clippy::disallowed_types)]
 pub fn now_unix_secs() -> i64 {
     #[cfg(target_arch = "wasm32")]
     {
@@ -29,6 +31,7 @@ pub fn now_unix_secs() -> i64 {
 /// Get the current Unix timestamp in seconds as f64 (with sub-second precision).
 /// Works on both native and WASM platforms.
 #[inline]
+#[allow(clippy::disallowed_types)]
 pub fn now_unix_secs_f64() -> f64 {
     #[cfg(target_arch = "wasm32")]
     {
@@ -44,6 +47,28 @@ pub fn now_unix_secs_f64() -> f64 {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs_f64())
             .unwrap_or(0.0)
+    }
+}
+
+/// Get the current Unix timestamp in nanoseconds.
+/// Works on both native and WASM platforms.
+#[inline]
+#[allow(clippy::disallowed_types)]
+pub fn now_unix_nanos() -> i64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use web_time::SystemTime;
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as i64)
+            .unwrap_or(0)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as i64)
+            .unwrap_or(0)
     }
 }
 

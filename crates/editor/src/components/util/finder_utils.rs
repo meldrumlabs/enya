@@ -745,7 +745,12 @@ pub fn draw_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &str) {
     egui::Area::new(egui::Id::new(format!("{id_suffix}_backdrop")))
         .fixed_pos(screen_rect.min)
         .order(egui::Order::Middle)
+        .interactable(true)
         .show(ctx, |ui| {
+            // Allocate full screen with click sense to block mouse events from reaching
+            // content underneath the backdrop (e.g. landing page menu items)
+            ui.allocate_exact_size(screen_rect.size(), egui::Sense::click());
+
             // Premium backdrop with slight vignette effect
             let backdrop_color = theme.backdrop_color();
             ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);
@@ -778,7 +783,11 @@ pub fn draw_premium_backdrop(ctx: &egui::Context, theme: AppTheme, id_suffix: &s
     egui::Area::new(egui::Id::new(format!("{id_suffix}_premium_backdrop")))
         .fixed_pos(screen_rect.min)
         .order(egui::Order::Middle)
+        .interactable(true)
         .show(ctx, |ui| {
+            // Block mouse events from reaching content underneath
+            ui.allocate_exact_size(screen_rect.size(), egui::Sense::click());
+
             // Base backdrop
             let backdrop_color = theme.backdrop_color_strong();
             ui.painter().rect_filled(screen_rect, 0.0, backdrop_color);

@@ -273,11 +273,27 @@ impl TutorialOverlay {
         // Native-only features
         if !is_wasm {
             steps.push(TutorialStep {
+                title: "AI Agent Setup",
+                instruction: "The AI agent requires an API key. Set one of these environment variables before launching Enya:\n\n  ANTHROPIC_API_KEY  (for Claude)\n  OPENAI_API_KEY       (for Codex)\n\nYou also need Node.js installed (for npx).",
+                key_hint: ":provider",
+                tip: Some(":provider to switch between Claude and Codex"),
+                icon: semantic_icons::action::SETTINGS,
+                category: StepCategory::Advanced,
+            });
+            steps.push(TutorialStep {
                 title: "Ask the AI Agent",
-                instruction: "Get help from the AI assistant. Ask questions about your metrics, request dashboard changes, or investigate anomalies.",
+                instruction: "Get help from the AI assistant. Ask questions about your metrics, request dashboard changes, or investigate anomalies. Use @metric to reference metrics in your prompt.",
                 key_hint: "aa",
                 tip: Some("aa=quick ask, Space+a=panel, aw/ae/ay=what/explain/why"),
                 icon: semantic_icons::action::BRAIN,
+                category: StepCategory::Advanced,
+            });
+            steps.push(TutorialStep {
+                title: "Agent Quick Actions",
+                instruction: "Use single-key agent operators on the focused pane for instant AI analysis. Each operator sends a targeted prompt about the pane's metric.",
+                key_hint: "aw / ae / ay",
+                tip: Some("aw=what's wrong, ae=explain, ay=why, ac=compare, ar=related, af=fix"),
+                icon: semantic_icons::action::ROBOT,
                 category: StepCategory::Advanced,
             });
             steps.push(TutorialStep {

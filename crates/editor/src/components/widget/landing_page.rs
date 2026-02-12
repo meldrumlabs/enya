@@ -17,8 +17,8 @@ pub enum LandingPageAction {
     CreateWorkspace,
     /// Open the interactive tutorial
     OpenTutorial,
-    /// Open the documentation website
-    OpenDocs,
+    /// Open the settings overlay
+    OpenSettings,
     /// Show about/info overlay
     ShowAbout,
     /// Show keyboard shortcuts (which-key)
@@ -317,20 +317,25 @@ impl LandingPage {
             } else {
                 ""
             };
+            let sense = if self.keyboard_disabled {
+                egui::Sense::hover()
+            } else {
+                egui::Sense::click()
+            };
             let response = ui.add(
                 egui::Label::new(
                     RichText::new(format!("{}{}", visible_wasm, wasm_cursor))
                         .size(typography::SM * scale)
                         .color(accent.gamma_multiply(0.7)),
                 )
-                .sense(egui::Sense::click()),
+                .sense(sense),
             );
 
-            if response.hovered() {
+            if !self.keyboard_disabled && response.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
 
-            if response.clicked() {
+            if !self.keyboard_disabled && response.clicked() {
                 return LandingPageAction::ShowNativeAppInfo;
             }
         }
@@ -363,8 +368,8 @@ impl LandingPage {
             (semantic_icons::diagnostic::HINT, "Tutorial", "t", || {
                 LandingPageAction::OpenTutorial
             }),
-            (semantic_icons::file::TEXT, "Docs", "d", || {
-                LandingPageAction::OpenDocs
+            (semantic_icons::action::SETTINGS, "Settings", "s", || {
+                LandingPageAction::OpenSettings
             }),
             (semantic_icons::action::TOOL, "Plugins", "p", || {
                 LandingPageAction::OpenPlugins
@@ -411,12 +416,12 @@ impl LandingPage {
                 scale,
             );
 
-            if response.clicked() {
+            if !self.keyboard_disabled && response.clicked() {
                 action = action_fn();
             }
 
-            // Only update selection on hover if mouse actually moved
-            if response.hovered() && !is_selected && mouse_moved {
+            // Only update selection on hover if mouse actually moved and no overlay is blocking
+            if !self.keyboard_disabled && response.hovered() && !is_selected && mouse_moved {
                 self.selected_index = idx;
             }
 
@@ -442,8 +447,13 @@ impl LandingPage {
         height: f32,
         scale: f32,
     ) -> egui::Response {
-        let (rect, response) =
-            ui.allocate_exact_size(Vec2::new(width, height), egui::Sense::click());
+        // When keyboard is disabled (overlay open), don't accept clicks
+        let sense = if self.keyboard_disabled {
+            egui::Sense::hover()
+        } else {
+            egui::Sense::click()
+        };
+        let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), sense);
 
         // Background on hover/select
         let bg_color = if is_selected {
@@ -569,9 +579,9 @@ impl LandingPage {
                 return;
             }
 
-            // d - Docs
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::D) {
-                action = LandingPageAction::OpenDocs;
+            // s - Settings
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::S) {
+                action = LandingPageAction::OpenSettings;
                 return;
             }
 
@@ -626,7 +636,7 @@ impl LandingPage {
                     0 => LandingPageAction::OpenWorkspaceFinder,
                     1 => LandingPageAction::CreateWorkspace,
                     2 => LandingPageAction::OpenTutorial,
-                    3 => LandingPageAction::OpenDocs,
+                    3 => LandingPageAction::OpenSettings,
                     4 => LandingPageAction::OpenPlugins,
                     5 => LandingPageAction::ShowAbout,
                     _ => LandingPageAction::None,

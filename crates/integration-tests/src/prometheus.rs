@@ -211,6 +211,7 @@ async fn test_query_with_time_range() {
     // Wait for Prometheus to scrape itself
     wait_for_scrape_data(&client, &ctx).await;
 
+    #[allow(clippy::disallowed_types)] // integration tests are native-only
     let now_ns = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
