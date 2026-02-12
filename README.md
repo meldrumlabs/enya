@@ -10,12 +10,12 @@
 
 Neovim meets Grafana, reimagined for human and agent collaboration.
 
-- **AI native** — agents with access to metrics, logs, traces, and your codebase. Supports Codex and Claude through ACP.
-- **Multi-backend** — one interface for metrics, logs, traces, SQL, and git.
-- **Codebase-aware** — jump from observability data to source code. Uses tree-sitter to analyze your codebase for Prometheus metrics and alerts.
-- **Shared workspaces** — both you and AI agents create, edit, and iterate in the same workspace. Dashboards, queries, and runbooks — built together.
-- **Extensible** — Neovim-inspired, modal editing, and fully customizable. Create your own Lua plugins that hook into the editor.
-- **Fast** — built in Rust. Native performance for queries, rendering, and navigation. No JavaScript. No Electron.
+- **AI Native** — Built from the ground up for AI. Agents have access to the same commands you do. Supports Codex and Claude through ACP.
+- **Multi-Tool** — Code, metrics, logs, traces, SQL, terminals — all in one interface.
+- **Codebase-Aware** — Uses tree-sitter to analyze metrics, alerts, and source definitions across your codebase.
+- **Shared Workspaces** — Both you and AI agents create, edit, and iterate in the same workspace.
+- **Extensible** — Neovim-inspired modal editing with Lua plugins. Fully customizable.
+- **Fast** — Built in Rust on top of egui. Runs natively on desktop and web through WASM.
 
 ## Platform Support
 

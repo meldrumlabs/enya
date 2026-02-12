@@ -8,18 +8,19 @@ tableOfContents: false
 
 ### What is Enya?
 
-Enya is a keyboard-first observability editor that connects your Prometheus metrics to your codebase. It combines vim-style navigation, AI agents, and codebase analysis to help you debug faster.
+Neovim meets Grafana, reimagined for human and agent collaboration. Enya is a keyboard-first multi-tool editor that brings together code, metrics, logs, traces, SQL, and terminals in one interface.
 
 ### Why not just use Grafana?
 
-Grafana is designed for broad audiences—dashboards that anyone in the organization can view and understand. Enya is built specifically for the builders: the engineers writing the code, instrumenting metrics, responding to pages, and debugging production issues at 2am.
+Grafana is designed for broad audiences—dashboards that anyone can view. Enya is built for builders: engineers writing code, debugging production issues, and responding to incidents.
 
-- **Keyboard-first** — Navigate metrics like code with a keyboard-driven workflow
-- **Codebase integration** — Jump from a metric directly to the code that generates it
-- **AI-native** — AI agents that understand both your metrics and your code
+- **Keyboard-first** — Navigate your entire stack with vim-style keybindings
+- **Multi-tool** — Code, metrics, logs, traces, SQL, terminals — all in one interface
+- **Codebase-aware** — Jump from observability data directly to source code
+- **AI-native** — Agents that understand your code, data, and infrastructure
 - **Local-first** — Runs on your machine, works offline, no server required
 
-Use Grafana for team-wide dashboards and stakeholder visibility. Use Enya when you're the one building, deploying, and on-call for the software.
+Use Grafana for team-wide dashboards. Use Enya when you're the one building, deploying, and on-call.
 
 ### Is Enya free?
 
@@ -27,20 +28,14 @@ Yes. Enya is open source and licensed under MIT.
 
 ## Compatibility
 
-### What data sources does Enya support?
+### Which tools does Enya support?
 
-Enya works with any Prometheus-compatible endpoint:
-
-- Prometheus
-- Thanos
-- Cortex
-- Mimir
-- VictoriaMetrics
-- Any service exposing a Prometheus-compatible API
-
-### Does Enya support Loki, Tempo, or other logging/tracing backends?
-
-Not yet. Enya currently focuses on metrics with Prometheus. Logging and tracing support may be added in the future.
+- **Prometheus compatible**: Prometheus, Thanos, Cortex, Mimir, VictoriaMetrics
+- **Logs**: Loki
+- **Traces**: Tempo
+- **SQL**: Apache DataFusion (Arrow Flight)
+- **Terminal**: Ghostty (embedded)
+- **Custom**: Create your own tools with Lua plugins
 
 ### What platforms does Enya run on?
 
@@ -72,12 +67,12 @@ Enya doesn't import Grafana dashboards directly, but you can recreate your panel
 
 ### How do AI agents work?
 
-Enya adopts the ACP (Agent Communication Protocol) and supports any AI agent that implements it. Currently supported agents include:
+Enya uses ACP (Agent Client Protocol) to connect with AI agents. Supported agents:
 
 - **Claude Code** — Anthropic's coding agent
 - **Codex** — OpenAI's coding agent
 
-Agents have access to both your Prometheus metrics and your codebase, allowing them to answer questions like "Why is this metric spiking?" or "Show me where this counter is incremented."
+Agents have access to the same commands you do, including your codebase, metrics, logs, traces, and SQL queries. They can answer questions like "Why is this metric spiking?" or "What logs correspond to this trace?"
 
 ## Contributing
 

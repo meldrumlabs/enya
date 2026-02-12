@@ -1,183 +1,50 @@
 ---
 title: Editor
-description: Neovim-inspired editor for creating and browsing metrics
+description: Keyboard-first editor for code, metrics, logs, and more
 sidebar:
   order: 3
   label: Editor
 ---
 
-# Enya Editor
+# Editor
 
-The Enya editor is a neovim-inspired interface for visualizing and exploring Prometheus metrics. Built with keyboard-driven workflows in mind, it provides a powerful and efficient way to work with your observability data.
+Enya is a keyboard-first editor that brings together code, metrics, logs, traces, SQL, and terminals in one interface.
 
-## Overview
+## Navigation
 
-The editor combines familiar vim-style navigation with metrics-specific features:
+Navigate using vim-style keybindings:
 
-- Browse and query metrics with keyboard navigation
-- Create dashboards with multiple visualization types
-- Query Prometheus with PromQL in real-time
-- Navigate to metric source code and alert definitions
-- Visualize git commits alongside metric data
+| Key | Action |
+|-----|--------|
+| `H`/`J`/`K`/`L` | Move focus between panes |
+| `:` | Open command palette |
+| `Space+m` | Open metrics finder |
+| `?` | Show all keyboard shortcuts |
+| `e` | Edit focused pane |
+| `Ctrl+Enter` | Run query |
 
-## Key Features
+## Key Commands
 
-### Vim-Style Navigation
+Press `:` to open the command palette:
 
-Navigate panes and execute commands using familiar vim keybindings:
+| Command | Description |
+|---------|-------------|
+| `:split <h/v>` | Split view horizontally or vertically |
+| `:quit` | Quit workspace |
+| `:write` | Save workspace |
+| `:source <name>` | Load workspace |
+| `:theme <dark/light>` | Set theme |
+| `:provider <name>` | Set AI provider (claude, codex) |
 
-- `H`/`J`/`K`/`L` — Move focus between panes
-- `:` — Open command palette
-- `Space+m` — Open metrics fuzzy finder
-- `Space+w` — Open workspace finder
-- `?` — Show all keyboard shortcuts
+## Features
 
-### Visual Multi-Select
+- **Multi-pane layouts** — Split views with flexible tiling
+- **Codebase-aware** — Jump from metrics to source code with `gd`
+- **AI integration** — Connect Claude or Codex via ACP
+- **Workspaces** — Save layouts as TOML files in `~/.enya/workspaces/`
+- **URL sharing** — Share workspaces with `:share` command
 
-Select and edit multiple panes simultaneously (`Ctrl+V`):
+## Learn More
 
-- `j`/`k`/`h`/`l` — Navigate and select panes
-- `Space` — Toggle selection
-- `a` — Select all panes
-- `e` — Edit selected panes
-- `x` — Close selected panes
-
-### Visualizations
-
-The editor supports multiple visualization types, automatically selected based on query results:
-
-- **Time Series** — Line charts for metrics over time
-- **Stat** — Big number display with sparkline
-- **Gauge** — Circular percentage/utilization display
-- **Bar Chart** — Horizontal bars for comparing values
-- **Sparkline** — Compact inline trend charts
-- **Heatmap** — 2D data grids
-
-The editor auto-selects visualization type based on query results.
-
-### Context-Aware Query Completion
-
-The editor provides inline autocomplete for PromQL queries:
-
-- Function and aggregation suggestions
-- Metric name completion from your Prometheus instance
-- Label name and value suggestions fetched dynamically
-- No configuration required
-
-### Codebase Integration
-
-Connect the editor to your git repository to enable powerful code navigation:
-
-- **Go to Definition (`gd`)** — View metric instrumentation source code with syntax highlighting
-- **Go to Alert (`ga`)** — View alert rules that reference a metric
-- **Git Commit Markers** — Visualize commits on time-series charts to correlate code changes with metric behavior
-
-Configure git integration in your workspace:
-
-```toml
-[git]
-url = "https://github.com/your-org/your-repo"
-branch = "main"
-```
-
-### Time Range Shortcuts
-
-Quickly change the time range with vim-style leader keys:
-
-| Key | Range |
-|-----|-------|
-| `t5` | Last 5 minutes |
-| `t1` | Last 15 minutes |
-| `t3` | Last 30 minutes |
-| `th` | Last 1 hour |
-| `t6` | Last 6 hours |
-| `td` | Last 24 hours |
-| `tw` | Last 7 days |
-
-## Getting Started
-
-The editor is available as a web application and native desktop application.
-
-### Web Editor
-
-Access the web editor at `/editor` on your Enya deployment, or click "Try in Browser" from the homepage.
-
-### Native Application
-
-Download and run the native editor for the full experience including codebase integration:
-
-```sh
-# Download from releases or build from source
-cargo build -p enya-editor --release
-
-# Run the editor
-./target/release/enya-editor
-```
-
-## Command Palette
-
-Press `:` to open the command palette. Key commands:
-
-| Command | Alias | Description |
-|---------|-------|-------------|
-| `:theme <dark/light>` | `t` | Toggle or set theme |
-| `:split <h/v>` | `sp` | Split view (horizontal/vertical) |
-| `:quit` | `q` | Quit workspace |
-| `:write` | `w` | Save workspace |
-| `:source <name>` | `so` | Load workspace |
-| `:share` | | Share workspace as URL |
-| `:provider <name>` | `ai` | Set AI provider (claude, codex) |
-| `:font <name>` | | Set editor font |
-
-See the [Keyboard Reference](/docs/docs/editor/keyboard-reference/) for the complete list of commands and shortcuts.
-
-## Workspaces
-
-Workspaces are TOML files that define your dashboard layout and queries. They're stored in `~/.enya/workspaces/`.
-
-### Basic Structure
-
-```toml
-[workspace]
-name = "my-dashboard"
-description = "Production monitoring"
-
-[connection]
-endpoint = "http://localhost:9090"
-
-[time]
-preset = "1h"
-
-[[panes]]
-query = "sum(rate(http_requests_total[5m])) by (method)"
-name = "Request Rate"
-visualization = "time_series"
-
-[[panes]]
-query = "histogram_quantile(0.99, rate(http_request_duration_seconds[5m]))"
-name = "P99 Latency"
-visualization = "stat"
-```
-
-### Layout Configuration
-
-Define i3-style tiling layouts:
-
-```toml
-[layout]
-type = "horizontal"
-shares = [2.0, 1.0]
-children = [
-    0,
-    { type = "vertical", children = [1, 2] }
-]
-```
-
-## URL Sharing
-
-Share your workspace or individual panes via URL:
-
-- **Full workspace**: Use `:share` command
-- **Single pane**: Use `yy` (vim-style yank) on a focused pane
-
-URLs use compact binary encoding and can be opened at `enya.build/editor`.
+- **[Keyboard Reference](/docs/docs/editor/keyboard-reference/)** — Complete shortcuts guide
+- **[FAQ](/docs/faq/)** — Common questions answered

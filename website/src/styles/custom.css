@@ -226,55 +226,51 @@ starlight-theme-select {
     color: var(--obsidian-text-primary) !important;
 }
 
-/* Fix pagination navigation button sizing and visibility - Obsidian Glass */
+/* GitHub-style simplified inline pagination navigation */
 .pagination-links {
-    font-size: 1rem !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
     border-top: 1px solid var(--obsidian-border-subtle) !important;
     padding-top: 2rem !important;
-    margin-top: 2rem !important;
+    margin-top: 3rem !important;
 }
 
 .pagination-links a {
-    padding: 1rem !important;
-    font-size: 1rem !important;
-    color: var(--obsidian-text-primary) !important;
-    background-color: var(--obsidian-surface) !important;
-    border: 1px solid var(--obsidian-border-default) !important;
-    border-radius: 0.5rem !important;
+    padding: 0.5rem 0 !important;
+    background-color: transparent !important;
+    border: none !important;
     font-family: 'Departure Mono', monospace !important;
+    font-size: 0.875rem !important;
+    color: var(--obsidian-accent) !important;
+    text-decoration: none !important;
     display: inline-flex !important;
     align-items: center !important;
     gap: 0.5rem !important;
-    transition: all 0.15s ease !important;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+    transition: color 0.15s ease !important;
 }
 
 .pagination-links a:hover {
-    background-color: var(--obsidian-hover) !important;
-    border-color: var(--obsidian-accent) !important;
-    color: var(--obsidian-accent) !important;
-    box-shadow: 0 4px 12px var(--obsidian-accent-glow) !important;
+    color: var(--obsidian-accent-hover) !important;
+    text-shadow: 0 0 8px var(--obsidian-accent-glow) !important;
+    background-color: transparent !important;
+    transform: none !important;
+    box-shadow: none !important;
 }
 
+/* Arrow icons - inline with text */
 .pagination-links svg {
-    filter: brightness(0) invert(1) !important;
     width: 1rem !important;
     height: 1rem !important;
-    fill: var(--obsidian-text-primary) !important;
+    color: currentColor !important;
+    flex-shrink: 0 !important;
 }
 
-.pagination-links svg path {
-    fill: var(--obsidian-text-primary) !important;
-    stroke: var(--obsidian-text-primary) !important;
-}
-
-.pagination-links a:hover svg {
-    filter: brightness(0) invert(1) !important;
-}
-
-.pagination-links a:hover svg path {
-    fill: var(--obsidian-accent) !important;
-    stroke: var(--obsidian-accent) !important;
+/* Page titles and labels styling */
+.pagination-links a span {
+    color: inherit !important;
+    font-size: inherit !important;
+    line-height: 1 !important;
 }
 
 /* Ensure all content text is visible and uses DepartureMono - Obsidian Glass */

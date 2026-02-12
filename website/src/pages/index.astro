@@ -109,8 +109,8 @@ async fn main() -> Result<()> {
 						<span class="feature-desc">Built from the ground up for AI. Agents have access to the same commands you do. Supports Codex and Claude through ACP.</span>
 					</li>
 					<li class="feature-item">
-						<span class="feature-name">Multi-Backend</span>
-						<span class="feature-desc">Metrics, logs, traces, SQL, and Git — all in one interface.</span>
+						<span class="feature-name">Multi-Tool</span>
+						<span class="feature-desc">Code, metrics, logs, traces, SQL, terminals — all in one interface.</span>
 					</li>
 					<li class="feature-item">
 						<span class="feature-name">Codebase-Aware</span>
@@ -140,8 +140,8 @@ async fn main() -> Result<()> {
 							<p class="faq-answer">Head over to the <a href="/download">download section</a> and either give it a try in the browser using the tutorial or download the native app.</p>
 						</details>
 						<details class="faq-item">
-							<summary class="faq-question">Which backends work with Enya?</summary>
-							<div class="faq-answer">Enya supports multiple open-source backends.<br/><br/><span class="backend-label">Metrics</span> Prometheus<br/><span class="backend-label">Logs</span> Loki<br/><span class="backend-label">Traces</span> Tempo<br/><span class="backend-label">SQL</span> Apache DataFusion (Arrow Flight)</div>
+							<summary class="faq-question">Which tools does Enya support?</summary>
+							<div class="faq-answer">Enya supports multiple open-source tools and can be extended with plugins.<br/><br/><span class="backend-label">Metrics</span> Prometheus<br/><span class="backend-label">Logs</span> Loki<br/><span class="backend-label">Traces</span> Tempo<br/><span class="backend-label">SQL</span> Apache DataFusion (Arrow Flight)<br/><span class="backend-label">Terminal</span> Ghostty<br/><span class="backend-label">Custom</span> Create your own tools with Lua plugins</div>
 						</details>
 						<details class="faq-item">
 							<summary class="faq-question">Can I connect my own AI?</summary>
@@ -1235,13 +1235,13 @@ async fn main() -> Result<()> {
 			const platform = window.navigator.platform.toLowerCase();
 
 			if (userAgent.indexOf('mac') !== -1 || platform.indexOf('mac') !== -1) {
-				return { name: 'macOS', download: '/downloads/enya-macos.dmg' };
+				return { name: 'macOS', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
 			} else if (userAgent.indexOf('win') !== -1 || platform.indexOf('win') !== -1) {
-				return { name: 'Windows', download: '/downloads/enya-windows.exe' };
+				return { name: 'Windows', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
 			} else if (userAgent.indexOf('linux') !== -1 || platform.indexOf('linux') !== -1) {
-				return { name: 'Linux', download: '/downloads/enya-linux.AppImage' };
+				return { name: 'Linux', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
 			} else {
-				return { name: 'Your OS', download: '/download' };
+				return { name: 'Your OS', download: 'https://github.com/meldrumlabs/enya/releases/latest' };
 			}
 		}
 

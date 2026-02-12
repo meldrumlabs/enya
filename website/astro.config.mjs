@@ -17,6 +17,7 @@ export default defineConfig({
 		starlight({
 			title: 'Enya',
 			description: 'Enya',
+			favicon: '/favicon.ico',
 			logo: {
 				src: './public/img/enya.png',
 				alt: 'Enya',
@@ -60,27 +61,9 @@ export default defineConfig({
 				starlightLlmsTxt(),
 			],
 			sidebar: [
-				{
-					label: 'Getting Started',
-					collapsed: false,
-					items: [
-						{ label: 'Introduction', slug: 'docs/getting-started/introduction' },
-						{ label: 'Quick Start', slug: 'docs/getting-started/quick-start' },
-					],
-				},
-				{
-					label: 'Editor',
-					collapsed: false,
-					items: [
-						{ label: 'Overview', slug: 'docs/editor' },
-						{ label: 'Workspaces', slug: 'docs/editor/workspaces' },
-						{ label: 'Visualizations', slug: 'docs/editor/visualizations' },
-						{ label: 'Git Integration', slug: 'docs/editor/git-integration' },
-						{ label: 'AI Agents', slug: 'docs/editor/ai-agents' },
-						{ label: 'Customization', slug: 'docs/editor/customization' },
-						{ label: 'Keyboard Reference', slug: 'docs/editor/keyboard-reference' },
-					],
-				},
+				{ label: 'Getting Started', slug: 'docs/getting-started/introduction' },
+				{ label: 'Editor', slug: 'docs/editor' },
+				{ label: 'Keyboard Reference', slug: 'docs/editor/keyboard-reference' },
 				{ label: 'FAQ', slug: 'docs/faq' },
 			],
 		}),

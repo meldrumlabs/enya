@@ -1,45 +1,64 @@
 ---
-title: Introduction
-description: An introduction to Enya - AI-Native Observability Editor
+title: Getting Started
+description: Get started with Enya in minutes
 sidebar:
   order: 1
-  label: Introduction
+  label: Getting Started
 ---
 
-# Introduction
+# Getting Started
 
-Welcome to Enya! This introduction will help you understand what Enya is and how it can transform your observability workflows.
-
-## What is Enya?
-
-Enya is an AI-native observability editor that combines the power of Prometheus metrics with intelligent code analysis. It's designed for engineers who want to explore metrics efficiently using keyboard-driven workflows inspired by Neovim, while leveraging AI agents that understand both your metrics and your codebase.
+Neovim meets Grafana, reimagined for human and agent collaboration. Enya is a keyboard-first multi-tool editor that brings together code, metrics, logs, traces, SQL, and terminals in one interface.
 
 ## Key Features
 
-- **AI-Native**: AI agents with access to both your Prometheus metrics and application codebase
-- **Prometheus Compatible**: Works with any Prometheus-compatible endpoint with full PromQL support
-- **Codebase-Aware**: Analyzes your code to identify where metrics are generated from
-- **Keyboard-Driven**: Neovim-inspired workflows with h/j/k/l navigation and command palette
-- **i3-Style Layouts**: Flexible tiling workspaces with splits, tabs, and custom proportions
+- **Multi-Tool** — Code, metrics, logs, traces, SQL, terminals — all in one interface
+- **AI Native** — Agents have access to the same commands you do (Codex, Claude via ACP)
+- **Codebase-Aware** — Jump from observability data to source code with tree-sitter
+- **Keyboard-Driven** — Neovim-inspired navigation with vim keybindings
+- **Extensible** — Lua plugins and fully customizable
 
-## Why Enya?
+## Try in Browser
 
-Traditional dashboards are built for browsing. Enya is built for exploration. It answers questions like:
+The fastest way to try Enya is in your browser — no installation required:
 
-- Where in my code is this metric being generated?
-- What changed in my codebase when this metric spiked?
-- Can AI help me understand this metric behavior?
-- How do I quickly navigate thousands of metrics?
+**[Launch Web Editor →](/editor)**
 
-## Who Should Use Enya?
+## Download
 
-Enya is built for engineers who value efficiency:
+Download Enya for your platform from [GitHub Releases](https://github.com/meldrumlabs/enya/releases/latest):
 
-- **Backend Engineers** debugging production issues
-- **SREs** investigating incidents with metric data
-- **Platform Teams** exploring observability at scale
-- **Anyone** who prefers keyboard-driven workflows
+- **[macOS](https://github.com/meldrumlabs/enya/releases/latest)** — macOS 10.15 or later
+- **[Windows](https://github.com/meldrumlabs/enya/releases/latest)** — Windows 10 or later
+- **[Linux](https://github.com/meldrumlabs/enya/releases/latest)** — AppImage, .deb, .rpm
+
+Or build from source with `cargo build --release`.
+
+## Connect to Prometheus
+
+Once Enya is running, connect to your Prometheus instance:
+
+1. Press `:` to open the command palette
+2. Type `connect http://localhost:9090` (or your Prometheus URL)
+3. Press Enter
+
+You should see "ONLINE" in the status bar once connected.
+
+## Basic Navigation
+
+Enya uses vim-style navigation:
+
+| Key | Action |
+|-----|--------|
+| `H`/`J`/`K`/`L` | Move focus between panes |
+| `:` | Open command palette |
+| `Space+m` | Open metrics finder |
+| `?` | Show all keyboard shortcuts |
+| `e` | Edit focused pane query |
+| `Ctrl+Enter` | Run query |
 
 ## Next Steps
 
-Ready to dive in? Continue to the [Quick Start](/docs/docs/getting-started/quick-start/) to install and run Enya.
+- **[Editor](/docs/docs/editor/)** — Learn about key commands and features
+- **[Keyboard Reference](/docs/docs/editor/keyboard-reference/)** — Complete keyboard shortcuts guide
+- **[FAQ](/docs/faq/)** — Common questions answered
