@@ -95,6 +95,14 @@ serve-build:
     cd crates/editor && trunk build --release
     cargo build -p enya --features serve --release
 
+# Deploy website + WASM editor to Cloudflare Pages
+deploy-website:
+    cd crates/editor && trunk build --release --public-url /editor/
+    mkdir -p website/public/editor
+    cp -r crates/editor/dist/* website/public/editor/
+    cd website && npm install && npm run build
+    npx wrangler pages deploy website/dist --project-name=enya
+
 # Run enya serve in development
 serve workspace:
     cargo run -p enya --features serve -- serve {{workspace}}
