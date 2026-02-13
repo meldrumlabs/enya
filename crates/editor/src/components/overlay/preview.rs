@@ -8,21 +8,27 @@
 
 use egui::{Color32, RichText};
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::finder_utils::FinderColors;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::{HighlightCache, highlight_line_with_spans};
-use crate::ui::palette; // Keep for semantic::WARNING
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::palette;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
 /// Minimum number of context lines to show before and after the target line.
+#[cfg(not(target_arch = "wasm32"))]
 const MIN_CONTEXT_LINES: usize = 5;
 /// Approximate height of each line in pixels (typography::SM ~13px + spacing).
+#[cfg(not(target_arch = "wasm32"))]
 const LINE_HEIGHT_PX: f32 = 18.0;
 
 /// Renders a source code preview for metrics/alerts with tree-sitter syntax highlighting.
 ///
 /// Matches the styling of `SourcePreviewOverlay` - no extra background frame.
 /// Uses cached content and highlights for better performance (no disk I/O per frame).
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::too_many_arguments)]
 pub fn render_source_preview(
     ui: &mut egui::Ui,

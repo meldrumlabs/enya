@@ -6,6 +6,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **WASM demo data for unified finder**: All search modes (All, Alerts, Commits) now show demo codebase results in the WASM build, showcasing what Tantivy search provides on native. Includes sample metrics, alert rules, and git commits with diff previews and fuzzy matching. Selecting a commit opens the full diff viewer. Live Prometheus metrics continue to work as before.
+
+- **Diff viewer available on WASM**: The diff viewer overlay now works in the WASM build, enabling commit diff viewing from the unified finder and agent panel.
+
 - **Landing page memorial**: Added "In memory of Enya — the family dog" below "Crafted in Stockholm" on the landing page, in a smaller, more subtle style with typewriter animation.
 
 - **Auto-update notification banner**: Checks GitHub Releases for new versions on startup and every 30 minutes. Shows a non-intrusive frosted glass banner in the bottom-right corner with "See changes" (opens release page) and "Restart" (downloads and replaces binary) buttons. Dismissed versions are persisted in settings. Supports native auto-update and WASM page reload.

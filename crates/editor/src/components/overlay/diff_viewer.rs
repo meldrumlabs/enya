@@ -25,6 +25,7 @@ use similar::{ChangeTag, TextDiff};
 use crate::components::OverlayColors;
 use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
+#[cfg(not(target_arch = "wasm32"))]
 use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;

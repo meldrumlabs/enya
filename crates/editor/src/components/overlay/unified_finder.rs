@@ -45,8 +45,9 @@ use crate::util::Instant;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::semantic_icons;
 
+use super::preview::render_diff_line_preview;
 #[cfg(not(target_arch = "wasm32"))]
-use super::preview::{render_diff_line_preview, render_source_preview};
+use super::preview::render_source_preview;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::search::{SearchResult, SearchResultKind};
 #[cfg(not(target_arch = "wasm32"))]
@@ -116,13 +117,6 @@ impl FinderMode {
         }
     }
 
-    /// Returns whether this mode requires native (non-WASM) support for codebase search.
-    /// Note: Metrics mode can still show live Prometheus metrics on WASM.
-    #[must_use]
-    pub fn requires_native(&self) -> bool {
-        matches!(self, Self::All | Self::Alerts | Self::Commits)
-    }
-
     /// Parse mode from a query prefix.
     #[must_use]
     pub fn from_prefix(query: &str) -> (Self, &str) {
@@ -152,6 +146,46 @@ impl FinderMode {
 }
 
 // =============================================================================
+// WASM Demo Types
+// =============================================================================
+
+/// The type of a demo codebase search result (WASM only).
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone, PartialEq)]
+pub enum DemoResultKind {
+    /// A metric instrumentation point found in source code.
+    Metric,
+    /// An alert rule found in source code.
+    Alert {
+        /// Alert severity (critical, warning, info).
+        severity: String,
+    },
+    /// A git commit.
+    Commit {
+        /// Commit SHA.
+        hash: String,
+        /// Unified diff content.
+        diff: String,
+    },
+}
+
+/// A demo codebase search result for WASM (mirrors `SearchResult` from `enya-search`).
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug, Clone)]
+pub struct DemoSearchResult {
+    /// The type of result.
+    pub kind: DemoResultKind,
+    /// The name (metric name, alert name, or commit message).
+    pub name: String,
+    /// File path (relative to repo root).
+    pub file: String,
+    /// Line number (1-indexed).
+    pub line: usize,
+    /// Optional snippet or additional context.
+    pub snippet: Option<String>,
+}
+
+// =============================================================================
 // UnifiedResult
 // =============================================================================
 
@@ -167,9 +201,12 @@ pub enum UnifiedResult {
         /// Tags/labels associated with this metric (key -> set of values).
         tags: FxHashMap<String, FxHashSet<String>>,
     },
-    /// A metric from codebase search.
+    /// A codebase search result from Tantivy (native only).
     #[cfg(not(target_arch = "wasm32"))]
     CodebaseResult(SearchResult),
+    /// A demo codebase search result (WASM only).
+    #[cfg(target_arch = "wasm32")]
+    DemoResult(DemoSearchResult),
 }
 
 impl UnifiedResult {
@@ -180,6 +217,8 @@ impl UnifiedResult {
             Self::LiveMetric { name, .. } => name,
             #[cfg(not(target_arch = "wasm32"))]
             Self::CodebaseResult(result) => &result.name,
+            #[cfg(target_arch = "wasm32")]
+            Self::DemoResult(demo) => &demo.name,
         }
     }
 
@@ -195,6 +234,12 @@ impl UnifiedResult {
                 SearchResultKind::Alert { .. } => regular::BELL_ALERT,
                 SearchResultKind::Commit { .. } => regular::GIT_COMMIT,
             },
+            #[cfg(target_arch = "wasm32")]
+            Self::DemoResult(demo) => match &demo.kind {
+                DemoResultKind::Metric => regular::CHART_LINE,
+                DemoResultKind::Alert { .. } => regular::BELL_ALERT,
+                DemoResultKind::Commit { .. } => regular::GIT_COMMIT,
+            },
         }
     }
 
@@ -207,6 +252,14 @@ impl UnifiedResult {
             Self::CodebaseResult(result) => {
                 if !result.file.as_os_str().is_empty() {
                     Some(format!("{}:{}", result.file.display(), result.line))
+                } else {
+                    None
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            Self::DemoResult(demo) => {
+                if !demo.file.is_empty() {
+                    Some(format!("{}:{}", demo.file, demo.line))
                 } else {
                     None
                 }
@@ -232,7 +285,6 @@ pub enum UnifiedFinderAction {
         line: usize,
     },
     /// Open diff viewer for a commit.
-    #[cfg(not(target_arch = "wasm32"))]
     OpenDiffViewer {
         /// Commit hash.
         hash: String,
@@ -465,9 +517,10 @@ impl UnifiedFinder {
             // All, Alerts, Commits modes are handled externally via set_codebase_results
             #[cfg(not(target_arch = "wasm32"))]
             FinderMode::All | FinderMode::Alerts | FinderMode::Commits => {}
+            // On WASM, populate with demo codebase results
             #[cfg(target_arch = "wasm32")]
-            _ => {
-                // Native-only modes show empty on WASM
+            FinderMode::All | FinderMode::Alerts | FinderMode::Commits => {
+                self.search_demo_results(&query_text, mode);
             }
         }
 
@@ -517,6 +570,257 @@ impl UnifiedFinder {
                     category: category.clone(),
                     tags: tags.clone(),
                 });
+                self.match_positions
+                    .push(indices.iter().map(|&i| i as usize).collect());
+            }
+        }
+    }
+
+    /// Returns demo codebase search results for WASM.
+    #[cfg(target_arch = "wasm32")]
+    fn demo_results() -> Vec<DemoSearchResult> {
+        vec![
+            // Metrics
+            DemoSearchResult {
+                kind: DemoResultKind::Metric,
+                name: "http_requests_total".into(),
+                file: "src/server/metrics.rs".into(),
+                line: 42,
+                snippet: Some("counter!(\"http_requests_total\", \"method\" => method)".into()),
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Metric,
+                name: "cpu_usage_percent".into(),
+                file: "src/monitoring/system.rs".into(),
+                line: 87,
+                snippet: Some("gauge!(\"cpu_usage_percent\", value)".into()),
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Metric,
+                name: "memory_heap_bytes".into(),
+                file: "src/monitoring/system.rs".into(),
+                line: 103,
+                snippet: Some("gauge!(\"memory_heap_bytes\", heap_size)".into()),
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Metric,
+                name: "db_query_duration_seconds".into(),
+                file: "src/db/pool.rs".into(),
+                line: 156,
+                snippet: Some(
+                    "histogram!(\"db_query_duration_seconds\", elapsed.as_secs_f64())".into(),
+                ),
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Metric,
+                name: "api_error_rate".into(),
+                file: "src/server/middleware.rs".into(),
+                line: 29,
+                snippet: Some("counter!(\"api_error_rate\", \"status\" => status_code)".into()),
+            },
+            // Alerts
+            DemoSearchResult {
+                kind: DemoResultKind::Alert {
+                    severity: "critical".into(),
+                },
+                name: "HighErrorRate".into(),
+                file: "alerts/server.yml".into(),
+                line: 12,
+                snippet: Some("rate(http_requests_total{status=~\"5..\"}[5m]) > 0.05".into()),
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Alert {
+                    severity: "warning".into(),
+                },
+                name: "MemoryPressure".into(),
+                file: "alerts/system.yml".into(),
+                line: 28,
+                snippet: Some("memory_heap_bytes / memory_limit_bytes > 0.85".into()),
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Alert {
+                    severity: "warning".into(),
+                },
+                name: "DiskSpaceLow".into(),
+                file: "alerts/system.yml".into(),
+                line: 45,
+                snippet: Some("disk_free_bytes / disk_total_bytes < 0.10".into()),
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Alert {
+                    severity: "info".into(),
+                },
+                name: "CertExpiringSoon".into(),
+                file: "alerts/tls.yml".into(),
+                line: 8,
+                snippet: Some("cert_expiry_seconds < 86400 * 30".into()),
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Alert {
+                    severity: "critical".into(),
+                },
+                name: "LatencySpike".into(),
+                file: "alerts/server.yml".into(),
+                line: 34,
+                snippet: Some(
+                    "histogram_quantile(0.99, rate(http_duration_seconds_bucket[5m])) > 2.0".into(),
+                ),
+            },
+            // Commits
+            DemoSearchResult {
+                kind: DemoResultKind::Commit {
+                    hash: "a1b2c3d".into(),
+                    diff: "diff --git a/src/db/pool.rs b/src/db/pool.rs\n\
+                           --- a/src/db/pool.rs\n\
+                           +++ b/src/db/pool.rs\n\
+                           @@ -45,7 +45,9 @@ impl ConnectionPool {\n\
+                           -    let pool = Pool::new(config);\n\
+                           +    let pool = Pool::builder()\n\
+                           +        .max_connections(32)\n\
+                           +        .idle_timeout(Duration::from_secs(300))\n\
+                           +        .build(config);"
+                        .into(),
+                },
+                name: "Fix connection pooling".into(),
+                file: "src/db/pool.rs".into(),
+                line: 45,
+                snippet: None,
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Commit {
+                    hash: "e4f5g6h".into(),
+                    diff: "diff --git a/src/server/middleware.rs b/src/server/middleware.rs\n\
+                           --- a/src/server/middleware.rs\n\
+                           +++ b/src/server/middleware.rs\n\
+                           @@ -18,4 +18,12 @@ async fn handle_request(req: Request) {\n\
+                           +    for attempt in 0..3 {\n\
+                           +        match upstream.send(&req).await {\n\
+                           +            Ok(resp) => return resp,\n\
+                           +            Err(e) if attempt < 2 => {\n\
+                           +                tracing::warn!(\"retry {}: {}\", attempt + 1, e);\n\
+                           +                tokio::time::sleep(backoff(attempt)).await;\n\
+                           +            }\n\
+                           +            Err(e) => return Err(e),\n\
+                           +        }\n\
+                           +    }"
+                        .into(),
+                },
+                name: "Add retry logic".into(),
+                file: "src/server/middleware.rs".into(),
+                line: 18,
+                snippet: None,
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Commit {
+                    hash: "i7j8k9l".into(),
+                    diff: "diff --git a/Cargo.toml b/Cargo.toml\n\
+                           --- a/Cargo.toml\n\
+                           +++ b/Cargo.toml\n\
+                           @@ -12,3 +12,3 @@\n\
+                           -tokio = \"1.35\"\n\
+                           +tokio = \"1.36\"\n\
+                           -serde = \"1.0.193\"\n\
+                           +serde = \"1.0.196\""
+                        .into(),
+                },
+                name: "Update dependencies".into(),
+                file: "Cargo.toml".into(),
+                line: 12,
+                snippet: None,
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Commit {
+                    hash: "m0n1o2p".into(),
+                    diff: "diff --git a/src/auth/mod.rs b/src/auth/mod.rs\n\
+                           --- a/src/auth/mod.rs\n\
+                           +++ b/src/auth/mod.rs\n\
+                           @@ -1,8 +1,10 @@\n\
+                           -pub fn authenticate(token: &str) -> bool {\n\
+                           -    validate_jwt(token).is_ok()\n\
+                           -}\n\
+                           +pub struct AuthResult {\n\
+                           +    pub user_id: String,\n\
+                           +    pub roles: Vec<Role>,\n\
+                           +}\n\
+                           +\n\
+                           +pub fn authenticate(token: &str) -> Result<AuthResult, AuthError> {\n\
+                           +    let claims = validate_jwt(token)?;\n\
+                           +    Ok(AuthResult::from(claims))\n\
+                           +}"
+                    .into(),
+                },
+                name: "Refactor auth module".into(),
+                file: "src/auth/mod.rs".into(),
+                line: 1,
+                snippet: None,
+            },
+            DemoSearchResult {
+                kind: DemoResultKind::Commit {
+                    hash: "q3r4s5t".into(),
+                    diff: "diff --git a/src/server/handler.rs b/src/server/handler.rs\n\
+                           --- a/src/server/handler.rs\n\
+                           +++ b/src/server/handler.rs\n\
+                           @@ -67,5 +67,7 @@ fn process_batch(items: &[Item]) {\n\
+                           -    for item in items {\n\
+                           -        process_single(item);\n\
+                           -    }\n\
+                           +    items.par_iter().for_each(|item| {\n\
+                           +        process_single(item);\n\
+                           +    });"
+                        .into(),
+                },
+                name: "Performance improvements".into(),
+                file: "src/server/handler.rs".into(),
+                line: 67,
+                snippet: None,
+            },
+        ]
+    }
+
+    /// Searches demo codebase results with fuzzy matching (WASM only).
+    #[cfg(target_arch = "wasm32")]
+    fn search_demo_results(&mut self, query: &str, mode: FinderMode) {
+        let demos = Self::demo_results();
+
+        // Filter by mode
+        let filtered: Vec<&DemoSearchResult> = demos
+            .iter()
+            .filter(|d| match mode {
+                FinderMode::All => true,
+                FinderMode::Alerts => matches!(d.kind, DemoResultKind::Alert { .. }),
+                FinderMode::Commits => matches!(d.kind, DemoResultKind::Commit { .. }),
+                FinderMode::Metrics => matches!(d.kind, DemoResultKind::Metric),
+            })
+            .collect();
+
+        if query.is_empty() {
+            // Show all matching results
+            for demo in filtered {
+                self.results.push(UnifiedResult::DemoResult(demo.clone()));
+                self.match_positions.push(Vec::new());
+            }
+            return;
+        }
+
+        let pattern = Pattern::new(
+            query,
+            CaseMatching::Ignore,
+            Normalization::Smart,
+            AtomKind::Fuzzy,
+        );
+
+        let mut indices: Vec<u32> = Vec::new();
+        let mut buf = Vec::new();
+
+        for demo in filtered {
+            indices.clear();
+            let haystack = Utf32Str::new(&demo.name, &mut buf);
+
+            if pattern
+                .indices(haystack, &mut self.matcher, &mut indices)
+                .is_some()
+            {
+                self.results.push(UnifiedResult::DemoResult(demo.clone()));
                 self.match_positions
                     .push(indices.iter().map(|&i| i as usize).collect());
             }
@@ -668,14 +972,18 @@ impl UnifiedFinder {
         }
 
         // Check if debounce period has elapsed and we need to refresh results
-        // Only for Metrics mode - codebase modes (All, Alerts, Commits) are handled
-        // externally via set_codebase_results() in the workspace
+        // On native: only Metrics mode uses internal debounce (codebase modes are external)
+        // On WASM: all modes use internal debounce (demo data is populated internally)
+        #[cfg(target_arch = "wasm32")]
+        let is_internal_mode = true;
+        #[cfg(not(target_arch = "wasm32"))]
+        let is_internal_mode = matches!(self.mode, FinderMode::Metrics);
+
         let should_refresh = if let Some(last_change) = self.last_query_change {
             let elapsed = last_change.elapsed().as_millis() as u64;
-            let is_metrics_mode = matches!(self.mode, FinderMode::Metrics);
             elapsed >= SEARCH_DEBOUNCE_MS
                 && self.query != self.last_searched_query
-                && is_metrics_mode
+                && is_internal_mode
         } else {
             false
         };
@@ -692,9 +1000,8 @@ impl UnifiedFinder {
             }
         }
 
-        // Request repaint if debounce is pending for Metrics mode
-        // (codebase modes don't use the internal debounce)
-        if self.last_query_change.is_some() && matches!(self.mode, FinderMode::Metrics) {
+        // Request repaint if debounce is pending for internally-populated modes
+        if self.last_query_change.is_some() && is_internal_mode {
             ctx.request_repaint_after(std::time::Duration::from_millis(SEARCH_DEBOUNCE_MS));
         }
 
@@ -994,22 +1301,6 @@ impl UnifiedFinder {
         border_col: Color32,
         bg_elevated: Color32,
     ) -> Option<usize> {
-        // Check for native-only modes on WASM
-        #[cfg(target_arch = "wasm32")]
-        if self.mode.requires_native() {
-            self.render_empty_state(
-                ui,
-                content_height,
-                egui_nerdfonts::regular::DESKTOP,
-                "Native app required",
-                Some("Codebase search is only available in the native app"),
-                text_col,
-                text_muted,
-                accent_col,
-            );
-            return None;
-        }
-
         if self.results.is_empty() && !self.query_text().is_empty() {
             // No results
             self.render_empty_state(
@@ -1180,7 +1471,10 @@ impl UnifiedFinder {
                         UnifiedResult::CodebaseResult(r) if matches!(r.kind, SearchResultKind::Commit { .. })
                     );
                     #[cfg(target_arch = "wasm32")]
-                    let is_commit = false;
+                    let is_commit = matches!(
+                        result,
+                        UnifiedResult::DemoResult(r) if matches!(r.kind, DemoResultKind::Commit { .. })
+                    );
 
                     let max_name_width = if is_commit {
                         content_rect.width() * 0.90
@@ -1585,6 +1879,93 @@ impl UnifiedFinder {
                             );
                         }
                     }
+                    #[cfg(target_arch = "wasm32")]
+                    UnifiedResult::DemoResult(demo) => {
+                        // File location
+                        if !demo.file.is_empty() {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(egui_nerdfonts::regular::FILE_DOCUMENT_OUTLINE)
+                                        .color(self.theme.accent_muted())
+                                        .size(14.0),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(format!("{}:{}", demo.file, demo.line))
+                                        .color(text_col.gamma_multiply(0.6))
+                                        .size(typography::SM),
+                                );
+                            });
+                        }
+
+                        // Type-specific preview
+                        match &demo.kind {
+                            DemoResultKind::Commit { diff, .. } => {
+                                ui.add_space(8.0);
+                                let remaining_height = ui.available_height();
+                                egui::ScrollArea::both()
+                                    .max_height(remaining_height)
+                                    .auto_shrink([false, false])
+                                    .show(ui, |ui| {
+                                        for line in diff.lines() {
+                                            render_diff_line_preview(
+                                                ui, line, text_col, self.theme,
+                                            );
+                                        }
+                                    });
+                            }
+                            DemoResultKind::Alert { severity } => {
+                                ui.add_space(8.0);
+                                // Severity badge
+                                let severity_color = match severity.as_str() {
+                                    "critical" => palette::semantic::ERROR,
+                                    "warning" => palette::semantic::WARNING,
+                                    _ => palette::semantic::INFO,
+                                };
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        RichText::new(severity)
+                                            .color(severity_color)
+                                            .size(typography::SM)
+                                            .strong(),
+                                    );
+                                });
+
+                                // Expression snippet
+                                if let Some(snippet) = &demo.snippet {
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        RichText::new("Expression")
+                                            .color(text_muted)
+                                            .size(typography::XS),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(snippet)
+                                            .color(text_col)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                }
+                            }
+                            DemoResultKind::Metric => {
+                                // Snippet for metrics
+                                if let Some(snippet) = &demo.snippet {
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        RichText::new("Source")
+                                            .color(text_muted)
+                                            .size(typography::XS),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(snippet)
+                                            .color(text_col)
+                                            .font(typography::monospace(typography::SM)),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             });
     }
@@ -1679,6 +2060,18 @@ impl UnifiedFinder {
                         diff: diff.clone(),
                     })
                 }
+            },
+            // On WASM, demo results open diff viewer for commits or create metric panes
+            #[cfg(target_arch = "wasm32")]
+            UnifiedResult::DemoResult(demo) => match &demo.kind {
+                DemoResultKind::Commit { hash, diff } => {
+                    Some(UnifiedFinderAction::OpenDiffViewer {
+                        hash: hash.clone(),
+                        message: demo.name.clone(),
+                        diff: diff.clone(),
+                    })
+                }
+                _ => Some(UnifiedFinderAction::CreateMetricPane(demo.name.clone())),
             },
         }
     }
