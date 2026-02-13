@@ -101,7 +101,7 @@ deploy-website:
     mkdir -p website/public/editor
     cp -r crates/editor/dist/* website/public/editor/
     cd website && npm install && npm run build
-    npx wrangler pages deploy website/dist --project-name=enya
+    npx wrangler pages deploy website/dist --project-name=enya --branch=deploy
 
 # Run enya serve in development
 serve workspace:
