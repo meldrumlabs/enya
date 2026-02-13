@@ -6,6 +6,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **WASM demo data for unified finder**: All search modes (All, Alerts, Commits) now show demo codebase results in the WASM build, showcasing what Tantivy search provides on native. Includes sample metrics, alert rules, and git commits with diff previews and fuzzy matching. Selecting a commit opens the full diff viewer. Live Prometheus metrics continue to work as before.
+
+- **Diff viewer available on WASM**: The diff viewer overlay now works in the WASM build, enabling commit diff viewing from the unified finder and agent panel.
+
+- **Landing page memorial**: Added "In memory of Enya — the family dog" below "Crafted in Stockholm" on the landing page, in a smaller, more subtle style with typewriter animation.
+
 - **Auto-update notification banner**: Checks GitHub Releases for new versions on startup and every 30 minutes. Shows a non-intrusive frosted glass banner in the bottom-right corner with "See changes" (opens release page) and "Restart" (downloads and replaces binary) buttons. Dismissed versions are persisted in settings. Supports native auto-update and WASM page reload.
 
 - **Token usage display in agent panel**: After each AI response, a subtle footer shows the model name, token counts (total, input, output), and request duration. Re-exported `TokenUsage` from `enya-ai` crate.
@@ -27,6 +33,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Multi-pane snapshot sharing**: In visual-multi mode (`Ctrl+V`), select multiple panes and press `yy` to share a snapshot URL containing only those selected panes. The shared URL opens with just the selected panes in a default layout.
 
 ### Changed
+
+- **Plugins overlay shows native-only notice on WASM**: The plugins overlay now displays a "Native app required" message when running in the browser, matching the pattern used by the unified finder for codebase search.
 
 - **Share links use `enya.build/editor` base path**: Consolidated share URL construction with an `EDITOR_BASE_URL` constant. Native builds use `https://enya.build/editor`, WASM builds derive from the current page URL (supporting self-hosted `enya serve` deployments) with `enya.build/editor` as fallback.
 - **Agent panel opens at 50% width**: The agent panel now opens at 50% of the available workspace width (instead of a fixed 400px), so the panel and viewport share space equally. The width resets to 50% each time the panel is opened. The panel remains resizable (min 300px, max 80% of available width).

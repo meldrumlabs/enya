@@ -282,7 +282,6 @@ impl Workspace {
                 }
                 None
             }
-            #[cfg(not(target_arch = "wasm32"))]
             UnifiedFinderAction::OpenDiffViewer {
                 hash,
                 message,

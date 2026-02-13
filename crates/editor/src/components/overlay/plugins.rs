@@ -112,6 +112,7 @@ pub enum PluginsOverlayResult {
 }
 
 /// Braille spinner frames for installation animation.
+#[cfg(not(target_arch = "wasm32"))]
 const BRAILLE_SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /// A modal overlay for viewing and managing plugins.
@@ -551,6 +552,7 @@ impl PluginsOverlay {
         let muted_text = self.theme.text_primary().gamma_multiply(0.6);
         let accent_color = self.theme.accent_hover();
         let text_col = self.theme.text_primary();
+        #[cfg(not(target_arch = "wasm32"))]
         let accent_primary = self.theme.accent_primary();
 
         egui::Area::new(egui::Id::new("plugins_overlay_popup"))
@@ -798,12 +800,41 @@ impl PluginsOverlay {
 
                     // Plugin list
                     let list_height = popup_max_height - 180.0;
+
                     ScrollArea::vertical()
                         .max_height(list_height)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_width(popup_width - 16.0);
 
+                            // Show native-only notice on WASM
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                ui.add_space(list_height * 0.3);
+                                ui.vertical_centered(|ui| {
+                                    ui.label(
+                                        RichText::new(egui_nerdfonts::regular::DESKTOP)
+                                            .color(muted_text)
+                                            .size(32.0),
+                                    );
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        RichText::new("Native app required")
+                                            .color(text_col)
+                                            .font(typography::proportional(typography::LG)),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        RichText::new(
+                                            "Plugins are only available in the native app",
+                                        )
+                                        .color(muted_text)
+                                        .font(typography::proportional(typography::SM)),
+                                    );
+                                });
+                            }
+
+                            #[cfg(not(target_arch = "wasm32"))]
                             match self.current_tab {
                                 PluginTab::Installed => {
                                     let filtered_plugins: Vec<_> = self
@@ -1143,6 +1174,7 @@ impl PluginsOverlay {
     }
 
     /// Show a single plugin row. Returns the response for scroll handling.
+    #[cfg(not(target_arch = "wasm32"))]
     #[allow(clippy::too_many_arguments)]
     fn show_plugin_row(
         ui: &mut egui::Ui,
@@ -1289,6 +1321,7 @@ impl PluginsOverlay {
     }
 
     /// Show a single available plugin row. Returns the response for scroll handling.
+    #[cfg(not(target_arch = "wasm32"))]
     #[allow(clippy::too_many_arguments)]
     fn show_available_plugin_row(
         ui: &mut egui::Ui,

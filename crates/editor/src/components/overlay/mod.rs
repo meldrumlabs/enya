@@ -11,7 +11,6 @@ pub mod codebase_finder;
 pub mod command_palette;
 pub mod conversation_store;
 pub mod diagnostics;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod diff_viewer;
 pub mod info;
 pub mod leader_popup;
@@ -21,7 +20,6 @@ pub mod multi_edit;
 #[cfg(target_arch = "wasm32")]
 pub mod native_promo;
 pub mod plugins;
-#[cfg(not(target_arch = "wasm32"))]
 mod preview;
 pub mod settings;
 pub mod slash_commands;
@@ -57,7 +55,6 @@ pub use diagnostics::{
     Diagnostic, DiagnosticLevel, DiagnosticSource, DiagnosticsFilter, DiagnosticsPane,
     DiagnosticsPaneAction,
 };
-#[cfg(not(target_arch = "wasm32"))]
 pub use diff_viewer::{DiffViewerOverlay, DiffViewerResult};
 pub use info::InfoOverlay;
 pub use leader_popup::{LeaderKey, LeaderPopup};
