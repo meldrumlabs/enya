@@ -1,4 +1,5 @@
 use egui::{Color32, RichText};
+use enya_config::SnapshotPaneData;
 
 use crate::components::pane::time_series_chart::ChartInteraction;
 use crate::components::pane::visualization::{
@@ -154,6 +155,8 @@ pub struct QueryPane {
     is_demo: bool,
     /// Pending demo refresh (deferred to next frame so loading animation can show)
     pending_demo_refresh: bool,
+    /// Whether this pane was loaded from a snapshot (read-only data, no refresh)
+    is_snapshot: bool,
 }
 
 impl Default for QueryPane {
@@ -196,6 +199,7 @@ impl QueryPane {
             pending_action: None,
             is_demo: false,
             pending_demo_refresh: false,
+            is_snapshot: false,
         }
     }
 
@@ -257,6 +261,7 @@ impl QueryPane {
             pending_action: None,
             is_demo: false,
             pending_demo_refresh: false,
+            is_snapshot: false,
         }
     }
 
@@ -289,6 +294,7 @@ impl QueryPane {
             pending_action: None,
             is_demo: true,
             pending_demo_refresh: false,
+            is_snapshot: false,
         }
     }
 
@@ -324,6 +330,7 @@ impl QueryPane {
             pending_action: None,
             is_demo: false,
             pending_demo_refresh: false,
+            is_snapshot: false,
         }
     }
 
@@ -359,6 +366,7 @@ impl QueryPane {
             pending_action: None,
             is_demo: true,
             pending_demo_refresh: false,
+            is_snapshot: false,
         }
     }
 
@@ -405,6 +413,7 @@ impl QueryPane {
             pending_action: None,
             is_demo: true,
             pending_demo_refresh: false,
+            is_snapshot: false,
         }
     }
 
@@ -438,7 +447,54 @@ impl QueryPane {
             pending_action: None,
             is_demo: false,
             pending_demo_refresh: false,
+            is_snapshot: false,
         }
+    }
+
+    /// Create a query pane pre-populated with snapshot data.
+    /// The pane will not attempt to refresh or query any backend.
+    pub fn from_snapshot(
+        query: &str,
+        name: &str,
+        query_number: usize,
+        viz_type: VisualizationType,
+        data: &SnapshotPaneData,
+    ) -> Self {
+        let id = next_id_usize();
+        let pane_name = if name.is_empty() {
+            format!("Query {query_number}")
+        } else {
+            name.to_string()
+        };
+
+        let buffer = Buffer::with_name(query.to_string(), &pane_name);
+        let mut visualization = Visualization::new(viz_type, &pane_name);
+        visualization.load_snapshot_data(data);
+
+        Self {
+            id,
+            buffer,
+            visualization,
+            theme: AppTheme::default(),
+            buffer_expanded: false,
+            query_state: QueryState::default(),
+            tag: String::new(),
+            description: String::new(),
+            needs_refresh: false,
+            is_loading: false,
+            has_user_override: true,
+            edit_requested: false,
+            viz_dropdown_open: false,
+            pending_action: None,
+            is_demo: false,
+            pending_demo_refresh: false,
+            is_snapshot: true,
+        }
+    }
+
+    /// Whether this pane was loaded from a snapshot (read-only data).
+    pub fn is_snapshot(&self) -> bool {
+        self.is_snapshot
     }
 
     /// Get the current visualization type
@@ -537,6 +593,11 @@ impl QueryPane {
         self.description = description.to_string();
     }
 
+    /// Get the unit suffix for values (e.g., "ms", "req/s", "%")
+    pub fn unit(&self) -> &str {
+        self.visualization.unit()
+    }
+
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
     pub fn set_unit(&mut self, unit: &str) {
         self.visualization.set_unit(unit);
@@ -622,8 +683,11 @@ impl QueryPane {
         self.query_state = state;
     }
 
-    /// Toggle buffer visibility
+    /// Toggle buffer visibility (no-op for snapshot panes)
     pub fn toggle_buffer(&mut self) {
+        if self.is_snapshot {
+            return;
+        }
         self.buffer_expanded = !self.buffer_expanded;
     }
 
@@ -646,6 +710,9 @@ impl QueryPane {
     /// For demo panes: defers refresh to next frame so loading animation shows.
     /// For real panes: marks as needing refresh (query executor will re-query).
     pub fn refresh(&mut self) {
+        if self.is_snapshot {
+            return; // Snapshots never refresh
+        }
         if self.is_demo {
             // Defer to next frame so loading animation can render
             self.pending_demo_refresh = true;
@@ -688,6 +755,9 @@ impl QueryPane {
     /// For demo panes: triggers deferred refresh with loading animation.
     /// For real panes: marks for re-query through the query executor.
     pub fn mark_needs_refresh(&mut self) {
+        if self.is_snapshot {
+            return; // Snapshots never refresh
+        }
         if self.is_demo {
             // Deferred refresh with loading animation - same as manual refresh
             self.pending_demo_refresh = true;
@@ -840,6 +910,19 @@ impl QueryPane {
             }
         });
 
+        // Snapshot badge in bottom-left corner (avoids overlapping chart series)
+        if self.is_snapshot {
+            let badge_pos = egui::pos2(pane_rect.left() + 6.0, pane_rect.bottom() - 18.0);
+            let badge_text = RichText::new("SNAPSHOT")
+                .color(self.theme.accent_primary())
+                .size(9.0)
+                .strong();
+            ui.put(
+                egui::Rect::from_min_size(badge_pos, egui::vec2(60.0, 16.0)),
+                egui::Label::new(badge_text),
+            );
+        }
+
         // Toolbar overlay in top-right corner (only when buffer is collapsed)
         // Contains: info button (if description), visualization type dropdown, edit button
         if !self.buffer_expanded {
@@ -847,40 +930,47 @@ impl QueryPane {
             let spacing = 2.0;
             let has_description = !self.description.is_empty();
 
-            // Edit button (rightmost)
-            let edit_button_pos = egui::pos2(
+            // Rightmost button position anchor
+            let right_anchor = egui::pos2(
                 pane_rect.right() - button_size.x - 4.0,
                 pane_rect.top() + 4.0,
             );
-            let edit_button_rect = egui::Rect::from_min_size(edit_button_pos, button_size);
 
-            let is_edit_hovered = ui.rect_contains_pointer(edit_button_rect);
-            let edit_icon_color = if is_edit_hovered {
-                text_col.gamma_multiply(0.9)
+            // Edit button (rightmost, hidden for snapshot panes)
+            let viz_button_pos = if self.is_snapshot {
+                // No edit button — viz dropdown takes the rightmost position
+                right_anchor
             } else {
-                text_col.gamma_multiply(0.5)
-            };
+                let edit_button_rect = egui::Rect::from_min_size(right_anchor, button_size);
 
-            let edit_response = ui.put(
-                edit_button_rect,
-                egui::Button::new(
-                    RichText::new(semantic_icons::action::EDIT)
-                        .color(edit_icon_color)
-                        .size(14.0),
+                let is_edit_hovered = ui.rect_contains_pointer(edit_button_rect);
+                let edit_icon_color = if is_edit_hovered {
+                    text_col.gamma_multiply(0.9)
+                } else {
+                    text_col.gamma_multiply(0.5)
+                };
+
+                let edit_response = ui.put(
+                    edit_button_rect,
+                    egui::Button::new(
+                        RichText::new(semantic_icons::action::EDIT)
+                            .color(edit_icon_color)
+                            .size(14.0),
+                    )
+                    .fill(Color32::TRANSPARENT)
+                    .frame(false),
+                );
+
+                if edit_response.on_hover_text("Edit query (e)").clicked() {
+                    self.edit_requested = true;
+                }
+
+                // Visualization type dropdown (left of edit button)
+                egui::pos2(
+                    right_anchor.x - button_size.x - spacing,
+                    pane_rect.top() + 4.0,
                 )
-                .fill(Color32::TRANSPARENT)
-                .frame(false),
-            );
-
-            if edit_response.on_hover_text("Edit query (e)").clicked() {
-                self.edit_requested = true;
-            }
-
-            // Visualization type dropdown (left of edit button)
-            let viz_button_pos = egui::pos2(
-                edit_button_pos.x - button_size.x - spacing,
-                pane_rect.top() + 4.0,
-            );
+            };
 
             // Info button (left of viz button, only if description exists)
             if has_description {

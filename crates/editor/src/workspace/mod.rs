@@ -138,10 +138,16 @@ pub enum WorkspaceAction {
     LoadWorkspace(String),
     /// List available workspaces
     ListWorkspaces,
-    /// Share workspace as URL (encodes to base64 and copies to clipboard)
+    /// Share workspace as URL (snapshot if data loaded, config-only otherwise)
     ShareWorkspace,
-    /// Share a single pane as URL (encodes to base64 and copies to clipboard)
+    /// Share a single pane as URL (snapshot if data loaded, config-only otherwise)
     SharePane(usize),
+    /// Share workspace as config-only URL (no embedded data)
+    ShareLiveWorkspace,
+    /// Share a single pane as config-only URL (no embedded data)
+    ShareLivePane(usize),
+    /// Share selected panes as URL (snapshot if data loaded, config-only otherwise)
+    ShareSelectedPanes(Vec<usize>),
     /// Quit the application
     QuitApp,
     /// Open the annotation editor for the focused pane
@@ -2017,6 +2023,7 @@ impl Workspace {
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
+            CommandResult::ShareLiveWorkspace => WorkspaceAction::ShareLiveWorkspace,
             CommandResult::SetProvider(provider_name) => {
                 use crate::components::util::AiProvider;
                 if let Some(provider) = AiProvider::parse(&provider_name) {
