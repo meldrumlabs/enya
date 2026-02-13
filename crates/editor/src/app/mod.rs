@@ -886,10 +886,52 @@ impl EnyaApp {
                 self.list_workspaces();
             }
             WorkspaceAction::ShareWorkspace => {
-                self.share_workspace();
+                // Context-aware: snapshot if panes have data, config-only otherwise
+                let url = if self.workspace.has_pane_data() {
+                    self.build_snapshot_workspace_url()
+                } else {
+                    self.build_share_workspace_url()
+                };
+                if let Some(url) = url {
+                    self.copy_share_url(ctx, &url, "Snapshot URL copied to clipboard");
+                }
             }
             WorkspaceAction::SharePane(pane_index) => {
-                self.share_pane(pane_index);
+                // Context-aware: snapshot if panes have data, config-only otherwise
+                let url = if self.workspace.has_pane_data() {
+                    self.build_snapshot_pane_url(pane_index)
+                } else {
+                    self.build_share_pane_url(pane_index)
+                };
+                if let Some(url) = url {
+                    self.copy_share_url(ctx, &url, "Pane snapshot URL copied to clipboard");
+                }
+            }
+            WorkspaceAction::ShareSelectedPanes(indices) => {
+                let count = indices.len();
+                // Context-aware: snapshot if selected panes have data, config-only otherwise
+                let url = if self.workspace.has_pane_data_for_indices(&indices) {
+                    self.build_snapshot_selected_url(&indices)
+                } else {
+                    self.build_share_selected_url(&indices)
+                };
+                if let Some(url) = url {
+                    self.copy_share_url(
+                        ctx,
+                        &url,
+                        &format!("{count} panes snapshot URL copied to clipboard"),
+                    );
+                }
+            }
+            WorkspaceAction::ShareLiveWorkspace => {
+                if let Some(url) = self.build_share_workspace_url() {
+                    self.copy_share_url(ctx, &url, "Workspace URL copied to clipboard");
+                }
+            }
+            WorkspaceAction::ShareLivePane(pane_index) => {
+                if let Some(url) = self.build_share_pane_url(pane_index) {
+                    self.copy_share_url(ctx, &url, "Pane URL copied to clipboard");
+                }
             }
             WorkspaceAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);

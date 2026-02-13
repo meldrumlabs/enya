@@ -8,6 +8,8 @@ use rustc_hash::FxHashMap;
 
 use egui_tiles::{Tile, TileId, Tiles};
 
+use enya_config::SnapshotPaneData;
+
 use super::{
     ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
     LayoutType, LogsConfig, MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
@@ -33,13 +35,15 @@ impl Workspace {
             if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
                 if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
                     let state = query_pane.query_state();
-                    panes.push(pane_from_query_state(
+                    let mut pane_config = pane_from_query_state(
                         query_pane.saved_query(),
                         query_pane.name(),
                         query_pane.tag(),
                         query_pane.description(),
                         state,
-                    ));
+                    );
+                    pane_config.unit = query_pane.unit().to_string();
+                    panes.push(pane_config);
                 }
             }
         }
@@ -67,6 +71,7 @@ impl Workspace {
             sections: Vec::new(),
             panes,
             layout: self.extract_layout_from_tree(),
+            snapshot: None,
         }
     }
 
@@ -113,15 +118,34 @@ impl Workspace {
         // Phase 1: Insert all panes and collect their TileIds
         let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(pane_count);
 
-        for pane_config in &all_panes {
+        for (i, pane_config) in all_panes.iter().enumerate() {
             let query_number = self.next_query_number;
             self.next_query_number += 1;
 
-            let mut query_pane = QueryPane::from_config_numbered(
-                &pane_config.query,
-                &pane_config.name,
-                query_number,
-            );
+            // Use snapshot constructor if this workspace has embedded data
+            let snapshot_data = config.snapshot.as_ref().and_then(|s| s.pane_data.get(i));
+
+            let mut query_pane = if let Some(data) = snapshot_data {
+                QueryPane::from_snapshot(
+                    &pane_config.query,
+                    &pane_config.name,
+                    query_number,
+                    pane_config.visualization_type(),
+                    data,
+                )
+            } else {
+                let mut pane = QueryPane::from_config_numbered(
+                    &pane_config.query,
+                    &pane_config.name,
+                    query_number,
+                );
+                // Apply query state and visualization type for non-snapshot panes
+                let state = pane_config.to_query_state(&config.time.preset);
+                pane.set_query_state(state);
+                pane.set_visualization_type(pane_config.visualization_type());
+                pane
+            };
+
             if !pane_config.tag.is_empty() {
                 query_pane.set_tag(&pane_config.tag);
             }
@@ -131,13 +155,6 @@ impl Workspace {
             if !pane_config.unit.is_empty() {
                 query_pane.set_unit(&pane_config.unit);
             }
-
-            // Apply query state
-            let state = pane_config.to_query_state(&config.time.preset);
-            query_pane.set_query_state(state);
-
-            // Apply visualization type from config
-            query_pane.set_visualization_type(pane_config.visualization_type());
 
             // Track the chart
             self.open_charts.insert(pane_config.query.clone());
@@ -213,6 +230,144 @@ impl Workspace {
         } else {
             Some(effective_conn)
         }
+    }
+
+    /// Returns true if any pane has loaded visualization data (non-empty).
+    pub fn has_pane_data(&self) -> bool {
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    if !query_pane
+                        .visualization()
+                        .extract_snapshot_data()
+                        .is_empty()
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Extract snapshot data from all panes for snapshot sharing.
+    pub fn extract_all_snapshot_data(&self) -> Vec<SnapshotPaneData> {
+        let mut data = Vec::new();
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    data.push(query_pane.visualization().extract_snapshot_data());
+                }
+            }
+        }
+        data
+    }
+
+    /// Serialize a subset of panes to a WorkspaceConfig (for multi-pane sharing).
+    ///
+    /// Only includes panes at the specified indices (0-based, matching `get_pane_tile_ids()` order).
+    /// Layout is omitted since a subset doesn't map to the original tree layout.
+    pub fn to_workspace_config_for_panes(
+        &self,
+        name: &str,
+        pane_indices: &[usize],
+    ) -> WorkspaceConfig {
+        let pane_tile_ids = self.get_pane_tile_ids();
+        let mut panes = Vec::new();
+
+        for &idx in pane_indices {
+            if let Some(&tile_id) = pane_tile_ids.get(idx) {
+                if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        let state = query_pane.query_state();
+                        let mut pane_config = pane_from_query_state(
+                            query_pane.saved_query(),
+                            query_pane.name(),
+                            query_pane.tag(),
+                            query_pane.description(),
+                            state,
+                        );
+                        pane_config.unit = query_pane.unit().to_string();
+                        panes.push(pane_config);
+                    }
+                }
+            }
+        }
+
+        WorkspaceConfig {
+            workspace: WorkspaceMeta {
+                name: name.to_string(),
+                description: String::new(),
+                version: WORKSPACE_VERSION,
+                endpoint: String::new(),
+            },
+            metrics: MetricsConfig::default(),
+            logs: LogsConfig::default(),
+            git: GitConfig::default(),
+            view: ViewConfig {
+                zen_mode: self.zen_mode,
+                ..Default::default()
+            },
+            time: time_config_from_preset_with_refresh(
+                self.time_range_toolbar.time_range().preset,
+                self.refresh_interval.unwrap_or_default(),
+            ),
+            plugins: PluginsConfig::default(),
+            sections: Vec::new(),
+            // Stack subset panes vertically
+            layout: if panes.len() > 1 {
+                Some(LayoutConfig {
+                    layout_type: LayoutType::Vertical,
+                    children: (0..panes.len()).map(LayoutNode::Pane).collect(),
+                    shares: Vec::new(), // Equal shares
+                })
+            } else {
+                None
+            },
+            panes,
+            snapshot: None,
+        }
+    }
+
+    /// Extract snapshot data for a subset of panes (for multi-pane sharing).
+    ///
+    /// Returns data in the same order as `pane_indices`.
+    pub fn extract_snapshot_data_for_panes(&self, pane_indices: &[usize]) -> Vec<SnapshotPaneData> {
+        let pane_tile_ids = self.get_pane_tile_ids();
+        let mut data = Vec::new();
+
+        for &idx in pane_indices {
+            if let Some(&tile_id) = pane_tile_ids.get(idx) {
+                if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        data.push(query_pane.visualization().extract_snapshot_data());
+                    }
+                }
+            }
+        }
+
+        data
+    }
+
+    /// Returns true if any of the specified panes have loaded visualization data.
+    pub fn has_pane_data_for_indices(&self, pane_indices: &[usize]) -> bool {
+        let pane_tile_ids = self.get_pane_tile_ids();
+        for &idx in pane_indices {
+            if let Some(&tile_id) = pane_tile_ids.get(idx) {
+                if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                        if !query_pane
+                            .visualization()
+                            .extract_snapshot_data()
+                            .is_empty()
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Clear all panes from the viewport

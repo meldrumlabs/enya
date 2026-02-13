@@ -20,6 +20,8 @@ pub use sparkline::SparklineViz;
 pub use stat::{StatChart, Threshold};
 pub use suggester::{ResultCharacteristics, suggest_visualization};
 
+use enya_config::{SnapshotPaneData, SnapshotSeries};
+
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
@@ -228,6 +230,128 @@ impl Visualization {
         }
     }
 
+    /// Extract current visualization data as a snapshot.
+    pub fn extract_snapshot_data(&self) -> SnapshotPaneData {
+        match self {
+            Self::TimeSeries(chart) => {
+                let series = chart
+                    .series()
+                    .iter()
+                    .map(|s| {
+                        let mut tags: Vec<(String, String)> =
+                            s.tags.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                        tags.sort_by(|a, b| a.0.cmp(&b.0));
+                        SnapshotSeries {
+                            name: s.name.clone(),
+                            tags,
+                            points: s.points.iter().map(|p| (p.timestamp, p.value)).collect(),
+                        }
+                    })
+                    .collect();
+                SnapshotPaneData::TimeSeries { series }
+            }
+            Self::Stat(stat) => SnapshotPaneData::Stat {
+                value: stat.value(),
+                sparkline: stat.sparkline_data().to_vec(),
+            },
+            Self::Gauge(gauge) => SnapshotPaneData::Gauge {
+                value: gauge.value(),
+                min: gauge.min(),
+                max: gauge.max(),
+            },
+            Self::BarChart(bar) => SnapshotPaneData::BarChart {
+                bars: bar
+                    .bars()
+                    .iter()
+                    .map(|b| (b.label.clone(), b.value))
+                    .collect(),
+            },
+            Self::Sparkline(spark) => SnapshotPaneData::TimeSeries {
+                series: vec![SnapshotSeries {
+                    name: spark.metric_name.clone(),
+                    tags: Vec::new(),
+                    points: spark
+                        .data()
+                        .iter()
+                        .enumerate()
+                        .map(|(i, &v)| (i as f64, v))
+                        .collect(),
+                }],
+            },
+            Self::Heatmap(heatmap) => {
+                let (cols, rows) = heatmap.grid_size();
+                let mut values = vec![0.0f32; cols * rows];
+                for cell in heatmap.cells() {
+                    if cell.col < cols && cell.row < rows {
+                        values[cell.row * cols + cell.col] = cell.value;
+                    }
+                }
+                SnapshotPaneData::Heatmap {
+                    cols: cols as u16,
+                    rows: rows as u16,
+                    values,
+                }
+            }
+        }
+    }
+
+    /// Populate this visualization from snapshot data.
+    pub fn load_snapshot_data(&mut self, data: &SnapshotPaneData) {
+        match data {
+            SnapshotPaneData::TimeSeries { series } => {
+                let series_list: Vec<Series> = series
+                    .iter()
+                    .map(|s| {
+                        let tags = s.tags.iter().cloned().collect();
+                        let points = s
+                            .points
+                            .iter()
+                            .map(|&(t, v)| super::time_series_chart::DataPoint {
+                                timestamp: t,
+                                value: v,
+                            })
+                            .collect();
+                        Series::new(&s.name).with_tags_map(tags).with_points(points)
+                    })
+                    .collect();
+                self.set_series(series_list);
+            }
+            SnapshotPaneData::Stat { value, sparkline } => {
+                self.set_stat_value(*value);
+                self.set_stat_sparkline(sparkline.clone());
+            }
+            SnapshotPaneData::Gauge { value, min, max } => {
+                if let Self::Gauge(gauge) = self {
+                    gauge.set_range(*min, *max);
+                    gauge.set_value(*value);
+                }
+            }
+            SnapshotPaneData::BarChart { bars } => {
+                if let Self::BarChart(bar) = self {
+                    bar.set_bars(
+                        bars.iter()
+                            .map(|(label, value)| Bar::new(label, *value))
+                            .collect(),
+                    );
+                }
+            }
+            SnapshotPaneData::Heatmap { cols, rows, values } => {
+                if let Self::Heatmap(heatmap) = self {
+                    // Convert flat values back to 2D array
+                    let cols = *cols as usize;
+                    let rows = *rows as usize;
+                    let mut data_2d = Vec::with_capacity(rows);
+                    for r in 0..rows {
+                        let start = r * cols;
+                        let end = (start + cols).min(values.len());
+                        data_2d.push(values[start..end].iter().map(|&v| v as f64).collect());
+                    }
+                    heatmap.set_data(data_2d);
+                }
+            }
+        }
+    }
+
     /// Render the visualization
     #[profiling::function]
     pub fn show(&mut self, ui: &mut egui::Ui) {
@@ -417,6 +541,18 @@ impl Visualization {
         match self {
             Self::Heatmap(heatmap) => Some(heatmap),
             _ => None,
+        }
+    }
+
+    /// Get the unit suffix for values (e.g., "ms", "req/s", "%")
+    pub fn unit(&self) -> &str {
+        match self {
+            Self::TimeSeries(chart) => chart.unit(),
+            Self::Stat(stat) => stat.unit(),
+            Self::Gauge(gauge) => gauge.unit(),
+            Self::BarChart(bar) => bar.unit(),
+            Self::Sparkline(spark) => spark.unit(),
+            Self::Heatmap(_) => "",
         }
     }
 
