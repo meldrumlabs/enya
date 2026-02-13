@@ -13,12 +13,16 @@ All notable changes to the Enya editor will be documented in this file.
 - **Settings overlay**: New settings overlay (`:settings` command or landing page) with AI tab (provider, model, API key), Styling tab (side-by-side theme/font panels with color swatches and code previews), Connection tab (Prometheus and Loki endpoint/API key), and Codebase tab (git repo URL). Premium card-style input UX with labels above inputs, bordered input boxes, section grouping, focus glow, and dropdown chevrons. Auto-saves on close. Vim-style navigation (j/k, Tab for tabs, Enter to edit/cycle, h/l switch panels). Per-provider API key storage. Settings persist via eframe.
 
 - **`load_workspace` agent command**: AI agents can now programmatically load a saved workspace in the GUI using `{"action": "load_workspace", "workspace": "name"}`. This enables the agent-to-human handoff workflow: an agent builds a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`), then loads it in the editor for the human to view.
+- **Close agent panel with `x`**: When the agent panel is focused, pressing `x` closes it, matching the behavior of workspace panes.
 
 ### Fixed
 
+- **Header text overlap when agent panel is open**: Keyboard hints in the workspace toolbar are now hidden when the toolbar is too narrow (< 700px), preventing them from overlapping with the time range controls.
 - **WASM UI too small at default browser zoom**: Applied a 1.5x zoom factor to the WASM build so content (text, buttons, landing page) is readable at 100% browser zoom without requiring manual zoom.
 
 ### Changed
+
+- **Agent panel opens at 50% width**: The agent panel now opens at 50% of the available workspace width (instead of a fixed 400px), so the panel and viewport share space equally. The width resets to 50% each time the panel is opened. The panel remains resizable (min 300px, max 80% of available width).
 
 - **Renamed `enya-workspace` crate to `enya-config`**: The workspace configuration crate has been renamed from `enya-workspace` to `enya-config` to better reflect its broader scope. All imports updated from `enya_workspace` to `enya_config`.
 
