@@ -121,6 +121,8 @@ pub struct AgentPanel {
     slash_command_popup: SlashCommandPopup,
     /// Previous input text for change detection
     prev_input_text: String,
+    /// Reset panel width to 50% on next show (set when panel opens)
+    reset_width: bool,
     /// Token usage from the last completed response (input, output)
     pub(super) last_token_usage: Option<(u32, u32)>,
     /// Duration of the last completed request
@@ -175,6 +177,7 @@ impl AgentPanel {
             mention_popup: MentionPopup::new(),
             slash_command_popup: SlashCommandPopup::new(),
             prev_input_text: String::new(),
+            reset_width: false,
             last_token_usage: None,
             last_request_duration: None,
         }
@@ -258,6 +261,7 @@ impl AgentPanel {
     pub fn open(&mut self) {
         self.is_open = true;
         self.focus_input = true;
+        self.reset_width = true;
     }
 
     /// Submit a query programmatically (e.g., from Agent Input Bar)
@@ -684,11 +688,19 @@ impl AgentPanel {
         let left_border = self.theme.border_subtle().gamma_multiply(0.6);
 
         // Side panel on the right - participates in layout (viewport shrinks)
+        // Default to 50% of available width so the panel shares space equally
+        let half_width = ui.available_width() * 0.5;
+        let panel_id = egui::Id::new("agent_panel");
+        if self.reset_width {
+            // Clear persisted panel state so the new default_width takes effect
+            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(panel_id));
+            self.reset_width = false;
+        }
         egui::SidePanel::right("agent_panel")
             .resizable(true)
-            .default_width(400.0)
+            .default_width(half_width)
             .min_width(300.0)
-            .max_width(800.0)
+            .max_width(ui.available_width() * 0.8)
             .frame(self.panel_frame())
             .show_inside(ui, |ui| {
                 // Draw left edge highlight for visual anchoring
