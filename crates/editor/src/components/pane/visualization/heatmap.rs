@@ -100,6 +100,16 @@ impl HeatmapViz {
         self.theme = theme;
     }
 
+    /// Get the grid dimensions (cols, rows)
+    pub fn grid_size(&self) -> (usize, usize) {
+        self.grid_size
+    }
+
+    /// Get the cell data
+    pub fn cells(&self) -> &[HeatmapCell] {
+        &self.cells
+    }
+
     /// Set the grid dimensions
     pub fn set_grid_size(&mut self, cols: usize, rows: usize) {
         self.grid_size = (cols, rows);

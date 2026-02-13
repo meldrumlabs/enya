@@ -255,101 +255,123 @@ impl EnyaApp {
         }
     }
 
-    /// Share the current workspace as a URL (copies to clipboard)
-    pub(super) fn share_workspace(&mut self) {
+    /// Build a share URL for the current workspace (config-only).
+    /// Returns the URL string or None on error (with notification).
+    pub(super) fn build_share_workspace_url(&mut self) -> Option<String> {
         let workspace_config = self.workspace.to_workspace_config("shared", None);
-
         match workspace_config.to_base64() {
-            Ok(encoded) => {
-                #[cfg(target_arch = "wasm32")]
-                let full_url = {
-                    let base = Self::share_base_url();
-                    format!("{base}?workspace={encoded}")
-                };
-
-                #[cfg(not(target_arch = "wasm32"))]
-                let full_url = format!("{EDITOR_BASE_URL}?workspace={encoded}");
-
-                // Copy to clipboard
-                #[cfg(target_arch = "wasm32")]
-                {
-                    if let Err(e) = Self::copy_to_clipboard_wasm(&full_url) {
-                        log::error!("Failed to copy to clipboard: {e}");
-                        self.notifications.notify(Notification::new(
-                            format!("Failed to copy URL: {e}"),
-                            NotificationLevel::Error,
-                        ));
-                        return;
-                    }
-                }
-
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    // On native, just log the URL (clipboard support would need additional deps)
-                    log::info!("Share URL: {full_url}");
-                }
-
-                self.notifications.notify(Notification::new(
-                    "Workspace URL copied to clipboard!".to_string(),
-                    NotificationLevel::Success,
-                ));
-            }
+            Ok(encoded) => Some(Self::build_share_url("workspace", &encoded)),
             Err(e) => {
                 log::error!("Failed to encode workspace: {e}");
                 self.notifications.notify(Notification::new(
                     format!("Failed to encode workspace: {e}"),
                     NotificationLevel::Error,
                 ));
+                None
             }
         }
     }
 
-    /// Share a single pane as a URL (copies to clipboard)
-    pub(super) fn share_pane(&mut self, pane_index: usize) {
+    /// Build a share URL for a single pane (config-only).
+    /// Returns the URL string or None on error (with notification).
+    pub(super) fn build_share_pane_url(&mut self, pane_index: usize) -> Option<String> {
         let workspace_config = self.workspace.to_workspace_config("shared", None);
-
         match workspace_config.pane_to_base64(pane_index) {
-            Ok(encoded) => {
-                #[cfg(target_arch = "wasm32")]
-                let full_url = {
-                    let base = Self::share_base_url();
-                    format!("{base}?pane={encoded}")
-                };
-
-                #[cfg(not(target_arch = "wasm32"))]
-                let full_url = format!("{EDITOR_BASE_URL}?pane={encoded}");
-
-                // Copy to clipboard
-                #[cfg(target_arch = "wasm32")]
-                {
-                    if let Err(e) = Self::copy_to_clipboard_wasm(&full_url) {
-                        log::error!("Failed to copy to clipboard: {e}");
-                        self.notifications.notify(Notification::new(
-                            format!("Failed to copy URL: {e}"),
-                            NotificationLevel::Error,
-                        ));
-                        return;
-                    }
-                }
-
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    // On native, just log the URL (clipboard support would need additional deps)
-                    log::info!("Share URL: {full_url}");
-                }
-
-                self.notifications.notify(Notification::new(
-                    "Pane URL copied to clipboard!".to_string(),
-                    NotificationLevel::Success,
-                ));
-            }
+            Ok(encoded) => Some(Self::build_share_url("pane", &encoded)),
             Err(e) => {
                 log::error!("Failed to encode pane: {e}");
                 self.notifications.notify(Notification::new(
                     format!("Failed to encode pane: {e}"),
                     NotificationLevel::Error,
                 ));
+                None
             }
+        }
+    }
+
+    /// Build a snapshot share URL for the workspace (config + data).
+    /// Returns the URL string or None on error (with notification).
+    pub(super) fn build_snapshot_workspace_url(&mut self) -> Option<String> {
+        let workspace_config = self.workspace.to_workspace_config("snapshot", None);
+        let pane_data = self.workspace.extract_all_snapshot_data();
+        let captured_at = crate::util::now_unix_secs() as u64;
+
+        match workspace_config.snapshot_to_base64(&pane_data, captured_at) {
+            Ok(encoded) => Some(Self::build_share_url("workspace", &encoded)),
+            Err(e) => {
+                log::error!("Failed to encode snapshot: {e}");
+                self.notifications.notify(Notification::new(
+                    format!("Failed to encode snapshot: {e}"),
+                    NotificationLevel::Error,
+                ));
+                None
+            }
+        }
+    }
+
+    /// Build a snapshot share URL for a single pane (config + data).
+    /// Returns the URL string or None on error (with notification).
+    pub(super) fn build_snapshot_pane_url(&mut self, pane_index: usize) -> Option<String> {
+        let workspace_config = self.workspace.to_workspace_config("snapshot", None);
+        let pane_data = self.workspace.extract_all_snapshot_data();
+        let captured_at = crate::util::now_unix_secs() as u64;
+
+        let data = match pane_data.get(pane_index) {
+            Some(d) => d,
+            None => {
+                self.notifications.notify(Notification::new(
+                    "No data to snapshot".to_string(),
+                    NotificationLevel::Error,
+                ));
+                return None;
+            }
+        };
+
+        match workspace_config.snapshot_pane_to_base64(pane_index, data, captured_at) {
+            Ok(encoded) => Some(Self::build_share_url("pane", &encoded)),
+            Err(e) => {
+                log::error!("Failed to encode pane snapshot: {e}");
+                self.notifications.notify(Notification::new(
+                    format!("Failed to encode pane snapshot: {e}"),
+                    NotificationLevel::Error,
+                ));
+                None
+            }
+        }
+    }
+
+    /// Build a full share URL from a query parameter name and encoded value.
+    fn build_share_url(param: &str, encoded: &str) -> String {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let base = Self::share_base_url();
+            format!("{base}?{param}={encoded}")
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            format!("{EDITOR_BASE_URL}?{param}={encoded}")
+        }
+    }
+
+    /// Copy a share URL to clipboard and show a notification.
+    /// Uses `ctx.copy_text()` which integrates with egui's clipboard handling.
+    pub(super) fn copy_share_url(&mut self, ctx: &egui::Context, url: &str, success_msg: &str) {
+        ctx.copy_text(url.to_string());
+
+        let url_len = url.len();
+        if url_len > 15_000 {
+            self.notifications.notify(Notification::new(
+                format!(
+                    "{success_msg} ({:.1}KB) - may be too long for some browsers",
+                    url_len as f64 / 1024.0
+                ),
+                NotificationLevel::Warn,
+            ));
+        } else {
+            self.notifications.notify(Notification::new(
+                format!("{success_msg}!"),
+                NotificationLevel::Success,
+            ));
         }
     }
 

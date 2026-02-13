@@ -22,8 +22,8 @@ pub use workspace::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
     DEMO_WORKSPACE_TOML, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
     LogsConfig, MetricsConfig, PaneConfig, PluginsConfig, RefreshInterval, SectionConfig,
-    SectionLayout, TimeConfig, ViewConfig, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError,
-    WorkspaceMeta,
+    SectionLayout, SnapshotMeta, SnapshotPaneData, SnapshotSeries, TimeConfig, ViewConfig,
+    WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
 };
 
 pub use daemon::{Config, Datasource, Datasources, Server};

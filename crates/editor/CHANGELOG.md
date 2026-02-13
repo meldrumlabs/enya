@@ -18,6 +18,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **WASM UI too small at default browser zoom**: Applied a 1.5x zoom factor to the WASM build so content (text, buttons, landing page) is readable at 100% browser zoom without requiring manual zoom.
 
+- **Snapshot sharing**: Users can share immutable snapshots of workspaces that include the actual plot data, viewable with no backend connection. Snapshot URLs use the compact binary encoding (`postcard + LZ4 + base64`) with `s`/`t` format prefixes. Snapshot panes are read-only — they never refresh and hide the edit button. `:share` and `yy` are context-aware — they produce snapshot URLs when panes have data loaded, or config-only URLs otherwise. `:share-live` forces config-only sharing. Supports all visualization types: time series, stat, gauge, bar chart, heatmap, and sparkline. Snapshot URL size is optimized via LTTB downsampling (cap 100 points/series), delta-encoded timestamps (regular interval detection), f32 precision, and string deduplication (shared string table with u16 indices).
+
 ### Changed
 
 - **Share links use `enya.build/editor` base path**: Consolidated share URL construction with an `EDITOR_BASE_URL` constant. Native builds use `https://enya.build/editor`, WASM builds derive from the current page URL (supporting self-hosted `enya serve` deployments) with `enya.build/editor` as fallback.

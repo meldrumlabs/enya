@@ -8,6 +8,8 @@ use rustc_hash::FxHashMap;
 
 use egui_tiles::{Tile, TileId, Tiles};
 
+use enya_config::SnapshotPaneData;
+
 use super::{
     ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
     LayoutType, LogsConfig, MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
@@ -67,6 +69,7 @@ impl Workspace {
             sections: Vec::new(),
             panes,
             layout: self.extract_layout_from_tree(),
+            snapshot: None,
         }
     }
 
@@ -113,15 +116,34 @@ impl Workspace {
         // Phase 1: Insert all panes and collect their TileIds
         let mut pane_tile_ids: Vec<TileId> = Vec::with_capacity(pane_count);
 
-        for pane_config in &all_panes {
+        for (i, pane_config) in all_panes.iter().enumerate() {
             let query_number = self.next_query_number;
             self.next_query_number += 1;
 
-            let mut query_pane = QueryPane::from_config_numbered(
-                &pane_config.query,
-                &pane_config.name,
-                query_number,
-            );
+            // Use snapshot constructor if this workspace has embedded data
+            let snapshot_data = config.snapshot.as_ref().and_then(|s| s.pane_data.get(i));
+
+            let mut query_pane = if let Some(data) = snapshot_data {
+                QueryPane::from_snapshot(
+                    &pane_config.query,
+                    &pane_config.name,
+                    query_number,
+                    pane_config.visualization_type(),
+                    data,
+                )
+            } else {
+                let mut pane = QueryPane::from_config_numbered(
+                    &pane_config.query,
+                    &pane_config.name,
+                    query_number,
+                );
+                // Apply query state and visualization type for non-snapshot panes
+                let state = pane_config.to_query_state(&config.time.preset);
+                pane.set_query_state(state);
+                pane.set_visualization_type(pane_config.visualization_type());
+                pane
+            };
+
             if !pane_config.tag.is_empty() {
                 query_pane.set_tag(&pane_config.tag);
             }
@@ -131,13 +153,6 @@ impl Workspace {
             if !pane_config.unit.is_empty() {
                 query_pane.set_unit(&pane_config.unit);
             }
-
-            // Apply query state
-            let state = pane_config.to_query_state(&config.time.preset);
-            query_pane.set_query_state(state);
-
-            // Apply visualization type from config
-            query_pane.set_visualization_type(pane_config.visualization_type());
 
             // Track the chart
             self.open_charts.insert(pane_config.query.clone());
@@ -213,6 +228,37 @@ impl Workspace {
         } else {
             Some(effective_conn)
         }
+    }
+
+    /// Returns true if any pane has loaded visualization data (non-empty).
+    pub fn has_pane_data(&self) -> bool {
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    if !query_pane
+                        .visualization()
+                        .extract_snapshot_data()
+                        .is_empty()
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Extract snapshot data from all panes for snapshot sharing.
+    pub fn extract_all_snapshot_data(&self) -> Vec<SnapshotPaneData> {
+        let mut data = Vec::new();
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
+                if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
+                    data.push(query_pane.visualization().extract_snapshot_data());
+                }
+            }
+        }
+        data
     }
 
     /// Clear all panes from the viewport
