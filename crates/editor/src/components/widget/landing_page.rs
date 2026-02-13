@@ -544,6 +544,23 @@ impl LandingPage {
                 .size(typography::SM * scale)
                 .color(muted_color.gamma_multiply(0.5)),
         );
+
+        ui.add_space(4.0 * scale);
+
+        // Memorial with typewriter + cursor
+        let memorial = "In memory of Enya \u{2014} the family dog";
+        let memorial_start = credits_start + 0.8;
+        let visible_memorial = self.typewriter(memorial, memorial_start);
+        let memorial_cursor = if self.is_typing(memorial, memorial_start) {
+            self.cursor()
+        } else {
+            ""
+        };
+        ui.label(
+            RichText::new(format!("{visible_memorial}{memorial_cursor}"))
+                .size(typography::XS * scale)
+                .color(muted_color.gamma_multiply(0.35)),
+        );
     }
 
     /// Handle keyboard navigation

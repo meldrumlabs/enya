@@ -6,6 +6,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Landing page memorial**: Added "In memory of Enya — the family dog" below "Crafted in Stockholm" on the landing page, in a smaller, more subtle style with typewriter animation.
+
 - **Auto-update notification banner**: Checks GitHub Releases for new versions on startup and every 30 minutes. Shows a non-intrusive frosted glass banner in the bottom-right corner with "See changes" (opens release page) and "Restart" (downloads and replaces binary) buttons. Dismissed versions are persisted in settings. Supports native auto-update and WASM page reload.
 
 - **Token usage display in agent panel**: After each AI response, a subtle footer shows the model name, token counts (total, input, output), and request duration. Re-exported `TokenUsage` from `enya-ai` crate.
