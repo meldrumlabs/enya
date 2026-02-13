@@ -948,9 +948,10 @@ impl Workspace {
 
                         let toolbar_rect = ui.available_rect_before_wrap();
 
-                        // Only show keyboard hints when there are panes open
-                        // (landing page already shows hints when workspace is empty)
-                        if total_panes > 0 {
+                        // Only show keyboard hints when there are panes open and
+                        // enough horizontal space to avoid overlapping with the
+                        // filter input (~220px) and time range controls (~550px)
+                        if total_panes > 0 && toolbar_rect.width() > 850.0 {
                             let hint_color = self.theme().text_tertiary();
                             let hint_text = "hjkl navigate   : cmd   ? help";
                             let font = egui::FontId::proportional(11.0);
