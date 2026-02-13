@@ -17,6 +17,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Header text overlap when agent panel is open**: Keyboard hints in the workspace toolbar are now hidden when the toolbar is too narrow (< 700px), preventing them from overlapping with the time range controls.
 - **WASM UI too small at default browser zoom**: Applied a 1.5x zoom factor to the WASM build so content (text, buttons, landing page) is readable at 100% browser zoom without requiring manual zoom.
 
 ### Changed
