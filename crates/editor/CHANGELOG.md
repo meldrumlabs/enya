@@ -20,6 +20,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Share links use `enya.build/editor` base path**: Consolidated share URL construction with an `EDITOR_BASE_URL` constant. Native builds use `https://enya.build/editor`, WASM builds derive from the current page URL (supporting self-hosted `enya serve` deployments) with `enya.build/editor` as fallback.
+
 - **Renamed `enya-workspace` crate to `enya-config`**: The workspace configuration crate has been renamed from `enya-workspace` to `enya-config` to better reflect its broader scope. All imports updated from `enya_workspace` to `enya_config`.
 
 ### Added

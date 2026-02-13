@@ -7,6 +7,9 @@
 
 use crate::components::{Notification, NotificationLevel};
 
+/// The canonical base URL for the web editor, used in all share links.
+const EDITOR_BASE_URL: &str = "https://enya.build/editor";
+
 use super::EnyaApp;
 
 impl EnyaApp {
@@ -79,6 +82,18 @@ impl EnyaApp {
         }
     }
 
+    /// Get the base URL for share links.
+    /// On WASM, uses the current page origin/path so self-hosted deployments work.
+    /// On native, falls back to the public editor URL.
+    #[cfg(target_arch = "wasm32")]
+    fn share_base_url() -> String {
+        let base_url = web_sys::window()
+            .and_then(|w| w.location().href().ok())
+            .unwrap_or_else(|| EDITOR_BASE_URL.to_string());
+        // Strip any existing query string
+        base_url.split('?').next().unwrap_or(&base_url).to_string()
+    }
+
     /// Save the current workspace to a file
     pub(super) fn save_workspace(&mut self, name: Option<&str>) {
         let workspace_name = name.unwrap_or("default");
@@ -113,16 +128,8 @@ impl EnyaApp {
             // On web, encode to base64 and copy URL to clipboard
             match workspace_config.to_base64() {
                 Ok(encoded) => {
-                    // Build the full URL
-                    let full_url = {
-                        let base_url = web_sys::window()
-                            .and_then(|w| w.location().href().ok())
-                            .unwrap_or_else(|| "https://enya.build/editor".to_string());
-
-                        // Remove any existing query string
-                        let base_url = base_url.split('?').next().unwrap_or(&base_url);
-                        format!("{base_url}?workspace={encoded}")
-                    };
+                    let base = Self::share_base_url();
+                    let full_url = format!("{base}?workspace={encoded}");
 
                     // Copy to clipboard
                     if let Err(e) = Self::copy_to_clipboard_wasm(&full_url) {
@@ -254,21 +261,14 @@ impl EnyaApp {
 
         match workspace_config.to_base64() {
             Ok(encoded) => {
-                // Build the full URL
                 #[cfg(target_arch = "wasm32")]
                 let full_url = {
-                    // Get the current page URL and append the workspace parameter
-                    let base_url = web_sys::window()
-                        .and_then(|w| w.location().href().ok())
-                        .unwrap_or_else(|| "https://enya.build/editor".to_string());
-
-                    // Remove any existing query string
-                    let base_url = base_url.split('?').next().unwrap_or(&base_url);
-                    format!("{base_url}?workspace={encoded}")
+                    let base = Self::share_base_url();
+                    format!("{base}?workspace={encoded}")
                 };
 
                 #[cfg(not(target_arch = "wasm32"))]
-                let full_url = format!("https://enya.build/editor?workspace={encoded}");
+                let full_url = format!("{EDITOR_BASE_URL}?workspace={encoded}");
 
                 // Copy to clipboard
                 #[cfg(target_arch = "wasm32")]
@@ -310,21 +310,14 @@ impl EnyaApp {
 
         match workspace_config.pane_to_base64(pane_index) {
             Ok(encoded) => {
-                // Build the full URL
                 #[cfg(target_arch = "wasm32")]
                 let full_url = {
-                    // Get the current page URL and append the pane parameter
-                    let base_url = web_sys::window()
-                        .and_then(|w| w.location().href().ok())
-                        .unwrap_or_else(|| "https://enya.build/editor".to_string());
-
-                    // Remove any existing query string
-                    let base_url = base_url.split('?').next().unwrap_or(&base_url);
-                    format!("{base_url}?pane={encoded}")
+                    let base = Self::share_base_url();
+                    format!("{base}?pane={encoded}")
                 };
 
                 #[cfg(not(target_arch = "wasm32"))]
-                let full_url = format!("https://enya.build/editor?pane={encoded}");
+                let full_url = format!("{EDITOR_BASE_URL}?pane={encoded}");
 
                 // Copy to clipboard
                 #[cfg(target_arch = "wasm32")]
