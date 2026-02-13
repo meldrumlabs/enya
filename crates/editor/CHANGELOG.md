@@ -24,6 +24,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Plugins overlay shows native-only notice on WASM**: The plugins overlay now displays a "Native app required" message when running in the browser, matching the pattern used by the unified finder for codebase search.
+
 - **Agent panel opens at 50% width**: The agent panel now opens at 50% of the available workspace width (instead of a fixed 400px), so the panel and viewport share space equally. The width resets to 50% each time the panel is opened. The panel remains resizable (min 300px, max 80% of available width).
 
 - **Renamed `enya-workspace` crate to `enya-config`**: The workspace configuration crate has been renamed from `enya-workspace` to `enya-config` to better reflect its broader scope. All imports updated from `enya_workspace` to `enya_config`.
