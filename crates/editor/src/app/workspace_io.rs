@@ -340,6 +340,47 @@ impl EnyaApp {
         }
     }
 
+    /// Build a snapshot share URL for selected panes (config + data).
+    /// Returns the URL string or None on error (with notification).
+    pub(super) fn build_snapshot_selected_url(&mut self, pane_indices: &[usize]) -> Option<String> {
+        let workspace_config = self
+            .workspace
+            .to_workspace_config_for_panes("snapshot", pane_indices);
+        let pane_data = self.workspace.extract_snapshot_data_for_panes(pane_indices);
+        let captured_at = crate::util::now_unix_secs() as u64;
+
+        match workspace_config.snapshot_to_base64(&pane_data, captured_at) {
+            Ok(encoded) => Some(Self::build_share_url("workspace", &encoded)),
+            Err(e) => {
+                log::error!("Failed to encode selected panes snapshot: {e}");
+                self.notifications.notify(Notification::new(
+                    format!("Failed to encode snapshot: {e}"),
+                    NotificationLevel::Error,
+                ));
+                None
+            }
+        }
+    }
+
+    /// Build a config-only share URL for selected panes (no embedded data).
+    /// Returns the URL string or None on error (with notification).
+    pub(super) fn build_share_selected_url(&mut self, pane_indices: &[usize]) -> Option<String> {
+        let workspace_config = self
+            .workspace
+            .to_workspace_config_for_panes("shared", pane_indices);
+        match workspace_config.to_base64() {
+            Ok(encoded) => Some(Self::build_share_url("workspace", &encoded)),
+            Err(e) => {
+                log::error!("Failed to encode selected panes: {e}");
+                self.notifications.notify(Notification::new(
+                    format!("Failed to encode panes: {e}"),
+                    NotificationLevel::Error,
+                ));
+                None
+            }
+        }
+    }
+
     /// Build a full share URL from a query parameter name and encoded value.
     fn build_share_url(param: &str, encoded: &str) -> String {
         #[cfg(target_arch = "wasm32")]

@@ -593,6 +593,11 @@ impl QueryPane {
         self.description = description.to_string();
     }
 
+    /// Get the unit suffix for values (e.g., "ms", "req/s", "%")
+    pub fn unit(&self) -> &str {
+        self.visualization.unit()
+    }
+
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
     pub fn set_unit(&mut self, unit: &str) {
         self.visualization.set_unit(unit);

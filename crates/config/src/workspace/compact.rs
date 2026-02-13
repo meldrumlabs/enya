@@ -56,6 +56,8 @@ pub(crate) struct CompactSinglePane {
     pub header: u8,
     /// Packed flags: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-5)
     pub flags: u8,
+    /// Optional unit suffix (None = empty string)
+    pub unit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +69,8 @@ pub(crate) struct CompactPane {
     pub tag: Option<String>,
     /// Packed: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-5)
     pub flags: u8,
+    /// Optional unit suffix (None = empty string, e.g. "req/s", "ms", "%")
+    pub unit: Option<String>,
 }
 
 // =============================================================================
@@ -136,6 +140,8 @@ struct CompactSnapshotPane {
     pub tag: Option<String>,
     pub flags: u8,
     pub data: CompactVizData,
+    /// Optional unit suffix (None = empty string)
+    pub unit: Option<String>,
 }
 
 /// Compact snapshot workspace: config + data for all panes
@@ -157,6 +163,8 @@ struct CompactSnapshotSinglePane {
     pub flags: u8,
     pub data: CompactVizData,
     pub captured_at: u64,
+    /// Optional unit suffix (None = empty string)
+    pub unit: Option<String>,
 }
 
 /// Downsample points using the Largest Triangle Three Buckets (LTTB) algorithm.
@@ -422,6 +430,7 @@ impl CompactSnapshotWorkspace {
                         tag: p.tag,
                         flags: p.flags,
                         data,
+                        unit: p.unit,
                     }
                 })
                 .collect(),
@@ -443,6 +452,7 @@ impl CompactSnapshotWorkspace {
                     name: p.name.clone(),
                     tag: p.tag.clone(),
                     flags: p.flags,
+                    unit: p.unit.clone(),
                 })
                 .collect(),
             layout: self.layout,
@@ -478,6 +488,7 @@ impl CompactSnapshotSinglePane {
             flags: config.flags,
             data: CompactVizData::from_snapshot(data),
             captured_at: 0,
+            unit: config.unit,
         }
     }
 
@@ -487,6 +498,7 @@ impl CompactSnapshotSinglePane {
             name: self.name.clone(),
             header: self.header,
             flags: self.flags,
+            unit: self.unit.clone(),
         };
         let mut ws = config.into_workspace();
 
@@ -652,6 +664,11 @@ impl CompactWorkspaceConfig {
                             Some(p.tag.clone())
                         },
                         flags,
+                        unit: if p.unit.is_empty() {
+                            None
+                        } else {
+                            Some(p.unit.clone())
+                        },
                     }
                 })
                 .collect(),
@@ -709,7 +726,7 @@ impl CompactWorkspaceConfig {
                     name: p.name.unwrap_or_default(),
                     description: String::new(), // Compact format doesn't encode description
                     tag: p.tag.unwrap_or_default(),
-                    unit: String::new(), // Compact format doesn't encode unit
+                    unit: p.unit.unwrap_or_default(),
                     granularity: match gran {
                         0 => "1m",
                         1 => "5m",
@@ -786,6 +803,11 @@ impl CompactSinglePane {
             },
             header,
             flags,
+            unit: if pane.unit.is_empty() {
+                None
+            } else {
+                Some(pane.unit.clone())
+            },
         }
     }
 
@@ -820,7 +842,7 @@ impl CompactSinglePane {
             name: self.name.unwrap_or_default(),
             description: String::new(),
             tag: String::new(),
-            unit: String::new(),
+            unit: self.unit.unwrap_or_default(),
             granularity: match gran {
                 0 => "1m",
                 1 => "5m",

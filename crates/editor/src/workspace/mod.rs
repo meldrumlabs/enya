@@ -146,6 +146,8 @@ pub enum WorkspaceAction {
     ShareLiveWorkspace,
     /// Share a single pane as config-only URL (no embedded data)
     ShareLivePane(usize),
+    /// Share selected panes as URL (snapshot if data loaded, config-only otherwise)
+    ShareSelectedPanes(Vec<usize>),
     /// Quit the application
     QuitApp,
     /// Open the annotation editor for the focused pane

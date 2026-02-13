@@ -907,6 +907,22 @@ impl EnyaApp {
                     self.copy_share_url(ctx, &url, "Pane snapshot URL copied to clipboard");
                 }
             }
+            WorkspaceAction::ShareSelectedPanes(indices) => {
+                let count = indices.len();
+                // Context-aware: snapshot if selected panes have data, config-only otherwise
+                let url = if self.workspace.has_pane_data_for_indices(&indices) {
+                    self.build_snapshot_selected_url(&indices)
+                } else {
+                    self.build_share_selected_url(&indices)
+                };
+                if let Some(url) = url {
+                    self.copy_share_url(
+                        ctx,
+                        &url,
+                        &format!("{count} panes snapshot URL copied to clipboard"),
+                    );
+                }
+            }
             WorkspaceAction::ShareLiveWorkspace => {
                 if let Some(url) = self.build_share_workspace_url() {
                     self.copy_share_url(ctx, &url, "Workspace URL copied to clipboard");

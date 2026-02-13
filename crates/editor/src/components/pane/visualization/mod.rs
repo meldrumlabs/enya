@@ -544,6 +544,18 @@ impl Visualization {
         }
     }
 
+    /// Get the unit suffix for values (e.g., "ms", "req/s", "%")
+    pub fn unit(&self) -> &str {
+        match self {
+            Self::TimeSeries(chart) => chart.unit(),
+            Self::Stat(stat) => stat.unit(),
+            Self::Gauge(gauge) => gauge.unit(),
+            Self::BarChart(bar) => bar.unit(),
+            Self::Sparkline(spark) => spark.unit(),
+            Self::Heatmap(_) => "",
+        }
+    }
+
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
     /// This applies to visualization types that support units.
     pub fn set_unit(&mut self, unit: impl Into<String>) {
