@@ -100,8 +100,10 @@ pub enum CommandResult {
     TakeScreenshot(Option<String>),
     /// Load workspace (:source <name>)
     LoadWorkspace(String),
-    /// Share workspace as URL (:share)
+    /// Share workspace as URL — snapshot if data loaded, config-only otherwise (:share)
     ShareWorkspace,
+    /// Share workspace as config-only URL, no embedded data (:share-live)
+    ShareLiveWorkspace,
     /// Set AI provider (claude, codex)
     SetProvider(String),
     /// Set auto-refresh interval (off/10s/30s/1m/5m/15m)
@@ -189,7 +191,13 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
     PaletteCommand {
         name: "share",
         aliases: &[],
-        description: "Share workspace as URL",
+        description: "Share workspace as URL (snapshot if data loaded)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "share-live",
+        aliases: &[],
+        description: "Share workspace as config-only URL (no data)",
         kind: CommandKind::NoArgs,
     },
     PaletteCommand {
@@ -577,6 +585,7 @@ impl CommandPalette {
                 }
             }
             "share" => CommandResult::ShareWorkspace,
+            "share-live" => CommandResult::ShareLiveWorkspace,
             "provider" | "ai" => {
                 // :provider <name> - set AI provider
                 if args.is_empty() {

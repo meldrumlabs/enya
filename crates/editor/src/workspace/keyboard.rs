@@ -963,9 +963,25 @@ impl Workspace {
         let mut should_close_selected = false;
         let mut should_refresh_selected = false;
         let mut should_enter_agent_mode = false;
+        let mut should_share_selected = false;
         let mut new_cursor_id: Option<TileId> = None;
 
         ctx.input_mut(|input| {
+            // yy - share selected panes (vim-style yank)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::Y) {
+                if self.leader_keys.is_yy_active() {
+                    // Second y within timeout - trigger share
+                    should_share_selected = true;
+                    self.leader_keys.clear_y();
+                    consumed = true;
+                    return;
+                }
+                // First y - record time
+                self.leader_keys.press_y();
+                consumed = true;
+                return;
+            }
+
             // Escape - exit visual-multi mode
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
                 should_exit = true;
@@ -1061,6 +1077,31 @@ impl Workspace {
                 consumed = true;
             }
         });
+
+        // Handle share selected panes (yy in visual-multi)
+        if should_share_selected {
+            if let Some(state) = &self.visual_multi_state {
+                // Collect selected tile IDs and convert to sorted pane indices
+                let mut indices: Vec<usize> = state
+                    .selected_tile_ids
+                    .iter()
+                    .filter_map(|&tile_id| self.get_pane_index(tile_id))
+                    .collect();
+                indices.sort_unstable();
+
+                if !indices.is_empty() {
+                    // Trigger yank flash on each selected pane
+                    for &tile_id in &state.selected_tile_ids {
+                        self.behavior.trigger_yank_flash(tile_id);
+                    }
+                    // Exit visual-multi mode
+                    self.exit_visual_multi_mode();
+                    self.multi_buffer_state.reset();
+                    ctx.request_repaint();
+                    return Some(WorkspaceAction::ShareSelectedPanes(indices));
+                }
+            }
+        }
 
         // Apply actions
         if should_exit {

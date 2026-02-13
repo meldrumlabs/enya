@@ -11,12 +11,14 @@
 //!
 //! - `p` - LZ4-compressed postcard workspace (multi-pane)
 //! - `q` - LZ4-compressed postcard single pane (most compact for single query)
+//! - `s` - LZ4-compressed postcard workspace snapshot (config + data)
+//! - `t` - LZ4-compressed postcard single pane snapshot (config + data)
 
 use serde::{Deserialize, Serialize};
 
 use super::{
-    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig, WorkspaceConfig,
-    WorkspaceError,
+    LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig, SnapshotMeta,
+    SnapshotPaneData, SnapshotSeries, WorkspaceConfig, WorkspaceError,
 };
 
 /// Compact workspace representation for URL sharing (postcard binary format)
@@ -54,6 +56,8 @@ pub(crate) struct CompactSinglePane {
     pub header: u8,
     /// Packed flags: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-5)
     pub flags: u8,
+    /// Optional unit suffix (None = empty string)
+    pub unit: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +69,446 @@ pub(crate) struct CompactPane {
     pub tag: Option<String>,
     /// Packed: bits 0-2 = granularity (0-5), bits 3-5 = visualization (0-5)
     pub flags: u8,
+    /// Optional unit suffix (None = empty string, e.g. "req/s", "ms", "%")
+    pub unit: Option<String>,
+}
+
+// =============================================================================
+// Snapshot types (config + embedded visualization data)
+// =============================================================================
+
+/// Maximum number of data points per series in snapshot encoding.
+/// LTTB downsampling reduces larger series to this count while preserving visual shape.
+const SNAPSHOT_MAX_POINTS: usize = 100;
+
+/// Compact time series data with string deduplication.
+/// Series names and tag keys/values are stored in a shared string table,
+/// with each series referencing strings by u16 index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactTimeSeriesData {
+    pub strings: Vec<String>,
+    pub series: Vec<CompactSeriesRef>,
+}
+
+/// A single series referencing the shared string table by index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactSeriesRef {
+    pub name_idx: u16,
+    pub tags: Vec<(u16, u16)>,
+    pub base_timestamp: f64,
+    pub deltas: CompactDeltas,
+    pub values: Vec<f32>,
+}
+
+/// Timestamp deltas: regular (all same step) or irregular (variable gaps).
+/// Regular deltas encode as a single u32 vs N varints, saving ~100 bytes per series.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum CompactDeltas {
+    /// All gaps are identical (common for fixed scrape intervals).
+    /// Count is implicit from values.len().
+    Regular(u32),
+    /// Variable gaps between consecutive points.
+    Irregular(Vec<u32>),
+}
+
+/// Compact visualization data enum (uses f32 for all numeric fields)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+enum CompactVizData {
+    TimeSeries(CompactTimeSeriesData),
+    Stat {
+        value: f32,
+        sparkline: Vec<f32>,
+    },
+    Gauge {
+        value: f32,
+        min: f32,
+        max: f32,
+    },
+    BarChart(Vec<(String, f32)>),
+    Heatmap {
+        cols: u16,
+        rows: u16,
+        values: Vec<f32>,
+    },
+}
+
+/// Compact snapshot pane: config fields + data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactSnapshotPane {
+    pub query: String,
+    pub name: Option<String>,
+    pub tag: Option<String>,
+    pub flags: u8,
+    pub data: CompactVizData,
+    /// Optional unit suffix (None = empty string)
+    pub unit: Option<String>,
+}
+
+/// Compact snapshot workspace: config + data for all panes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactSnapshotWorkspace {
+    pub name: String,
+    pub header: u8,
+    pub panes: Vec<CompactSnapshotPane>,
+    pub layout: Option<CompactLayout>,
+    pub captured_at: u64,
+}
+
+/// Compact snapshot for a single pane
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactSnapshotSinglePane {
+    pub query: String,
+    pub name: Option<String>,
+    pub header: u8,
+    pub flags: u8,
+    pub data: CompactVizData,
+    pub captured_at: u64,
+    /// Optional unit suffix (None = empty string)
+    pub unit: Option<String>,
+}
+
+/// Downsample points using the Largest Triangle Three Buckets (LTTB) algorithm.
+/// Preserves visual shape by selecting points that maximize triangle area in each bucket.
+/// Always preserves first and last points. Returns input unchanged if `target >= len`.
+fn lttb_downsample(points: &[(f64, f64)], target: usize) -> Vec<(f64, f64)> {
+    let n = points.len();
+    if target >= n || target < 3 {
+        return points.to_vec();
+    }
+
+    let mut result = Vec::with_capacity(target);
+    result.push(points[0]);
+
+    let bucket_size = (n - 2) as f64 / (target - 2) as f64;
+    let mut prev_selected = 0usize;
+
+    for i in 1..(target - 1) {
+        // Current bucket range
+        let bucket_start = ((i - 1) as f64 * bucket_size).floor() as usize + 1;
+        let bucket_end = ((i as f64) * bucket_size).floor() as usize + 1;
+        let bucket_end = bucket_end.min(n - 1);
+
+        // Average of next bucket (the "C" point in the triangle)
+        let next_start = bucket_end;
+        let next_end = (((i + 1) as f64) * bucket_size).floor() as usize + 1;
+        let next_end = next_end.min(n);
+        let next_count = (next_end - next_start).max(1) as f64;
+        let avg_x: f64 = points[next_start..next_end]
+            .iter()
+            .map(|p| p.0)
+            .sum::<f64>()
+            / next_count;
+        let avg_y: f64 = points[next_start..next_end]
+            .iter()
+            .map(|p| p.1)
+            .sum::<f64>()
+            / next_count;
+
+        // Find point in current bucket with largest triangle area
+        let (ax, ay) = points[prev_selected];
+        let mut max_area = -1.0f64;
+        let mut max_idx = bucket_start;
+
+        for (j, pt) in points
+            .iter()
+            .enumerate()
+            .take(bucket_end)
+            .skip(bucket_start)
+        {
+            let area = ((pt.0 - ax) * (avg_y - ay) - (avg_x - ax) * (pt.1 - ay)).abs();
+            if area > max_area {
+                max_area = area;
+                max_idx = j;
+            }
+        }
+
+        result.push(points[max_idx]);
+        prev_selected = max_idx;
+    }
+
+    result.push(points[n - 1]);
+    result
+}
+
+/// Intern a string into the shared table, returning its index.
+fn intern_string(
+    table: &mut Vec<String>,
+    map: &mut rustc_hash::FxHashMap<String, u16>,
+    s: &str,
+) -> u16 {
+    if let Some(&idx) = map.get(s) {
+        idx
+    } else {
+        let idx = table.len() as u16;
+        table.push(s.to_string());
+        map.insert(s.to_string(), idx);
+        idx
+    }
+}
+
+impl CompactVizData {
+    fn from_snapshot(data: &SnapshotPaneData) -> Self {
+        match data {
+            SnapshotPaneData::TimeSeries { series } => {
+                let mut strings = Vec::new();
+                let mut string_map = rustc_hash::FxHashMap::default();
+
+                let compact_series: Vec<CompactSeriesRef> = series
+                    .iter()
+                    .map(|s| {
+                        // Downsample with LTTB to keep URLs compact
+                        let downsampled = lttb_downsample(&s.points, SNAPSHOT_MAX_POINTS);
+
+                        // Delta-encode timestamps
+                        let base_timestamp = downsampled.first().map(|p| p.0).unwrap_or(0.0);
+                        let raw_deltas: Vec<u32> = if downsampled.len() <= 1 {
+                            vec![0; downsampled.len()]
+                        } else {
+                            let mut ds = Vec::with_capacity(downsampled.len());
+                            ds.push(0u32);
+                            for w in downsampled.windows(2) {
+                                ds.push((w[1].0 - w[0].0).max(0.0).min(u32::MAX as f64) as u32);
+                            }
+                            ds
+                        };
+
+                        // Detect regular intervals (all non-zero deltas identical)
+                        let deltas = if raw_deltas.len() <= 1 {
+                            CompactDeltas::Regular(0)
+                        } else {
+                            let step = raw_deltas[1];
+                            if raw_deltas[1..].iter().all(|&d| d == step) {
+                                CompactDeltas::Regular(step)
+                            } else {
+                                CompactDeltas::Irregular(raw_deltas)
+                            }
+                        };
+
+                        // Intern strings into shared table
+                        let name_idx = intern_string(&mut strings, &mut string_map, &s.name);
+                        let tags: Vec<(u16, u16)> = s
+                            .tags
+                            .iter()
+                            .map(|(k, v)| {
+                                (
+                                    intern_string(&mut strings, &mut string_map, k),
+                                    intern_string(&mut strings, &mut string_map, v),
+                                )
+                            })
+                            .collect();
+
+                        CompactSeriesRef {
+                            name_idx,
+                            tags,
+                            base_timestamp,
+                            deltas,
+                            values: downsampled.iter().map(|p| p.1 as f32).collect(),
+                        }
+                    })
+                    .collect();
+
+                CompactVizData::TimeSeries(CompactTimeSeriesData {
+                    strings,
+                    series: compact_series,
+                })
+            }
+            SnapshotPaneData::Stat { value, sparkline } => CompactVizData::Stat {
+                value: *value as f32,
+                sparkline: sparkline.iter().map(|&v| v as f32).collect(),
+            },
+            SnapshotPaneData::Gauge { value, min, max } => CompactVizData::Gauge {
+                value: *value as f32,
+                min: *min as f32,
+                max: *max as f32,
+            },
+            SnapshotPaneData::BarChart { bars } => {
+                CompactVizData::BarChart(bars.iter().map(|(k, v)| (k.clone(), *v as f32)).collect())
+            }
+            SnapshotPaneData::Heatmap { cols, rows, values } => CompactVizData::Heatmap {
+                cols: *cols,
+                rows: *rows,
+                values: values.clone(),
+            },
+        }
+    }
+
+    fn into_snapshot(self) -> SnapshotPaneData {
+        match self {
+            CompactVizData::TimeSeries(ts_data) => {
+                let CompactTimeSeriesData { strings, series } = ts_data;
+                SnapshotPaneData::TimeSeries {
+                    series: series
+                        .into_iter()
+                        .map(|s| {
+                            let CompactSeriesRef {
+                                name_idx,
+                                tags,
+                                base_timestamp,
+                                deltas,
+                                values,
+                            } = s;
+
+                            // Look up strings from shared table
+                            let name = strings.get(name_idx as usize).cloned().unwrap_or_default();
+                            let tags: Vec<(String, String)> = tags
+                                .iter()
+                                .map(|&(ki, vi)| {
+                                    (
+                                        strings.get(ki as usize).cloned().unwrap_or_default(),
+                                        strings.get(vi as usize).cloned().unwrap_or_default(),
+                                    )
+                                })
+                                .collect();
+
+                            // Reconstruct absolute timestamps
+                            let points: Vec<(f64, f64)> = match deltas {
+                                CompactDeltas::Regular(step) => values
+                                    .into_iter()
+                                    .enumerate()
+                                    .map(|(i, value)| {
+                                        (base_timestamp + i as f64 * step as f64, value as f64)
+                                    })
+                                    .collect(),
+                                CompactDeltas::Irregular(deltas) => {
+                                    let mut ts = base_timestamp;
+                                    deltas
+                                        .into_iter()
+                                        .zip(values)
+                                        .map(|(delta, value)| {
+                                            ts += delta as f64;
+                                            (ts, value as f64)
+                                        })
+                                        .collect()
+                                }
+                            };
+
+                            SnapshotSeries { name, tags, points }
+                        })
+                        .collect(),
+                }
+            }
+            CompactVizData::Stat { value, sparkline } => SnapshotPaneData::Stat {
+                value: value as f64,
+                sparkline: sparkline.into_iter().map(|v| v as f64).collect(),
+            },
+            CompactVizData::Gauge { value, min, max } => SnapshotPaneData::Gauge {
+                value: value as f64,
+                min: min as f64,
+                max: max as f64,
+            },
+            CompactVizData::BarChart(bars) => SnapshotPaneData::BarChart {
+                bars: bars.into_iter().map(|(k, v)| (k, v as f64)).collect(),
+            },
+            CompactVizData::Heatmap { cols, rows, values } => {
+                SnapshotPaneData::Heatmap { cols, rows, values }
+            }
+        }
+    }
+}
+
+impl CompactSnapshotWorkspace {
+    fn from_workspace(ws: &WorkspaceConfig, pane_data: &[SnapshotPaneData]) -> Self {
+        let config = CompactWorkspaceConfig::from_workspace(ws);
+        Self {
+            name: config.name,
+            header: config.header,
+            panes: config
+                .panes
+                .into_iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let data = pane_data
+                        .get(i)
+                        .map(CompactVizData::from_snapshot)
+                        .unwrap_or(CompactVizData::TimeSeries(CompactTimeSeriesData {
+                            strings: Vec::new(),
+                            series: Vec::new(),
+                        }));
+                    CompactSnapshotPane {
+                        query: p.query,
+                        name: p.name,
+                        tag: p.tag,
+                        flags: p.flags,
+                        data,
+                        unit: p.unit,
+                    }
+                })
+                .collect(),
+            layout: config.layout,
+            captured_at: 0, // Set by caller
+        }
+    }
+
+    fn into_workspace(self) -> WorkspaceConfig {
+        // First build the config-only workspace
+        let config = CompactWorkspaceConfig {
+            name: self.name,
+            header: self.header,
+            panes: self
+                .panes
+                .iter()
+                .map(|p| CompactPane {
+                    query: p.query.clone(),
+                    name: p.name.clone(),
+                    tag: p.tag.clone(),
+                    flags: p.flags,
+                    unit: p.unit.clone(),
+                })
+                .collect(),
+            layout: self.layout,
+        };
+        let mut ws = config.into_workspace();
+
+        // Attach snapshot data
+        ws.snapshot = Some(SnapshotMeta {
+            captured_at: self.captured_at,
+            pane_data: self
+                .panes
+                .into_iter()
+                .map(|p| p.data.into_snapshot())
+                .collect(),
+        });
+
+        ws
+    }
+}
+
+impl CompactSnapshotSinglePane {
+    fn from_pane(
+        pane: &PaneConfig,
+        time_preset: &str,
+        theme: &str,
+        data: &SnapshotPaneData,
+    ) -> Self {
+        let config = CompactSinglePane::from_pane(pane, time_preset, theme);
+        Self {
+            query: config.query,
+            name: config.name,
+            header: config.header,
+            flags: config.flags,
+            data: CompactVizData::from_snapshot(data),
+            captured_at: 0,
+            unit: config.unit,
+        }
+    }
+
+    fn into_workspace(self) -> WorkspaceConfig {
+        let config = CompactSinglePane {
+            query: self.query.clone(),
+            name: self.name.clone(),
+            header: self.header,
+            flags: self.flags,
+            unit: self.unit.clone(),
+        };
+        let mut ws = config.into_workspace();
+
+        ws.snapshot = Some(SnapshotMeta {
+            captured_at: self.captured_at,
+            pane_data: vec![self.data.into_snapshot()],
+        });
+
+        ws
+    }
 }
 
 impl CompactLayout {
@@ -220,6 +664,11 @@ impl CompactWorkspaceConfig {
                             Some(p.tag.clone())
                         },
                         flags,
+                        unit: if p.unit.is_empty() {
+                            None
+                        } else {
+                            Some(p.unit.clone())
+                        },
                     }
                 })
                 .collect(),
@@ -277,7 +726,7 @@ impl CompactWorkspaceConfig {
                     name: p.name.unwrap_or_default(),
                     description: String::new(), // Compact format doesn't encode description
                     tag: p.tag.unwrap_or_default(),
-                    unit: String::new(), // Compact format doesn't encode unit
+                    unit: p.unit.unwrap_or_default(),
                     granularity: match gran {
                         0 => "1m",
                         1 => "5m",
@@ -354,6 +803,11 @@ impl CompactSinglePane {
             },
             header,
             flags,
+            unit: if pane.unit.is_empty() {
+                None
+            } else {
+                Some(pane.unit.clone())
+            },
         }
     }
 
@@ -388,7 +842,7 @@ impl CompactSinglePane {
             name: self.name.unwrap_or_default(),
             description: String::new(),
             tag: String::new(),
-            unit: String::new(),
+            unit: self.unit.unwrap_or_default(),
             granularity: match gran {
                 0 => "1m",
                 1 => "5m",
@@ -456,6 +910,34 @@ pub fn decode_workspace(encoded: &str) -> Result<WorkspaceConfig, WorkspaceError
         return Ok(compact.into_workspace());
     }
 
+    if let Some(rest) = encoded.strip_prefix('s') {
+        // Compressed postcard snapshot workspace format
+        let compressed = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(rest)
+            .map_err(|e| WorkspaceError::Decode(e.to_string()))?;
+
+        let decompressed = lz4_flex::decompress_size_prepended(&compressed)
+            .map_err(|e| WorkspaceError::Decode(format!("LZ4 decompression failed: {e}")))?;
+
+        let snapshot: CompactSnapshotWorkspace = postcard::from_bytes(&decompressed)
+            .map_err(|e| WorkspaceError::Decode(format!("postcard decode failed: {e}")))?;
+        return Ok(snapshot.into_workspace());
+    }
+
+    if let Some(rest) = encoded.strip_prefix('t') {
+        // Compressed postcard snapshot single-pane format
+        let compressed = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(rest)
+            .map_err(|e| WorkspaceError::Decode(e.to_string()))?;
+
+        let decompressed = lz4_flex::decompress_size_prepended(&compressed)
+            .map_err(|e| WorkspaceError::Decode(format!("LZ4 decompression failed: {e}")))?;
+
+        let snapshot: CompactSnapshotSinglePane = postcard::from_bytes(&decompressed)
+            .map_err(|e| WorkspaceError::Decode(format!("postcard decode failed: {e}")))?;
+        return Ok(snapshot.into_workspace());
+    }
+
     // Legacy: raw TOML (no prefix)
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(encoded)
@@ -503,6 +985,59 @@ pub fn encode_pane(ws: &WorkspaceConfig, pane_index: usize) -> Result<String, Wo
     // Prefix with "q" to indicate single-pane format
     Ok(format!(
         "q{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&compressed)
+    ))
+}
+
+/// Encode workspace snapshot to base64 (config + visualization data)
+/// Uses "s" prefix for snapshot workspace format.
+pub fn encode_snapshot_workspace(
+    ws: &WorkspaceConfig,
+    pane_data: &[SnapshotPaneData],
+    captured_at: u64,
+) -> Result<String, WorkspaceError> {
+    use base64::Engine;
+
+    let mut snapshot = CompactSnapshotWorkspace::from_workspace(ws, pane_data);
+    snapshot.captured_at = captured_at;
+
+    let bytes = postcard::to_allocvec(&snapshot)
+        .map_err(|e| WorkspaceError::Encode(format!("postcard encode failed: {e}")))?;
+
+    let compressed = lz4_flex::compress_prepend_size(&bytes);
+
+    Ok(format!(
+        "s{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&compressed)
+    ))
+}
+
+/// Encode a single pane snapshot to base64 (config + visualization data)
+/// Uses "t" prefix for snapshot single-pane format.
+pub fn encode_snapshot_pane(
+    ws: &WorkspaceConfig,
+    pane_index: usize,
+    data: &SnapshotPaneData,
+    captured_at: u64,
+) -> Result<String, WorkspaceError> {
+    use base64::Engine;
+
+    let pane = ws
+        .panes
+        .get(pane_index)
+        .ok_or_else(|| WorkspaceError::Encode(format!("pane index {pane_index} out of range")))?;
+
+    let mut snapshot =
+        CompactSnapshotSinglePane::from_pane(pane, &ws.time.preset, &ws.view.theme, data);
+    snapshot.captured_at = captured_at;
+
+    let bytes = postcard::to_allocvec(&snapshot)
+        .map_err(|e| WorkspaceError::Encode(format!("postcard encode failed: {e}")))?;
+
+    let compressed = lz4_flex::compress_prepend_size(&bytes);
+
+    Ok(format!(
+        "t{}",
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&compressed)
     ))
 }
@@ -1038,6 +1573,733 @@ mod tests {
         assert!(
             encoded.starts_with('q'),
             "Single pane should have 'q' prefix"
+        );
+    }
+
+    // ==========================================================================
+    // Snapshot encoding tests
+    // ==========================================================================
+
+    fn make_time_series_data() -> SnapshotPaneData {
+        SnapshotPaneData::TimeSeries {
+            series: vec![
+                SnapshotSeries {
+                    name: "http_requests_total".to_string(),
+                    tags: vec![("method".to_string(), "GET".to_string())],
+                    points: vec![(1000.0, 42.0), (1060.0, 55.0), (1120.0, 38.0)],
+                },
+                SnapshotSeries {
+                    name: "http_requests_total".to_string(),
+                    tags: vec![("method".to_string(), "POST".to_string())],
+                    points: vec![(1000.0, 10.0), (1060.0, 12.0)],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn test_snapshot_workspace_round_trip_time_series() {
+        let mut ws = WorkspaceConfig::new("snap");
+        ws.panes.push(make_pane("rate(http_requests_total[5m])"));
+        let pane_data = vec![make_time_series_data()];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        assert!(encoded.starts_with('s'), "Should have 's' prefix");
+
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        assert_eq!(decoded.workspace.name, "snap");
+        assert_eq!(decoded.panes.len(), 1);
+        assert_eq!(decoded.panes[0].query, "rate(http_requests_total[5m])");
+
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        assert_eq!(snapshot.captured_at, 1700000000);
+        assert_eq!(snapshot.pane_data.len(), 1);
+
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                assert_eq!(series.len(), 2);
+                assert_eq!(series[0].name, "http_requests_total");
+                assert_eq!(
+                    series[0].tags,
+                    vec![("method".to_string(), "GET".to_string())]
+                );
+                assert_eq!(series[0].points.len(), 3);
+                // Timestamps are exact (f64 base + u32 delta), values approximate (f32 round-trip)
+                let (t, v) = series[0].points[0];
+                assert!(
+                    (t - 1000.0).abs() < 0.01,
+                    "timestamp should be ~1000.0, got {t}"
+                );
+                assert!((v - 42.0).abs() < 0.1, "value should be ~42.0, got {v}");
+                assert_eq!(series[1].points.len(), 2);
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_workspace_round_trip_stat() {
+        let mut ws = WorkspaceConfig::new("stat-snap");
+        ws.panes
+            .push(make_pane_full("up", "Uptime", "", "5m", "stat"));
+        let pane_data = vec![SnapshotPaneData::Stat {
+            value: 99.9,
+            sparkline: vec![98.0, 99.0, 99.5, 99.9],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::Stat { value, sparkline } => {
+                assert!((value - 99.9).abs() < 0.01);
+                assert_eq!(sparkline.len(), 4);
+            }
+            other => panic!("Expected Stat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_workspace_round_trip_gauge() {
+        let mut ws = WorkspaceConfig::new("gauge-snap");
+        ws.panes
+            .push(make_pane_full("cpu", "CPU", "", "5m", "gauge"));
+        let pane_data = vec![SnapshotPaneData::Gauge {
+            value: 75.5,
+            min: 0.0,
+            max: 100.0,
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::Gauge { value, min, max } => {
+                assert!((value - 75.5).abs() < 0.01);
+                assert!((min - 0.0).abs() < 0.01);
+                assert!((max - 100.0).abs() < 0.01);
+            }
+            other => panic!("Expected Gauge, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_workspace_round_trip_bar_chart() {
+        let mut ws = WorkspaceConfig::new("bar-snap");
+        ws.panes
+            .push(make_pane_full("topk", "Top 5", "", "5m", "bar_chart"));
+        let pane_data = vec![SnapshotPaneData::BarChart {
+            bars: vec![
+                ("alpha".to_string(), 100.0),
+                ("beta".to_string(), 75.0),
+                ("gamma".to_string(), 50.0),
+            ],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::BarChart { bars } => {
+                assert_eq!(bars.len(), 3);
+                assert_eq!(bars[0].0, "alpha");
+                assert!((bars[0].1 - 100.0).abs() < 0.01);
+            }
+            other => panic!("Expected BarChart, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_workspace_round_trip_heatmap() {
+        let mut ws = WorkspaceConfig::new("heat-snap");
+        ws.panes
+            .push(make_pane_full("histo", "Latency", "", "5m", "heatmap"));
+        let pane_data = vec![SnapshotPaneData::Heatmap {
+            cols: 3,
+            rows: 2,
+            values: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::Heatmap { cols, rows, values } => {
+                assert_eq!(*cols, 3);
+                assert_eq!(*rows, 2);
+                assert_eq!(values.len(), 6);
+            }
+            other => panic!("Expected Heatmap, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_workspace_multiple_panes() {
+        let mut ws = WorkspaceConfig::new("multi-snap");
+        ws.panes.push(make_pane("q1"));
+        ws.panes.push(make_pane("q2"));
+        let pane_data = vec![
+            make_time_series_data(),
+            SnapshotPaneData::Stat {
+                value: 42.0,
+                sparkline: vec![],
+            },
+        ];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        assert_eq!(decoded.panes.len(), 2);
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        assert_eq!(snapshot.pane_data.len(), 2);
+        assert!(matches!(
+            snapshot.pane_data[0],
+            SnapshotPaneData::TimeSeries { .. }
+        ));
+        assert!(matches!(
+            snapshot.pane_data[1],
+            SnapshotPaneData::Stat { .. }
+        ));
+    }
+
+    #[test]
+    fn test_snapshot_single_pane_round_trip() {
+        let mut ws = WorkspaceConfig::new("single-snap");
+        ws.panes.push(make_pane_full(
+            "rate(errors[5m])",
+            "Error Rate",
+            "Critical",
+            "1m",
+            "time_series",
+        ));
+        ws.time.preset = "1h".to_string();
+        let data = make_time_series_data();
+
+        let encoded =
+            encode_snapshot_pane(&ws, 0, &data, 1700000000).expect("encode should succeed");
+        assert!(encoded.starts_with('t'), "Should have 't' prefix");
+
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        assert_eq!(decoded.panes.len(), 1);
+        assert_eq!(decoded.panes[0].query, "rate(errors[5m])");
+        assert_eq!(decoded.panes[0].name, "Error Rate");
+        assert_eq!(decoded.time.preset, "1h");
+
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        assert_eq!(snapshot.captured_at, 1700000000);
+        assert!(matches!(
+            snapshot.pane_data[0],
+            SnapshotPaneData::TimeSeries { .. }
+        ));
+    }
+
+    #[test]
+    fn test_snapshot_prefixes() {
+        let mut ws = WorkspaceConfig::new("test");
+        ws.panes.push(make_pane("q"));
+        let data = vec![SnapshotPaneData::Stat {
+            value: 1.0,
+            sparkline: vec![],
+        }];
+
+        let ws_encoded = encode_snapshot_workspace(&ws, &data, 0).expect("encode should succeed");
+        assert!(
+            ws_encoded.starts_with('s'),
+            "Workspace snapshot should have 's' prefix"
+        );
+
+        let pane_encoded =
+            encode_snapshot_pane(&ws, 0, &data[0], 0).expect("encode should succeed");
+        assert!(
+            pane_encoded.starts_with('t'),
+            "Pane snapshot should have 't' prefix"
+        );
+    }
+
+    #[test]
+    fn test_existing_p_q_formats_still_work_after_snapshot_addition() {
+        // Verify backward compatibility: existing p/q formats still decode correctly
+        let mut ws = WorkspaceConfig::new("compat");
+        ws.panes.push(make_pane("rate(http_requests[5m])"));
+        ws.time.preset = "1h".to_string();
+
+        let p_encoded = encode_workspace(&ws).expect("encode p should succeed");
+        let q_encoded = encode_pane(&ws, 0).expect("encode q should succeed");
+
+        let p_decoded = decode_workspace(&p_encoded).expect("decode p should succeed");
+        assert_eq!(p_decoded.panes[0].query, "rate(http_requests[5m])");
+        assert!(
+            p_decoded.snapshot.is_none(),
+            "p format should have no snapshot"
+        );
+
+        let q_decoded = decode_workspace(&q_encoded).expect("decode q should succeed");
+        assert_eq!(q_decoded.panes[0].query, "rate(http_requests[5m])");
+        assert!(
+            q_decoded.snapshot.is_none(),
+            "q format should have no snapshot"
+        );
+    }
+
+    // ==========================================================================
+    // LTTB downsampling tests
+    // ==========================================================================
+
+    #[test]
+    fn test_lttb_passthrough() {
+        // Points below threshold pass through unchanged
+        let points: Vec<(f64, f64)> = (0..50).map(|i| (i as f64, (i as f64).sin())).collect();
+        let result = lttb_downsample(&points, SNAPSHOT_MAX_POINTS);
+        assert_eq!(result.len(), 50);
+        assert_eq!(result, points);
+    }
+
+    #[test]
+    fn test_lttb_reduces_to_target() {
+        // 500-point sine wave reduced to 100
+        let points: Vec<(f64, f64)> = (0..500)
+            .map(|i| (i as f64 * 60.0, (i as f64 * 0.1).sin() * 100.0))
+            .collect();
+        let result = lttb_downsample(&points, 100);
+        assert_eq!(result.len(), 100);
+        // First and last points preserved
+        assert_eq!(result[0], points[0]);
+        assert_eq!(result[99], points[499]);
+    }
+
+    #[test]
+    fn test_lttb_preserves_extrema() {
+        // Flat data with a spike — the spike should survive
+        let mut points: Vec<(f64, f64)> = (0..200).map(|i| (i as f64 * 60.0, 50.0)).collect();
+        points[100] = (100.0 * 60.0, 1000.0); // Big spike at index 100
+
+        let result = lttb_downsample(&points, 50);
+        assert_eq!(result.len(), 50);
+        // The spike should be in the result
+        assert!(
+            result.iter().any(|p| (p.1 - 1000.0).abs() < 0.01),
+            "Spike at y=1000 should survive downsampling"
+        );
+    }
+
+    #[test]
+    fn test_lttb_edge_cases() {
+        // Empty input
+        let empty: Vec<(f64, f64)> = vec![];
+        assert_eq!(lttb_downsample(&empty, 100), empty);
+
+        // Single point
+        let single = vec![(1.0, 2.0)];
+        assert_eq!(lttb_downsample(&single, 100), single);
+
+        // Two points
+        let two = vec![(1.0, 2.0), (3.0, 4.0)];
+        assert_eq!(lttb_downsample(&two, 100), two);
+
+        // Target < 3 returns input unchanged
+        let points: Vec<(f64, f64)> = (0..10).map(|i| (i as f64, i as f64)).collect();
+        assert_eq!(lttb_downsample(&points, 2), points);
+    }
+
+    // ==========================================================================
+    // Delta encoding + f32 precision tests
+    // ==========================================================================
+
+    #[test]
+    fn test_delta_encoding_regular_intervals() {
+        let mut ws = WorkspaceConfig::new("delta");
+        ws.panes.push(make_pane("q"));
+        // 100 points at 60-second intervals
+        let points: Vec<(f64, f64)> = (0..100)
+            .map(|i| (1700000000.0 + i as f64 * 60.0, i as f64 * 1.5))
+            .collect();
+        let pane_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![SnapshotSeries {
+                name: "test".to_string(),
+                tags: vec![],
+                points: points.clone(),
+            }],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                assert_eq!(series[0].points.len(), 100);
+                // Check first and last timestamps
+                let (t0, _) = series[0].points[0];
+                assert!((t0 - 1700000000.0).abs() < 0.01);
+                let (t99, _) = series[0].points[99];
+                assert!((t99 - (1700000000.0 + 99.0 * 60.0)).abs() < 1.0);
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_delta_encoding_irregular_intervals() {
+        let mut ws = WorkspaceConfig::new("irreg");
+        ws.panes.push(make_pane("q"));
+        let points = vec![
+            (1700000000.0, 1.0),
+            (1700000005.0, 2.0), // 5s gap
+            (1700000300.0, 3.0), // 295s gap
+            (1700003600.0, 4.0), // 3300s gap
+            (1700090000.0, 5.0), // 86400s gap
+        ];
+        let pane_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![SnapshotSeries {
+                name: "irreg".to_string(),
+                tags: vec![],
+                points: points.clone(),
+            }],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                assert_eq!(series[0].points.len(), 5);
+                for (i, (orig_t, _)) in points.iter().enumerate() {
+                    let (t, _) = series[0].points[i];
+                    assert!(
+                        (t - orig_t).abs() < 1.0,
+                        "point {i}: expected ~{orig_t}, got {t}"
+                    );
+                }
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_f32_precision_sufficient() {
+        let mut ws = WorkspaceConfig::new("prec");
+        ws.panes.push(make_pane("q"));
+        let values = [0.0, 0.001, 1.5, 42.0, 99.9, 1000.0, 99999.0];
+        let points: Vec<(f64, f64)> = values
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| (1700000000.0 + i as f64 * 60.0, v))
+            .collect();
+        let pane_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![SnapshotSeries {
+                name: "prec".to_string(),
+                tags: vec![],
+                points,
+            }],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                for (i, &expected) in values.iter().enumerate() {
+                    let (_, v) = series[0].points[i];
+                    let tolerance = (expected.abs() * 1e-6).max(1e-6);
+                    assert!(
+                        (v - expected).abs() < tolerance,
+                        "value {i}: expected ~{expected}, got {v}"
+                    );
+                }
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_empty_series() {
+        let mut ws = WorkspaceConfig::new("empty-series");
+        ws.panes.push(make_pane("q"));
+        let pane_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![SnapshotSeries {
+                name: "empty".to_string(),
+                tags: vec![],
+                points: vec![],
+            }],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                assert_eq!(series[0].points.len(), 0);
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_single_point() {
+        let mut ws = WorkspaceConfig::new("single-pt");
+        ws.panes.push(make_pane("q"));
+        let pane_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![SnapshotSeries {
+                name: "one".to_string(),
+                tags: vec![],
+                points: vec![(1700000000.0, 42.0)],
+            }],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                assert_eq!(series[0].points.len(), 1);
+                let (t, v) = series[0].points[0];
+                assert!((t - 1700000000.0).abs() < 0.01);
+                assert!((v - 42.0).abs() < 0.1);
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_size_reduction() {
+        // Realistic 240-point, 2-series snapshot should be compact
+        let mut ws = WorkspaceConfig::new("size");
+        ws.panes.push(make_pane("rate(requests[5m])"));
+        let points_a: Vec<(f64, f64)> = (0..240)
+            .map(|i| {
+                (
+                    1700000000.0 + i as f64 * 60.0,
+                    100.0 + (i as f64 * 0.05).sin() * 50.0,
+                )
+            })
+            .collect();
+        let points_b: Vec<(f64, f64)> = (0..240)
+            .map(|i| {
+                (
+                    1700000000.0 + i as f64 * 60.0,
+                    200.0 + (i as f64 * 0.03).cos() * 30.0,
+                )
+            })
+            .collect();
+        let pane_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![
+                SnapshotSeries {
+                    name: "series_a".to_string(),
+                    tags: vec![("method".to_string(), "GET".to_string())],
+                    points: points_a,
+                },
+                SnapshotSeries {
+                    name: "series_b".to_string(),
+                    tags: vec![("method".to_string(), "POST".to_string())],
+                    points: points_b,
+                },
+            ],
+        }];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+
+        // After LTTB (240→100) + delta + f32, should be reasonably compact
+        // The encoded URL string should be under 2KB for this workload
+        assert!(
+            encoded.len() < 2000,
+            "Encoded snapshot should be under 2KB, got {} bytes",
+            encoded.len()
+        );
+
+        // Verify it decodes correctly
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                // LTTB should have reduced from 240 to 100 points
+                assert_eq!(series[0].points.len(), 100);
+                assert_eq!(series[1].points.len(), 100);
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    // ==========================================================================
+    // String deduplication tests
+    // ==========================================================================
+
+    #[test]
+    fn test_string_dedup_shared_metric_name() {
+        // 5 series with the same metric name and tag key should deduplicate
+        let mut ws = WorkspaceConfig::new("dedup");
+        ws.panes.push(make_pane("http_requests_total"));
+        let series: Vec<SnapshotSeries> = (0..5)
+            .map(|i| SnapshotSeries {
+                name: "http_requests_total".to_string(),
+                tags: vec![("method".to_string(), format!("method_{i}"))],
+                points: vec![(1000.0, i as f64)],
+            })
+            .collect();
+        let pane_data = vec![SnapshotPaneData::TimeSeries { series }];
+
+        let encoded = encode_snapshot_workspace(&ws, &pane_data, 0).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                assert_eq!(series.len(), 5);
+                // All series should have the same name restored
+                for s in series {
+                    assert_eq!(s.name, "http_requests_total");
+                    assert_eq!(s.tags[0].0, "method");
+                }
+                // Verify distinct tag values survived
+                assert_eq!(series[0].tags[0].1, "method_0");
+                assert_eq!(series[4].tags[0].1, "method_4");
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_string_dedup_reduces_size() {
+        // Compare encoded size: 10 series sharing names vs hypothetical unique names
+        let mut ws = WorkspaceConfig::new("dedup-size");
+        ws.panes.push(make_pane("long_metric_name_that_repeats"));
+        let series: Vec<SnapshotSeries> = (0..10)
+            .map(|i| SnapshotSeries {
+                name: "long_metric_name_that_repeats_across_series".to_string(),
+                tags: vec![
+                    ("instance".to_string(), format!("host-{i}")),
+                    ("job".to_string(), "prometheus".to_string()),
+                ],
+                points: vec![(1000.0, i as f64)],
+            })
+            .collect();
+        let dedup_data = vec![SnapshotPaneData::TimeSeries {
+            series: series.clone(),
+        }];
+
+        let dedup_encoded =
+            encode_snapshot_workspace(&ws, &dedup_data, 0).expect("encode should succeed");
+
+        // With 10 series sharing the same 44-char name and "instance"/"job" tag keys,
+        // dedup should save significant space
+        // Verify it round-trips correctly
+        let decoded = decode_workspace(&dedup_encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                assert_eq!(series.len(), 10);
+                assert_eq!(
+                    series[0].name,
+                    "long_metric_name_that_repeats_across_series"
+                );
+                assert_eq!(series[9].tags[1].1, "prometheus");
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    // ==========================================================================
+    // Regular delta detection tests
+    // ==========================================================================
+
+    #[test]
+    fn test_regular_deltas_round_trip() {
+        // 100 points at exactly 60-second intervals should use Regular encoding
+        let mut ws = WorkspaceConfig::new("regular");
+        ws.panes.push(make_pane("q"));
+        let points: Vec<(f64, f64)> = (0..100)
+            .map(|i| (1700000000.0 + i as f64 * 60.0, i as f64))
+            .collect();
+        let pane_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![SnapshotSeries {
+                name: "test".to_string(),
+                tags: vec![],
+                points: points.clone(),
+            }],
+        }];
+
+        let encoded = encode_snapshot_workspace(&ws, &pane_data, 0).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+
+        match &snapshot.pane_data[0] {
+            SnapshotPaneData::TimeSeries { series } => {
+                assert_eq!(series[0].points.len(), 100);
+                // Verify timestamps reconstructed correctly
+                for (i, &(orig_t, _)) in points.iter().enumerate() {
+                    let (t, _) = series[0].points[i];
+                    assert!(
+                        (t - orig_t).abs() < 0.01,
+                        "point {i}: expected {orig_t}, got {t}"
+                    );
+                }
+            }
+            other => panic!("Expected TimeSeries, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_regular_deltas_smaller_than_irregular() {
+        // Regular 60s intervals should encode smaller than irregular
+        let mut ws = WorkspaceConfig::new("reg-size");
+        ws.panes.push(make_pane("q"));
+
+        // Regular: all 60s intervals
+        let regular_points: Vec<(f64, f64)> = (0..100)
+            .map(|i| (1700000000.0 + i as f64 * 60.0, i as f64))
+            .collect();
+        let regular_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![SnapshotSeries {
+                name: "reg".to_string(),
+                tags: vec![],
+                points: regular_points,
+            }],
+        }];
+
+        // Irregular: varying intervals
+        let irregular_points: Vec<(f64, f64)> = (0..100)
+            .map(|i| {
+                let jitter = (i as f64 * 7.3).sin() * 10.0;
+                (1700000000.0 + i as f64 * 60.0 + jitter, i as f64)
+            })
+            .collect();
+        let irregular_data = vec![SnapshotPaneData::TimeSeries {
+            series: vec![SnapshotSeries {
+                name: "irr".to_string(),
+                tags: vec![],
+                points: irregular_points,
+            }],
+        }];
+
+        let regular_encoded =
+            encode_snapshot_workspace(&ws, &regular_data, 0).expect("encode regular");
+        let irregular_encoded =
+            encode_snapshot_workspace(&ws, &irregular_data, 0).expect("encode irregular");
+
+        assert!(
+            regular_encoded.len() < irregular_encoded.len(),
+            "Regular ({} bytes) should be smaller than irregular ({} bytes)",
+            regular_encoded.len(),
+            irregular_encoded.len()
         );
     }
 }

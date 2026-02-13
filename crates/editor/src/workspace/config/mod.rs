@@ -528,6 +528,6 @@ granularity = "5m"
         );
 
         let encoded = ws.to_base64().unwrap();
-        insta::assert_snapshot!(encoded, @"pMwAAAPAkBnNoYXJlZAsBGnN1bShlbnY6cHJvZCkgYnkgKHNlcnZpY2UpAQpQcm9kdWN0aW9uAAEA");
+        insta::assert_snapshot!(encoded, @"pNAAAAPAlBnNoYXJlZAsBGnN1bShlbnY6cHJvZCkgYnkgKHNlcnZpY2UpAQpQcm9kdWN0aW9uAAEAAA");
     }
 }
