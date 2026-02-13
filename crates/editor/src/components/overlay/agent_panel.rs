@@ -978,13 +978,17 @@ impl AgentPanel {
             let picker_bg = self.theme.bg_elevated();
             let border = self.theme.border_subtle();
 
+            // Outer horizontal padding to align with the rest of the panel
             egui::Frame::new()
-                .fill(picker_bg)
-                .corner_radius(CornerRadius::same(6))
-                .stroke(Stroke::new(1.0, border))
-                .inner_margin(egui::Margin::symmetric(4, 4))
+                .outer_margin(egui::Margin::symmetric(12, 0))
                 .show(ui, |ui| {
-                    ui.set_max_width(ui.available_width() - 24.0);
+                egui::Frame::new()
+                    .fill(picker_bg)
+                    .corner_radius(CornerRadius::same(6))
+                    .stroke(Stroke::new(1.0, border))
+                    .inner_margin(egui::Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                    ui.set_max_width(ui.available_width());
 
                     // "New conversation" item
                     let new_btn = ui.add(
@@ -1138,6 +1142,7 @@ impl AgentPanel {
                                 self.conversation_store.picker_open = false;
                             }
                         });
+                    });
                 });
         }
     }
