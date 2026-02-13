@@ -10,9 +10,8 @@ use crate::codebase::CodebaseManager;
 use crate::components::NativePromoOverlay;
 use crate::components::overlay::{AnnotationEditor, AnnotationEditorResult};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::components::overlay::{
-    CodebaseFinder, CodebaseFinderStatus, DiffViewerOverlay, DiffViewerResult,
-};
+use crate::components::overlay::{CodebaseFinder, CodebaseFinderStatus};
+use crate::components::overlay::{DiffViewerOverlay, DiffViewerResult};
 use crate::components::overlay::{FinderMode, UnifiedFinder};
 use crate::components::{
     AboutOverlay, AgentCommand, AgentInputBar, AgentInputBarResult, AgentPanel, AgentPanelResult,
@@ -138,10 +137,16 @@ pub enum WorkspaceAction {
     LoadWorkspace(String),
     /// List available workspaces
     ListWorkspaces,
-    /// Share workspace as URL (encodes to base64 and copies to clipboard)
+    /// Share workspace as URL (snapshot if data loaded, config-only otherwise)
     ShareWorkspace,
-    /// Share a single pane as URL (encodes to base64 and copies to clipboard)
+    /// Share a single pane as URL (snapshot if data loaded, config-only otherwise)
     SharePane(usize),
+    /// Share workspace as config-only URL (no embedded data)
+    ShareLiveWorkspace,
+    /// Share a single pane as config-only URL (no embedded data)
+    ShareLivePane(usize),
+    /// Share selected panes as URL (snapshot if data loaded, config-only otherwise)
+    ShareSelectedPanes(Vec<usize>),
     /// Quit the application
     QuitApp,
     /// Open the annotation editor for the focused pane
@@ -278,7 +283,6 @@ pub struct Workspace {
     #[cfg(not(target_arch = "wasm32"))]
     codebase_finder: CodebaseFinder,
     /// Diff viewer overlay for viewing commit diffs
-    #[cfg(not(target_arch = "wasm32"))]
     diff_viewer: DiffViewerOverlay,
     /// Pending git config URL to initialize (set during load, executed in show())
     #[cfg(not(target_arch = "wasm32"))]
@@ -443,7 +447,6 @@ impl Workspace {
             codebase_manager: CodebaseManager::new(),
             #[cfg(not(target_arch = "wasm32"))]
             codebase_finder: CodebaseFinder::new(),
-            #[cfg(not(target_arch = "wasm32"))]
             diff_viewer: DiffViewerOverlay::new(),
             #[cfg(not(target_arch = "wasm32"))]
             pending_git_config: None,
@@ -850,7 +853,6 @@ impl Workspace {
         let metric_names = self.query_executor.metric_names().to_vec();
         self.agent_panel.set_available_metrics(metric_names);
         // Disable keyboard when diff viewer is open
-        #[cfg(not(target_arch = "wasm32"))]
         self.agent_panel
             .set_keyboard_disabled(self.diff_viewer.is_open());
         match self.agent_panel.show_inside(ui, ctx) {
@@ -895,15 +897,10 @@ impl Workspace {
                 // The panel's internal has_focus tracks vim focus within the panel,
                 // while agent_panel_focused tracks whether the workspace considers the panel active.
             }
-            #[cfg(not(target_arch = "wasm32"))]
             AgentPanelResult::OpenDiffViewer { hash, message } => {
                 // Open the full diff viewer for this commit
                 log::info!("Opening diff viewer from inline diff: {hash}");
                 self.open_diff_viewer_for_commit(&hash, &message);
-            }
-            #[cfg(target_arch = "wasm32")]
-            AgentPanelResult::OpenDiffViewer { .. } => {
-                // Diff viewer not available on WASM
             }
         }
 
@@ -942,9 +939,10 @@ impl Workspace {
 
                         let toolbar_rect = ui.available_rect_before_wrap();
 
-                        // Only show keyboard hints when there are panes open
-                        // (landing page already shows hints when workspace is empty)
-                        if total_panes > 0 {
+                        // Only show keyboard hints when there are panes open and
+                        // enough horizontal space to avoid overlapping with the
+                        // filter input (~220px) and time range controls (~550px)
+                        if total_panes > 0 && toolbar_rect.width() > 850.0 {
                             let hint_color = self.theme().text_tertiary();
                             let hint_text = "hjkl navigate   : cmd   ? help";
                             let font = egui::FontId::proportional(11.0);
@@ -1206,12 +1204,12 @@ impl Workspace {
             }
         }
 
-        // Show diff viewer overlay modal (native only)
+        // Show diff viewer overlay modal
         // NOTE: This is rendered BEFORE style_picker and command_palette so they appear on top
-        #[cfg(not(target_arch = "wasm32"))]
         {
             self.diff_viewer.set_theme(self.theme());
-            // Set repo root for file opener
+            // Set repo root for file opener (native only)
+            #[cfg(not(target_arch = "wasm32"))]
             self.diff_viewer.set_repo_root(
                 self.codebase_manager
                     .index()
@@ -2016,6 +2014,7 @@ impl Workspace {
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
+            CommandResult::ShareLiveWorkspace => WorkspaceAction::ShareLiveWorkspace,
             CommandResult::SetProvider(provider_name) => {
                 use crate::components::util::AiProvider;
                 if let Some(provider) = AiProvider::parse(&provider_name) {

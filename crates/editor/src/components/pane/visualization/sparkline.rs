@@ -52,6 +52,11 @@ impl SparklineViz {
         }
     }
 
+    /// Get the unit suffix for values
+    pub fn unit(&self) -> &str {
+        &self.unit
+    }
+
     /// Set the unit suffix for values (e.g., "ms", "req/s", "%")
     pub fn set_unit(&mut self, unit: impl Into<String>) {
         self.unit = unit.into();

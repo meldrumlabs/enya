@@ -1,11 +1,6 @@
 name: Deploy Website + Editor
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "website/**"
-      - "crates/editor/**"
   workflow_dispatch:
 
 env:

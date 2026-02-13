@@ -165,7 +165,7 @@ async fn main() -> Result<()> {
 			<section class="open-source-section">
 				<div class="open-source-content">
 					<h2 class="open-source-title">By Builders, For Builders.</h2>
-					<p class="open-source-text">Enya is developed by <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> and licensed under MIT.</p>
+					<p class="open-source-text">Enya is developed by <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> and community, licensed under MIT.</p>
 					<p class="open-source-team">Interested in being a design partner? <a href="mailto:contact@meldrumlabs.com">Get in touch</a></p>
 				</div>
 			</section>
@@ -224,6 +224,12 @@ async fn main() -> Result<()> {
 		*/
 	}
 
+	*,
+	*::before,
+	*::after {
+		box-sizing: border-box;
+	}
+
 	html,
 	body {
 		font-family: 'Departure Mono', monospace, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -269,7 +275,6 @@ async fn main() -> Result<()> {
 		max-width: 100%;
 		padding: 1rem 1.5rem;
 		background-color: var(--obsidian-base);
-		box-sizing: border-box;
 		overflow: visible;
 	}
 
@@ -281,7 +286,6 @@ async fn main() -> Result<()> {
 		height: 100%;
 		width: 100%;
 		max-width: 100%;
-		box-sizing: border-box;
 		position: relative;
 	}
 
@@ -475,7 +479,6 @@ async fn main() -> Result<()> {
 		padding-bottom: 2rem;
 		max-width: 80%;
 		margin: 0 auto;
-		box-sizing: border-box;
 	}
 
 	.hero-section {
@@ -1000,7 +1003,6 @@ async fn main() -> Result<()> {
 		padding: 1.5rem;
 		background-color: var(--obsidian-base);
 		margin-top: auto;
-		box-sizing: border-box;
 		overflow: hidden;
 	}
 

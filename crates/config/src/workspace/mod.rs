@@ -150,6 +150,64 @@ use serde::{Deserialize, Serialize};
 pub const WORKSPACE_VERSION: u32 = 1;
 
 // =============================================================================
+// Snapshot Types (for sharing workspaces with embedded data)
+// =============================================================================
+
+/// A single series of snapshot data (timestamps + values).
+#[derive(Debug, Clone)]
+pub struct SnapshotSeries {
+    /// Series display name
+    pub name: String,
+    /// Tags identifying this series, sorted by key for deterministic encoding
+    pub tags: Vec<(String, String)>,
+    /// Data points as (timestamp_secs, value) pairs
+    pub points: Vec<(f64, f64)>,
+}
+
+/// Snapshot data for a single pane's visualization.
+#[derive(Debug, Clone)]
+pub enum SnapshotPaneData {
+    /// Time series data (used by TimeSeries and Sparkline viz types)
+    TimeSeries { series: Vec<SnapshotSeries> },
+    /// Stat display: big number + optional sparkline
+    Stat { value: f64, sparkline: Vec<f64> },
+    /// Gauge: value within a range
+    Gauge { value: f64, min: f64, max: f64 },
+    /// Bar chart: labeled bars
+    BarChart { bars: Vec<(String, f64)> },
+    /// Heatmap: 2D grid of values
+    Heatmap {
+        cols: u16,
+        rows: u16,
+        values: Vec<f32>,
+    },
+}
+
+impl SnapshotPaneData {
+    /// Returns true if this snapshot contains no meaningful data.
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::TimeSeries { series } => {
+                series.is_empty() || series.iter().all(|s| s.points.is_empty())
+            }
+            Self::Stat { sparkline, .. } => sparkline.is_empty(),
+            Self::Gauge { .. } => false, // gauge always has a value
+            Self::BarChart { bars } => bars.is_empty(),
+            Self::Heatmap { values, .. } => values.is_empty(),
+        }
+    }
+}
+
+/// Metadata for a snapshot workspace (carried in memory, not serialized to TOML).
+#[derive(Debug, Clone)]
+pub struct SnapshotMeta {
+    /// Unix timestamp (seconds) when the snapshot was captured
+    pub captured_at: u64,
+    /// Per-pane visualization data, indexed by pane position
+    pub pane_data: Vec<SnapshotPaneData>,
+}
+
+// =============================================================================
 // Core Configuration Types
 // =============================================================================
 
@@ -201,6 +259,11 @@ pub struct WorkspaceConfig {
     /// Only used when sections is empty for backward compatibility
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layout: Option<LayoutConfig>,
+
+    /// Snapshot data (only present when loaded from a snapshot URL).
+    /// Not serialized to TOML — carried in memory only.
+    #[serde(skip)]
+    pub snapshot: Option<SnapshotMeta>,
 }
 
 /// Workspace metadata
@@ -978,6 +1041,7 @@ impl WorkspaceConfig {
             sections: Vec::new(),
             panes: Vec::new(),
             layout: None,
+            snapshot: None,
         }
     }
 
@@ -1239,6 +1303,27 @@ impl WorkspaceConfig {
     /// Encode a single pane to base64 (for sharing individual queries)
     pub fn pane_to_base64(&self, pane_index: usize) -> Result<String, WorkspaceError> {
         compact::encode_pane(self, pane_index)
+    }
+
+    /// Encode workspace as a snapshot to base64 (includes visualization data).
+    /// `captured_at` is the Unix timestamp (seconds) — use a platform-safe source.
+    pub fn snapshot_to_base64(
+        &self,
+        pane_data: &[SnapshotPaneData],
+        captured_at: u64,
+    ) -> Result<String, WorkspaceError> {
+        compact::encode_snapshot_workspace(self, pane_data, captured_at)
+    }
+
+    /// Encode a single pane as a snapshot to base64 (includes visualization data).
+    /// `captured_at` is the Unix timestamp (seconds) — use a platform-safe source.
+    pub fn snapshot_pane_to_base64(
+        &self,
+        pane_index: usize,
+        data: &SnapshotPaneData,
+        captured_at: u64,
+    ) -> Result<String, WorkspaceError> {
+        compact::encode_snapshot_pane(self, pane_index, data, captured_at)
     }
 
     /// Validate workspace structure

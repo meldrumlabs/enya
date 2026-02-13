@@ -6,6 +6,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **WASM demo data for unified finder**: All search modes (All, Alerts, Commits) now show demo codebase results in the WASM build, showcasing what Tantivy search provides on native. Includes sample metrics, alert rules, and git commits with diff previews and fuzzy matching. Selecting a commit opens the full diff viewer. Live Prometheus metrics continue to work as before.
+
+- **Diff viewer available on WASM**: The diff viewer overlay now works in the WASM build, enabling commit diff viewing from the unified finder and agent panel.
+
+- **Landing page memorial**: Added "In memory of Enya — the family dog" below "Crafted in Stockholm" on the landing page, in a smaller, more subtle style with typewriter animation.
+
 - **Auto-update notification banner**: Checks GitHub Releases for new versions on startup and every 30 minutes. Shows a non-intrusive frosted glass banner in the bottom-right corner with "See changes" (opens release page) and "Restart" (downloads and replaces binary) buttons. Dismissed versions are persisted in settings. Supports native auto-update and WASM page reload.
 
 - **Token usage display in agent panel**: After each AI response, a subtle footer shows the model name, token counts (total, input, output), and request duration. Re-exported `TokenUsage` from `enya-ai` crate.
@@ -13,8 +19,25 @@ All notable changes to the Enya editor will be documented in this file.
 - **Settings overlay**: New settings overlay (`:settings` command or landing page) with AI tab (provider, model, API key), Styling tab (side-by-side theme/font panels with color swatches and code previews), Connection tab (Prometheus and Loki endpoint/API key), and Codebase tab (git repo URL). Premium card-style input UX with labels above inputs, bordered input boxes, section grouping, focus glow, and dropdown chevrons. Auto-saves on close. Vim-style navigation (j/k, Tab for tabs, Enter to edit/cycle, h/l switch panels). Per-provider API key storage. Settings persist via eframe.
 
 - **`load_workspace` agent command**: AI agents can now programmatically load a saved workspace in the GUI using `{"action": "load_workspace", "workspace": "name"}`. This enables the agent-to-human handoff workflow: an agent builds a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`), then loads it in the editor for the human to view.
+- **Close agent panel with `x`**: When the agent panel is focused, pressing `x` closes it, matching the behavior of workspace panes.
+
+### Fixed
+
+- **Header text overlap when agent panel is open**: Keyboard hints in the workspace toolbar are now hidden when the toolbar is too narrow (< 700px), preventing them from overlapping with the time range controls.
+- **WASM UI too small at default browser zoom**: Applied a 1.5x zoom factor to the WASM build so content (text, buttons, landing page) is readable at 100% browser zoom without requiring manual zoom.
+
+- **Unit labels preserved in shared/snapshot URLs**: The unit suffix (e.g. "req/s", "ms", "%") is now encoded in compact URL sharing formats. Previously, shared snapshots would show raw numbers without their unit labels.
+
+- **Snapshot sharing**: Users can share immutable snapshots of workspaces that include the actual plot data, viewable with no backend connection. Snapshot URLs use the compact binary encoding (`postcard + LZ4 + base64`) with `s`/`t` format prefixes. Snapshot panes are read-only — they never refresh and hide the edit button. `:share` and `yy` are context-aware — they produce snapshot URLs when panes have data loaded, or config-only URLs otherwise. `:share-live` forces config-only sharing. Supports all visualization types: time series, stat, gauge, bar chart, heatmap, and sparkline. Snapshot URL size is optimized via LTTB downsampling (cap 100 points/series), delta-encoded timestamps (regular interval detection), f32 precision, and string deduplication (shared string table with u16 indices).
+
+- **Multi-pane snapshot sharing**: In visual-multi mode (`Ctrl+V`), select multiple panes and press `yy` to share a snapshot URL containing only those selected panes. The shared URL opens with just the selected panes in a default layout.
 
 ### Changed
+
+- **Plugins overlay shows native-only notice on WASM**: The plugins overlay now displays a "Native app required" message when running in the browser, matching the pattern used by the unified finder for codebase search.
+
+- **Share links use `enya.build/editor` base path**: Consolidated share URL construction with an `EDITOR_BASE_URL` constant. Native builds use `https://enya.build/editor`, WASM builds derive from the current page URL (supporting self-hosted `enya serve` deployments) with `enya.build/editor` as fallback.
+- **Agent panel opens at 50% width**: The agent panel now opens at 50% of the available workspace width (instead of a fixed 400px), so the panel and viewport share space equally. The width resets to 50% each time the panel is opened. The panel remains resizable (min 300px, max 80% of available width).
 
 - **Renamed `enya-workspace` crate to `enya-config`**: The workspace configuration crate has been renamed from `enya-workspace` to `enya-config` to better reflect its broader scope. All imports updated from `enya_workspace` to `enya_config`.
 

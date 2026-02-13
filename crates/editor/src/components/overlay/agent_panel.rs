@@ -121,6 +121,8 @@ pub struct AgentPanel {
     slash_command_popup: SlashCommandPopup,
     /// Previous input text for change detection
     prev_input_text: String,
+    /// Reset panel width to 50% on next show (set when panel opens)
+    reset_width: bool,
     /// Token usage from the last completed response (input, output)
     pub(super) last_token_usage: Option<(u32, u32)>,
     /// Duration of the last completed request
@@ -175,6 +177,7 @@ impl AgentPanel {
             mention_popup: MentionPopup::new(),
             slash_command_popup: SlashCommandPopup::new(),
             prev_input_text: String::new(),
+            reset_width: false,
             last_token_usage: None,
             last_request_duration: None,
         }
@@ -258,6 +261,7 @@ impl AgentPanel {
     pub fn open(&mut self) {
         self.is_open = true;
         self.focus_input = true;
+        self.reset_width = true;
     }
 
     /// Submit a query programmatically (e.g., from Agent Input Bar)
@@ -534,6 +538,7 @@ impl AgentPanel {
         // Handle keyboard input when panel has vim focus (and keyboard not disabled)
         let mut return_focus = false;
         let mut enter_input_mode = false;
+        let mut close_panel = false;
         let mut yank_text: Option<String> = None;
         if self.has_focus && !self.keyboard_disabled {
             // Skip vim key detection for one frame after gaining focus
@@ -641,6 +646,10 @@ impl AgentPanel {
                         self.selected_message = Some(0);
                         self.scroll_to_selected = true;
                     }
+                    // x - close the agent panel
+                    else if input.consume_key(egui::Modifiers::NONE, Key::X) {
+                        close_panel = true;
+                    }
                     // o - open inline diff in full diff viewer (if selected message has one)
                     else if input.consume_key(egui::Modifiers::NONE, Key::O) {
                         if let Some(idx) = self.selected_message {
@@ -675,6 +684,10 @@ impl AgentPanel {
             result = AgentPanelResult::EnteredInputMode;
         }
 
+        if close_panel {
+            result = AgentPanelResult::Closed;
+        }
+
         // Copy yanked text to clipboard
         if let Some(text) = yank_text {
             ui.ctx().copy_text(text);
@@ -684,11 +697,19 @@ impl AgentPanel {
         let left_border = self.theme.border_subtle().gamma_multiply(0.6);
 
         // Side panel on the right - participates in layout (viewport shrinks)
+        // Default to 50% of available width so the panel shares space equally
+        let half_width = ui.available_width() * 0.5;
+        let panel_id = egui::Id::new("agent_panel");
+        if self.reset_width {
+            // Clear persisted panel state so the new default_width takes effect
+            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(panel_id));
+            self.reset_width = false;
+        }
         egui::SidePanel::right("agent_panel")
             .resizable(true)
-            .default_width(400.0)
+            .default_width(half_width)
             .min_width(300.0)
-            .max_width(800.0)
+            .max_width(ui.available_width() * 0.8)
             .frame(self.panel_frame())
             .show_inside(ui, |ui| {
                 // Draw left edge highlight for visual anchoring
@@ -957,103 +978,114 @@ impl AgentPanel {
             let picker_bg = self.theme.bg_elevated();
             let border = self.theme.border_subtle();
 
+            // Outer horizontal padding to align with the rest of the panel
             egui::Frame::new()
-                .fill(picker_bg)
-                .corner_radius(CornerRadius::same(6))
-                .stroke(Stroke::new(1.0, border))
-                .inner_margin(egui::Margin::symmetric(4, 4))
+                .outer_margin(egui::Margin::symmetric(12, 0))
                 .show(ui, |ui| {
-                    ui.set_max_width(ui.available_width() - 24.0);
-
-                    // "New conversation" item
-                    let new_btn = ui.add(
-                        egui::Button::new(
-                            RichText::new(format!(
-                                "{}  New conversation",
-                                egui_nerdfonts::regular::PLUS
-                            ))
-                            .color(accent)
-                            .size(typography::SM),
-                        )
-                        .frame(false)
-                        .min_size(Vec2::new(ui.available_width(), 24.0)),
-                    );
-                    if new_btn.hovered() {
-                        ui.painter().rect_filled(
-                            new_btn.rect,
-                            CornerRadius::same(4),
-                            colors.hover_bg(),
-                        );
-                    }
-                    if new_btn.clicked() {
-                        self.start_new_conversation();
-                        self.conversation_store.picker_open = false;
-                    }
-
-                    if !self.conversation_store.threads.is_empty() {
-                        // Thin separator
-                        ui.add_space(2.0);
-                        let rect = ui.available_rect_before_wrap();
-                        ui.painter().hline(
-                            rect.left()..=rect.right(),
-                            rect.top(),
-                            Stroke::new(0.5, border),
-                        );
-                        ui.add_space(2.0);
-                    }
-
-                    // Scrollable thread list
-                    let max_list_height = 200.0;
-                    ScrollArea::vertical()
-                        .id_salt("thread_picker_scroll")
-                        .max_height(max_list_height)
-                        .auto_shrink([false, true])
+                    egui::Frame::new()
+                        .fill(picker_bg)
+                        .corner_radius(CornerRadius::same(6))
+                        .stroke(Stroke::new(1.0, border))
+                        .inner_margin(egui::Margin::symmetric(8, 4))
                         .show(ui, |ui| {
-                            let mut switch_to: Option<usize> = None;
-                            let mut delete_idx: Option<usize> = None;
+                            ui.set_max_width(ui.available_width());
 
-                            for (i, thread) in self.conversation_store.threads.iter().enumerate() {
-                                let is_active = self.conversation_store.active_idx == Some(i);
-                                let item_bg = if is_active {
-                                    colors.selection_bg()
-                                } else {
-                                    egui::Color32::TRANSPARENT
-                                };
+                            // "New conversation" item
+                            let new_btn = ui.add(
+                                egui::Button::new(
+                                    RichText::new(format!(
+                                        "{}  New conversation",
+                                        egui_nerdfonts::regular::PLUS
+                                    ))
+                                    .color(accent)
+                                    .size(typography::SM),
+                                )
+                                .frame(false)
+                                .min_size(Vec2::new(ui.available_width(), 24.0)),
+                            );
+                            if new_btn.hovered() {
+                                ui.painter().rect_filled(
+                                    new_btn.rect,
+                                    CornerRadius::same(4),
+                                    colors.hover_bg(),
+                                );
+                            }
+                            if new_btn.clicked() {
+                                self.start_new_conversation();
+                                self.conversation_store.picker_open = false;
+                            }
 
-                                let frame_response = egui::Frame::new()
-                                    .fill(item_bg)
-                                    .corner_radius(CornerRadius::same(4))
-                                    .inner_margin(egui::Margin::symmetric(6, 3))
-                                    .show(ui, |ui| {
-                                        ui.set_min_width(ui.available_width());
-                                        ui.horizontal(|ui| {
-                                            // Pin indicator
-                                            if thread.pinned {
-                                                ui.label(
-                                                    RichText::new(egui_nerdfonts::regular::PIN)
-                                                        .color(accent)
-                                                        .size(typography::XS),
-                                                );
-                                            }
+                            if !self.conversation_store.threads.is_empty() {
+                                // Thin separator
+                                ui.add_space(2.0);
+                                let rect = ui.available_rect_before_wrap();
+                                ui.painter().hline(
+                                    rect.left()..=rect.right(),
+                                    rect.top(),
+                                    Stroke::new(0.5, border),
+                                );
+                                ui.add_space(2.0);
+                            }
 
-                                            // Thread name
-                                            let name_color = if is_active {
-                                                text_primary
-                                            } else {
-                                                text_secondary
-                                            };
-                                            ui.label(
-                                                RichText::new(&thread.name)
-                                                    .color(name_color)
-                                                    .size(typography::SM),
-                                            );
+                            // Scrollable thread list
+                            let max_list_height = 200.0;
+                            ScrollArea::vertical()
+                                .id_salt("thread_picker_scroll")
+                                .max_height(max_list_height)
+                                .auto_shrink([false, true])
+                                .show(ui, |ui| {
+                                    let mut switch_to: Option<usize> = None;
+                                    let mut delete_idx: Option<usize> = None;
 
-                                            // Message count
-                                            ui.with_layout(
-                                                egui::Layout::right_to_left(egui::Align::Center),
-                                                |ui| {
-                                                    // Delete button (on hover)
-                                                    let del_btn = ui.add(
+                                    for (i, thread) in
+                                        self.conversation_store.threads.iter().enumerate()
+                                    {
+                                        let is_active =
+                                            self.conversation_store.active_idx == Some(i);
+                                        let item_bg = if is_active {
+                                            colors.selection_bg()
+                                        } else {
+                                            egui::Color32::TRANSPARENT
+                                        };
+
+                                        let frame_response = egui::Frame::new()
+                                            .fill(item_bg)
+                                            .corner_radius(CornerRadius::same(4))
+                                            .inner_margin(egui::Margin::symmetric(6, 3))
+                                            .show(ui, |ui| {
+                                                ui.set_min_width(ui.available_width());
+                                                ui.horizontal(|ui| {
+                                                    // Pin indicator
+                                                    if thread.pinned {
+                                                        ui.label(
+                                                            RichText::new(
+                                                                egui_nerdfonts::regular::PIN,
+                                                            )
+                                                            .color(accent)
+                                                            .size(typography::XS),
+                                                        );
+                                                    }
+
+                                                    // Thread name
+                                                    let name_color = if is_active {
+                                                        text_primary
+                                                    } else {
+                                                        text_secondary
+                                                    };
+                                                    ui.label(
+                                                        RichText::new(&thread.name)
+                                                            .color(name_color)
+                                                            .size(typography::SM),
+                                                    );
+
+                                                    // Message count
+                                                    ui.with_layout(
+                                                        egui::Layout::right_to_left(
+                                                            egui::Align::Center,
+                                                        ),
+                                                        |ui| {
+                                                            // Delete button (on hover)
+                                                            let del_btn = ui.add(
                                                         egui::Button::new(
                                                             RichText::new(
                                                                 egui_nerdfonts::regular::CLOSE,
@@ -1063,59 +1095,64 @@ impl AgentPanel {
                                                         )
                                                         .frame(false),
                                                     );
-                                                    if del_btn.on_hover_text("Delete").clicked() {
-                                                        delete_idx = Some(i);
-                                                    }
+                                                            if del_btn
+                                                                .on_hover_text("Delete")
+                                                                .clicked()
+                                                            {
+                                                                delete_idx = Some(i);
+                                                            }
 
-                                                    ui.label(
-                                                        RichText::new(format!(
-                                                            "{}",
-                                                            thread.messages.len()
-                                                        ))
-                                                        .color(text_tertiary)
-                                                        .size(typography::XS),
+                                                            ui.label(
+                                                                RichText::new(format!(
+                                                                    "{}",
+                                                                    thread.messages.len()
+                                                                ))
+                                                                .color(text_tertiary)
+                                                                .size(typography::XS),
+                                                            );
+                                                        },
                                                     );
-                                                },
+                                                });
+                                            });
+
+                                        // Click to switch
+                                        let item_rect = frame_response.response.rect;
+                                        let item_response = ui.interact(
+                                            item_rect,
+                                            ui.id().with("thread_item").with(i),
+                                            egui::Sense::click(),
+                                        );
+                                        if item_response.clicked() && !is_active {
+                                            switch_to = Some(i);
+                                        }
+                                        if item_response.hovered() && !is_active {
+                                            ui.painter().rect_filled(
+                                                item_rect,
+                                                CornerRadius::same(4),
+                                                colors.hover_bg(),
                                             );
-                                        });
-                                    });
+                                        }
+                                    }
 
-                                // Click to switch
-                                let item_rect = frame_response.response.rect;
-                                let item_response = ui.interact(
-                                    item_rect,
-                                    ui.id().with("thread_item").with(i),
-                                    egui::Sense::click(),
-                                );
-                                if item_response.clicked() && !is_active {
-                                    switch_to = Some(i);
-                                }
-                                if item_response.hovered() && !is_active {
-                                    ui.painter().rect_filled(
-                                        item_rect,
-                                        CornerRadius::same(4),
-                                        colors.hover_bg(),
-                                    );
-                                }
-                            }
-
-                            // Handle actions after iteration
-                            if let Some(idx) = delete_idx {
-                                let was_active = self.conversation_store.active_idx == Some(idx);
-                                self.conversation_store.delete_thread(idx);
-                                if was_active {
-                                    self.load_thread_messages();
-                                }
-                            }
-                            if let Some(idx) = switch_to {
-                                // Save current before switching
-                                if !self.messages.is_empty() {
-                                    self.sync_messages_to_thread();
-                                }
-                                self.conversation_store.switch_to(idx);
-                                self.load_thread_messages();
-                                self.conversation_store.picker_open = false;
-                            }
+                                    // Handle actions after iteration
+                                    if let Some(idx) = delete_idx {
+                                        let was_active =
+                                            self.conversation_store.active_idx == Some(idx);
+                                        self.conversation_store.delete_thread(idx);
+                                        if was_active {
+                                            self.load_thread_messages();
+                                        }
+                                    }
+                                    if let Some(idx) = switch_to {
+                                        // Save current before switching
+                                        if !self.messages.is_empty() {
+                                            self.sync_messages_to_thread();
+                                        }
+                                        self.conversation_store.switch_to(idx);
+                                        self.load_thread_messages();
+                                        self.conversation_store.picker_open = false;
+                                    }
+                                });
                         });
                 });
         }
