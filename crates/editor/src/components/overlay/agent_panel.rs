@@ -538,6 +538,7 @@ impl AgentPanel {
         // Handle keyboard input when panel has vim focus (and keyboard not disabled)
         let mut return_focus = false;
         let mut enter_input_mode = false;
+        let mut close_panel = false;
         let mut yank_text: Option<String> = None;
         if self.has_focus && !self.keyboard_disabled {
             // Skip vim key detection for one frame after gaining focus
@@ -645,6 +646,10 @@ impl AgentPanel {
                         self.selected_message = Some(0);
                         self.scroll_to_selected = true;
                     }
+                    // x - close the agent panel
+                    else if input.consume_key(egui::Modifiers::NONE, Key::X) {
+                        close_panel = true;
+                    }
                     // o - open inline diff in full diff viewer (if selected message has one)
                     else if input.consume_key(egui::Modifiers::NONE, Key::O) {
                         if let Some(idx) = self.selected_message {
@@ -677,6 +682,10 @@ impl AgentPanel {
             self.has_focus = false;
             self.focus_input = true;
             result = AgentPanelResult::EnteredInputMode;
+        }
+
+        if close_panel {
+            result = AgentPanelResult::Closed;
         }
 
         // Copy yanked text to clipboard
