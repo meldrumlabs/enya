@@ -60,17 +60,11 @@ impl ChatColors {
         match self.theme {
             AppTheme::Custom(colors) => colors.bg_elevated,
             AppTheme::Light => Color32::from_rgb(245, 243, 255),
-            AppTheme::Nord => Color32::from_rgb(46, 52, 74),
             AppTheme::Midnight => Color32::from_rgb(25, 30, 50),
-            AppTheme::Catppuccin => Color32::from_rgb(40, 38, 60),
             AppTheme::Ayu => Color32::from_rgb(22, 26, 35),
-            AppTheme::Bergman => Color32::from_rgb(30, 34, 45),
             AppTheme::Aurora => Color32::from_rgb(22, 35, 38),
-            AppTheme::Stockholm => Color32::from_rgb(235, 240, 248),
             AppTheme::Graphite => Color32::from_rgb(35, 30, 25), // Orange-tinted dark
             AppTheme::Ink => Color32::from_rgb(22, 22, 32),      // Silver-tinted dark
-            AppTheme::Midsommar => Color32::from_rgb(235, 242, 252), // Blue-tinted summer light
-            AppTheme::Skargard => Color32::from_rgb(235, 245, 252), // Sea blue-tinted skargard light
             AppTheme::Dark => Color32::from_rgb(30, 27, 45),
         }
     }
