@@ -1459,14 +1459,11 @@ impl Workspace {
         log::debug!("Split panes vertically (horizontal layout)");
     }
 
-    /// Setup the tutorial layout with a custom arrangement:
-    /// - Top row: "HTTP Requests" and "Requests by Endpoint" side by side
-    /// - Second row: "CPU Usage"
-    /// - Third row: "Memory Used"
+    /// Setup the tutorial layout with two panes stacked vertically:
+    /// - "HTTP Requests" on top, "Requests by Endpoint" on bottom
     pub(super) fn setup_tutorial_layout(&mut self) {
         use crate::components::pane::QueryPane;
 
-        // Define the demo queries with their names and units
         let demo_queries = [
             (
                 "http_requests_total{method=\"GET\", path=\"/api/users\"}",
@@ -1478,11 +1475,8 @@ impl Workspace {
                 "Requests by Endpoint",
                 "req/s",
             ),
-            ("node_cpu_seconds_total{mode=\"user\"}", "CPU Usage", "%"),
-            ("node_memory_Active_bytes", "Memory Used", "MB"),
         ];
 
-        // Create panes without adding them to the viewport yet
         let mut pane_ids = Vec::new();
         for (query, name, unit) in demo_queries {
             let pane: Box<dyn Component> =
@@ -1492,17 +1486,10 @@ impl Workspace {
             pane_ids.push(pane_tile);
         }
 
-        // Create a horizontal container for the first two panes (side by side)
-        let top_row = self
+        let root = self
             .viewport_tree
             .tiles
-            .insert_horizontal_tile(vec![pane_ids[0], pane_ids[1]]);
-
-        // Create the main vertical container with: top row, CPU, Memory
-        let root =
-            self.viewport_tree
-                .tiles
-                .insert_vertical_tile(vec![top_row, pane_ids[2], pane_ids[3]]);
+            .insert_vertical_tile(vec![pane_ids[0], pane_ids[1]]);
 
         // Set as the tree root
         self.viewport_tree.root = Some(root);
@@ -1510,7 +1497,7 @@ impl Workspace {
         // Focus the first pane
         self.behavior.set_focused_tile(Some(pane_ids[0]));
 
-        log::debug!("Setup tutorial layout with HTTP panes side by side");
+        log::debug!("Setup tutorial layout with 2 panes side by side");
     }
 
     // ==================== Pane Movement (Ctrl+W H/J/K/L) ====================
