@@ -1460,7 +1460,7 @@ impl Workspace {
     }
 
     /// Setup the tutorial layout with two panes stacked vertically:
-    /// - "HTTP Requests" on top, "Requests by Endpoint" on bottom
+    /// - "HTTP Requests" on top, "Memory Used" on bottom
     pub(super) fn setup_tutorial_layout(&mut self) {
         use crate::components::pane::QueryPane;
 
@@ -1470,11 +1470,7 @@ impl Workspace {
                 "HTTP Requests",
                 "",
             ),
-            (
-                "sum(rate(http_requests_total[5m])) by (path)",
-                "Requests by Endpoint",
-                "req/s",
-            ),
+            ("node_memory_Active_bytes", "Memory Used", "MB"),
         ];
 
         let mut pane_ids = Vec::new();
