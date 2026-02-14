@@ -309,15 +309,15 @@ mod tests {
 
     #[test]
     fn test_non_dark_uses_tinted() {
-        // Nord theme should use tinted version
-        let nord_image = load_logo_for_theme(AppTheme::Nord, 1.0);
+        // Midnight theme should use tinted version
+        let midnight_image = load_logo_for_theme(AppTheme::Midnight, 1.0);
 
         // Should load successfully with valid dimensions
-        assert!(nord_image.size[0] > 0);
-        assert!(nord_image.size[1] > 0);
+        assert!(midnight_image.size[0] > 0);
+        assert!(midnight_image.size[1] > 0);
         assert_eq!(
-            nord_image.pixels.len(),
-            nord_image.size[0] * nord_image.size[1]
+            midnight_image.pixels.len(),
+            midnight_image.size[0] * midnight_image.size[1]
         );
     }
 

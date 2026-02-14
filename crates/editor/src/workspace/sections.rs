@@ -410,8 +410,8 @@ mod tests {
     #[test]
     fn test_section_renderer_set_theme() {
         let mut renderer = SectionRenderer::default();
-        renderer.set_theme(AppTheme::Nord);
-        assert_eq!(renderer.theme(), AppTheme::Nord);
+        renderer.set_theme(AppTheme::Midnight);
+        assert_eq!(renderer.theme(), AppTheme::Midnight);
     }
 
     #[test]

@@ -133,7 +133,7 @@ impl PluginHost for EditorPluginHost {
 
     fn theme(&self) -> Theme {
         match self.theme {
-            AppTheme::Light | AppTheme::Stockholm => Theme::Light,
+            AppTheme::Light => Theme::Light,
             // All dark-ish themes map to Dark
             _ => Theme::Dark,
         }
@@ -145,16 +145,10 @@ impl PluginHost for EditorPluginHost {
             AppTheme::Dark => "dark",
             AppTheme::Light => "light",
             AppTheme::Midnight => "midnight",
-            AppTheme::Nord => "nord",
-            AppTheme::Catppuccin => "catppuccin",
             AppTheme::Ayu => "ayu-dark",
-            AppTheme::Bergman => "bergman",
             AppTheme::Aurora => "aurora",
-            AppTheme::Stockholm => "stockholm",
             AppTheme::Graphite => "graphite",
             AppTheme::Ink => "ink",
-            AppTheme::Midsommar => "midsommar",
-            AppTheme::Skargard => "skargard",
         }
     }
 
