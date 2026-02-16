@@ -104,6 +104,38 @@ pub struct AppSettings {
     /// GitHub authentication credentials (optional)
     #[serde(default)]
     pub github_credentials: Option<crate::github_auth::GitHubCredentials>,
+    /// Default workspace to open on startup (None = last used)
+    #[serde(default)]
+    pub default_workspace: Option<String>,
+    /// Timezone preference for chart axes and time displays
+    #[serde(default)]
+    pub timezone: TimezonePreference,
+    /// Default time range preset for new panes
+    #[serde(default)]
+    pub default_time_range: crate::components::widget::time_range::TimeRangePreset,
+    /// What to show on startup
+    #[serde(default)]
+    pub startup_page: StartupPage,
+}
+
+/// User preference for timezone display throughout the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum TimezonePreference {
+    /// Use the system's local timezone (default).
+    #[default]
+    Local,
+    /// Use UTC for all time displays.
+    Utc,
+}
+
+/// What to show when the app starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum StartupPage {
+    /// Show the landing / home page (default).
+    #[default]
+    LandingPage,
+    /// Resume the last opened workspace.
+    LastWorkspace,
 }
 
 /// Entry for a recently opened plot/chart

@@ -362,7 +362,7 @@ impl EnyaApp {
         let mut settings_page = SettingsPage::new();
         if auth_callback_detected {
             settings_page
-                .set_active_category(crate::components::settings_page::SettingsCategory::Auth);
+                .set_active_category(crate::components::settings_page::SettingsCategory::Profile);
         }
 
         Self {
@@ -811,6 +811,10 @@ impl EnyaApp {
                     default_prometheus_endpoint,
                     default_loki_endpoint,
                     default_flight_sql_endpoint,
+                    default_workspace,
+                    timezone,
+                    default_time_range,
+                    startup_page,
                 } = page_result
                 {
                     self.state.settings.ai_provider = ai_provider;
@@ -819,6 +823,10 @@ impl EnyaApp {
                     self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
                     self.state.settings.default_loki_endpoint = default_loki_endpoint;
                     self.state.settings.default_flight_sql_endpoint = default_flight_sql_endpoint;
+                    self.state.settings.default_workspace = default_workspace;
+                    self.state.settings.timezone = timezone;
+                    self.state.settings.default_time_range = default_time_range;
+                    self.state.settings.startup_page = startup_page;
                 }
                 self.state.ui_state = self.state.previous_ui_state;
             }
@@ -1154,6 +1162,11 @@ impl EnyaApp {
 
                 self.state.previous_ui_state = self.state.ui_state;
                 self.state.ui_state = UIState::Settings;
+                let available_workspaces: Vec<String> = Self::list_available_workspaces()
+                    .into_iter()
+                    .map(|(name, _)| name)
+                    .collect();
+
                 self.settings_page.open(
                     self.state.settings.ai_provider,
                     self.state.settings.ai_model,
@@ -1166,6 +1179,11 @@ impl EnyaApp {
                     self.state.settings.font,
                     custom_theme_list,
                     self.github_auth.state().clone(),
+                    self.state.settings.default_workspace.clone(),
+                    available_workspaces,
+                    self.state.settings.timezone,
+                    self.state.settings.default_time_range,
+                    self.state.settings.startup_page,
                 );
             }
         }
