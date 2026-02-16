@@ -39,6 +39,8 @@ members = [
   "crates/headless",
   # Agent server (API, watch engine, Prometheus proxy)
   "crates/agent",
+  # Local snapshot blob server for development
+  "crates/snapshot-server",
   # CLI tool
   "crates/enya",
 ]

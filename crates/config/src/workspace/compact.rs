@@ -85,14 +85,14 @@ const SNAPSHOT_MAX_POINTS: usize = 100;
 /// Series names and tag keys/values are stored in a shared string table,
 /// with each series referencing strings by u16 index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CompactTimeSeriesData {
+pub(crate) struct CompactTimeSeriesData {
     pub strings: Vec<String>,
     pub series: Vec<CompactSeriesRef>,
 }
 
 /// A single series referencing the shared string table by index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CompactSeriesRef {
+pub(crate) struct CompactSeriesRef {
     pub name_idx: u16,
     pub tags: Vec<(u16, u16)>,
     pub base_timestamp: f64,
@@ -103,7 +103,7 @@ struct CompactSeriesRef {
 /// Timestamp deltas: regular (all same step) or irregular (variable gaps).
 /// Regular deltas encode as a single u32 vs N varints, saving ~100 bytes per series.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum CompactDeltas {
+pub(crate) enum CompactDeltas {
     /// All gaps are identical (common for fixed scrape intervals).
     /// Count is implicit from values.len().
     Regular(u32),
@@ -113,7 +113,7 @@ enum CompactDeltas {
 
 /// Compact visualization data enum (uses f32 for all numeric fields)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-enum CompactVizData {
+pub(crate) enum CompactVizData {
     TimeSeries(CompactTimeSeriesData),
     Stat {
         value: f32,
@@ -134,7 +134,7 @@ enum CompactVizData {
 
 /// Compact snapshot pane: config fields + data
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CompactSnapshotPane {
+pub(crate) struct CompactSnapshotPane {
     pub query: String,
     pub name: Option<String>,
     pub tag: Option<String>,
@@ -146,7 +146,7 @@ struct CompactSnapshotPane {
 
 /// Compact snapshot workspace: config + data for all panes
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct CompactSnapshotWorkspace {
+pub(crate) struct CompactSnapshotWorkspace {
     pub name: String,
     pub header: u8,
     pub panes: Vec<CompactSnapshotPane>,
@@ -407,7 +407,7 @@ impl CompactVizData {
 }
 
 impl CompactSnapshotWorkspace {
-    fn from_workspace(ws: &WorkspaceConfig, pane_data: &[SnapshotPaneData]) -> Self {
+    pub(crate) fn from_workspace(ws: &WorkspaceConfig, pane_data: &[SnapshotPaneData]) -> Self {
         let config = CompactWorkspaceConfig::from_workspace(ws);
         Self {
             name: config.name,
@@ -439,7 +439,7 @@ impl CompactSnapshotWorkspace {
         }
     }
 
-    fn into_workspace(self) -> WorkspaceConfig {
+    pub(crate) fn into_workspace(self) -> WorkspaceConfig {
         // First build the config-only workspace
         let config = CompactWorkspaceConfig {
             name: self.name,
@@ -467,6 +467,7 @@ impl CompactSnapshotWorkspace {
                 .into_iter()
                 .map(|p| p.data.into_snapshot())
                 .collect(),
+            conversation: None,
         });
 
         ws
@@ -505,6 +506,7 @@ impl CompactSnapshotSinglePane {
         ws.snapshot = Some(SnapshotMeta {
             captured_at: self.captured_at,
             pane_data: vec![self.data.into_snapshot()],
+            conversation: None,
         });
 
         ws

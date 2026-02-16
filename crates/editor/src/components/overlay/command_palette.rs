@@ -104,6 +104,10 @@ pub enum CommandResult {
     ShareWorkspace,
     /// Share workspace as config-only URL, no embedded data (:share-live)
     ShareLiveWorkspace,
+    /// Upload snapshot to blob server with conversation data (:snapshot)
+    UploadSnapshot,
+    /// Open a snapshot by ID from blob server (:open-snapshot)
+    OpenSnapshot(String),
     /// Set AI provider (claude, codex)
     SetProvider(String),
     /// Set auto-refresh interval (off/10s/30s/1m/5m/15m)
@@ -199,6 +203,18 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         aliases: &[],
         description: "Share workspace as config-only URL (no data)",
         kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "snapshot",
+        aliases: &[],
+        description: "Upload snapshot to blob server (with conversation)",
+        kind: CommandKind::NoArgs,
+    },
+    PaletteCommand {
+        name: "open-snapshot",
+        aliases: &["os"],
+        description: "Open a snapshot by ID from blob server",
+        kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "provider",
@@ -586,6 +602,14 @@ impl CommandPalette {
             }
             "share" => CommandResult::ShareWorkspace,
             "share-live" => CommandResult::ShareLiveWorkspace,
+            "snapshot" => CommandResult::UploadSnapshot,
+            "open-snapshot" | "os" => {
+                if args.is_empty() {
+                    CommandResult::Error("Usage: :open-snapshot <id>".to_string())
+                } else {
+                    CommandResult::OpenSnapshot(args.join(" "))
+                }
+            }
             "provider" | "ai" => {
                 // :provider <name> - set AI provider
                 if args.is_empty() {

@@ -18,6 +18,11 @@ mod dir;
 pub mod workspace;
 
 // Re-export all public types at crate root for convenience
+pub use workspace::snapshot::{
+    Snapshot, SnapshotConversation, SnapshotDiffFile, SnapshotDiffLine, SnapshotDiffLineKind,
+    SnapshotInlineChart, SnapshotInlineContent, SnapshotInlineDiff, SnapshotInlineSearchResults,
+    SnapshotInlineSource, SnapshotMessage, SnapshotMessageRole, SnapshotSearchResultItem,
+};
 pub use workspace::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
     DEMO_WORKSPACE_TOML, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
