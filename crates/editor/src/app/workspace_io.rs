@@ -418,17 +418,9 @@ impl EnyaApp {
 
     /// Resolve the snapshot server base URL.
     ///
-    /// - WASM: production R2 worker at api.enya.build
-    /// - Native: local dev server on port 3001
-    fn snapshot_server_url() -> String {
-        #[cfg(target_arch = "wasm32")]
-        {
-            "https://api.enya.build".to_string()
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            "http://localhost:3001".to_string()
-        }
+    /// Production R2 worker at api.enya.build (both native and WASM).
+    fn snapshot_server_url() -> &'static str {
+        "https://api.enya.build"
     }
 
     /// Upload a full snapshot (workspace + data + conversation) to the blob server.
