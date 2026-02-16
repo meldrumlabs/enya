@@ -8,6 +8,7 @@ use egui_nerdfonts::regular;
 
 use crate::components::overlay::style_picker::StyleTab;
 use crate::components::util::{AiModel, AiProvider};
+use crate::github_auth::AuthState;
 use crate::ui::ActiveThemeColors;
 use crate::ui::semantic_icons;
 use crate::ui::settings_screen::EditorFont;
@@ -42,11 +43,16 @@ pub enum SettingsPageResult {
         custom_theme: Option<String>,
         font: EditorFont,
     },
+    /// User clicked "Sign in with GitHub".
+    GitHubSignIn,
+    /// User clicked "Sign out".
+    GitHubSignOut,
 }
 
 /// Settings category for sidebar navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsCategory {
+    Auth,
     Connections,
     Ai,
     ThemeFont,
@@ -54,11 +60,12 @@ pub enum SettingsCategory {
 
 impl SettingsCategory {
     fn all() -> &'static [Self] {
-        &[Self::Connections, Self::Ai, Self::ThemeFont]
+        &[Self::Auth, Self::Connections, Self::Ai, Self::ThemeFont]
     }
 
     fn label(self) -> &'static str {
         match self {
+            Self::Auth => "Auth",
             Self::Connections => "Connections",
             Self::Ai => "AI",
             Self::ThemeFont => "Theme & Font",
@@ -67,6 +74,7 @@ impl SettingsCategory {
 
     fn icon(self) -> &'static str {
         match self {
+            Self::Auth => regular::MARK_GITHUB,
             Self::Connections => regular::CONNECTION,
             Self::Ai => regular::SPARKLE_FILL,
             Self::ThemeFont => regular::PALETTE,
@@ -75,6 +83,7 @@ impl SettingsCategory {
 
     fn group_label(self) -> &'static str {
         match self {
+            Self::Auth => "ACCOUNT",
             Self::Connections | Self::Ai => "CONFIGURATION",
             Self::ThemeFont => "EDITOR",
         }
@@ -125,6 +134,12 @@ pub struct SettingsPage {
     scroll_to_defaults: bool,
     // Pending result from appearance navigation (emitted next frame)
     pending_styling_result: Option<SettingsPageResult>,
+    // GitHub auth state (passed in from EnyaApp each frame)
+    github_auth_state: AuthState,
+    // Cached avatar texture (created from bytes on first render)
+    avatar_texture: Option<egui::TextureHandle>,
+    // Whether keyboard Enter was pressed on the auth action button
+    pending_account_action: bool,
 }
 
 impl Default for SettingsPage {
@@ -164,6 +179,9 @@ impl SettingsPage {
             scroll_to_font: false,
             scroll_to_defaults: false,
             pending_styling_result: None,
+            github_auth_state: AuthState::SignedOut,
+            avatar_texture: None,
+            pending_account_action: false,
         }
     }
 
@@ -171,8 +189,45 @@ impl SettingsPage {
         self.theme = theme;
     }
 
+    pub fn set_github_auth_state(
+        &mut self,
+        state: AuthState,
+        avatar_bytes: Option<&[u8]>,
+        ctx: &egui::Context,
+    ) {
+        // If we have new avatar bytes and no texture yet, create the texture
+        if let (Some(bytes), None) = (avatar_bytes, &self.avatar_texture) {
+            if let Ok(dynamic_image) = image::load_from_memory(bytes) {
+                let rgba = dynamic_image.to_rgba8();
+                let size = [rgba.width() as usize, rgba.height() as usize];
+                let pixels: Vec<egui::Color32> = rgba
+                    .pixels()
+                    .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                    .collect();
+                let color_image = egui::ColorImage::new(size, pixels);
+                self.avatar_texture = Some(ctx.load_texture(
+                    "github_avatar",
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+        }
+
+        // Clear texture on sign out
+        if matches!(state, AuthState::SignedOut) {
+            self.avatar_texture = None;
+        }
+
+        self.github_auth_state = state;
+    }
+
     pub fn is_open(&self) -> bool {
         self.is_open
+    }
+
+    /// Set the active settings category (e.g. to navigate to Auth after OAuth callback).
+    pub fn set_active_category(&mut self, category: SettingsCategory) {
+        self.active_category = category;
     }
 
     /// Open the settings page with current values.
@@ -189,9 +244,12 @@ impl SettingsPage {
         current_custom_theme: Option<String>,
         current_font: EditorFont,
         custom_themes: Vec<(String, String, ActiveThemeColors)>,
+        github_auth_state: AuthState,
     ) {
         self.is_open = true;
-        self.active_category = SettingsCategory::Connections;
+        self.active_category = SettingsCategory::Auth;
+        self.github_auth_state = github_auth_state;
+        self.pending_account_action = false;
         self.sidebar_focused = false;
         self.field_index = 0;
         self.editing_field = None;
@@ -246,6 +304,7 @@ impl SettingsPage {
     /// Number of navigable fields in the current category.
     fn field_count(&self) -> usize {
         match self.active_category {
+            SettingsCategory::Auth => 1,        // Sign in/out button
             SettingsCategory::Connections => 4, // Prom, Loki, Flight SQL, Git URL
             SettingsCategory::Ai => 2,          // Provider, Model
             SettingsCategory::ThemeFont => 0,   // Panel-based navigation
@@ -637,6 +696,7 @@ impl SettingsPage {
             // Section subtitle
             ui.add_space(8.0);
             let subtitle = match self.active_category {
+                SettingsCategory::Auth => "Sign in to sync and share your work",
                 SettingsCategory::Connections => "Default endpoints and data source configuration",
                 SettingsCategory::Ai => "AI provider and model configuration",
                 SettingsCategory::ThemeFont => "Choose your color scheme and editor typeface",
@@ -658,14 +718,24 @@ impl SettingsPage {
             ui.add_space(28.0);
 
             // Content sections — Theme & Font has its own inner scroll areas,
-            // so only wrap Connections/AI in an outer scroll.
+            // so only wrap Auth/Connections/AI in an outer scroll.
             match self.active_category {
-                SettingsCategory::Connections | SettingsCategory::Ai => {
+                SettingsCategory::Auth | SettingsCategory::Connections | SettingsCategory::Ai => {
                     egui::ScrollArea::vertical()
                         .id_salt("settings_content_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             match self.active_category {
+                                SettingsCategory::Auth => {
+                                    self.show_auth_section(
+                                        ui,
+                                        ctx,
+                                        accent,
+                                        text_primary,
+                                        text_tertiary,
+                                        result,
+                                    );
+                                }
                                 SettingsCategory::Connections => {
                                     self.show_general_section(
                                         ui,
@@ -698,6 +768,365 @@ impl SettingsPage {
                         text_tertiary,
                         result,
                     );
+                }
+            }
+        }
+    }
+
+    // ── Auth Section ──────────────────────────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    fn show_auth_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        accent: Color32,
+        text_primary: Color32,
+        text_tertiary: Color32,
+        result: &mut SettingsPageResult,
+    ) {
+        let card_bg = self.theme.bg_elevated().gamma_multiply(0.55);
+        let card_border = self.theme.border_subtle().gamma_multiply(0.6);
+        let is_focused = self.field_index == 0 && !self.sidebar_focused;
+
+        // Check for keyboard-triggered action
+        let kb_action = self.pending_account_action;
+        self.pending_account_action = false;
+
+        match &self.github_auth_state {
+            AuthState::SignedOut | AuthState::Error(_) => {
+                let error_msg = if let AuthState::Error(msg) = &self.github_auth_state {
+                    Some(msg.clone())
+                } else {
+                    None
+                };
+
+                let stroke_color = if is_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                };
+
+                egui::Frame::new()
+                    .fill(card_bg)
+                    .stroke(egui::Stroke::new(
+                        if is_focused { 1.5 } else { 1.0 },
+                        stroke_color,
+                    ))
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin {
+                        left: 24,
+                        right: 24,
+                        top: 28,
+                        bottom: 28,
+                    })
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+
+                        // GitHub icon
+                        ui.label(
+                            RichText::new(regular::MARK_GITHUB)
+                                .color(accent)
+                                .size(28.0),
+                        );
+
+                        ui.add_space(16.0);
+
+                        // Title
+                        ui.label(
+                            RichText::new("Sign in with GitHub")
+                                .color(text_primary)
+                                .size(16.0)
+                                .strong(),
+                        );
+
+                        ui.add_space(8.0);
+
+                        // Description
+                        ui.label(
+                            RichText::new(
+                                "Connect your GitHub account to share snapshots\nand unlock premium features.",
+                            )
+                            .color(text_tertiary.gamma_multiply(0.6))
+                            .font(typography::proportional(typography::SM)),
+                        );
+
+                        // Error message
+                        if let Some(ref msg) = error_msg {
+                            ui.add_space(12.0);
+                            ui.label(
+                                RichText::new(msg)
+                                    .color(self.theme.semantic_error())
+                                    .font(typography::proportional(typography::SM)),
+                            );
+                        }
+
+                        ui.add_space(20.0);
+
+                        // Sign in button
+                        let btn_height = 36.0;
+                        let btn_width = 220.0;
+                        let (rect, response) = ui.allocate_exact_size(
+                            Vec2::new(btn_width, btn_height),
+                            egui::Sense::click(),
+                        );
+
+                        let btn_fill = if response.hovered() {
+                            accent.gamma_multiply(1.15)
+                        } else {
+                            accent
+                        };
+                        ui.painter()
+                            .rect_filled(rect, 6.0, btn_fill);
+
+                        // Button label
+                        let btn_text = format!("{} Sign in with GitHub  \u{2192}", regular::MARK_GITHUB);
+                        ui.painter().text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            btn_text,
+                            typography::proportional(typography::SM),
+                            Color32::WHITE,
+                        );
+
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+
+                        if response.clicked() || kb_action {
+                            *result = SettingsPageResult::GitHubSignIn;
+                        }
+
+                        // Keyboard hint when focused
+                        if is_focused {
+                            ui.add_space(12.0);
+                            ui.label(
+                                RichText::new("enter to sign in")
+                                    .color(accent.gamma_multiply(0.35))
+                                    .font(typography::monospace(9.0)),
+                            );
+                        }
+                    });
+            }
+
+            AuthState::Authenticating => {
+                egui::Frame::new()
+                    .fill(card_bg)
+                    .stroke(egui::Stroke::new(1.0, card_border))
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin {
+                        left: 24,
+                        right: 24,
+                        top: 28,
+                        bottom: 28,
+                    })
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+
+                        ui.add_space(8.0);
+
+                        // GitHub icon
+                        ui.label(
+                            RichText::new(regular::MARK_GITHUB)
+                                .color(accent)
+                                .size(28.0),
+                        );
+
+                        ui.add_space(16.0);
+
+                        ui.label(
+                            RichText::new("Authorize in your browser")
+                                .color(text_primary)
+                                .font(typography::proportional(14.0))
+                                .strong(),
+                        );
+
+                        ui.add_space(8.0);
+
+                        ui.label(
+                            RichText::new(
+                                "A browser window has opened.\nSign in to GitHub and authorize Enya to continue.",
+                            )
+                            .color(text_tertiary.gamma_multiply(0.6))
+                            .font(typography::proportional(typography::SM)),
+                        );
+
+                        ui.add_space(20.0);
+
+                        // Animated waiting indicator
+                        let elapsed = ui.input(|i| i.time) as f32;
+                        let dots: String = (0..3)
+                            .map(|i| {
+                                let phase =
+                                    (elapsed * 2.0 + i as f32 * 0.5).sin() * 0.5 + 0.5;
+                                if phase > 0.3 { '.' } else { ' ' }
+                            })
+                            .collect();
+
+                        ui.label(
+                            RichText::new(format!("Waiting for authorization{dots}"))
+                                .color(text_tertiary.gamma_multiply(0.6))
+                                .font(typography::proportional(typography::SM)),
+                        );
+
+                        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+                    });
+            }
+
+            AuthState::SignedIn(creds) => {
+                let creds = creds.clone();
+
+                // User info card
+                let stroke_color = if is_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                };
+
+                egui::Frame::new()
+                    .fill(card_bg)
+                    .stroke(egui::Stroke::new(
+                        if is_focused { 1.5 } else { 1.0 },
+                        stroke_color,
+                    ))
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin {
+                        left: 20,
+                        right: 20,
+                        top: 20,
+                        bottom: 20,
+                    })
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+
+                        ui.horizontal(|ui| {
+                            // Avatar circle
+                            let avatar_size = 40.0;
+                            let (rect, _response) = ui.allocate_exact_size(
+                                Vec2::splat(avatar_size),
+                                egui::Sense::hover(),
+                            );
+
+                            if let Some(texture) = &self.avatar_texture {
+                                // Draw avatar image clipped to a circle
+                                let mut mesh = egui::Mesh::with_texture(texture.id());
+
+                                // Build a circle mesh with UV mapping
+                                let center = rect.center();
+                                let radius = avatar_size / 2.0;
+                                let segments = 32;
+                                // Center vertex
+                                mesh.vertices.push(egui::epaint::Vertex {
+                                    pos: center,
+                                    uv: egui::pos2(0.5, 0.5),
+                                    color: Color32::WHITE,
+                                });
+                                for i in 0..=segments {
+                                    let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+                                    let (sin, cos) = angle.sin_cos();
+                                    mesh.vertices.push(egui::epaint::Vertex {
+                                        pos: center + egui::vec2(cos * radius, sin * radius),
+                                        uv: egui::pos2(0.5 + cos * 0.5, 0.5 + sin * 0.5),
+                                        color: Color32::WHITE,
+                                    });
+                                    if i > 0 {
+                                        mesh.indices.push(0); // center
+                                        mesh.indices.push(i);
+                                        mesh.indices.push(i + 1);
+                                    }
+                                }
+
+                                ui.painter().add(egui::Shape::mesh(mesh));
+                            } else {
+                                // Fallback: circle with initial letter
+                                ui.painter().circle_filled(
+                                    rect.center(),
+                                    avatar_size / 2.0,
+                                    accent.gamma_multiply(0.2),
+                                );
+                                let initial = creds
+                                    .user
+                                    .login
+                                    .chars()
+                                    .next()
+                                    .unwrap_or('?')
+                                    .to_uppercase()
+                                    .to_string();
+                                ui.painter().text(
+                                    rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    initial,
+                                    FontId::new(18.0, FontFamily::Proportional),
+                                    accent,
+                                );
+                            }
+
+                            ui.add_space(12.0);
+
+                            // Username and status
+                            ui.vertical(|ui| {
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(&creds.user.login)
+                                        .color(text_primary)
+                                        .font(typography::proportional(14.0))
+                                        .strong(),
+                                );
+                                ui.add_space(2.0);
+                                ui.horizontal(|ui| {
+                                    // Green dot
+                                    let (dot_rect, _) = ui.allocate_exact_size(
+                                        Vec2::splat(8.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().circle_filled(
+                                        dot_rect.center(),
+                                        3.0,
+                                        Color32::from_rgb(74, 222, 128),
+                                    );
+                                    ui.label(
+                                        RichText::new("Connected via GitHub")
+                                            .color(text_tertiary.gamma_multiply(0.6))
+                                            .font(typography::proportional(typography::XS)),
+                                    );
+                                });
+                            });
+                        });
+                    });
+
+                ui.add_space(12.0);
+
+                // Sign out button (muted)
+                let btn_height = 32.0;
+                let btn_width = 100.0;
+                let (rect, response) =
+                    ui.allocate_exact_size(Vec2::new(btn_width, btn_height), egui::Sense::click());
+
+                let signout_fill = if response.hovered() {
+                    self.theme.bg_hover()
+                } else {
+                    Color32::TRANSPARENT
+                };
+                ui.painter().rect(
+                    rect,
+                    6.0,
+                    signout_fill,
+                    egui::Stroke::new(1.0, text_tertiary.gamma_multiply(0.2)),
+                    egui::epaint::StrokeKind::Outside,
+                );
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Sign out",
+                    typography::proportional(typography::SM),
+                    text_tertiary.gamma_multiply(0.7),
+                );
+
+                if response.hovered() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
+                if response.clicked() || kb_action {
+                    *result = SettingsPageResult::GitHubSignOut;
                 }
             }
         }
@@ -1953,6 +2382,7 @@ impl SettingsPage {
                     0 => Key::Num1,
                     1 => Key::Num2,
                     2 => Key::Num3,
+                    3 => Key::Num4,
                     _ => continue,
                 };
                 if i.consume_key(egui::Modifiers::NONE, key) {
@@ -2164,6 +2594,9 @@ impl SettingsPage {
                 || i.consume_key(egui::Modifiers::NONE, Key::L)
             {
                 match self.active_category {
+                    SettingsCategory::Auth => {
+                        self.pending_account_action = true;
+                    }
                     SettingsCategory::Ai => {
                         self.ai_dropdown_open = true;
                     }
@@ -2210,6 +2643,7 @@ mod tests {
             None,
             EditorFont::default(),
             Vec::new(),
+            AuthState::SignedOut,
         );
         assert!(page.is_open());
         page.close();
@@ -2219,6 +2653,8 @@ mod tests {
     #[test]
     fn test_field_count() {
         let mut page = SettingsPage::new();
+        page.active_category = SettingsCategory::Auth;
+        assert_eq!(page.field_count(), 1);
         page.active_category = SettingsCategory::Connections;
         assert_eq!(page.field_count(), 4);
         page.active_category = SettingsCategory::Ai;
@@ -2230,6 +2666,6 @@ mod tests {
     #[test]
     fn test_category_count() {
         let cats = SettingsCategory::all();
-        assert_eq!(cats.len(), 3);
+        assert_eq!(cats.len(), 4);
     }
 }

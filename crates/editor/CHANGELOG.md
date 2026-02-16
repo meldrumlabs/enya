@@ -6,6 +6,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **GitHub authentication in Settings**: New "Auth" section in the settings sidebar under an "ACCOUNT" group. Uses the Authorization Code flow on both platforms — on native, opens the browser and captures the callback via a local server; on WASM, redirects the page to GitHub and detects the callback on reload. Displays the connected GitHub username when signed in. Auth state persists across sessions. Token exchange goes through the API worker (client secret stays server-side).
+
 - **Full snapshot format with conversation data**: New binary snapshot format (`crates/config/src/workspace/snapshot.rs`) that encodes workspace config, pane visualization data, and optional agent conversation (messages with inline charts, source code, diffs, and search results). Designed for R2 blob storage with postcard + LZ4 compression. Includes `extract_snapshot_conversation()` on `AgentPanel` to capture live conversations into snapshot-friendly types.
 
 - **`:snapshot` command**: Upload workspace snapshot (with pane data and agent conversation) to a blob server via `:snapshot` command. Encodes the full snapshot, POSTs to the snapshot server, and copies the returned URL to clipboard. Uses the async upload pattern with progress and error notifications.

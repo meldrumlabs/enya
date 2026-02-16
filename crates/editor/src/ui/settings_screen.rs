@@ -101,6 +101,9 @@ pub struct AppSettings {
     /// Version string of the last dismissed update notification
     #[serde(default)]
     pub dismissed_update_version: Option<String>,
+    /// GitHub authentication credentials (optional)
+    #[serde(default)]
+    pub github_credentials: Option<crate::github_auth::GitHubCredentials>,
 }
 
 /// Entry for a recently opened plot/chart

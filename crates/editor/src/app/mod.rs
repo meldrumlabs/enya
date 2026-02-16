@@ -28,6 +28,7 @@ use crate::components::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::{UpdateBanner, UpdateBannerAction};
 use crate::connection::ConnectionManager;
+use crate::github_auth::GitHubAuthManager;
 use crate::plugin::{EditorPluginHost, PluginContextRef, PluginRegistry, PluginSharedStateRef};
 use crate::ui::theme::AppTheme;
 use crate::ui::welcome_screen::welcome_section_ui;
@@ -108,6 +109,9 @@ pub struct EnyaApp {
 
     // Full-page settings
     settings_page: SettingsPage,
+
+    // GitHub authentication manager
+    github_auth: GitHubAuthManager,
 
     // Delay plugin installation by one frame to allow spinner to render
     #[cfg(not(target_arch = "wasm32"))]
@@ -337,6 +341,30 @@ impl EnyaApp {
         #[cfg(not(target_arch = "wasm32"))]
         let dismissed_update_version = state.settings.dismissed_update_version.clone();
 
+        #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))]
+        let mut github_auth = GitHubAuthManager::restore(
+            state.settings.github_credentials.clone(),
+            async_runtime.clone(),
+            reqwest::Client::new(),
+        );
+
+        // On WASM, check if we arrived back from a GitHub OAuth redirect.
+        // If so, navigate directly to the settings Auth page.
+        #[cfg(target_arch = "wasm32")]
+        let auth_callback_detected = github_auth.check_auth_callback(&cc.egui_ctx);
+        #[cfg(not(target_arch = "wasm32"))]
+        let auth_callback_detected = false;
+
+        if auth_callback_detected {
+            state.ui_state = UIState::Settings;
+        }
+
+        let mut settings_page = SettingsPage::new();
+        if auth_callback_detected {
+            settings_page
+                .set_active_category(crate::components::settings_page::SettingsCategory::Auth);
+        }
+
         Self {
             state,
             workspace,
@@ -364,7 +392,8 @@ impl EnyaApp {
             plugin_shared_state,
             custom_themes,
             resolved_custom_theme: None,
-            settings_page: SettingsPage::new(),
+            settings_page,
+            github_auth,
             #[cfg(not(target_arch = "wasm32"))]
             install_plugin_ready: false,
             #[cfg(not(target_arch = "wasm32"))]
@@ -737,6 +766,12 @@ impl EnyaApp {
 
     fn draw_settings(&mut self, ctx: &egui::Context) {
         self.settings_page.set_theme(self.effective_theme());
+        self.settings_page.set_github_auth_state(
+            self.github_auth.state().clone(),
+            self.github_auth.avatar_bytes(),
+            ctx,
+        );
+        self.github_auth.poll(ctx);
 
         let mut page_result = SettingsPageResult::None;
 
@@ -744,8 +779,29 @@ impl EnyaApp {
             page_result = self.settings_page.show(ui, ctx);
         });
 
+        // Persist credentials if auth just completed
+        if let Some(creds) = self.github_auth.credentials() {
+            if self
+                .state
+                .settings
+                .github_credentials
+                .as_ref()
+                .map(|c| &c.access_token)
+                != Some(&creds.access_token)
+            {
+                self.state.settings.github_credentials = Some(creds.clone());
+            }
+        }
+
         match page_result {
             SettingsPageResult::None => {}
+            SettingsPageResult::GitHubSignIn => {
+                self.github_auth.start_sign_in(ctx);
+            }
+            SettingsPageResult::GitHubSignOut => {
+                self.github_auth.sign_out();
+                self.state.settings.github_credentials = None;
+            }
             SettingsPageResult::GoBack | SettingsPageResult::Saved { .. } => {
                 // Save settings if provided
                 if let SettingsPageResult::Saved {
@@ -1109,6 +1165,7 @@ impl EnyaApp {
                     self.state.custom_theme.clone(),
                     self.state.settings.font,
                     custom_theme_list,
+                    self.github_auth.state().clone(),
                 );
             }
         }
