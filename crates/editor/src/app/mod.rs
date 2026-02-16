@@ -22,7 +22,8 @@ use egui::Theme;
 use crate::AsyncRuntime;
 use crate::command::{CommandReceiver, CommandSender, UICommand, UICommandSender, command_channel};
 use crate::components::{
-    Notification, NotificationLevel, NotificationManager, Sparkline, StatusLine, StatusMode,
+    Notification, NotificationLevel, NotificationManager, SettingsPage, SettingsPageResult,
+    Sparkline, StatusLine, StatusMode,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::{UpdateBanner, UpdateBannerAction};
@@ -97,6 +98,9 @@ pub struct EnyaApp {
 
     // Currently active resolved custom theme (for rendering)
     resolved_custom_theme: Option<ResolvedCustomTheme>,
+
+    // Full-page settings
+    settings_page: SettingsPage,
 
     // Delay plugin installation by one frame to allow spinner to render
     #[cfg(not(target_arch = "wasm32"))]
@@ -350,6 +354,7 @@ impl EnyaApp {
             plugin_shared_state,
             custom_themes,
             resolved_custom_theme: None,
+            settings_page: SettingsPage::new(),
             #[cfg(not(target_arch = "wasm32"))]
             install_plugin_ready: false,
             #[cfg(not(target_arch = "wasm32"))]
@@ -399,7 +404,7 @@ impl EnyaApp {
     // Paints the bottom panel aka footer (lualine-style status bar)
     fn show_bottom_panel(&mut self, ctx: &egui::Context) {
         // Hide status line on landing page - it's part of the workspace UI, not the landing page
-        if self.workspace.is_landing_page() {
+        if self.state.ui_state == UIState::Dashboard && self.workspace.is_landing_page() {
             return;
         }
 
@@ -423,6 +428,7 @@ impl EnyaApp {
                 }
             }
             UIState::Home => StatusMode::Home,
+            UIState::Settings => StatusMode::Settings,
         };
         self.status_line.set_mode(mode);
 
@@ -505,6 +511,7 @@ impl EnyaApp {
         match self.state.ui_state() {
             UIState::Dashboard => self.draw_workspace(ctx),
             UIState::Home => self.draw_home(ctx),
+            UIState::Settings => self.draw_settings(ctx),
         }
     }
 
@@ -716,6 +723,89 @@ impl EnyaApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             welcome_section_ui(ui, theme);
         });
+    }
+
+    fn draw_settings(&mut self, ctx: &egui::Context) {
+        self.settings_page.set_theme(self.effective_theme());
+
+        let mut page_result = SettingsPageResult::None;
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            page_result = self.settings_page.show(ui, ctx);
+        });
+
+        match page_result {
+            SettingsPageResult::None => {}
+            SettingsPageResult::GoBack | SettingsPageResult::Saved { .. } => {
+                // Save settings if provided
+                if let SettingsPageResult::Saved {
+                    ai_provider,
+                    ai_model,
+                    git_repo_url,
+                    default_prometheus_endpoint,
+                    default_loki_endpoint,
+                    default_flight_sql_endpoint,
+                } = page_result
+                {
+                    self.state.settings.ai_provider = ai_provider;
+                    self.state.settings.ai_model = ai_model;
+                    self.state.settings.git_repo_url = git_repo_url;
+                    self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
+                    self.state.settings.default_loki_endpoint = default_loki_endpoint;
+                    self.state.settings.default_flight_sql_endpoint = default_flight_sql_endpoint;
+                }
+                self.state.ui_state = self.state.previous_ui_state;
+            }
+            SettingsPageResult::ThemePreview(theme) => {
+                // Clear custom theme and preview builtin
+                self.state.custom_theme = None;
+                self.resolved_custom_theme = None;
+                self.command_sender.send_ui(UICommand::Theme(theme));
+            }
+            SettingsPageResult::CustomThemePreview(name) => {
+                if let Some(def) = self.custom_themes.get(&name) {
+                    let resolved = ResolvedCustomTheme::from_definition(def);
+                    let base = if resolved.is_dark {
+                        AppTheme::Dark
+                    } else {
+                        AppTheme::Light
+                    };
+                    self.command_sender.send_ui(UICommand::Theme(base));
+                    self.resolved_custom_theme = Some(resolved);
+                }
+                self.state.set_custom_theme(name);
+            }
+            SettingsPageResult::FontPreview(font) => {
+                self.state.settings.font = font;
+                fonts::setup_fonts(ctx, font);
+            }
+            SettingsPageResult::CancelledWithRestore {
+                theme,
+                custom_theme,
+                font,
+            } => {
+                if let Some(name) = custom_theme {
+                    if let Some(def) = self.custom_themes.get(&name) {
+                        let resolved = ResolvedCustomTheme::from_definition(def);
+                        let base = if resolved.is_dark {
+                            AppTheme::Dark
+                        } else {
+                            AppTheme::Light
+                        };
+                        self.command_sender.send_ui(UICommand::Theme(base));
+                        self.resolved_custom_theme = Some(resolved);
+                    }
+                    self.state.set_custom_theme(name);
+                } else {
+                    self.state.custom_theme = None;
+                    self.resolved_custom_theme = None;
+                    self.command_sender.send_ui(UICommand::Theme(theme));
+                }
+                self.state.settings.font = font;
+                fonts::setup_fonts(ctx, font);
+                self.state.ui_state = self.state.previous_ui_state;
+            }
+        }
     }
 
     #[profiling::function]
@@ -964,12 +1054,43 @@ impl EnyaApp {
                 git_repo_url,
                 default_prometheus_endpoint,
                 default_loki_endpoint,
+                default_flight_sql_endpoint,
             } => {
                 self.state.settings.ai_provider = ai_provider;
                 self.state.settings.ai_model = ai_model;
                 self.state.settings.git_repo_url = git_repo_url;
                 self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
                 self.state.settings.default_loki_endpoint = default_loki_endpoint;
+                self.state.settings.default_flight_sql_endpoint = default_flight_sql_endpoint;
+            }
+            WorkspaceAction::OpenSettings => {
+                // Collect custom themes for the settings page
+                let custom_theme_list: Vec<(String, String, crate::ui::ActiveThemeColors)> = self
+                    .plugin_registry
+                    .all_themes()
+                    .into_iter()
+                    .map(|t| {
+                        let resolved =
+                            crate::ui::custom_theme::ResolvedCustomTheme::from_definition(&t);
+                        let colors = crate::ui::ActiveThemeColors::from_custom(&resolved);
+                        (t.name, t.display_name, colors)
+                    })
+                    .collect();
+
+                self.state.previous_ui_state = self.state.ui_state;
+                self.state.ui_state = UIState::Settings;
+                self.settings_page.open(
+                    self.state.settings.ai_provider,
+                    self.state.settings.ai_model,
+                    self.state.settings.git_repo_url.clone(),
+                    self.state.settings.default_prometheus_endpoint.clone(),
+                    self.state.settings.default_loki_endpoint.clone(),
+                    self.state.settings.default_flight_sql_endpoint.clone(),
+                    self.effective_theme(),
+                    self.state.custom_theme.clone(),
+                    self.state.settings.font,
+                    custom_theme_list,
+                );
             }
         }
     }
