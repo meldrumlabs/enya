@@ -6,7 +6,7 @@ use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 
 /// Predefined time range presets
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum TimeRangePreset {
     /// Last 5 minutes
     Last5Minutes,

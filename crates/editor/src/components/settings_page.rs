@@ -8,9 +8,11 @@ use egui_nerdfonts::regular;
 
 use crate::components::overlay::style_picker::StyleTab;
 use crate::components::util::{AiModel, AiProvider};
+use crate::components::widget::time_range::TimeRangePreset;
+use crate::github_auth::AuthState;
 use crate::ui::ActiveThemeColors;
 use crate::ui::semantic_icons;
-use crate::ui::settings_screen::EditorFont;
+use crate::ui::settings_screen::{EditorFont, StartupPage, TimezonePreference};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -29,6 +31,10 @@ pub enum SettingsPageResult {
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
         default_flight_sql_endpoint: String,
+        default_workspace: Option<String>,
+        timezone: TimezonePreference,
+        default_time_range: TimeRangePreset,
+        startup_page: StartupPage,
     },
     /// Live preview of a builtin theme change.
     ThemePreview(AppTheme),
@@ -42,11 +48,17 @@ pub enum SettingsPageResult {
         custom_theme: Option<String>,
         font: EditorFont,
     },
+    /// User clicked "Sign in with GitHub".
+    GitHubSignIn,
+    /// User clicked "Sign out".
+    GitHubSignOut,
 }
 
 /// Settings category for sidebar navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsCategory {
+    Profile,
+    Notifications,
     Connections,
     Ai,
     ThemeFont,
@@ -54,11 +66,19 @@ pub enum SettingsCategory {
 
 impl SettingsCategory {
     fn all() -> &'static [Self] {
-        &[Self::Connections, Self::Ai, Self::ThemeFont]
+        &[
+            Self::Profile,
+            Self::Notifications,
+            Self::Connections,
+            Self::Ai,
+            Self::ThemeFont,
+        ]
     }
 
     fn label(self) -> &'static str {
         match self {
+            Self::Profile => "Profile",
+            Self::Notifications => "Notifications",
             Self::Connections => "Connections",
             Self::Ai => "AI",
             Self::ThemeFont => "Theme & Font",
@@ -67,6 +87,8 @@ impl SettingsCategory {
 
     fn icon(self) -> &'static str {
         match self {
+            Self::Profile => regular::ACCOUNT_OUTLINE,
+            Self::Notifications => regular::BELL_OUTLINE,
             Self::Connections => regular::CONNECTION,
             Self::Ai => regular::SPARKLE_FILL,
             Self::ThemeFont => regular::PALETTE,
@@ -75,8 +97,9 @@ impl SettingsCategory {
 
     fn group_label(self) -> &'static str {
         match self {
-            Self::Connections | Self::Ai => "CONFIGURATION",
-            Self::ThemeFont => "EDITOR",
+            Self::Profile | Self::Notifications => "",
+            Self::Connections | Self::Ai => "WORKSPACE",
+            Self::ThemeFont => "PREFERENCES",
         }
     }
 }
@@ -125,6 +148,22 @@ pub struct SettingsPage {
     scroll_to_defaults: bool,
     // Pending result from appearance navigation (emitted next frame)
     pending_styling_result: Option<SettingsPageResult>,
+    // GitHub auth state (passed in from EnyaApp each frame)
+    github_auth_state: AuthState,
+    // Cached avatar texture (created from bytes on first render)
+    avatar_texture: Option<egui::TextureHandle>,
+    // Whether keyboard Enter was pressed on the auth action button
+    pending_account_action: bool,
+    // Profile settings
+    default_workspace: Option<String>,
+    available_workspaces: Vec<String>,
+    workspace_dropdown_open: bool,
+    timezone: TimezonePreference,
+    timezone_dropdown_open: bool,
+    default_time_range: TimeRangePreset,
+    time_range_dropdown_open: bool,
+    startup_page: StartupPage,
+    startup_dropdown_open: bool,
 }
 
 impl Default for SettingsPage {
@@ -138,7 +177,7 @@ impl SettingsPage {
         Self {
             is_open: false,
             theme: AppTheme::default(),
-            active_category: SettingsCategory::Connections,
+            active_category: SettingsCategory::Profile,
             sidebar_focused: false,
             field_index: 0,
             editing_field: None,
@@ -164,6 +203,18 @@ impl SettingsPage {
             scroll_to_font: false,
             scroll_to_defaults: false,
             pending_styling_result: None,
+            github_auth_state: AuthState::SignedOut,
+            avatar_texture: None,
+            pending_account_action: false,
+            default_workspace: None,
+            available_workspaces: Vec::new(),
+            workspace_dropdown_open: false,
+            timezone: TimezonePreference::default(),
+            timezone_dropdown_open: false,
+            default_time_range: TimeRangePreset::default(),
+            time_range_dropdown_open: false,
+            startup_page: StartupPage::default(),
+            startup_dropdown_open: false,
         }
     }
 
@@ -171,8 +222,45 @@ impl SettingsPage {
         self.theme = theme;
     }
 
+    pub fn set_github_auth_state(
+        &mut self,
+        state: AuthState,
+        avatar_bytes: Option<&[u8]>,
+        ctx: &egui::Context,
+    ) {
+        // If we have new avatar bytes and no texture yet, create the texture
+        if let (Some(bytes), None) = (avatar_bytes, &self.avatar_texture) {
+            if let Ok(dynamic_image) = image::load_from_memory(bytes) {
+                let rgba = dynamic_image.to_rgba8();
+                let size = [rgba.width() as usize, rgba.height() as usize];
+                let pixels: Vec<egui::Color32> = rgba
+                    .pixels()
+                    .map(|p| egui::Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+                    .collect();
+                let color_image = egui::ColorImage::new(size, pixels);
+                self.avatar_texture = Some(ctx.load_texture(
+                    "github_avatar",
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                ));
+            }
+        }
+
+        // Clear texture on sign out
+        if matches!(state, AuthState::SignedOut) {
+            self.avatar_texture = None;
+        }
+
+        self.github_auth_state = state;
+    }
+
     pub fn is_open(&self) -> bool {
         self.is_open
+    }
+
+    /// Set the active settings category (e.g. to navigate to Auth after OAuth callback).
+    pub fn set_active_category(&mut self, category: SettingsCategory) {
+        self.active_category = category;
     }
 
     /// Open the settings page with current values.
@@ -189,9 +277,26 @@ impl SettingsPage {
         current_custom_theme: Option<String>,
         current_font: EditorFont,
         custom_themes: Vec<(String, String, ActiveThemeColors)>,
+        github_auth_state: AuthState,
+        default_workspace: Option<String>,
+        available_workspaces: Vec<String>,
+        timezone: TimezonePreference,
+        default_time_range: TimeRangePreset,
+        startup_page: StartupPage,
     ) {
         self.is_open = true;
-        self.active_category = SettingsCategory::Connections;
+        self.active_category = SettingsCategory::Profile;
+        self.github_auth_state = github_auth_state;
+        self.pending_account_action = false;
+        self.default_workspace = default_workspace;
+        self.available_workspaces = available_workspaces;
+        self.workspace_dropdown_open = false;
+        self.timezone = timezone;
+        self.timezone_dropdown_open = false;
+        self.default_time_range = default_time_range;
+        self.time_range_dropdown_open = false;
+        self.startup_page = startup_page;
+        self.startup_dropdown_open = false;
         self.sidebar_focused = false;
         self.field_index = 0;
         self.editing_field = None;
@@ -246,9 +351,11 @@ impl SettingsPage {
     /// Number of navigable fields in the current category.
     fn field_count(&self) -> usize {
         match self.active_category {
-            SettingsCategory::Connections => 4, // Prom, Loki, Flight SQL, Git URL
-            SettingsCategory::Ai => 2,          // Provider, Model
-            SettingsCategory::ThemeFont => 0,   // Panel-based navigation
+            SettingsCategory::Profile => 1,       // Sign in/out button
+            SettingsCategory::Notifications => 0, // No navigable fields yet
+            SettingsCategory::Connections => 4,   // Prom, Loki, Flight SQL, Git URL
+            SettingsCategory::Ai => 2,            // Provider, Model
+            SettingsCategory::ThemeFont => 0,     // Panel-based navigation
         }
     }
 
@@ -326,6 +433,10 @@ impl SettingsPage {
             default_prometheus_endpoint: self.default_prometheus_endpoint.clone(),
             default_loki_endpoint: self.default_loki_endpoint.clone(),
             default_flight_sql_endpoint: self.default_flight_sql_endpoint.clone(),
+            default_workspace: self.default_workspace.clone(),
+            timezone: self.timezone,
+            default_time_range: self.default_time_range,
+            startup_page: self.startup_page,
         }
     }
 
@@ -441,20 +552,23 @@ impl SettingsPage {
         for (i, cat) in categories.iter().enumerate() {
             let group = cat.group_label();
             if group != last_group {
-                if !last_group.is_empty() {
+                // Add spacing before a new group (but not before the very first item)
+                if i > 0 {
                     ui.add_space(16.0);
                 }
-                // Group label
-                ui.horizontal(|ui| {
-                    ui.add_space(20.0);
-                    ui.label(
-                        RichText::new(group)
-                            .color(text_tertiary.gamma_multiply(0.5))
-                            .font(typography::proportional(9.0))
-                            .strong(),
-                    );
-                });
-                ui.add_space(6.0);
+                // Render group label (skip empty labels for ungrouped items)
+                if !group.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(20.0);
+                        ui.label(
+                            RichText::new(group)
+                                .color(text_tertiary.gamma_multiply(0.5))
+                                .font(typography::proportional(9.0))
+                                .strong(),
+                        );
+                    });
+                    ui.add_space(6.0);
+                }
                 last_group = group;
             }
 
@@ -637,6 +751,8 @@ impl SettingsPage {
             // Section subtitle
             ui.add_space(8.0);
             let subtitle = match self.active_category {
+                SettingsCategory::Profile => "Your account, preferences, and integrations",
+                SettingsCategory::Notifications => "Manage notification preferences",
                 SettingsCategory::Connections => "Default endpoints and data source configuration",
                 SettingsCategory::Ai => "AI provider and model configuration",
                 SettingsCategory::ThemeFont => "Choose your color scheme and editor typeface",
@@ -658,14 +774,41 @@ impl SettingsPage {
             ui.add_space(28.0);
 
             // Content sections — Theme & Font has its own inner scroll areas,
-            // so only wrap Connections/AI in an outer scroll.
+            // so only wrap the others in an outer scroll.
             match self.active_category {
-                SettingsCategory::Connections | SettingsCategory::Ai => {
+                SettingsCategory::Profile
+                | SettingsCategory::Notifications
+                | SettingsCategory::Connections
+                | SettingsCategory::Ai => {
                     egui::ScrollArea::vertical()
                         .id_salt("settings_content_scroll")
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             match self.active_category {
+                                SettingsCategory::Profile => {
+                                    self.show_auth_section(
+                                        ui,
+                                        ctx,
+                                        accent,
+                                        text_primary,
+                                        text_tertiary,
+                                        result,
+                                    );
+                                    ui.add_space(24.0);
+                                    self.show_profile_settings(
+                                        ui,
+                                        accent,
+                                        text_primary,
+                                        text_tertiary,
+                                    );
+                                }
+                                SettingsCategory::Notifications => {
+                                    self.show_notifications_section(
+                                        ui,
+                                        text_primary,
+                                        text_tertiary,
+                                    );
+                                }
                                 SettingsCategory::Connections => {
                                     self.show_general_section(
                                         ui,
@@ -701,6 +844,716 @@ impl SettingsPage {
                 }
             }
         }
+    }
+
+    // ── Auth Section ──────────────────────────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    fn show_auth_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        accent: Color32,
+        text_primary: Color32,
+        text_tertiary: Color32,
+        result: &mut SettingsPageResult,
+    ) {
+        let card_bg = self.theme.bg_elevated().gamma_multiply(0.55);
+        let card_border = self.theme.border_subtle().gamma_multiply(0.6);
+        let is_focused = self.field_index == 0 && !self.sidebar_focused;
+
+        // Check for keyboard-triggered action
+        let kb_action = self.pending_account_action;
+        self.pending_account_action = false;
+
+        match &self.github_auth_state {
+            AuthState::SignedOut | AuthState::Error(_) => {
+                let error_msg = if let AuthState::Error(msg) = &self.github_auth_state {
+                    Some(msg.clone())
+                } else {
+                    None
+                };
+
+                let stroke_color = if is_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                };
+
+                egui::Frame::new()
+                    .fill(card_bg)
+                    .stroke(egui::Stroke::new(
+                        if is_focused { 1.5 } else { 1.0 },
+                        stroke_color,
+                    ))
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin::symmetric(16, 14))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+
+                        ui.horizontal(|ui| {
+                            // GitHub icon
+                            ui.label(
+                                RichText::new(regular::MARK_GITHUB)
+                                    .color(text_primary)
+                                    .size(20.0),
+                            );
+
+                            ui.add_space(8.0);
+
+                            // Title + subtitle
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    RichText::new("GitHub")
+                                        .color(text_primary)
+                                        .font(typography::proportional(13.0))
+                                        .strong(),
+                                );
+                                ui.label(
+                                    RichText::new("Share snapshots and sync settings")
+                                        .color(text_tertiary.gamma_multiply(0.6))
+                                        .font(typography::proportional(typography::XS)),
+                                );
+                            });
+
+                            // Push button to the right
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let btn_height = 28.0;
+                                    let btn_width = 80.0;
+                                    let (rect, response) = ui.allocate_exact_size(
+                                        Vec2::new(btn_width, btn_height),
+                                        egui::Sense::click(),
+                                    );
+
+                                    let btn_fill = if response.hovered() {
+                                        accent.gamma_multiply(1.15)
+                                    } else {
+                                        accent
+                                    };
+                                    ui.painter().rect_filled(rect, 6.0, btn_fill);
+
+                                    ui.painter().text(
+                                        rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        "Connect",
+                                        typography::proportional(typography::XS),
+                                        Color32::WHITE,
+                                    );
+
+                                    if response.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if response.clicked() || kb_action {
+                                        *result = SettingsPageResult::GitHubSignIn;
+                                    }
+                                },
+                            );
+                        });
+
+                        // Error message
+                        if let Some(ref msg) = error_msg {
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(msg)
+                                    .color(self.theme.semantic_error())
+                                    .font(typography::proportional(typography::XS)),
+                            );
+                        }
+                    });
+            }
+
+            AuthState::Authenticating => {
+                egui::Frame::new()
+                    .fill(card_bg)
+                    .stroke(egui::Stroke::new(1.0, card_border))
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin::symmetric(16, 14))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+
+                        ui.horizontal(|ui| {
+                            // GitHub icon
+                            ui.label(
+                                RichText::new(regular::MARK_GITHUB)
+                                    .color(text_primary)
+                                    .size(20.0),
+                            );
+
+                            ui.add_space(8.0);
+
+                            // Title + status
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    RichText::new("GitHub")
+                                        .color(text_primary)
+                                        .font(typography::proportional(13.0))
+                                        .strong(),
+                                );
+
+                                let elapsed = ui.input(|i| i.time) as f32;
+                                let dots: String = (0..3)
+                                    .map(|i| {
+                                        let phase =
+                                            (elapsed * 2.0 + i as f32 * 0.5).sin() * 0.5 + 0.5;
+                                        if phase > 0.3 { '.' } else { ' ' }
+                                    })
+                                    .collect();
+                                ui.label(
+                                    RichText::new(format!("Waiting for authorization{dots}"))
+                                        .color(text_tertiary.gamma_multiply(0.6))
+                                        .font(typography::proportional(typography::XS)),
+                                );
+                            });
+                        });
+
+                        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+                    });
+            }
+
+            AuthState::SignedIn(creds) => {
+                let creds = creds.clone();
+
+                let stroke_color = if is_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                };
+
+                egui::Frame::new()
+                    .fill(card_bg)
+                    .stroke(egui::Stroke::new(
+                        if is_focused { 1.5 } else { 1.0 },
+                        stroke_color,
+                    ))
+                    .corner_radius(8.0)
+                    .inner_margin(egui::Margin::symmetric(16, 14))
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+
+                        ui.horizontal(|ui| {
+                            // Avatar circle
+                            let avatar_size = 32.0;
+                            let (rect, _response) = ui.allocate_exact_size(
+                                Vec2::splat(avatar_size),
+                                egui::Sense::hover(),
+                            );
+
+                            if let Some(texture) = &self.avatar_texture {
+                                let mut mesh = egui::Mesh::with_texture(texture.id());
+                                let center = rect.center();
+                                let radius = avatar_size / 2.0;
+                                let segments = 32;
+                                mesh.vertices.push(egui::epaint::Vertex {
+                                    pos: center,
+                                    uv: egui::pos2(0.5, 0.5),
+                                    color: Color32::WHITE,
+                                });
+                                for i in 0..=segments {
+                                    let angle = std::f32::consts::TAU * i as f32 / segments as f32;
+                                    let (sin, cos) = angle.sin_cos();
+                                    mesh.vertices.push(egui::epaint::Vertex {
+                                        pos: center + egui::vec2(cos * radius, sin * radius),
+                                        uv: egui::pos2(0.5 + cos * 0.5, 0.5 + sin * 0.5),
+                                        color: Color32::WHITE,
+                                    });
+                                    if i > 0 {
+                                        mesh.indices.push(0);
+                                        mesh.indices.push(i);
+                                        mesh.indices.push(i + 1);
+                                    }
+                                }
+                                ui.painter().add(egui::Shape::mesh(mesh));
+                            } else {
+                                ui.painter().circle_filled(
+                                    rect.center(),
+                                    avatar_size / 2.0,
+                                    accent.gamma_multiply(0.2),
+                                );
+                                let initial = creds
+                                    .user
+                                    .login
+                                    .chars()
+                                    .next()
+                                    .unwrap_or('?')
+                                    .to_uppercase()
+                                    .to_string();
+                                ui.painter().text(
+                                    rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    initial,
+                                    FontId::new(14.0, FontFamily::Proportional),
+                                    accent,
+                                );
+                            }
+
+                            ui.add_space(8.0);
+
+                            // Username and status
+                            ui.vertical(|ui| {
+                                ui.label(
+                                    RichText::new(&creds.user.login)
+                                        .color(text_primary)
+                                        .font(typography::proportional(13.0))
+                                        .strong(),
+                                );
+                                ui.horizontal(|ui| {
+                                    let (dot_rect, _) = ui.allocate_exact_size(
+                                        Vec2::splat(8.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().circle_filled(
+                                        dot_rect.center(),
+                                        3.0,
+                                        Color32::from_rgb(74, 222, 128),
+                                    );
+                                    ui.label(
+                                        RichText::new("Connected")
+                                            .color(text_tertiary.gamma_multiply(0.6))
+                                            .font(typography::proportional(typography::XS)),
+                                    );
+                                });
+                            });
+
+                            // Sign out on the right
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let response = ui.add(
+                                        egui::Label::new(
+                                            RichText::new("Disconnect")
+                                                .color(text_tertiary.gamma_multiply(0.5))
+                                                .font(typography::proportional(typography::XS)),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    );
+                                    if response.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if response.clicked() || kb_action {
+                                        *result = SettingsPageResult::GitHubSignOut;
+                                    }
+                                },
+                            );
+                        });
+                    });
+            }
+        }
+    }
+
+    // ── Profile Settings (Default Workspace, Timezone) ─────────────────
+
+    fn show_profile_settings(
+        &mut self,
+        ui: &mut egui::Ui,
+        accent: Color32,
+        text_primary: Color32,
+        text_tertiary: Color32,
+    ) {
+        let card_bg = self.theme.bg_elevated().gamma_multiply(0.55);
+        let card_border = self.theme.border_subtle().gamma_multiply(0.6);
+
+        // ── Default Workspace ────────────────────────────────────────
+
+        egui::Frame::new()
+            .fill(card_bg)
+            .stroke(egui::Stroke::new(1.0, card_border))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::FOLDER_OUTLINE)
+                            .color(text_primary)
+                            .size(20.0),
+                    );
+
+                    ui.add_space(8.0);
+
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Default workspace")
+                                .color(text_primary)
+                                .font(typography::proportional(13.0))
+                                .strong(),
+                        );
+                        ui.label(
+                            RichText::new("Workspace to open on launch")
+                                .color(text_tertiary.gamma_multiply(0.6))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+
+                    // Dropdown on the right
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let display = self.default_workspace.as_deref().unwrap_or("Last used");
+                        let chevron = if self.workspace_dropdown_open {
+                            "\u{25BE}"
+                        } else {
+                            "\u{25B8}"
+                        };
+
+                        let btn_text = format!("{display} {chevron}");
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(btn_text)
+                                    .color(text_tertiary)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.workspace_dropdown_open = !self.workspace_dropdown_open;
+                        }
+                    });
+                });
+
+                // Dropdown options
+                if self.workspace_dropdown_open {
+                    ui.add_space(8.0);
+
+                    // "Last used" option
+                    let is_selected = self.default_workspace.is_none();
+                    let option_color = if is_selected { accent } else { text_tertiary };
+                    let response = ui.add(
+                        egui::Label::new(
+                            RichText::new("  Last used")
+                                .color(option_color)
+                                .font(typography::proportional(typography::XS)),
+                        )
+                        .sense(egui::Sense::click()),
+                    );
+                    if response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                    }
+                    if response.clicked() {
+                        self.default_workspace = None;
+                        self.workspace_dropdown_open = false;
+                    }
+
+                    // Available workspaces
+                    let workspaces = self.available_workspaces.clone();
+                    for name in &workspaces {
+                        let is_selected = self.default_workspace.as_deref() == Some(name.as_str());
+                        let option_color = if is_selected { accent } else { text_tertiary };
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("  {name}"))
+                                    .color(option_color)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.default_workspace = Some(name.clone());
+                            self.workspace_dropdown_open = false;
+                        }
+                    }
+                }
+            });
+
+        ui.add_space(8.0);
+
+        // ── Timezone ─────────────────────────────────────────────────
+
+        egui::Frame::new()
+            .fill(card_bg)
+            .stroke(egui::Stroke::new(1.0, card_border))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::CLOCK_OUTLINE)
+                            .color(text_primary)
+                            .size(20.0),
+                    );
+
+                    ui.add_space(8.0);
+
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Timezone")
+                                .color(text_primary)
+                                .font(typography::proportional(13.0))
+                                .strong(),
+                        );
+                        ui.label(
+                            RichText::new("Time format for chart axes")
+                                .color(text_tertiary.gamma_multiply(0.6))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+
+                    // Dropdown on the right
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let display = match self.timezone {
+                            TimezonePreference::Local => "Local",
+                            TimezonePreference::Utc => "UTC",
+                        };
+                        let chevron = if self.timezone_dropdown_open {
+                            "\u{25BE}"
+                        } else {
+                            "\u{25B8}"
+                        };
+
+                        let btn_text = format!("{display} {chevron}");
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(btn_text)
+                                    .color(text_tertiary)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.timezone_dropdown_open = !self.timezone_dropdown_open;
+                        }
+                    });
+                });
+
+                // Dropdown options
+                if self.timezone_dropdown_open {
+                    ui.add_space(8.0);
+
+                    for (pref, label) in [
+                        (TimezonePreference::Local, "Local (system)"),
+                        (TimezonePreference::Utc, "UTC"),
+                    ] {
+                        let is_selected = self.timezone == pref;
+                        let option_color = if is_selected { accent } else { text_tertiary };
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("  {label}"))
+                                    .color(option_color)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.timezone = pref;
+                            self.timezone_dropdown_open = false;
+                        }
+                    }
+                }
+            });
+
+        ui.add_space(8.0);
+
+        // ── Default Time Range ───────────────────────────────────────
+
+        egui::Frame::new()
+            .fill(card_bg)
+            .stroke(egui::Stroke::new(1.0, card_border))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::TIMER_OUTLINE)
+                            .color(text_primary)
+                            .size(20.0),
+                    );
+
+                    ui.add_space(8.0);
+
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Default time range")
+                                .color(text_primary)
+                                .font(typography::proportional(13.0))
+                                .strong(),
+                        );
+                        ui.label(
+                            RichText::new("Initial range for new query panes")
+                                .color(text_tertiary.gamma_multiply(0.6))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let display = self.default_time_range.label();
+                        let chevron = if self.time_range_dropdown_open {
+                            "\u{25BE}"
+                        } else {
+                            "\u{25B8}"
+                        };
+
+                        let btn_text = format!("{display} {chevron}");
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(btn_text)
+                                    .color(text_tertiary)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.time_range_dropdown_open = !self.time_range_dropdown_open;
+                        }
+                    });
+                });
+
+                if self.time_range_dropdown_open {
+                    ui.add_space(8.0);
+
+                    for preset in TimeRangePreset::all_presets() {
+                        let is_selected = self.default_time_range == *preset;
+                        let option_color = if is_selected { accent } else { text_tertiary };
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("  {}", preset.label()))
+                                    .color(option_color)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.default_time_range = *preset;
+                            self.time_range_dropdown_open = false;
+                        }
+                    }
+                }
+            });
+
+        ui.add_space(8.0);
+
+        // ── Startup Page ─────────────────────────────────────────────
+
+        egui::Frame::new()
+            .fill(card_bg)
+            .stroke(egui::Stroke::new(1.0, card_border))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::MONITOR)
+                            .color(text_primary)
+                            .size(20.0),
+                    );
+
+                    ui.add_space(8.0);
+
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Startup page")
+                                .color(text_primary)
+                                .font(typography::proportional(13.0))
+                                .strong(),
+                        );
+                        ui.label(
+                            RichText::new("What to show when the app opens")
+                                .color(text_tertiary.gamma_multiply(0.6))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let display = match self.startup_page {
+                            StartupPage::LandingPage => "Landing page",
+                            StartupPage::LastWorkspace => "Last workspace",
+                        };
+                        let chevron = if self.startup_dropdown_open {
+                            "\u{25BE}"
+                        } else {
+                            "\u{25B8}"
+                        };
+
+                        let btn_text = format!("{display} {chevron}");
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(btn_text)
+                                    .color(text_tertiary)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.startup_dropdown_open = !self.startup_dropdown_open;
+                        }
+                    });
+                });
+
+                if self.startup_dropdown_open {
+                    ui.add_space(8.0);
+
+                    for (page, label) in [
+                        (StartupPage::LandingPage, "Landing page"),
+                        (StartupPage::LastWorkspace, "Last workspace"),
+                    ] {
+                        let is_selected = self.startup_page == page;
+                        let option_color = if is_selected { accent } else { text_tertiary };
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("  {label}"))
+                                    .color(option_color)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.startup_page = page;
+                            self.startup_dropdown_open = false;
+                        }
+                    }
+                }
+            });
+    }
+
+    // ── Notifications Section ────────────────────────────────────────────
+
+    fn show_notifications_section(
+        &self,
+        ui: &mut egui::Ui,
+        text_primary: Color32,
+        text_tertiary: Color32,
+    ) {
+        ui.add_space(16.0);
+        ui.label(
+            RichText::new("No notification settings yet")
+                .color(text_tertiary)
+                .font(typography::proportional(typography::SM)),
+        );
+        ui.add_space(8.0);
+        ui.label(
+            RichText::new("Notification preferences will appear here in a future update.")
+                .color(text_primary.gamma_multiply(0.5))
+                .font(typography::proportional(typography::XS)),
+        );
     }
 
     // ── Connections Section ───────────────────────────────────────────────
@@ -1953,6 +2806,7 @@ impl SettingsPage {
                     0 => Key::Num1,
                     1 => Key::Num2,
                     2 => Key::Num3,
+                    3 => Key::Num4,
                     _ => continue,
                 };
                 if i.consume_key(egui::Modifiers::NONE, key) {
@@ -2164,6 +3018,10 @@ impl SettingsPage {
                 || i.consume_key(egui::Modifiers::NONE, Key::L)
             {
                 match self.active_category {
+                    SettingsCategory::Profile => {
+                        self.pending_account_action = true;
+                    }
+                    SettingsCategory::Notifications => {} // No navigable fields yet
                     SettingsCategory::Ai => {
                         self.ai_dropdown_open = true;
                     }
@@ -2210,6 +3068,12 @@ mod tests {
             None,
             EditorFont::default(),
             Vec::new(),
+            AuthState::SignedOut,
+            None,
+            Vec::new(),
+            TimezonePreference::default(),
+            TimeRangePreset::default(),
+            StartupPage::default(),
         );
         assert!(page.is_open());
         page.close();
@@ -2219,6 +3083,10 @@ mod tests {
     #[test]
     fn test_field_count() {
         let mut page = SettingsPage::new();
+        page.active_category = SettingsCategory::Profile;
+        assert_eq!(page.field_count(), 1);
+        page.active_category = SettingsCategory::Notifications;
+        assert_eq!(page.field_count(), 0);
         page.active_category = SettingsCategory::Connections;
         assert_eq!(page.field_count(), 4);
         page.active_category = SettingsCategory::Ai;
@@ -2230,6 +3098,6 @@ mod tests {
     #[test]
     fn test_category_count() {
         let cats = SettingsCategory::all();
-        assert_eq!(cats.len(), 3);
+        assert_eq!(cats.len(), 5);
     }
 }

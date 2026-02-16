@@ -418,21 +418,29 @@ impl EnyaApp {
 
     /// Resolve the snapshot server base URL.
     ///
-    /// - WASM: production R2 worker at api.enya.build
-    /// - Native: local dev server on port 3001
-    fn snapshot_server_url() -> String {
-        #[cfg(target_arch = "wasm32")]
-        {
-            "https://api.enya.build".to_string()
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            "http://localhost:3001".to_string()
-        }
+    /// Production R2 worker at api.enya.build (both native and WASM).
+    fn snapshot_server_url() -> &'static str {
+        "https://api.enya.build"
     }
 
     /// Upload a full snapshot (workspace + data + conversation) to the blob server.
+    ///
+    /// Requires GitHub authentication — the access token is sent as a Bearer
+    /// token and validated by the Worker against GitHub's API.
     pub(super) fn upload_snapshot(&mut self, ctx: &egui::Context) {
+        // Require sign-in before uploading
+        let token = match self.github_auth.credentials() {
+            Some(creds) => creds.access_token.clone(),
+            None => {
+                self.notifications.notify(Notification::new(
+                    "Sign in to share snapshots. Go to Settings → Profile to connect GitHub."
+                        .to_string(),
+                    NotificationLevel::Error,
+                ));
+                return;
+            }
+        };
+
         // Gather data (synchronous)
         let ws_config = self.workspace.to_workspace_config("snapshot", None);
         let pane_data = self.workspace.extract_all_snapshot_data();
@@ -467,7 +475,13 @@ impl EnyaApp {
         // Async upload
         self.async_runtime.spawn(async move {
             let url = format!("{server_url}/snapshot");
-            let result = match client.post(&url).body(bytes).send().await {
+            let result = match client
+                .post(&url)
+                .header("Authorization", format!("Bearer {token}"))
+                .body(bytes)
+                .send()
+                .await
+            {
                 Ok(resp) if resp.status().is_success() => {
                     match resp.json::<serde_json::Value>().await {
                         Ok(json) => json["id"]

@@ -6,6 +6,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **GitHub authentication in Settings**: New "Auth" section in the settings sidebar under an "ACCOUNT" group. Uses the Authorization Code flow on both platforms — on native, opens the browser and captures the callback via a local server; on WASM, redirects the page to GitHub and detects the callback on reload. Displays the connected GitHub username when signed in. Auth state persists across sessions. Token exchange goes through the API worker (client secret stays server-side).
+
 - **Full snapshot format with conversation data**: New binary snapshot format (`crates/config/src/workspace/snapshot.rs`) that encodes workspace config, pane visualization data, and optional agent conversation (messages with inline charts, source code, diffs, and search results). Designed for R2 blob storage with postcard + LZ4 compression. Includes `extract_snapshot_conversation()` on `AgentPanel` to capture live conversations into snapshot-friendly types.
 
 - **`:snapshot` command**: Upload workspace snapshot (with pane data and agent conversation) to a blob server via `:snapshot` command. Encodes the full snapshot, POSTs to the snapshot server, and copies the returned URL to clipboard. Uses the async upload pattern with progress and error notifications.
@@ -25,6 +27,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Token usage display in agent panel**: After each AI response, a subtle footer shows the model name, token counts (total, input, output), and request duration. Re-exported `TokenUsage` from `enya-ai` crate.
 - **AI tutorial steps**: Added three new tutorial steps for AI features: "AI Agent Setup" (API key and prerequisites), "Ask the AI Agent" (expanded with @metric mention tip), and "Agent Quick Actions" (single-key agent operators aw/ae/ay/ac/ar/af).
 - **Settings overlay**: New settings overlay (`:settings` command or landing page) with AI tab (provider, model, API key), Styling tab (side-by-side theme/font panels with color swatches and code previews), Connection tab (Prometheus and Loki endpoint/API key), and Codebase tab (git repo URL). Premium card-style input UX with labels above inputs, bordered input boxes, section grouping, focus glow, and dropdown chevrons. Auto-saves on close. Vim-style navigation (j/k, Tab for tabs, Enter to edit/cycle, h/l switch panels). Per-provider API key storage. Settings persist via eframe.
+- **Profile preferences in Settings**: Compact card-row UI for Default workspace, Timezone (Local/UTC), Default time range, and Startup page (Landing page/Last workspace) preferences. All persisted in settings with backward-compatible serde defaults.
+- **Auth-gated snapshot uploads**: Snapshot uploads now require GitHub sign-in. The editor sends the access token as a Bearer header; the Worker validates it against GitHub's API before accepting the upload. Unsigned users see a friendly error notification directing them to Settings → Profile.
 
 - **`load_workspace` agent command**: AI agents can now programmatically load a saved workspace in the GUI using `{"action": "load_workspace", "workspace": "name"}`. This enables the agent-to-human handoff workflow: an agent builds a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`), then loads it in the editor for the human to view.
 - **Close agent panel with `x`**: When the agent panel is focused, pressing `x` closes it, matching the behavior of workspace panes.

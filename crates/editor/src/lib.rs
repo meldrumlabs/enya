@@ -48,6 +48,9 @@ pub mod util;
 /// Workspace runtime (pane layout) and configuration (serialization).
 pub mod workspace;
 
+/// GitHub authentication via the Authorization Code flow.
+pub mod github_auth;
+
 /// Plugin system for extending editor functionality.
 pub mod plugin;
 
