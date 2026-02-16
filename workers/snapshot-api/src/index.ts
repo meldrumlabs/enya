@@ -51,12 +51,31 @@ function corsHeaders(request: Request): Record<string, string> {
 	return {
 		'Access-Control-Allow-Origin': origin,
 		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-		'Access-Control-Allow-Headers': 'Content-Type',
+		'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 		'Access-Control-Max-Age': '86400',
 	};
 }
 
 async function handleUpload(request: Request, env: Env): Promise<Response> {
+	// Require GitHub authentication
+	const authHeader = request.headers.get('Authorization') ?? '';
+	if (!authHeader.startsWith('Bearer ')) {
+		return new Response('authentication required', { status: 401, headers: corsHeaders(request) });
+	}
+
+	// Validate the token against GitHub's API
+	const ghResp = await fetch('https://api.github.com/user', {
+		headers: {
+			'Accept': 'application/json',
+			'Authorization': authHeader,
+			'User-Agent': 'enya-api',
+		},
+	});
+
+	if (!ghResp.ok) {
+		return new Response('invalid or expired token', { status: 401, headers: corsHeaders(request) });
+	}
+
 	const body = await request.arrayBuffer();
 
 	if (body.byteLength === 0) {
