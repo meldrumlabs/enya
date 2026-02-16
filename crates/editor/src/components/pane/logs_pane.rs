@@ -1635,9 +1635,9 @@ mod tests {
         pane.set_theme(AppTheme::Light);
         assert_eq!(pane.theme, AppTheme::Light);
 
-        // Change to Nord
-        pane.set_theme(AppTheme::Nord);
-        assert_eq!(pane.theme, AppTheme::Nord);
+        // Change to Midnight
+        pane.set_theme(AppTheme::Midnight);
+        assert_eq!(pane.theme, AppTheme::Midnight);
     }
 
     #[test]

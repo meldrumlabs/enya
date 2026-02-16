@@ -73,6 +73,9 @@ pub struct AppState {
     /// Custom theme name (from plugins). When Some, overrides the builtin theme.
     pub(crate) custom_theme: Option<String>,
     pub(crate) ui_state: UIState,
+    /// Previous UI state to return to (e.g., when leaving Settings)
+    #[serde(skip)]
+    pub(crate) previous_ui_state: UIState,
 }
 
 impl AppState {
@@ -114,9 +117,10 @@ impl AppState {
 }
 
 /// Which current state the UI is in
-#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum UIState {
     #[default]
     Dashboard,
     Home,
+    Settings,
 }

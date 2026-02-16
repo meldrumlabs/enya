@@ -29,6 +29,13 @@ All notable changes to the Enya editor will be documented in this file.
 - **`load_workspace` agent command**: AI agents can now programmatically load a saved workspace in the GUI using `{"action": "load_workspace", "workspace": "name"}`. This enables the agent-to-human handoff workflow: an agent builds a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`), then loads it in the editor for the human to view.
 - **Close agent panel with `x`**: When the agent panel is focused, pressing `x` closes it, matching the behavior of workspace panes.
 
+### Changed
+
+- **Full-page settings**: Replaced the settings modal overlay with a full-page settings experience featuring sidebar category navigation (Connections, AI, Editor), spacious content area with themed cards, and premium Linear/Conductor-style design. Settings page is now owned by `EnyaApp` via `UIState::Settings`, eliminating duplicated overlay handling code. Added Arrow Flight SQL endpoint configuration under Connections.
+- **Simplified tutorial layout**: Reduced tutorial from 4 panes (3 rows) to 2 vertically stacked panes so charts aren't squished on smaller laptop screens.
+- **Reduced theme count**: Removed Nord, Catppuccin, Bergman, Stockholm, Midsommar, and Skärgård themes. Kept 7 focused themes: Dark, Light, Midnight, Ayu, Aurora, Graphite, and Ink.
+- **Improved Ink chart palette**: Replaced monochrome gray chart colors with distinct muted hues (dusty blue, rose, sage, ochre, lavender, umber, verdigris) for better series legibility.
+
 ### Fixed
 
 - **Header text overlap when agent panel is open**: Keyboard hints in the workspace toolbar are now hidden when the toolbar is too narrow (< 700px), preventing them from overlapping with the time range controls.

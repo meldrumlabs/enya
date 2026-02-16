@@ -166,6 +166,8 @@ pub enum StatusMode {
     VisualMulti,
     /// Agent mode (AI-assisted interaction)
     Agent,
+    /// Settings page
+    Settings,
 }
 
 impl StatusMode {
@@ -179,6 +181,7 @@ impl StatusMode {
             Self::Diff => "DIFF",
             Self::VisualMulti => "V-MULTI",
             Self::Agent => "AGENT",
+            Self::Settings => "SETTINGS",
         }
     }
 
@@ -186,7 +189,7 @@ impl StatusMode {
     /// Uses Enya's color scheme: theme accent as primary, other colors for secondary modes
     pub fn color(&self, theme: AppTheme) -> Color32 {
         match self {
-            Self::Normal | Self::Home => theme.accent_primary(),
+            Self::Normal | Self::Home | Self::Settings => theme.accent_primary(),
             Self::Command | Self::VisualMulti => theme.accent_hover(),
             Self::Search => theme.text_secondary(),
             Self::Diff => theme.semantic_info(),
@@ -208,9 +211,12 @@ impl StatusMode {
         // Dark themes: bright accent backgrounds - use dark text
         match self {
             // Most modes have bright backgrounds - use dark text
-            Self::Normal | Self::Home | Self::Command | Self::VisualMulti | Self::Agent => {
-                Color32::from_rgb(10, 10, 10)
-            }
+            Self::Normal
+            | Self::Home
+            | Self::Settings
+            | Self::Command
+            | Self::VisualMulti
+            | Self::Agent => Color32::from_rgb(10, 10, 10),
             // Search uses secondary text color as bg - use contrasting color
             Self::Search => Color32::from_rgb(255, 255, 255),
             // Blue backgrounds - use white text

@@ -95,6 +95,9 @@ pub struct AppSettings {
     /// Default Loki endpoint for new workspaces
     #[serde(default)]
     pub default_loki_endpoint: String,
+    /// Default Arrow Flight SQL endpoint for new workspaces
+    #[serde(default)]
+    pub default_flight_sql_endpoint: String,
     /// Version string of the last dismissed update notification
     #[serde(default)]
     pub dismissed_update_version: Option<String>,

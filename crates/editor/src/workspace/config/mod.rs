@@ -438,8 +438,8 @@ granularity = "5m"
         config.theme = "LIGHT".to_string();
         assert_eq!(config.app_theme(), AppTheme::Light);
 
-        config.theme = "nord".to_string();
-        assert_eq!(config.app_theme(), AppTheme::Nord);
+        config.theme = "midnight".to_string();
+        assert_eq!(config.app_theme(), AppTheme::Midnight);
 
         config.theme = "invalid".to_string();
         assert_eq!(config.app_theme(), AppTheme::Dark);
