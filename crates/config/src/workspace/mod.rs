@@ -138,6 +138,7 @@
 //! Further reduction would require server-side URL shortening or query aliasing.
 
 mod compact;
+pub mod snapshot;
 mod templates;
 
 pub use templates::{
@@ -205,6 +206,8 @@ pub struct SnapshotMeta {
     pub captured_at: u64,
     /// Per-pane visualization data, indexed by pane position
     pub pane_data: Vec<SnapshotPaneData>,
+    /// Optional conversation data (present when loaded from a full snapshot)
+    pub conversation: Option<snapshot::SnapshotConversation>,
 }
 
 // =============================================================================

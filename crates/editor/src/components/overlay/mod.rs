@@ -3,6 +3,7 @@
 pub mod about;
 pub mod agent_context;
 pub mod agent_panel;
+mod agent_snapshot;
 mod agent_streaming;
 pub mod annotation_editor;
 pub mod buffer_editor;

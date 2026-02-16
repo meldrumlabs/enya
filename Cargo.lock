@@ -3158,6 +3158,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "enya-snapshot-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "enya-config",
+ "fastrand 1.9.0",
+ "serde_json",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "epaint"
 version = "0.33.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

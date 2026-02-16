@@ -224,6 +224,15 @@ impl Workspace {
             self.behavior.set_focused_tile(Some(pane_tile_ids[0]));
         }
 
+        // Load snapshot conversation into the agent panel if present
+        if let Some(conversation) = config
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.conversation.as_ref())
+        {
+            self.agent_panel.load_snapshot_conversation(conversation);
+        }
+
         // Return connection config if present (for logging/tracking in caller)
         if effective_conn.is_empty() {
             None
@@ -368,6 +377,11 @@ impl Workspace {
             }
         }
         false
+    }
+
+    /// Returns a reference to the agent panel.
+    pub fn agent_panel(&self) -> &crate::components::overlay::AgentPanel {
+        &self.agent_panel
     }
 
     /// Clear all panes from the viewport

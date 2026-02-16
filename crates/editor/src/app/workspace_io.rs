@@ -416,6 +416,157 @@ impl EnyaApp {
         }
     }
 
+    /// Default snapshot server URL for development.
+    const SNAPSHOT_SERVER_URL: &str = "http://localhost:3001";
+
+    /// Upload a full snapshot (workspace + data + conversation) to the blob server.
+    pub(super) fn upload_snapshot(&mut self, ctx: &egui::Context) {
+        // Gather data (synchronous)
+        let ws_config = self.workspace.to_workspace_config("snapshot", None);
+        let pane_data = self.workspace.extract_all_snapshot_data();
+        let captured_at = crate::util::now_unix_secs() as u64;
+        let conversation = self.workspace.agent_panel().extract_snapshot_conversation();
+
+        // Encode (synchronous — postcard + LZ4 is fast)
+        let bytes = match enya_config::workspace::snapshot::encode_snapshot(
+            &ws_config,
+            &pane_data,
+            captured_at,
+            conversation.as_ref(),
+        ) {
+            Ok(b) => b,
+            Err(e) => {
+                self.notifications.notify(Notification::new(
+                    format!("Failed to encode snapshot: {e}"),
+                    NotificationLevel::Error,
+                ));
+                return;
+            }
+        };
+
+        let pending = std::sync::Arc::clone(&self.pending_snapshot_upload);
+        let client = self.snapshot_http_client.clone();
+        let ctx = ctx.clone();
+
+        // Async upload
+        self.async_runtime.spawn(async move {
+            let url = format!("{}/snapshot", Self::SNAPSHOT_SERVER_URL);
+            let result = match client.post(&url).body(bytes).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    match resp.json::<serde_json::Value>().await {
+                        Ok(json) => json["url"]
+                            .as_str()
+                            .map(|s| s.to_string())
+                            .ok_or_else(|| "No URL in response".to_string()),
+                        Err(e) => Err(format!("Invalid response: {e}")),
+                    }
+                }
+                Ok(resp) => {
+                    let body = resp.text().await.unwrap_or_default();
+                    Err(format!("Server error: {body}"))
+                }
+                Err(e) => Err(format!("Upload failed: {e}")),
+            };
+            *pending.lock() = Some(result);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Poll for completed snapshot upload and copy URL to clipboard.
+    pub(super) fn poll_snapshot_upload(&mut self, ctx: &egui::Context) {
+        if let Some(result) = self.pending_snapshot_upload.lock().take() {
+            match result {
+                Ok(url) => {
+                    ctx.copy_text(url.clone());
+                    self.notifications.notify(Notification::new(
+                        "Snapshot URL copied to clipboard!".to_string(),
+                        NotificationLevel::Success,
+                    ));
+                }
+                Err(e) => {
+                    self.notifications.notify(Notification::new(
+                        format!("Snapshot upload failed: {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Fetch a snapshot blob from the server by ID, decode it, and put the result in pending.
+    pub(super) fn fetch_snapshot(&mut self, ctx: &egui::Context, id: &str) {
+        let pending = std::sync::Arc::clone(&self.pending_snapshot_load);
+        let client = self.snapshot_http_client.clone();
+        let ctx = ctx.clone();
+        let url = format!("{}/snapshot/{}", Self::SNAPSHOT_SERVER_URL, id);
+
+        self.async_runtime.spawn(async move {
+            let result = match client.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                    Ok(bytes) => enya_config::workspace::snapshot::decode_snapshot(&bytes)
+                        .map(|s| s.workspace)
+                        .map_err(|e| format!("Decode failed: {e}")),
+                    Err(e) => Err(format!("Read failed: {e}")),
+                },
+                Ok(resp) => {
+                    let body = resp.text().await.unwrap_or_default();
+                    Err(format!("Server error: {body}"))
+                }
+                Err(e) => Err(format!("Fetch failed: {e}")),
+            };
+            *pending.lock() = Some(result);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Poll for completed snapshot load and apply the workspace config.
+    pub(super) fn poll_snapshot_load(&mut self, _ctx: &egui::Context) {
+        if let Some(result) = self.pending_snapshot_load.lock().take() {
+            match result {
+                Ok(workspace_config) => {
+                    let connection = self.workspace.load_workspace_config(&workspace_config);
+                    if let Some(conn) = connection {
+                        if !conn.endpoint.is_empty() {
+                            log::info!("Snapshot workspace specifies endpoint: {}", conn.endpoint);
+                        }
+                    }
+                    self.notifications.notify(Notification::new(
+                        "Snapshot loaded!".to_string(),
+                        NotificationLevel::Success,
+                    ));
+                }
+                Err(e) => {
+                    self.notifications.notify(Notification::new(
+                        format!("Failed to load snapshot: {e}"),
+                        NotificationLevel::Error,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Get snapshot ID parameter from URL (WASM only)
+    /// Returns the snapshot ID if ?snapshot=... is present
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn get_url_snapshot_param() -> Option<String> {
+        let window = web_sys::window()?;
+        let location = window.location();
+        let search = location.search().ok()?;
+
+        if search.starts_with('?') {
+            for param in search[1..].split('&') {
+                if let Some(value) = param.strip_prefix("snapshot=") {
+                    if !value.is_empty() {
+                        log::info!("Found snapshot parameter in URL");
+                        return Some(value.to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Copy text to clipboard (WASM only)
     #[cfg(target_arch = "wasm32")]
     pub(super) fn copy_to_clipboard_wasm(text: &str) -> Result<(), String> {

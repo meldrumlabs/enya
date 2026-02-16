@@ -27,6 +27,9 @@ target_wasm
 # Zig build cache (ghostty_vt_sys)
 .zig-cache/
 
+# Snapshot server local storage (dev only)
+snapshots/
+
 # Credentials
 *.pem
 *.key

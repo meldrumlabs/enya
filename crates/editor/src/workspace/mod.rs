@@ -147,6 +147,10 @@ pub enum WorkspaceAction {
     ShareLivePane(usize),
     /// Share selected panes as URL (snapshot if data loaded, config-only otherwise)
     ShareSelectedPanes(Vec<usize>),
+    /// Upload snapshot to blob server (workspace + data + conversation)
+    UploadSnapshot,
+    /// Open a snapshot by ID from blob server
+    OpenSnapshot(String),
     /// Quit the application
     QuitApp,
     /// Open the annotation editor for the focused pane
@@ -2015,6 +2019,8 @@ impl Workspace {
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
             CommandResult::ShareLiveWorkspace => WorkspaceAction::ShareLiveWorkspace,
+            CommandResult::UploadSnapshot => WorkspaceAction::UploadSnapshot,
+            CommandResult::OpenSnapshot(id) => WorkspaceAction::OpenSnapshot(id),
             CommandResult::SetProvider(provider_name) => {
                 use crate::components::util::AiProvider;
                 if let Some(provider) = AiProvider::parse(&provider_name) {

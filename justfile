@@ -103,6 +103,10 @@ deploy-website:
     cd website && npm install && npm run build
     npx wrangler pages deploy website/dist --project-name=enya --branch=deploy
 
+# Run the local snapshot server for development
+snapshot-server:
+    cargo run -p enya-snapshot-server
+
 # Run enya serve in development
 serve workspace:
     cargo run -p enya --features serve -- serve {{workspace}}

@@ -64,9 +64,16 @@ pub struct EnyaApp {
     // Internal editor metrics (frame times, etc.)
     editor_metrics: EditorMetrics,
 
-    // Async runtime for spawning background tasks (AI agent, etc.)
-    #[allow(dead_code)] // Will be used by AI agent integration
+    // Async runtime for spawning background tasks (snapshot uploads, AI agent, etc.)
     async_runtime: AsyncRuntime,
+
+    // HTTP client for snapshot uploads to blob server
+    snapshot_http_client: reqwest::Client,
+    // Pending snapshot upload result (URL or error)
+    pending_snapshot_upload: std::sync::Arc<parking_lot::Mutex<Option<Result<String, String>>>>,
+    // Pending snapshot load result (decoded WorkspaceConfig or error)
+    pending_snapshot_load:
+        std::sync::Arc<parking_lot::Mutex<Option<Result<enya_config::WorkspaceConfig, String>>>>,
 
     // Pending screenshot path (used when screenshot event arrives)
     #[cfg(not(target_arch = "wasm32"))]
@@ -338,6 +345,9 @@ impl EnyaApp {
             notifications: NotificationManager::new(),
             editor_metrics: EditorMetrics::default(),
             async_runtime,
+            snapshot_http_client: reqwest::Client::new(),
+            pending_snapshot_upload: std::sync::Arc::new(parking_lot::Mutex::new(None)),
+            pending_snapshot_load: std::sync::Arc::new(parking_lot::Mutex::new(None)),
             #[cfg(not(target_arch = "wasm32"))]
             pending_screenshot_path: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -736,6 +746,9 @@ impl EnyaApp {
             } else if let Some(pane_param) = Self::get_url_pane_param() {
                 // Single pane uses the same decoder (returns a single-pane workspace)
                 self.load_workspace(&pane_param);
+            } else if let Some(snapshot_id) = Self::get_url_snapshot_param() {
+                // Blob snapshot: async fetch from server, then decode and load
+                self.fetch_snapshot(ctx, &snapshot_id);
             }
         }
 
@@ -932,6 +945,12 @@ impl EnyaApp {
                 if let Some(url) = self.build_share_pane_url(pane_index) {
                     self.copy_share_url(ctx, &url, "Pane URL copied to clipboard");
                 }
+            }
+            WorkspaceAction::UploadSnapshot => {
+                self.upload_snapshot(ctx);
+            }
+            WorkspaceAction::OpenSnapshot(id) => {
+                self.fetch_snapshot(ctx, &id);
             }
             WorkspaceAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1390,6 +1409,12 @@ impl eframe::App for EnyaApp {
 
         // Poll connection manager for completed health checks
         self.poll_connection();
+
+        // Poll snapshot uploads for completed results
+        self.poll_snapshot_upload(ctx);
+
+        // Poll snapshot loads for completed fetches
+        self.poll_snapshot_load(ctx);
 
         // Poll plugin pane refreshes (auto-refresh based on intervals)
         self.poll_plugin_pane_refreshes();
