@@ -416,8 +416,20 @@ impl EnyaApp {
         }
     }
 
-    /// Default snapshot server URL for development.
-    const SNAPSHOT_SERVER_URL: &str = "http://localhost:3001";
+    /// Resolve the snapshot server base URL.
+    ///
+    /// - WASM: production R2 worker at api.enya.build
+    /// - Native: local dev server on port 3001
+    fn snapshot_server_url() -> String {
+        #[cfg(target_arch = "wasm32")]
+        {
+            "https://api.enya.build".to_string()
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            "http://localhost:3001".to_string()
+        }
+    }
 
     /// Upload a full snapshot (workspace + data + conversation) to the blob server.
     pub(super) fn upload_snapshot(&mut self, ctx: &egui::Context) {
@@ -447,17 +459,21 @@ impl EnyaApp {
         let pending = std::sync::Arc::clone(&self.pending_snapshot_upload);
         let client = self.snapshot_http_client.clone();
         let ctx = ctx.clone();
+        let server_url = Self::snapshot_server_url();
+        let share_base = Self::build_share_url("snapshot", "PLACEHOLDER");
+        // Strip the placeholder to get just the base + param prefix
+        let share_base = share_base.replace("PLACEHOLDER", "");
 
         // Async upload
         self.async_runtime.spawn(async move {
-            let url = format!("{}/snapshot", Self::SNAPSHOT_SERVER_URL);
+            let url = format!("{server_url}/snapshot");
             let result = match client.post(&url).body(bytes).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     match resp.json::<serde_json::Value>().await {
-                        Ok(json) => json["url"]
+                        Ok(json) => json["id"]
                             .as_str()
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| "No URL in response".to_string()),
+                            .map(|id| format!("{share_base}{id}"))
+                            .ok_or_else(|| "No ID in response".to_string()),
                         Err(e) => Err(format!("Invalid response: {e}")),
                     }
                 }
@@ -498,7 +514,7 @@ impl EnyaApp {
         let pending = std::sync::Arc::clone(&self.pending_snapshot_load);
         let client = self.snapshot_http_client.clone();
         let ctx = ctx.clone();
-        let url = format!("{}/snapshot/{}", Self::SNAPSHOT_SERVER_URL, id);
+        let url = format!("{}/snapshot/{}", Self::snapshot_server_url(), id);
 
         self.async_runtime.spawn(async move {
             let result = match client.get(&url).send().await {

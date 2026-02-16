@@ -12,6 +12,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **`:open-snapshot <id>` command**: Load a snapshot from the blob server by ID. Also supports `?snapshot=<id>` URL parameter for WASM browser loading — open a snapshot link and the workspace, pane data, and conversation are restored automatically.
 
+- **Production R2 snapshot storage**: Cloudflare Worker at `api.enya.build` with R2 bucket for production snapshot blob storage. WASM editor uploads/downloads via the R2 API; native uses the local dev server on port 3001.
+
 - **WASM demo data for unified finder**: All search modes (All, Alerts, Commits) now show demo codebase results in the WASM build, showcasing what Tantivy search provides on native. Includes sample metrics, alert rules, and git commits with diff previews and fuzzy matching. Selecting a commit opens the full diff viewer. Live Prometheus metrics continue to work as before.
 
 - **Diff viewer available on WASM**: The diff viewer overlay now works in the WASM build, enabling commit diff viewing from the unified finder and agent panel.

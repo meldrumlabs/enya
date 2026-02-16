@@ -1,0 +1,122 @@
+/**
+ * Snapshot API Worker — Cloudflare R2 blob storage for workspace snapshots.
+ *
+ * POST /snapshot      — Upload a snapshot blob, returns {"id", "bytes"}
+ * GET  /snapshot/:id  — Download a snapshot blob by ID
+ */
+
+interface Env {
+	SNAPSHOTS: R2Bucket;
+}
+
+const ID_LENGTH = 12;
+const MAX_BODY_SIZE = 512 * 1024; // 512KB
+const CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+const ALLOWED_ORIGINS = [
+	'https://enya.build',
+	'https://www.enya.build',
+];
+
+function generateId(): string {
+	let id = '';
+	for (let i = 0; i < ID_LENGTH; i++) {
+		id += CHARS[Math.floor(Math.random() * CHARS.length)];
+	}
+	return id;
+}
+
+function isValidId(id: string): boolean {
+	return id.length > 0 && id.length <= 64 && /^[a-zA-Z0-9]+$/.test(id);
+}
+
+function corsHeaders(request: Request): Record<string, string> {
+	const origin = request.headers.get('Origin') ?? '';
+
+	// Allow listed origins and any localhost for dev
+	const allowed =
+		ALLOWED_ORIGINS.includes(origin) ||
+		/^https?:\/\/localhost(:\d+)?$/.test(origin) ||
+		/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+
+	if (!allowed) {
+		return {};
+	}
+
+	return {
+		'Access-Control-Allow-Origin': origin,
+		'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+		'Access-Control-Allow-Headers': 'Content-Type',
+		'Access-Control-Max-Age': '86400',
+	};
+}
+
+async function handleUpload(request: Request, env: Env): Promise<Response> {
+	const body = await request.arrayBuffer();
+
+	if (body.byteLength === 0) {
+		return new Response('empty body', { status: 400, headers: corsHeaders(request) });
+	}
+
+	if (body.byteLength > MAX_BODY_SIZE) {
+		return new Response('body too large', { status: 413, headers: corsHeaders(request) });
+	}
+
+	const id = generateId();
+	const key = `${id}.bin`;
+
+	await env.SNAPSHOTS.put(key, body, {
+		httpMetadata: { contentType: 'application/octet-stream' },
+	});
+
+	return Response.json(
+		{ id, bytes: body.byteLength },
+		{ headers: corsHeaders(request) },
+	);
+}
+
+async function handleDownload(id: string, request: Request, env: Env): Promise<Response> {
+	if (!isValidId(id)) {
+		return new Response('invalid id', { status: 400, headers: corsHeaders(request) });
+	}
+
+	const key = `${id}.bin`;
+	const object = await env.SNAPSHOTS.get(key);
+
+	if (!object) {
+		return new Response('snapshot not found', { status: 404, headers: corsHeaders(request) });
+	}
+
+	return new Response(object.body, {
+		headers: {
+			'Content-Type': 'application/octet-stream',
+			'Cache-Control': 'public, max-age=31536000, immutable',
+			...corsHeaders(request),
+		},
+	});
+}
+
+export default {
+	async fetch(request: Request, env: Env): Promise<Response> {
+		const url = new URL(request.url);
+		const path = url.pathname;
+
+		// CORS preflight
+		if (request.method === 'OPTIONS') {
+			return new Response(null, { status: 204, headers: corsHeaders(request) });
+		}
+
+		// POST /snapshot — upload
+		if (request.method === 'POST' && path === '/snapshot') {
+			return handleUpload(request, env);
+		}
+
+		// GET /snapshot/:id — download
+		const match = path.match(/^\/snapshot\/([a-zA-Z0-9]+)$/);
+		if (request.method === 'GET' && match) {
+			return handleDownload(match[1], request, env);
+		}
+
+		return new Response('not found', { status: 404 });
+	},
+} satisfies ExportedHandler<Env>;
