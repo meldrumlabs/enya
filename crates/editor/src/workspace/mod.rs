@@ -166,7 +166,10 @@ pub enum WorkspaceAction {
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
+        default_flight_sql_endpoint: String,
     },
+    /// Open the full-page settings
+    OpenSettings,
 }
 
 /// The main viewport layout with a flexible tile tree for views/charts.
@@ -222,10 +225,6 @@ pub struct Workspace {
     tutorial_overlay: TutorialOverlay,
     /// Plugins overlay (view and manage plugins)
     plugins_overlay: PluginsOverlay,
-    /// Settings overlay (AI provider, model, API keys, codebase)
-    settings_overlay: crate::components::overlay::SettingsOverlay,
-    /// Custom themes for the settings overlay (name, display_name, colors)
-    settings_custom_themes: Vec<(String, String, crate::ui::active_theme::ActiveThemeColors)>,
     /// Workspace creator overlay (new workspace wizard)
     workspace_creator: WorkspaceCreator,
     /// Current scroll offset for smooth scrolling (0.0 to 1.0, percentage)
@@ -250,7 +249,7 @@ pub struct Workspace {
     pending_open_workspace_finder: bool,
     /// Flag to open style picker (set by command, handled in show with app_state)
     pending_open_style_picker: bool,
-    /// Flag to open settings overlay (set by command, handled in show with app_state)
+    /// Flag to open settings page (set by command, handled in show)
     pending_open_settings: bool,
     /// Flag to open time range picker (set by keyboard tc or button click)
     pending_open_time_range_picker: bool,
@@ -410,8 +409,6 @@ impl Workspace {
             time_range_picker: TimeRangePicker::new(),
             tutorial_overlay: TutorialOverlay::new(),
             plugins_overlay: PluginsOverlay::new(),
-            settings_overlay: crate::components::overlay::SettingsOverlay::new(),
-            settings_custom_themes: Vec::new(),
             workspace_creator: WorkspaceCreator::new(),
             viewport_scroll_offset: 0.0,
             viewport_scroll_target: 0.0,
@@ -590,7 +587,6 @@ impl Workspace {
                 || self.tutorial_overlay.is_open()
                 || self.plugins_overlay.is_open()
                 || self.source_preview.is_open()
-                || self.settings_overlay.is_open()
                 || self.agent_panel.is_open();
             self.set_terminal_keyboard_enabled(!modal_open);
         }
@@ -799,20 +795,10 @@ impl Workspace {
             );
         }
 
-        // Handle pending settings overlay open (needs app_state for current values)
+        // Handle pending settings page open
         if self.pending_open_settings {
             self.pending_open_settings = false;
-            self.settings_overlay.open(
-                app_state.settings.ai_provider,
-                app_state.settings.ai_model,
-                app_state.settings.git_repo_url.clone(),
-                app_state.settings.default_prometheus_endpoint.clone(),
-                app_state.settings.default_loki_endpoint.clone(),
-                self.theme(),
-                app_state.custom_theme().map(str::to_string),
-                app_state.settings.font,
-                self.settings_custom_themes.clone(),
-            );
+            return WorkspaceAction::OpenSettings;
         }
 
         // Handle pending time range picker open
@@ -833,8 +819,7 @@ impl Workspace {
             || self.workspace_finder.is_open()
             || self.unified_finder.is_open()
             || self.command_palette.is_open()
-            || self.which_key.is_open()
-            || self.settings_overlay.is_open();
+            || self.which_key.is_open();
 
         // Propagate overlay_blocks_input to all pane components
         for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
@@ -1219,8 +1204,7 @@ impl Workspace {
             self.diff_viewer.set_keyboard_disabled(
                 self.style_picker.is_open()
                     || self.time_range_picker.is_open()
-                    || self.command_palette.is_open()
-                    || self.settings_overlay.is_open(),
+                    || self.command_palette.is_open(),
             );
             match self.diff_viewer.show(ctx) {
                 DiffViewerResult::Error(msg) => {
@@ -1427,48 +1411,6 @@ impl Workspace {
             PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
         }
 
-        // Show settings overlay modal
-        self.settings_overlay.set_theme(self.theme());
-        match self.settings_overlay.show(ctx) {
-            crate::components::overlay::SettingsResult::Saved {
-                ai_provider,
-                ai_model,
-                git_repo_url,
-                default_prometheus_endpoint,
-                default_loki_endpoint,
-            } => {
-                return WorkspaceAction::SaveSettings {
-                    ai_provider,
-                    ai_model,
-                    git_repo_url,
-                    default_prometheus_endpoint,
-                    default_loki_endpoint,
-                };
-            }
-            crate::components::overlay::SettingsResult::ThemePreview(theme) => {
-                return WorkspaceAction::SetTheme(theme);
-            }
-            crate::components::overlay::SettingsResult::CustomThemePreview(name) => {
-                return WorkspaceAction::SetCustomTheme(name);
-            }
-            crate::components::overlay::SettingsResult::FontPreview(font) => {
-                return WorkspaceAction::SetFont(font);
-            }
-            crate::components::overlay::SettingsResult::CancelledWithRestore {
-                theme,
-                custom_theme,
-                font,
-            } => {
-                if let Some(name) = custom_theme {
-                    return WorkspaceAction::SetCustomThemeAndFont(name, font);
-                } else {
-                    return WorkspaceAction::SetThemeAndFont(theme, font);
-                }
-            }
-            crate::components::overlay::SettingsResult::Cancelled
-            | crate::components::overlay::SettingsResult::None => {}
-        }
-
         // Show workspace creator overlay modal
         self.workspace_creator.set_theme(self.theme());
         match self.workspace_creator.show(ctx) {
@@ -1553,7 +1495,6 @@ impl Workspace {
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
             && !self.plugins_overlay.is_open()
-            && !self.settings_overlay.is_open()
             && !codebase_finder_open
             && !self.is_any_buffer_in_insert_mode()
             && !self.agent_mode_active
@@ -1583,7 +1524,6 @@ impl Workspace {
             && !self.buffer_editor.is_open()
             && !self.viewport_filter.is_open()
             && !self.plugins_overlay.is_open()
-            && !self.settings_overlay.is_open()
             && !codebase_finder_open
             && !self.agent_mode_active
             && !text_widget_focused
@@ -1628,8 +1568,7 @@ impl Workspace {
         // prevent native_promo from consuming keyboard events meant for that overlay
         #[cfg(target_arch = "wasm32")]
         let native_promo_open = {
-            let other_modal_open = self.settings_overlay.is_open()
-                || self.style_picker.is_open()
+            let other_modal_open = self.style_picker.is_open()
                 || self.plugins_overlay.is_open()
                 || self.which_key.is_open();
             self.native_promo_overlay.set_theme(self.theme());
@@ -1648,8 +1587,7 @@ impl Workspace {
             || self.workspace_finder.is_open()
             || self.command_palette.is_open()
             || self.which_key.is_open()
-            || self.plugins_overlay.is_open()
-            || self.settings_overlay.is_open();
+            || self.plugins_overlay.is_open();
         self.landing_page.set_keyboard_disabled(modal_open);
 
         // Show the landing page in the central panel
@@ -1691,17 +1629,7 @@ impl Workspace {
                 self.plugins_overlay.open();
             }
             LandingPageAction::OpenSettings => {
-                self.settings_overlay.open(
-                    app_state.settings.ai_provider,
-                    app_state.settings.ai_model,
-                    app_state.settings.git_repo_url.clone(),
-                    app_state.settings.default_prometheus_endpoint.clone(),
-                    app_state.settings.default_loki_endpoint.clone(),
-                    self.theme(),
-                    app_state.custom_theme().map(str::to_string),
-                    app_state.settings.font,
-                    self.settings_custom_themes.clone(),
-                );
+                return WorkspaceAction::OpenSettings;
             }
             LandingPageAction::ShowNativeAppInfo => {
                 // Open the native app promo overlay (WASM only)
@@ -1866,48 +1794,6 @@ impl Workspace {
                 self.pending_refresh_plugins = true;
             }
             PluginsOverlayResult::Closed | PluginsOverlayResult::None => {}
-        }
-
-        // Show settings overlay modal (landing page)
-        self.settings_overlay.set_theme(self.theme());
-        match self.settings_overlay.show(ctx) {
-            crate::components::overlay::SettingsResult::Saved {
-                ai_provider,
-                ai_model,
-                git_repo_url,
-                default_prometheus_endpoint,
-                default_loki_endpoint,
-            } => {
-                return WorkspaceAction::SaveSettings {
-                    ai_provider,
-                    ai_model,
-                    git_repo_url,
-                    default_prometheus_endpoint,
-                    default_loki_endpoint,
-                };
-            }
-            crate::components::overlay::SettingsResult::ThemePreview(theme) => {
-                return WorkspaceAction::SetTheme(theme);
-            }
-            crate::components::overlay::SettingsResult::CustomThemePreview(name) => {
-                return WorkspaceAction::SetCustomTheme(name);
-            }
-            crate::components::overlay::SettingsResult::FontPreview(font) => {
-                return WorkspaceAction::SetFont(font);
-            }
-            crate::components::overlay::SettingsResult::CancelledWithRestore {
-                theme,
-                custom_theme,
-                font,
-            } => {
-                if let Some(name) = custom_theme {
-                    return WorkspaceAction::SetCustomThemeAndFont(name, font);
-                } else {
-                    return WorkspaceAction::SetThemeAndFont(theme, font);
-                }
-            }
-            crate::components::overlay::SettingsResult::Cancelled
-            | crate::components::overlay::SettingsResult::None => {}
         }
 
         // Show workspace creator overlay modal
@@ -2245,16 +2131,12 @@ impl Workspace {
         self.plugins_overlay.set_installing_plugin(name);
     }
 
-    /// Set custom themes from plugins for the style picker and settings overlay.
+    /// Set custom themes from plugins for the style picker.
     /// Each tuple is (name, display_name, resolved colors).
     pub fn set_custom_themes(
         &mut self,
         themes: Vec<(String, String, crate::ui::active_theme::ActiveThemeColors)>,
     ) {
-        self.settings_custom_themes = themes
-            .iter()
-            .map(|(n, d, c)| (n.clone(), d.clone(), *c))
-            .collect();
         self.style_picker.set_custom_themes(themes);
     }
 

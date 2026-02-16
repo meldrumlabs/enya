@@ -4,6 +4,7 @@ use crate::ui::theme::AppTheme;
 
 pub mod overlay;
 pub mod pane;
+pub mod settings_page;
 pub mod util;
 pub mod widget;
 
@@ -34,6 +35,9 @@ pub use overlay::{
     WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceFinderResult,
     WorkspaceItem, parse_commands, strip_command_blocks,
 };
+
+// Re-export from settings_page
+pub use settings_page::{SettingsPage, SettingsPageResult};
 
 // Re-export from widget
 pub use widget::{
