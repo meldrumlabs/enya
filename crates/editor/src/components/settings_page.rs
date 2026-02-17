@@ -7,10 +7,14 @@ use egui::{Color32, FontFamily, FontId, Key, RichText, Vec2};
 use egui_nerdfonts::regular;
 
 use crate::components::overlay::style_picker::StyleTab;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::{AiModel, AiProvider};
 use crate::components::widget::time_range::TimeRangePreset;
 use crate::github_auth::AuthState;
 use crate::ui::ActiveThemeColors;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::semantic_icons;
 use crate::ui::settings_screen::{EditorFont, StartupPage, TimezonePreference};
 use crate::ui::theme::AppTheme;
@@ -62,17 +66,32 @@ pub enum SettingsCategory {
     Connections,
     Ai,
     ThemeFont,
+    Storage,
 }
 
 impl SettingsCategory {
     fn all() -> &'static [Self] {
-        &[
-            Self::Profile,
-            Self::Notifications,
-            Self::Connections,
-            Self::Ai,
-            Self::ThemeFont,
-        ]
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            &[
+                Self::Profile,
+                Self::Notifications,
+                Self::Storage,
+                Self::Connections,
+                Self::Ai,
+                Self::ThemeFont,
+            ]
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            &[
+                Self::Profile,
+                Self::Notifications,
+                Self::Connections,
+                Self::Ai,
+                Self::ThemeFont,
+            ]
+        }
     }
 
     fn label(self) -> &'static str {
@@ -82,6 +101,7 @@ impl SettingsCategory {
             Self::Connections => "Connections",
             Self::Ai => "AI",
             Self::ThemeFont => "Theme & Font",
+            Self::Storage => "Storage",
         }
     }
 
@@ -92,12 +112,13 @@ impl SettingsCategory {
             Self::Connections => regular::CONNECTION,
             Self::Ai => regular::SPARKLE_FILL,
             Self::ThemeFont => regular::PALETTE,
+            Self::Storage => regular::DATABASE_OUTLINE,
         }
     }
 
     fn group_label(self) -> &'static str {
         match self {
-            Self::Profile | Self::Notifications => "",
+            Self::Profile | Self::Notifications | Self::Storage => "",
             Self::Connections | Self::Ai => "WORKSPACE",
             Self::ThemeFont => "PREFERENCES",
         }
@@ -164,6 +185,11 @@ pub struct SettingsPage {
     time_range_dropdown_open: bool,
     startup_page: StartupPage,
     startup_dropdown_open: bool,
+    // Storage settings — file opener popup triggered from card buttons
+    #[cfg(not(target_arch = "wasm32"))]
+    storage_file_opener: FileOpenerPopup,
+    #[cfg(not(target_arch = "wasm32"))]
+    pending_storage_open: bool,
 }
 
 impl Default for SettingsPage {
@@ -215,6 +241,10 @@ impl SettingsPage {
             time_range_dropdown_open: false,
             startup_page: StartupPage::default(),
             startup_dropdown_open: false,
+            #[cfg(not(target_arch = "wasm32"))]
+            storage_file_opener: FileOpenerPopup::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            pending_storage_open: false,
         }
     }
 
@@ -351,11 +381,12 @@ impl SettingsPage {
     /// Number of navigable fields in the current category.
     fn field_count(&self) -> usize {
         match self.active_category {
-            SettingsCategory::Profile => 1,       // Sign in/out button
+            SettingsCategory::Profile => 5, // Auth, workspace, timezone, time range, startup
             SettingsCategory::Notifications => 0, // No navigable fields yet
-            SettingsCategory::Connections => 4,   // Prom, Loki, Flight SQL, Git URL
-            SettingsCategory::Ai => 2,            // Provider, Model
-            SettingsCategory::ThemeFont => 0,     // Panel-based navigation
+            SettingsCategory::Connections => 4, // Prom, Loki, Flight SQL, Git URL
+            SettingsCategory::Ai => 2,      // Provider, Model
+            SettingsCategory::ThemeFont => 0, // Panel-based navigation
+            SettingsCategory::Storage => 4, // Config, workspaces, repos, plugins
         }
     }
 
@@ -756,6 +787,7 @@ impl SettingsPage {
                 SettingsCategory::Connections => "Default endpoints and data source configuration",
                 SettingsCategory::Ai => "AI provider and model configuration",
                 SettingsCategory::ThemeFont => "Choose your color scheme and editor typeface",
+                SettingsCategory::Storage => "Data locations and cache management",
             };
             ui.label(
                 RichText::new(subtitle)
@@ -779,7 +811,8 @@ impl SettingsPage {
                 SettingsCategory::Profile
                 | SettingsCategory::Notifications
                 | SettingsCategory::Connections
-                | SettingsCategory::Ai => {
+                | SettingsCategory::Ai
+                | SettingsCategory::Storage => {
                     egui::ScrollArea::vertical()
                         .id_salt("settings_content_scroll")
                         .auto_shrink([false, false])
@@ -824,6 +857,16 @@ impl SettingsPage {
                                         accent,
                                         text_primary,
                                         text_secondary,
+                                        text_tertiary,
+                                    );
+                                }
+                                #[cfg(not(target_arch = "wasm32"))]
+                                SettingsCategory::Storage => {
+                                    self.show_storage_section(
+                                        ui,
+                                        ctx,
+                                        accent,
+                                        text_primary,
                                         text_tertiary,
                                     );
                                 }
@@ -1156,9 +1199,17 @@ impl SettingsPage {
 
         // ── Default Workspace ────────────────────────────────────────
 
+        let ws_focused = self.field_index == 1 && !self.sidebar_focused;
         egui::Frame::new()
             .fill(card_bg)
-            .stroke(egui::Stroke::new(1.0, card_border))
+            .stroke(egui::Stroke::new(
+                if ws_focused { 1.5 } else { 1.0 },
+                if ws_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                },
+            ))
             .corner_radius(8.0)
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
@@ -1265,9 +1316,17 @@ impl SettingsPage {
 
         // ── Timezone ─────────────────────────────────────────────────
 
+        let tz_focused = self.field_index == 2 && !self.sidebar_focused;
         egui::Frame::new()
             .fill(card_bg)
-            .stroke(egui::Stroke::new(1.0, card_border))
+            .stroke(egui::Stroke::new(
+                if tz_focused { 1.5 } else { 1.0 },
+                if tz_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                },
+            ))
             .corner_radius(8.0)
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
@@ -1359,9 +1418,17 @@ impl SettingsPage {
 
         // ── Default Time Range ───────────────────────────────────────
 
+        let tr_focused = self.field_index == 3 && !self.sidebar_focused;
         egui::Frame::new()
             .fill(card_bg)
-            .stroke(egui::Stroke::new(1.0, card_border))
+            .stroke(egui::Stroke::new(
+                if tr_focused { 1.5 } else { 1.0 },
+                if tr_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                },
+            ))
             .corner_radius(8.0)
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
@@ -1445,9 +1512,17 @@ impl SettingsPage {
 
         // ── Startup Page ─────────────────────────────────────────────
 
+        let sp_focused = self.field_index == 4 && !self.sidebar_focused;
         egui::Frame::new()
             .fill(card_bg)
-            .stroke(egui::Stroke::new(1.0, card_border))
+            .stroke(egui::Stroke::new(
+                if sp_focused { 1.5 } else { 1.0 },
+                if sp_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                },
+            ))
             .corner_radius(8.0)
             .inner_margin(egui::Margin::symmetric(16, 14))
             .show(ui, |ui| {
@@ -1532,6 +1607,159 @@ impl SettingsPage {
                     }
                 }
             });
+    }
+
+    // ── Storage Section ──────────────────────────────────────────────────
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn show_storage_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        accent: Color32,
+        text_primary: Color32,
+        text_tertiary: Color32,
+    ) {
+        let card_bg = self.theme.bg_elevated().gamma_multiply(0.55);
+        let card_border = self.theme.border_subtle().gamma_multiply(0.6);
+
+        // Consume pending keyboard open action
+        let kb_open = self.pending_storage_open;
+        self.pending_storage_open = false;
+
+        let storage_items: [(usize, &str, &str, &str, std::path::PathBuf); 4] = [
+            (
+                0,
+                regular::FOLDER_COG_OUTLINE,
+                "Configuration",
+                "App config and daemon settings",
+                enya_config::enya_dir(),
+            ),
+            (
+                1,
+                regular::FOLDER_OUTLINE,
+                "Workspaces",
+                "Workspace definition files",
+                enya_config::workspace_dir(),
+            ),
+            (
+                2,
+                regular::SOURCE_BRANCH,
+                "Cloned repositories",
+                "Git repos and search indexes",
+                enya_analyzer::repo::repos_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("~/.enya/repos")),
+            ),
+            (
+                3,
+                regular::PUZZLE_OUTLINE,
+                "Plugins",
+                "Custom theme and extension plugins",
+                dirs::home_dir()
+                    .map(|d| d.join(".config").join("enya").join("plugins"))
+                    .unwrap_or_else(|| std::path::PathBuf::from("~/.config/enya/plugins")),
+            ),
+        ];
+
+        // Cards with Open button on focused card only
+        for (idx, icon, title, subtitle, path) in &storage_items {
+            let is_focused = self.field_index == *idx && !self.sidebar_focused;
+
+            egui::Frame::new()
+                .fill(card_bg)
+                .stroke(egui::Stroke::new(
+                    if is_focused { 1.5 } else { 1.0 },
+                    if is_focused {
+                        accent.gamma_multiply(0.5)
+                    } else {
+                        card_border
+                    },
+                ))
+                .corner_radius(8.0)
+                .inner_margin(egui::Margin::symmetric(16, 14))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(*icon).color(text_primary).size(20.0));
+
+                        ui.add_space(8.0);
+
+                        ui.vertical(|ui| {
+                            ui.label(
+                                RichText::new(*title)
+                                    .color(text_primary)
+                                    .font(typography::proportional(13.0))
+                                    .strong(),
+                            );
+                            ui.label(
+                                RichText::new(*subtitle)
+                                    .color(text_tertiary.gamma_multiply(0.6))
+                                    .font(typography::proportional(typography::XS)),
+                            );
+                            ui.add_space(2.0);
+                            ui.label(
+                                RichText::new(path.display().to_string())
+                                    .color(text_tertiary.gamma_multiply(0.4))
+                                    .font(typography::proportional(9.0)),
+                            );
+                        });
+
+                        // Right-aligned Open button on focused card only
+                        if is_focused {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let btn = ui.add(
+                                        egui::Button::image_and_text(
+                                            egui::Image::new(APP_GHOSTTY.as_image_source())
+                                                .fit_to_exact_size(egui::vec2(14.0, 14.0)),
+                                            RichText::new(format!(
+                                                "Open {}",
+                                                regular::CHEVRON_DOWN
+                                            ))
+                                            .size(typography::SM)
+                                            .color(text_tertiary),
+                                        )
+                                        .fill(self.theme.bg_elevated())
+                                        .stroke(egui::Stroke::new(1.0, self.theme.border_subtle()))
+                                        .corner_radius(4.0),
+                                    );
+
+                                    if btn.clicked() || kb_open {
+                                        let popup_pos = btn.rect.left_bottom();
+                                        self.storage_file_opener.open(popup_pos, path.clone());
+                                    }
+                                },
+                            );
+                        }
+                    });
+                });
+
+            ui.add_space(8.0);
+        }
+
+        // Show file opener popup and handle result
+        match self.storage_file_opener.show(ctx, self.theme) {
+            FileOpenerResult::Selected(action) => {
+                if let Some(path) = self.storage_file_opener.file_path() {
+                    match action {
+                        FileOpenerAction::OpenIn(app) => {
+                            if let Err(e) = app.execute(path) {
+                                log::warn!("Failed to open storage path in {}: {e}", app.name());
+                            }
+                        }
+                        FileOpenerAction::CopyPath => {
+                            ctx.copy_text(path.display().to_string());
+                        }
+                        FileOpenerAction::CopyRelativePath => {
+                            ctx.copy_text(path.display().to_string());
+                        }
+                    }
+                }
+            }
+            FileOpenerResult::Closed | FileOpenerResult::None => {}
+        }
     }
 
     // ── Notifications Section ────────────────────────────────────────────
@@ -2790,6 +3018,21 @@ impl SettingsPage {
             return SettingsPageResult::None;
         }
 
+        // Skip keyboard handling when file opener popup is open (it handles its own keys).
+        // Consume navigation keys so they don't leak to the app level.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.storage_file_opener.is_open() {
+            ctx.input_mut(|i| {
+                i.consume_key(egui::Modifiers::NONE, Key::Enter);
+                i.consume_key(egui::Modifiers::NONE, Key::Escape);
+                i.consume_key(egui::Modifiers::NONE, Key::J);
+                i.consume_key(egui::Modifiers::NONE, Key::K);
+                i.consume_key(egui::Modifiers::NONE, Key::H);
+                i.consume_key(egui::Modifiers::NONE, Key::L);
+            });
+            return SettingsPageResult::None;
+        }
+
         let mut result = SettingsPageResult::None;
 
         ctx.input_mut(|i| {
@@ -3018,14 +3261,25 @@ impl SettingsPage {
                 || i.consume_key(egui::Modifiers::NONE, Key::L)
             {
                 match self.active_category {
-                    SettingsCategory::Profile => {
-                        self.pending_account_action = true;
-                    }
+                    SettingsCategory::Profile => match self.field_index {
+                        0 => self.pending_account_action = true,
+                        1 => self.workspace_dropdown_open = !self.workspace_dropdown_open,
+                        2 => self.timezone_dropdown_open = !self.timezone_dropdown_open,
+                        3 => self.time_range_dropdown_open = !self.time_range_dropdown_open,
+                        4 => self.startup_dropdown_open = !self.startup_dropdown_open,
+                        _ => {}
+                    },
                     SettingsCategory::Notifications => {} // No navigable fields yet
                     SettingsCategory::Ai => {
                         self.ai_dropdown_open = true;
                     }
                     SettingsCategory::ThemeFont => {} // Handled above
+                    SettingsCategory::Storage => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            self.pending_storage_open = true;
+                        }
+                    }
                     SettingsCategory::Connections => {
                         let field = match self.field_index {
                             0 => Some(EditingField::PrometheusEndpoint),
@@ -3084,7 +3338,7 @@ mod tests {
     fn test_field_count() {
         let mut page = SettingsPage::new();
         page.active_category = SettingsCategory::Profile;
-        assert_eq!(page.field_count(), 1);
+        assert_eq!(page.field_count(), 5);
         page.active_category = SettingsCategory::Notifications;
         assert_eq!(page.field_count(), 0);
         page.active_category = SettingsCategory::Connections;
@@ -3093,11 +3347,13 @@ mod tests {
         assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::ThemeFont;
         assert_eq!(page.field_count(), 0);
+        page.active_category = SettingsCategory::Storage;
+        assert_eq!(page.field_count(), 4);
     }
 
     #[test]
     fn test_category_count() {
         let cats = SettingsCategory::all();
-        assert_eq!(cats.len(), 5);
+        assert_eq!(cats.len(), 6);
     }
 }
