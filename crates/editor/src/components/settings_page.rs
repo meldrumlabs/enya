@@ -9,7 +9,7 @@ use egui_nerdfonts::regular;
 use crate::components::overlay::style_picker::StyleTab;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
-use crate::components::util::{AiModel, AiProvider};
+use crate::components::util::{AiProvider, ProviderManifest};
 use crate::components::widget::time_range::TimeRangePreset;
 use crate::github_auth::AuthState;
 use crate::ui::ActiveThemeColors;
@@ -30,7 +30,7 @@ pub enum SettingsPageResult {
     /// Settings were saved (on close).
     Saved {
         ai_provider: AiProvider,
-        ai_model: Option<AiModel>,
+        ai_model: Option<String>,
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
@@ -40,6 +40,7 @@ pub enum SettingsPageResult {
         default_time_range: TimeRangePreset,
         startup_page: StartupPage,
         check_for_updates: bool,
+        notify_new_models: bool,
     },
     /// Live preview of a builtin theme change.
     ThemePreview(AppTheme),
@@ -65,6 +66,7 @@ pub enum SettingsCategory {
     Profile,
     Notifications,
     Connections,
+    Codebases,
     Ai,
     ThemeFont,
     Storage,
@@ -79,6 +81,7 @@ impl SettingsCategory {
                 Self::Notifications,
                 Self::Storage,
                 Self::Connections,
+                Self::Codebases,
                 Self::Ai,
                 Self::ThemeFont,
             ]
@@ -89,6 +92,7 @@ impl SettingsCategory {
                 Self::Profile,
                 Self::Notifications,
                 Self::Connections,
+                Self::Codebases,
                 Self::Ai,
                 Self::ThemeFont,
             ]
@@ -100,6 +104,7 @@ impl SettingsCategory {
             Self::Profile => "Profile",
             Self::Notifications => "Notifications",
             Self::Connections => "Connections",
+            Self::Codebases => "Codebases",
             Self::Ai => "AI",
             Self::ThemeFont => "Theme & Font",
             Self::Storage => "Storage",
@@ -111,6 +116,7 @@ impl SettingsCategory {
             Self::Profile => regular::ACCOUNT_OUTLINE,
             Self::Notifications => regular::BELL_OUTLINE,
             Self::Connections => regular::CONNECTION,
+            Self::Codebases => regular::SOURCE_BRANCH,
             Self::Ai => regular::SPARKLE_FILL,
             Self::ThemeFont => regular::PALETTE,
             Self::Storage => regular::DATABASE_OUTLINE,
@@ -120,7 +126,7 @@ impl SettingsCategory {
     fn group_label(self) -> &'static str {
         match self {
             Self::Profile | Self::Notifications | Self::Storage => "",
-            Self::Connections | Self::Ai => "WORKSPACE",
+            Self::Connections | Self::Codebases | Self::Ai => "WORKSPACE",
             Self::ThemeFont => "PREFERENCES",
         }
     }
@@ -147,7 +153,7 @@ pub struct SettingsPage {
     editing_field: Option<EditingField>,
     // Working copies of settings
     ai_provider: AiProvider,
-    ai_model: Option<AiModel>,
+    ai_model: Option<String>,
     ai_dropdown_open: bool,
     git_repo_url: String,
     default_prometheus_endpoint: String,
@@ -188,6 +194,7 @@ pub struct SettingsPage {
     startup_dropdown_open: bool,
     // Notification settings
     check_for_updates: bool,
+    notify_new_models: bool,
     // Storage settings — file opener popup triggered from card buttons
     #[cfg(not(target_arch = "wasm32"))]
     storage_file_opener: FileOpenerPopup,
@@ -245,6 +252,7 @@ impl SettingsPage {
             startup_page: StartupPage::default(),
             startup_dropdown_open: false,
             check_for_updates: true,
+            notify_new_models: true,
             #[cfg(not(target_arch = "wasm32"))]
             storage_file_opener: FileOpenerPopup::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -302,7 +310,7 @@ impl SettingsPage {
     pub fn open(
         &mut self,
         ai_provider: AiProvider,
-        ai_model: Option<AiModel>,
+        ai_model: Option<String>,
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
@@ -318,6 +326,7 @@ impl SettingsPage {
         default_time_range: TimeRangePreset,
         startup_page: StartupPage,
         check_for_updates: bool,
+        notify_new_models: bool,
     ) {
         self.is_open = true;
         self.active_category = SettingsCategory::Profile;
@@ -333,6 +342,7 @@ impl SettingsPage {
         self.startup_page = startup_page;
         self.startup_dropdown_open = false;
         self.check_for_updates = check_for_updates;
+        self.notify_new_models = notify_new_models;
         self.sidebar_focused = false;
         self.field_index = 0;
         self.editing_field = None;
@@ -388,8 +398,9 @@ impl SettingsPage {
     fn field_count(&self) -> usize {
         match self.active_category {
             SettingsCategory::Profile => 5, // Auth, workspace, timezone, time range, startup
-            SettingsCategory::Notifications => 1, // Check for updates toggle
-            SettingsCategory::Connections => 4, // Prom, Loki, Flight SQL, Git URL
+            SettingsCategory::Notifications => 2, // Check for updates + notify new models
+            SettingsCategory::Connections => 3, // Prom, Loki, Flight SQL
+            SettingsCategory::Codebases => 1, // Git repo URL
             SettingsCategory::Ai => 2,      // Provider, Model
             SettingsCategory::ThemeFont => 0, // Panel-based navigation
             SettingsCategory::Storage => 4, // Config, workspaces, repos, plugins
@@ -465,7 +476,7 @@ impl SettingsPage {
     fn build_saved(&self) -> SettingsPageResult {
         SettingsPageResult::Saved {
             ai_provider: self.ai_provider,
-            ai_model: self.ai_model,
+            ai_model: self.ai_model.clone(),
             git_repo_url: self.git_repo_url.clone(),
             default_prometheus_endpoint: self.default_prometheus_endpoint.clone(),
             default_loki_endpoint: self.default_loki_endpoint.clone(),
@@ -475,6 +486,7 @@ impl SettingsPage {
             default_time_range: self.default_time_range,
             startup_page: self.startup_page,
             check_for_updates: self.check_for_updates,
+            notify_new_models: self.notify_new_models,
         }
     }
 
@@ -792,6 +804,7 @@ impl SettingsPage {
                 SettingsCategory::Profile => "Your account, preferences, and integrations",
                 SettingsCategory::Notifications => "Manage notification preferences",
                 SettingsCategory::Connections => "Default endpoints and data source configuration",
+                SettingsCategory::Codebases => "Default codebase for AI and search integration",
                 SettingsCategory::Ai => "AI provider and model configuration",
                 SettingsCategory::ThemeFont => "Choose your color scheme and editor typeface",
                 SettingsCategory::Storage => "Data locations and cache management",
@@ -818,6 +831,7 @@ impl SettingsPage {
                 SettingsCategory::Profile
                 | SettingsCategory::Notifications
                 | SettingsCategory::Connections
+                | SettingsCategory::Codebases
                 | SettingsCategory::Ai
                 | SettingsCategory::Storage => {
                     egui::ScrollArea::vertical()
@@ -856,6 +870,14 @@ impl SettingsPage {
                                         accent,
                                         text_primary,
                                         text_secondary,
+                                        text_tertiary,
+                                    );
+                                }
+                                SettingsCategory::Codebases => {
+                                    self.show_codebases_section(
+                                        ui,
+                                        accent,
+                                        text_primary,
                                         text_tertiary,
                                     );
                                 }
@@ -1779,88 +1801,116 @@ impl SettingsPage {
         text_primary: Color32,
         text_tertiary: Color32,
     ) {
+        let toggles: &[(usize, &str, &str, &str)] = &[
+            (
+                0,
+                regular::UPDATE,
+                "Check for updates",
+                "Automatically check for new versions on startup",
+            ),
+            (
+                1,
+                regular::SPARKLE_FILL,
+                "New model notifications",
+                "Notify when new AI models become available",
+            ),
+        ];
+
         let card_bg = self.theme.bg_elevated().gamma_multiply(0.55);
         let card_border = self.theme.border_subtle().gamma_multiply(0.6);
-        let is_focused = self.field_index == 0 && !self.sidebar_focused;
 
-        egui::Frame::new()
-            .fill(card_bg)
-            .stroke(egui::Stroke::new(
-                if is_focused { 1.5 } else { 1.0 },
-                if is_focused {
-                    accent.gamma_multiply(0.5)
-                } else {
-                    card_border
-                },
-            ))
-            .corner_radius(8.0)
-            .inner_margin(egui::Margin::symmetric(16, 14))
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
+        for &(idx, icon, label, description) in toggles {
+            let is_focused = self.field_index == idx && !self.sidebar_focused;
+            let on = match idx {
+                0 => self.check_for_updates,
+                1 => self.notify_new_models,
+                _ => false,
+            };
 
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(regular::UPDATE)
-                            .color(text_primary)
-                            .size(20.0),
-                    );
+            egui::Frame::new()
+                .fill(card_bg)
+                .stroke(egui::Stroke::new(
+                    if is_focused { 1.5 } else { 1.0 },
+                    if is_focused {
+                        accent.gamma_multiply(0.5)
+                    } else {
+                        card_border
+                    },
+                ))
+                .corner_radius(8.0)
+                .inner_margin(egui::Margin::symmetric(16, 14))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
 
-                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(icon).color(text_primary).size(20.0));
 
-                    ui.vertical(|ui| {
-                        ui.label(
-                            RichText::new("Check for updates")
-                                .color(text_primary)
-                                .font(typography::proportional(13.0))
-                                .strong(),
-                        );
-                        ui.label(
-                            RichText::new("Automatically check for new versions on startup")
-                                .color(text_tertiary.gamma_multiply(0.6))
-                                .font(typography::proportional(typography::XS)),
-                        );
-                    });
+                        ui.add_space(8.0);
 
-                    // Right-aligned toggle switch
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let track_w = 32.0;
-                        let track_h = 18.0;
-                        let knob_r = 6.0;
-                        let padding = (track_h - knob_r * 2.0) / 2.0;
+                        ui.vertical(|ui| {
+                            ui.label(
+                                RichText::new(label)
+                                    .color(text_primary)
+                                    .font(typography::proportional(13.0))
+                                    .strong(),
+                            );
+                            ui.label(
+                                RichText::new(description)
+                                    .color(text_tertiary.gamma_multiply(0.6))
+                                    .font(typography::proportional(typography::XS)),
+                            );
+                        });
 
-                        let (rect, response) = ui.allocate_exact_size(
-                            egui::vec2(track_w, track_h),
-                            egui::Sense::click(),
-                        );
-                        if response.clicked() {
-                            self.check_for_updates = !self.check_for_updates;
-                        }
+                        // Right-aligned toggle switch
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let track_w = 32.0;
+                            let track_h = 18.0;
+                            let knob_r = 6.0;
+                            let padding = (track_h - knob_r * 2.0) / 2.0;
 
-                        let on = self.check_for_updates;
-                        let track_color = if on {
-                            accent
-                        } else {
-                            text_tertiary.gamma_multiply(0.2)
-                        };
-                        let knob_color = Color32::WHITE;
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(track_w, track_h),
+                                egui::Sense::click(),
+                            );
+                            if response.clicked() {
+                                match idx {
+                                    0 => {
+                                        self.check_for_updates = !self.check_for_updates;
+                                    }
+                                    1 => {
+                                        self.notify_new_models = !self.notify_new_models;
+                                    }
+                                    _ => {}
+                                }
+                            }
 
-                        // Track
-                        ui.painter().rect_filled(rect, track_h / 2.0, track_color);
+                            let track_color = if on {
+                                accent
+                            } else {
+                                text_tertiary.gamma_multiply(0.2)
+                            };
+                            let knob_color = Color32::WHITE;
 
-                        // Knob
-                        let knob_x = if on {
-                            rect.right() - padding - knob_r
-                        } else {
-                            rect.left() + padding + knob_r
-                        };
-                        ui.painter().circle_filled(
-                            egui::pos2(knob_x, rect.center().y),
-                            knob_r,
-                            knob_color,
-                        );
+                            // Track
+                            ui.painter().rect_filled(rect, track_h / 2.0, track_color);
+
+                            // Knob
+                            let knob_x = if on {
+                                rect.right() - padding - knob_r
+                            } else {
+                                rect.left() + padding + knob_r
+                            };
+                            ui.painter().circle_filled(
+                                egui::pos2(knob_x, rect.center().y),
+                                knob_r,
+                                knob_color,
+                            );
+                        });
                     });
                 });
-            });
+
+            ui.add_space(8.0);
+        }
     }
 
     // ── Connections Section ───────────────────────────────────────────────
@@ -1903,14 +1953,6 @@ impl SettingsPage {
                 EditingField::FlightSqlEndpoint,
                 "grpc://localhost:50051",
             ),
-            (
-                3,
-                regular::GIT_BRANCH,
-                "Codebase",
-                "Repository URL",
-                EditingField::GitRepoUrl,
-                "https://github.com/org/repo",
-            ),
         ];
 
         for (i, (index, icon, label, desc, field, placeholder)) in rows.iter().enumerate() {
@@ -1933,6 +1975,36 @@ impl SettingsPage {
                 text_tertiary,
             );
         }
+    }
+
+    // ── Codebases Section ─────────────────────────────────────────────────
+
+    fn show_codebases_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        accent: Color32,
+        text_primary: Color32,
+        text_tertiary: Color32,
+    ) {
+        let card_bg = self.theme.bg_elevated().gamma_multiply(0.55);
+        let card_border = self.theme.border_subtle().gamma_multiply(0.6);
+        let bg_hover = self.theme.bg_hover();
+
+        self.show_connection_row(
+            ui,
+            0,
+            regular::GIT_BRANCH,
+            "Default repository",
+            "Used when no workspace-specific repo is set",
+            EditingField::GitRepoUrl,
+            "https://github.com/org/repo",
+            card_bg,
+            card_border,
+            bg_hover,
+            accent,
+            text_primary,
+            text_tertiary,
+        );
     }
 
     /// Render a single connection row as its own card.
@@ -2073,9 +2145,9 @@ impl SettingsPage {
                     let icon_color = if is_focused {
                         accent
                     } else if is_configured {
-                        text_tertiary.gamma_multiply(0.7)
+                        text_tertiary
                     } else {
-                        text_tertiary.gamma_multiply(0.3)
+                        text_tertiary.gamma_multiply(0.5)
                     };
                     ui.painter().text(
                         egui::pos2(rect.min.x + 4.0, rect.center().y),
@@ -2091,7 +2163,7 @@ impl SettingsPage {
                     let label_color = if is_focused {
                         text_primary
                     } else {
-                        text_tertiary.gamma_multiply(0.9)
+                        text_primary.gamma_multiply(0.8)
                     };
                     ui.painter().text(
                         egui::pos2(text_x, top_y),
@@ -2105,9 +2177,9 @@ impl SettingsPage {
                     let bottom_y = rect.min.y + 35.0;
                     let status_text = if is_configured { &value } else { desc };
                     let status_color = if is_configured {
-                        text_primary.gamma_multiply(if is_focused { 0.8 } else { 0.5 })
+                        text_primary.gamma_multiply(if is_focused { 0.9 } else { 0.7 })
                     } else {
-                        text_tertiary.gamma_multiply(0.3)
+                        text_tertiary.gamma_multiply(0.5)
                     };
                     let max_val_width = rect.max.x - text_x - if is_focused { 50.0 } else { 12.0 };
                     let galley = ui.painter().layout(
@@ -2207,9 +2279,18 @@ impl SettingsPage {
                     let providers = AiProvider::all();
                     for provider in providers {
                         let is_selected = self.ai_provider == *provider;
-                        let row_response = self.show_dropdown_option(
+                        let logo = match provider {
+                            AiProvider::Claude => {
+                                egui::include_image!("../../assets/claude.png")
+                            }
+                            AiProvider::Codex => {
+                                egui::include_image!("../../assets/openai.png")
+                            }
+                        };
+                        let row_response = self.show_dropdown_option_with_icon(
                             ui,
                             provider.display_name(),
+                            logo,
                             is_selected,
                             accent,
                             text_primary,
@@ -2223,9 +2304,18 @@ impl SettingsPage {
                         }
                     }
                 } else {
-                    let clicked = self.show_dropdown_value(
+                    let logo = match self.ai_provider {
+                        AiProvider::Claude => {
+                            egui::include_image!("../../assets/claude.png")
+                        }
+                        AiProvider::Codex => {
+                            egui::include_image!("../../assets/openai.png")
+                        }
+                    };
+                    let clicked = self.show_dropdown_value_with_icon(
                         ui,
                         self.ai_provider.display_name(),
+                        logo,
                         provider_focused,
                         accent,
                         text_primary,
@@ -2243,9 +2333,10 @@ impl SettingsPage {
                 let model_focused =
                     self.field_index == 1 && self.editing_field.is_none() && !self.sidebar_focused;
                 let model_expanded = model_focused && self.ai_dropdown_open;
-                let current_model = self
-                    .ai_model
-                    .unwrap_or_else(|| AiModel::default_for(self.ai_provider));
+                let current_model_id = self.ai_model.clone().unwrap_or_else(|| {
+                    ProviderManifest::default_model_id_for(self.ai_provider).unwrap_or_default()
+                });
+                let current_model_name = ProviderManifest::display_name_for(&current_model_id);
 
                 self.show_dropdown_label(
                     ui,
@@ -2258,9 +2349,9 @@ impl SettingsPage {
                 );
 
                 if model_expanded {
-                    let models = AiModel::for_provider(self.ai_provider);
-                    for model in models {
-                        let is_selected = current_model == *model;
+                    let models = ProviderManifest::models_for(self.ai_provider);
+                    for model in &models {
+                        let is_selected = current_model_id == model.id;
                         let row_response = self.show_dropdown_option(
                             ui,
                             model.display_name(),
@@ -2271,14 +2362,14 @@ impl SettingsPage {
                             bg_hover,
                         );
                         if row_response.clicked() {
-                            self.ai_model = Some(*model);
+                            self.ai_model = Some(model.id.clone());
                             self.ai_dropdown_open = false;
                         }
                     }
                 } else {
                     let clicked = self.show_dropdown_value(
                         ui,
-                        current_model.display_name(),
+                        &current_model_name,
                         model_focused,
                         accent,
                         text_primary,
@@ -2996,6 +3087,142 @@ impl SettingsPage {
         response.clicked()
     }
 
+    /// Render a dropdown value with a leading icon image.
+    #[allow(clippy::too_many_arguments)]
+    fn show_dropdown_value_with_icon(
+        &self,
+        ui: &mut egui::Ui,
+        value: &str,
+        icon: egui::ImageSource<'_>,
+        is_focused: bool,
+        accent: Color32,
+        text_primary: Color32,
+        _text_tertiary: Color32,
+    ) -> bool {
+        let input_height = 38.0;
+        let avail_width = ui.available_width();
+        let (rect, response) =
+            ui.allocate_exact_size(Vec2::new(avail_width, input_height), egui::Sense::click());
+
+        let bg = if is_focused {
+            self.theme.bg_surface()
+        } else {
+            self.theme.bg_surface().gamma_multiply(0.5)
+        };
+        let border_color = if is_focused {
+            accent.gamma_multiply(0.6)
+        } else {
+            self.theme.border_subtle().gamma_multiply(0.4)
+        };
+        let border_width = if is_focused { 1.5 } else { 1.0 };
+
+        ui.painter().rect(
+            rect,
+            6.0,
+            bg,
+            egui::Stroke::new(border_width, border_color),
+            egui::StrokeKind::Inside,
+        );
+
+        // Provider logo
+        let logo_size = 16.0;
+        let logo_rect = egui::Rect::from_min_size(
+            egui::pos2(rect.min.x + 12.0, rect.center().y - logo_size / 2.0),
+            egui::vec2(logo_size, logo_size),
+        );
+        let tint = text_primary.gamma_multiply(if is_focused { 1.0 } else { 0.8 });
+        egui::Image::new(icon).tint(tint).paint_at(ui, logo_rect);
+
+        ui.painter().text(
+            egui::pos2(rect.min.x + 12.0 + logo_size + 8.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            value,
+            typography::monospace(typography::MD),
+            text_primary.gamma_multiply(if is_focused { 1.0 } else { 0.8 }),
+        );
+
+        if is_focused {
+            ui.painter().text(
+                egui::pos2(rect.max.x - 12.0, rect.center().y),
+                egui::Align2::RIGHT_CENTER,
+                "l:open",
+                typography::monospace(typography::XS),
+                accent.gamma_multiply(0.4),
+            );
+        }
+
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        response.clicked()
+    }
+
+    /// Render a single option row with a leading icon image.
+    #[allow(clippy::too_many_arguments)]
+    fn show_dropdown_option_with_icon(
+        &self,
+        ui: &mut egui::Ui,
+        label: &str,
+        icon: egui::ImageSource<'_>,
+        is_selected: bool,
+        accent: Color32,
+        text_primary: Color32,
+        text_tertiary: Color32,
+        bg_hover: Color32,
+    ) -> egui::Response {
+        let row_height = 34.0;
+        let avail_width = ui.available_width();
+        let (rect, response) =
+            ui.allocate_exact_size(Vec2::new(avail_width, row_height), egui::Sense::click());
+
+        let bg = if is_selected {
+            accent.gamma_multiply(0.15)
+        } else if response.hovered() {
+            bg_hover.gamma_multiply(0.5)
+        } else {
+            Color32::TRANSPARENT
+        };
+        ui.painter().rect_filled(rect, 4.0, bg);
+
+        if is_selected {
+            ui.painter()
+                .circle_filled(egui::pos2(rect.min.x + 10.0, rect.center().y), 3.0, accent);
+        }
+
+        // Provider logo
+        let logo_size = 14.0;
+        let logo_x = rect.min.x + 22.0;
+        let logo_rect = egui::Rect::from_min_size(
+            egui::pos2(logo_x, rect.center().y - logo_size / 2.0),
+            egui::vec2(logo_size, logo_size),
+        );
+        let text_color = if is_selected {
+            accent
+        } else if response.hovered() {
+            text_primary
+        } else {
+            text_tertiary
+        };
+        egui::Image::new(icon)
+            .tint(text_color)
+            .paint_at(ui, logo_rect);
+
+        ui.painter().text(
+            egui::pos2(logo_x + logo_size + 8.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            label,
+            typography::monospace(typography::MD),
+            text_color,
+        );
+
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        response
+    }
+
     /// Render a single option row in an expanded dropdown.
     #[allow(clippy::too_many_arguments)]
     fn show_dropdown_option(
@@ -3065,13 +3292,13 @@ impl SettingsPage {
                 self.ai_model = None;
             }
             1 => {
-                let models = AiModel::for_provider(self.ai_provider);
-                let current = self
-                    .ai_model
-                    .unwrap_or_else(|| AiModel::default_for(self.ai_provider));
-                let idx = models.iter().position(|m| *m == current).unwrap_or(0);
+                let models = ProviderManifest::models_for(self.ai_provider);
+                let current_id = self.ai_model.clone().unwrap_or_else(|| {
+                    ProviderManifest::default_model_id_for(self.ai_provider).unwrap_or_default()
+                });
+                let idx = models.iter().position(|m| m.id == current_id).unwrap_or(0);
                 let new_idx = ((idx as i32 + delta).rem_euclid(models.len() as i32)) as usize;
-                self.ai_model = Some(models[new_idx]);
+                self.ai_model = Some(models[new_idx].id.clone());
             }
             _ => {}
         }
@@ -3348,11 +3575,11 @@ impl SettingsPage {
                         4 => self.startup_dropdown_open = !self.startup_dropdown_open,
                         _ => {}
                     },
-                    SettingsCategory::Notifications => {
-                        if self.field_index == 0 {
-                            self.check_for_updates = !self.check_for_updates;
-                        }
-                    }
+                    SettingsCategory::Notifications => match self.field_index {
+                        0 => self.check_for_updates = !self.check_for_updates,
+                        1 => self.notify_new_models = !self.notify_new_models,
+                        _ => {}
+                    },
                     SettingsCategory::Ai => {
                         self.ai_dropdown_open = true;
                     }
@@ -3368,10 +3595,14 @@ impl SettingsPage {
                             0 => Some(EditingField::PrometheusEndpoint),
                             1 => Some(EditingField::LokiEndpoint),
                             2 => Some(EditingField::FlightSqlEndpoint),
-                            3 => Some(EditingField::GitRepoUrl),
                             _ => None,
                         };
                         self.editing_field = field;
+                    }
+                    SettingsCategory::Codebases => {
+                        if self.field_index == 0 {
+                            self.editing_field = Some(EditingField::GitRepoUrl);
+                        }
                     }
                 }
             }
@@ -3412,6 +3643,7 @@ mod tests {
             TimeRangePreset::default(),
             StartupPage::default(),
             true,
+            true,
         );
         assert!(page.is_open());
         page.close();
@@ -3424,9 +3656,11 @@ mod tests {
         page.active_category = SettingsCategory::Profile;
         assert_eq!(page.field_count(), 5);
         page.active_category = SettingsCategory::Notifications;
-        assert_eq!(page.field_count(), 1);
+        assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::Connections;
-        assert_eq!(page.field_count(), 4);
+        assert_eq!(page.field_count(), 3);
+        page.active_category = SettingsCategory::Codebases;
+        assert_eq!(page.field_count(), 1);
         page.active_category = SettingsCategory::Ai;
         assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::ThemeFont;
@@ -3438,6 +3672,6 @@ mod tests {
     #[test]
     fn test_category_count() {
         let cats = SettingsCategory::all();
-        assert_eq!(cats.len(), 6);
+        assert_eq!(cats.len(), 7);
     }
 }

@@ -167,4 +167,11 @@ impl AgentConfig {
         self.env.push((key.into(), value.into()));
         self
     }
+
+    /// Add a command-line argument.
+    #[must_use]
+    pub fn with_arg(mut self, arg: impl Into<String>) -> Self {
+        self.args.push(arg.into());
+        self
+    }
 }

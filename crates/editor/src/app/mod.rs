@@ -21,6 +21,8 @@ use egui::Theme;
 
 use crate::AsyncRuntime;
 use crate::command::{CommandReceiver, CommandSender, UICommand, UICommandSender, command_channel};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::util::ManifestFetcher;
 use crate::components::{
     Notification, NotificationLevel, NotificationManager, SettingsPage, SettingsPageResult,
     Sparkline, StatusLine, StatusMode,
@@ -52,6 +54,10 @@ pub struct EnyaApp {
     // Update checker for new version notifications (native only)
     #[cfg(not(target_arch = "wasm32"))]
     update_checker: UpdateChecker,
+
+    // Provider manifest fetcher for hot-updating model lists (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    manifest_fetcher: ManifestFetcher,
 
     // Channels for ui commands
     pub command_sender: CommandSender,
@@ -162,6 +168,12 @@ impl EnyaApp {
 
         // Initialize workspace with async runtime
         let mut workspace = Workspace::new(async_runtime.clone());
+
+        // Apply saved AI provider/model to agent panel
+        workspace.set_agent_provider_and_model(
+            state.settings.ai_provider,
+            state.settings.ai_model.clone(),
+        );
 
         // Initialize plugin system
         let plugin_shared_state = EditorPluginHost::create_shared_state();
@@ -379,6 +391,8 @@ impl EnyaApp {
                 dismissed_update_version,
                 check_for_updates,
             ),
+            #[cfg(not(target_arch = "wasm32"))]
+            manifest_fetcher: ManifestFetcher::new(async_runtime.clone()),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
             editor_metrics: EditorMetrics::default(),
@@ -822,10 +836,11 @@ impl EnyaApp {
                     default_time_range,
                     startup_page,
                     check_for_updates,
+                    notify_new_models,
                 } = page_result
                 {
                     self.state.settings.ai_provider = ai_provider;
-                    self.state.settings.ai_model = ai_model;
+                    self.state.settings.ai_model = ai_model.clone();
                     self.state.settings.git_repo_url = git_repo_url;
                     self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
                     self.state.settings.default_loki_endpoint = default_loki_endpoint;
@@ -835,8 +850,12 @@ impl EnyaApp {
                     self.state.settings.default_time_range = default_time_range;
                     self.state.settings.startup_page = startup_page;
                     self.state.settings.check_for_updates = check_for_updates;
+                    self.state.settings.notify_new_models = notify_new_models;
                     #[cfg(not(target_arch = "wasm32"))]
                     self.update_checker.set_enabled(check_for_updates);
+                    // Propagate provider/model to agent panel
+                    self.workspace
+                        .set_agent_provider_and_model(ai_provider, ai_model);
                 }
                 self.state.ui_state = self.state.previous_ui_state;
             }
@@ -1150,11 +1169,14 @@ impl EnyaApp {
                 default_flight_sql_endpoint,
             } => {
                 self.state.settings.ai_provider = ai_provider;
-                self.state.settings.ai_model = ai_model;
+                self.state.settings.ai_model = ai_model.clone();
                 self.state.settings.git_repo_url = git_repo_url;
                 self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
                 self.state.settings.default_loki_endpoint = default_loki_endpoint;
                 self.state.settings.default_flight_sql_endpoint = default_flight_sql_endpoint;
+                // Propagate provider/model to agent panel
+                self.workspace
+                    .set_agent_provider_and_model(ai_provider, ai_model);
             }
             WorkspaceAction::OpenSettings => {
                 // Collect custom themes for the settings page
@@ -1179,7 +1201,7 @@ impl EnyaApp {
 
                 self.settings_page.open(
                     self.state.settings.ai_provider,
-                    self.state.settings.ai_model,
+                    self.state.settings.ai_model.clone(),
                     self.state.settings.git_repo_url.clone(),
                     self.state.settings.default_prometheus_endpoint.clone(),
                     self.state.settings.default_loki_endpoint.clone(),
@@ -1195,6 +1217,7 @@ impl EnyaApp {
                     self.state.settings.default_time_range,
                     self.state.settings.startup_page,
                     self.state.settings.check_for_updates,
+                    self.state.settings.notify_new_models,
                 );
             }
         }
@@ -1739,6 +1762,10 @@ impl eframe::App for EnyaApp {
         // Draw notifications (on top of everything) with effective theme
         self.notifications.set_theme(self.effective_theme());
         self.notifications.show(ctx);
+
+        // Poll for remote provider manifest updates (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        self.manifest_fetcher.poll(ctx);
 
         // Poll for update availability and show banner if needed (native only)
         #[cfg(not(target_arch = "wasm32"))]

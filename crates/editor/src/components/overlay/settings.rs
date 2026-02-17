@@ -4,7 +4,7 @@ use egui::{Color32, FontFamily, FontId, Key, RichText, Vec2};
 use egui_nerdfonts::regular;
 
 use crate::components::util::finder_utils::{OverlayStyle, draw_backdrop};
-use crate::components::util::{AiModel, AiProvider};
+use crate::components::util::{AiProvider, ProviderManifest};
 use crate::ui::ActiveThemeColors;
 use crate::ui::semantic_icons;
 use crate::ui::settings_screen::EditorFont;
@@ -19,7 +19,7 @@ pub enum SettingsResult {
     /// Settings were saved.
     Saved {
         ai_provider: AiProvider,
-        ai_model: Option<AiModel>,
+        ai_model: Option<String>,
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
@@ -99,7 +99,7 @@ pub struct SettingsOverlay {
     editing_field: Option<EditingField>,
     // Working copies of settings (edited in-place, committed on save)
     ai_provider: AiProvider,
-    ai_model: Option<AiModel>,
+    ai_model: Option<String>,
     git_repo_url: String,
     // AI tab dropdown state (true = dropdown list is expanded)
     ai_dropdown_open: bool,
@@ -173,7 +173,7 @@ impl SettingsOverlay {
     pub fn open(
         &mut self,
         ai_provider: AiProvider,
-        ai_model: Option<AiModel>,
+        ai_model: Option<String>,
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
@@ -315,7 +315,7 @@ impl SettingsOverlay {
     fn build_saved(&self) -> SettingsResult {
         SettingsResult::Saved {
             ai_provider: self.ai_provider,
-            ai_model: self.ai_model,
+            ai_model: self.ai_model.clone(),
             git_repo_url: self.git_repo_url.clone(),
             default_prometheus_endpoint: self.default_prometheus_endpoint.clone(),
             default_loki_endpoint: self.default_loki_endpoint.clone(),
@@ -615,9 +615,10 @@ impl SettingsOverlay {
                 // Model
                 let model_focused = self.field_index == 1 && self.editing_field.is_none();
                 let model_expanded = model_focused && self.ai_dropdown_open;
-                let current_model = self
-                    .ai_model
-                    .unwrap_or_else(|| AiModel::default_for(self.ai_provider));
+                let current_model_id = self.ai_model.clone().unwrap_or_else(|| {
+                    ProviderManifest::default_model_id_for(self.ai_provider).unwrap_or_default()
+                });
+                let current_model_name = ProviderManifest::display_name_for(&current_model_id);
 
                 self.show_dropdown_label(
                     ui,
@@ -631,9 +632,9 @@ impl SettingsOverlay {
 
                 if model_expanded {
                     // Expanded dropdown: show all models for current provider
-                    let models = AiModel::for_provider(self.ai_provider);
-                    for model in models {
-                        let is_selected = current_model == *model;
+                    let models = ProviderManifest::models_for(self.ai_provider);
+                    for model in &models {
+                        let is_selected = current_model_id == model.id;
                         let row_response = self.show_dropdown_option(
                             ui,
                             model.display_name(),
@@ -644,7 +645,7 @@ impl SettingsOverlay {
                             bg_hover,
                         );
                         if row_response.clicked() {
-                            self.ai_model = Some(*model);
+                            self.ai_model = Some(model.id.clone());
                             self.ai_dropdown_open = false;
                         }
                     }
@@ -652,7 +653,7 @@ impl SettingsOverlay {
                     // Collapsed: show current value
                     let clicked = self.show_dropdown_value(
                         ui,
-                        current_model.display_name(),
+                        &current_model_name,
                         model_focused,
                         accent,
                         text_primary,
@@ -1715,13 +1716,13 @@ impl SettingsOverlay {
             }
             1 => {
                 // Model dropdown
-                let models = AiModel::for_provider(self.ai_provider);
-                let current = self
-                    .ai_model
-                    .unwrap_or_else(|| AiModel::default_for(self.ai_provider));
-                let idx = models.iter().position(|m| *m == current).unwrap_or(0);
+                let models = ProviderManifest::models_for(self.ai_provider);
+                let current_id = self.ai_model.clone().unwrap_or_else(|| {
+                    ProviderManifest::default_model_id_for(self.ai_provider).unwrap_or_default()
+                });
+                let idx = models.iter().position(|m| m.id == current_id).unwrap_or(0);
                 let new_idx = ((idx as i32 + delta).rem_euclid(models.len() as i32)) as usize;
-                self.ai_model = Some(models[new_idx]);
+                self.ai_model = Some(models[new_idx].id.clone());
             }
             _ => {}
         }
