@@ -54,7 +54,7 @@ impl EditorFont {
     }
 }
 
-use crate::components::util::{AiModel, AiProvider};
+use crate::components::util::AiProvider;
 use crate::ui::theme::AppTheme;
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -77,9 +77,11 @@ pub struct AppSettings {
     /// Selected AI provider
     #[serde(default)]
     pub ai_provider: AiProvider,
-    /// Selected AI model (None = use provider default)
-    #[serde(default)]
-    pub ai_model: Option<AiModel>,
+    /// Selected AI model ID (None = use provider default).
+    /// Stores the API model ID string (e.g. "claude-sonnet-4-5-20250514").
+    /// Custom deserializer handles migration from legacy enum variant names.
+    #[serde(default, deserialize_with = "deserialize_ai_model")]
+    pub ai_model: Option<String>,
     /// Anthropic API key (for Claude provider)
     #[serde(default)]
     pub anthropic_api_key: String,
@@ -116,6 +118,16 @@ pub struct AppSettings {
     /// What to show on startup
     #[serde(default)]
     pub startup_page: StartupPage,
+    /// Whether to check for new versions automatically
+    #[serde(default = "default_true")]
+    pub check_for_updates: bool,
+    /// Whether to notify when new AI models become available
+    #[serde(default = "default_true")]
+    pub notify_new_models: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// User preference for timezone display throughout the app.
@@ -229,4 +241,89 @@ impl AppSettings {
 
         // Don't truncate here - we want demo to stay even if at max
     }
+}
+
+/// Custom deserializer for `ai_model` that handles both:
+/// - New format: `Some("claude-sonnet-4-5-20250514")` (string model ID)
+/// - Legacy format: `Some(ClaudeSonnet45)` (RON enum variant from old `AiModel` enum)
+fn deserialize_ai_model<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use crate::components::util::migrate_legacy_model_name;
+    use serde::de;
+
+    struct OptModelVisitor;
+
+    impl<'de> de::Visitor<'de> for OptModelVisitor {
+        type Value = Option<String>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("None, a model ID string, or a legacy AiModel variant")
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<Self::Value, D2::Error> {
+            d.deserialize_any(ModelValueVisitor).map(Some)
+        }
+
+        fn visit_enum<A: de::EnumAccess<'de>>(self, data: A) -> Result<Self::Value, A::Error> {
+            let (variant, va) = de::EnumAccess::variant::<String>(data)?;
+            match variant.as_str() {
+                "None" => {
+                    de::VariantAccess::unit_variant(va)?;
+                    Ok(None)
+                }
+                "Some" => {
+                    let inner = de::VariantAccess::newtype_variant::<ModelValue>(va)?;
+                    Ok(Some(inner.0))
+                }
+                name => {
+                    de::VariantAccess::unit_variant(va)?;
+                    Ok(Some(migrate_legacy_model_name(name).to_string()))
+                }
+            }
+        }
+    }
+
+    struct ModelValueVisitor;
+
+    impl<'de> de::Visitor<'de> for ModelValueVisitor {
+        type Value = String;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("a model ID string or legacy enum variant")
+        }
+
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(migrate_legacy_model_name(v).to_string())
+        }
+
+        fn visit_string<E: de::Error>(self, v: String) -> Result<Self::Value, E> {
+            Ok(migrate_legacy_model_name(&v).to_string())
+        }
+
+        fn visit_enum<A: de::EnumAccess<'de>>(self, data: A) -> Result<Self::Value, A::Error> {
+            let (variant, va) = de::EnumAccess::variant::<String>(data)?;
+            de::VariantAccess::unit_variant(va)?;
+            Ok(migrate_legacy_model_name(&variant).to_string())
+        }
+    }
+
+    struct ModelValue(String);
+
+    impl<'de> serde::Deserialize<'de> for ModelValue {
+        fn deserialize<D2: serde::Deserializer<'de>>(d: D2) -> Result<Self, D2::Error> {
+            d.deserialize_any(ModelValueVisitor).map(ModelValue)
+        }
+    }
+
+    deserializer.deserialize_option(OptModelVisitor)
 }

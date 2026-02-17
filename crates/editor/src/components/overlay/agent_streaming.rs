@@ -51,7 +51,10 @@ impl AgentPanel {
         self.stream_fade_start = None;
         self.current_status = ResponseStatus::Waiting;
         self.current_activities.clear();
-        self.current_model = Some(self.selected_model.display_name().to_string());
+        self.current_model = Some(
+            crate::components::util::ProviderManifest::display_name_for(&self.selected_model)
+                .to_string(),
+        );
         self.last_token_usage = None;
         self.last_request_duration = None;
 
@@ -79,7 +82,7 @@ impl AgentPanel {
         let receiver = client.prompt_with_context(
             prompt,
             working_dir,
-            Some(self.selected_model.model_id()),
+            Some(&self.selected_model),
             system_context.as_deref(),
         );
 

@@ -166,7 +166,7 @@ pub enum WorkspaceAction {
     /// Save settings from the settings overlay
     SaveSettings {
         ai_provider: crate::components::util::AiProvider,
-        ai_model: Option<crate::components::util::AiModel>,
+        ai_model: Option<String>,
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
@@ -2631,6 +2631,15 @@ impl Workspace {
     /// Get the current agent provider name (e.g., "Claude", "Codex")
     pub fn agent_provider_name(&self) -> String {
         self.agent_panel.provider_name()
+    }
+
+    /// Update the agent panel's provider and model from settings.
+    pub fn set_agent_provider_and_model(
+        &mut self,
+        provider: crate::components::util::AiProvider,
+        model: Option<String>,
+    ) {
+        self.agent_panel.set_provider_and_model(provider, model);
     }
 
     /// Send a query to the agent (public wrapper for inline input)

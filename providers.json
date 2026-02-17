@@ -1,0 +1,21 @@
+{
+  "providers": [
+    {
+      "id": "claude",
+      "name": "Claude",
+      "models": [
+        { "id": "claude-opus-4-6", "name": "Opus 4.6" },
+        { "id": "claude-sonnet-4-5", "name": "Sonnet 4.5" },
+        { "id": "claude-haiku-4-5", "name": "Haiku 4.5" }
+      ]
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "models": [
+        { "id": "gpt-5.3-codex-spark", "name": "GPT-5.3 Codex Spark" },
+        { "id": "gpt-5.3-codex", "name": "GPT-5.3 Codex" }
+      ]
+    }
+  ]
+}

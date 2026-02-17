@@ -19,7 +19,7 @@ use crate::components::pane::{
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
 use crate::components::util::{
-    ActivityItem, ActivityType, AiModel, AiProvider, ConversationHandoff, MessageRole,
+    ActivityItem, ActivityType, AiProvider, ConversationHandoff, MessageRole, ProviderManifest,
     ResponseStatus, ScrollShadowConfig, ScrollState, normalize_unicode, render_scroll_shadows,
 };
 use crate::components::widget::ThinkingIndicator;
@@ -91,7 +91,7 @@ pub struct AgentPanel {
     pub(super) stream_fade_start: Option<crate::util::Instant>,
     pub(super) current_model: Option<String>,
     pub(super) selected_provider: AiProvider,
-    pub(super) selected_model: AiModel,
+    pub(super) selected_model: String,
     pub(super) current_status: ResponseStatus,
     pub(super) current_activities: Vec<ActivityItem>,
     pub(super) request_start_time: Option<crate::util::Instant>,
@@ -152,7 +152,7 @@ impl AgentPanel {
             stream_fade_start: None,
             current_model: None,
             selected_provider: provider,
-            selected_model: AiModel::default_for(provider),
+            selected_model: ProviderManifest::default_model_id_for(provider).unwrap_or_default(),
             current_status: ResponseStatus::Complete,
             current_activities: Vec::new(),
             request_start_time: None,
@@ -220,8 +220,17 @@ impl AgentPanel {
         if self.selected_provider != provider {
             self.selected_provider = provider;
             // Reset to default model for the new provider
-            self.selected_model = AiModel::default_for(provider);
+            self.selected_model =
+                ProviderManifest::default_model_id_for(provider).unwrap_or_default();
         }
+    }
+
+    /// Set the AI provider and model from settings.
+    pub fn set_provider_and_model(&mut self, provider: AiProvider, model: Option<String>) {
+        self.selected_provider = provider;
+        self.selected_model = model.unwrap_or_else(|| {
+            ProviderManifest::default_model_id_for(provider).unwrap_or_default()
+        });
     }
 
     /// Get the current provider
@@ -1224,16 +1233,16 @@ impl AgentPanel {
 
                 egui::ComboBox::from_id_salt("model_selector")
                     .selected_text(
-                        RichText::new(self.selected_model.display_name())
+                        RichText::new(ProviderManifest::display_name_for(&self.selected_model))
                             .color(text_secondary)
                             .size(typography::SM),
                     )
                     .width(100.0)
                     .show_ui(ui, |ui| {
-                        for &model in AiModel::for_provider(self.selected_provider) {
+                        for model in ProviderManifest::models_for(self.selected_provider) {
                             ui.selectable_value(
                                 &mut self.selected_model,
-                                model,
+                                model.id.clone(),
                                 RichText::new(model.display_name())
                                     .color(text_primary)
                                     .size(typography::SM),

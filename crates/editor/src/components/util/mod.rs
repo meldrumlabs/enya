@@ -15,7 +15,9 @@ pub mod scroll_shadows;
 pub mod syntax_highlight;
 pub mod text_formatting;
 
-pub use ai_provider::{AiModel, AiProvider};
+#[cfg(not(target_arch = "wasm32"))]
+pub use ai_provider::ManifestFetcher;
+pub use ai_provider::{AiModel, AiProvider, ProviderManifest, migrate_legacy_model_name};
 pub use chat_types::{
     ActivityItem, ActivityType, ConversationHandoff, HandoffContextPane, MessageRole,
     ResponseStatus,

@@ -266,8 +266,13 @@ async fn run_acp_session(
         "starting ACP session"
     );
 
-    // Spawn the agent process
-    let mut child = spawn_agent(config)?;
+    // Spawn the agent process with the model set via env var and CLI arg
+    let config = config
+        .clone()
+        .with_env("ANTHROPIC_MODEL", model_id)
+        .with_arg("--model")
+        .with_arg(model_id);
+    let mut child = spawn_agent(&config)?;
 
     let stdin = child
         .stdin

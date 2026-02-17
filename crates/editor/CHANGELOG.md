@@ -6,6 +6,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Storage settings category**: New "Storage" section in settings sidebar (native only) showing data locations for configuration (`~/.enya/`), workspaces, cloned repositories, and plugins. Each card displays the directory path with a "Reveal" button to open it in Finder. Full j/k keyboard navigation and Enter/l to reveal the focused item.
+
+### Fixed
+
+- **Profile j/k navigation**: Fixed keyboard navigation in the Profile settings section being stuck on the GitHub sign-in button. All 5 items (GitHub auth, default workspace, timezone, default time range, startup page) are now navigable with j/k, and Enter/l toggles the focused dropdown. Focus highlight borders now appear on all profile cards.
+
 - **GitHub authentication in Settings**: New "Auth" section in the settings sidebar under an "ACCOUNT" group. Uses the Authorization Code flow on both platforms — on native, opens the browser and captures the callback via a local server; on WASM, redirects the page to GitHub and detects the callback on reload. Displays the connected GitHub username when signed in. Auth state persists across sessions. Token exchange goes through the API worker (client secret stays server-side).
 
 - **Full snapshot format with conversation data**: New binary snapshot format (`crates/config/src/workspace/snapshot.rs`) that encodes workspace config, pane visualization data, and optional agent conversation (messages with inline charts, source code, diffs, and search results). Designed for R2 blob storage with postcard + LZ4 compression. Includes `extract_snapshot_conversation()` on `AgentPanel` to capture live conversations into snapshot-friendly types.
