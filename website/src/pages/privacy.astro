@@ -1,0 +1,531 @@
+---
+import ThemeProvider from '../components/ThemeProvider.astro';
+---
+
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Privacy - Enya</title>
+		<link rel="icon" type="image/x-icon" href="/favicon.ico" />
+		<meta name="description" content="Enya privacy policy — what we collect, what we don't, and how your data is handled." />
+		<meta property="og:image" content="/img/enya.png" />
+		<meta property="og:image:alt" content="Enya" />
+	</head>
+	<body>
+		<ThemeProvider />
+		<div class="page">
+			<header class="header">
+				<div class="header-content">
+					<div class="title-wrapper">
+						<a href="/" class="site-title">
+							<img src="/img/enya.png" alt="Enya" />
+						</a>
+					</div>
+					<div class="right-group">
+						<div class="header-links">
+							<a href="/docs" class="header-link">docs</a>
+							<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="header-link" id="github-link">github</a>
+						</div>
+						<button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Toggle menu" aria-expanded="false">
+							<span class="menu-icon menu-icon-bars">☰</span>
+							<span class="menu-icon menu-icon-times">✕</span>
+						</button>
+					</div>
+					<div class="mobile-menu" id="mobile-menu">
+						<a href="/docs" class="mobile-menu-link">docs</a>
+						<a href="https://github.com/meldrumlabs/enya" target="_blank" rel="noopener noreferrer" class="mobile-menu-link" id="mobile-github-link">github</a>
+					</div>
+				</div>
+			</header>
+			<main class="main">
+				<section class="privacy-section">
+					<div class="privacy-content">
+						<h1 class="privacy-title">Privacy</h1>
+						<p class="privacy-updated">Last updated: February 2026</p>
+
+						<p class="privacy-intro">Enya is built by <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> AB. This page explains what data we handle and why. The short version: Enya runs locally, we store almost nothing, and we never sell your data.</p>
+
+						<h2 class="section-title">The editor</h2>
+						<p class="section-text">Enya runs on your machine. Your workspaces, configuration, observability data, and source code stay local. Enya connects directly to your data sources (Prometheus, Loki, Tempo, etc.) — nothing is proxied through our servers. Enya does not collect telemetry, usage analytics, or crash reports.</p>
+
+						<h2 class="section-title">Snapshots</h2>
+						<p class="section-text">Snapshots let you share a workspace via a link. Sharing is entirely opt-in — nothing is uploaded unless you explicitly choose to share.</p>
+						<p class="section-text">Sharing requires GitHub sign-in. We receive your GitHub user ID and username through OAuth and store them to associate snapshots with your account. We do not access your repositories, email, or any other GitHub data.</p>
+						<p class="section-text">Snapshot data is compressed and uploaded to Cloudflare R2 hosted by Meldrum Labs. A minimum set of metadata (user ID, snapshot ID, file size, timestamp) is stored to enforce a 50 MB per-user quota. Snapshots auto-expire after 7 days. Snapshot links are public — anyone with the URL can view it.</p>
+
+						<h2 class="section-title">Website</h2>
+						<p class="section-text">The enya.build website is hosted on Cloudflare Pages. We use Cloudflare Web Analytics for cookie-free page view metrics. No personal data is collected.</p>
+
+						<h2 class="section-title">Third-party services</h2>
+						<ul class="section-list">
+							<li><strong>Cloudflare</strong> — Website hosting (Pages), analytics (Web Analytics), snapshot storage (R2), and metadata (D1)</li>
+							<li><strong>GitHub</strong> — OAuth authentication for snapshot uploads</li>
+						</ul>
+
+						<h2 class="section-title">Changes & contact</h2>
+						<p class="section-text">We may update this policy as Enya evolves. Changes will be reflected on this page with an updated date. Questions? Reach out at <a href="mailto:contact@meldrumlabs.com">contact@meldrumlabs.com</a>.</p>
+					</div>
+				</section>
+			</main>
+			<footer class="footer">
+				<div class="footer-bottom">
+					<div class="copyright-wrapper">
+						© 2026 <a href="https://meldrumlabs.com" target="_blank" rel="noopener noreferrer">Meldrum Labs</a> AB · MIT License
+					</div>
+				</div>
+			</footer>
+		</div>
+	</body>
+</html>
+
+<style>
+	@font-face {
+		font-family: 'Departure Mono';
+		src: url('/fonts/DepartureMono-Regular.otf') format('opentype');
+		font-weight: normal;
+		font-style: normal;
+		font-display: swap;
+	}
+
+	:root {
+		--obsidian-base: #08080A;
+		--obsidian-surface: #121215;
+		--obsidian-elevated: #1A1A1E;
+		--obsidian-hover: #242428;
+		--obsidian-active: #2C2C32;
+		--obsidian-border-subtle: #26262C;
+		--obsidian-border-default: #34343C;
+		--obsidian-border-focus: #375048;
+		--obsidian-text-primary: #F8F8FC;
+		--obsidian-text-secondary: #9E9EA8;
+		--obsidian-text-tertiary: #646470;
+		--obsidian-accent: #10B981;
+		--obsidian-accent-hover: #34D399;
+		--obsidian-accent-muted: #142822;
+		--obsidian-accent-glow: rgba(16, 185, 129, 0.12);
+	}
+
+	html, body {
+		font-family: 'Departure Mono', monospace, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+		margin: 0;
+		padding: 0;
+		height: 100%;
+		background-color: var(--obsidian-base);
+		color: var(--obsidian-text-primary);
+	}
+
+	html {
+		height: 100%;
+	}
+
+	body {
+		min-height: 100vh;
+	}
+
+	.page {
+		display: flex;
+		flex-direction: column;
+		min-height: 100vh;
+	}
+
+	.header {
+		z-index: 100;
+		position: fixed;
+		top: 0;
+		left: 0;
+		width: 100%;
+		max-width: 100%;
+		padding: 1rem 1.5rem;
+		background-color: var(--obsidian-base);
+		box-sizing: border-box;
+		overflow: visible;
+	}
+
+	.header-content {
+		display: flex;
+		gap: 1rem;
+		justify-content: space-between;
+		align-items: center;
+		height: 100%;
+		width: 100%;
+		max-width: 100%;
+		box-sizing: border-box;
+		position: relative;
+	}
+
+	.title-wrapper {
+		overflow: clip;
+		padding: 0.25rem;
+		margin: -0.25rem;
+		min-width: 0;
+		flex-shrink: 1;
+	}
+
+	.site-title {
+		display: inline-flex;
+		align-items: center;
+		text-decoration: none;
+	}
+
+	.site-title img {
+		height: 3rem;
+		width: auto;
+		max-width: 100%;
+	}
+
+	.right-group {
+		display: flex;
+		align-items: center;
+		flex-shrink: 0;
+		margin-left: auto;
+	}
+
+	.header-links {
+		display: flex;
+		gap: 1.5rem;
+		align-items: center;
+	}
+
+	.header-link {
+		font-size: 0.875rem;
+		font-family: monospace;
+		color: var(--obsidian-text-primary);
+		text-decoration: none;
+		transition: color 0.15s ease;
+	}
+
+	.header-link:hover {
+		color: var(--obsidian-accent-hover);
+	}
+
+	.header-link .star-count {
+		display: inline-block;
+		color: var(--obsidian-text-secondary) !important;
+		font-weight: normal;
+		margin-left: 0.25rem;
+		transition: none !important;
+	}
+
+	.mobile-menu-toggle {
+		display: none;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0.5rem;
+		margin: -0.5rem;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+		width: 2rem;
+		height: 2rem;
+		color: var(--obsidian-text-primary);
+	}
+
+	.menu-icon {
+		position: absolute;
+		font-size: 1.2rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: opacity 0.2s ease;
+	}
+
+	.menu-icon-bars {
+		opacity: 1;
+	}
+
+	.menu-icon-times {
+		opacity: 0;
+	}
+
+	.mobile-menu-toggle[aria-expanded="true"] .menu-icon-bars {
+		opacity: 0;
+	}
+
+	.mobile-menu-toggle[aria-expanded="true"] .menu-icon-times {
+		opacity: 1;
+	}
+
+	.mobile-menu {
+		display: none;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1rem 0;
+		border-top: 1px solid var(--obsidian-border-default);
+		background-color: var(--obsidian-base);
+		position: absolute;
+		top: 100%;
+		left: -1.5rem;
+		right: -1.5rem;
+		z-index: 1000;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+		padding-left: 1.5rem;
+		padding-right: 1.5rem;
+	}
+
+	.mobile-menu.open {
+		display: flex;
+	}
+
+	.mobile-menu-link {
+		font-size: 0.875rem;
+		font-family: monospace;
+		color: var(--obsidian-text-primary);
+		text-decoration: none;
+		transition: color 0.15s ease;
+		padding: 0.5rem 0;
+	}
+
+	.mobile-menu-link:hover {
+		color: var(--obsidian-accent-hover);
+	}
+
+	.mobile-menu-link .star-count {
+		display: inline-block;
+		color: var(--obsidian-text-secondary) !important;
+		font-weight: normal;
+		margin-left: 0.25rem;
+		transition: none !important;
+	}
+
+	@media (max-width: 768px) {
+		.header-links {
+			display: none;
+		}
+
+		.mobile-menu-toggle {
+			display: flex;
+		}
+	}
+
+	.main {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		padding-top: 5rem;
+	}
+
+	.privacy-section {
+		width: 100%;
+		padding: 4rem 1.5rem;
+		background-color: var(--obsidian-base);
+		flex: 1;
+	}
+
+	.privacy-content {
+		max-width: 640px;
+		margin: 0 auto;
+	}
+
+	.privacy-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 2rem;
+		font-weight: bold;
+		color: var(--obsidian-accent);
+		margin: 0 0 0.5rem 0;
+	}
+
+	.privacy-updated {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.8rem;
+		color: var(--obsidian-text-tertiary);
+		margin: 0 0 2.5rem 0;
+	}
+
+	.privacy-intro {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.9rem;
+		color: var(--obsidian-text-primary);
+		line-height: 1.8;
+		margin: 0 0 2.5rem 0;
+	}
+
+	.privacy-intro a {
+		color: var(--obsidian-text-primary);
+		text-decoration: none;
+		border-bottom: 1px solid var(--obsidian-text-tertiary);
+		transition: color 0.15s ease, border-color 0.15s ease;
+	}
+
+	.privacy-intro a:hover {
+		color: var(--obsidian-accent);
+		border-bottom-color: var(--obsidian-accent);
+	}
+
+	.section-title {
+		font-family: 'Departure Mono', monospace;
+		font-size: 1rem;
+		font-weight: bold;
+		color: var(--obsidian-text-primary);
+		margin: 2rem 0 0.75rem 0;
+	}
+
+	.section-text {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.85rem;
+		color: var(--obsidian-text-secondary);
+		line-height: 1.8;
+		margin: 0 0 0.75rem 0;
+	}
+
+	.section-text a {
+		color: var(--obsidian-accent);
+		text-decoration: none;
+		transition: color 0.15s ease;
+	}
+
+	.section-text a:hover {
+		color: var(--obsidian-accent-hover);
+	}
+
+	.section-list {
+		font-family: 'Departure Mono', monospace;
+		font-size: 0.85rem;
+		color: var(--obsidian-text-secondary);
+		line-height: 1.8;
+		margin: 0 0 0.75rem 0;
+		padding-left: 1.25rem;
+	}
+
+	.section-list li {
+		margin-bottom: 0.5rem;
+	}
+
+	.section-list strong {
+		color: var(--obsidian-text-primary);
+	}
+
+	.footer {
+		width: 100%;
+		max-width: 100%;
+		border-top: 1px solid var(--obsidian-border-subtle);
+		padding: 1.5rem;
+		background-color: var(--obsidian-base);
+		margin-top: auto;
+		box-sizing: border-box;
+		overflow: hidden;
+	}
+
+	.footer-bottom {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.copyright-wrapper {
+		font-size: 0.875rem;
+		font-family: 'Departure Mono', monospace;
+		text-align: center;
+		color: var(--obsidian-text-secondary);
+	}
+
+	.copyright-wrapper a {
+		color: var(--obsidian-text-secondary);
+		text-decoration: none;
+		border-bottom: 1px solid var(--obsidian-text-tertiary);
+		transition: color 0.15s ease, border-color 0.15s ease;
+	}
+
+	.copyright-wrapper a:hover {
+		color: var(--obsidian-accent);
+		border-bottom-color: var(--obsidian-accent);
+	}
+
+	@media (max-width: 768px) {
+		.privacy-section {
+			padding: 3rem 1rem;
+		}
+
+		.privacy-title {
+			font-size: 1.5rem;
+		}
+
+		.privacy-intro {
+			font-size: 0.85rem;
+		}
+
+		.section-title {
+			font-size: 0.95rem;
+		}
+
+		.section-text,
+		.section-list {
+			font-size: 0.8rem;
+		}
+
+		.footer {
+			padding: 2rem 1rem 1rem 1rem;
+		}
+	}
+
+	@media (min-width: 50rem) {
+		.header {
+			padding: 1rem 2rem;
+		}
+
+		.footer {
+			padding: 3rem 2rem 1.5rem 2rem;
+		}
+	}
+</style>
+
+<script>
+	document.addEventListener('DOMContentLoaded', () => {
+		// Mobile menu toggle
+		const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+		const mobileMenu = document.getElementById('mobile-menu');
+
+		if (mobileMenuToggle && mobileMenu) {
+			mobileMenuToggle.addEventListener('click', () => {
+				const isExpanded = mobileMenuToggle.getAttribute('aria-expanded') === 'true';
+				mobileMenuToggle.setAttribute('aria-expanded', (!isExpanded).toString());
+				mobileMenu.classList.toggle('open', !isExpanded);
+			});
+
+			const mobileMenuLinks = mobileMenu.querySelectorAll('.mobile-menu-link');
+			mobileMenuLinks.forEach(link => {
+				link.addEventListener('click', () => {
+					mobileMenuToggle.setAttribute('aria-expanded', 'false');
+					mobileMenu.classList.remove('open');
+				});
+			});
+		}
+
+		// Fetch GitHub star count
+		const githubLink = document.getElementById('github-link');
+		const mobileGithubLink = document.getElementById('mobile-github-link');
+
+		const updateGithubLinks = (stars: number) => {
+			let formattedStars;
+			if (stars >= 1000) {
+				formattedStars = (stars / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+			} else {
+				formattedStars = stars.toString();
+			}
+
+			const starHtml = `github <span class="star-count">[${formattedStars}★]</span>`;
+
+			if (githubLink) {
+				githubLink.innerHTML = starHtml;
+			}
+			if (mobileGithubLink) {
+				mobileGithubLink.innerHTML = starHtml;
+			}
+		};
+
+		if (githubLink || mobileGithubLink) {
+			fetch('https://api.github.com/repos/meldrumlabs/enya')
+				.then(response => response.json())
+				.then(data => {
+					if (data.stargazers_count) {
+						updateGithubLinks(data.stargazers_count);
+					}
+				})
+				.catch(error => {
+					console.error('Failed to fetch GitHub stars:', error);
+				});
+		}
+	});
+</script>
