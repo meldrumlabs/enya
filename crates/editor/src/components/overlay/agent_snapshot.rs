@@ -43,7 +43,11 @@ impl AgentPanel {
             .map(|m| SnapshotMessage {
                 role: convert_role(m.role),
                 content: strip_command_blocks(&m.content),
-                inline_blocks: m.inline_blocks.iter().map(convert_inline_content).collect(),
+                inline_blocks: m
+                    .inline_blocks
+                    .iter()
+                    .filter_map(convert_inline_content)
+                    .collect(),
             })
             .collect();
 
@@ -94,9 +98,9 @@ fn convert_role(role: MessageRole) -> SnapshotMessageRole {
     }
 }
 
-fn convert_inline_content(content: &InlineContent) -> SnapshotInlineContent {
+fn convert_inline_content(content: &InlineContent) -> Option<SnapshotInlineContent> {
     match content {
-        InlineContent::Chart(chart) => SnapshotInlineContent::Chart(SnapshotInlineChart {
+        InlineContent::Chart(chart) => Some(SnapshotInlineContent::Chart(SnapshotInlineChart {
             title: chart.title.clone(),
             series: chart
                 .series
@@ -113,16 +117,16 @@ fn convert_inline_content(content: &InlineContent) -> SnapshotInlineContent {
                     }
                 })
                 .collect(),
-        }),
-        InlineContent::Source(src) => SnapshotInlineContent::Source(SnapshotInlineSource {
+        })),
+        InlineContent::Source(src) => Some(SnapshotInlineContent::Source(SnapshotInlineSource {
             file_path: src.file_path.clone(),
             line: src.line,
             lines: src.lines.clone(),
             start_line: src.start_line,
             language: src.language.clone(),
-        }),
-        InlineContent::SearchResults(sr) => {
-            SnapshotInlineContent::SearchResults(SnapshotInlineSearchResults {
+        })),
+        InlineContent::SearchResults(sr) => Some(SnapshotInlineContent::SearchResults(
+            SnapshotInlineSearchResults {
                 query: sr.query.clone(),
                 filter: sr.filter.clone(),
                 results: sr
@@ -137,9 +141,9 @@ fn convert_inline_content(content: &InlineContent) -> SnapshotInlineContent {
                         snippet: r.snippet.clone(),
                     })
                     .collect(),
-            })
-        }
-        InlineContent::Diff(diff) => SnapshotInlineContent::Diff(SnapshotInlineDiff {
+            },
+        )),
+        InlineContent::Diff(diff) => Some(SnapshotInlineContent::Diff(SnapshotInlineDiff {
             commit_hash: diff.commit_hash.clone(),
             commit_message: diff.commit_message.clone(),
             file_diffs: diff
@@ -166,7 +170,9 @@ fn convert_inline_content(content: &InlineContent) -> SnapshotInlineContent {
                 .collect(),
             additions: diff.additions,
             deletions: diff.deletions,
-        }),
+        })),
+        // Tables are not yet supported in snapshots; skip them.
+        InlineContent::Table(_) => None,
     }
 }
 

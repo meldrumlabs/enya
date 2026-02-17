@@ -18,6 +18,7 @@ mod diff_rendering;
 mod pane;
 mod plan_parsing;
 mod plan_view;
+mod query_card;
 
 // Re-export commonly used types at the sql:: level
 pub use command::SqlCommand;

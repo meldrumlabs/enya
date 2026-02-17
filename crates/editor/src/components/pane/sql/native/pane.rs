@@ -18,17 +18,18 @@
 //! - `.mode <format>` - Set output mode (table, csv, json)
 //! - `.help` - Show help
 
-use egui::{Color32, RichText, TextEdit};
+use egui::{Color32, RichText, TextEdit, TextFormat};
 use enya_datafusion::arrow::array::{Array, RecordBatch};
 use enya_datafusion::arrow::datatypes::SchemaRef;
 use enya_datafusion::{
     ConnectionState, ExecutionStats, FlightClient, PlanNode, QueryEvent, QueryId, QueryRequest,
-    TableInfo, format_array_value,
+    TableInfo, format_array_value, format_duration, format_rows,
 };
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
+use rustc_hash::FxHashMap;
 
 use super::super::highlighting::highlight_sql;
 use super::command::SqlCommand;
@@ -46,17 +47,19 @@ use super::plan_parsing::{
     parse_plan_text,
 };
 use super::plan_view::{PlanViewMode, PlanViewer};
-use super::suggestions::{Suggestion, SuggestionIcon, SuggestionState};
+use super::suggestions::{
+    COLUMN_KEYWORDS, Suggestion, SuggestionIcon, SuggestionState, TABLE_KEYWORDS,
+};
 use super::types::{
-    DiffQueryResult, DiffType, QueryCell, QueryStatus, ResultOverlay, SchemaDiffResult, SqlMode,
-    SqlPaneAction,
+    CellViewState, DiffQueryResult, DiffType, QueryCell, QueryStatus, ResultOverlay,
+    SchemaDiffResult, SqlMode, SqlPaneAction,
 };
 use crate::components::util::id_generator::next_id_usize;
 use crate::components::util::{
     render_colored_badge, render_stat_badge, render_stat_badge_with_icon,
 };
 use crate::components::{OverlayColors, OverlayStyle};
-use crate::ui::semantic_icons::{action, category, file, nav, status, time};
+use crate::ui::semantic_icons::{action, category, empty, file, nav, status, time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 use crate::util::Instant;
@@ -81,6 +84,15 @@ pub struct SqlPane {
     endpoint: Option<String>,
     /// Query history (executed queries with results).
     history: Vec<QueryCell>,
+    /// Per-cell UI state for notebook view (keyed by QueryId).
+    cell_states: FxHashMap<QueryId, CellViewState>,
+    /// Index of the currently selected (highlighted) cell for vim navigation.
+    /// `None` means no cell is selected (input bar is focused).
+    selected_cell_idx: Option<usize>,
+    /// Whether to scroll the selected cell into view on the next frame.
+    scroll_to_selected: bool,
+    /// Whether the first `g` of a `gg` motion was pressed (awaiting second `g`).
+    pending_g: bool,
     /// Current input buffer.
     input: String,
     /// Whether the input is focused.
@@ -170,6 +182,20 @@ pub struct SqlPane {
     overlay_filter: String,
     /// Whether a workspace overlay is open that should block our keyboard input.
     overlay_blocks_input: bool,
+    /// Timestamp of last copy-to-clipboard action (for "Copied!" feedback).
+    copied_feedback: Option<crate::util::Instant>,
+    /// Pending action to deliver to the workspace on next poll.
+    pending_action: SqlPaneAction,
+    /// Input history for Up/Down navigation (most recent at end).
+    input_history: Vec<String>,
+    /// Current position in input history (None = not browsing history).
+    history_index: Option<usize>,
+    /// Saved current input when entering history browsing.
+    history_saved_input: String,
+    /// Column index to sort by in table overlay (None = original order).
+    overlay_sort_column: Option<usize>,
+    /// Sort direction in table overlay (true = ascending).
+    overlay_sort_ascending: bool,
 }
 
 impl SqlPane {
@@ -187,6 +213,10 @@ impl SqlPane {
             connection_state: ConnectionState::Disconnected,
             endpoint: None,
             history: Vec::new(),
+            cell_states: FxHashMap::default(),
+            selected_cell_idx: None,
+            scroll_to_selected: false,
+            pending_g: false,
             input: String::new(),
             input_focused: true,
             move_cursor_to_end: false,
@@ -214,6 +244,13 @@ impl SqlPane {
             overlay_table_page: 0,
             overlay_filter: String::new(),
             overlay_blocks_input: false,
+            copied_feedback: None,
+            pending_action: SqlPaneAction::None,
+            input_history: Vec::new(),
+            history_index: None,
+            history_saved_input: String::new(),
+            overlay_sort_column: None,
+            overlay_sort_ascending: true,
         }
     }
 
@@ -437,6 +474,12 @@ impl SqlPane {
             return;
         }
 
+        // Save to input history (dedup consecutive identical entries)
+        if self.input_history.last() != Some(&input) {
+            self.input_history.push(input.clone());
+        }
+        self.history_index = None;
+
         // Check for slash-commands (/diff, /explain, etc.)
         if let Some(cmd) = input.strip_prefix('/') {
             self.handle_slash_command(cmd);
@@ -613,7 +656,10 @@ impl SqlPane {
                     diff_result: None,
                 });
                 let idx = self.history.len() - 1;
-                self.open_overlay(ResultOverlay::Plan, idx);
+                let cell_id = self.history[idx].id;
+                self.expand_cell(&cell_id);
+                self.cell_state_mut(&cell_id).active_tab = super::types::CellTab::Plan;
+                self.scroll_to_bottom = true;
             }
             "schema" => {
                 if let Some(table_name) = parts.get(1) {
@@ -1313,10 +1359,130 @@ impl SqlPane {
     /// Clear all query results from history.
     fn clear_results(&mut self) {
         // Remove all non-running query results (keep running queries)
+        let running_ids: rustc_hash::FxHashSet<QueryId> = self
+            .history
+            .iter()
+            .filter(|c| c.status == QueryStatus::Running)
+            .map(|c| c.id)
+            .collect();
         self.history
             .retain(|cell| cell.status == QueryStatus::Running);
+        self.cell_states.retain(|id, _| running_ids.contains(id));
+        self.selected_cell_idx = None;
         self.active_overlay = ResultOverlay::None;
         self.overlay_result_idx = None;
+    }
+
+    /// Expand a cell, collapsing any other expanded cell.
+    fn expand_cell(&mut self, id: &QueryId) {
+        for state in self.cell_states.values_mut() {
+            state.expanded = false;
+        }
+        self.cell_state_mut(id).expanded = true;
+        self.input_focused = false;
+        self.selected_cell_idx = None;
+    }
+
+    /// Collapse the currently expanded cell and return selection to that cell's index.
+    fn collapse_expanded(&mut self) {
+        // Find the index of the expanded cell before collapsing
+        let expanded_idx = self
+            .history
+            .iter()
+            .enumerate()
+            .find(|(_, c)| self.cell_states.get(&c.id).is_some_and(|s| s.expanded))
+            .map(|(i, _)| i);
+
+        for state in self.cell_states.values_mut() {
+            state.expanded = false;
+        }
+        self.selected_cell_idx = expanded_idx;
+        self.scroll_to_selected = expanded_idx.is_some();
+        self.input_focused = expanded_idx.is_none();
+    }
+
+    /// Get indices of navigable (non-info) cells.
+    fn navigable_cell_indices(&self) -> Vec<usize> {
+        self.history
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.is_info)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// Get or create mutable view state for a cell.
+    fn cell_state_mut(&mut self, id: &QueryId) -> &mut CellViewState {
+        self.cell_states.entry(*id).or_default()
+    }
+
+    /// Get the QueryId of the currently expanded cell, if any.
+    fn expanded_cell_id(&self) -> Option<QueryId> {
+        self.cell_states
+            .iter()
+            .find(|(_, s)| s.expanded)
+            .map(|(id, _)| *id)
+    }
+
+    /// Process card actions from the query card renderer.
+    fn handle_card_actions(
+        &mut self,
+        actions: Vec<super::query_card::CardAction>,
+        cell_idx: usize,
+    ) {
+        use super::query_card::CardAction;
+        for action in actions {
+            match action {
+                CardAction::Select => {
+                    self.selected_cell_idx = Some(cell_idx);
+                    self.input_focused = false;
+                    self.scroll_to_selected = true;
+                }
+                CardAction::Expand => {
+                    if let Some(cell) = self.history.get(cell_idx) {
+                        let id = cell.id;
+                        self.expand_cell(&id);
+                    }
+                }
+                CardAction::Collapse => {
+                    self.collapse_expanded();
+                }
+                CardAction::SetTab(tab) => {
+                    if let Some(cell) = self.history.get(cell_idx) {
+                        let id = cell.id;
+                        self.cell_state_mut(&id).active_tab = tab;
+                    }
+                }
+                CardAction::CopyToClipboard(text) => {
+                    self.copy_to_clipboard(&text);
+                }
+                CardAction::ShareToAgent => {
+                    if let Some(table) = self.result_to_inline_table(cell_idx) {
+                        self.pending_action = SqlPaneAction::ShareResultToAgent(table);
+                    }
+                }
+                CardAction::Delete => {
+                    if let Some(cell) = self.history.get(cell_idx) {
+                        let id = cell.id;
+                        self.cell_states.remove(&id);
+                        self.history.remove(cell_idx);
+                        // Adjust selection after deletion
+                        if self.selected_cell_idx == Some(cell_idx) {
+                            let nav = self.navigable_cell_indices();
+                            if nav.is_empty() {
+                                self.selected_cell_idx = None;
+                                self.input_focused = true;
+                            } else {
+                                // Select the next cell, or the last one if we deleted the last
+                                let new_idx =
+                                    nav.iter().find(|&&i| i >= cell_idx).or(nav.last()).copied();
+                                self.selected_cell_idx = new_idx;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Poll for async operation results.
@@ -1420,6 +1586,13 @@ impl SqlPane {
                                 ..Default::default()
                             });
                         }
+                        // Auto-expand cell for results
+                        if let Some(idx) = self.history.iter().position(|c| c.id == query_id) {
+                            if !self.history[idx].batches.is_empty() {
+                                self.expand_cell(&query_id);
+                                self.scroll_to_bottom = true;
+                            }
+                        }
                     }
                 }
                 Ok(Err(e)) => {
@@ -1470,7 +1643,10 @@ impl SqlPane {
                         diff_result: None,
                     });
                     let idx = self.history.len() - 1;
-                    self.open_overlay(ResultOverlay::Plan, idx);
+                    let cell_id = self.history[idx].id;
+                    self.expand_cell(&cell_id);
+                    self.cell_state_mut(&cell_id).active_tab = super::types::CellTab::Plan;
+                    self.scroll_to_bottom = true;
                 }
                 Ok(Err(e)) => {
                     self.add_error_cell(&format!("EXPLAIN failed: {e}"));
@@ -1717,6 +1893,7 @@ impl SqlPane {
         }
 
         // Poll local session events
+        let mut completed_query_id = None;
         if let Some(SqlBackend::Local { event_rx, .. }) = &mut self.backend {
             while let Ok(event) = event_rx.try_recv() {
                 let query_id = event.query_id();
@@ -1731,6 +1908,7 @@ impl SqlPane {
                         QueryEvent::Completed { stats, .. } => {
                             cell.status = QueryStatus::Completed;
                             cell.stats = Some(stats);
+                            completed_query_id = Some(query_id);
                         }
                         QueryEvent::Failed { error, .. } => {
                             cell.status = QueryStatus::Failed;
@@ -1741,6 +1919,15 @@ impl SqlPane {
                         }
                         QueryEvent::Progress { .. } => {}
                     }
+                }
+            }
+        }
+        // Auto-expand cell for completed local queries
+        if let Some(query_id) = completed_query_id {
+            if let Some(idx) = self.history.iter().position(|c| c.id == query_id) {
+                if !self.history[idx].batches.is_empty() {
+                    self.expand_cell(&query_id);
+                    self.scroll_to_bottom = true;
                 }
             }
         }
@@ -1884,19 +2071,18 @@ impl SqlPane {
         });
     }
 
-    /// Show the SQL pane with three-panel layout.
+    /// Show the SQL pane with notebook-cell layout.
     ///
     /// Layout:
     /// ```text
-    /// ┌─────────────┬────────────────────────┬─────────────┐
-    /// │ CONNECTIONS │  Query Results         │ PLAN VIEWER │
-    /// │             │                        │ (toggleable)│
-    /// │ ▼ staging   │                        │             │
-    /// │   └─ users  ├────────────────────────┤             │
-    /// │   └─ orders │  Query Input           │             │
-    /// │             │                        │             │
-    /// │ + Add       │        [Run]           │             │
-    /// └─────────────┴────────────────────────┴─────────────┘
+    /// ┌────────────────────────────────┐
+    /// │ [cell 1 - collapsed]           │
+    /// │ [cell 2 - collapsed]           │
+    /// │ [cell 3 - EXPANDED]            │
+    /// │ [cell 4 - collapsed]           │
+    /// │                                │
+    /// │ [input bar + hints]            │
+    /// └────────────────────────────────┘
     /// ```
     pub fn show(&mut self, ui: &mut egui::Ui) {
         // Poll for async results
@@ -1910,46 +2096,294 @@ impl SqlPane {
 
         let text_secondary = self.theme.text_secondary();
         let accent = self.theme.accent_primary();
+        let bg_base = self.theme.bg_base();
 
-        // Only count actual query results (not info/system messages) for layout
-        let has_results = self.history.iter().any(|c| !c.is_info);
-
-        // Centered input with suggestions above, results below
         egui::Frame::new()
-            .fill(self.theme.bg_base())
-            .inner_margin(egui::Margin::symmetric(48, 32))
+            .fill(bg_base)
+            .inner_margin(egui::Margin::symmetric(0, 12))
             .show(ui, |ui| {
-                let max_width = 700.0;
+                // Center content with max width, scrollbar stays at pane edge
+                let max_content_width = 900.0;
                 let available_width = ui.available_width();
-                let available_height = ui.available_height();
-                let content_width = available_width.min(max_width);
-
-                // Always keep input bar centered, with results appearing below
-                // Estimate input section height: input ~48px + hints ~24px + results ~200px
-                let input_section_height = 80.0;
-                let results_height = if has_results { 180.0 } else { 0.0 };
-                let total_content_height = input_section_height + results_height;
-                let vertical_offset = ((available_height - total_content_height) / 2.0).max(32.0);
 
                 ui.allocate_ui_with_layout(
-                    egui::vec2(available_width, available_height),
+                    egui::vec2(available_width, ui.available_height()),
                     egui::Layout::top_down(egui::Align::Center),
                     |ui| {
-                        // Add space to push content toward center
-                        ui.add_space(vertical_offset);
+                        ui.set_max_width(max_content_width);
 
-                        ui.set_max_width(content_width);
-                        ui.vertical(|ui| {
-                            self.render_mode_badge(ui);
-                            self.render_suggestions_popup(ui, accent);
-                            self.render_input_bar(ui, accent);
-                            self.render_input_hints(ui, text_secondary);
+                        self.render_mode_badge(ui);
 
-                            if has_results {
-                                ui.add_space(16.0);
-                                self.render_results(ui);
+                        // Reserve space for input section at bottom
+                        let input_height = 100.0;
+                        let scroll_height = (ui.available_height() - input_height).max(100.0);
+
+                        // === Notebook cells (scrollable) ===
+                        let mut all_actions: Vec<(usize, Vec<super::query_card::CardAction>)> =
+                            Vec::new();
+
+                        // Split borrows: history (read), cell_states (write), plan_viewer (write)
+                        let history = &self.history;
+                        let cell_states = &mut self.cell_states;
+                        let plan_viewer = &mut self.plan_viewer;
+                        let theme = self.theme;
+                        let overlay_blocks = self.overlay_blocks_input;
+                        let selected_idx = self.selected_cell_idx;
+                        let scroll_to_selected = self.scroll_to_selected;
+
+                        egui::ScrollArea::vertical()
+                            .id_salt("notebook_cells")
+                            .max_height(scroll_height)
+                            .stick_to_bottom(self.scroll_to_bottom)
+                            .show(ui, |ui| {
+                                let has_cells = history.iter().any(|c| !c.is_info);
+
+                                if !has_cells {
+                                    // Empty state placeholder
+                                    ui.vertical_centered(|ui| {
+                                        ui.add_space(scroll_height / 4.0);
+                                        ui.label(
+                                            RichText::new(empty::NO_QUERIES)
+                                                .color(theme.text_secondary().gamma_multiply(0.2))
+                                                .size(32.0),
+                                        );
+                                        ui.add_space(8.0);
+                                        ui.label(
+                                            RichText::new("Run a query to get started")
+                                                .color(theme.text_secondary())
+                                                .size(12.0),
+                                        );
+                                        ui.add_space(4.0);
+                                        ui.label(
+                                            RichText::new("Type SQL below and press Enter")
+                                                .color(theme.text_secondary().gamma_multiply(0.6))
+                                                .size(10.0),
+                                        );
+                                    });
+                                } else {
+                                    let mut cell_number: usize = 0;
+                                    for (idx, cell) in history.iter().enumerate() {
+                                        // Skip info/system messages
+                                        if cell.is_info {
+                                            continue;
+                                        }
+                                        cell_number += 1;
+
+                                        let is_selected = selected_idx == Some(idx);
+                                        let vs = cell_states.entry(cell.id).or_default();
+                                        let actions = super::query_card::render_query_card(
+                                            ui,
+                                            cell,
+                                            idx,
+                                            vs,
+                                            theme,
+                                            overlay_blocks,
+                                            plan_viewer,
+                                            is_selected,
+                                            cell_number,
+                                        );
+                                        all_actions.push((idx, actions));
+
+                                        // Auto-scroll the selected/expanded card into view
+                                        if is_selected && scroll_to_selected {
+                                            ui.scroll_to_cursor(Some(egui::Align::Center));
+                                        }
+
+                                        ui.add_space(8.0);
+                                    }
+                                }
+                            });
+
+                        self.scroll_to_bottom = false;
+                        self.scroll_to_selected = false;
+
+                        // Process card actions
+                        for (idx, actions) in all_actions {
+                            self.handle_card_actions(actions, idx);
+                        }
+
+                        // === Vim navigation between cells ===
+                        // Active when a cell is selected (not when typing in input).
+                        // Enter cell navigation via Escape from input bar.
+                        let has_expanded = self.expanded_cell_id().is_some();
+                        if !has_expanded
+                            && !self.overlay_blocks_input
+                            && self.selected_cell_idx.is_some()
+                        {
+                            let nav_indices = self.navigable_cell_indices();
+
+                            if !nav_indices.is_empty() {
+                                let current = self.selected_cell_idx.unwrap();
+                                let current_pos =
+                                    nav_indices.iter().position(|&i| i == current).unwrap_or(0);
+
+                                // j/Down or Tab: move selection down
+                                let j_pressed = ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::J)
+                                        || i.consume_key(
+                                            egui::Modifiers::NONE,
+                                            egui::Key::ArrowDown,
+                                        )
+                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::Tab)
+                                });
+
+                                // k/Up or Shift+Tab: move selection up
+                                let k_pressed = ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::K)
+                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
+                                        || i.consume_key(egui::Modifiers::SHIFT, egui::Key::Tab)
+                                });
+
+                                // Ctrl+d: half-page down
+                                let ctrl_d = ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::CTRL, egui::Key::D)
+                                });
+
+                                // Ctrl+u: half-page up
+                                let ctrl_u = ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::CTRL, egui::Key::U)
+                                });
+
+                                // G: jump to last cell
+                                let shift_g = ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::SHIFT, egui::Key::G)
+                                });
+
+                                // g: first press sets pending_g, second press jumps to first cell
+                                let g_pressed = ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::G)
+                                });
+
+                                // y: yank (copy SQL of selected cell to clipboard)
+                                let y_pressed = ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Y)
+                                });
+
+                                // d or x: delete selected cell from history
+                                let d_pressed = ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::D)
+                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::X)
+                                });
+
+                                // Handle gg motion (two consecutive g presses)
+                                if g_pressed {
+                                    if self.pending_g {
+                                        // gg: jump to first cell
+                                        self.selected_cell_idx = Some(nav_indices[0]);
+                                        self.scroll_to_selected = true;
+                                        self.pending_g = false;
+                                    } else {
+                                        self.pending_g = true;
+                                    }
+                                } else if shift_g
+                                    || j_pressed
+                                    || k_pressed
+                                    || ctrl_d
+                                    || ctrl_u
+                                    || y_pressed
+                                    || d_pressed
+                                {
+                                    // Any other key cancels pending g
+                                    self.pending_g = false;
+                                }
+
+                                if j_pressed {
+                                    if current_pos + 1 < nav_indices.len() {
+                                        self.selected_cell_idx = Some(nav_indices[current_pos + 1]);
+                                        self.scroll_to_selected = true;
+                                    } else {
+                                        // Past last cell: deselect, focus input
+                                        self.selected_cell_idx = None;
+                                        self.input_focused = true;
+                                    }
+                                }
+
+                                if k_pressed {
+                                    if current_pos > 0 {
+                                        self.selected_cell_idx = Some(nav_indices[current_pos - 1]);
+                                        self.scroll_to_selected = true;
+                                    } else {
+                                        // Before first cell: deselect, focus input
+                                        self.selected_cell_idx = None;
+                                        self.input_focused = true;
+                                    }
+                                }
+
+                                // Half-page jumps (5 cells)
+                                let half_page = 5;
+                                if ctrl_d {
+                                    let target = (current_pos + half_page)
+                                        .min(nav_indices.len().saturating_sub(1));
+                                    self.selected_cell_idx = Some(nav_indices[target]);
+                                    self.scroll_to_selected = true;
+                                }
+                                if ctrl_u {
+                                    let target = current_pos.saturating_sub(half_page);
+                                    self.selected_cell_idx = Some(nav_indices[target]);
+                                    self.scroll_to_selected = true;
+                                }
+
+                                // G: jump to last cell
+                                if shift_g {
+                                    self.selected_cell_idx = Some(*nav_indices.last().unwrap());
+                                    self.scroll_to_selected = true;
+                                }
+
+                                // y: yank SQL to clipboard
+                                if y_pressed {
+                                    if let Some(cell) = self.history.get(current) {
+                                        self.copy_to_clipboard(&cell.sql.clone());
+                                    }
+                                }
+
+                                // d/x: delete cell
+                                if d_pressed {
+                                    self.handle_card_actions(
+                                        vec![super::query_card::CardAction::Delete],
+                                        current,
+                                    );
+                                }
+
+                                // Enter: expand selected cell
+                                if ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                                }) {
+                                    if let Some(cell) = self.history.get(current) {
+                                        let id = cell.id;
+                                        self.expand_cell(&id);
+                                    }
+                                }
+
+                                // Escape or i: deselect cell, return to input
+                                if ui.ctx().input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::I)
+                                }) {
+                                    self.selected_cell_idx = None;
+                                    self.input_focused = true;
+                                    self.pending_g = false;
+                                }
                             }
-                        });
+                        } else if !has_expanded {
+                            // Reset pending_g when not in cell navigation mode
+                            self.pending_g = false;
+                        }
+
+                        // Global Esc: collapse expanded cell
+                        if has_expanded
+                            && !self.overlay_blocks_input
+                            && ui.ctx().input_mut(|i| {
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
+                            })
+                        {
+                            self.collapse_expanded();
+                        }
+
+                        // === Input section (pinned at bottom) ===
+                        ui.add_space(8.0);
+                        self.render_suggestions_popup(ui, accent);
+                        self.render_input_bar(ui, accent);
+                        self.render_input_hints(ui, text_secondary);
                     },
                 );
             });
@@ -1967,7 +2401,7 @@ impl SqlPane {
             }
         }
 
-        // Render result overlay if active
+        // Render result overlay if active (kept for now during transition)
         if self.active_overlay != ResultOverlay::None {
             self.render_result_overlay(ui);
         }
@@ -1977,6 +2411,22 @@ impl SqlPane {
     // Result Overlay System
     // ========================================================================
 
+    /// Compare two cell values for sorting (numeric-aware, NULL-last).
+    fn compare_cell_values(a: &str, b: &str) -> std::cmp::Ordering {
+        match (a, b) {
+            ("NULL", "NULL") => std::cmp::Ordering::Equal,
+            ("NULL", _) => std::cmp::Ordering::Greater,
+            (_, "NULL") => std::cmp::Ordering::Less,
+            _ => {
+                if let (Ok(an), Ok(bn)) = (a.parse::<f64>(), b.parse::<f64>()) {
+                    an.partial_cmp(&bn).unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    a.cmp(b)
+                }
+            }
+        }
+    }
+
     /// Open an overlay for the specified result.
     fn open_overlay(&mut self, overlay: ResultOverlay, result_idx: usize) {
         self.active_overlay = overlay;
@@ -1985,12 +2435,15 @@ impl SqlPane {
         self.overlay_filter.clear();
     }
 
-    /// Close the active overlay.
+    /// Close the active overlay and refocus the input bar.
     fn close_overlay(&mut self) {
         self.active_overlay = ResultOverlay::None;
         self.overlay_result_idx = None;
         self.overlay_table_page = 0;
         self.overlay_filter.clear();
+        self.overlay_sort_column = None;
+        self.overlay_sort_ascending = true;
+        self.input_focused = true;
     }
 
     /// Render the result overlay.
@@ -2007,8 +2460,8 @@ impl SqlPane {
 
         let screen_rect = ui.ctx().available_rect();
 
-        // Handle Esc to close (before drawing anything)
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        // Handle Esc to close (before drawing anything) — skip if a workspace overlay is open
+        if !self.overlay_blocks_input && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.close_overlay();
             return;
         }
@@ -2052,13 +2505,17 @@ impl SqlPane {
 
     /// Render the table overlay view.
     fn render_table_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize) {
+        // Clear egui focus so vim navigation keys (h/j/k/l) don't leak into the input bar.
+        ui.ctx()
+            .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+
         let colors = OverlayColors::new(self.theme);
         let bg_surface = self.theme.bg_surface();
         let bg_base = self.theme.bg_base();
         let rows_per_page = 50;
 
         // Extract data from cell first to avoid borrow conflicts
-        let (total_rows, num_cols, execution_time_ms, sql_query, has_schema, column_widths) = {
+        let (total_rows, num_cols, execution_time_ms, has_schema, column_widths) = {
             let cell = &self.history[result_idx];
             let total: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
             let cols = cell.schema.as_ref().map(|s| s.fields().len()).unwrap_or(0);
@@ -2081,14 +2538,7 @@ impl SqlPane {
                 vec![]
             };
 
-            (
-                total,
-                cols,
-                time_ms,
-                cell.sql.clone(),
-                cell.schema.is_some(),
-                widths,
-            )
+            (total, cols, time_ms, cell.schema.is_some(), widths)
         };
 
         let total_pages = total_rows.div_ceil(rows_per_page);
@@ -2096,41 +2546,72 @@ impl SqlPane {
         let mut next_page = false;
         let mut prev_page = false;
         let mut scroll_delta = egui::Vec2::ZERO;
+        let mut should_copy = false;
+        let mut should_share_to_agent = false;
 
-        // Handle keyboard navigation and consume events to prevent propagation to underlying panes
-        ui.ctx().input_mut(|i| {
-            // Vim-style scrolling: h/l horizontal, j/k vertical
-            let scroll_step = 50.0;
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::L) {
-                scroll_delta.x += scroll_step;
-            }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::H) {
-                scroll_delta.x -= scroll_step;
-            }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::J) {
-                scroll_delta.y += scroll_step;
-            }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::K) {
-                scroll_delta.y -= scroll_step;
-            }
+        // Handle keyboard navigation — skip if a workspace overlay (style picker, etc.) is open
+        if !self.overlay_blocks_input {
+            ui.ctx().input_mut(|i| {
+                // Vim-style scrolling: h/l horizontal, j/k vertical
+                let scroll_step = 50.0;
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::L) {
+                    scroll_delta.x += scroll_step;
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::H) {
+                    scroll_delta.x -= scroll_step;
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::J) {
+                    scroll_delta.y += scroll_step;
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::K) {
+                    scroll_delta.y -= scroll_step;
+                }
 
-            // Page navigation: [ ] or arrow keys
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)
-                || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
-            {
-                next_page = true;
-            }
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::OpenBracket)
-                || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
-            {
-                prev_page = true;
-            }
+                // Page navigation: [ ] or arrow keys
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)
+                    || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
+                {
+                    next_page = true;
+                }
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::OpenBracket)
+                    || i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
+                {
+                    prev_page = true;
+                }
 
-            // Close on Escape
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
-                should_close = true;
+                // Copy to clipboard
+                if i.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
+                    || i.consume_key(egui::Modifiers::CTRL, egui::Key::C)
+                {
+                    should_copy = true;
+                }
+
+                // Share to agent panel
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::S) {
+                    should_share_to_agent = true;
+                }
+
+                // Close on Escape
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    should_close = true;
+                }
+            });
+        }
+
+        // Share to agent panel
+        if should_share_to_agent {
+            if let Some(table) = self.result_to_inline_table(result_idx) {
+                self.pending_action = SqlPaneAction::ShareResultToAgent(table);
             }
-        });
+        }
+
+        // Copy all results as TSV
+        if should_copy {
+            if let Some(schema) = &self.history[result_idx].schema {
+                let tsv = Self::format_results_as_tsv(schema, &self.history[result_idx].batches);
+                self.copy_to_clipboard(&tsv);
+            }
+        }
 
         // ===== Header with icon and stats badges =====
         ui.add_space(10.0);
@@ -2152,6 +2633,12 @@ impl SqlPane {
             // Right side: stats badges
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
+
+                // "Copied!" feedback badge
+                if self.show_copied_badge() {
+                    render_stat_badge(ui, "Copied!", &colors);
+                    ui.add_space(4.0);
+                }
 
                 // Row count badge
                 render_stat_badge(ui, &format!("{total_rows} rows"), &colors);
@@ -2207,6 +2694,29 @@ impl SqlPane {
         let row_height = typography::SM + 8.0;
         let start_row = self.overlay_table_page * rows_per_page;
 
+        // Build sorted row indices for column sort
+        let sort_col = self.overlay_sort_column;
+        let sort_asc = self.overlay_sort_ascending;
+        let sorted_row_indices: Vec<(usize, usize)> = {
+            let mut indices: Vec<(usize, usize)> = Vec::new();
+            for (batch_idx, batch) in cell.batches.iter().enumerate() {
+                for row_idx in 0..batch.num_rows() {
+                    indices.push((batch_idx, row_idx));
+                }
+            }
+            if let Some(sc) = sort_col {
+                if sc < num_cols {
+                    indices.sort_by(|a, b| {
+                        let val_a = format_array_value(cell.batches[a.0].column(sc).as_ref(), a.1);
+                        let val_b = format_array_value(cell.batches[b.0].column(sc).as_ref(), b.1);
+                        let ord = Self::compare_cell_values(&val_a, &val_b);
+                        if sort_asc { ord } else { ord.reverse() }
+                    });
+                }
+            }
+            indices
+        };
+
         // Single ScrollArea for both header and body - ensures aligned scrolling
         egui::Frame::new()
             .fill(bg_base)
@@ -2256,27 +2766,71 @@ impl SqlPane {
                                 colors.faint_text,
                             );
 
-                            // Column headers with fixed widths
+                            // Column headers with fixed widths (clickable for sort)
                             for (idx, field) in schema.fields().iter().enumerate() {
                                 let col_width = column_widths.get(idx).copied().unwrap_or(100.0);
                                 let col_spacing = 16.0;
 
-                                // Allocate fixed-width cell
-                                let (col_rect, _) = ui.allocate_exact_size(
+                                // Allocate fixed-width cell (clickable for column sort)
+                                let (col_rect, col_response) = ui.allocate_exact_size(
                                     egui::vec2(col_width + col_spacing, header_height),
-                                    egui::Sense::hover(),
+                                    egui::Sense::click(),
                                 );
 
-                                // Header background
-                                ui.painter().rect_filled(col_rect, 0.0, bg_surface);
+                                // Toggle sort on click: asc → desc → none
+                                if col_response.clicked() {
+                                    if self.overlay_sort_column == Some(idx) {
+                                        if self.overlay_sort_ascending {
+                                            self.overlay_sort_ascending = false;
+                                        } else {
+                                            self.overlay_sort_column = None;
+                                        }
+                                    } else {
+                                        self.overlay_sort_column = Some(idx);
+                                        self.overlay_sort_ascending = true;
+                                    }
+                                    // Reset to first page on sort change
+                                    self.overlay_table_page = 0;
+                                }
 
-                                // Draw column name
+                                // Hover cursor
+                                if col_response.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                }
+
+                                // Header background (highlight on hover or active sort)
+                                let is_sort_col = self.overlay_sort_column == Some(idx);
+                                let header_bg = if col_response.hovered() {
+                                    self.theme.bg_hover()
+                                } else if is_sort_col {
+                                    self.theme.bg_hover().gamma_multiply(0.5)
+                                } else {
+                                    bg_surface
+                                };
+                                ui.painter().rect_filled(col_rect, 0.0, header_bg);
+
+                                // Sort indicator
+                                let sort_indicator = if is_sort_col {
+                                    if self.overlay_sort_ascending {
+                                        " ▲"
+                                    } else {
+                                        " ▼"
+                                    }
+                                } else {
+                                    ""
+                                };
+
+                                // Draw column name with sort indicator
                                 ui.painter().text(
                                     col_rect.left_center() + egui::vec2(8.0, -6.0),
                                     egui::Align2::LEFT_CENTER,
-                                    field.name(),
+                                    format!("{}{sort_indicator}", field.name()),
                                     typography::monospace(typography::SM),
-                                    colors.text,
+                                    if is_sort_col {
+                                        colors.accent
+                                    } else {
+                                        colors.text
+                                    },
                                 );
 
                                 // Draw data type below
@@ -2290,85 +2844,89 @@ impl SqlPane {
                             }
                         });
 
-                        // ===== Data rows =====
-                        let mut rows_shown = 0;
-                        let mut current_row = 0;
+                        // ===== Data rows (using sorted indices) =====
+                        let page_end = (start_row + rows_per_page).min(sorted_row_indices.len());
+                        let page_start = start_row.min(sorted_row_indices.len());
 
-                        'outer: for batch in &cell.batches {
-                            for row_idx in 0..batch.num_rows() {
-                                if current_row < start_row {
-                                    current_row += 1;
-                                    continue;
-                                }
-                                if rows_shown >= rows_per_page {
-                                    break 'outer;
-                                }
+                        for (display_idx, &(batch_idx, row_idx)) in
+                            sorted_row_indices[page_start..page_end].iter().enumerate()
+                        {
+                            let absolute_row = start_row + display_idx + 1;
+                            let batch = &cell.batches[batch_idx];
 
-                                let absolute_row = start_row + rows_shown + 1;
+                            // Alternate row background
+                            let row_bg = if display_idx % 2 == 0 {
+                                Color32::TRANSPARENT
+                            } else {
+                                self.theme.bg_hover().gamma_multiply(0.3)
+                            };
 
-                                // Alternate row background
-                                let row_bg = if rows_shown % 2 == 0 {
-                                    Color32::TRANSPARENT
-                                } else {
-                                    self.theme.bg_hover().gamma_multiply(0.3)
-                                };
+                            ui.horizontal(|ui| {
+                                ui.style_mut().spacing.item_spacing.x = 0.0;
 
-                                ui.horizontal(|ui| {
-                                    ui.style_mut().spacing.item_spacing.x = 0.0;
+                                // Row number gutter
+                                let (gutter_rect, _) = ui.allocate_exact_size(
+                                    egui::vec2(row_num_gutter_width, row_height),
+                                    egui::Sense::hover(),
+                                );
+                                ui.painter()
+                                    .rect_filled(gutter_rect, 0.0, self.theme.bg_base());
+                                let row_num_str = format!("{absolute_row:>row_num_width$}");
+                                ui.painter().text(
+                                    gutter_rect.left_center() + egui::vec2(8.0, 0.0),
+                                    egui::Align2::LEFT_CENTER,
+                                    row_num_str,
+                                    typography::monospace(typography::XS),
+                                    colors.faint_text,
+                                );
 
-                                    // Row number gutter
-                                    let (gutter_rect, _) = ui.allocate_exact_size(
-                                        egui::vec2(row_num_gutter_width, row_height),
+                                // Cell values with fixed widths
+                                for col_idx in 0..batch.num_columns() {
+                                    let col_width =
+                                        column_widths.get(col_idx).copied().unwrap_or(100.0);
+                                    let col_spacing = 16.0;
+
+                                    // Allocate fixed-width cell
+                                    let (cell_rect, _) = ui.allocate_exact_size(
+                                        egui::vec2(col_width + col_spacing, row_height),
                                         egui::Sense::hover(),
                                     );
-                                    ui.painter().rect_filled(
-                                        gutter_rect,
-                                        0.0,
-                                        self.theme.bg_base(),
-                                    );
-                                    let row_num_str = format!("{absolute_row:>row_num_width$}");
-                                    ui.painter().text(
-                                        gutter_rect.left_center() + egui::vec2(8.0, 0.0),
-                                        egui::Align2::LEFT_CENTER,
-                                        row_num_str,
-                                        typography::monospace(typography::XS),
-                                        colors.faint_text,
-                                    );
 
-                                    // Cell values with fixed widths
-                                    for col_idx in 0..batch.num_columns() {
-                                        let col_width =
-                                            column_widths.get(col_idx).copied().unwrap_or(100.0);
-                                        let col_spacing = 16.0;
+                                    // Draw row background
+                                    ui.painter().rect_filled(cell_rect, 0.0, row_bg);
 
-                                        // Allocate fixed-width cell
-                                        let (cell_rect, _) = ui.allocate_exact_size(
-                                            egui::vec2(col_width + col_spacing, row_height),
-                                            egui::Sense::hover(),
+                                    let col = batch.column(col_idx);
+                                    let value = format_array_value(col.as_ref(), row_idx);
+
+                                    if value == "NULL" {
+                                        // NULL cells: subtle background tint + italic text
+                                        let null_bg = colors.faint_text.gamma_multiply(0.06);
+                                        ui.painter().rect_filled(cell_rect, 0.0, null_bg);
+                                        let job = egui::text::LayoutJob::single_section(
+                                            "null".to_string(),
+                                            egui::TextFormat {
+                                                font_id: typography::monospace(typography::SM),
+                                                color: colors.faint_text,
+                                                italics: true,
+                                                ..Default::default()
+                                            },
                                         );
-
-                                        // Draw row background
-                                        ui.painter().rect_filled(cell_rect, 0.0, row_bg);
-
-                                        let col = batch.column(col_idx);
-                                        let value = format_array_value(col.as_ref(), row_idx);
-
-                                        let (display_val, color) = if value == "NULL" {
-                                            ("null".to_string(), colors.faint_text)
+                                        let galley = ui.fonts_mut(|f| f.layout_job(job));
+                                        ui.painter().galley(
+                                            cell_rect.left_center()
+                                                + egui::vec2(8.0, -galley.size().y / 2.0),
+                                            galley,
+                                            colors.faint_text,
+                                        );
+                                    } else {
+                                        // Truncate long values
+                                        let max_chars = ((col_width - 8.0) / 7.0) as usize;
+                                        let display_val = if value.len() > max_chars
+                                            && max_chars > 3
+                                        {
+                                            format!("{}…", &value[..max_chars.saturating_sub(1)])
                                         } else {
-                                            // Truncate long values
-                                            let max_chars = ((col_width - 8.0) / 7.0) as usize;
-                                            if value.len() > max_chars && max_chars > 3 {
-                                                (
-                                                    format!(
-                                                        "{}…",
-                                                        &value[..max_chars.saturating_sub(1)]
-                                                    ),
-                                                    colors.muted_text,
-                                                )
-                                            } else {
-                                                (value, colors.muted_text)
-                                            }
+                                            value
                                         };
 
                                         ui.painter().text(
@@ -2376,14 +2934,11 @@ impl SqlPane {
                                             egui::Align2::LEFT_CENTER,
                                             display_val,
                                             typography::monospace(typography::SM),
-                                            color,
+                                            colors.muted_text,
                                         );
                                     }
-                                });
-
-                                rows_shown += 1;
-                                current_row += 1;
-                            }
+                                }
+                            });
                         }
                     });
 
@@ -2407,24 +2962,12 @@ impl SqlPane {
         ui.horizontal(|ui| {
             ui.add_space(16.0);
 
-            // SQL query preview (truncated)
-            let sql_preview = if sql_query.len() > 60 {
-                format!("{}...", &sql_query[..60])
-            } else {
-                sql_query.clone()
-            };
-            ui.label(
-                RichText::new(&sql_preview)
-                    .color(colors.faint_text)
-                    .font(typography::monospace(typography::XS)),
-            );
-
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
 
                 // Keyboard hint
                 ui.label(
-                    RichText::new("hjkl scroll • [/] page • Esc")
+                    RichText::new("hjkl scroll • [/] page • \u{2318}C copy • S share • Esc")
                         .color(colors.faint_text.gamma_multiply(0.7))
                         .font(typography::proportional(typography::XS)),
                 );
@@ -2513,13 +3056,29 @@ impl SqlPane {
         let (total_time, operator_count, bottleneck_count) = self.plan_viewer.stats();
 
         let mut should_close = false;
+        let mut should_copy = false;
 
-        // Handle keyboard navigation
-        ui.ctx().input_mut(|i| {
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
-                should_close = true;
+        // Handle keyboard navigation — skip if a workspace overlay is open
+        if !self.overlay_blocks_input {
+            ui.ctx().input_mut(|i| {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    should_close = true;
+                }
+                if i.consume_key(egui::Modifiers::COMMAND, egui::Key::C)
+                    || i.consume_key(egui::Modifiers::CTRL, egui::Key::C)
+                {
+                    should_copy = true;
+                }
+            });
+        }
+
+        // Copy plan as formatted text
+        if should_copy {
+            if let Some(plan_node) = self.plan_viewer.root_plan() {
+                let text = Self::format_plan_as_text(plan_node, 0);
+                self.copy_to_clipboard(&text);
             }
-        });
+        }
 
         // ===== Header with icon and stats badges =====
         ui.add_space(10.0);
@@ -2541,6 +3100,12 @@ impl SqlPane {
             // Right side: stats badges
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(16.0);
+
+                // "Copied!" feedback badge
+                if self.show_copied_badge() {
+                    render_stat_badge(ui, "Copied!", &colors);
+                    ui.add_space(4.0);
+                }
 
                 // Execution time badge
                 if !total_time.is_zero() {
@@ -2630,9 +3195,11 @@ impl SqlPane {
 
                 // Keyboard hints based on current mode
                 let hints = match self.plan_viewer.mode {
-                    PlanViewMode::Tree => "j/k nav • h/l fold • b bottleneck • Esc",
-                    PlanViewMode::Stats => "scroll to explore • Esc",
-                    PlanViewMode::Waterfall => "j/k nav • b bottleneck • Esc",
+                    PlanViewMode::Tree => {
+                        "j/k nav • h/l fold • b bottleneck • \u{2318}C copy • Esc"
+                    }
+                    PlanViewMode::Stats => "scroll to explore • \u{2318}C copy • Esc",
+                    PlanViewMode::Waterfall => "j/k nav • b bottleneck • \u{2318}C copy • Esc",
                 };
                 ui.label(
                     RichText::new(hints)
@@ -2652,18 +3219,24 @@ impl SqlPane {
     fn render_diff_overlay(&mut self, ui: &mut egui::Ui, result_idx: usize, _other_idx: usize) {
         use crate::ui::semantic_icons::diff;
 
+        // Clear egui focus so keyboard shortcuts don't leak into the input bar.
+        ui.ctx()
+            .memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+
         let text_primary = self.theme.text_primary();
         let text_secondary = self.theme.text_secondary();
         let colors = OverlayColors::new(self.theme);
         let theme = self.theme;
 
-        // Handle Escape to close
+        // Handle Escape to close — skip if a workspace overlay is open
         let mut should_close = false;
-        ui.ctx().input_mut(|i| {
-            if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
-                should_close = true;
-            }
-        });
+        if !self.overlay_blocks_input {
+            ui.ctx().input_mut(|i| {
+                if i.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
+                    should_close = true;
+                }
+            });
+        }
 
         // Helper to calculate total time from a plan tree
         fn calc_plan_time(node: &PlanNode) -> u64 {
@@ -2986,11 +3559,8 @@ impl SqlPane {
         // Clone input to avoid borrow issues with mutable methods
         let input = self.input.trim().to_string();
 
-        // Clear if empty
         if input.is_empty() {
-            self.suggestions.items.clear();
-            self.suggestions.visible = false;
-            self.suggestions.selected = 0;
+            self.suggestions.clear();
             return;
         }
 
@@ -3003,17 +3573,9 @@ impl SqlPane {
 
             if let Some(sql_part) = sql_part {
                 // Check for table completion in the SQL part
-                let upper = sql_part.to_uppercase();
-                let needs_table = upper.ends_with("FROM ")
-                    || upper.ends_with("JOIN ")
-                    || upper.ends_with("UPDATE ")
-                    || upper.ends_with("INTO ")
-                    || upper.ends_with("TABLE ");
-
-                if needs_table {
-                    self.suggestions.items = self.get_schema_suggestions("");
-                    self.suggestions.visible = !self.suggestions.items.is_empty();
-                    self.suggestions.selected = 0;
+                if Self::ends_with_table_keyword(sql_part) {
+                    let items = self.get_schema_suggestions("");
+                    self.suggestions.set(items);
                     return;
                 }
 
@@ -3023,10 +3585,9 @@ impl SqlPane {
                     let second_last = words[words.len() - 2].to_uppercase();
                     let last = words[words.len() - 1];
 
-                    if ["FROM", "JOIN", "UPDATE", "INTO", "TABLE"].contains(&second_last.as_str()) {
-                        self.suggestions.items = self.get_schema_suggestions(last);
-                        self.suggestions.visible = !self.suggestions.items.is_empty();
-                        self.suggestions.selected = 0;
+                    if TABLE_KEYWORDS.contains(&second_last.as_str()) {
+                        let items = self.get_schema_suggestions(last);
+                        self.suggestions.set(items);
                         return;
                     }
                 }
@@ -3037,135 +3598,169 @@ impl SqlPane {
             // Special handling for /connect - show endpoint suggestions
             if cmd_query == "connect" || cmd_query.starts_with("connect ") {
                 let partial = cmd_query.strip_prefix("connect").unwrap_or("").trim_start();
-
-                let mut items = Vec::new();
-
-                if partial.is_empty() {
-                    // Show all options when no partial typed
-                    items.push(Suggestion {
-                        label: "localhost:50051".to_string(),
-                        detail: "Local Flight SQL".to_string(),
-                        insert: "/connect localhost:50051".to_string(),
-                        icon: SuggestionIcon::Connection,
-                        score: 0,
-                        match_positions: Vec::new(),
-                    });
-
-                    for conn in &self.connections {
-                        let status = if matches!(conn.state, ConnectionState::Connected) {
-                            "connected"
-                        } else {
-                            "saved"
-                        };
-                        items.push(Suggestion {
-                            label: conn.name.clone(),
-                            detail: format!("{} ({})", conn.endpoint, status),
-                            insert: format!("/connect {}", conn.name),
-                            icon: SuggestionIcon::Connection,
-                            score: 0,
-                            match_positions: Vec::new(),
-                        });
-                    }
-                } else {
-                    // Fuzzy match with nucleo
-                    let pattern = Pattern::new(
-                        partial,
-                        CaseMatching::Ignore,
-                        Normalization::Smart,
-                        AtomKind::Fuzzy,
-                    );
-                    let mut indices: Vec<u32> = Vec::new();
-                    let mut buf = Vec::new();
-
-                    // Check localhost
-                    indices.clear();
-                    let haystack = Utf32Str::new("localhost:50051", &mut buf);
-                    if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices)
-                    {
-                        items.push(Suggestion {
-                            label: "localhost:50051".to_string(),
-                            detail: "Local Flight SQL".to_string(),
-                            insert: "/connect localhost:50051".to_string(),
-                            icon: SuggestionIcon::Connection,
-                            score: i64::from(score),
-                            match_positions: indices.iter().map(|&i| i as usize).collect(),
-                        });
-                    }
-
-                    // Check existing connections
-                    for conn in &self.connections {
-                        indices.clear();
-                        let haystack = Utf32Str::new(&conn.name, &mut buf);
-                        if let Some(score) =
-                            pattern.indices(haystack, &mut self.matcher, &mut indices)
-                        {
-                            let status = if matches!(conn.state, ConnectionState::Connected) {
-                                "connected"
-                            } else {
-                                "saved"
-                            };
-                            items.push(Suggestion {
-                                label: conn.name.clone(),
-                                detail: format!("{} ({})", conn.endpoint, status),
-                                insert: format!("/connect {}", conn.name),
-                                icon: SuggestionIcon::Connection,
-                                score: i64::from(score),
-                                match_positions: indices.iter().map(|&i| i as usize).collect(),
-                            });
-                        }
-                    }
-
-                    // Sort by score descending
-                    items.sort_by(|a, b| b.score.cmp(&a.score));
-                }
-
-                self.suggestions.items = items;
-                self.suggestions.visible = !self.suggestions.items.is_empty();
-                self.suggestions.selected = 0;
+                let items = self.get_connect_suggestions(partial);
+                self.suggestions.set(items);
                 return;
             }
 
             // Standard command matching with nucleo
-            self.suggestions.items = self.fuzzy_match_commands(cmd_query);
-            self.suggestions.visible = !self.suggestions.items.is_empty();
-            self.suggestions.selected = 0;
+            let items = self.fuzzy_match_commands(cmd_query);
+            self.suggestions.set(items);
             return;
         }
 
         // Check for table completion (after FROM, JOIN, etc.)
-        let upper = input.to_uppercase();
-        let needs_table = upper.ends_with("FROM ")
-            || upper.ends_with("JOIN ")
-            || upper.ends_with("UPDATE ")
-            || upper.ends_with("INTO ")
-            || upper.ends_with("TABLE ");
-
-        if needs_table {
-            // Show catalogs/schemas hierarchy (no partial typed yet)
-            self.suggestions.items = self.get_schema_suggestions("");
-            self.suggestions.visible = !self.suggestions.items.is_empty();
-            self.suggestions.selected = 0;
+        if Self::ends_with_table_keyword(&input) {
+            let items = self.get_schema_suggestions("");
+            self.suggestions.set(items);
             return;
         }
 
-        // Check for partial table/schema name after keywords
+        // Split input into words once for all remaining checks
         let words: Vec<&str> = input.split_whitespace().collect();
+
+        // Check for partial table/schema name after table keywords
         if words.len() >= 2 {
             let second_last = words[words.len() - 2].to_uppercase();
             let last = words[words.len() - 1];
 
-            if ["FROM", "JOIN", "UPDATE", "INTO", "TABLE"].contains(&second_last.as_str()) {
-                // Hierarchical matching: catalog.schema.table
-                self.suggestions.items = self.get_schema_suggestions(last);
-                self.suggestions.visible = !self.suggestions.items.is_empty();
-                self.suggestions.selected = 0;
+            if TABLE_KEYWORDS.contains(&second_last.as_str()) {
+                let items = self.get_schema_suggestions(last);
+                self.suggestions.set(items);
                 return;
             }
         }
 
-        // No suggestions
-        self.suggestions.items.clear();
-        self.suggestions.visible = false;
+        // Column completion context: after SELECT, WHERE, HAVING, ON, SET, ORDER BY, GROUP BY
+        let upper_words: Vec<String> = words.iter().map(|w| w.to_uppercase()).collect();
+
+        let in_column_context = upper_words
+            .iter()
+            .rposition(|w| {
+                COLUMN_KEYWORDS.contains(&w.as_str()) || TABLE_KEYWORDS.contains(&w.as_str())
+            })
+            .is_some_and(|idx| {
+                // Only column context if the keyword is a column-position keyword,
+                // not a table-position keyword (those are handled above)
+                COLUMN_KEYWORDS.contains(&upper_words[idx].as_str())
+            });
+
+        if in_column_context {
+            let from_tables = self.extract_from_tables(&input);
+            let partial = words.last().copied().unwrap_or("");
+            let partial_upper = partial.to_uppercase();
+
+            if !COLUMN_KEYWORDS.contains(&partial_upper.as_str()) {
+                let mut items = if !from_tables.is_empty() {
+                    self.get_column_suggestions(partial, &from_tables)
+                } else {
+                    Vec::new()
+                };
+                if partial.len() >= 2 {
+                    items.extend(self.get_keyword_suggestions(partial));
+                }
+                items.sort_by(|a, b| b.score.cmp(&a.score));
+                self.suggestions.set(items);
+                return;
+            }
+        }
+
+        // Generic keyword/function completion for any context
+        if let Some(last_word) = words.last() {
+            if last_word.len() >= 2 && !last_word.starts_with('/') && !last_word.starts_with('.') {
+                let items = self.get_keyword_suggestions(last_word);
+                self.suggestions.set(items);
+                return;
+            }
+        }
+
+        self.suggestions.clear();
+    }
+
+    /// Check if text ends with a table keyword followed by a space (e.g., "FROM ").
+    fn ends_with_table_keyword(text: &str) -> bool {
+        let upper = text.to_uppercase();
+        TABLE_KEYWORDS
+            .iter()
+            .any(|kw| upper.ends_with(&format!("{kw} ")))
+    }
+
+    /// Get connection endpoint suggestions for /connect command.
+    fn get_connect_suggestions(&mut self, partial: &str) -> Vec<Suggestion> {
+        let mut items = Vec::new();
+
+        if partial.is_empty() {
+            items.push(Suggestion {
+                label: "localhost:50051".to_string(),
+                detail: "Local Flight SQL".to_string(),
+                insert: "/connect localhost:50051".to_string(),
+                icon: SuggestionIcon::Connection,
+                score: 0,
+                match_positions: Vec::new(),
+            });
+
+            for conn in &self.connections {
+                let status = if matches!(conn.state, ConnectionState::Connected) {
+                    "connected"
+                } else {
+                    "saved"
+                };
+                items.push(Suggestion {
+                    label: conn.name.clone(),
+                    detail: format!("{} ({})", conn.endpoint, status),
+                    insert: format!("/connect {}", conn.name),
+                    icon: SuggestionIcon::Connection,
+                    score: 0,
+                    match_positions: Vec::new(),
+                });
+            }
+        } else {
+            let pattern = Pattern::new(
+                partial,
+                CaseMatching::Ignore,
+                Normalization::Smart,
+                AtomKind::Fuzzy,
+            );
+            let mut indices: Vec<u32> = Vec::new();
+            let mut buf = Vec::new();
+
+            indices.clear();
+            let haystack = Utf32Str::new("localhost:50051", &mut buf);
+            if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
+                items.push(Suggestion {
+                    label: "localhost:50051".to_string(),
+                    detail: "Local Flight SQL".to_string(),
+                    insert: "/connect localhost:50051".to_string(),
+                    icon: SuggestionIcon::Connection,
+                    score: i64::from(score),
+                    match_positions: indices.iter().map(|&i| i as usize).collect(),
+                });
+            }
+
+            for conn in &self.connections {
+                indices.clear();
+                let haystack = Utf32Str::new(&conn.name, &mut buf);
+                if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
+                    let status = if matches!(conn.state, ConnectionState::Connected) {
+                        "connected"
+                    } else {
+                        "saved"
+                    };
+                    items.push(Suggestion {
+                        label: conn.name.clone(),
+                        detail: format!("{} ({})", conn.endpoint, status),
+                        insert: format!("/connect {}", conn.name),
+                        icon: SuggestionIcon::Connection,
+                        score: i64::from(score),
+                        match_positions: indices.iter().map(|&i| i as usize).collect(),
+                    });
+                }
+            }
+
+            items.sort_by(|a, b| b.score.cmp(&a.score));
+        }
+
+        items
     }
 
     /// Fuzzy match SQL commands using nucleo.
@@ -3623,6 +4218,240 @@ impl SqlPane {
         }
     }
 
+    /// Extract table references from FROM/JOIN clauses in the current SQL input.
+    fn extract_from_tables(&self, input: &str) -> Vec<(String, TableInfo)> {
+        let tables = match self.active_connection() {
+            Some(conn) => &conn.tables,
+            None => return Vec::new(),
+        };
+
+        let words: Vec<&str> = input.split_whitespace().collect();
+        let upper_words: Vec<String> = words.iter().map(|w| w.to_uppercase()).collect();
+        let mut result = Vec::new();
+
+        // Non-table keywords that indicate end of a table reference
+        const CLAUSE_KEYWORDS: &[&str] = &[
+            "WHERE",
+            "JOIN",
+            "INNER",
+            "LEFT",
+            "RIGHT",
+            "FULL",
+            "CROSS",
+            "ON",
+            "GROUP",
+            "ORDER",
+            "HAVING",
+            "LIMIT",
+            "UNION",
+            "INTERSECT",
+            "EXCEPT",
+            "SET",
+            "SELECT",
+            "VALUES",
+        ];
+
+        for (i, uw) in upper_words.iter().enumerate() {
+            if (*uw == "FROM" || *uw == "JOIN") && i + 1 < words.len() {
+                let table_ref = words[i + 1].trim_end_matches(',');
+                // Handle schema.table or just table
+                let table_name = table_ref.rsplit('.').next().unwrap_or(table_ref);
+
+                if let Some(table_info) = tables
+                    .iter()
+                    .find(|t| t.name.eq_ignore_ascii_case(table_name))
+                {
+                    // Check for alias: FROM table AS alias, or FROM table alias
+                    let alias = if i + 2 < upper_words.len() {
+                        if upper_words[i + 2] == "AS" && i + 3 < words.len() {
+                            words[i + 3].trim_end_matches(',').to_string()
+                        } else if !CLAUSE_KEYWORDS
+                            .contains(&upper_words[i + 2].trim_end_matches(','))
+                            && !upper_words[i + 2].starts_with(',')
+                        {
+                            words[i + 2].trim_end_matches(',').to_string()
+                        } else {
+                            table_name.to_string()
+                        }
+                    } else {
+                        table_name.to_string()
+                    };
+
+                    result.push((alias, table_info.clone()));
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Get column suggestions from the given tables, with optional fuzzy matching.
+    fn get_column_suggestions(
+        &mut self,
+        partial: &str,
+        tables: &[(String, TableInfo)],
+    ) -> Vec<Suggestion> {
+        let mut results = Vec::new();
+
+        // Handle table.column prefix pattern (e.g., "t." or "users.")
+        if let Some(dot_pos) = partial.rfind('.') {
+            let table_prefix = &partial[..dot_pos];
+            let col_partial = &partial[dot_pos + 1..];
+
+            let matching_tables: Vec<_> = tables
+                .iter()
+                .filter(|(alias, t)| {
+                    alias.eq_ignore_ascii_case(table_prefix)
+                        || t.name.eq_ignore_ascii_case(table_prefix)
+                })
+                .collect();
+
+            for (alias, table_info) in &matching_tables {
+                if col_partial.is_empty() {
+                    for col in &table_info.columns {
+                        results.push(Suggestion {
+                            label: col.name.clone(),
+                            detail: format!("{} · {}", alias, col.data_type),
+                            insert: format!("{table_prefix}.{}", col.name),
+                            icon: SuggestionIcon::Column,
+                            score: 0,
+                            match_positions: Vec::new(),
+                        });
+                    }
+                } else {
+                    let pattern = Pattern::new(
+                        col_partial,
+                        CaseMatching::Ignore,
+                        Normalization::Smart,
+                        AtomKind::Fuzzy,
+                    );
+                    let mut indices: Vec<u32> = Vec::new();
+                    let mut buf = Vec::new();
+
+                    for col in &table_info.columns {
+                        indices.clear();
+                        let haystack = Utf32Str::new(&col.name, &mut buf);
+                        if let Some(score) =
+                            pattern.indices(haystack, &mut self.matcher, &mut indices)
+                        {
+                            results.push(Suggestion {
+                                label: col.name.clone(),
+                                detail: format!("{} · {}", alias, col.data_type),
+                                insert: format!("{table_prefix}.{}", col.name),
+                                icon: SuggestionIcon::Column,
+                                score: i64::from(score),
+                                match_positions: indices.iter().map(|&i| i as usize).collect(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            results.sort_by(|a, b| b.score.cmp(&a.score));
+            return results;
+        }
+
+        if partial.is_empty() {
+            // Show all columns from all referenced tables
+            for (alias, table_info) in tables {
+                for col in &table_info.columns {
+                    results.push(Suggestion {
+                        label: col.name.clone(),
+                        detail: format!("{alias} · {}", col.data_type),
+                        insert: col.name.clone(),
+                        icon: SuggestionIcon::Column,
+                        score: 0,
+                        match_positions: Vec::new(),
+                    });
+                }
+            }
+            return results;
+        }
+
+        // Fuzzy match all columns across tables
+        let pattern = Pattern::new(
+            partial,
+            CaseMatching::Ignore,
+            Normalization::Smart,
+            AtomKind::Fuzzy,
+        );
+        let mut indices: Vec<u32> = Vec::new();
+        let mut buf = Vec::new();
+
+        for (alias, table_info) in tables {
+            for col in &table_info.columns {
+                indices.clear();
+                let haystack = Utf32Str::new(&col.name, &mut buf);
+                if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
+                    results.push(Suggestion {
+                        label: col.name.clone(),
+                        detail: format!("{alias} · {}", col.data_type),
+                        insert: col.name.clone(),
+                        icon: SuggestionIcon::Column,
+                        score: i64::from(score),
+                        match_positions: indices.iter().map(|&i| i as usize).collect(),
+                    });
+                }
+            }
+        }
+
+        results.sort_by(|a, b| b.score.cmp(&a.score));
+        results
+    }
+
+    /// Get keyword and function suggestions for a partial word.
+    fn get_keyword_suggestions(&mut self, partial: &str) -> Vec<Suggestion> {
+        use super::super::highlighting::{SQL_FUNCTIONS, SQL_KEYWORDS};
+
+        if partial.len() < 2 {
+            return Vec::new();
+        }
+
+        let pattern = Pattern::new(
+            partial,
+            CaseMatching::Ignore,
+            Normalization::Smart,
+            AtomKind::Fuzzy,
+        );
+        let mut indices: Vec<u32> = Vec::new();
+        let mut buf = Vec::new();
+        let mut results = Vec::new();
+
+        for kw in SQL_KEYWORDS {
+            indices.clear();
+            let haystack = Utf32Str::new(kw, &mut buf);
+            if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
+                results.push(Suggestion {
+                    label: kw.to_string(),
+                    detail: "keyword".to_string(),
+                    insert: kw.to_string(),
+                    icon: SuggestionIcon::Keyword,
+                    score: i64::from(score),
+                    match_positions: indices.iter().map(|&i| i as usize).collect(),
+                });
+            }
+        }
+
+        for func in SQL_FUNCTIONS {
+            indices.clear();
+            let haystack = Utf32Str::new(func, &mut buf);
+            if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
+                results.push(Suggestion {
+                    label: func.to_string(),
+                    detail: "function".to_string(),
+                    insert: format!("{func}("),
+                    icon: SuggestionIcon::Function,
+                    score: i64::from(score),
+                    match_positions: indices.iter().map(|&i| i as usize).collect(),
+                });
+            }
+        }
+
+        results.sort_by(|a, b| b.score.cmp(&a.score));
+        results.truncate(15);
+        results
+    }
+
     /// Render mode badge (for diff, explain, etc.).
     fn render_mode_badge(&self, ui: &mut egui::Ui) {
         let text_secondary = self.theme.text_secondary();
@@ -3692,7 +4521,14 @@ impl SqlPane {
             .suggestions
             .items
             .iter()
-            .map(|s| (s.label.clone(), s.detail.clone(), s.icon))
+            .map(|s| {
+                (
+                    s.label.clone(),
+                    s.detail.clone(),
+                    s.icon,
+                    s.match_positions.clone(),
+                )
+            })
             .collect();
 
         let mut clicked_idx: Option<usize> = None;
@@ -3710,7 +4546,9 @@ impl SqlPane {
                     .max_height(max_height)
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
-                        for (idx, (label, detail, icon_type)) in suggestions.iter().enumerate() {
+                        for (idx, (label, detail, icon_type, match_positions)) in
+                            suggestions.iter().enumerate()
+                        {
                             let is_selected = idx == selected_idx;
                             let row_bg = if is_selected {
                                 accent.gamma_multiply(0.15)
@@ -3725,13 +4563,7 @@ impl SqlPane {
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         // Icon
-                                        let icon = match icon_type {
-                                            SuggestionIcon::Command => action::TERMINAL,
-                                            SuggestionIcon::Table => file::DATA,
-                                            SuggestionIcon::Column => file::DATA,
-                                            SuggestionIcon::Connection => category::DATAFUSION,
-                                            SuggestionIcon::History => time::HISTORY,
-                                        };
+                                        let icon = icon_type.icon_str();
                                         ui.label(
                                             RichText::new(icon)
                                                 .color(if is_selected {
@@ -3744,16 +4576,36 @@ impl SqlPane {
 
                                         ui.add_space(8.0);
 
-                                        // Label
-                                        ui.label(
-                                            RichText::new(label)
-                                                .color(if is_selected {
+                                        // Label with match position highlighting
+                                        if !match_positions.is_empty() && !is_selected {
+                                            let font_id = egui::FontId::proportional(12.0);
+                                            let mut label_job = egui::text::LayoutJob::default();
+                                            for (char_idx, ch) in label.chars().enumerate() {
+                                                let color = if match_positions.contains(&char_idx) {
                                                     accent
                                                 } else {
                                                     text_primary
-                                                })
-                                                .size(12.0),
-                                        );
+                                                };
+                                                let mut buf = [0u8; 4];
+                                                let s = ch.encode_utf8(&mut buf);
+                                                label_job.append(
+                                                    s,
+                                                    0.0,
+                                                    TextFormat::simple(font_id.clone(), color),
+                                                );
+                                            }
+                                            ui.label(label_job);
+                                        } else {
+                                            ui.label(
+                                                RichText::new(label)
+                                                    .color(if is_selected {
+                                                        accent
+                                                    } else {
+                                                        text_primary
+                                                    })
+                                                    .size(12.0),
+                                            );
+                                        }
 
                                         // Detail (right-aligned)
                                         ui.with_layout(
@@ -3798,13 +4650,19 @@ impl SqlPane {
                 // Replace entire input with command
                 self.input = suggestion.insert.clone();
             } else {
+                // For functions ending with '(', don't add trailing space
+                let suffix = if suggestion.insert.ends_with('(') {
+                    ""
+                } else {
+                    " "
+                };
                 // Replace last partial word with suggestion
                 let words: Vec<&str> = input.split_whitespace().collect();
                 if words.len() >= 2 {
                     let prefix = words[..words.len() - 1].join(" ");
-                    self.input = format!("{} {} ", prefix, suggestion.insert);
+                    self.input = format!("{} {}{}", prefix, suggestion.insert, suffix);
                 } else {
-                    self.input = format!("{} ", suggestion.insert);
+                    self.input = format!("{}{}", suggestion.insert, suffix);
                 }
             }
 
@@ -3883,20 +4741,68 @@ impl SqlPane {
 
                     // Main text input with syntax highlighting
                     let theme = self.theme;
+                    let table_names: Vec<String> = self
+                        .active_connection()
+                        .map(|c| c.tables.iter().map(|t| t.name.clone()).collect())
+                        .unwrap_or_default();
                     let mut layouter =
                         move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-                            let mut job = highlight_sql(text.as_str(), theme);
+                            let refs: Vec<&str> = table_names.iter().map(|s| s.as_str()).collect();
+                            let mut job = highlight_sql(text.as_str(), theme, &refs);
                             job.wrap.max_width = wrap_width;
                             ui.fonts_mut(|f| f.layout_job(job))
                         };
 
                     // Use stable ID for focus tracking
                     let input_id = egui::Id::new(format!("sql_input_{}", self.id));
-                    let response = ui.add(
-                        TextEdit::singleline(&mut self.input)
+
+                    // Intercept bare Enter BEFORE TextEdit to submit query.
+                    // Shift+Enter passes through to TextEdit naturally as a newline.
+                    let mut enter_to_submit = false;
+                    let mut history_up = false;
+                    let mut history_down = false;
+                    let has_input_focus =
+                        ui.ctx().memory(|m| m.has_focus(input_id)) || self.input_focused;
+                    if has_input_focus {
+                        ui.ctx().input_mut(|input| {
+                            // When suggestions are visible, Enter accepts the suggestion
+                            if self.suggestions.visible {
+                                if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
+                                    // Will be handled below as suggestion insert
+                                }
+                            } else if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
+                                enter_to_submit = true;
+                            }
+                            // Ctrl/Cmd+Enter always submits
+                            if input.consume_key(egui::Modifiers::COMMAND, egui::Key::Enter)
+                                || input.consume_key(egui::Modifiers::CTRL, egui::Key::Enter)
+                            {
+                                enter_to_submit = true;
+                            }
+                            // Consume Tab when suggestions aren't visible to prevent indentation
+                            if !self.suggestions.visible {
+                                input.consume_key(egui::Modifiers::NONE, egui::Key::Tab);
+                                // Consume Up/Down for input history navigation
+                                if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp) {
+                                    history_up = true;
+                                }
+                                if input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
+                                    history_down = true;
+                                }
+                            }
+                        });
+                    }
+
+                    // Auto-expand height based on line count
+                    let line_count = self.input.lines().count().max(1);
+                    let input_height = (line_count as f32 * 16.0).clamp(22.0, 120.0);
+
+                    let response = ui.add_sized(
+                        egui::vec2(ui.available_width() - 50.0, input_height),
+                        TextEdit::multiline(&mut self.input)
                             .id(input_id)
                             .font(egui::TextStyle::Monospace)
-                            .desired_width(ui.available_width() - 50.0)
+                            .desired_rows(1)
                             .frame(false)
                             .layouter(&mut layouter)
                             .hint_text(
@@ -3907,13 +4813,23 @@ impl SqlPane {
                     );
 
                     // Request focus on initial render or when suggestions are visible
-                    // This ensures the input doesn't lose focus when interacting with suggestions
                     if self.input_focused {
                         response.request_focus();
                         self.input_focused = false;
                     } else if self.suggestions.visible && !response.has_focus() {
-                        // Re-request focus if suggestions are visible but input lost focus
                         response.request_focus();
+                    }
+
+                    // Surrender focus when a cell is expanded or selected (vim navigation)
+                    if response.has_focus()
+                        && (self.expanded_cell_id().is_some() || self.selected_cell_idx.is_some())
+                    {
+                        response.surrender_focus();
+                    }
+
+                    // If user clicked the input, clear cell selection
+                    if response.clicked() && self.selected_cell_idx.is_some() {
+                        self.selected_cell_idx = None;
                     }
 
                     // Move cursor to end after inserting suggestion
@@ -3930,16 +4846,18 @@ impl SqlPane {
 
                     // Handle keyboard navigation for suggestions
                     if response.has_focus() {
-                        let modifiers = ui.input(|i| i.modifiers);
-
                         // Handle Escape key
                         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                             if self.suggestions.visible {
-                                // First Escape closes suggestions
                                 self.suggestions.visible = false;
                             } else {
-                                // Second Escape releases focus from input
+                                // Surrender focus and select last navigable cell
                                 response.surrender_focus();
+                                let nav = self.navigable_cell_indices();
+                                if let Some(&last) = nav.last() {
+                                    self.selected_cell_idx = Some(last);
+                                    self.scroll_to_selected = true;
+                                }
                             }
                         }
 
@@ -3956,24 +4874,59 @@ impl SqlPane {
                             {
                                 self.suggestions.selected += 1;
                             }
-                            // Tab to insert suggestion
+                            // Tab or Enter to insert suggestion
                             if ui.input(|i| i.key_pressed(egui::Key::Tab)) {
                                 self.insert_suggestion(self.suggestions.selected);
                             }
+                            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                                self.insert_suggestion(self.suggestions.selected);
+                            }
                         }
+                    }
 
-                        // Ctrl+Enter or Cmd+Enter to execute
-                        let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if enter_pressed && (modifiers.ctrl || modifiers.command) {
-                            self.execute_input();
+                    // Handle input history navigation
+                    if history_up && !self.input_history.is_empty() {
+                        match self.history_index {
+                            None => {
+                                // Entering history mode — save current input
+                                self.history_saved_input = self.input.clone();
+                                self.history_index = Some(self.input_history.len() - 1);
+                                self.input = self.input_history.last().unwrap().clone();
+                                self.move_cursor_to_end = true;
+                            }
+                            Some(idx) if idx > 0 => {
+                                self.history_index = Some(idx - 1);
+                                self.input = self.input_history[idx - 1].clone();
+                                self.move_cursor_to_end = true;
+                            }
+                            _ => {} // Already at oldest entry
                         }
+                    }
+                    if history_down {
+                        if let Some(idx) = self.history_index {
+                            if idx < self.input_history.len() - 1 {
+                                self.history_index = Some(idx + 1);
+                                self.input = self.input_history[idx + 1].clone();
+                                self.move_cursor_to_end = true;
+                            } else {
+                                // Return to saved input
+                                self.history_index = None;
+                                self.input = self.history_saved_input.clone();
+                                self.move_cursor_to_end = true;
+                            }
+                        }
+                    }
+
+                    // Execute after all UI is rendered
+                    if enter_to_submit {
+                        self.execute_input();
                     }
 
                     // Run button (small, subtle)
                     let has_connection = self.active_connection().is_some();
                     let run_btn = ui.add_enabled(
                         has_connection && !self.input.trim().is_empty(),
-                        egui::Button::new(RichText::new("⌘↵").color(text_primary).size(11.0))
+                        egui::Button::new(RichText::new("↵").color(text_primary).size(11.0))
                             .fill(Color32::TRANSPARENT)
                             .stroke(egui::Stroke::NONE)
                             .min_size(egui::vec2(32.0, 20.0)),
@@ -3981,52 +4934,77 @@ impl SqlPane {
                     if run_btn.clicked() {
                         self.execute_input();
                     }
-                    run_btn.on_hover_text("Run query (Ctrl+Enter)");
+                    run_btn.on_hover_text("Run query (Enter)");
                 });
             });
     }
 
     /// Render input hints line.
     fn render_input_hints(&self, ui: &mut egui::Ui, text_secondary: Color32) {
+        let hint_color = text_secondary.gamma_multiply(0.5);
+        let dot_color = text_secondary.gamma_multiply(0.3);
+        let accent = self.theme.accent_primary();
+
+        /// Render a single hint label.
+        fn hint(ui: &mut egui::Ui, text: &str, color: Color32) {
+            ui.label(RichText::new(text).color(color).size(10.0));
+        }
+        /// Render a dot separator.
+        fn dot(ui: &mut egui::Ui, color: Color32) {
+            ui.label(RichText::new("·").color(color).size(10.0));
+        }
+
         ui.add_space(6.0);
         ui.horizontal(|ui| {
-            if self.suggestions.visible {
-                ui.label(
-                    RichText::new("↑↓ navigate")
-                        .color(text_secondary.gamma_multiply(0.5))
-                        .size(10.0),
-                );
-                ui.label(
-                    RichText::new("·")
-                        .color(text_secondary.gamma_multiply(0.3))
-                        .size(10.0),
-                );
-                ui.label(
-                    RichText::new("Tab insert")
-                        .color(text_secondary.gamma_multiply(0.5))
-                        .size(10.0),
-                );
-                ui.label(
-                    RichText::new("·")
-                        .color(text_secondary.gamma_multiply(0.3))
-                        .size(10.0),
-                );
+            let has_expanded = self.expanded_cell_id().is_some();
+
+            if self.selected_cell_idx.is_some() && !has_expanded {
+                // === NAVIGATE mode hints ===
+                // Mode indicator
+                hint(ui, "NAV", accent);
+                dot(ui, dot_color);
+                hint(ui, "j/k navigate", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "↵ expand", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "y yank", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "d delete", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "G end · gg top", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "i input", hint_color);
+            } else if has_expanded {
+                // === EXPANDED mode hints ===
+                hint(ui, "EXPAND", accent);
+                dot(ui, dot_color);
+                hint(ui, "hjkl scroll", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "[] page", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "gg/G first/last", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "⌘C copy", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "S share", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "Esc collapse", hint_color);
+            } else {
+                // === INPUT mode hints ===
+                if self.suggestions.visible {
+                    hint(ui, "↑↓ navigate", hint_color);
+                    dot(ui, dot_color);
+                    hint(ui, "Tab insert", hint_color);
+                    dot(ui, dot_color);
+                }
+                hint(ui, "↵ run", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "↑↓ history", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "⇧↵ newline", hint_color);
+                dot(ui, dot_color);
+                hint(ui, "Esc cells", hint_color);
             }
-            ui.label(
-                RichText::new("⌘↵ run")
-                    .color(text_secondary.gamma_multiply(0.5))
-                    .size(10.0),
-            );
-            ui.label(
-                RichText::new("·")
-                    .color(text_secondary.gamma_multiply(0.3))
-                    .size(10.0),
-            );
-            ui.label(
-                RichText::new("/ for commands")
-                    .color(text_secondary.gamma_multiply(0.5))
-                    .size(10.0),
-            );
 
             // Connection status on the right
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -4188,7 +5166,7 @@ impl SqlPane {
                 let theme = self.theme;
                 let mut layouter =
                     move |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-                        let mut job = highlight_sql(text.as_str(), theme);
+                        let mut job = highlight_sql(text.as_str(), theme, &[]);
                         job.wrap.max_width = wrap_width;
                         ui.fonts_mut(|f| f.layout_job(job))
                     };
@@ -4240,7 +5218,8 @@ impl SqlPane {
         });
     }
 
-    /// Render query results - compact preview with overlay expansion.
+    /// Render query results - compact preview with overlay expansion (legacy, replaced by notebook cells).
+    #[allow(dead_code)]
     fn render_results(&mut self, ui: &mut egui::Ui) {
         let text_primary = self.theme.text_primary();
         let text_secondary = self.theme.text_secondary();
@@ -4341,7 +5320,8 @@ impl SqlPane {
         }
     }
 
-    /// Render a compact preview of a single result with expand hints.
+    /// Render a compact preview of a single result with expand hints (legacy, replaced by query_card).
+    #[allow(dead_code)]
     fn render_compact_preview(
         &mut self,
         ui: &mut egui::Ui,
@@ -5133,7 +6113,7 @@ impl SqlPane {
                         };
 
                         // Use syntax highlighting for the SQL
-                        let job = highlight_sql(&display_sql, self.theme);
+                        let job = highlight_sql(&display_sql, self.theme, &[]);
                         ui.label(job);
                     }
 
@@ -5147,9 +6127,16 @@ impl SqlPane {
                             }
                             QueryStatus::Completed => {
                                 if let Some(stats) = &cell.stats {
+                                    let mut parts = Vec::new();
                                     if stats.rows_returned > 0 {
+                                        parts.push(format!("{} rows", stats.rows_returned));
+                                    }
+                                    if !stats.total_time.is_zero() {
+                                        parts.push(format_duration(stats.total_time));
+                                    }
+                                    if !parts.is_empty() {
                                         ui.label(
-                                            RichText::new(format!("{} rows", stats.rows_returned))
+                                            RichText::new(parts.join(" · "))
                                                 .color(text_secondary)
                                                 .size(11.0),
                                         );
@@ -5503,7 +6490,7 @@ impl SqlPane {
                                     move |ui: &egui::Ui,
                                           text: &dyn egui::TextBuffer,
                                           wrap_width: f32| {
-                                        let mut job = highlight_sql(text.as_str(), theme);
+                                        let mut job = highlight_sql(text.as_str(), theme, &[]);
                                         job.wrap.max_width = wrap_width;
                                         ui.fonts_mut(|f| f.layout_job(job))
                                     };
@@ -5598,7 +6585,155 @@ impl SqlPane {
 
     /// Take the pending action, if any.
     pub fn take_action(&mut self) -> SqlPaneAction {
-        SqlPaneAction::None
+        std::mem::replace(&mut self.pending_action, SqlPaneAction::None)
+    }
+
+    /// Convert a query result at the given history index to an InlineTable.
+    /// Truncates to at most 20 rows of pre-formatted string data.
+    fn result_to_inline_table(
+        &self,
+        idx: usize,
+    ) -> Option<crate::components::pane::inline_content::InlineTable> {
+        use crate::components::pane::inline_content::{InlineTable, InlineTableColumn};
+
+        let cell = self.history.get(idx)?;
+        let schema = cell.schema.as_ref()?;
+        if cell.batches.is_empty() {
+            return None;
+        }
+
+        let columns: Vec<InlineTableColumn> = schema
+            .fields()
+            .iter()
+            .map(|f| InlineTableColumn {
+                name: f.name().clone(),
+                data_type: format!("{}", f.data_type()),
+            })
+            .collect();
+
+        let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+        let max_rows = 20;
+        let mut rows = Vec::new();
+        'outer: for batch in &cell.batches {
+            for row_idx in 0..batch.num_rows() {
+                if rows.len() >= max_rows {
+                    break 'outer;
+                }
+                let row: Vec<String> = (0..batch.num_columns())
+                    .map(|col| format_array_value(batch.column(col).as_ref(), row_idx))
+                    .collect();
+                rows.push(row);
+            }
+        }
+
+        Some(InlineTable {
+            title: cell.sql.clone(),
+            columns,
+            rows,
+            total_rows,
+            execution_time_ms: cell.stats.as_ref().map(|s| s.total_time.as_millis() as u64),
+        })
+    }
+
+    /// Get the latest (or query-matched) result as an InlineTable.
+    /// Used by the workspace to serve `show_inline_table` agent commands.
+    pub fn get_inline_table(
+        &self,
+        query: Option<&str>,
+    ) -> Option<crate::components::pane::inline_content::InlineTable> {
+        if let Some(q) = query {
+            let idx = self
+                .history
+                .iter()
+                .rposition(|c| c.sql.trim() == q.trim())?;
+            self.result_to_inline_table(idx)
+        } else {
+            let idx = self.history.len().checked_sub(1)?;
+            self.result_to_inline_table(idx)
+        }
+    }
+
+    /// Copy text to the system clipboard (no-op on WASM).
+    fn copy_to_clipboard(&mut self, text: &str) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                let _ = clipboard.set_text(text);
+            }
+        }
+        let _ = text; // suppress unused warning on WASM
+        self.copied_feedback = Some(crate::util::Instant::now());
+    }
+
+    /// Format query results as tab-separated values for clipboard.
+    fn format_results_as_tsv(schema: &SchemaRef, batches: &[RecordBatch]) -> String {
+        let mut out = String::new();
+
+        // Header row
+        let fields = schema.fields();
+        for (i, field) in fields.iter().enumerate() {
+            if i > 0 {
+                out.push('\t');
+            }
+            out.push_str(field.name());
+        }
+        out.push('\n');
+
+        // Data rows
+        for batch in batches {
+            for row in 0..batch.num_rows() {
+                for col in 0..batch.num_columns() {
+                    if col > 0 {
+                        out.push('\t');
+                    }
+                    out.push_str(&format_array_value(batch.column(col).as_ref(), row));
+                }
+                out.push('\n');
+            }
+        }
+
+        out
+    }
+
+    /// Format a plan tree as indented text for clipboard.
+    fn format_plan_as_text(node: &PlanNode, depth: usize) -> String {
+        let mut out = String::new();
+        let indent = "  ".repeat(depth);
+
+        out.push_str(&indent);
+        out.push_str(&node.operator);
+        if let Some(metrics) = &node.metrics {
+            let mut parts = Vec::new();
+            if !metrics.elapsed_time.is_zero() {
+                parts.push(format_duration(metrics.elapsed_time));
+            }
+            if metrics.output_rows > 0 {
+                parts.push(format!("{} rows", format_rows(metrics.output_rows)));
+            }
+            if !parts.is_empty() {
+                out.push_str(&format!(" [{}]", parts.join(", ")));
+            }
+        }
+        out.push('\n');
+
+        if !node.description.is_empty() {
+            out.push_str(&indent);
+            out.push_str("  ");
+            out.push_str(&node.description);
+            out.push('\n');
+        }
+
+        for child in &node.children {
+            out.push_str(&Self::format_plan_as_text(child, depth + 1));
+        }
+
+        out
+    }
+
+    /// Whether the "Copied!" feedback badge should be shown.
+    fn show_copied_badge(&self) -> bool {
+        self.copied_feedback
+            .is_some_and(|t| t.elapsed().as_secs_f32() < 1.5)
     }
 }
 

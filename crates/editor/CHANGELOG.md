@@ -42,6 +42,20 @@ All notable changes to the Enya editor will be documented in this file.
 - **Profile preferences in Settings**: Compact card-row UI for Default workspace, Timezone (Local/UTC), Default time range, and Startup page (Landing page/Last workspace) preferences. All persisted in settings with backward-compatible serde defaults.
 - **Auth-gated snapshot uploads**: Snapshot uploads now require GitHub sign-in. The editor sends the access token as a Bearer header; the Worker validates it against GitHub's API before accepting the upload. Unsigned users see a friendly error notification directing them to Settings → Profile.
 
+- **SQL autocomplete improvements**: Column name completion after SELECT, WHERE, GROUP BY, ORDER BY, HAVING, SET, and ON (using columns from tables referenced in FROM/JOIN clauses). SQL keyword and function completion with fuzzy matching (2+ characters). DataFusion function list expanded with array, hashing, string, and encoding functions. Matched characters are now highlighted in the suggestion popup with the accent color. New Keyword and Function suggestion icons.
+- **SQL syntax highlighting improvements**: Slash commands (`/explain`, `/connect`, etc.) are now highlighted like dot commands. PostgreSQL-style type casts (`::integer`, `::text`) are highlighted with the type color. Known table names from the active connection are highlighted in the input bar. Function list expanded with DataFusion-specific functions (unnest, generate_series, make_array, array functions, hash functions, and more).
+- **SQL pane copy to clipboard**: Press `⌘C`/`Ctrl+C` in the table result overlay to copy all visible data as TSV (tab-separated values with headers). In the plan overlay, copies the execution plan as indented text. Shows a brief "Copied!" badge for visual feedback.
+- **Execution time in query history cells**: Query cell headers now show execution duration alongside row count (e.g., "100 rows · 45.23ms") for completed queries.
+- **Human-readable row counts in plan tree**: Plan tree nodes now display row counts using compact formatting (e.g., "1.5K rows", "2.3M rows") instead of raw numbers.
+
+- **Inline SQL tables in agent panel**: SQL query results can now be displayed inline in agent chat messages. Press `S` in the table overlay to share results to the agent panel. AI agents can also use the `show_inline_table` command to display SQL results inline. Tables show column headers with data types, up to 10 rows with alternating backgrounds, and NULL values in italic faint style.
+- **SQL input history navigation**: Press `Up`/`Down` arrows in the SQL input bar to cycle through previously executed queries. Consecutive duplicate entries are deduplicated. Current input is preserved when entering history mode.
+- **NULL value styling in table overlay**: NULL values now render with italic text and a subtle background tint for clear visual distinction from regular values.
+- **Column sort in table overlay**: Click column headers to sort table results. Cycles through ascending (▲), descending (▼), and original order. Active sort column is highlighted with accent color. Sorting is numeric-aware (numbers sort correctly) and NULL values sort last.
+
+### Fixed
+
+- **Profile j/k navigation**: Fixed keyboard navigation in the Profile settings section being stuck on the GitHub sign-in button. All 5 items (GitHub auth, default workspace, timezone, default time range, startup page) are now navigable with j/k, and Enter/l toggles the focused dropdown. Focus highlight borders now appear on all profile cards.
 - **`load_workspace` agent command**: AI agents can now programmatically load a saved workspace in the GUI using `{"action": "load_workspace", "workspace": "name"}`. This enables the agent-to-human handoff workflow: an agent builds a workspace via the CLI (`enya init`, `enya add-section`, `enya add-pane`), then loads it in the editor for the human to view.
 - **Close agent panel with `x`**: When the agent panel is focused, pressing `x` closes it, matching the behavior of workspace panes.
 
@@ -51,6 +65,15 @@ All notable changes to the Enya editor will be documented in this file.
 - **Simplified tutorial layout**: Reduced tutorial from 4 panes (3 rows) to 2 vertically stacked panes so charts aren't squished on smaller laptop screens.
 - **Reduced theme count**: Removed Nord, Catppuccin, Bergman, Stockholm, Midsommar, and Skärgård themes. Kept 7 focused themes: Dark, Light, Midnight, Ayu, Aurora, Graphite, and Ink.
 - **Improved Ink chart palette**: Replaced monochrome gray chart colors with distinct muted hues (dusty blue, rose, sage, ochre, lavender, umber, verdigris) for better series legibility.
+- **SQL pane notebook-cell layout**: Refactored the SQL pane from a centered REPL (showing only the latest result with modal overlays) to a notebook-cell layout where all query history is visible as scrollable cards. Collapsed cards show a status icon, SQL preview, row count, and execution time. Click a card or press Enter to expand it inline with full table data (sortable columns, pagination, vim scroll), execution plan view, and tab switching between Table/Plan views. Press Escape to collapse. New query results auto-expand. Keyboard shortcuts (hjkl scroll, [/] page, Cmd+C copy, S share) work in expanded cards. Info/system messages are no longer shown inline.
+- **Vim-style notebook cell navigation**: Full vim navigation for the notebook cell list. Press `Esc` from input to enter cell navigation mode. `j`/`k`/`↑`/`↓`/`Tab`/`Shift+Tab` to move between cells. `Enter` to expand. `Esc`/`i` to return to input. `G` to jump to last cell, `gg` to jump to first. `Ctrl+d`/`Ctrl+u` for half-page jumps (5 cells). `y` to yank (copy SQL to clipboard). `d`/`x` to delete a cell from history. Selected cell is highlighted with an accent border. Auto-scrolls to keep the selected cell in view. Context-sensitive keyboard hints show available keys for the current mode (INPUT / NAV / EXPAND).
+- **Click to select, double-click to expand**: Single-clicking a collapsed card selects it (entering NAV mode with accent border), double-clicking expands it. Previously single-click expanded immediately.
+- **Cell execution numbers**: Query cards now show execution numbers (`[1]`, `[2]`, `[3]`, ...) in the card header for orientation in long histories.
+- **Empty state placeholder**: When no queries have been run, the SQL pane shows a welcoming placeholder with an icon and hint text ("Run a query to get started").
+- **Sticky column headers**: Column headers in expanded table results now stay visible when scrolling vertically, using a synced dual-scroll-area approach.
+- **Vim page motions in expanded table**: Press `G` to jump to the last page and `gg` to jump to the first page of table results.
+- **Multi-line SQL input**: The SQL input bar now supports multi-line queries. Press `Enter` to execute, `Shift+Enter` to insert a newline. The input auto-expands in height as lines are added (up to ~7 lines). `Ctrl/Cmd+Enter` also executes as a legacy shortcut.
+- **Auto-open results overlay**: Query results now automatically open in the full table overlay when execution completes. Press `Escape` to close and return focus to the input bar. Removed SQL query preview from table overlay footer.
 
 ### Fixed
 

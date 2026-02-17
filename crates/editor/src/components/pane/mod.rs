@@ -16,7 +16,7 @@ pub mod visualization;
 
 pub use inline_content::{
     InlineChart, InlineContent, InlineDiff, InlineDiffFile, InlineDiffLine, InlineDiffLineKind,
-    InlineSearchResults, InlineSource, SearchResultItem,
+    InlineSearchResults, InlineSource, InlineTable, InlineTableColumn, SearchResultItem,
 };
 pub use logs_pane::{LogsBackend, LogsPane, LogsPaneAction};
 pub use plugin::{PluginChartPane, PluginGaugePane, PluginStatPane, PluginTablePane};

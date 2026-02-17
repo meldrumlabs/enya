@@ -11,9 +11,10 @@ use crate::components::util::id_generator::next_id_usize;
 use crate::ui::theme::AppTheme;
 
 /// Action returned by the SQL pane (stub version has no actions).
-#[derive(Debug, Clone, PartialEq)]
 pub enum SqlPaneAction {
     None,
+    /// Share a query result to the agent panel (never produced in stub).
+    ShareResultToAgent(crate::components::pane::inline_content::InlineTable),
 }
 
 /// SQL pane stub for builds without SQL support.
@@ -32,6 +33,19 @@ impl SqlPane {
             id: next_id_usize(),
             theme,
         }
+    }
+
+    /// Take the pending action, if any (stub always returns None).
+    pub fn take_action(&mut self) -> SqlPaneAction {
+        SqlPaneAction::None
+    }
+
+    /// Get an inline table from query results (stub always returns None).
+    pub fn get_inline_table(
+        &self,
+        _query: Option<&str>,
+    ) -> Option<crate::components::pane::inline_content::InlineTable> {
+        None
     }
 }
 
