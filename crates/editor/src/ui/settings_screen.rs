@@ -116,6 +116,13 @@ pub struct AppSettings {
     /// What to show on startup
     #[serde(default)]
     pub startup_page: StartupPage,
+    /// Whether to check for new versions automatically
+    #[serde(default = "default_true")]
+    pub check_for_updates: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// User preference for timezone display throughout the app.

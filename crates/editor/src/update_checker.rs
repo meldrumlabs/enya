@@ -64,6 +64,8 @@ pub struct UpdateChecker {
     http_client: reqwest::Client,
     async_runtime: AsyncRuntime,
     dismissed_version: Option<String>,
+    /// Whether update checking is enabled.
+    enabled: bool,
     /// Whether an update download is in progress.
     downloading: bool,
     /// Result of an update download attempt.
@@ -90,7 +92,11 @@ struct GitHubAsset {
 
 impl UpdateChecker {
     /// Create a new update checker.
-    pub fn new(async_runtime: AsyncRuntime, dismissed_version: Option<String>) -> Self {
+    pub fn new(
+        async_runtime: AsyncRuntime,
+        dismissed_version: Option<String>,
+        enabled: bool,
+    ) -> Self {
         Self {
             status: UpdateStatus::Unknown,
             pending_result: Arc::new(Mutex::new(None)),
@@ -99,15 +105,25 @@ impl UpdateChecker {
             http_client: reqwest::Client::new(),
             async_runtime,
             dismissed_version,
+            enabled,
             downloading: false,
             download_result: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Set whether update checking is enabled.
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
     }
 
     /// Poll for update status changes. Call this each frame.
     ///
     /// Automatically triggers checks on startup (after delay) and periodically.
     pub fn poll(&mut self, ctx: &egui::Context) {
+        if !self.enabled {
+            return;
+        }
+
         // Check for completed download
         if let Some(result) = self.download_result.lock().take() {
             self.downloading = false;

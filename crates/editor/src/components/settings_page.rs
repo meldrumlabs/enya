@@ -39,6 +39,7 @@ pub enum SettingsPageResult {
         timezone: TimezonePreference,
         default_time_range: TimeRangePreset,
         startup_page: StartupPage,
+        check_for_updates: bool,
     },
     /// Live preview of a builtin theme change.
     ThemePreview(AppTheme),
@@ -185,6 +186,8 @@ pub struct SettingsPage {
     time_range_dropdown_open: bool,
     startup_page: StartupPage,
     startup_dropdown_open: bool,
+    // Notification settings
+    check_for_updates: bool,
     // Storage settings — file opener popup triggered from card buttons
     #[cfg(not(target_arch = "wasm32"))]
     storage_file_opener: FileOpenerPopup,
@@ -241,6 +244,7 @@ impl SettingsPage {
             time_range_dropdown_open: false,
             startup_page: StartupPage::default(),
             startup_dropdown_open: false,
+            check_for_updates: true,
             #[cfg(not(target_arch = "wasm32"))]
             storage_file_opener: FileOpenerPopup::new(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -313,6 +317,7 @@ impl SettingsPage {
         timezone: TimezonePreference,
         default_time_range: TimeRangePreset,
         startup_page: StartupPage,
+        check_for_updates: bool,
     ) {
         self.is_open = true;
         self.active_category = SettingsCategory::Profile;
@@ -327,6 +332,7 @@ impl SettingsPage {
         self.time_range_dropdown_open = false;
         self.startup_page = startup_page;
         self.startup_dropdown_open = false;
+        self.check_for_updates = check_for_updates;
         self.sidebar_focused = false;
         self.field_index = 0;
         self.editing_field = None;
@@ -382,7 +388,7 @@ impl SettingsPage {
     fn field_count(&self) -> usize {
         match self.active_category {
             SettingsCategory::Profile => 5, // Auth, workspace, timezone, time range, startup
-            SettingsCategory::Notifications => 0, // No navigable fields yet
+            SettingsCategory::Notifications => 1, // Check for updates toggle
             SettingsCategory::Connections => 4, // Prom, Loki, Flight SQL, Git URL
             SettingsCategory::Ai => 2,      // Provider, Model
             SettingsCategory::ThemeFont => 0, // Panel-based navigation
@@ -468,6 +474,7 @@ impl SettingsPage {
             timezone: self.timezone,
             default_time_range: self.default_time_range,
             startup_page: self.startup_page,
+            check_for_updates: self.check_for_updates,
         }
     }
 
@@ -838,6 +845,7 @@ impl SettingsPage {
                                 SettingsCategory::Notifications => {
                                     self.show_notifications_section(
                                         ui,
+                                        accent,
                                         text_primary,
                                         text_tertiary,
                                     );
@@ -1765,23 +1773,94 @@ impl SettingsPage {
     // ── Notifications Section ────────────────────────────────────────────
 
     fn show_notifications_section(
-        &self,
+        &mut self,
         ui: &mut egui::Ui,
+        accent: Color32,
         text_primary: Color32,
         text_tertiary: Color32,
     ) {
-        ui.add_space(16.0);
-        ui.label(
-            RichText::new("No notification settings yet")
-                .color(text_tertiary)
-                .font(typography::proportional(typography::SM)),
-        );
-        ui.add_space(8.0);
-        ui.label(
-            RichText::new("Notification preferences will appear here in a future update.")
-                .color(text_primary.gamma_multiply(0.5))
-                .font(typography::proportional(typography::XS)),
-        );
+        let card_bg = self.theme.bg_elevated().gamma_multiply(0.55);
+        let card_border = self.theme.border_subtle().gamma_multiply(0.6);
+        let is_focused = self.field_index == 0 && !self.sidebar_focused;
+
+        egui::Frame::new()
+            .fill(card_bg)
+            .stroke(egui::Stroke::new(
+                if is_focused { 1.5 } else { 1.0 },
+                if is_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                },
+            ))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::UPDATE)
+                            .color(text_primary)
+                            .size(20.0),
+                    );
+
+                    ui.add_space(8.0);
+
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Check for updates")
+                                .color(text_primary)
+                                .font(typography::proportional(13.0))
+                                .strong(),
+                        );
+                        ui.label(
+                            RichText::new("Automatically check for new versions on startup")
+                                .color(text_tertiary.gamma_multiply(0.6))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+
+                    // Right-aligned toggle switch
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let track_w = 32.0;
+                        let track_h = 18.0;
+                        let knob_r = 6.0;
+                        let padding = (track_h - knob_r * 2.0) / 2.0;
+
+                        let (rect, response) = ui.allocate_exact_size(
+                            egui::vec2(track_w, track_h),
+                            egui::Sense::click(),
+                        );
+                        if response.clicked() {
+                            self.check_for_updates = !self.check_for_updates;
+                        }
+
+                        let on = self.check_for_updates;
+                        let track_color = if on {
+                            accent
+                        } else {
+                            text_tertiary.gamma_multiply(0.2)
+                        };
+                        let knob_color = Color32::WHITE;
+
+                        // Track
+                        ui.painter().rect_filled(rect, track_h / 2.0, track_color);
+
+                        // Knob
+                        let knob_x = if on {
+                            rect.right() - padding - knob_r
+                        } else {
+                            rect.left() + padding + knob_r
+                        };
+                        ui.painter().circle_filled(
+                            egui::pos2(knob_x, rect.center().y),
+                            knob_r,
+                            knob_color,
+                        );
+                    });
+                });
+            });
     }
 
     // ── Connections Section ───────────────────────────────────────────────
@@ -3269,7 +3348,11 @@ impl SettingsPage {
                         4 => self.startup_dropdown_open = !self.startup_dropdown_open,
                         _ => {}
                     },
-                    SettingsCategory::Notifications => {} // No navigable fields yet
+                    SettingsCategory::Notifications => {
+                        if self.field_index == 0 {
+                            self.check_for_updates = !self.check_for_updates;
+                        }
+                    }
                     SettingsCategory::Ai => {
                         self.ai_dropdown_open = true;
                     }
@@ -3328,6 +3411,7 @@ mod tests {
             TimezonePreference::default(),
             TimeRangePreset::default(),
             StartupPage::default(),
+            true,
         );
         assert!(page.is_open());
         page.close();
@@ -3340,7 +3424,7 @@ mod tests {
         page.active_category = SettingsCategory::Profile;
         assert_eq!(page.field_count(), 5);
         page.active_category = SettingsCategory::Notifications;
-        assert_eq!(page.field_count(), 0);
+        assert_eq!(page.field_count(), 1);
         page.active_category = SettingsCategory::Connections;
         assert_eq!(page.field_count(), 4);
         page.active_category = SettingsCategory::Ai;

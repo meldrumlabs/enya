@@ -340,6 +340,8 @@ impl EnyaApp {
 
         #[cfg(not(target_arch = "wasm32"))]
         let dismissed_update_version = state.settings.dismissed_update_version.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        let check_for_updates = state.settings.check_for_updates;
 
         #[cfg_attr(not(target_arch = "wasm32"), allow(unused_mut))]
         let mut github_auth = GitHubAuthManager::restore(
@@ -372,7 +374,11 @@ impl EnyaApp {
             command_receiver,
             connection: ConnectionManager::new(async_runtime.clone()),
             #[cfg(not(target_arch = "wasm32"))]
-            update_checker: UpdateChecker::new(async_runtime.clone(), dismissed_update_version),
+            update_checker: UpdateChecker::new(
+                async_runtime.clone(),
+                dismissed_update_version,
+                check_for_updates,
+            ),
             status_line: StatusLine::new(),
             notifications: NotificationManager::new(),
             editor_metrics: EditorMetrics::default(),
@@ -815,6 +821,7 @@ impl EnyaApp {
                     timezone,
                     default_time_range,
                     startup_page,
+                    check_for_updates,
                 } = page_result
                 {
                     self.state.settings.ai_provider = ai_provider;
@@ -827,6 +834,9 @@ impl EnyaApp {
                     self.state.settings.timezone = timezone;
                     self.state.settings.default_time_range = default_time_range;
                     self.state.settings.startup_page = startup_page;
+                    self.state.settings.check_for_updates = check_for_updates;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    self.update_checker.set_enabled(check_for_updates);
                 }
                 self.state.ui_state = self.state.previous_ui_state;
             }
@@ -1184,6 +1194,7 @@ impl EnyaApp {
                     self.state.settings.timezone,
                     self.state.settings.default_time_range,
                     self.state.settings.startup_page,
+                    self.state.settings.check_for_updates,
                 );
             }
         }
