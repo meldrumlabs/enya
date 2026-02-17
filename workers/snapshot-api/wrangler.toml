@@ -5,3 +5,12 @@ compatibility_date = "2024-12-01"
 [[r2_buckets]]
 binding = "SNAPSHOTS"
 bucket_name = "enya-snapshots"
+
+[[d1_databases]]
+binding = "enya_snapshot_tracking"
+database_name = "enya-snapshot-tracking"
+database_id = "750d84e0-a4e9-4208-a9f8-915bcc5e0f76"
+
+# Run daily at midnight UTC to clean up expired snapshots
+[triggers]
+crons = ["0 0 * * *"]

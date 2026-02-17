@@ -91,6 +91,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, coding style, a
 - [rerun.io](https://rerun.io) for inspiration on egui-based UI
 - [PlanetScale](https://planetscale.com) for inspiration on series UX
 - [Conductor](https://conductor.build) for inspiration on UX design
+- [Linear](https://linear.app) for inspiration on UX design
 - [Neovim](https://neovim.io) for inspiration on plugin system architecture and keybindings
 - [gpui-ghostty](https://github.com/Xuanwo/gpui-ghostty) by [Xuanwo](https://github.com/Xuanwo) for inspiration on terminal emulator integration
 - [Zed](https://zed.dev) for inspiration on agent integration with ACP

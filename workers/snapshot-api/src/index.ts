@@ -12,10 +12,18 @@ const GITHUB_CLIENT_ID = 'Ov23likv8UvuCncMfUsm';
 interface Env {
 	SNAPSHOTS: R2Bucket;
 	GITHUB_CLIENT_SECRET: string;
+	enya_snapshot_tracking: D1Database;
+}
+
+interface GitHubUser {
+	id: number;
+	login: string;
 }
 
 const ID_LENGTH = 12;
 const MAX_BODY_SIZE = 512 * 1024; // 512KB
+const MAX_STORAGE_PER_USER = 50 * 1024 * 1024; // 50MB
+const SNAPSHOT_TTL_SECS = 7 * 24 * 60 * 60; // 7 days
 const CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
 const ALLOWED_ORIGINS = [
@@ -76,6 +84,8 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		return new Response('invalid or expired token', { status: 401, headers: corsHeaders(request) });
 	}
 
+	const ghUser = await ghResp.json<GitHubUser>();
+
 	const body = await request.arrayBuffer();
 
 	if (body.byteLength === 0) {
@@ -86,12 +96,41 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		return new Response('body too large', { status: 413, headers: corsHeaders(request) });
 	}
 
+	// Check per-user storage quota
+	const usage = await env.enya_snapshot_tracking.prepare(
+		`SELECT COALESCE(SUM(size_bytes), 0) as total_bytes FROM snapshots WHERE github_id = ?1`
+	).bind(ghUser.id).first<{ total_bytes: number }>();
+
+	if (usage && usage.total_bytes + body.byteLength > MAX_STORAGE_PER_USER) {
+		return new Response('storage quota exceeded', { status: 429, headers: corsHeaders(request) });
+	}
+
 	const id = generateId();
 	const key = `${id}.bin`;
 
 	await env.SNAPSHOTS.put(key, body, {
 		httpMetadata: { contentType: 'application/octet-stream' },
 	});
+
+	// Track upload in D1 (best-effort — don't fail the upload if tracking fails)
+	const now = Math.floor(Date.now() / 1000);
+	try {
+		await env.enya_snapshot_tracking.batch([
+			env.enya_snapshot_tracking.prepare(
+				`INSERT INTO users (github_id, github_login, created_at, updated_at)
+				 VALUES (?1, ?2, ?3, ?3)
+				 ON CONFLICT(github_id) DO UPDATE SET
+				   github_login = excluded.github_login,
+				   updated_at = excluded.updated_at`
+			).bind(ghUser.id, ghUser.login, now),
+			env.enya_snapshot_tracking.prepare(
+				`INSERT INTO snapshots (id, github_id, size_bytes, created_at)
+				 VALUES (?1, ?2, ?3, ?4)`
+			).bind(id, ghUser.id, body.byteLength, now),
+		]);
+	} catch (e) {
+		console.error('D1 tracking failed:', e);
+	}
 
 	return Response.json(
 		{ id, bytes: body.byteLength },
@@ -114,7 +153,7 @@ async function handleDownload(id: string, request: Request, env: Env): Promise<R
 	return new Response(object.body, {
 		headers: {
 			'Content-Type': 'application/octet-stream',
-			'Cache-Control': 'public, max-age=31536000, immutable',
+			'Cache-Control': 'public, max-age=86400',
 			...corsHeaders(request),
 		},
 	});
@@ -186,7 +225,31 @@ async function handleAuthUser(request: Request): Promise<Response> {
 	});
 }
 
+async function handleExpiration(env: Env): Promise<void> {
+	const cutoff = Math.floor(Date.now() / 1000) - SNAPSHOT_TTL_SECS;
+
+	// Get expired snapshot IDs
+	const { results } = await env.enya_snapshot_tracking.prepare(
+		`SELECT id FROM snapshots WHERE created_at < ?1`
+	).bind(cutoff).all<{ id: string }>();
+
+	if (!results || results.length === 0) return;
+
+	// Delete blobs from R2
+	const keys = results.map(r => `${r.id}.bin`);
+	await env.SNAPSHOTS.delete(keys);
+
+	// Delete records from D1
+	await env.enya_snapshot_tracking.prepare(
+		`DELETE FROM snapshots WHERE created_at < ?1`
+	).bind(cutoff).run();
+}
+
 export default {
+	async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
+		await handleExpiration(env);
+	},
+
 	async fetch(request: Request, env: Env): Promise<Response> {
 		const url = new URL(request.url);
 		const path = url.pathname;
@@ -223,4 +286,4 @@ export default {
 
 		return new Response('not found', { status: 404 });
 	},
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<Env> & { scheduled: (event: ScheduledEvent, env: Env, ctx: ExecutionContext) => Promise<void> };
