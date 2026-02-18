@@ -124,6 +124,9 @@ pub struct AppSettings {
     /// Whether to notify when new AI models become available
     #[serde(default = "default_true")]
     pub notify_new_models: bool,
+    /// How often to automatically fetch new commits from the remote repository
+    #[serde(default)]
+    pub git_sync_interval: GitSyncInterval,
 }
 
 fn default_true() -> bool {
@@ -138,6 +141,57 @@ pub enum TimezonePreference {
     Local,
     /// Use UTC for all time displays.
     Utc,
+}
+
+/// How often to automatically fetch new commits from the remote repository.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum GitSyncInterval {
+    /// Disable automatic git fetch.
+    Off,
+    /// Fetch every 1 minute.
+    OneMinute,
+    /// Fetch every 5 minutes (default).
+    #[default]
+    FiveMinutes,
+    /// Fetch every 15 minutes.
+    FifteenMinutes,
+    /// Fetch every 30 minutes.
+    ThirtyMinutes,
+}
+
+impl GitSyncInterval {
+    /// Returns the interval in seconds, or 0 if disabled.
+    pub fn to_secs(self) -> u64 {
+        match self {
+            Self::Off => 0,
+            Self::OneMinute => 60,
+            Self::FiveMinutes => 300,
+            Self::FifteenMinutes => 900,
+            Self::ThirtyMinutes => 1800,
+        }
+    }
+
+    /// Returns a display label for this interval.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Off => "Off",
+            Self::OneMinute => "1m",
+            Self::FiveMinutes => "5m",
+            Self::FifteenMinutes => "15m",
+            Self::ThirtyMinutes => "30m",
+        }
+    }
+
+    /// All variants in display order.
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Off,
+            Self::OneMinute,
+            Self::FiveMinutes,
+            Self::FifteenMinutes,
+            Self::ThirtyMinutes,
+        ]
+    }
 }
 
 /// What to show when the app starts.

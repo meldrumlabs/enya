@@ -2637,6 +2637,12 @@ impl Workspace {
         self.agent_panel.provider_name()
     }
 
+    /// Sets the git auto-sync interval on the codebase manager.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_git_sync_interval(&mut self, seconds: u64) {
+        self.codebase_manager.set_git_sync_interval(seconds);
+    }
+
     /// Update the agent panel's provider and model from settings.
     pub fn set_agent_provider_and_model(
         &mut self,

@@ -16,7 +16,7 @@ use crate::ui::ActiveThemeColors;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::ui::icons::APP_GHOSTTY;
 use crate::ui::semantic_icons;
-use crate::ui::settings_screen::{EditorFont, StartupPage, TimezonePreference};
+use crate::ui::settings_screen::{EditorFont, GitSyncInterval, StartupPage, TimezonePreference};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
@@ -41,6 +41,7 @@ pub enum SettingsPageResult {
         startup_page: StartupPage,
         check_for_updates: bool,
         notify_new_models: bool,
+        git_sync_interval: GitSyncInterval,
     },
     /// Live preview of a builtin theme change.
     ThemePreview(AppTheme),
@@ -156,6 +157,8 @@ pub struct SettingsPage {
     ai_model: Option<String>,
     ai_dropdown_open: bool,
     git_repo_url: String,
+    git_sync_interval: GitSyncInterval,
+    git_sync_dropdown_open: bool,
     default_prometheus_endpoint: String,
     default_loki_endpoint: String,
     default_flight_sql_endpoint: String,
@@ -221,6 +224,8 @@ impl SettingsPage {
             ai_model: None,
             ai_dropdown_open: false,
             git_repo_url: String::new(),
+            git_sync_interval: GitSyncInterval::default(),
+            git_sync_dropdown_open: false,
             default_prometheus_endpoint: String::new(),
             default_loki_endpoint: String::new(),
             default_flight_sql_endpoint: String::new(),
@@ -327,6 +332,7 @@ impl SettingsPage {
         startup_page: StartupPage,
         check_for_updates: bool,
         notify_new_models: bool,
+        git_sync_interval: GitSyncInterval,
     ) {
         self.is_open = true;
         self.active_category = SettingsCategory::Profile;
@@ -349,6 +355,8 @@ impl SettingsPage {
         self.ai_provider = ai_provider;
         self.ai_model = ai_model;
         self.git_repo_url = git_repo_url;
+        self.git_sync_interval = git_sync_interval;
+        self.git_sync_dropdown_open = false;
         self.ai_dropdown_open = false;
         self.default_prometheus_endpoint = default_prometheus_endpoint;
         self.default_loki_endpoint = default_loki_endpoint;
@@ -400,7 +408,7 @@ impl SettingsPage {
             SettingsCategory::Profile => 5, // Auth, workspace, timezone, time range, startup
             SettingsCategory::Notifications => 2, // Check for updates + notify new models
             SettingsCategory::Connections => 3, // Prom, Loki, Flight SQL
-            SettingsCategory::Codebases => 1, // Git repo URL
+            SettingsCategory::Codebases => 2, // Git repo URL, sync interval
             SettingsCategory::Ai => 2,      // Provider, Model
             SettingsCategory::ThemeFont => 0, // Panel-based navigation
             SettingsCategory::Storage => 4, // Config, workspaces, repos, plugins
@@ -487,6 +495,7 @@ impl SettingsPage {
             startup_page: self.startup_page,
             check_for_updates: self.check_for_updates,
             notify_new_models: self.notify_new_models,
+            git_sync_interval: self.git_sync_interval,
         }
     }
 
@@ -2005,6 +2014,100 @@ impl SettingsPage {
             text_primary,
             text_tertiary,
         );
+
+        ui.add_space(8.0);
+
+        // ── Sync Interval dropdown ───────────────────────────────────
+        let sync_focused = self.field_index == 1 && !self.sidebar_focused;
+        egui::Frame::new()
+            .fill(card_bg)
+            .stroke(egui::Stroke::new(
+                if sync_focused { 1.5 } else { 1.0 },
+                if sync_focused {
+                    accent.gamma_multiply(0.5)
+                } else {
+                    card_border
+                },
+            ))
+            .corner_radius(8.0)
+            .inner_margin(egui::Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(regular::TIMER_OUTLINE)
+                            .color(if sync_focused { accent } else { text_tertiary })
+                            .size(16.0),
+                    );
+                    ui.add_space(8.0);
+
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Sync interval")
+                                .color(text_primary)
+                                .font(typography::proportional(13.0))
+                                .strong(),
+                        );
+                        ui.label(
+                            RichText::new("How often to fetch new commits from remote")
+                                .color(text_tertiary.gamma_multiply(0.6))
+                                .font(typography::proportional(typography::XS)),
+                        );
+                    });
+
+                    // Dropdown on the right
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let display = self.git_sync_interval.label();
+                        let chevron = if self.git_sync_dropdown_open {
+                            "\u{25BE}"
+                        } else {
+                            "\u{25B8}"
+                        };
+
+                        let btn_text = format!("{display} {chevron}");
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(btn_text)
+                                    .color(text_tertiary)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.git_sync_dropdown_open = !self.git_sync_dropdown_open;
+                        }
+                    });
+                });
+
+                // Dropdown options
+                if self.git_sync_dropdown_open {
+                    ui.add_space(8.0);
+
+                    for &interval in GitSyncInterval::all() {
+                        let is_selected = self.git_sync_interval == interval;
+                        let option_color = if is_selected { accent } else { text_tertiary };
+                        let response = ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("  {}", interval.label()))
+                                    .color(option_color)
+                                    .font(typography::proportional(typography::XS)),
+                            )
+                            .sense(egui::Sense::click()),
+                        );
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+                        if response.clicked() {
+                            self.git_sync_interval = interval;
+                            self.git_sync_dropdown_open = false;
+                        }
+                    }
+                }
+            });
     }
 
     /// Render a single connection row as its own card.
@@ -3602,6 +3705,8 @@ impl SettingsPage {
                     SettingsCategory::Codebases => {
                         if self.field_index == 0 {
                             self.editing_field = Some(EditingField::GitRepoUrl);
+                        } else if self.field_index == 1 {
+                            self.git_sync_dropdown_open = !self.git_sync_dropdown_open;
                         }
                     }
                 }
@@ -3644,6 +3749,7 @@ mod tests {
             StartupPage::default(),
             true,
             true,
+            GitSyncInterval::default(),
         );
         assert!(page.is_open());
         page.close();
@@ -3660,7 +3766,7 @@ mod tests {
         page.active_category = SettingsCategory::Connections;
         assert_eq!(page.field_count(), 3);
         page.active_category = SettingsCategory::Codebases;
-        assert_eq!(page.field_count(), 1);
+        assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::Ai;
         assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::ThemeFont;

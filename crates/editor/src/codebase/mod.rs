@@ -865,6 +865,12 @@ impl CodebaseManager {
         results
     }
 
+    /// Returns the current git sync interval in seconds (0 = disabled).
+    #[must_use]
+    pub fn git_sync_interval_secs(&self) -> u64 {
+        self.git_sync_interval_secs
+    }
+
     /// Sets the interval for automatic git fetch in seconds.
     ///
     /// Set to 0 to disable automatic fetching.

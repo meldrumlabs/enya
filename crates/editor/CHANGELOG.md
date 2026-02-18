@@ -6,7 +6,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
-- **Automatic git sync**: `CodebaseManager` now periodically fetches remote commits every 5 minutes (configurable via `set_git_sync_interval`). When new commits are detected, incremental Tantivy re-indexing is triggered automatically. Manual `:git` syncs reset the timer to avoid double-fetching.
+- **Automatic git sync**: `CodebaseManager` now periodically fetches remote commits (default every 5 minutes). When new commits are detected, incremental Tantivy re-indexing is triggered automatically. Manual `:git` syncs reset the timer to avoid double-fetching. Configurable in Settings → Codebases → Sync interval (Off, 1m, 5m, 15m, 30m).
 
 - **Storage settings category**: New "Storage" section in settings sidebar (native only) showing data locations for configuration (`~/.enya/`), workspaces, cloned repositories, and plugins. Each card displays the directory path with a "Reveal" button to open it in Finder. Full j/k keyboard navigation and Enter/l to reveal the focused item.
 

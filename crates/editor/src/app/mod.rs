@@ -175,6 +175,10 @@ impl EnyaApp {
             state.settings.ai_model.clone(),
         );
 
+        // Apply saved git sync interval
+        #[cfg(not(target_arch = "wasm32"))]
+        workspace.set_git_sync_interval(state.settings.git_sync_interval.to_secs());
+
         // Initialize plugin system
         let plugin_shared_state = EditorPluginHost::create_shared_state();
         let plugin_host = EditorPluginHost::new(
@@ -837,6 +841,7 @@ impl EnyaApp {
                     startup_page,
                     check_for_updates,
                     notify_new_models,
+                    git_sync_interval,
                 } = page_result
                 {
                     self.state.settings.ai_provider = ai_provider;
@@ -851,11 +856,16 @@ impl EnyaApp {
                     self.state.settings.startup_page = startup_page;
                     self.state.settings.check_for_updates = check_for_updates;
                     self.state.settings.notify_new_models = notify_new_models;
+                    self.state.settings.git_sync_interval = git_sync_interval;
                     #[cfg(not(target_arch = "wasm32"))]
                     self.update_checker.set_enabled(check_for_updates);
                     // Propagate provider/model to agent panel
                     self.workspace
                         .set_agent_provider_and_model(ai_provider, ai_model);
+                    // Propagate git sync interval to codebase manager
+                    #[cfg(not(target_arch = "wasm32"))]
+                    self.workspace
+                        .set_git_sync_interval(git_sync_interval.to_secs());
                 }
                 self.state.ui_state = self.state.previous_ui_state;
             }
@@ -1218,6 +1228,7 @@ impl EnyaApp {
                     self.state.settings.startup_page,
                     self.state.settings.check_for_updates,
                     self.state.settings.notify_new_models,
+                    self.state.settings.git_sync_interval,
                 );
             }
         }
