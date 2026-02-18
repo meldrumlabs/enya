@@ -168,6 +168,8 @@ pub enum StatusMode {
     Agent,
     /// Settings page
     Settings,
+    /// Snapshot mode (immutable shared workspace)
+    Snapshot,
 }
 
 impl StatusMode {
@@ -182,6 +184,7 @@ impl StatusMode {
             Self::VisualMulti => "V-MULTI",
             Self::Agent => "AGENT",
             Self::Settings => "SETTINGS",
+            Self::Snapshot => "SNAPSHOT",
         }
     }
 
@@ -192,7 +195,7 @@ impl StatusMode {
             Self::Normal | Self::Home | Self::Settings => theme.accent_primary(),
             Self::Command | Self::VisualMulti => theme.accent_hover(),
             Self::Search => theme.text_secondary(),
-            Self::Diff => theme.semantic_info(),
+            Self::Diff | Self::Snapshot => theme.semantic_info(),
             Self::Agent => theme.semantic_warning(),
         }
     }
@@ -220,7 +223,7 @@ impl StatusMode {
             // Search uses secondary text color as bg - use contrasting color
             Self::Search => Color32::from_rgb(255, 255, 255),
             // Blue backgrounds - use white text
-            Self::Diff => Color32::from_rgb(255, 255, 255),
+            Self::Diff | Self::Snapshot => Color32::from_rgb(255, 255, 255),
         }
     }
 }

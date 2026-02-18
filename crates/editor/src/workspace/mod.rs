@@ -336,6 +336,8 @@ pub struct Workspace {
     // ==================== Layout Animation ====================
     /// Animator for smooth layout transitions
     layout_animator: LayoutAnimator,
+    /// Whether this workspace was loaded from an immutable snapshot
+    is_snapshot: bool,
 
     // ==================== Active Theme Colors ====================
     /// Resolved theme colors (from custom or builtin theme)
@@ -475,6 +477,7 @@ impl Workspace {
             undo_stack: UndoStack::new(),
             // Layout animation
             layout_animator: LayoutAnimator::new(),
+            is_snapshot: false,
             // Active theme colors
             active_colors: None,
             render_theme: AppTheme::default(),
@@ -2630,6 +2633,11 @@ impl Workspace {
     /// Check if agent mode is active
     pub fn is_agent_mode(&self) -> bool {
         self.agent_mode_active
+    }
+
+    /// Check if this workspace was loaded from an immutable snapshot
+    pub fn is_snapshot(&self) -> bool {
+        self.is_snapshot
     }
 
     /// Get the current agent provider name (e.g., "Claude", "Codex")
