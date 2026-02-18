@@ -634,6 +634,10 @@ impl Workspace {
         // Check auto-refresh timer and trigger refresh if due
         self.check_auto_refresh();
 
+        // Check if automatic git fetch is due (native only)
+        #[cfg(not(target_arch = "wasm32"))]
+        self.codebase_manager.check_auto_git_sync(ctx);
+
         // Process query execution: poll for results and execute pending queries
         let query_action = self.process_query_execution(ctx);
         if query_action != WorkspaceAction::None {
@@ -2639,6 +2643,12 @@ impl Workspace {
     /// Get the current agent provider name (e.g., "Claude", "Codex")
     pub fn agent_provider_name(&self) -> String {
         self.agent_panel.provider_name()
+    }
+
+    /// Sets the git auto-sync interval on the codebase manager.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_git_sync_interval(&mut self, seconds: u64) {
+        self.codebase_manager.set_git_sync_interval(seconds);
     }
 
     /// Update the agent panel's provider and model from settings.
