@@ -446,6 +446,7 @@ impl EnyaApp {
         let pane_data = self.workspace.extract_all_snapshot_data();
         let captured_at = crate::util::now_unix_secs() as u64;
         let conversation = self.workspace.agent_panel().extract_snapshot_conversation();
+        let sql_pane_data = self.workspace.extract_sql_snapshot_data();
 
         // Encode (synchronous — postcard + LZ4 is fast)
         let bytes = match enya_config::workspace::snapshot::encode_snapshot(
@@ -453,6 +454,7 @@ impl EnyaApp {
             &pane_data,
             captured_at,
             conversation.as_ref(),
+            sql_pane_data.as_ref(),
         ) {
             Ok(b) => b,
             Err(e) => {

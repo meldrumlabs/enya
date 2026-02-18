@@ -6735,6 +6735,225 @@ impl SqlPane {
         self.copied_feedback
             .is_some_and(|t| t.elapsed().as_secs_f32() < 1.5)
     }
+
+    /// Extract snapshot data from the SQL pane's query history.
+    ///
+    /// Converts each completed/failed QueryCell to a SnapshotQueryCell by
+    /// formatting RecordBatch data as strings. Skips info messages and
+    /// in-progress queries. Returns None if no cells to snapshot.
+    pub fn extract_snapshot_data(&self) -> Option<enya_config::SnapshotSqlPane> {
+        use enya_config::{
+            SnapshotOperatorMetrics, SnapshotPlanNode, SnapshotQueryCell, SnapshotQueryStats,
+            SnapshotSqlPane, SnapshotTableColumn,
+        };
+
+        let max_rows_per_cell = 500;
+
+        let cells: Vec<SnapshotQueryCell> = self
+            .history
+            .iter()
+            .filter(|cell| {
+                !cell.is_info
+                    && (cell.status == QueryStatus::Completed || cell.status == QueryStatus::Failed)
+            })
+            .map(|cell| {
+                let (columns, rows, total_rows) = if let Some(schema) = &cell.schema {
+                    let columns: Vec<SnapshotTableColumn> = schema
+                        .fields()
+                        .iter()
+                        .map(|f| SnapshotTableColumn {
+                            name: f.name().clone(),
+                            data_type: format!("{}", f.data_type()),
+                        })
+                        .collect();
+
+                    let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
+                    let mut rows = Vec::new();
+                    'outer: for batch in &cell.batches {
+                        for row_idx in 0..batch.num_rows() {
+                            if rows.len() >= max_rows_per_cell {
+                                break 'outer;
+                            }
+                            let row: Vec<String> = (0..batch.num_columns())
+                                .map(|col| format_array_value(batch.column(col).as_ref(), row_idx))
+                                .collect();
+                            rows.push(row);
+                        }
+                    }
+                    (columns, rows, total_rows as u64)
+                } else {
+                    (Vec::new(), Vec::new(), 0)
+                };
+
+                let stats = cell.stats.as_ref().map(|s| SnapshotQueryStats {
+                    total_time_ms: s.total_time.as_millis() as u64,
+                    planning_time_ms: s.planning_time.as_millis() as u64,
+                    execution_time_ms: s.execution_time.as_millis() as u64,
+                    rows_returned: s.rows_returned as u64,
+                    bytes_scanned: s.bytes_scanned as u64,
+                    partitions_scanned: s.partitions_scanned as u32,
+                });
+
+                SnapshotQueryCell {
+                    sql: cell.sql.clone(),
+                    columns,
+                    rows,
+                    total_rows,
+                    stats,
+                    error: cell.error.clone(),
+                    plan: None,
+                }
+            })
+            .collect();
+
+        if cells.is_empty() {
+            return None;
+        }
+
+        // Attach plan to the last cell if the plan viewer has one loaded
+        let mut cells = cells;
+        if let Some(root) = self.plan_viewer.root_plan() {
+            if let Some(last) = cells.last_mut() {
+                last.plan = Some(plan_node_to_snapshot(root));
+            }
+        }
+
+        fn plan_node_to_snapshot(node: &PlanNode) -> SnapshotPlanNode {
+            SnapshotPlanNode {
+                operator: node.operator.clone(),
+                description: node.description.clone(),
+                properties: node
+                    .properties
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+                children: node.children.iter().map(plan_node_to_snapshot).collect(),
+                metrics: node.metrics.as_ref().map(|m| SnapshotOperatorMetrics {
+                    output_rows: m.output_rows as u64,
+                    elapsed_time_ms: m.elapsed_time.as_millis() as u64,
+                    memory_bytes: m.memory_bytes as u64,
+                    spill_count: m.spill_count as u32,
+                    spill_bytes: m.spill_bytes as u64,
+                }),
+            }
+        }
+
+        Some(SnapshotSqlPane { cells })
+    }
+
+    /// Load snapshot data into the SQL pane, replacing current history.
+    ///
+    /// Creates QueryCells from the snapshot data. String row data is converted
+    /// back into Arrow StringArray RecordBatches so the existing rendering code
+    /// works unchanged.
+    pub fn load_snapshot_data(&mut self, data: &enya_config::SnapshotSqlPane) {
+        use enya_datafusion::arrow::array::StringArray;
+        use enya_datafusion::arrow::datatypes::{DataType, Field, Schema};
+        use std::sync::Arc;
+
+        self.history.clear();
+        self.cell_states.clear();
+        self.selected_cell_idx = None;
+
+        for cell_data in &data.cells {
+            let id = QueryId::new();
+
+            // Build Arrow schema and RecordBatch from string data
+            let (schema, batches) = if !cell_data.columns.is_empty() && !cell_data.rows.is_empty() {
+                let fields: Vec<Field> = cell_data
+                    .columns
+                    .iter()
+                    .map(|c| Field::new(&c.name, DataType::Utf8, true))
+                    .collect();
+                let schema = Arc::new(Schema::new(fields));
+
+                let num_cols = cell_data.columns.len();
+                let arrays: Vec<Arc<dyn Array>> = (0..num_cols)
+                    .map(|col_idx| {
+                        let values: Vec<Option<&str>> = cell_data
+                            .rows
+                            .iter()
+                            .map(|row| {
+                                row.get(col_idx)
+                                    .map(|s| if s == "NULL" { None } else { Some(s.as_str()) })
+                                    .unwrap_or(None)
+                            })
+                            .collect();
+                        Arc::new(StringArray::from(values)) as Arc<dyn Array>
+                    })
+                    .collect();
+
+                match RecordBatch::try_new(schema.clone(), arrays) {
+                    Ok(batch) => (Some(schema as SchemaRef), vec![batch]),
+                    Err(_) => (None, Vec::new()),
+                }
+            } else {
+                (None, Vec::new())
+            };
+
+            let stats = cell_data
+                .stats
+                .as_ref()
+                .map(|s| enya_datafusion::ExecutionStats {
+                    total_time: std::time::Duration::from_millis(s.total_time_ms),
+                    planning_time: std::time::Duration::from_millis(s.planning_time_ms),
+                    execution_time: std::time::Duration::from_millis(s.execution_time_ms),
+                    rows_returned: s.rows_returned as usize,
+                    bytes_scanned: s.bytes_scanned as usize,
+                    partitions_scanned: s.partitions_scanned as usize,
+                });
+
+            let cell = QueryCell {
+                sql: cell_data.sql.clone(),
+                id,
+                status: if cell_data.error.is_some() {
+                    QueryStatus::Failed
+                } else {
+                    QueryStatus::Completed
+                },
+                started_at: crate::util::Instant::now(),
+                schema,
+                batches,
+                stats,
+                error: cell_data.error.clone(),
+                is_info: false,
+                diff_result: None,
+            };
+
+            self.history.push(cell);
+            self.cell_states.insert(id, CellViewState::default());
+        }
+
+        // Load plan into plan_viewer from the last cell that has one
+        for cell_data in data.cells.iter().rev() {
+            if let Some(plan) = &cell_data.plan {
+                let plan_node = snapshot_plan_to_node(plan);
+                self.plan_viewer.load_plan(&plan_node);
+                break;
+            }
+        }
+
+        fn snapshot_plan_to_node(node: &enya_config::SnapshotPlanNode) -> PlanNode {
+            PlanNode {
+                operator: node.operator.clone(),
+                description: node.description.clone(),
+                properties: node.properties.iter().cloned().collect(),
+                children: node.children.iter().map(snapshot_plan_to_node).collect(),
+                metrics: node
+                    .metrics
+                    .as_ref()
+                    .map(|m| enya_datafusion::OperatorMetrics {
+                        output_rows: m.output_rows as usize,
+                        elapsed_time: std::time::Duration::from_millis(m.elapsed_time_ms),
+                        memory_bytes: m.memory_bytes as usize,
+                        spill_count: m.spill_count as usize,
+                        spill_bytes: m.spill_bytes as usize,
+                    }),
+            }
+        }
+
+        self.scroll_to_bottom = true;
+    }
 }
 
 impl crate::components::Component for SqlPane {

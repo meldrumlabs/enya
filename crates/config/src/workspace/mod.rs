@@ -208,6 +208,8 @@ pub struct SnapshotMeta {
     pub pane_data: Vec<SnapshotPaneData>,
     /// Optional conversation data (present when loaded from a full snapshot)
     pub conversation: Option<snapshot::SnapshotConversation>,
+    /// Optional SQL pane data (query history with results)
+    pub sql_pane: Option<snapshot::SnapshotSqlPane>,
 }
 
 // =============================================================================

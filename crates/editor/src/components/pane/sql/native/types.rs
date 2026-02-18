@@ -142,14 +142,7 @@ pub(super) struct DiffQueryResult {
     pub schema_diff: Option<SchemaDiffResult>,
 }
 
-/// Actions that can be triggered by the SQL pane.
-#[derive(Debug, Clone)]
-pub enum SqlPaneAction {
-    /// No action.
-    None,
-    /// Share a query result to the agent panel as an inline table.
-    ShareResultToAgent(crate::components::pane::inline_content::InlineTable),
-}
+pub use super::super::SqlPaneAction;
 
 /// Current mode of the SQL pane.
 #[derive(Debug, Clone, Default)]

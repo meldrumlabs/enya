@@ -7,8 +7,8 @@
 use enya_config::{
     SnapshotConversation, SnapshotDiffFile, SnapshotDiffLine, SnapshotDiffLineKind,
     SnapshotInlineChart, SnapshotInlineContent, SnapshotInlineDiff, SnapshotInlineSearchResults,
-    SnapshotInlineSource, SnapshotMessage, SnapshotMessageRole, SnapshotSearchResultItem,
-    SnapshotSeries,
+    SnapshotInlineSource, SnapshotInlineTable, SnapshotMessage, SnapshotMessageRole,
+    SnapshotSearchResultItem, SnapshotSeries, SnapshotTableColumn,
 };
 
 use super::agent_context::strip_command_blocks;
@@ -16,7 +16,7 @@ use super::agent_panel::{AgentPanel, ChatMessage};
 use crate::components::pane::time_series_chart::{DataPoint, Series};
 use crate::components::pane::{
     InlineChart, InlineContent, InlineDiff, InlineDiffFile, InlineDiffLine, InlineDiffLineKind,
-    InlineSearchResults, InlineSource, SearchResultItem,
+    InlineSearchResults, InlineSource, InlineTable, InlineTableColumn, SearchResultItem,
 };
 use crate::components::util::{MessageRole, SyntaxHighlightData};
 
@@ -171,8 +171,20 @@ fn convert_inline_content(content: &InlineContent) -> Option<SnapshotInlineConte
             additions: diff.additions,
             deletions: diff.deletions,
         })),
-        // Tables are not yet supported in snapshots; skip them.
-        InlineContent::Table(_) => None,
+        InlineContent::Table(table) => Some(SnapshotInlineContent::Table(SnapshotInlineTable {
+            title: table.title.clone(),
+            columns: table
+                .columns
+                .iter()
+                .map(|c| SnapshotTableColumn {
+                    name: c.name.clone(),
+                    data_type: c.data_type.clone(),
+                })
+                .collect(),
+            rows: table.rows.clone(),
+            total_rows: table.total_rows as u64,
+            execution_time_ms: table.execution_time_ms,
+        })),
     }
 }
 
@@ -269,6 +281,20 @@ fn restore_inline_content(content: &SnapshotInlineContent) -> InlineContent {
                 .collect(),
             additions: diff.additions,
             deletions: diff.deletions,
+        }),
+        SnapshotInlineContent::Table(table) => InlineContent::Table(InlineTable {
+            title: table.title.clone(),
+            columns: table
+                .columns
+                .iter()
+                .map(|c| InlineTableColumn {
+                    name: c.name.clone(),
+                    data_type: c.data_type.clone(),
+                })
+                .collect(),
+            rows: table.rows.clone(),
+            total_rows: table.total_rows as usize,
+            execution_time_ms: table.execution_time_ms,
         }),
     }
 }

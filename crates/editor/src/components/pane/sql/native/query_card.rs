@@ -17,6 +17,9 @@ use crate::ui::semantic_icons::{nav, status, time};
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
 
+/// Number of rows displayed per page in table views.
+const ROWS_PER_PAGE: usize = 50;
+
 /// Actions returned by card rendering for the caller to apply.
 pub(super) enum CardAction {
     /// Select this cell (highlight, enter NAV mode).
@@ -491,7 +494,7 @@ fn render_expanded_card(
         }
 
         // Apply pagination
-        let rows_per_page = 50;
+        let rows_per_page = ROWS_PER_PAGE;
         let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
         let total_pages = total_rows.div_ceil(rows_per_page).max(1);
         if next_page && view_state.table_page < total_pages - 1 {
@@ -790,7 +793,7 @@ fn render_inline_table(
 ) {
     let colors = OverlayColors::new(theme);
     let bg_surface = theme.bg_surface();
-    let rows_per_page = 50;
+    let rows_per_page = ROWS_PER_PAGE;
 
     let schema = cell.schema.as_ref().unwrap();
     let num_cols = schema.fields().len();
@@ -1099,7 +1102,7 @@ fn render_card_footer(
     _theme: AppTheme,
     colors: &OverlayColors,
 ) {
-    let rows_per_page = 50;
+    let rows_per_page = ROWS_PER_PAGE;
     let total_rows: usize = cell.batches.iter().map(|b| b.num_rows()).sum();
     let total_pages = total_rows.div_ceil(rows_per_page).max(1);
 
