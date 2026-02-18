@@ -81,6 +81,9 @@ impl Workspace {
     /// Note: Theme is NOT loaded from workspace config - it's a user preference
     /// stored in AppSettings, not a per-workspace setting.
     pub fn load_workspace_config(&mut self, config: &WorkspaceConfig) -> Option<ConnectionConfig> {
+        // Track whether this workspace is an immutable snapshot
+        self.is_snapshot = config.snapshot.is_some();
+
         // Apply view settings (theme is intentionally NOT loaded - it's a user preference)
         self.zen_mode = config.view.zen_mode;
 

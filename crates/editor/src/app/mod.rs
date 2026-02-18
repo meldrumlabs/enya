@@ -482,6 +482,8 @@ impl EnyaApp {
                     StatusMode::Agent
                 } else if self.workspace.is_visual_multi_mode() {
                     StatusMode::VisualMulti
+                } else if self.workspace.is_snapshot() {
+                    StatusMode::Snapshot
                 } else {
                     StatusMode::Normal
                 }
