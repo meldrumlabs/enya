@@ -252,6 +252,11 @@ impl EditorContext {
         parts.push("- `show_inline_diff`: Show a git diff inline in your response (PREFERRED for showing changes)\n".to_string());
         parts.push("  - Optional: `commit` (hash, \"HEAD\", \"HEAD~1\", etc. - defaults to HEAD/latest commit if omitted)\n".to_string());
         parts.push("  - Optional: `file` (specific file path to show diff for)\n".to_string());
+        parts.push(
+            "- `show_inline_table`: Show SQL query results as an inline table in your response\n"
+                .to_string(),
+        );
+        parts.push("  - Optional: `query` (SQL query to match in history, uses latest result if omitted), `title`\n".to_string());
         parts.push("- `add_logs_pane`: Create a logs pane for viewing logs (useful for incident investigation)\n".to_string());
         parts.push("  - Optional: `query` (LogQL query), `loki_url` (Loki server URL, uses demo if omitted), `title`\n".to_string());
         parts.push(
@@ -383,6 +388,15 @@ pub enum AgentCommand {
         /// Optional file path to show diff for specific file only
         #[serde(default)]
         file: Option<String>,
+    },
+    /// Show SQL query results as an inline table in the response
+    ShowInlineTable {
+        /// SQL query to match against recent SQL pane history (uses latest if omitted)
+        #[serde(default)]
+        query: Option<String>,
+        /// Optional title override (defaults to the SQL query text)
+        #[serde(default)]
+        title: Option<String>,
     },
     /// Add a logs pane for viewing logs (demo or Loki backend)
     AddLogsPane {
@@ -671,6 +685,15 @@ impl AgentCommand {
             } => {
                 let kind = source_type.as_deref().unwrap_or("metric");
                 format!("Showing source for {kind} '{name}'")
+            }
+            AgentCommand::ShowInlineTable { query, title } => {
+                if let Some(t) = title {
+                    format!("Showing table '{t}'")
+                } else if let Some(q) = query {
+                    format!("Showing table for: {}", truncate_str(q, 40))
+                } else {
+                    "Showing latest SQL results".to_string()
+                }
             }
             AgentCommand::LoadWorkspace { workspace } => {
                 format!("Loading workspace '{workspace}'")

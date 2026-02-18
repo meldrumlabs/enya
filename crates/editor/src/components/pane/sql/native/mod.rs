@@ -18,6 +18,7 @@ mod diff_rendering;
 mod pane;
 mod plan_parsing;
 mod plan_view;
+mod query_card;
 
 // Re-export commonly used types at the sql:: level
 pub use command::SqlCommand;
@@ -28,4 +29,4 @@ pub use connections::{
 pub use pane::SqlPane;
 pub use plan_view::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, StatsView};
 pub use suggestions::{Suggestion, SuggestionIcon, SuggestionState};
-pub use types::{ResultOverlay, SqlMode, SqlPaneAction};
+pub use types::{ResultOverlay, SqlMode};

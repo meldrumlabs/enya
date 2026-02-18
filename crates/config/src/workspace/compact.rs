@@ -468,6 +468,7 @@ impl CompactSnapshotWorkspace {
                 .map(|p| p.data.into_snapshot())
                 .collect(),
             conversation: None,
+            sql_pane: None,
         });
 
         ws
@@ -507,6 +508,7 @@ impl CompactSnapshotSinglePane {
             captured_at: self.captured_at,
             pane_data: vec![self.data.into_snapshot()],
             conversation: None,
+            sql_pane: None,
         });
 
         ws

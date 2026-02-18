@@ -6,7 +6,7 @@ use rustc_hash::FxHashSet;
 use tokio::sync::mpsc;
 
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::semantic_icons::{action, category, file, nav};
+use crate::ui::semantic_icons::{category, file, nav};
 use crate::ui::theme::AppTheme;
 
 /// Unique identifier for a saved connection.
@@ -56,12 +56,6 @@ pub struct ConnectionTreeState {
     pub expanded: FxHashSet<ConnectionId>,
     /// Currently selected item in the tree.
     pub selected: Option<TreeSelection>,
-    /// Whether the "Add Connection" dialog is open.
-    pub show_add_dialog: bool,
-    /// Name input for new connection dialog.
-    pub new_conn_name: String,
-    /// Endpoint input for new connection dialog.
-    pub new_conn_endpoint: String,
 }
 
 /// What is selected in the connection tree.
@@ -110,12 +104,8 @@ pub enum ConnectionAction {
     Remove(ConnectionId),
     /// Toggle expanded state of a connection.
     ToggleExpanded(ConnectionId),
-    /// Open the add connection dialog.
-    OpenAddDialog,
-    /// Close the add connection dialog.
-    CloseAddDialog,
-    /// Add a new connection with the given name and endpoint.
-    AddConnection { name: String, endpoint: String },
+    /// Open the full settings page to manage connections.
+    OpenSettings,
     /// Close the connection popup.
     ClosePopup,
     /// Toggle plan viewer visibility.
@@ -268,10 +258,10 @@ pub fn render_connection_popup(
                     ui.separator();
                     ui.add_space(4.0);
 
-                    // Add connection button
-                    let add_btn = ui.add(
+                    // Manage in Settings link
+                    let settings_btn = ui.add(
                         egui::Button::new(
-                            RichText::new(format!("{} Add Connection", action::ADD))
+                            RichText::new(format!("{} Manage in Settings", nav::SETTINGS))
                                 .color(accent)
                                 .size(11.0),
                         )
@@ -279,8 +269,8 @@ pub fn render_connection_popup(
                         .stroke(egui::Stroke::NONE)
                         .min_size(egui::vec2(200.0, 24.0)),
                     );
-                    if add_btn.clicked() {
-                        actions.push(ConnectionAction::OpenAddDialog);
+                    if settings_btn.clicked() {
+                        actions.push(ConnectionAction::OpenSettings);
                         actions.push(ConnectionAction::ClosePopup);
                     }
                 });
@@ -427,9 +417,9 @@ pub fn render_connection_tree(
                         .fill(theme.bg_surface())
                         .inner_margin(egui::Margin::symmetric(8, 8))
                         .show(ui, |ui| {
-                            let add_btn = ui.add(
+                            let settings_btn = ui.add(
                                 egui::Button::new(
-                                    RichText::new(format!("{} Add Connection", action::ADD))
+                                    RichText::new(format!("{} Manage in Settings", nav::SETTINGS))
                                         .color(accent)
                                         .size(11.0),
                                 )
@@ -438,8 +428,8 @@ pub fn render_connection_tree(
                                 .corner_radius(4.0)
                                 .min_size(egui::vec2(sidebar_width - 24.0, 28.0)),
                             );
-                            if add_btn.clicked() {
-                                actions.push(ConnectionAction::OpenAddDialog);
+                            if settings_btn.clicked() {
+                                actions.push(ConnectionAction::OpenSettings);
                             }
                         });
                 });
@@ -588,104 +578,6 @@ fn render_connection_item(
             }
         });
     }
-
-    actions
-}
-
-// =============================================================================
-// Add Connection Dialog
-// =============================================================================
-
-/// Render the add connection dialog.
-/// Returns actions to be handled by the caller.
-pub fn render_add_connection_dialog(
-    ui: &mut egui::Ui,
-    theme: AppTheme,
-    new_conn_name: &mut String,
-    new_conn_endpoint: &mut String,
-) -> Vec<ConnectionAction> {
-    let mut actions = Vec::new();
-
-    let text_secondary = theme.text_secondary();
-    let accent = theme.accent_primary();
-
-    egui::Window::new("Add Connection")
-        .collapsible(false)
-        .resizable(false)
-        .default_width(350.0)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ui.ctx(), |ui| {
-            ui.vertical(|ui| {
-                ui.add_space(8.0);
-
-                // Name field
-                ui.label(RichText::new("Name").color(text_secondary).size(11.0));
-                ui.add_space(4.0);
-                ui.add(
-                    egui::TextEdit::singleline(new_conn_name)
-                        .hint_text("e.g., Production, Staging, Local")
-                        .desired_width(320.0),
-                );
-
-                ui.add_space(12.0);
-
-                // Endpoint field
-                ui.label(RichText::new("Endpoint").color(text_secondary).size(11.0));
-                ui.add_space(4.0);
-                ui.add(
-                    egui::TextEdit::singleline(new_conn_endpoint)
-                        .hint_text("e.g., localhost:50051")
-                        .desired_width(320.0)
-                        .font(egui::TextStyle::Monospace),
-                );
-
-                ui.add_space(16.0);
-
-                // Buttons
-                ui.horizontal(|ui| {
-                    let cancel_btn = ui.add(
-                        egui::Button::new(RichText::new("Cancel").color(text_secondary).size(12.0))
-                            .fill(Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::new(1.0, theme.border_default())),
-                    );
-                    if cancel_btn.clicked() {
-                        actions.push(ConnectionAction::CloseAddDialog);
-                    }
-
-                    ui.add_space(8.0);
-
-                    let can_add =
-                        !new_conn_name.trim().is_empty() && !new_conn_endpoint.trim().is_empty();
-
-                    let add_btn = ui.add_enabled(
-                        can_add,
-                        egui::Button::new(
-                            RichText::new("Add Connection")
-                                .color(if can_add {
-                                    theme.bg_base()
-                                } else {
-                                    text_secondary
-                                })
-                                .size(12.0),
-                        )
-                        .fill(if can_add {
-                            accent
-                        } else {
-                            theme.bg_surface()
-                        }),
-                    );
-
-                    if add_btn.clicked() && can_add {
-                        let name = new_conn_name.trim().to_string();
-                        let endpoint = new_conn_endpoint.trim().to_string();
-                        actions.push(ConnectionAction::AddConnection { name, endpoint });
-                        actions.push(ConnectionAction::CloseAddDialog);
-                    }
-                });
-
-                ui.add_space(8.0);
-            });
-        });
 
     actions
 }

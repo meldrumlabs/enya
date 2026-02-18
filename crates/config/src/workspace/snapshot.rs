@@ -93,6 +93,72 @@ pub struct SnapshotInlineDiff {
     pub deletions: usize,
 }
 
+/// Column definition for a snapshot table.
+#[derive(Debug, Clone)]
+pub struct SnapshotTableColumn {
+    pub name: String,
+    pub data_type: String,
+}
+
+/// Inline SQL result table in a snapshot message.
+#[derive(Debug, Clone)]
+pub struct SnapshotInlineTable {
+    pub title: String,
+    pub columns: Vec<SnapshotTableColumn>,
+    pub rows: Vec<Vec<String>>,
+    pub total_rows: u64,
+    pub execution_time_ms: Option<u64>,
+}
+
+/// Execution statistics for a snapshot query cell.
+#[derive(Debug, Clone)]
+pub struct SnapshotQueryStats {
+    pub total_time_ms: u64,
+    pub planning_time_ms: u64,
+    pub execution_time_ms: u64,
+    pub rows_returned: u64,
+    pub bytes_scanned: u64,
+    pub partitions_scanned: u32,
+}
+
+/// Operator metrics in a snapshot plan node.
+#[derive(Debug, Clone)]
+pub struct SnapshotOperatorMetrics {
+    pub output_rows: u64,
+    pub elapsed_time_ms: u64,
+    pub memory_bytes: u64,
+    pub spill_count: u32,
+    pub spill_bytes: u64,
+}
+
+/// A node in a query execution plan tree (snapshot-friendly).
+#[derive(Debug, Clone)]
+pub struct SnapshotPlanNode {
+    pub operator: String,
+    pub description: String,
+    pub properties: Vec<(String, String)>,
+    pub children: Vec<SnapshotPlanNode>,
+    pub metrics: Option<SnapshotOperatorMetrics>,
+}
+
+/// A single query cell in a SQL pane snapshot.
+#[derive(Debug, Clone)]
+pub struct SnapshotQueryCell {
+    pub sql: String,
+    pub columns: Vec<SnapshotTableColumn>,
+    pub rows: Vec<Vec<String>>,
+    pub total_rows: u64,
+    pub stats: Option<SnapshotQueryStats>,
+    pub error: Option<String>,
+    pub plan: Option<SnapshotPlanNode>,
+}
+
+/// Snapshot data for a SQL pane (all query cells).
+#[derive(Debug, Clone)]
+pub struct SnapshotSqlPane {
+    pub cells: Vec<SnapshotQueryCell>,
+}
+
 /// Inline content in a snapshot message.
 #[derive(Debug, Clone)]
 pub enum SnapshotInlineContent {
@@ -100,6 +166,7 @@ pub enum SnapshotInlineContent {
     Source(SnapshotInlineSource),
     SearchResults(SnapshotInlineSearchResults),
     Diff(SnapshotInlineDiff),
+    Table(SnapshotInlineTable),
 }
 
 /// A message in a snapshot conversation.
@@ -209,11 +276,71 @@ struct CompactInlineDiff {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactTableColumn {
+    pub name: String,
+    pub data_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactInlineTable {
+    pub title: String,
+    pub columns: Vec<CompactTableColumn>,
+    pub rows: Vec<Vec<String>>,
+    pub total_rows: u64,
+    pub execution_time_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactQueryStats {
+    pub total_time_ms: u64,
+    pub planning_time_ms: u64,
+    pub execution_time_ms: u64,
+    pub rows_returned: u64,
+    pub bytes_scanned: u64,
+    pub partitions_scanned: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactOperatorMetrics {
+    pub output_rows: u64,
+    pub elapsed_time_ms: u64,
+    pub memory_bytes: u64,
+    pub spill_count: u32,
+    pub spill_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactPlanNode {
+    pub operator: String,
+    pub description: String,
+    pub properties: Vec<(String, String)>,
+    pub children: Vec<CompactPlanNode>,
+    pub metrics: Option<CompactOperatorMetrics>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactQueryCell {
+    pub sql: String,
+    pub columns: Vec<CompactTableColumn>,
+    pub rows: Vec<Vec<String>>,
+    pub total_rows: u64,
+    pub stats: Option<CompactQueryStats>,
+    pub error: Option<String>,
+    pub plan: Option<CompactPlanNode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactSqlPane {
+    pub cells: Vec<CompactQueryCell>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 enum CompactInlineContent {
     Chart(CompactInlineChart),
     Source(CompactInlineSource),
     SearchResults(CompactInlineSearchResults),
     Diff(CompactInlineDiff),
+    Table(CompactInlineTable),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,6 +361,14 @@ struct CompactSnapshotConversation {
 struct CompactFullSnapshot {
     pub workspace: CompactSnapshotWorkspace,
     pub conversation: Option<CompactSnapshotConversation>,
+    pub sql_pane: Option<CompactSqlPane>,
+}
+
+/// Legacy format without sql_pane field (for decoding old snapshots).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompactFullSnapshotV1 {
+    pub workspace: CompactSnapshotWorkspace,
+    pub conversation: Option<CompactSnapshotConversation>,
 }
 
 // =============================================================================
@@ -248,6 +383,7 @@ pub fn encode_snapshot(
     pane_data: &[SnapshotPaneData],
     captured_at: u64,
     conversation: Option<&SnapshotConversation>,
+    sql_pane: Option<&SnapshotSqlPane>,
 ) -> Result<Vec<u8>, WorkspaceError> {
     let mut compact_ws = CompactSnapshotWorkspace::from_workspace(ws, pane_data);
     compact_ws.captured_at = captured_at;
@@ -269,9 +405,12 @@ pub fn encode_snapshot(
             .collect(),
     });
 
+    let compact_sql = sql_pane.map(encode_sql_pane);
+
     let full = CompactFullSnapshot {
         workspace: compact_ws,
         conversation: compact_convo,
+        sql_pane: compact_sql,
     };
 
     let bytes = postcard::to_allocvec(&full).map_err(|e| WorkspaceError::Encode(e.to_string()))?;
@@ -279,15 +418,49 @@ pub fn encode_snapshot(
 }
 
 /// Decode a full snapshot from compressed binary.
+///
+/// Supports both the current format (with optional sql_pane) and the legacy
+/// format (without sql_pane) for backward compatibility with existing R2 blobs.
 pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, WorkspaceError> {
     let decompressed = lz4_flex::decompress_size_prepended(bytes)
         .map_err(|e| WorkspaceError::Decode(e.to_string()))?;
-    let full: CompactFullSnapshot =
-        postcard::from_bytes(&decompressed).map_err(|e| WorkspaceError::Decode(e.to_string()))?;
+
+    // Try current format first, fall back to legacy (without sql_pane field)
+    let full: CompactFullSnapshot = match postcard::from_bytes(&decompressed) {
+        Ok(f) => f,
+        Err(_) => {
+            let legacy: CompactFullSnapshotV1 = postcard::from_bytes(&decompressed)
+                .map_err(|e| WorkspaceError::Decode(e.to_string()))?;
+            CompactFullSnapshot {
+                workspace: legacy.workspace,
+                conversation: legacy.conversation,
+                sql_pane: None,
+            }
+        }
+    };
 
     let mut ws = full.workspace.into_workspace();
 
-    let conversation = full.conversation.map(|c| SnapshotConversation {
+    let conversation = full.conversation.map(decode_conversation);
+    let sql_pane = full.sql_pane.map(decode_sql_pane);
+
+    let captured_at = ws.snapshot.as_ref().map_or(0, |s| s.captured_at);
+
+    // Attach conversation and SQL data to the snapshot meta
+    if let Some(ref mut snapshot) = ws.snapshot {
+        snapshot.conversation = conversation.clone();
+        snapshot.sql_pane = sql_pane.clone();
+    }
+
+    Ok(Snapshot {
+        workspace: ws,
+        captured_at,
+        conversation,
+    })
+}
+
+fn decode_conversation(c: CompactSnapshotConversation) -> SnapshotConversation {
+    SnapshotConversation {
         name: c.name,
         messages: c
             .messages
@@ -306,20 +479,7 @@ pub fn decode_snapshot(bytes: &[u8]) -> Result<Snapshot, WorkspaceError> {
                     .collect(),
             })
             .collect(),
-    });
-
-    let captured_at = ws.snapshot.as_ref().map_or(0, |s| s.captured_at);
-
-    // Attach conversation to the snapshot meta
-    if let Some(ref mut snapshot) = ws.snapshot {
-        snapshot.conversation = conversation.clone();
     }
-
-    Ok(Snapshot {
-        workspace: ws,
-        captured_at,
-        conversation,
-    })
 }
 
 // =============================================================================
@@ -393,6 +553,20 @@ fn encode_inline_content(content: &SnapshotInlineContent) -> CompactInlineConten
             additions: diff.additions as u32,
             deletions: diff.deletions as u32,
         }),
+        SnapshotInlineContent::Table(table) => CompactInlineContent::Table(CompactInlineTable {
+            title: table.title.clone(),
+            columns: table
+                .columns
+                .iter()
+                .map(|c| CompactTableColumn {
+                    name: c.name.clone(),
+                    data_type: c.data_type.clone(),
+                })
+                .collect(),
+            rows: table.rows.clone(),
+            total_rows: table.total_rows,
+            execution_time_ms: table.execution_time_ms,
+        }),
     }
 }
 
@@ -462,6 +636,120 @@ fn decode_inline_content(content: CompactInlineContent) -> SnapshotInlineContent
                 .collect(),
             additions: diff.additions as usize,
             deletions: diff.deletions as usize,
+        }),
+        CompactInlineContent::Table(table) => SnapshotInlineContent::Table(SnapshotInlineTable {
+            title: table.title,
+            columns: table
+                .columns
+                .into_iter()
+                .map(|c| SnapshotTableColumn {
+                    name: c.name,
+                    data_type: c.data_type,
+                })
+                .collect(),
+            rows: table.rows,
+            total_rows: table.total_rows,
+            execution_time_ms: table.execution_time_ms,
+        }),
+    }
+}
+
+// =============================================================================
+// SQL Pane Conversion Helpers
+// =============================================================================
+
+fn encode_sql_pane(pane: &SnapshotSqlPane) -> CompactSqlPane {
+    CompactSqlPane {
+        cells: pane.cells.iter().map(encode_query_cell).collect(),
+    }
+}
+
+fn decode_sql_pane(pane: CompactSqlPane) -> SnapshotSqlPane {
+    SnapshotSqlPane {
+        cells: pane.cells.into_iter().map(decode_query_cell).collect(),
+    }
+}
+
+fn encode_query_cell(cell: &SnapshotQueryCell) -> CompactQueryCell {
+    CompactQueryCell {
+        sql: cell.sql.clone(),
+        columns: cell
+            .columns
+            .iter()
+            .map(|c| CompactTableColumn {
+                name: c.name.clone(),
+                data_type: c.data_type.clone(),
+            })
+            .collect(),
+        rows: cell.rows.clone(),
+        total_rows: cell.total_rows,
+        stats: cell.stats.as_ref().map(|s| CompactQueryStats {
+            total_time_ms: s.total_time_ms,
+            planning_time_ms: s.planning_time_ms,
+            execution_time_ms: s.execution_time_ms,
+            rows_returned: s.rows_returned,
+            bytes_scanned: s.bytes_scanned,
+            partitions_scanned: s.partitions_scanned,
+        }),
+        error: cell.error.clone(),
+        plan: cell.plan.as_ref().map(encode_plan_node),
+    }
+}
+
+fn decode_query_cell(cell: CompactQueryCell) -> SnapshotQueryCell {
+    SnapshotQueryCell {
+        sql: cell.sql,
+        columns: cell
+            .columns
+            .into_iter()
+            .map(|c| SnapshotTableColumn {
+                name: c.name,
+                data_type: c.data_type,
+            })
+            .collect(),
+        rows: cell.rows,
+        total_rows: cell.total_rows,
+        stats: cell.stats.map(|s| SnapshotQueryStats {
+            total_time_ms: s.total_time_ms,
+            planning_time_ms: s.planning_time_ms,
+            execution_time_ms: s.execution_time_ms,
+            rows_returned: s.rows_returned,
+            bytes_scanned: s.bytes_scanned,
+            partitions_scanned: s.partitions_scanned,
+        }),
+        error: cell.error,
+        plan: cell.plan.map(decode_plan_node),
+    }
+}
+
+fn encode_plan_node(node: &SnapshotPlanNode) -> CompactPlanNode {
+    CompactPlanNode {
+        operator: node.operator.clone(),
+        description: node.description.clone(),
+        properties: node.properties.clone(),
+        children: node.children.iter().map(encode_plan_node).collect(),
+        metrics: node.metrics.as_ref().map(|m| CompactOperatorMetrics {
+            output_rows: m.output_rows,
+            elapsed_time_ms: m.elapsed_time_ms,
+            memory_bytes: m.memory_bytes,
+            spill_count: m.spill_count,
+            spill_bytes: m.spill_bytes,
+        }),
+    }
+}
+
+fn decode_plan_node(node: CompactPlanNode) -> SnapshotPlanNode {
+    SnapshotPlanNode {
+        operator: node.operator,
+        description: node.description,
+        properties: node.properties,
+        children: node.children.into_iter().map(decode_plan_node).collect(),
+        metrics: node.metrics.map(|m| SnapshotOperatorMetrics {
+            output_rows: m.output_rows,
+            elapsed_time_ms: m.elapsed_time_ms,
+            memory_bytes: m.memory_bytes,
+            spill_count: m.spill_count,
+            spill_bytes: m.spill_bytes,
         }),
     }
 }
@@ -545,7 +833,7 @@ mod tests {
     fn round_trip_snapshot_without_conversation() {
         let (ws, pane_data) = make_test_workspace();
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         assert_eq!(decoded.captured_at, 1700000000);
@@ -575,7 +863,7 @@ mod tests {
         let (ws, pane_data) = make_test_workspace();
         let convo = make_test_conversation();
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo)).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo), None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         let convo_out = decoded.conversation.as_ref().unwrap();
@@ -654,7 +942,7 @@ mod tests {
             }],
         };
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo)).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo), None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         let msg = &decoded.conversation.as_ref().unwrap().messages[0];
@@ -716,7 +1004,7 @@ mod tests {
             }],
         };
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo)).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo), None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         let msg = &decoded.conversation.as_ref().unwrap().messages[0];
@@ -762,7 +1050,7 @@ mod tests {
             }],
         };
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo)).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo), None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         let msg = &decoded.conversation.as_ref().unwrap().messages[0];
@@ -786,7 +1074,7 @@ mod tests {
             messages: vec![],
         };
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo)).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo), None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         let convo_out = decoded.conversation.as_ref().unwrap();
@@ -803,7 +1091,7 @@ mod tests {
         }];
         let convo = make_test_conversation();
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo)).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, Some(&convo), None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         let snapshot = decoded.workspace.snapshot.as_ref().unwrap();

@@ -89,6 +89,27 @@ Displays a time series chart inline within the agent's response. **Preferred** f
 
 ---
 
+### `show_inline_table`
+
+Displays SQL query results as an inline table within the agent's response. Matches against recent SQL pane query history or shows the latest result.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | No | SQL query to match in history (uses latest result if omitted) |
+| `title` | string | No | Title override (defaults to the SQL query text) |
+
+**Example (latest result):**
+```json
+{"action": "show_inline_table"}
+```
+
+**Example (specific query):**
+```json
+{"action": "show_inline_table", "query": "SELECT * FROM users LIMIT 10", "title": "User Table"}
+```
+
+---
+
 ### `show_source`
 
 Shows source code for a metric or alert definition. The editor decides whether to show it inline or as a modal based on context. **Preferred** over the legacy `show_metric_source`, `show_inline_source`, and `show_alert_source` commands.

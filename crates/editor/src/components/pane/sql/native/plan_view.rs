@@ -509,8 +509,8 @@ impl PlanTreeView {
                                             if metrics.output_rows > 0 {
                                                 ui.label(
                                                     RichText::new(format!(
-                                                        "{}r",
-                                                        metrics.output_rows
+                                                        "{} rows",
+                                                        format_rows(metrics.output_rows)
                                                     ))
                                                     .color(text_secondary)
                                                     .size(11.0),
@@ -1532,6 +1532,8 @@ pub struct PlanViewer {
     bottleneck_count: usize,
     /// Whether a workspace overlay is blocking keyboard input.
     overlay_blocks_input: bool,
+    /// Root plan node (stored for clipboard export).
+    root_plan: Option<PlanNode>,
 }
 
 impl PlanViewer {
@@ -1547,6 +1549,7 @@ impl PlanViewer {
             operator_count: 0,
             bottleneck_count: 0,
             overlay_blocks_input: false,
+            root_plan: None,
         }
     }
 
@@ -1555,8 +1558,14 @@ impl PlanViewer {
         self.overlay_blocks_input = blocks;
     }
 
+    /// Get the root plan node (for clipboard export).
+    pub fn root_plan(&self) -> Option<&PlanNode> {
+        self.root_plan.as_ref()
+    }
+
     /// Load a plan for visualization.
     pub fn load_plan(&mut self, plan: &PlanNode) {
+        self.root_plan = Some(plan.clone());
         self.tree_view = Some(PlanTreeView::new(plan, self.theme));
         self.stats_view = Some(StatsView::new(plan, self.theme));
         self.waterfall_view = Some(WaterfallView::new(plan, self.theme));

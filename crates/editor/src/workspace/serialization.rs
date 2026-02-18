@@ -246,6 +246,11 @@ impl Workspace {
             self.agent_panel.load_snapshot_conversation(conversation);
         }
 
+        // Load snapshot SQL pane data if present
+        if let Some(sql_data) = config.snapshot.as_ref().and_then(|s| s.sql_pane.as_ref()) {
+            self.load_sql_snapshot_data(sql_data);
+        }
+
         // Return connection config if present (for logging/tracking in caller)
         if effective_conn.is_empty() {
             None
@@ -395,6 +400,32 @@ impl Workspace {
     /// Returns a reference to the agent panel.
     pub fn agent_panel(&self) -> &crate::components::overlay::AgentPanel {
         &self.agent_panel
+    }
+
+    /// Extract snapshot data from the SQL pane (if any).
+    pub fn extract_sql_snapshot_data(&self) -> Option<enya_config::SnapshotSqlPane> {
+        use crate::components::SqlPane;
+        for (_tile_id, tile) in self.viewport_tree.tiles.iter() {
+            if let egui_tiles::Tile::Pane(component) = tile {
+                if let Some(sql_pane) = component.as_any().downcast_ref::<SqlPane>() {
+                    return sql_pane.extract_snapshot_data();
+                }
+            }
+        }
+        None
+    }
+
+    /// Load snapshot data into the SQL pane (if any).
+    fn load_sql_snapshot_data(&mut self, data: &enya_config::SnapshotSqlPane) {
+        use crate::components::SqlPane;
+        for (_tile_id, tile) in self.viewport_tree.tiles.iter_mut() {
+            if let egui_tiles::Tile::Pane(component) = tile {
+                if let Some(sql_pane) = component.as_any_mut().downcast_mut::<SqlPane>() {
+                    sql_pane.load_snapshot_data(data);
+                    return;
+                }
+            }
+        }
     }
 
     /// Clear all panes from the viewport

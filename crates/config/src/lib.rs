@@ -21,7 +21,9 @@ pub mod workspace;
 pub use workspace::snapshot::{
     Snapshot, SnapshotConversation, SnapshotDiffFile, SnapshotDiffLine, SnapshotDiffLineKind,
     SnapshotInlineChart, SnapshotInlineContent, SnapshotInlineDiff, SnapshotInlineSearchResults,
-    SnapshotInlineSource, SnapshotMessage, SnapshotMessageRole, SnapshotSearchResultItem,
+    SnapshotInlineSource, SnapshotInlineTable, SnapshotMessage, SnapshotMessageRole,
+    SnapshotOperatorMetrics, SnapshotPlanNode, SnapshotQueryCell, SnapshotQueryStats,
+    SnapshotSearchResultItem, SnapshotSqlPane, SnapshotTableColumn,
 };
 pub use workspace::{
     ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,

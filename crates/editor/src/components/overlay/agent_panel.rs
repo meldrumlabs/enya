@@ -15,6 +15,7 @@ use super::slash_commands::SlashCommandPopup;
 use crate::components::pane::time_series_chart::TimeSeriesChart;
 use crate::components::pane::{
     InlineChart, InlineContent, InlineDiff, InlineDiffLineKind, InlineSearchResults, InlineSource,
+    InlineTable,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::util::file_opener::{FileOpenerAction, FileOpenerPopup, FileOpenerResult};
@@ -2063,6 +2064,9 @@ impl AgentPanel {
                             Some((diff.commit_hash.clone(), diff.commit_message.clone()));
                     }
                 }
+                InlineContent::Table(table) => {
+                    self.render_inline_table(ui, table, colors);
+                }
             }
         }
         // Set pending diff viewer action (if any inline diff was clicked)
@@ -2393,6 +2397,144 @@ impl AgentPanel {
                         .italics(),
                     );
                 }
+            });
+    }
+
+    /// Render an inline SQL result table within a message.
+    fn render_inline_table(&self, ui: &mut egui::Ui, table: &InlineTable, colors: &ChatColors) {
+        use egui_nerdfonts::regular;
+
+        let text_primary = self.theme.text_primary();
+        let text_tertiary = self.theme.text_tertiary();
+        let accent = self.theme.accent_primary();
+
+        egui::Frame::new()
+            .fill(self.theme.bg_elevated())
+            .corner_radius(CornerRadius::same(8))
+            .stroke(Stroke::new(1.0, colors.chart_embed_border()))
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                // Header: table icon + title + stats badges
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(regular::FILE_TABLE).color(accent).size(14.0));
+                    ui.add_space(4.0);
+
+                    // Truncate title (SQL query) to ~60 chars
+                    let display_title = if table.title.len() > 60 {
+                        format!("{}...", &table.title[..57])
+                    } else {
+                        table.title.clone()
+                    };
+                    ui.label(
+                        RichText::new(display_title)
+                            .color(text_primary)
+                            .font(typography::monospace(typography::SM))
+                            .strong(),
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!("{} rows", table.total_rows))
+                                .color(text_tertiary)
+                                .size(typography::XS),
+                        );
+                        if let Some(ms) = table.execution_time_ms {
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(format!("{ms}ms"))
+                                    .color(text_tertiary)
+                                    .size(typography::XS),
+                            );
+                        }
+                    });
+                });
+
+                ui.add_space(4.0);
+
+                // Table content in code-style frame
+                egui::Frame::new()
+                    .fill(self.theme.bg_surface())
+                    .corner_radius(CornerRadius::same(4))
+                    .inner_margin(egui::Margin::symmetric(8, 4))
+                    .show(ui, |ui| {
+                        let max_display_rows = 10;
+
+                        egui::Grid::new("inline_table_grid")
+                            .striped(true)
+                            .spacing([12.0, 2.0])
+                            .show(ui, |ui| {
+                                // Column headers
+                                for col in &table.columns {
+                                    ui.vertical(|ui| {
+                                        ui.label(
+                                            RichText::new(&col.name)
+                                                .color(text_primary)
+                                                .font(typography::monospace(typography::SM))
+                                                .strong(),
+                                        );
+                                        ui.label(
+                                            RichText::new(&col.data_type)
+                                                .color(text_tertiary)
+                                                .font(typography::monospace(typography::XS)),
+                                        );
+                                    });
+                                }
+                                ui.end_row();
+
+                                // Data rows
+                                for row in table.rows.iter().take(max_display_rows) {
+                                    for (col_idx, value) in row.iter().enumerate() {
+                                        let (display, color) = if value == "NULL" {
+                                            ("null", text_tertiary)
+                                        } else {
+                                            (value.as_str(), self.theme.text_secondary())
+                                        };
+                                        // Truncate long values
+                                        let truncated = if display.len() > 40 {
+                                            format!("{}...", &display[..37])
+                                        } else {
+                                            display.to_string()
+                                        };
+                                        let label = RichText::new(truncated)
+                                            .color(color)
+                                            .font(typography::monospace(typography::SM));
+                                        let label = if value == "NULL" {
+                                            label.italics()
+                                        } else {
+                                            label
+                                        };
+                                        ui.label(label);
+                                        let _ = col_idx; // suppress unused warning
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+
+                        // "More rows" indicator
+                        if table.rows.len() > max_display_rows {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "... and {} more rows",
+                                    table.total_rows - max_display_rows
+                                ))
+                                .color(text_tertiary)
+                                .size(typography::XS)
+                                .italics(),
+                            );
+                        } else if table.total_rows > table.rows.len() {
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "... and {} more rows",
+                                    table.total_rows - table.rows.len()
+                                ))
+                                .color(text_tertiary)
+                                .size(typography::XS)
+                                .italics(),
+                            );
+                        }
+                    });
             });
     }
 

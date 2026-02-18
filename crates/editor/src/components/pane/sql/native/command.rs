@@ -5,6 +5,12 @@
 /// Available SQL pane commands (triggered with `/`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SqlCommand {
+    /// Disconnect from server.
+    Close,
+    /// List available tables.
+    Tables,
+    /// Toggle plan viewer.
+    Plan,
     /// Compare query results across two environments.
     Diff,
     /// Show query execution plan (EXPLAIN).
@@ -13,8 +19,6 @@ pub enum SqlCommand {
     Analyze,
     /// Show table schema/structure.
     Schema,
-    /// Switch active connection.
-    Connect,
     /// Show query history.
     History,
     /// Load demo query plan.
@@ -25,11 +29,13 @@ impl SqlCommand {
     /// All available commands.
     pub fn all() -> &'static [SqlCommand] {
         &[
+            SqlCommand::Close,
+            SqlCommand::Tables,
+            SqlCommand::Plan,
             SqlCommand::Explain,
             SqlCommand::Analyze,
             SqlCommand::Demo,
             SqlCommand::Schema,
-            SqlCommand::Connect,
             SqlCommand::Diff,
             SqlCommand::History,
         ]
@@ -38,11 +44,13 @@ impl SqlCommand {
     /// Command name (what user types).
     pub fn name(&self) -> &'static str {
         match self {
+            SqlCommand::Close => "close",
+            SqlCommand::Tables => "tables",
+            SqlCommand::Plan => "plan",
             SqlCommand::Diff => "diff",
             SqlCommand::Explain => "explain",
             SqlCommand::Analyze => "analyze",
             SqlCommand::Schema => "schema",
-            SqlCommand::Connect => "connect",
             SqlCommand::History => "history",
             SqlCommand::Demo => "demo",
         }
@@ -51,11 +59,13 @@ impl SqlCommand {
     /// Short description of the command.
     pub fn description(&self) -> &'static str {
         match self {
+            SqlCommand::Close => "Disconnect from server",
+            SqlCommand::Tables => "List available tables",
+            SqlCommand::Plan => "Toggle plan viewer",
             SqlCommand::Diff => "Compare across envs",
             SqlCommand::Explain => "Show query plan (EXPLAIN)",
             SqlCommand::Analyze => "Query plan with timing (EXPLAIN ANALYZE)",
             SqlCommand::Schema => "Table structure",
-            SqlCommand::Connect => "Connect or save connection",
             SqlCommand::History => "Query history",
             SqlCommand::Demo => "Load demo query plan",
         }

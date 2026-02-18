@@ -142,12 +142,7 @@ pub(super) struct DiffQueryResult {
     pub schema_diff: Option<SchemaDiffResult>,
 }
 
-/// Actions that can be triggered by the SQL pane.
-#[derive(Debug, Clone)]
-pub enum SqlPaneAction {
-    /// No action.
-    None,
-}
+pub use super::super::SqlPaneAction;
 
 /// Current mode of the SQL pane.
 #[derive(Debug, Clone, Default)]
@@ -215,4 +210,39 @@ pub(super) struct QueryCell {
     pub is_info: bool,
     /// Diff result when comparing two connections.
     pub diff_result: Option<DiffQueryResult>,
+}
+
+/// Which content tab is active in an expanded cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum CellTab {
+    #[default]
+    Table,
+    Plan,
+}
+
+/// Per-cell UI state (stored separately from QueryCell data).
+#[derive(Debug, Clone)]
+pub(super) struct CellViewState {
+    /// Whether the cell is expanded (showing full results inline).
+    pub expanded: bool,
+    /// Active tab when expanded.
+    pub active_tab: CellTab,
+    /// Current page in table view (0-indexed).
+    pub table_page: usize,
+    /// Column to sort by (None = original order).
+    pub sort_column: Option<usize>,
+    /// Sort direction (true = ascending).
+    pub sort_ascending: bool,
+}
+
+impl Default for CellViewState {
+    fn default() -> Self {
+        Self {
+            expanded: false,
+            active_tab: CellTab::Table,
+            table_page: 0,
+            sort_column: None,
+            sort_ascending: true,
+        }
+    }
 }
