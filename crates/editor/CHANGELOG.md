@@ -14,6 +14,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
+- **Snapshot layout preservation**: Fixed snapshots collapsing split/tiled pane layouts into a single tab. The layout extraction now uses only QueryPane tile IDs for pane index mapping, preventing index mismatches when non-QueryPane components (LogsPane, PluginPanes) are in the viewport tree. Also normalizes redundant single-pane Tabs wrappers added by `all_panes_must_have_tabs` so the saved layout is clean and compact.
+
 - **Profile j/k navigation**: Fixed keyboard navigation in the Profile settings section being stuck on the GitHub sign-in button. All 5 items (GitHub auth, default workspace, timezone, default time range, startup page) are now navigable with j/k, and Enter/l toggles the focused dropdown. Focus highlight borders now appear on all profile cards.
 
 - **GitHub authentication in Settings**: New "Auth" section in the settings sidebar under an "ACCOUNT" group. Uses the Authorization Code flow on both platforms — on native, opens the browser and captures the callback via a local server; on WASM, redirects the page to GitHub and detects the callback on reload. Displays the connected GitHub username when signed in. Auth state persists across sessions. Token exchange goes through the API worker (client secret stays server-side).
