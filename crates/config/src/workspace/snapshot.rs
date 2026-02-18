@@ -817,4 +817,110 @@ mod tests {
 
         assert!(decoded.conversation.is_some());
     }
+
+    #[test]
+    fn blob_snapshot_round_trip_preserves_layout() {
+        use crate::workspace::{LayoutConfig, LayoutNode, LayoutType, PaneConfig};
+
+        let mut ws = WorkspaceConfig::new("layout-blob");
+        let mut p1 = PaneConfig::new("left_query");
+        p1.name = "Left".to_string();
+        ws.panes.push(p1);
+        let mut p2 = PaneConfig::new("right_query");
+        p2.name = "Right".to_string();
+        ws.panes.push(p2);
+        // Horizontal split layout
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+            shares: vec![],
+        });
+
+        let pane_data = vec![
+            SnapshotPaneData::TimeSeries {
+                series: vec![SnapshotSeries {
+                    name: "s1".to_string(),
+                    tags: vec![],
+                    points: vec![(1.0, 2.0)],
+                }],
+            },
+            SnapshotPaneData::TimeSeries {
+                series: vec![SnapshotSeries {
+                    name: "s2".to_string(),
+                    tags: vec![],
+                    points: vec![(3.0, 4.0)],
+                }],
+            },
+        ];
+
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None).unwrap();
+        let decoded = decode_snapshot(&bytes).unwrap();
+
+        // Layout must survive the blob round-trip
+        let layout = decoded
+            .workspace
+            .layout
+            .expect("layout should survive blob snapshot round-trip");
+        assert_eq!(layout.layout_type, LayoutType::Horizontal);
+        assert_eq!(layout.children.len(), 2);
+        assert!(matches!(layout.children[0], LayoutNode::Pane(0)));
+        assert!(matches!(layout.children[1], LayoutNode::Pane(1)));
+    }
+
+    #[test]
+    fn blob_snapshot_round_trip_preserves_nested_layout() {
+        use crate::workspace::{LayoutConfig, LayoutContainer, LayoutNode, LayoutType, PaneConfig};
+
+        let mut ws = WorkspaceConfig::new("nested-blob");
+        ws.panes.push(PaneConfig::new("a"));
+        ws.panes.push(PaneConfig::new("b"));
+        ws.panes.push(PaneConfig::new("c"));
+        // Nested: Horizontal [ Vertical [0, 1], 2 ]
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![
+                LayoutNode::Container(LayoutContainer {
+                    layout_type: LayoutType::Vertical,
+                    children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+                    shares: vec![],
+                }),
+                LayoutNode::Pane(2),
+            ],
+            shares: vec![],
+        });
+
+        let pane_data = vec![
+            SnapshotPaneData::Stat {
+                value: 1.0,
+                sparkline: vec![],
+            },
+            SnapshotPaneData::Stat {
+                value: 2.0,
+                sparkline: vec![],
+            },
+            SnapshotPaneData::Stat {
+                value: 3.0,
+                sparkline: vec![],
+            },
+        ];
+
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None).unwrap();
+        let decoded = decode_snapshot(&bytes).unwrap();
+
+        let layout = decoded
+            .workspace
+            .layout
+            .expect("nested layout should survive blob snapshot round-trip");
+        assert_eq!(layout.layout_type, LayoutType::Horizontal);
+        assert_eq!(layout.children.len(), 2);
+
+        match &layout.children[0] {
+            LayoutNode::Container(c) => {
+                assert_eq!(c.layout_type, LayoutType::Vertical);
+                assert_eq!(c.children.len(), 2);
+            }
+            _ => panic!("Expected nested vertical container"),
+        }
+        assert!(matches!(layout.children[1], LayoutNode::Pane(2)));
+    }
 }

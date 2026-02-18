@@ -29,8 +29,11 @@ impl Workspace {
     /// stored in AppSettings, not a per-workspace setting.
     pub fn to_workspace_config(&self, name: &str, endpoint: Option<&str>) -> WorkspaceConfig {
         let mut panes = Vec::new();
+        let mut query_pane_tile_ids = Vec::new();
 
-        // Collect all QueryPane data from the viewport tree
+        // Collect QueryPane data and their TileIds together so pane indices
+        // in the layout exactly match the panes array. Non-QueryPane components
+        // (LogsPane, PluginPanes, etc.) are excluded from both.
         for tile_id in self.get_pane_tile_ids() {
             if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
                 if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
@@ -44,6 +47,7 @@ impl Workspace {
                     );
                     pane_config.unit = query_pane.unit().to_string();
                     panes.push(pane_config);
+                    query_pane_tile_ids.push(tile_id);
                 }
             }
         }
@@ -70,7 +74,7 @@ impl Workspace {
             plugins: PluginsConfig::default(),
             sections: Vec::new(),
             panes,
-            layout: self.extract_layout_from_tree(),
+            layout: self.extract_layout_from_tile_ids(&query_pane_tile_ids),
             snapshot: None,
         }
     }
@@ -169,6 +173,11 @@ impl Workspace {
 
         // Phase 2: Build the layout tree
         let root_id = if let Some(layout) = &config.layout {
+            log::info!(
+                "Loading workspace layout: {:?} with {} children",
+                layout.layout_type,
+                layout.children.len()
+            );
             // Validate layout references before building
             if let Err(e) = layout.validate(pane_count) {
                 log::warn!("Invalid layout config: {e}. Falling back to tabs.");
@@ -180,6 +189,7 @@ impl Workspace {
                 self.build_layout_tree(layout, &pane_tile_ids)
             }
         } else {
+            log::debug!("No layout in workspace config, using tabs");
             // Backward compatibility: no layout = tabs container
             self.viewport_tree
                 .tiles
@@ -504,13 +514,15 @@ impl Workspace {
 
     // ==================== Layout Tree Extraction ====================
 
-    /// Extract layout configuration from the current tile tree
-    fn extract_layout_from_tree(&self) -> Option<LayoutConfig> {
+    /// Extract layout configuration from the current tile tree, using only the
+    /// given pane tile IDs for the pane index mapping. This ensures the layout
+    /// indices match the panes array exactly (important when non-QueryPane
+    /// components like LogsPane or PluginPanes are present in the tree).
+    fn extract_layout_from_tile_ids(&self, pane_tile_ids: &[TileId]) -> Option<LayoutConfig> {
         let root_id = self.viewport_tree.root()?;
 
-        // Build a mapping from TileId to pane index
-        let pane_ids = self.get_pane_tile_ids();
-        let pane_index_map: FxHashMap<TileId, usize> = pane_ids
+        // Build a mapping from TileId to pane index using only the provided IDs
+        let pane_index_map: FxHashMap<TileId, usize> = pane_tile_ids
             .iter()
             .enumerate()
             .map(|(i, &id)| (id, i))
@@ -566,10 +578,14 @@ impl Workspace {
                     .filter_map(|&id| self.tile_to_layout_node(id, pane_index_map))
                     .collect();
 
-                // Extract shares
+                // Extract shares only for children that were included (filter_map may skip some)
                 let shares: Vec<f32> = linear
                     .children
                     .iter()
+                    .filter(|&&id| {
+                        // Include share only if this child produced a layout node
+                        self.tile_produces_layout_node(id, pane_index_map)
+                    })
                     .map(|&id| linear.shares[id])
                     .collect();
 
@@ -590,7 +606,20 @@ impl Workspace {
         }
     }
 
-    /// Convert a tile to a layout node
+    /// Check if a tile would produce a layout node (used for share alignment)
+    fn tile_produces_layout_node(
+        &self,
+        tile_id: TileId,
+        pane_index_map: &FxHashMap<TileId, usize>,
+    ) -> bool {
+        self.tile_to_layout_node(tile_id, pane_index_map).is_some()
+    }
+
+    /// Convert a tile to a layout node.
+    ///
+    /// Normalizes single-pane Tabs wrappers (added by `all_panes_must_have_tabs`)
+    /// back to bare Pane nodes for a cleaner, more compact layout representation.
+    /// Tiles not in the pane_index_map (non-QueryPane components) are skipped.
     fn tile_to_layout_node(
         &self,
         tile_id: TileId,
@@ -598,12 +627,29 @@ impl Workspace {
     ) -> Option<LayoutNode> {
         match self.viewport_tree.tiles.get(tile_id)? {
             Tile::Pane(_) => {
+                // Only include panes that are in our index map (QueryPanes)
                 let index = pane_index_map.get(&tile_id)?;
                 Some(LayoutNode::Pane(*index))
             }
             Tile::Container(container) => {
                 let (layout_type, children, shares) =
                     self.extract_container(container, pane_index_map);
+
+                // Skip empty containers (all children were non-QueryPane)
+                if children.is_empty() {
+                    return None;
+                }
+
+                // Unwrap single-pane Tabs wrappers: these are added by egui_tiles'
+                // `all_panes_must_have_tabs` simplification and are a rendering detail,
+                // not part of the user's intended layout.
+                if layout_type == LayoutType::Tabs
+                    && children.len() == 1
+                    && matches!(children.first(), Some(LayoutNode::Pane(_)))
+                {
+                    return children.into_iter().next();
+                }
+
                 Some(LayoutNode::Container(LayoutContainer {
                     layout_type,
                     children,
