@@ -87,7 +87,7 @@ jobs:
           APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
           APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
           APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
-        run: ./scripts/bundle-mac
+        run: ./scripts/bundle-mac.sh
 
       - name: Generate checksums
         run: |
@@ -216,10 +216,28 @@ jobs:
             Enya-*.msi \
             checksums-windows.txt
 
+  # Publish workspace crates to crates.io
+  publish-crates:
+    name: Publish to crates.io
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: ./scripts/publish-crates.sh
+
   # Publish the release after all builds complete
   publish-release:
     name: Publish Release
-    needs: [create-release, build-macos, build-windows]
+    needs: [create-release, build-macos, build-windows, publish-crates]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

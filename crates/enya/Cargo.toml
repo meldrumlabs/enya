@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Observability editor for humans, machines, and AI agents"
 
 [[bin]]
@@ -25,7 +26,7 @@ serde_json = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 # GUI dependencies (optional, enabled by default via "ui" feature)
-enya-editor = { path = "../editor", optional = true }
+enya-editor = { path = "../editor", version = "0.1.0", optional = true }
 mimalloc = { workspace = true, optional = true }
 
 # Agent (session always available; HTTP server gated behind "serve" feature)

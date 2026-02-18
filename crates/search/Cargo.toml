@@ -3,8 +3,8 @@ name = "enya-search"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-publish = false
 license.workspace = true
+repository.workspace = true
 description = "Full-text search index for Enya codebase (metrics, alerts, commits)"
 
 [dependencies]
