@@ -29,4 +29,4 @@ pub use connections::{
 pub use pane::SqlPane;
 pub use plan_view::{DiffView, PlanTreeView, PlanViewMode, PlanViewer, StatsView};
 pub use suggestions::{Suggestion, SuggestionIcon, SuggestionState};
-pub use types::{ResultOverlay, SqlMode, SqlPaneAction};
+pub use types::{ResultOverlay, SqlMode};

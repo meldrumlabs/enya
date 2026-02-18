@@ -2021,7 +2021,7 @@ impl SettingsPage {
         ui.horizontal(|ui| {
             ui.label(
                 RichText::new(regular::DATABASE_2)
-                    .font(FontId::new(14.0, FontFamily::Name("nerd_regular".into())))
+                    .font(FontId::new(14.0, FontFamily::Proportional))
                     .color(text_tertiary),
             );
             ui.add_space(4.0);
@@ -2214,7 +2214,7 @@ impl SettingsPage {
                                 delete_rect.center(),
                                 egui::Align2::CENTER_CENTER,
                                 semantic_icons::action::CLOSE,
-                                FontId::new(10.0, FontFamily::Name("nerd_regular".into())),
+                                FontId::new(10.0, FontFamily::Proportional),
                                 if del_resp.hovered() {
                                     accent
                                 } else {
@@ -2355,7 +2355,7 @@ impl SettingsPage {
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new(semantic_icons::action::ADD)
-                                .font(FontId::new(12.0, FontFamily::Name("nerd_regular".into())))
+                                .font(FontId::new(12.0, FontFamily::Proportional))
                                 .color(if add_focused {
                                     accent
                                 } else {
@@ -2374,7 +2374,8 @@ impl SettingsPage {
                         );
                     });
                 })
-                .response;
+                .response
+                .interact(egui::Sense::click());
 
             if response.clicked() {
                 self.adding_flight_sql = true;
@@ -3821,6 +3822,45 @@ impl SettingsPage {
                 self.editing_field = None;
                 ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             }
+            return SettingsPageResult::None;
+        }
+
+        // If editing/adding a Flight SQL connection, only handle Escape and Enter
+        if self.editing_flight_idx.is_some() || self.adding_flight_sql {
+            ctx.input_mut(|i| {
+                if i.consume_key(egui::Modifiers::NONE, Key::Escape) {
+                    self.editing_flight_idx = None;
+                    self.adding_flight_sql = false;
+                    self.new_flight_name.clear();
+                    self.new_flight_endpoint.clear();
+                } else if i.consume_key(egui::Modifiers::NONE, Key::Enter) {
+                    if !self.new_flight_name.trim().is_empty()
+                        && !self.new_flight_endpoint.trim().is_empty()
+                    {
+                        use crate::ui::settings_screen::FlightSqlConnection;
+                        let conn = FlightSqlConnection {
+                            name: self.new_flight_name.trim().to_string(),
+                            endpoint: self.new_flight_endpoint.trim().to_string(),
+                        };
+                        if let Some(idx) = self.editing_flight_idx {
+                            self.flight_sql_connections[idx] = conn;
+                        } else {
+                            self.flight_sql_connections.push(conn);
+                        }
+                    }
+                    self.editing_flight_idx = None;
+                    self.adding_flight_sql = false;
+                    self.new_flight_name.clear();
+                    self.new_flight_endpoint.clear();
+                }
+                // Consume navigation keys so they don't leak
+                i.consume_key(egui::Modifiers::NONE, Key::Tab);
+                i.consume_key(egui::Modifiers::SHIFT, Key::Tab);
+                i.consume_key(egui::Modifiers::NONE, Key::J);
+                i.consume_key(egui::Modifiers::NONE, Key::K);
+                i.consume_key(egui::Modifiers::NONE, Key::H);
+                i.consume_key(egui::Modifiers::NONE, Key::L);
+            });
             return SettingsPageResult::None;
         }
 

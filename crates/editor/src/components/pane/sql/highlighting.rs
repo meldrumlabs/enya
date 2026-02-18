@@ -4,7 +4,7 @@
 //! - Keywords (SELECT, FROM, WHERE, etc.)
 //! - Functions (COUNT, SUM, etc.)
 //! - Strings, numbers, comments
-//! - Dot commands (/connect, /tables, etc.)
+//! - Slash commands (/explain, /tables, etc.)
 
 use egui::TextFormat;
 use egui::text::LayoutJob;
@@ -264,7 +264,6 @@ pub enum SqlToken {
     Operator,
     Identifier,
     Whitespace,
-    DotCommand,
     SlashCommand,
     TypeCast,
     TableRef,
@@ -298,24 +297,6 @@ pub fn tokenize_sql(text: &str, table_names: &[&str]) -> Vec<Token> {
                     start,
                     end: j,
                     kind: SqlToken::SlashCommand,
-                });
-                i = j;
-                continue;
-            }
-        }
-
-        // Dot commands (.help, .open, etc.)
-        if ch == '.' && start == 0 || (start > 0 && chars[start - 1] == '\n') {
-            // Check if this looks like a dot command at start of line
-            let mut j = i + 1;
-            while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
-                j += 1;
-            }
-            if j > i + 1 {
-                tokens.push(Token {
-                    start,
-                    end: j,
-                    kind: SqlToken::DotCommand,
                 });
                 i = j;
                 continue;
@@ -541,7 +522,7 @@ pub fn highlight_sql(text: &str, theme: AppTheme, table_names: &[&str]) -> Layou
                 SqlToken::Number => theme.syntax_number(),
                 SqlToken::Comment => theme.syntax_comment(),
                 SqlToken::Operator => theme.syntax_punctuation(),
-                SqlToken::DotCommand | SqlToken::SlashCommand => theme.accent_primary(),
+                SqlToken::SlashCommand => theme.accent_primary(),
                 SqlToken::TypeCast => theme.syntax_type(),
                 SqlToken::TableRef => theme.syntax_variable(),
                 SqlToken::Identifier => theme.text_primary(),

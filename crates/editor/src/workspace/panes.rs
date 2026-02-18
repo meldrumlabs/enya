@@ -340,7 +340,12 @@ impl Workspace {
         use crate::ui::theme::AppTheme;
 
         let runtime_handle = self.query_executor.runtime_handle();
-        let sql_pane = SqlPane::new(AppTheme::default(), runtime_handle);
+        let mut sql_pane = SqlPane::new(AppTheme::default(), runtime_handle);
+        log::info!(
+            "add_sql_pane: cached {} connections, syncing to new pane",
+            self.cached_flight_sql_connections.len()
+        );
+        sql_pane.sync_connections(&self.cached_flight_sql_connections);
         let pane: Box<dyn Component> = Box::new(sql_pane);
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
@@ -360,7 +365,8 @@ impl Workspace {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
 
-        let sql_pane = SqlPane::new(AppTheme::default());
+        let mut sql_pane = SqlPane::new(AppTheme::default());
+        sql_pane.sync_connections(&self.cached_flight_sql_connections);
         let pane: Box<dyn Component> = Box::new(sql_pane);
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
@@ -2540,13 +2546,28 @@ impl Workspace {
         use crate::components::SqlPane;
         use egui_tiles::Tile;
 
-        for tile_id in self.get_pane_tile_ids() {
+        log::info!(
+            "sync_sql_connections: {} definitions, caching",
+            connections.len()
+        );
+
+        // Cache for new SQL panes created later
+        self.cached_flight_sql_connections = connections.to_vec();
+
+        let tile_ids = self.get_pane_tile_ids();
+        let mut sql_count = 0;
+        for tile_id in tile_ids {
             if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
                 if let Some(sql_pane) = component.as_any_mut().downcast_mut::<SqlPane>() {
+                    sql_count += 1;
                     sql_pane.sync_connections(connections);
                 }
             }
         }
+        log::info!(
+            "sync_sql_connections: synced {} SQL panes",
+            sql_count
+        );
     }
 
     /// Poll all SqlPanes for pending actions (like share-to-agent).

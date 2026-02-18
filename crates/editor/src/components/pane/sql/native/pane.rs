@@ -6,16 +6,8 @@
 //! - Query history displayed as cells with execution timing
 //! - Results rendered as tables with export options
 //! - Schema browser sidebar with remote table metadata
-//! - Query plan visualization with `.explain` and `.analyze` commands
-//!
-//! Dot-commands (inspired by DuckDB/SQLite):
-//! - `.close` - Disconnect
-//! - `.tables` - List tables
-//! - `.schema <table>` - Show table schema
-//! - `.explain <query>` - Show query plan
-//! - `.timer on|off` - Toggle query timing
-//! - `.mode <format>` - Set output mode (table, csv, json)
-//! - `.help` - Show help
+//! - Query plan visualization with `/explain` and `/analyze` commands
+//! - Slash commands: `/close`, `/tables`, `/plan`, `/explain`, `/analyze`, `/demo`, etc.
 
 use egui::{Color32, RichText, TextEdit, TextFormat};
 use enya_datafusion::arrow::array::{Array, RecordBatch};
@@ -33,7 +25,8 @@ use rustc_hash::FxHashMap;
 use super::super::highlighting::highlight_sql;
 use super::command::SqlCommand;
 use super::connections::{
-    ConnectionAction, ConnectionId, ConnectionTreeState, SavedConnection, SqlBackend, TreeSelection,
+    ConnectionAction, ConnectionId, ConnectionSnapshot, ConnectionTreeState, SavedConnection,
+    SqlBackend, TreeSelection,
 };
 use super::diff::{compute_table_diff, schemas_compatible};
 use super::diff_rendering::{
@@ -422,13 +415,6 @@ impl SqlPane {
             return;
         }
 
-        // Check for dot-commands (like DuckDB/SQLite)
-        if let Some(cmd) = input.strip_prefix('.') {
-            self.handle_command(cmd);
-            self.input.clear();
-            return;
-        }
-
         // Execute as SQL query
         self.execute_query(&input);
         self.input.clear();
@@ -632,50 +618,12 @@ impl SqlPane {
                     self.add_info_cell(&format!("Recent queries:\n{}", history_text.join("\n")));
                 }
             }
-            "normal" | "reset" => {
-                // Reset to normal mode
-                self.mode = SqlMode::Normal;
-                self.add_info_cell("Switched to normal SQL mode.");
-            }
-            _ => {
-                self.add_error_cell(&format!(
-                    "Unknown command: /{command}\nType / to see available commands."
-                ));
-            }
-        }
-        self.scroll_to_bottom = true;
-    }
-
-    /// Handle a dot-command (like DuckDB/SQLite).
-    fn handle_command(&mut self, cmd: &str) {
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
-        let command = parts.first().copied().unwrap_or("");
-
-        match command {
             "close" => {
                 self.disconnect();
                 self.add_info_cell("Disconnected");
             }
             "tables" => {
                 self.execute_query("SHOW TABLES");
-            }
-            "explain" => {
-                // EXPLAIN query (logical plan)
-                let sql = parts[1..].join(" ");
-                if sql.is_empty() {
-                    self.add_error_cell(".explain requires a SQL query");
-                } else {
-                    self.execute_explain(&sql, false);
-                }
-            }
-            "analyze" => {
-                // EXPLAIN ANALYZE query (physical plan with timing)
-                let sql = parts[1..].join(" ");
-                if sql.is_empty() {
-                    self.add_error_cell(".analyze requires a SQL query");
-                } else {
-                    self.execute_explain(&sql, true);
-                }
             }
             "plan" => {
                 // Toggle or set plan viewer mode
@@ -700,36 +648,18 @@ impl SqlPane {
                     }
                 }
             }
-            "demo" => {
-                // Load a demo query plan for testing the visualization
-                self.load_demo_plan();
-                self.add_info_cell("Demo plan loaded. Use j/k/h/l to navigate.");
-            }
-            "help" => {
-                self.add_info_cell(
-                    "Dot-Commands (like DuckDB/SQLite):\n\
-                     .close            - Disconnect from server\n\
-                     .tables           - List available tables\n\
-                     .explain <query>  - Show query plan (EXPLAIN)\n\
-                     .analyze <query>  - Show query plan with timing (EXPLAIN ANALYZE)\n\
-                     .plan [tree|timeline|waterfall|hide] - Toggle plan viewer\n\
-                     .demo             - Load a demo query plan\n\
-                     .help             - Show this help\n\n\
-                     Configure connections in Settings.\n\
-                     Enter SQL queries directly and press Ctrl+Enter to execute.\n\n\
-                     Plan Viewer Keys (when visible):\n\
-                     j/k - Navigate up/down\n\
-                     h/l - Collapse/expand nodes\n\
-                     b   - Jump to bottleneck\n\
-                     Space - Toggle expand/collapse",
-                );
+            "normal" | "reset" => {
+                // Reset to normal mode
+                self.mode = SqlMode::Normal;
+                self.add_info_cell("Switched to normal SQL mode.");
             }
             _ => {
                 self.add_error_cell(&format!(
-                    "Unknown command: .{command}. Type .help for help."
+                    "Unknown command: /{command}\nType / to see available commands."
                 ));
             }
         }
+        self.scroll_to_bottom = true;
     }
 
     /// Execute an EXPLAIN or EXPLAIN ANALYZE query.
@@ -1939,6 +1869,10 @@ impl SqlPane {
                             Vec::new();
 
                         // Split borrows: history (read), cell_states (write), plan_viewer (write)
+                        let has_connections = !self.connections.is_empty();
+                        let is_connected = self.active_connection().map_or(false, |c| {
+                            matches!(c.state, ConnectionState::Connected)
+                        });
                         let history = &self.history;
                         let cell_states = &mut self.cell_states;
                         let plan_viewer = &mut self.plan_viewer;
@@ -1964,14 +1898,30 @@ impl SqlPane {
                                                 .size(32.0),
                                         );
                                         ui.add_space(8.0);
+                                        let (title, subtitle) = if !has_connections {
+                                            (
+                                                "No connections configured",
+                                                "Add Flight SQL connections in Settings",
+                                            )
+                                        } else if !is_connected {
+                                            (
+                                                "Not connected",
+                                                "Click the connection pill below to choose an endpoint",
+                                            )
+                                        } else {
+                                            (
+                                                "Run a query to get started",
+                                                "Type SQL below and press Enter",
+                                            )
+                                        };
                                         ui.label(
-                                            RichText::new("Run a query to get started")
+                                            RichText::new(title)
                                                 .color(theme.text_secondary())
                                                 .size(12.0),
                                         );
                                         ui.add_space(4.0);
                                         ui.label(
-                                            RichText::new("Type SQL below and press Enter")
+                                            RichText::new(subtitle)
                                                 .color(theme.text_secondary().gamma_multiply(0.6))
                                                 .size(10.0),
                                         );
@@ -2203,6 +2153,19 @@ impl SqlPane {
                     },
                 );
             });
+
+        // Render connection popup when open
+        if self.sidebar_width == 1.0 {
+            let snapshots: Vec<ConnectionSnapshot> = self
+                .connections
+                .iter()
+                .map(ConnectionSnapshot::from)
+                .collect();
+            let actions = super::connections::render_connection_popup(ui, self.theme, &snapshots);
+            for action in actions {
+                self.handle_connection_action(action);
+            }
+        }
 
         // Render result overlay if active (kept for now during transition)
         if self.active_overlay != ResultOverlay::None {
@@ -3462,7 +3425,7 @@ impl SqlPane {
 
         // Generic keyword/function completion for any context
         if let Some(last_word) = words.last() {
-            if last_word.len() >= 2 && !last_word.starts_with('/') && !last_word.starts_with('.') {
+            if last_word.len() >= 2 && !last_word.starts_with('/') {
                 let items = self.get_keyword_suggestions(last_word);
                 self.suggestions.set(items);
                 return;
@@ -4424,34 +4387,39 @@ impl SqlPane {
 
                     ui.add_space(8.0);
 
-                    // Connection indicator (small pill)
-                    if let Some(conn) = self.active_connection() {
-                        let conn_name = conn.name.clone();
-                        let is_connected = matches!(conn.state, ConnectionState::Connected);
-                        let status_color = if is_connected {
-                            self.theme.semantic_success()
-                        } else {
-                            text_secondary.gamma_multiply(0.4)
-                        };
+                    // Connection indicator (small pill) — always show if connections exist
+                    if !self.connections.is_empty() {
+                        let (pill_label, dot_color, label_color) =
+                            if let Some(conn) = self.active_connection() {
+                                let dot = if matches!(conn.state, ConnectionState::Connected) {
+                                    self.theme.semantic_success()
+                                } else {
+                                    text_secondary.gamma_multiply(0.5)
+                                };
+                                (conn.name.clone(), dot, text_secondary)
+                            } else {
+                                (
+                                    "Not connected".to_string(),
+                                    accent.gamma_multiply(0.5),
+                                    accent.gamma_multiply(0.7),
+                                )
+                            };
 
-                        let pill = egui::Frame::new()
+                        let pill_resp = ui.add(
+                            egui::Button::new(
+                                RichText::new(format!("● {pill_label}"))
+                                    .color(label_color)
+                                    .size(10.0),
+                            )
                             .fill(self.theme.bg_surface())
-                            .corner_radius(10.0)
-                            .inner_margin(egui::Margin::symmetric(6, 2))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new("●").color(status_color).size(6.0));
-                                    ui.add_space(4.0);
-                                    ui.label(
-                                        RichText::new(&conn_name).color(text_secondary).size(10.0),
-                                    );
-                                });
-                            });
-                        if pill.response.clicked() {
-                            self.sidebar_width = if self.sidebar_width == 0.0 { 1.0 } else { 0.0 };
+                            .stroke(egui::Stroke::new(1.0, dot_color.gamma_multiply(0.4)))
+                            .corner_radius(10.0),
+                        );
+                        if pill_resp.clicked() {
+                            self.sidebar_width =
+                                if self.sidebar_width == 0.0 { 1.0 } else { 0.0 };
                         }
-                        pill.response
-                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        pill_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
 
                         ui.add_space(8.0);
                     }
@@ -5466,7 +5434,7 @@ impl SqlPane {
         if !cell.batches.is_empty() {
             self.render_results_table(ui, cell, text_primary, text_secondary);
         } else if !cell.sql.is_empty() {
-            // Info message (from .help, etc.)
+            // Info message (from /help, etc.)
             ui.label(RichText::new(&cell.sql).color(text_primary).size(12.0));
         }
     }
@@ -5684,13 +5652,13 @@ impl SqlPane {
             if self.connections.is_empty() {
                 // No connections yet
                 ui.label(
-                    RichText::new("Add a connection to get started")
+                    RichText::new("No connections configured")
                         .color(text_secondary)
                         .size(13.0),
                 );
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new("Use the + Add Connection button in the sidebar")
+                    RichText::new("Add Flight SQL connections in Settings")
                         .color(text_secondary.gamma_multiply(0.7))
                         .size(11.0),
                 );
@@ -5703,7 +5671,7 @@ impl SqlPane {
                 );
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new("Double-click a connection to connect, or click to select")
+                    RichText::new("Click the connection pill above to choose an endpoint")
                         .color(text_secondary.gamma_multiply(0.7))
                         .size(11.0),
                 );
@@ -5731,7 +5699,7 @@ impl SqlPane {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.label(
-                                RichText::new(".tables")
+                                RichText::new("/tables")
                                     .color(accent)
                                     .size(11.0)
                                     .monospace(),
@@ -5742,9 +5710,14 @@ impl SqlPane {
                                     .size(10.0),
                             );
                             ui.add_space(16.0);
-                            ui.label(RichText::new(".help").color(accent).size(11.0).monospace());
                             ui.label(
-                                RichText::new("show commands")
+                                RichText::new("/explain")
+                                    .color(accent)
+                                    .size(11.0)
+                                    .monospace(),
+                            );
+                            ui.label(
+                                RichText::new("query plan")
                                     .color(text_secondary.gamma_multiply(0.7))
                                     .size(10.0),
                             );
@@ -6255,13 +6228,13 @@ impl SqlPane {
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
-                                    RichText::new(".help")
+                                    RichText::new("/tables")
                                         .color(accent.gamma_multiply(0.7))
                                         .size(10.0)
                                         .monospace(),
                                 );
                                 ui.label(
-                                    RichText::new("commands")
+                                    RichText::new("list tables")
                                         .color(text_secondary.gamma_multiply(0.6))
                                         .size(10.0),
                                 );
@@ -6269,13 +6242,13 @@ impl SqlPane {
                                 ui.add_space(16.0);
 
                                 ui.label(
-                                    RichText::new(".tables")
+                                    RichText::new("/explain")
                                         .color(accent.gamma_multiply(0.7))
                                         .size(10.0)
                                         .monospace(),
                                 );
                                 ui.label(
-                                    RichText::new("list")
+                                    RichText::new("query plan")
                                         .color(text_secondary.gamma_multiply(0.6))
                                         .size(10.0),
                                 );
@@ -6299,6 +6272,11 @@ impl SqlPane {
         &mut self,
         definitions: &[crate::ui::settings_screen::FlightSqlConnection],
     ) {
+        log::info!(
+            "SqlPane::sync_connections: received {} definitions, had {} connections",
+            definitions.len(),
+            self.connections.len()
+        );
         let mut new_connections = Vec::with_capacity(definitions.len());
         for def in definitions {
             // Try to find an existing connection with the same name+endpoint
@@ -6311,10 +6289,19 @@ impl SqlPane {
                 new_connections.push(self.connections.swap_remove(pos));
             } else {
                 // New definition — create a fresh SavedConnection
+                log::info!(
+                    "SqlPane::sync_connections: creating new connection '{}' -> '{}'",
+                    def.name,
+                    def.endpoint
+                );
                 new_connections.push(SavedConnection::new(&def.name, &def.endpoint));
             }
         }
         self.connections = new_connections;
+        log::info!(
+            "SqlPane::sync_connections: now has {} connections",
+            self.connections.len()
+        );
     }
 
     /// Convert a query result at the given history index to an InlineTable.

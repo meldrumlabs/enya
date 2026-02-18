@@ -6,7 +6,7 @@ use rustc_hash::FxHashSet;
 use tokio::sync::mpsc;
 
 use crate::components::util::id_generator::next_id_usize;
-use crate::ui::semantic_icons::{action, category, file, nav};
+use crate::ui::semantic_icons::{category, file, nav};
 use crate::ui::theme::AppTheme;
 
 /// Unique identifier for a saved connection.

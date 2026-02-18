@@ -182,6 +182,9 @@ impl EnyaApp {
         #[cfg(not(target_arch = "wasm32"))]
         workspace.set_git_sync_interval(state.settings.git_sync_interval.to_secs());
 
+        // Sync Flight SQL connections from settings so SQL panes created later get them
+        workspace.sync_sql_connections(&state.settings.flight_sql_connections);
+
         // Initialize plugin system
         let plugin_shared_state = EditorPluginHost::create_shared_state();
         let plugin_host = EditorPluginHost::new(
@@ -437,6 +440,11 @@ impl EnyaApp {
     }
 
     fn check_keyboard_shortcuts(&self, egui_ctx: &egui::Context) {
+        // Skip global shortcuts when in settings — keys like ':' should not
+        // open the command palette while the user is on the settings page.
+        if self.state.ui_state == UIState::Settings {
+            return;
+        }
         // Skip global shortcuts when multi-buffer editing is capturing input
         if self.workspace.is_multi_buffer_input_mode() {
             return;
@@ -872,6 +880,10 @@ impl EnyaApp {
                     self.workspace
                         .set_git_sync_interval(git_sync_interval.to_secs());
                     // Propagate Flight SQL connections to all SQL panes
+                    log::info!(
+                        "Settings saved with {} Flight SQL connections",
+                        flight_sql_connections.len()
+                    );
                     self.workspace.sync_sql_connections(&flight_sql_connections);
                 }
                 self.state.ui_state = self.state.previous_ui_state;

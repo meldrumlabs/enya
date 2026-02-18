@@ -5,6 +5,12 @@
 /// Available SQL pane commands (triggered with `/`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SqlCommand {
+    /// Disconnect from server.
+    Close,
+    /// List available tables.
+    Tables,
+    /// Toggle plan viewer.
+    Plan,
     /// Compare query results across two environments.
     Diff,
     /// Show query execution plan (EXPLAIN).
@@ -23,6 +29,9 @@ impl SqlCommand {
     /// All available commands.
     pub fn all() -> &'static [SqlCommand] {
         &[
+            SqlCommand::Close,
+            SqlCommand::Tables,
+            SqlCommand::Plan,
             SqlCommand::Explain,
             SqlCommand::Analyze,
             SqlCommand::Demo,
@@ -35,6 +44,9 @@ impl SqlCommand {
     /// Command name (what user types).
     pub fn name(&self) -> &'static str {
         match self {
+            SqlCommand::Close => "close",
+            SqlCommand::Tables => "tables",
+            SqlCommand::Plan => "plan",
             SqlCommand::Diff => "diff",
             SqlCommand::Explain => "explain",
             SqlCommand::Analyze => "analyze",
@@ -47,6 +59,9 @@ impl SqlCommand {
     /// Short description of the command.
     pub fn description(&self) -> &'static str {
         match self {
+            SqlCommand::Close => "Disconnect from server",
+            SqlCommand::Tables => "List available tables",
+            SqlCommand::Plan => "Toggle plan viewer",
             SqlCommand::Diff => "Compare across envs",
             SqlCommand::Explain => "Show query plan (EXPLAIN)",
             SqlCommand::Analyze => "Query plan with timing (EXPLAIN ANALYZE)",
