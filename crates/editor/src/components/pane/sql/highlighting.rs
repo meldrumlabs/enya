@@ -4,7 +4,7 @@
 //! - Keywords (SELECT, FROM, WHERE, etc.)
 //! - Functions (COUNT, SUM, etc.)
 //! - Strings, numbers, comments
-//! - Dot commands (/connect, /tables, etc.)
+//! - Slash commands (/explain, /tables, etc.)
 
 use egui::TextFormat;
 use egui::text::LayoutJob;
@@ -201,6 +201,56 @@ pub const SQL_FUNCTIONS: &[&str] = &[
     // DataFusion specific
     "ARROW_TYPEOF",
     "TO_CHAR",
+    "UNNEST",
+    "GENERATE_SERIES",
+    "MAKE_ARRAY",
+    "STRUCT",
+    "NAMED_STRUCT",
+    // Array
+    "ARRAY_ELEMENT",
+    "ARRAY_LENGTH",
+    "ARRAY_APPEND",
+    "ARRAY_CONCAT",
+    "ARRAY_SLICE",
+    "ARRAY_TO_STRING",
+    "CARDINALITY",
+    "FLATTEN",
+    "RANGE",
+    "LIST_SORT",
+    "ARRAY_PREPEND",
+    "ARRAY_REPEAT",
+    "ARRAY_POSITIONS",
+    "ARRAY_DIMS",
+    "ARRAY_NDIMS",
+    // Hashing
+    "MD5",
+    "SHA224",
+    "SHA256",
+    "SHA384",
+    "SHA512",
+    "DIGEST",
+    // Additional string
+    "STARTS_WITH",
+    "ENDS_WITH",
+    "INITCAP",
+    "LEFT",
+    "RIGHT",
+    "LPAD",
+    "RPAD",
+    "REVERSE",
+    "REPEAT",
+    "BTRIM",
+    "TRANSLATE",
+    "ASCII",
+    "CHR",
+    "OCTET_LENGTH",
+    "BIT_LENGTH",
+    "REGEXP_MATCH",
+    "OVERLAY",
+    "POSITION",
+    // Encoding
+    "ENCODE",
+    "DECODE",
 ];
 
 /// Token types for SQL highlighting.
@@ -214,7 +264,9 @@ pub enum SqlToken {
     Operator,
     Identifier,
     Whitespace,
-    DotCommand,
+    SlashCommand,
+    TypeCast,
+    TableRef,
 }
 
 /// A token with its position and type.
@@ -225,7 +277,7 @@ pub struct Token {
 }
 
 /// Tokenize SQL text for syntax highlighting.
-pub fn tokenize_sql(text: &str) -> Vec<Token> {
+pub fn tokenize_sql(text: &str, table_names: &[&str]) -> Vec<Token> {
     let mut tokens = Vec::new();
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
@@ -234,9 +286,8 @@ pub fn tokenize_sql(text: &str) -> Vec<Token> {
         let start = i;
         let ch = chars[i];
 
-        // Dot commands (.help, .open, etc.)
-        if ch == '.' && start == 0 || (start > 0 && chars[start - 1] == '\n') {
-            // Check if this looks like a dot command at start of line
+        // Slash commands (/explain, /connect, etc.) at start of input
+        if ch == '/' && (start == 0 || (start > 0 && chars[start - 1] == '\n')) {
             let mut j = i + 1;
             while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
                 j += 1;
@@ -245,7 +296,7 @@ pub fn tokenize_sql(text: &str) -> Vec<Token> {
                 tokens.push(Token {
                     start,
                     end: j,
-                    kind: SqlToken::DotCommand,
+                    kind: SqlToken::SlashCommand,
                 });
                 i = j;
                 continue;
@@ -375,6 +426,9 @@ pub fn tokenize_sql(text: &str) -> Vec<Token> {
             let is_function = SQL_FUNCTIONS.contains(&upper.as_str());
             let is_keyword = SQL_KEYWORDS.contains(&upper.as_str());
 
+            let is_table_ref = !table_names.is_empty()
+                && table_names.iter().any(|t| t.eq_ignore_ascii_case(&word));
+
             let kind = if is_function {
                 // Look ahead for ( to confirm it's a function call
                 let mut peek = i;
@@ -390,6 +444,8 @@ pub fn tokenize_sql(text: &str) -> Vec<Token> {
                 }
             } else if is_keyword {
                 SqlToken::Keyword
+            } else if is_table_ref {
+                SqlToken::TableRef
             } else {
                 SqlToken::Identifier
             };
@@ -400,6 +456,23 @@ pub fn tokenize_sql(text: &str) -> Vec<Token> {
                 kind,
             });
             continue;
+        }
+
+        // Type cast: ::type (PostgreSQL-style)
+        if ch == ':' && i + 1 < chars.len() && chars[i + 1] == ':' {
+            let mut j = i + 2;
+            while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+                j += 1;
+            }
+            if j > i + 2 {
+                tokens.push(Token {
+                    start,
+                    end: j,
+                    kind: SqlToken::TypeCast,
+                });
+                i = j;
+                continue;
+            }
         }
 
         // Operators and punctuation
@@ -415,7 +488,10 @@ pub fn tokenize_sql(text: &str) -> Vec<Token> {
 }
 
 /// Create a highlighted LayoutJob for SQL text.
-pub fn highlight_sql(text: &str, theme: AppTheme) -> LayoutJob {
+///
+/// When `table_names` is non-empty, identifiers matching known table names
+/// are highlighted with the variable color for visual distinction.
+pub fn highlight_sql(text: &str, theme: AppTheme, table_names: &[&str]) -> LayoutJob {
     let mut job = LayoutJob::default();
     let font_id = typography::monospace(typography::SM);
 
@@ -423,7 +499,7 @@ pub fn highlight_sql(text: &str, theme: AppTheme) -> LayoutJob {
         return job;
     }
 
-    let tokens = tokenize_sql(text);
+    let tokens = tokenize_sql(text, table_names);
     let mut last_end = 0;
 
     for token in tokens {
@@ -446,7 +522,9 @@ pub fn highlight_sql(text: &str, theme: AppTheme) -> LayoutJob {
                 SqlToken::Number => theme.syntax_number(),
                 SqlToken::Comment => theme.syntax_comment(),
                 SqlToken::Operator => theme.syntax_punctuation(),
-                SqlToken::DotCommand => theme.accent_primary(),
+                SqlToken::SlashCommand => theme.accent_primary(),
+                SqlToken::TypeCast => theme.syntax_type(),
+                SqlToken::TableRef => theme.syntax_variable(),
                 SqlToken::Identifier => theme.text_primary(),
                 SqlToken::Whitespace => theme.text_primary(),
             };

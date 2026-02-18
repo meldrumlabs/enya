@@ -340,7 +340,12 @@ impl Workspace {
         use crate::ui::theme::AppTheme;
 
         let runtime_handle = self.query_executor.runtime_handle();
-        let sql_pane = SqlPane::new(AppTheme::default(), runtime_handle);
+        let mut sql_pane = SqlPane::new(AppTheme::default(), runtime_handle);
+        log::info!(
+            "add_sql_pane: cached {} connections, syncing to new pane",
+            self.cached_flight_sql_connections.len()
+        );
+        sql_pane.sync_connections(&self.cached_flight_sql_connections);
         let pane: Box<dyn Component> = Box::new(sql_pane);
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
@@ -360,7 +365,8 @@ impl Workspace {
         use crate::components::SqlPane;
         use crate::ui::theme::AppTheme;
 
-        let sql_pane = SqlPane::new(AppTheme::default());
+        let mut sql_pane = SqlPane::new(AppTheme::default());
+        sql_pane.sync_connections(&self.cached_flight_sql_connections);
         let pane: Box<dyn Component> = Box::new(sql_pane);
         let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
 
@@ -936,6 +942,18 @@ impl Workspace {
                     {
                         let _ = (name, is_alert, context_lines);
                         log::warn!("ShowSource not available in WASM");
+                    }
+                }
+                AgentCommand::ShowInlineTable { query, title } => {
+                    if let Some(mut table) = self.get_sql_result_as_inline_table(query.as_deref()) {
+                        if let Some(t) = title {
+                            table.title = t;
+                        }
+                        self.inject_inline_content_to_agent_pane(InlineContent::Table(table));
+                        log::info!("Agent showed inline table");
+                        success = true;
+                    } else {
+                        log::warn!("No SQL results available for inline table");
                     }
                 }
                 AgentCommand::LoadWorkspace { workspace } => {
@@ -2281,6 +2299,26 @@ impl Workspace {
         }
     }
 
+    /// Get SQL query results from the SQL pane as an InlineTable.
+    ///
+    /// Searches tile tree for a SQL pane and retrieves results matching
+    /// the given query, or the latest result if no query is specified.
+    fn get_sql_result_as_inline_table(
+        &self,
+        query: Option<&str>,
+    ) -> Option<crate::components::pane::inline_content::InlineTable> {
+        use crate::components::SqlPane;
+        // Find the first SQL pane in the tile tree
+        for (_tile_id, tile) in self.viewport_tree.tiles.iter() {
+            if let egui_tiles::Tile::Pane(component) = tile {
+                if let Some(sql_pane) = component.as_any().downcast_ref::<SqlPane>() {
+                    return sql_pane.get_inline_table(query);
+                }
+            }
+        }
+        None
+    }
+
     /// Get a git diff and convert it to `InlineDiff` for display in the agent panel.
     ///
     /// If `commit` is provided, shows the diff for that commit.
@@ -2494,6 +2532,69 @@ impl Workspace {
                     // These actions are handled elsewhere or are no-ops
                 }
             }
+        }
+
+        // Poll SQL panes for share-to-agent actions
+        self.poll_sql_pane_actions();
+    }
+
+    /// Propagate Flight SQL connection definitions from Settings to all open SQL panes.
+    pub fn sync_sql_connections(
+        &mut self,
+        connections: &[crate::ui::settings_screen::FlightSqlConnection],
+    ) {
+        use crate::components::SqlPane;
+        use egui_tiles::Tile;
+
+        log::info!(
+            "sync_sql_connections: {} definitions, caching",
+            connections.len()
+        );
+
+        // Cache for new SQL panes created later
+        self.cached_flight_sql_connections = connections.to_vec();
+
+        let tile_ids = self.get_pane_tile_ids();
+        let mut sql_count = 0;
+        for tile_id in tile_ids {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(sql_pane) = component.as_any_mut().downcast_mut::<SqlPane>() {
+                    sql_count += 1;
+                    sql_pane.sync_connections(connections);
+                }
+            }
+        }
+        log::info!(
+            "sync_sql_connections: synced {} SQL panes",
+            sql_count
+        );
+    }
+
+    /// Poll all SqlPanes for pending actions (like share-to-agent).
+    fn poll_sql_pane_actions(&mut self) {
+        use crate::components::{SqlPane, SqlPaneAction};
+
+        let mut inline_tables = Vec::new();
+
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(sql_pane) = component.as_any_mut().downcast_mut::<SqlPane>() {
+                    match sql_pane.take_action() {
+                        SqlPaneAction::ShareResultToAgent(table) => {
+                            inline_tables.push(table);
+                        }
+                        SqlPaneAction::OpenSettings => {
+                            self.pending_open_settings = true;
+                        }
+                        SqlPaneAction::None => {}
+                    }
+                }
+            }
+        }
+
+        for table in inline_tables {
+            self.inject_inline_content_to_agent_pane(InlineContent::Table(table));
+            log::info!("Shared SQL result to agent panel");
         }
     }
 

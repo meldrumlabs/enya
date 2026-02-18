@@ -17,6 +17,8 @@ pub enum InlineContent {
     SearchResults(InlineSearchResults),
     /// An inline git diff view
     Diff(InlineDiff),
+    /// An inline SQL result table
+    Table(InlineTable),
 }
 
 /// Inline time series chart data.
@@ -135,4 +137,30 @@ pub enum InlineDiffLineKind {
     Deletion,
     /// Hunk header (@@)
     Hunk,
+}
+
+/// A column definition for an inline table.
+#[derive(Debug, Clone)]
+pub struct InlineTableColumn {
+    /// Column name.
+    pub name: String,
+    /// Data type as display string (e.g., "Int64", "Utf8").
+    pub data_type: String,
+}
+
+/// Inline SQL query result table.
+///
+/// Contains pre-formatted string data for rendering a compact table in chat.
+#[derive(Debug, Clone)]
+pub struct InlineTable {
+    /// Title (usually the SQL query).
+    pub title: String,
+    /// Column definitions.
+    pub columns: Vec<InlineTableColumn>,
+    /// Row data as pre-formatted strings.
+    pub rows: Vec<Vec<String>>,
+    /// Total row count (may be larger than rows.len() if truncated).
+    pub total_rows: usize,
+    /// Execution time in milliseconds.
+    pub execution_time_ms: Option<u64>,
 }

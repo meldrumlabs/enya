@@ -57,6 +57,15 @@ impl EditorFont {
 use crate::components::util::AiProvider;
 use crate::ui::theme::AppTheme;
 
+/// A named Arrow Flight SQL connection endpoint.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FlightSqlConnection {
+    /// User-facing label (e.g., "prod", "staging", "local").
+    pub name: String,
+    /// Flight SQL endpoint URL (e.g., "grpc://localhost:50051").
+    pub endpoint: String,
+}
+
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppSettings {
     /// API key for backend services (kept for future use)
@@ -97,9 +106,12 @@ pub struct AppSettings {
     /// Default Loki endpoint for new workspaces
     #[serde(default)]
     pub default_loki_endpoint: String,
-    /// Default Arrow Flight SQL endpoint for new workspaces
-    #[serde(default)]
+    /// [DEPRECATED] Legacy single Flight SQL endpoint — kept for migration only.
+    #[serde(default, skip_serializing)]
     pub default_flight_sql_endpoint: String,
+    /// Named Arrow Flight SQL connections (persisted between sessions).
+    #[serde(default)]
+    pub flight_sql_connections: Vec<FlightSqlConnection>,
     /// Version string of the last dismissed update notification
     #[serde(default)]
     pub dismissed_update_version: Option<String>,
@@ -127,6 +139,22 @@ pub struct AppSettings {
     /// How often to automatically fetch new commits from the remote repository
     #[serde(default)]
     pub git_sync_interval: GitSyncInterval,
+}
+
+impl AppSettings {
+    /// Migrate legacy settings fields to their new equivalents.
+    ///
+    /// Call once after deserializing from storage.
+    pub fn migrate(&mut self) {
+        // Migrate single Flight SQL endpoint to the new connections list
+        if self.flight_sql_connections.is_empty() && !self.default_flight_sql_endpoint.is_empty() {
+            self.flight_sql_connections.push(FlightSqlConnection {
+                name: "default".to_string(),
+                endpoint: self.default_flight_sql_endpoint.clone(),
+            });
+            self.default_flight_sql_endpoint.clear();
+        }
+    }
 }
 
 fn default_true() -> bool {

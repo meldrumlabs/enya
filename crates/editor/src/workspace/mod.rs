@@ -170,7 +170,7 @@ pub enum WorkspaceAction {
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
-        default_flight_sql_endpoint: String,
+        flight_sql_connections: Vec<crate::ui::settings_screen::FlightSqlConnection>,
     },
     /// Open the full-page settings
     OpenSettings,
@@ -255,6 +255,8 @@ pub struct Workspace {
     pending_open_style_picker: bool,
     /// Flag to open settings page (set by command, handled in show)
     pending_open_settings: bool,
+    /// Cached Flight SQL connection definitions from settings (for syncing to new SQL panes)
+    cached_flight_sql_connections: Vec<crate::ui::settings_screen::FlightSqlConnection>,
     /// Flag to open time range picker (set by keyboard tc or button click)
     pending_open_time_range_picker: bool,
     /// Query executor for running queries against backends (Prometheus, Enya)
@@ -428,6 +430,7 @@ impl Workspace {
             pending_open_workspace_finder: false,
             pending_open_style_picker: false,
             pending_open_settings: false,
+            cached_flight_sql_connections: Vec::new(),
             pending_open_time_range_picker: false,
             query_executor: QueryExecutor::new(async_runtime.clone()),
             next_query_number: 1,

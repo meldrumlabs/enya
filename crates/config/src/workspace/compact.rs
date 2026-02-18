@@ -468,6 +468,7 @@ impl CompactSnapshotWorkspace {
                 .map(|p| p.data.into_snapshot())
                 .collect(),
             conversation: None,
+            sql_pane: None,
         });
 
         ws
@@ -507,6 +508,7 @@ impl CompactSnapshotSinglePane {
             captured_at: self.captured_at,
             pane_data: vec![self.data.into_snapshot()],
             conversation: None,
+            sql_pane: None,
         });
 
         ws
@@ -2303,5 +2305,114 @@ mod tests {
             regular_encoded.len(),
             irregular_encoded.len()
         );
+    }
+
+    // ==========================================================================
+    // Snapshot + layout round-trip tests
+    // ==========================================================================
+
+    #[test]
+    fn test_snapshot_workspace_round_trip_with_horizontal_layout() {
+        let mut ws = WorkspaceConfig::new("hsplit-snap");
+        ws.panes.push(make_pane("left_query"));
+        ws.panes.push(make_pane("right_query"));
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+            shares: vec![],
+        });
+        let pane_data = vec![make_time_series_data(), make_time_series_data()];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        assert!(encoded.starts_with('s'), "Should have 's' prefix");
+
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+        assert_eq!(decoded.panes.len(), 2);
+
+        let layout = decoded
+            .layout
+            .expect("layout should survive snapshot round-trip");
+        assert_eq!(layout.layout_type, LayoutType::Horizontal);
+        assert_eq!(layout.children.len(), 2);
+        assert!(matches!(layout.children[0], LayoutNode::Pane(0)));
+        assert!(matches!(layout.children[1], LayoutNode::Pane(1)));
+    }
+
+    #[test]
+    fn test_snapshot_workspace_round_trip_with_vertical_layout() {
+        let mut ws = WorkspaceConfig::new("vsplit-snap");
+        ws.panes.push(make_pane("top_query"));
+        ws.panes.push(make_pane("bottom_query"));
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Vertical,
+            children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+            shares: vec![],
+        });
+        let pane_data = vec![make_time_series_data(), make_time_series_data()];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let layout = decoded
+            .layout
+            .expect("layout should survive snapshot round-trip");
+        assert_eq!(layout.layout_type, LayoutType::Vertical);
+        assert_eq!(layout.children.len(), 2);
+    }
+
+    #[test]
+    fn test_snapshot_workspace_round_trip_with_nested_layout() {
+        // Nested: Horizontal [ Vertical [0, 1], 2 ]
+        let mut ws = WorkspaceConfig::new("nested-snap");
+        ws.panes.push(make_pane("top-left"));
+        ws.panes.push(make_pane("bottom-left"));
+        ws.panes.push(make_pane("right"));
+        ws.layout = Some(LayoutConfig {
+            layout_type: LayoutType::Horizontal,
+            children: vec![
+                LayoutNode::Container(LayoutContainer {
+                    layout_type: LayoutType::Vertical,
+                    children: vec![LayoutNode::Pane(0), LayoutNode::Pane(1)],
+                    shares: vec![],
+                }),
+                LayoutNode::Pane(2),
+            ],
+            shares: vec![],
+        });
+        let pane_data = vec![
+            make_time_series_data(),
+            make_time_series_data(),
+            make_time_series_data(),
+        ];
+
+        let encoded =
+            encode_snapshot_workspace(&ws, &pane_data, 1700000000).expect("encode should succeed");
+        let decoded = decode_workspace(&encoded).expect("decode should succeed");
+
+        let layout = decoded
+            .layout
+            .expect("layout should survive snapshot round-trip");
+        assert_eq!(layout.layout_type, LayoutType::Horizontal);
+        assert_eq!(layout.children.len(), 2);
+
+        // First child: vertical container
+        match &layout.children[0] {
+            LayoutNode::Container(c) => {
+                assert_eq!(c.layout_type, LayoutType::Vertical);
+                assert_eq!(c.children.len(), 2);
+                assert!(matches!(c.children[0], LayoutNode::Pane(0)));
+                assert!(matches!(c.children[1], LayoutNode::Pane(1)));
+            }
+            _ => panic!("Expected nested vertical container"),
+        }
+
+        // Second child: pane 2
+        assert!(matches!(layout.children[1], LayoutNode::Pane(2)));
+
+        // Snapshot data should also be preserved
+        let snapshot = decoded.snapshot.expect("snapshot should exist");
+        assert_eq!(snapshot.pane_data.len(), 3);
     }
 }
