@@ -2532,6 +2532,23 @@ impl Workspace {
         self.poll_sql_pane_actions();
     }
 
+    /// Propagate Flight SQL connection definitions from Settings to all open SQL panes.
+    pub fn sync_sql_connections(
+        &mut self,
+        connections: &[crate::ui::settings_screen::FlightSqlConnection],
+    ) {
+        use crate::components::SqlPane;
+        use egui_tiles::Tile;
+
+        for tile_id in self.get_pane_tile_ids() {
+            if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                if let Some(sql_pane) = component.as_any_mut().downcast_mut::<SqlPane>() {
+                    sql_pane.sync_connections(connections);
+                }
+            }
+        }
+    }
+
     /// Poll all SqlPanes for pending actions (like share-to-agent).
     fn poll_sql_pane_actions(&mut self) {
         use crate::components::{SqlPane, SqlPaneAction};
@@ -2544,6 +2561,9 @@ impl Workspace {
                     match sql_pane.take_action() {
                         SqlPaneAction::ShareResultToAgent(table) => {
                             inline_tables.push(table);
+                        }
+                        SqlPaneAction::OpenSettings => {
+                            self.pending_open_settings = true;
                         }
                         SqlPaneAction::None => {}
                     }

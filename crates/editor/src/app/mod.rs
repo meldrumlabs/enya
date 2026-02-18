@@ -137,6 +137,9 @@ impl EnyaApp {
             .and_then(|s| eframe::get_value(s, eframe::APP_KEY))
             .unwrap_or_default();
 
+        // Migrate legacy settings fields (e.g. single Flight SQL endpoint → connection list)
+        state.settings.migrate();
+
         // Set up fonts with user's preferred font from saved settings
         fonts::setup_fonts(&cc.egui_ctx, state.settings.font);
 
@@ -836,7 +839,7 @@ impl EnyaApp {
                     git_repo_url,
                     default_prometheus_endpoint,
                     default_loki_endpoint,
-                    default_flight_sql_endpoint,
+                    flight_sql_connections,
                     default_workspace,
                     timezone,
                     default_time_range,
@@ -851,7 +854,7 @@ impl EnyaApp {
                     self.state.settings.git_repo_url = git_repo_url;
                     self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
                     self.state.settings.default_loki_endpoint = default_loki_endpoint;
-                    self.state.settings.default_flight_sql_endpoint = default_flight_sql_endpoint;
+                    self.state.settings.flight_sql_connections = flight_sql_connections.clone();
                     self.state.settings.default_workspace = default_workspace;
                     self.state.settings.timezone = timezone;
                     self.state.settings.default_time_range = default_time_range;
@@ -868,6 +871,8 @@ impl EnyaApp {
                     #[cfg(not(target_arch = "wasm32"))]
                     self.workspace
                         .set_git_sync_interval(git_sync_interval.to_secs());
+                    // Propagate Flight SQL connections to all SQL panes
+                    self.workspace.sync_sql_connections(&flight_sql_connections);
                 }
                 self.state.ui_state = self.state.previous_ui_state;
             }
@@ -1178,17 +1183,19 @@ impl EnyaApp {
                 git_repo_url,
                 default_prometheus_endpoint,
                 default_loki_endpoint,
-                default_flight_sql_endpoint,
+                flight_sql_connections,
             } => {
                 self.state.settings.ai_provider = ai_provider;
                 self.state.settings.ai_model = ai_model.clone();
                 self.state.settings.git_repo_url = git_repo_url;
                 self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
                 self.state.settings.default_loki_endpoint = default_loki_endpoint;
-                self.state.settings.default_flight_sql_endpoint = default_flight_sql_endpoint;
+                self.state.settings.flight_sql_connections = flight_sql_connections.clone();
                 // Propagate provider/model to agent panel
                 self.workspace
                     .set_agent_provider_and_model(ai_provider, ai_model);
+                // Propagate Flight SQL connections to all SQL panes
+                self.workspace.sync_sql_connections(&flight_sql_connections);
             }
             WorkspaceAction::OpenSettings => {
                 // Collect custom themes for the settings page
@@ -1217,7 +1224,7 @@ impl EnyaApp {
                     self.state.settings.git_repo_url.clone(),
                     self.state.settings.default_prometheus_endpoint.clone(),
                     self.state.settings.default_loki_endpoint.clone(),
-                    self.state.settings.default_flight_sql_endpoint.clone(),
+                    self.state.settings.flight_sql_connections.clone(),
                     self.effective_theme(),
                     self.state.custom_theme.clone(),
                     self.state.settings.font,

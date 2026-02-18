@@ -2,14 +2,13 @@
 //!
 //! This pane provides a SQL interface for connecting to Flight SQL servers
 //! (DataFusion, DuckDB, InfluxDB, etc.) and executing queries. Features:
-//! - Connect to any Flight SQL server via `.open <endpoint>`
+//! - Connections managed via Settings page
 //! - Query history displayed as cells with execution timing
 //! - Results rendered as tables with export options
 //! - Schema browser sidebar with remote table metadata
 //! - Query plan visualization with `.explain` and `.analyze` commands
 //!
 //! Dot-commands (inspired by DuckDB/SQLite):
-//! - `.open <endpoint>` - Connect to Flight SQL server
 //! - `.close` - Disconnect
 //! - `.tables` - List tables
 //! - `.schema <table>` - Show table schema
@@ -34,8 +33,7 @@ use rustc_hash::FxHashMap;
 use super::super::highlighting::highlight_sql;
 use super::command::SqlCommand;
 use super::connections::{
-    ConnectionAction, ConnectionId, ConnectionTreeState, SavedConnection, SqlBackend,
-    TreeSelection, render_add_connection_dialog,
+    ConnectionAction, ConnectionId, ConnectionTreeState, SavedConnection, SqlBackend, TreeSelection,
 };
 use super::diff::{compute_table_diff, schemas_compatible};
 use super::diff_rendering::{
@@ -265,55 +263,6 @@ impl SqlPane {
         self.overlay_blocks_input = blocks;
     }
 
-    /// Connect to a Flight SQL server.
-    fn connect(&mut self, endpoint: &str) {
-        let endpoint = endpoint.to_string();
-
-        // Check if we already have a connection to this endpoint
-        let existing_id = self
-            .connections
-            .iter()
-            .find(|c| c.endpoint == endpoint)
-            .map(|c| c.id);
-
-        if let Some(id) = existing_id {
-            // Reuse existing connection
-            self.connect_saved(id);
-            return;
-        }
-
-        // Create a new saved connection with a name derived from the endpoint
-        let name = if endpoint.starts_with("localhost") || endpoint.starts_with("127.") {
-            "local".to_string()
-        } else {
-            // Use first part of hostname as name
-            endpoint
-                .split(':')
-                .next()
-                .unwrap_or(&endpoint)
-                .split('.')
-                .next()
-                .unwrap_or("server")
-                .to_string()
-        };
-
-        // Ensure unique name
-        let mut final_name = name.clone();
-        let mut counter = 1;
-        while self.connections.iter().any(|c| c.name == final_name) {
-            counter += 1;
-            final_name = format!("{name}-{counter}");
-        }
-
-        // Create and add the connection
-        let conn = SavedConnection::new(&final_name, &endpoint);
-        let conn_id = conn.id;
-        self.connections.push(conn);
-
-        // Now connect to it
-        self.connect_saved(conn_id);
-    }
-
     /// Disconnect from current server.
     fn disconnect(&mut self) {
         self.backend = None;
@@ -324,12 +273,6 @@ impl SqlPane {
     // ========================================================================
     // Connection Management (new multi-connection support)
     // ========================================================================
-
-    /// Add a new saved connection.
-    fn add_connection(&mut self, name: &str, endpoint: &str) {
-        let conn = SavedConnection::new(name, endpoint);
-        self.connections.push(conn);
-    }
 
     /// Connect to a saved connection by ID.
     fn connect_saved(&mut self, id: ConnectionId) {
@@ -441,16 +384,8 @@ impl SqlPane {
             ConnectionAction::ToggleExpanded(id) => {
                 self.toggle_connection_expanded(id);
             }
-            ConnectionAction::OpenAddDialog => {
-                self.tree_state.show_add_dialog = true;
-                self.tree_state.new_conn_name.clear();
-                self.tree_state.new_conn_endpoint.clear();
-            }
-            ConnectionAction::CloseAddDialog => {
-                self.tree_state.show_add_dialog = false;
-            }
-            ConnectionAction::AddConnection { name, endpoint } => {
-                self.add_connection(&name, &endpoint);
+            ConnectionAction::OpenSettings => {
+                self.pending_action = SqlPaneAction::OpenSettings;
             }
             ConnectionAction::ClosePopup => {
                 self.sidebar_width = 0.0;
@@ -669,116 +604,6 @@ impl SqlPane {
                     self.add_info_cell("Usage: /schema <table-name>\nExample: /schema users");
                 }
             }
-            "connect" => {
-                match (parts.get(1), parts.get(2)) {
-                    // /connect <endpoint> <name> - save and connect with name
-                    (Some(endpoint), Some(name)) => {
-                        self.add_connection(name, endpoint);
-                        // Find the newly added connection and connect to it
-                        if let Some(conn) = self
-                            .connections
-                            .iter()
-                            .find(|c| c.name.eq_ignore_ascii_case(name))
-                        {
-                            let id = conn.id;
-                            self.connect_saved(id);
-                            self.add_info_cell(&format!(
-                                "Saved connection '{name}' and connecting to {endpoint}"
-                            ));
-                        }
-                    }
-                    // /connect <endpoint|name> - connect or switch
-                    (Some(arg), None) => {
-                        // Check if it looks like an endpoint
-                        let is_endpoint = arg.contains(':')
-                            || arg.starts_with("localhost")
-                            || arg.starts_with("127.")
-                            || arg.parse::<std::net::IpAddr>().is_ok();
-
-                        if is_endpoint {
-                            // Connect directly (unnamed)
-                            self.connect(arg);
-                        } else {
-                            // Try to find connection by name
-                            let conn_id = self
-                                .connections
-                                .iter()
-                                .find(|c| c.name.eq_ignore_ascii_case(arg))
-                                .map(|c| c.id);
-
-                            if let Some(id) = conn_id {
-                                let is_connected = self
-                                    .connections
-                                    .iter()
-                                    .find(|c| c.id == id)
-                                    .map(|c| matches!(c.state, ConnectionState::Connected))
-                                    .unwrap_or(false);
-
-                                if is_connected {
-                                    self.set_active_connection(id);
-                                    self.add_info_cell(&format!("Switched to connection: {arg}"));
-                                } else {
-                                    self.connect_saved(id);
-                                    self.add_info_cell(&format!("Connecting to: {arg}"));
-                                }
-                            } else {
-                                // Show available connections
-                                let available: Vec<_> =
-                                    self.connections.iter().map(|c| c.name.as_str()).collect();
-                                if available.is_empty() {
-                                    self.add_info_cell(
-                                        "No connections available.\n\
-                                         Use /connect <endpoint> <name> to save a connection.",
-                                    );
-                                } else {
-                                    self.add_error_cell(&format!(
-                                        "Connection not found: {}\nAvailable: {}",
-                                        arg,
-                                        available.join(", ")
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                    // /connect - show usage
-                    (None, _) => {
-                        let available: Vec<_> = self
-                            .connections
-                            .iter()
-                            .map(|c| {
-                                let status = if matches!(c.state, ConnectionState::Connected) {
-                                    "●"
-                                } else {
-                                    "○"
-                                };
-                                format!(
-                                    "{} {} {}",
-                                    status,
-                                    c.name,
-                                    if c.active { "(active)" } else { "" }
-                                )
-                            })
-                            .collect();
-
-                        if available.is_empty() {
-                            self.add_info_cell(
-                                "Usage:\n\
-                                 /connect <endpoint> <name>  Save and connect\n\
-                                 /connect <name>             Switch to saved connection\n\n\
-                                 Example: /connect localhost:50051 local",
-                            );
-                        } else {
-                            self.add_info_cell(&format!(
-                                "Usage:\n\
-                                 /connect <endpoint> <name>  Save and connect\n\
-                                 /connect <name>             Switch to saved connection\n\n\
-                                 Saved connections:\n{}",
-                                available.join("\n")
-                            ));
-                        }
-                    }
-                }
-            }
             "history" => {
                 if self.history.is_empty() {
                     self.add_info_cell("No query history yet.");
@@ -827,13 +652,6 @@ impl SqlPane {
         let command = parts.first().copied().unwrap_or("");
 
         match command {
-            "open" => {
-                if let Some(endpoint) = parts.get(1) {
-                    self.connect(endpoint);
-                } else {
-                    self.add_error_cell(".open requires an endpoint (e.g., .open localhost:50051)");
-                }
-            }
             "close" => {
                 self.disconnect();
                 self.add_info_cell("Disconnected");
@@ -890,7 +708,6 @@ impl SqlPane {
             "help" => {
                 self.add_info_cell(
                     "Dot-Commands (like DuckDB/SQLite):\n\
-                     .open <endpoint>  - Connect to Flight SQL server\n\
                      .close            - Disconnect from server\n\
                      .tables           - List available tables\n\
                      .explain <query>  - Show query plan (EXPLAIN)\n\
@@ -898,6 +715,7 @@ impl SqlPane {
                      .plan [tree|timeline|waterfall|hide] - Toggle plan viewer\n\
                      .demo             - Load a demo query plan\n\
                      .help             - Show this help\n\n\
+                     Configure connections in Settings.\n\
                      Enter SQL queries directly and press Ctrl+Enter to execute.\n\n\
                      Plan Viewer Keys (when visible):\n\
                      j/k - Navigate up/down\n\
@@ -969,7 +787,7 @@ impl SqlPane {
                 let _ = tx.send(result);
             });
         } else {
-            self.add_error_cell("Not connected. Use .open <endpoint> first.");
+            self.add_error_cell("Not connected. Configure connections in Settings.");
         }
     }
 
@@ -1033,10 +851,8 @@ impl SqlPane {
                 // No backend connected - show error
                 if let Some(cell) = self.history.last_mut() {
                     cell.status = QueryStatus::Failed;
-                    cell.error = Some(
-                        "Not connected. Use .open <endpoint> to connect to a Flight SQL server."
-                            .to_string(),
-                    );
+                    cell.error =
+                        Some("Not connected. Configure connections in Settings.".to_string());
                 }
             }
         }
@@ -1084,8 +900,8 @@ impl SqlPane {
             }
             Some(c) => {
                 self.add_error_cell(&format!(
-                    "Connection '{}' is not connected. Use /connect {} first.",
-                    c.name, c.name
+                    "Connection '{}' is not connected. Connect via the sidebar.",
+                    c.name
                 ));
                 return;
             }
@@ -1101,8 +917,8 @@ impl SqlPane {
             }
             Some(c) => {
                 self.add_error_cell(&format!(
-                    "Connection '{}' is not connected. Use /connect {} first.",
-                    c.name, c.name
+                    "Connection '{}' is not connected. Connect via the sidebar.",
+                    c.name
                 ));
                 return;
             }
@@ -1236,8 +1052,8 @@ impl SqlPane {
             }
             Some(c) => {
                 self.add_error_cell(&format!(
-                    "Connection '{}' is not connected. Use /connect {} first.",
-                    c.name, c.name
+                    "Connection '{}' is not connected. Connect via the sidebar.",
+                    c.name
                 ));
                 return;
             }
@@ -1253,8 +1069,8 @@ impl SqlPane {
             }
             Some(c) => {
                 self.add_error_cell(&format!(
-                    "Connection '{}' is not connected. Use /connect {} first.",
-                    c.name, c.name
+                    "Connection '{}' is not connected. Connect via the sidebar.",
+                    c.name
                 ));
                 return;
             }
@@ -2387,19 +2203,6 @@ impl SqlPane {
                     },
                 );
             });
-
-        // Render add connection dialog if open
-        if self.tree_state.show_add_dialog {
-            let actions = render_add_connection_dialog(
-                ui,
-                self.theme,
-                &mut self.tree_state.new_conn_name,
-                &mut self.tree_state.new_conn_endpoint,
-            );
-            for action in actions {
-                self.handle_connection_action(action);
-            }
-        }
 
         // Render result overlay if active (kept for now during transition)
         if self.active_overlay != ResultOverlay::None {
@@ -3595,14 +3398,6 @@ impl SqlPane {
                 // No SQL suggestions, fall through to command matching
             }
 
-            // Special handling for /connect - show endpoint suggestions
-            if cmd_query == "connect" || cmd_query.starts_with("connect ") {
-                let partial = cmd_query.strip_prefix("connect").unwrap_or("").trim_start();
-                let items = self.get_connect_suggestions(partial);
-                self.suggestions.set(items);
-                return;
-            }
-
             // Standard command matching with nucleo
             let items = self.fuzzy_match_commands(cmd_query);
             self.suggestions.set(items);
@@ -3683,84 +3478,6 @@ impl SqlPane {
         TABLE_KEYWORDS
             .iter()
             .any(|kw| upper.ends_with(&format!("{kw} ")))
-    }
-
-    /// Get connection endpoint suggestions for /connect command.
-    fn get_connect_suggestions(&mut self, partial: &str) -> Vec<Suggestion> {
-        let mut items = Vec::new();
-
-        if partial.is_empty() {
-            items.push(Suggestion {
-                label: "localhost:50051".to_string(),
-                detail: "Local Flight SQL".to_string(),
-                insert: "/connect localhost:50051".to_string(),
-                icon: SuggestionIcon::Connection,
-                score: 0,
-                match_positions: Vec::new(),
-            });
-
-            for conn in &self.connections {
-                let status = if matches!(conn.state, ConnectionState::Connected) {
-                    "connected"
-                } else {
-                    "saved"
-                };
-                items.push(Suggestion {
-                    label: conn.name.clone(),
-                    detail: format!("{} ({})", conn.endpoint, status),
-                    insert: format!("/connect {}", conn.name),
-                    icon: SuggestionIcon::Connection,
-                    score: 0,
-                    match_positions: Vec::new(),
-                });
-            }
-        } else {
-            let pattern = Pattern::new(
-                partial,
-                CaseMatching::Ignore,
-                Normalization::Smart,
-                AtomKind::Fuzzy,
-            );
-            let mut indices: Vec<u32> = Vec::new();
-            let mut buf = Vec::new();
-
-            indices.clear();
-            let haystack = Utf32Str::new("localhost:50051", &mut buf);
-            if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
-                items.push(Suggestion {
-                    label: "localhost:50051".to_string(),
-                    detail: "Local Flight SQL".to_string(),
-                    insert: "/connect localhost:50051".to_string(),
-                    icon: SuggestionIcon::Connection,
-                    score: i64::from(score),
-                    match_positions: indices.iter().map(|&i| i as usize).collect(),
-                });
-            }
-
-            for conn in &self.connections {
-                indices.clear();
-                let haystack = Utf32Str::new(&conn.name, &mut buf);
-                if let Some(score) = pattern.indices(haystack, &mut self.matcher, &mut indices) {
-                    let status = if matches!(conn.state, ConnectionState::Connected) {
-                        "connected"
-                    } else {
-                        "saved"
-                    };
-                    items.push(Suggestion {
-                        label: conn.name.clone(),
-                        detail: format!("{} ({})", conn.endpoint, status),
-                        insert: format!("/connect {}", conn.name),
-                        icon: SuggestionIcon::Connection,
-                        score: i64::from(score),
-                        match_positions: indices.iter().map(|&i| i as usize).collect(),
-                    });
-                }
-            }
-
-            items.sort_by(|a, b| b.score.cmp(&a.score));
-        }
-
-        items
     }
 
     /// Fuzzy match SQL commands using nucleo.
@@ -5024,7 +4741,7 @@ impl SqlPane {
                     );
                 } else if self.connections.is_empty() {
                     ui.label(
-                        RichText::new("No connection · /connect to add")
+                        RichText::new("No connections · configure in Settings")
                             .color(text_secondary.gamma_multiply(0.5))
                             .size(10.0),
                     );
@@ -5060,7 +4777,6 @@ impl SqlPane {
 
                 // Toggle popup on click
                 if pill_response.clicked() {
-                    self.tree_state.show_add_dialog = false; // Close add dialog if open
                     // Toggle popup state (we'll use sidebar_width as a flag, repurposed)
                     if self.sidebar_width == 0.0 {
                         self.sidebar_width = 1.0; // Show popup
@@ -6553,20 +6269,6 @@ impl SqlPane {
                                 ui.add_space(16.0);
 
                                 ui.label(
-                                    RichText::new(".open")
-                                        .color(accent.gamma_multiply(0.7))
-                                        .size(10.0)
-                                        .monospace(),
-                                );
-                                ui.label(
-                                    RichText::new("connect")
-                                        .color(text_secondary.gamma_multiply(0.6))
-                                        .size(10.0),
-                                );
-
-                                ui.add_space(16.0);
-
-                                ui.label(
                                     RichText::new(".tables")
                                         .color(accent.gamma_multiply(0.7))
                                         .size(10.0)
@@ -6586,6 +6288,33 @@ impl SqlPane {
     /// Take the pending action, if any.
     pub fn take_action(&mut self) -> SqlPaneAction {
         std::mem::replace(&mut self.pending_action, SqlPaneAction::None)
+    }
+
+    /// Synchronize connections from the Settings-defined list.
+    ///
+    /// Preserves existing connections that match by (name, endpoint) so
+    /// runtime state (connected, tables, active) is kept. Creates new
+    /// entries for additions and removes connections no longer in Settings.
+    pub fn sync_connections(
+        &mut self,
+        definitions: &[crate::ui::settings_screen::FlightSqlConnection],
+    ) {
+        let mut new_connections = Vec::with_capacity(definitions.len());
+        for def in definitions {
+            // Try to find an existing connection with the same name+endpoint
+            if let Some(pos) = self
+                .connections
+                .iter()
+                .position(|c| c.name == def.name && c.endpoint == def.endpoint)
+            {
+                // Reuse existing (preserves state, tables, active)
+                new_connections.push(self.connections.swap_remove(pos));
+            } else {
+                // New definition — create a fresh SavedConnection
+                new_connections.push(SavedConnection::new(&def.name, &def.endpoint));
+            }
+        }
+        self.connections = new_connections;
     }
 
     /// Convert a query result at the given history index to an InlineTable.

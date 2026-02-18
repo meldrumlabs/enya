@@ -34,7 +34,7 @@ pub enum SettingsPageResult {
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
-        default_flight_sql_endpoint: String,
+        flight_sql_connections: Vec<crate::ui::settings_screen::FlightSqlConnection>,
         default_workspace: Option<String>,
         timezone: TimezonePreference,
         default_time_range: TimeRangePreset,
@@ -139,7 +139,6 @@ enum EditingField {
     GitRepoUrl,
     PrometheusEndpoint,
     LokiEndpoint,
-    FlightSqlEndpoint,
 }
 
 /// Full-page settings component.
@@ -161,7 +160,14 @@ pub struct SettingsPage {
     git_sync_dropdown_open: bool,
     default_prometheus_endpoint: String,
     default_loki_endpoint: String,
-    default_flight_sql_endpoint: String,
+    // Flight SQL connection list (replacing single endpoint)
+    flight_sql_connections: Vec<crate::ui::settings_screen::FlightSqlConnection>,
+    /// Which Flight SQL connection index is being edited (None = not editing)
+    editing_flight_idx: Option<usize>,
+    /// Whether the "add connection" form is active
+    adding_flight_sql: bool,
+    new_flight_name: String,
+    new_flight_endpoint: String,
     // Appearance state
     styling_theme: AppTheme,
     original_theme: AppTheme,
@@ -228,7 +234,11 @@ impl SettingsPage {
             git_sync_dropdown_open: false,
             default_prometheus_endpoint: String::new(),
             default_loki_endpoint: String::new(),
-            default_flight_sql_endpoint: String::new(),
+            flight_sql_connections: Vec::new(),
+            editing_flight_idx: None,
+            adding_flight_sql: false,
+            new_flight_name: String::new(),
+            new_flight_endpoint: String::new(),
             styling_theme: AppTheme::default(),
             original_theme: AppTheme::default(),
             styling_custom_theme: None,
@@ -319,7 +329,7 @@ impl SettingsPage {
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
-        default_flight_sql_endpoint: String,
+        flight_sql_connections: Vec<crate::ui::settings_screen::FlightSqlConnection>,
         current_theme: AppTheme,
         current_custom_theme: Option<String>,
         current_font: EditorFont,
@@ -360,7 +370,11 @@ impl SettingsPage {
         self.ai_dropdown_open = false;
         self.default_prometheus_endpoint = default_prometheus_endpoint;
         self.default_loki_endpoint = default_loki_endpoint;
-        self.default_flight_sql_endpoint = default_flight_sql_endpoint;
+        self.flight_sql_connections = flight_sql_connections;
+        self.editing_flight_idx = None;
+        self.adding_flight_sql = false;
+        self.new_flight_name.clear();
+        self.new_flight_endpoint.clear();
         // Appearance
         self.styling_theme = current_theme;
         self.original_theme = current_theme;
@@ -407,11 +421,11 @@ impl SettingsPage {
         match self.active_category {
             SettingsCategory::Profile => 5, // Auth, workspace, timezone, time range, startup
             SettingsCategory::Notifications => 2, // Check for updates + notify new models
-            SettingsCategory::Connections => 3, // Prom, Loki, Flight SQL
+            SettingsCategory::Connections => 2 + self.flight_sql_connections.len() + 1, // Prom, Loki, each Flight SQL conn, + Add button
             SettingsCategory::Codebases => 2, // Git repo URL, sync interval
-            SettingsCategory::Ai => 2,      // Provider, Model
+            SettingsCategory::Ai => 2,        // Provider, Model
             SettingsCategory::ThemeFont => 0, // Panel-based navigation
-            SettingsCategory::Storage => 4, // Config, workspaces, repos, plugins
+            SettingsCategory::Storage => 4,   // Config, workspaces, repos, plugins
         }
     }
 
@@ -488,7 +502,7 @@ impl SettingsPage {
             git_repo_url: self.git_repo_url.clone(),
             default_prometheus_endpoint: self.default_prometheus_endpoint.clone(),
             default_loki_endpoint: self.default_loki_endpoint.clone(),
-            default_flight_sql_endpoint: self.default_flight_sql_endpoint.clone(),
+            flight_sql_connections: self.flight_sql_connections.clone(),
             default_workspace: self.default_workspace.clone(),
             timezone: self.timezone,
             default_time_range: self.default_time_range,
@@ -1954,14 +1968,6 @@ impl SettingsPage {
                 EditingField::LokiEndpoint,
                 "https://loki.example.com/loki/api/v1",
             ),
-            (
-                2,
-                regular::DATABASE_2,
-                "Flight SQL",
-                "SQL query endpoint",
-                EditingField::FlightSqlEndpoint,
-                "grpc://localhost:50051",
-            ),
         ];
 
         for (i, (index, icon, label, desc, field, placeholder)) in rows.iter().enumerate() {
@@ -1983,6 +1989,401 @@ impl SettingsPage {
                 text_primary,
                 text_tertiary,
             );
+        }
+
+        // Flight SQL connections section
+        ui.add_space(16.0);
+        self.show_flight_sql_section(
+            ui,
+            accent,
+            text_primary,
+            text_tertiary,
+            card_bg,
+            card_border,
+        );
+    }
+
+    // ── Flight SQL Section ────────────────────────────────────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    fn show_flight_sql_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        accent: Color32,
+        text_primary: Color32,
+        text_tertiary: Color32,
+        card_bg: Color32,
+        card_border: Color32,
+    ) {
+        use crate::ui::settings_screen::FlightSqlConnection;
+
+        // Section header
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(regular::DATABASE_2)
+                    .font(FontId::new(14.0, FontFamily::Name("nerd_regular".into())))
+                    .color(text_tertiary),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new("Flight SQL")
+                    .font(typography::proportional(typography::SM))
+                    .color(text_primary)
+                    .strong(),
+            );
+        });
+        ui.add_space(8.0);
+
+        // Existing connections
+        let mut delete_idx: Option<usize> = None;
+        let num_conns = self.flight_sql_connections.len();
+        for i in 0..num_conns {
+            let field_idx = 2 + i; // offset past Prometheus + Loki
+            let is_focused = self.field_index == field_idx
+                && self.editing_field.is_none()
+                && !self.sidebar_focused;
+            let is_editing = self.editing_flight_idx == Some(i);
+
+            if i > 0 {
+                ui.add_space(6.0);
+            }
+
+            let border = if is_focused || is_editing {
+                accent.gamma_multiply(0.5)
+            } else {
+                card_border
+            };
+
+            egui::Frame::new()
+                .fill(card_bg)
+                .stroke(egui::Stroke::new(1.0, border))
+                .corner_radius(8.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+
+                    if is_editing {
+                        // Inline edit form
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Name:")
+                                    .font(typography::proportional(typography::XS))
+                                    .color(text_tertiary),
+                            );
+                            let name_edit = egui::TextEdit::singleline(&mut self.new_flight_name)
+                                .desired_width(120.0)
+                                .font(typography::monospace(typography::SM))
+                                .text_color(accent)
+                                .hint_text(
+                                    RichText::new("e.g. prod")
+                                        .font(typography::monospace(typography::SM))
+                                        .color(accent.gamma_multiply(0.25)),
+                                )
+                                .frame(false);
+                            ui.add(name_edit);
+                        });
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Endpoint:")
+                                    .font(typography::proportional(typography::XS))
+                                    .color(text_tertiary),
+                            );
+                            let ep_edit = egui::TextEdit::singleline(&mut self.new_flight_endpoint)
+                                .desired_width(ui.available_width() - 80.0)
+                                .font(typography::monospace(typography::SM))
+                                .text_color(accent)
+                                .hint_text(
+                                    RichText::new("grpc://localhost:50051")
+                                        .font(typography::monospace(typography::SM))
+                                        .color(accent.gamma_multiply(0.25)),
+                                )
+                                .frame(false);
+                            ui.add(ep_edit);
+                        });
+                        ui.add_space(6.0);
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button(
+                                    RichText::new("Save")
+                                        .font(typography::proportional(typography::XS))
+                                        .color(accent),
+                                )
+                                .clicked()
+                            {
+                                if !self.new_flight_name.trim().is_empty()
+                                    && !self.new_flight_endpoint.trim().is_empty()
+                                {
+                                    self.flight_sql_connections[i] = FlightSqlConnection {
+                                        name: self.new_flight_name.trim().to_string(),
+                                        endpoint: self.new_flight_endpoint.trim().to_string(),
+                                    };
+                                }
+                                self.editing_flight_idx = None;
+                            }
+                            ui.add_space(4.0);
+                            if ui
+                                .button(
+                                    RichText::new("Cancel")
+                                        .font(typography::proportional(typography::XS))
+                                        .color(text_tertiary),
+                                )
+                                .clicked()
+                            {
+                                self.editing_flight_idx = None;
+                            }
+                        });
+                    } else {
+                        // Display mode
+                        let conn = &self.flight_sql_connections[i];
+                        let avail_width = ui.available_width();
+                        let (rect, response) = ui.allocate_exact_size(
+                            Vec2::new(avail_width, 36.0),
+                            egui::Sense::click(),
+                        );
+
+                        if response.clicked() {
+                            self.field_index = field_idx;
+                            self.sidebar_focused = false;
+                        }
+                        if response.double_clicked() {
+                            self.editing_flight_idx = Some(i);
+                            self.new_flight_name = conn.name.clone();
+                            self.new_flight_endpoint = conn.endpoint.clone();
+                        }
+                        if response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        }
+
+                        // Focus accent strip
+                        if is_focused {
+                            let strip = egui::Rect::from_min_size(
+                                egui::pos2(rect.min.x - 14.0, rect.min.y + 2.0),
+                                Vec2::new(3.0, rect.height() - 4.0),
+                            );
+                            ui.painter().rect_filled(strip, 2.0, accent);
+                        }
+
+                        // Green dot (configured)
+                        let dot_color = if !conn.endpoint.is_empty() {
+                            Color32::from_rgb(80, 200, 120)
+                        } else {
+                            text_tertiary.gamma_multiply(0.3)
+                        };
+                        ui.painter().circle_filled(
+                            egui::pos2(rect.min.x + 6.0, rect.center().y),
+                            3.0,
+                            dot_color,
+                        );
+
+                        // Name (bold)
+                        ui.painter().text(
+                            egui::pos2(rect.min.x + 18.0, rect.center().y - 8.0),
+                            egui::Align2::LEFT_CENTER,
+                            &conn.name,
+                            typography::proportional(typography::SM),
+                            if is_focused { accent } else { text_primary },
+                        );
+
+                        // Endpoint (monospace, secondary)
+                        let ep_display = if conn.endpoint.is_empty() {
+                            "not configured"
+                        } else {
+                            &conn.endpoint
+                        };
+                        ui.painter().text(
+                            egui::pos2(rect.min.x + 18.0, rect.center().y + 8.0),
+                            egui::Align2::LEFT_CENTER,
+                            ep_display,
+                            typography::monospace(typography::XS),
+                            text_tertiary.gamma_multiply(0.7),
+                        );
+
+                        // Delete button (right side)
+                        let delete_rect = egui::Rect::from_min_size(
+                            egui::pos2(rect.max.x - 24.0, rect.center().y - 8.0),
+                            Vec2::new(16.0, 16.0),
+                        );
+                        let del_resp = ui.interact(
+                            delete_rect,
+                            ui.id().with(("flight_del", i)),
+                            egui::Sense::click(),
+                        );
+                        if del_resp.hovered() || is_focused {
+                            ui.painter().text(
+                                delete_rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                semantic_icons::action::CLOSE,
+                                FontId::new(10.0, FontFamily::Name("nerd_regular".into())),
+                                if del_resp.hovered() {
+                                    accent
+                                } else {
+                                    text_tertiary.gamma_multiply(0.4)
+                                },
+                            );
+                        }
+                        if del_resp.clicked() {
+                            delete_idx = Some(i);
+                        }
+                    }
+                });
+        }
+
+        // Process deletions
+        if let Some(idx) = delete_idx {
+            self.flight_sql_connections.remove(idx);
+            if self.editing_flight_idx == Some(idx) {
+                self.editing_flight_idx = None;
+            }
+        }
+
+        // "Add Connection" form or button
+        let add_field_idx = 2 + self.flight_sql_connections.len();
+        let add_focused = self.field_index == add_field_idx
+            && self.editing_field.is_none()
+            && !self.sidebar_focused;
+
+        if num_conns > 0 {
+            ui.add_space(6.0);
+        }
+
+        if self.adding_flight_sql {
+            // Inline add form
+            let border = accent.gamma_multiply(0.5);
+            egui::Frame::new()
+                .fill(card_bg)
+                .stroke(egui::Stroke::new(1.0, border))
+                .corner_radius(8.0)
+                .inner_margin(12.0)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("Name:")
+                                .font(typography::proportional(typography::XS))
+                                .color(text_tertiary),
+                        );
+                        let name_edit = egui::TextEdit::singleline(&mut self.new_flight_name)
+                            .desired_width(120.0)
+                            .font(typography::monospace(typography::SM))
+                            .text_color(accent)
+                            .hint_text(
+                                RichText::new("e.g. prod")
+                                    .font(typography::monospace(typography::SM))
+                                    .color(accent.gamma_multiply(0.25)),
+                            )
+                            .frame(false);
+                        ui.add(name_edit);
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("Endpoint:")
+                                .font(typography::proportional(typography::XS))
+                                .color(text_tertiary),
+                        );
+                        let ep_edit = egui::TextEdit::singleline(&mut self.new_flight_endpoint)
+                            .desired_width(ui.available_width() - 80.0)
+                            .font(typography::monospace(typography::SM))
+                            .text_color(accent)
+                            .hint_text(
+                                RichText::new("grpc://localhost:50051")
+                                    .font(typography::monospace(typography::SM))
+                                    .color(accent.gamma_multiply(0.25)),
+                            )
+                            .frame(false);
+                        ui.add(ep_edit);
+                    });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(
+                                RichText::new("Add")
+                                    .font(typography::proportional(typography::XS))
+                                    .color(accent),
+                            )
+                            .clicked()
+                        {
+                            if !self.new_flight_name.trim().is_empty()
+                                && !self.new_flight_endpoint.trim().is_empty()
+                            {
+                                self.flight_sql_connections.push(FlightSqlConnection {
+                                    name: self.new_flight_name.trim().to_string(),
+                                    endpoint: self.new_flight_endpoint.trim().to_string(),
+                                });
+                            }
+                            self.adding_flight_sql = false;
+                            self.new_flight_name.clear();
+                            self.new_flight_endpoint.clear();
+                        }
+                        ui.add_space(4.0);
+                        if ui
+                            .button(
+                                RichText::new("Cancel")
+                                    .font(typography::proportional(typography::XS))
+                                    .color(text_tertiary),
+                            )
+                            .clicked()
+                        {
+                            self.adding_flight_sql = false;
+                            self.new_flight_name.clear();
+                            self.new_flight_endpoint.clear();
+                        }
+                    });
+                });
+        } else {
+            // "Add Connection" button
+            let border = if add_focused {
+                accent.gamma_multiply(0.5)
+            } else {
+                card_border
+            };
+            let response = egui::Frame::new()
+                .fill(card_bg.gamma_multiply(0.5))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    if add_focused {
+                        border
+                    } else {
+                        card_border.gamma_multiply(0.5)
+                    },
+                ))
+                .corner_radius(8.0)
+                .inner_margin(egui::Margin::symmetric(12, 10))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(semantic_icons::action::ADD)
+                                .font(FontId::new(12.0, FontFamily::Name("nerd_regular".into())))
+                                .color(if add_focused {
+                                    accent
+                                } else {
+                                    text_tertiary.gamma_multiply(0.6)
+                                }),
+                        );
+                        ui.add_space(4.0);
+                        ui.label(
+                            RichText::new("Add Connection")
+                                .font(typography::proportional(typography::SM))
+                                .color(if add_focused {
+                                    accent
+                                } else {
+                                    text_tertiary.gamma_multiply(0.6)
+                                }),
+                        );
+                    });
+                })
+                .response;
+
+            if response.clicked() {
+                self.adding_flight_sql = true;
+                self.new_flight_name.clear();
+                self.new_flight_endpoint.clear();
+            }
+            if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
         }
     }
 
@@ -2192,9 +2593,6 @@ impl SettingsPage {
                             &mut self.default_prometheus_endpoint
                         }
                         Some(EditingField::LokiEndpoint) => &mut self.default_loki_endpoint,
-                        Some(EditingField::FlightSqlEndpoint) => {
-                            &mut self.default_flight_sql_endpoint
-                        }
                         None => return,
                     };
 
@@ -2326,7 +2724,6 @@ impl SettingsPage {
         match field {
             EditingField::PrometheusEndpoint => self.default_prometheus_endpoint.clone(),
             EditingField::LokiEndpoint => self.default_loki_endpoint.clone(),
-            EditingField::FlightSqlEndpoint => self.default_flight_sql_endpoint.clone(),
             EditingField::GitRepoUrl => self.git_repo_url.clone(),
         }
     }
@@ -3694,13 +4091,24 @@ impl SettingsPage {
                         }
                     }
                     SettingsCategory::Connections => {
-                        let field = match self.field_index {
-                            0 => Some(EditingField::PrometheusEndpoint),
-                            1 => Some(EditingField::LokiEndpoint),
-                            2 => Some(EditingField::FlightSqlEndpoint),
-                            _ => None,
-                        };
-                        self.editing_field = field;
+                        match self.field_index {
+                            0 => self.editing_field = Some(EditingField::PrometheusEndpoint),
+                            1 => self.editing_field = Some(EditingField::LokiEndpoint),
+                            idx if idx >= 2 && idx < 2 + self.flight_sql_connections.len() => {
+                                // Edit an existing Flight SQL connection
+                                self.editing_flight_idx = Some(idx - 2);
+                                let conn = &self.flight_sql_connections[idx - 2];
+                                self.new_flight_name = conn.name.clone();
+                                self.new_flight_endpoint = conn.endpoint.clone();
+                            }
+                            idx if idx == 2 + self.flight_sql_connections.len() => {
+                                // "Add connection" button
+                                self.adding_flight_sql = true;
+                                self.new_flight_name.clear();
+                                self.new_flight_endpoint.clear();
+                            }
+                            _ => {}
+                        }
                     }
                     SettingsCategory::Codebases => {
                         if self.field_index == 0 {
@@ -3736,7 +4144,7 @@ mod tests {
             String::new(),
             String::new(),
             String::new(),
-            String::new(),
+            Vec::new(),
             AppTheme::default(),
             None,
             EditorFont::default(),
@@ -3764,7 +4172,7 @@ mod tests {
         page.active_category = SettingsCategory::Notifications;
         assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::Connections;
-        assert_eq!(page.field_count(), 3);
+        assert_eq!(page.field_count(), 3); // 2 (Prom+Loki) + 0 connections + 1 (Add button)
         page.active_category = SettingsCategory::Codebases;
         assert_eq!(page.field_count(), 2);
         page.active_category = SettingsCategory::Ai;

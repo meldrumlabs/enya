@@ -25,6 +25,8 @@ pub enum SqlPaneAction {
     None,
     /// Share a query result to the agent panel as an inline table.
     ShareResultToAgent(crate::components::pane::inline_content::InlineTable),
+    /// Request to open the Settings page (e.g., to manage connections).
+    OpenSettings,
 }
 
 // Native SQL implementation - requires non-WASM + sql feature

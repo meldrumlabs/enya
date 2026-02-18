@@ -170,7 +170,7 @@ pub enum WorkspaceAction {
         git_repo_url: String,
         default_prometheus_endpoint: String,
         default_loki_endpoint: String,
-        default_flight_sql_endpoint: String,
+        flight_sql_connections: Vec<crate::ui::settings_screen::FlightSqlConnection>,
     },
     /// Open the full-page settings
     OpenSettings,

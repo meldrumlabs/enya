@@ -73,6 +73,13 @@ impl SqlPane {
         SqlPaneAction::None
     }
 
+    /// Synchronize connections from Settings (no-op on WASM stub).
+    pub fn sync_connections(
+        &mut self,
+        _definitions: &[crate::ui::settings_screen::FlightSqlConnection],
+    ) {
+    }
+
     /// Get an inline table from query results (stub always returns None).
     pub fn get_inline_table(
         &self,

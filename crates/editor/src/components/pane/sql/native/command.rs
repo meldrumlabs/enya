@@ -13,8 +13,6 @@ pub enum SqlCommand {
     Analyze,
     /// Show table schema/structure.
     Schema,
-    /// Switch active connection.
-    Connect,
     /// Show query history.
     History,
     /// Load demo query plan.
@@ -29,7 +27,6 @@ impl SqlCommand {
             SqlCommand::Analyze,
             SqlCommand::Demo,
             SqlCommand::Schema,
-            SqlCommand::Connect,
             SqlCommand::Diff,
             SqlCommand::History,
         ]
@@ -42,7 +39,6 @@ impl SqlCommand {
             SqlCommand::Explain => "explain",
             SqlCommand::Analyze => "analyze",
             SqlCommand::Schema => "schema",
-            SqlCommand::Connect => "connect",
             SqlCommand::History => "history",
             SqlCommand::Demo => "demo",
         }
@@ -55,7 +51,6 @@ impl SqlCommand {
             SqlCommand::Explain => "Show query plan (EXPLAIN)",
             SqlCommand::Analyze => "Query plan with timing (EXPLAIN ANALYZE)",
             SqlCommand::Schema => "Table structure",
-            SqlCommand::Connect => "Connect or save connection",
             SqlCommand::History => "Query history",
             SqlCommand::Demo => "Load demo query plan",
         }
