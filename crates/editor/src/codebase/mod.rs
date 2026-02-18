@@ -210,6 +210,10 @@ pub struct CodebaseManager {
     /// Progress tracking for Tantivy indexing (native only)
     #[cfg(not(target_arch = "wasm32"))]
     tantivy_progress: Option<search::TantivyProgress>,
+    /// Interval in seconds between automatic git fetches (0 = disabled)
+    git_sync_interval_secs: u64,
+    /// Last time an automatic or manual git sync was performed
+    last_git_sync: Option<crate::util::Instant>,
 }
 
 impl Default for CodebaseManager {
@@ -237,6 +241,8 @@ impl CodebaseManager {
             pending_tantivy: Arc::new(Mutex::new(None)),
             #[cfg(not(target_arch = "wasm32"))]
             tantivy_progress: None,
+            git_sync_interval_secs: 300,
+            last_git_sync: None,
         }
     }
 
@@ -297,6 +303,9 @@ impl CodebaseManager {
         let Some(index) = &self.index else {
             return;
         };
+
+        // Reset auto-sync timer so we don't double-fetch after a manual sync
+        self.last_git_sync = Some(crate::util::Instant::now());
 
         let url = index.repo_url.clone();
         let path = index.repo_path.clone();
@@ -854,5 +863,43 @@ impl CodebaseManager {
         }
 
         results
+    }
+
+    /// Sets the interval for automatic git fetch in seconds.
+    ///
+    /// Set to 0 to disable automatic fetching.
+    pub fn set_git_sync_interval(&mut self, seconds: u64) {
+        self.git_sync_interval_secs = seconds;
+    }
+
+    /// Checks if an automatic git fetch is due and triggers it if so.
+    ///
+    /// This mirrors the `check_auto_refresh` pattern used for query refresh.
+    /// Only fetches when the codebase is in `Ready` state to avoid interfering
+    /// with ongoing clone/fetch/index operations.
+    pub fn check_auto_git_sync(&mut self, ctx: &egui::Context) {
+        if self.git_sync_interval_secs == 0 {
+            return;
+        }
+        if !self.status.is_ready() {
+            return;
+        }
+        if self.index.is_none() {
+            return;
+        }
+
+        let now = crate::util::Instant::now();
+        let should_sync = match self.last_git_sync {
+            Some(last) => now.duration_since(last).as_secs() >= self.git_sync_interval_secs,
+            None => true,
+        };
+
+        if should_sync {
+            log::info!(
+                "Auto git sync triggered (interval: {}s)",
+                self.git_sync_interval_secs
+            );
+            self.fetch_updates(ctx);
+        }
     }
 }
