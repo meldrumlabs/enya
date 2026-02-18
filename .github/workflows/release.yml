@@ -79,72 +79,19 @@ jobs:
             target/x86_64-apple-darwin/release/Enya \
             -output target/universal-apple-darwin/release/Enya
 
-      - name: Create app bundle
-        run: |
-          APP_NAME="Enya.app"
-          mkdir -p "$APP_NAME/Contents/MacOS"
-          mkdir -p "$APP_NAME/Contents/Resources"
-
-          # Copy the universal binary
-          cp target/universal-apple-darwin/release/Enya "$APP_NAME/Contents/MacOS/"
-
-          # Copy icon if it exists
-          if [ -f "assets/icon.icns" ]; then
-            cp assets/icon.icns "$APP_NAME/Contents/Resources/Enya.icns"
-            ICON_LINE="<key>CFBundleIconFile</key><string>Enya</string>"
-          else
-            ICON_LINE=""
-          fi
-
-          # Create Info.plist
-          cat > "$APP_NAME/Contents/Info.plist" << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key>
-            <string>Enya</string>
-            <key>CFBundleDisplayName</key>
-            <string>Enya</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.meldrumlabs.enya</string>
-            <key>CFBundleVersion</key>
-            <string>${{ needs.create-release.outputs.version }}</string>
-            <key>CFBundleShortVersionString</key>
-            <string>${{ needs.create-release.outputs.version }}</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>CFBundleExecutable</key>
-            <string>Enya</string>
-            <key>NSHighResolutionCapable</key>
-            <true/>
-            <key>LSMinimumSystemVersion</key>
-            <string>11.0</string>
-            $ICON_LINE
-          </dict>
-          </plist>
-          EOF
-
-      - name: Create DMG
-        run: |
-          # Create a temporary directory for DMG contents
-          DMG_DIR="dmg_contents"
-          mkdir -p "$DMG_DIR"
-          cp -r Enya.app "$DMG_DIR/"
-          ln -s /Applications "$DMG_DIR/Applications"
-
-          # Create DMG
-          DMG_NAME="Enya-${{ needs.create-release.outputs.version }}-universal-macos.dmg"
-          hdiutil create -volname "Enya" -srcfolder "$DMG_DIR" -ov -format UDZO "$DMG_NAME"
-
-      - name: Create tarball
-        run: |
-          TARBALL="Enya-${{ needs.create-release.outputs.version }}-universal-macos.tar.gz"
-          tar -czvf "$TARBALL" Enya.app
+      - name: Build signed DMG
+        env:
+          ENYA_VERSION: ${{ needs.create-release.outputs.version }}
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
+          APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+          APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+        run: ./scripts/bundle-mac
 
       - name: Generate checksums
         run: |
-          shasum -a 256 Enya-*.dmg Enya-*.tar.gz > checksums-macos.txt
+          shasum -a 256 Enya.dmg > checksums-macos.txt
           cat checksums-macos.txt
 
       - name: Upload release assets
@@ -152,8 +99,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ github.ref_name }}" \
-            Enya-*.dmg \
-            Enya-*.tar.gz \
+            Enya.dmg \
             checksums-macos.txt
 
   # Build Windows installer and portable executable
