@@ -6,7 +6,8 @@ edition.workspace = true
 readme = "README.md"
 # Vendored from https://github.com/bernsteining/egui_nerdfonts
 # Updated for egui 0.33
-publish = false
+license = "MIT"
+repository = "https://github.com/meldrumlabs/enya"
 
 [dependencies]
 egui = { workspace = true }

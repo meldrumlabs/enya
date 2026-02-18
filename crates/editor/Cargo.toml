@@ -3,8 +3,9 @@ name = "enya-editor"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-publish = false
 license.workspace = true
+repository.workspace = true
+description = "Enya observability editor - GUI application"
 
 [[bin]]
 name = "Enya"
@@ -33,7 +34,7 @@ image = { workspace = true, features = ["png"] }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 toml = { workspace = true }
-enya-build-info = { path = "../build-info" }
+enya-build-info = { workspace = true }
 nucleo-matcher = { workspace = true }
 similar = "2.7"
 reqwest = { workspace = true }

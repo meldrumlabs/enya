@@ -3,8 +3,8 @@ name = "enya-client"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-publish = false
 license.workspace = true
+repository.workspace = true
 description = "Client abstraction supporting multiple metrics backends (Prometheus, Enya)"
 
 [dependencies]
