@@ -2564,10 +2564,7 @@ impl Workspace {
                 }
             }
         }
-        log::info!(
-            "sync_sql_connections: synced {} SQL panes",
-            sql_count
-        );
+        log::info!("sync_sql_connections: synced {sql_count} SQL panes");
     }
 
     /// Poll all SqlPanes for pending actions (like share-to-agent).

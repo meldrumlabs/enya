@@ -87,6 +87,8 @@ impl Workspace {
     pub fn load_workspace_config(&mut self, config: &WorkspaceConfig) -> Option<ConnectionConfig> {
         // Track whether this workspace is an immutable snapshot
         self.is_snapshot = config.snapshot.is_some();
+        self.snapshot_title =
+            Some(config.workspace.name.clone()).filter(|n| !n.is_empty() && n != "snapshot");
 
         // Apply view settings (theme is intentionally NOT loaded - it's a user preference)
         self.zen_mode = config.view.zen_mode;
