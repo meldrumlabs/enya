@@ -4,13 +4,13 @@ pub enum EditorFont {
     /// Maple Mono - clean, modern monospace font
     MapleMono,
     /// Departure Mono - distinctive retro-style monospace font
-    #[default]
     DepartureMono,
     /// JetBrains Mono - designed by JetBrains for developers
     JetBrainsMono,
     /// Iosevka - narrow, highly customizable monospace font
     Iosevka,
     /// Geist Mono - modern monospace by Vercel
+    #[default]
     GeistMono,
 }
 
@@ -40,8 +40,8 @@ impl EditorFont {
     /// Returns all available fonts
     pub fn all() -> &'static [EditorFont] {
         &[
-            Self::DepartureMono,
             Self::GeistMono,
+            Self::DepartureMono,
             Self::MapleMono,
             Self::JetBrainsMono,
             Self::Iosevka,
