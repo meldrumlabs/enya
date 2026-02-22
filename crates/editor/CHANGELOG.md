@@ -7,6 +7,7 @@ All notable changes to the Enya editor will be documented in this file.
 ### Added
 
 - **Snapshot naming**: The `:snapshot` command now accepts an optional name (e.g. `:snapshot P99 latency spike`) which becomes the workspace name embedded in the blob. When a recipient opens the snapshot, the name is displayed in the status bar next to the SNAPSHOT badge.
+- **Geist Mono font**: Added Geist Mono by Vercel as a new font option in the editor settings (SIL Open Font License v1.1).
 
 - **Automatic git sync**: `CodebaseManager` now periodically fetches remote commits (default every 5 minutes). When new commits are detected, incremental Tantivy re-indexing is triggered automatically. Manual `:git` syncs reset the timer to avoid double-fetching. Configurable in Settings → Codebases → Sync interval (Off, 1m, 5m, 15m, 30m).
 
