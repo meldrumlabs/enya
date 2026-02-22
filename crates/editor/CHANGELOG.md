@@ -6,6 +6,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Snapshot naming**: The `:snapshot` command now accepts an optional name (e.g. `:snapshot P99 latency spike`) which becomes the workspace name embedded in the blob. When a recipient opens the snapshot, the name is displayed in the status bar next to the SNAPSHOT badge.
+
 - **Automatic git sync**: `CodebaseManager` now periodically fetches remote commits (default every 5 minutes). When new commits are detected, incremental Tantivy re-indexing is triggered automatically. Manual `:git` syncs reset the timer to avoid double-fetching. Configurable in Settings → Codebases → Sync interval (Off, 1m, 5m, 15m, 30m).
 
 - **SNAPSHOT status mode**: When opening an immutable shared snapshot, the status bar now shows "SNAPSHOT" mode (blue badge) instead of "NORMAL", making it immediately clear the workspace is read-only.

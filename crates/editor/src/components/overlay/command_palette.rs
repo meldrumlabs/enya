@@ -104,8 +104,8 @@ pub enum CommandResult {
     ShareWorkspace,
     /// Share workspace as config-only URL, no embedded data (:share-live)
     ShareLiveWorkspace,
-    /// Upload snapshot to blob server with conversation data (:snapshot)
-    UploadSnapshot,
+    /// Upload snapshot to blob server with conversation data (:snapshot [title])
+    UploadSnapshot(Option<String>),
     /// Open a snapshot by ID from blob server (:open-snapshot)
     OpenSnapshot(String),
     /// Set AI provider (claude, codex)
@@ -208,7 +208,7 @@ const BASE_COMMANDS: &[PaletteCommand] = &[
         name: "snapshot",
         aliases: &[],
         description: "Upload snapshot to blob server (with conversation)",
-        kind: CommandKind::NoArgs,
+        kind: CommandKind::SingleArg,
     },
     PaletteCommand {
         name: "open-snapshot",
@@ -602,7 +602,14 @@ impl CommandPalette {
             }
             "share" => CommandResult::ShareWorkspace,
             "share-live" => CommandResult::ShareLiveWorkspace,
-            "snapshot" => CommandResult::UploadSnapshot,
+            "snapshot" => {
+                let title = if args.is_empty() {
+                    None
+                } else {
+                    Some(args.join(" "))
+                };
+                CommandResult::UploadSnapshot(title)
+            }
             "open-snapshot" | "os" => {
                 if args.is_empty() {
                     CommandResult::Error("Usage: :open-snapshot <id>".to_string())

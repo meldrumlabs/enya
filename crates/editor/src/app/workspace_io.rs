@@ -427,7 +427,7 @@ impl EnyaApp {
     ///
     /// Requires GitHub authentication — the access token is sent as a Bearer
     /// token and validated by the Worker against GitHub's API.
-    pub(super) fn upload_snapshot(&mut self, ctx: &egui::Context) {
+    pub(super) fn upload_snapshot(&mut self, ctx: &egui::Context, title: Option<&str>) {
         // Require sign-in before uploading
         let token = match self.github_auth.credentials() {
             Some(creds) => creds.access_token.clone(),
@@ -442,7 +442,9 @@ impl EnyaApp {
         };
 
         // Gather data (synchronous)
-        let ws_config = self.workspace.to_workspace_config("snapshot", None);
+        let existing_title = self.workspace.snapshot_title();
+        let ws_name = title.or(existing_title.as_deref()).unwrap_or("snapshot");
+        let ws_config = self.workspace.to_workspace_config(ws_name, None);
         let pane_data = self.workspace.extract_all_snapshot_data();
         let captured_at = crate::util::now_unix_secs() as u64;
         let conversation = self.workspace.agent_panel().extract_snapshot_conversation();
