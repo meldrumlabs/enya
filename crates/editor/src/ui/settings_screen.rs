@@ -4,12 +4,14 @@ pub enum EditorFont {
     /// Maple Mono - clean, modern monospace font
     MapleMono,
     /// Departure Mono - distinctive retro-style monospace font
-    #[default]
     DepartureMono,
     /// JetBrains Mono - designed by JetBrains for developers
     JetBrainsMono,
     /// Iosevka - narrow, highly customizable monospace font
     Iosevka,
+    /// Geist Mono - modern monospace by Vercel
+    #[default]
+    GeistMono,
 }
 
 impl EditorFont {
@@ -20,6 +22,7 @@ impl EditorFont {
             Self::DepartureMono => "Departure Mono",
             Self::JetBrainsMono => "JetBrains Mono",
             Self::Iosevka => "Iosevka",
+            Self::GeistMono => "Geist Mono",
         }
     }
 
@@ -30,12 +33,14 @@ impl EditorFont {
             Self::DepartureMono => "departure_mono",
             Self::JetBrainsMono => "jetbrains_mono",
             Self::Iosevka => "iosevka",
+            Self::GeistMono => "geist_mono",
         }
     }
 
     /// Returns all available fonts
     pub fn all() -> &'static [EditorFont] {
         &[
+            Self::GeistMono,
             Self::DepartureMono,
             Self::MapleMono,
             Self::JetBrainsMono,
@@ -50,6 +55,7 @@ impl EditorFont {
             Self::DepartureMono => "Distinctive retro-style monospace",
             Self::JetBrainsMono => "Developer-focused, great for code",
             Self::Iosevka => "Narrow, highly customizable",
+            Self::GeistMono => "Modern, clean monospace by Vercel",
         }
     }
 }
