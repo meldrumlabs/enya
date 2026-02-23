@@ -151,8 +151,8 @@ pub enum WorkspaceAction {
     ShareLivePane(usize),
     /// Share selected panes as URL (snapshot if data loaded, config-only otherwise)
     ShareSelectedPanes(Vec<usize>),
-    /// Upload snapshot to blob server (workspace + data + conversation)
-    UploadSnapshot,
+    /// Upload snapshot to blob server (workspace + data + conversation + optional title)
+    UploadSnapshot(Option<String>),
     /// Open a snapshot by ID from blob server
     OpenSnapshot(String),
     /// Focus the project sidebar (vim h at left edge)
@@ -348,6 +348,8 @@ pub struct Workspace {
     layout_animator: LayoutAnimator,
     /// Whether this workspace was loaded from an immutable snapshot
     is_snapshot: bool,
+    /// Title of the snapshot (if loaded from a named blob snapshot)
+    snapshot_title: Option<String>,
 
     // ==================== Active Theme Colors ====================
     /// Resolved theme colors (from custom or builtin theme)
@@ -490,6 +492,7 @@ impl Workspace {
             // Layout animation
             layout_animator: LayoutAnimator::new(),
             is_snapshot: false,
+            snapshot_title: None,
             // Active theme colors
             active_colors: None,
             render_theme: AppTheme::default(),
@@ -1940,7 +1943,7 @@ impl Workspace {
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,
             CommandResult::ShareLiveWorkspace => WorkspaceAction::ShareLiveWorkspace,
-            CommandResult::UploadSnapshot => WorkspaceAction::UploadSnapshot,
+            CommandResult::UploadSnapshot(title) => WorkspaceAction::UploadSnapshot(title),
             CommandResult::OpenSnapshot(id) => WorkspaceAction::OpenSnapshot(id),
             CommandResult::SetProvider(provider_name) => {
                 use crate::components::util::AiProvider;
@@ -2666,6 +2669,11 @@ impl Workspace {
     /// Check if this workspace was loaded from an immutable snapshot
     pub fn is_snapshot(&self) -> bool {
         self.is_snapshot
+    }
+
+    /// Get the snapshot title (if loaded from a named blob snapshot)
+    pub fn snapshot_title(&self) -> Option<String> {
+        self.snapshot_title.clone()
     }
 
     /// Get the current agent provider name (e.g., "Claude", "Codex")

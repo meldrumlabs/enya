@@ -520,6 +520,14 @@ impl EnyaApp {
             self.status_line.set_agent_provider_name(None);
         }
 
+        // Set snapshot title (shown next to SNAPSHOT badge)
+        if mode == StatusMode::Snapshot {
+            self.status_line
+                .set_snapshot_title(self.workspace.snapshot_title());
+        } else {
+            self.status_line.set_snapshot_title(None);
+        }
+
         // Set open tabs count from workspace
         self.status_line
             .set_open_tabs(self.workspace.open_tabs_count());
@@ -1266,8 +1274,8 @@ impl EnyaApp {
                     self.copy_share_url(ctx, &url, "Pane URL copied to clipboard");
                 }
             }
-            WorkspaceAction::UploadSnapshot => {
-                self.upload_snapshot(ctx);
+            WorkspaceAction::UploadSnapshot(title) => {
+                self.upload_snapshot(ctx, title.as_deref());
             }
             WorkspaceAction::OpenSnapshot(id) => {
                 self.fetch_snapshot(ctx, &id);

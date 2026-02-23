@@ -1,7 +1,7 @@
 //! Font setup for the editor.
 //!
 //! This module handles configuring custom fonts including Maple Mono,
-//! Departure Mono, JetBrains Mono, Iosevka, and Nerd Fonts icons.
+//! Departure Mono, JetBrains Mono, Iosevka, Geist Mono, and Nerd Fonts icons.
 
 use crate::ui::settings_screen::EditorFont;
 
@@ -43,6 +43,13 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
             .into(),
     );
 
+    // Add Geist Mono font
+    fonts.font_data.insert(
+        "geist_mono".to_owned(),
+        egui::FontData::from_static(include_bytes!("../../assets/fonts/GeistMono-Regular.otf"))
+            .into(),
+    );
+
     // Add Nerd Fonts icons font data
     fonts.font_data.insert(
         "nerdfonts".to_owned(),
@@ -56,7 +63,13 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
     let mut font_list = vec![primary_font.clone()];
 
     // Add other fonts as fallbacks (skip if it's the same as primary)
-    for font in ["maple_mono", "departure_mono", "jetbrains_mono", "iosevka"] {
+    for font in [
+        "maple_mono",
+        "departure_mono",
+        "jetbrains_mono",
+        "iosevka",
+        "geist_mono",
+    ] {
         if font != primary_font {
             font_list.push(font.to_owned());
         }
@@ -74,7 +87,13 @@ pub fn setup_fonts(ctx: &egui::Context, preferred_font: EditorFont) {
         .insert(egui::FontFamily::Monospace, font_list);
 
     // Register each font as a named family for direct access (e.g., in style picker previews)
-    for font_name in ["maple_mono", "departure_mono", "jetbrains_mono", "iosevka"] {
+    for font_name in [
+        "maple_mono",
+        "departure_mono",
+        "jetbrains_mono",
+        "iosevka",
+        "geist_mono",
+    ] {
         fonts.families.insert(
             egui::FontFamily::Name(font_name.into()),
             vec![font_name.to_owned(), "nerdfonts".to_owned()],

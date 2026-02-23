@@ -322,6 +322,8 @@ pub struct StatusLine {
     is_fullscreen: bool,
     /// Name of the currently loaded workspace
     workspace_name: Option<String>,
+    /// Snapshot title (shown next to SNAPSHOT badge when viewing a snapshot)
+    snapshot_title: Option<String>,
 }
 
 impl Default for StatusLine {
@@ -343,6 +345,7 @@ impl Default for StatusLine {
             is_zen_mode: false,
             is_fullscreen: false,
             workspace_name: None,
+            snapshot_title: None,
         }
     }
 }
@@ -426,6 +429,11 @@ impl StatusLine {
     /// Set the loaded workspace name (shown in the status bar)
     pub fn set_workspace_name(&mut self, name: Option<String>) {
         self.workspace_name = name;
+    }
+
+    /// Set the snapshot title (shown next to SNAPSHOT mode badge)
+    pub fn set_snapshot_title(&mut self, title: Option<String>) {
+        self.snapshot_title = title;
     }
 
     /// Mark the last refresh time (call when data is updated)
@@ -611,6 +619,28 @@ impl StatusLine {
 
     /// Render the left section after the mode badge (zen/fullscreen badges, branch, metric, sparkline)
     fn render_left_section_after_mode(&self, ui: &mut Ui, height: f32, padding: f32) {
+        // Snapshot title (shown immediately after the SNAPSHOT badge)
+        if self.mode == StatusMode::Snapshot {
+            if let Some(ref title) = self.snapshot_title {
+                let display: String = if title.chars().count() > 40 {
+                    title.chars().take(37).chain("...".chars()).collect()
+                } else {
+                    title.clone()
+                };
+                self.render_separator(ui, height);
+                self.render_segment(
+                    ui,
+                    &display,
+                    None,
+                    self.theme.bg_surface(),
+                    self.theme.text_primary(),
+                    height,
+                    padding,
+                    false,
+                );
+            }
+        }
+
         // Display preference badges (zen/fullscreen) - use theme colors (Custom variant handles plugin colors internally)
         if self.is_zen_mode {
             let bg = self.theme.badge_zen_bg();

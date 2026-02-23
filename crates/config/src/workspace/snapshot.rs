@@ -1211,4 +1211,15 @@ mod tests {
         }
         assert!(matches!(layout.children[1], LayoutNode::Pane(2)));
     }
+
+    #[test]
+    fn snapshot_workspace_name_preserved() {
+        let (ws, pane_data) = make_test_workspace();
+
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
+        let decoded = decode_snapshot(&bytes).unwrap();
+
+        // The workspace name survives the blob round-trip
+        assert_eq!(decoded.workspace.workspace.name, "test-snapshot");
+    }
 }
