@@ -1,10 +1,10 @@
 //! Tintable logo texture with overlay blend for depth-preserving color tinting.
 //!
 //! This module provides a cached texture system for the Enya logo:
-//! - For the Dark theme (default): uses the original branded logo
-//! - For the Light theme (ink/paper): uses the grayscale logo directly (ink on paper)
-//! - For other themes: applies an overlay blend to a grayscale version,
-//!   preserving depth and shading while tinting with the theme's accent color.
+//! - For Dark and builtin light themes: uses the original branded logo
+//! - For other themes (dark variants, custom): applies an overlay blend to a
+//!   grayscale version, preserving depth and shading while tinting with the
+//!   theme's accent color.
 
 use egui::{Color32, ColorImage, Context, TextureHandle, TextureOptions};
 
@@ -115,34 +115,27 @@ fn is_dark_builtin_theme(theme: &AppTheme) -> bool {
     }
 }
 
-/// Check if theme is the Light builtin (either directly or as resolved Custom)
-fn is_light_builtin_theme(theme: &AppTheme) -> bool {
-    match theme {
-        AppTheme::Light => true,
-        // Light theme is not dark and has specific characteristics
-        AppTheme::Custom(colors) => {
-            !colors.is_dark && colors.bg_base == Color32::from_rgb(250, 248, 245)
-        }
-        _ => false,
-    }
-}
-
 /// Load the appropriate logo for the given theme.
-/// - For Dark: loads the original branded logo
-/// - For Light: loads the grayscale logo as-is (ink on paper aesthetic)
-/// - For other themes: loads the tintable logo with overlay blend tinting
+/// - For Dark and builtin light themes: loads the original branded logo
+/// - For other themes (dark variants, custom): loads the tintable logo with overlay blend tinting
 fn load_logo_for_theme(theme: AppTheme, opacity: f32) -> ColorImage {
-    if is_dark_builtin_theme(&theme) {
+    if is_dark_builtin_theme(&theme) || is_builtin_light_theme(&theme) {
         load_original_logo()
-    } else if is_light_builtin_theme(&theme) {
-        load_grayscale_logo(opacity)
     } else {
         let tint = theme.accent_primary().gamma_multiply(opacity);
         load_tinted_logo(tint)
     }
 }
 
-/// Load the original branded logo (for Dark theme).
+/// Check if theme is a builtin light theme (Light, Parchment, Stockholm, Copenhagen)
+fn is_builtin_light_theme(theme: &AppTheme) -> bool {
+    matches!(
+        theme,
+        AppTheme::Light | AppTheme::Parchment | AppTheme::Stockholm | AppTheme::Copenhagen
+    )
+}
+
+/// Load the original branded logo (for Dark and builtin light themes).
 /// Returns the logo as-is without any modifications.
 fn load_original_logo() -> ColorImage {
     let image = image::load_from_memory(LOGO_BYTES_ORIGINAL)
@@ -153,27 +146,6 @@ fn load_original_logo() -> ColorImage {
     let pixels: Vec<Color32> = image
         .pixels()
         .map(|pixel| Color32::from_rgba_unmultiplied(pixel[0], pixel[1], pixel[2], pixel[3]))
-        .collect();
-
-    ColorImage::new(size, pixels)
-}
-
-/// Load the grayscale logo as-is (for Light theme's ink/paper aesthetic).
-/// The grayscale values represent ink intensity on paper.
-/// Optionally applies opacity by multiplying the alpha channel.
-fn load_grayscale_logo(opacity: f32) -> ColorImage {
-    let image = image::load_from_memory(LOGO_BYTES_TINTABLE)
-        .expect("Failed to load tintable logo")
-        .to_rgba8();
-
-    let size = [image.width() as usize, image.height() as usize];
-    let pixels: Vec<Color32> = image
-        .pixels()
-        .map(|pixel| {
-            let gray = pixel[0]; // Grayscale value
-            let alpha = (pixel[3] as f32 * opacity).clamp(0.0, 255.0) as u8;
-            Color32::from_rgba_unmultiplied(gray, gray, gray, alpha)
-        })
         .collect();
 
     ColorImage::new(size, pixels)
@@ -322,22 +294,22 @@ mod tests {
     }
 
     #[test]
-    fn test_light_uses_grayscale() {
-        // Light theme should use grayscale logo (ink on paper)
-        let light_image = load_logo_for_theme(AppTheme::Light, 1.0);
+    fn test_builtin_light_themes_use_original() {
+        // Builtin light themes should use the original branded logo
+        let original = load_original_logo();
 
-        // Should load successfully with valid dimensions
-        assert!(light_image.size[0] > 0);
-        assert!(light_image.size[1] > 0);
-        assert_eq!(
-            light_image.pixels.len(),
-            light_image.size[0] * light_image.size[1]
-        );
-
-        // Verify it's grayscale (R == G == B for all pixels)
-        for pixel in &light_image.pixels {
-            assert_eq!(pixel.r(), pixel.g(), "Grayscale should have R == G");
-            assert_eq!(pixel.g(), pixel.b(), "Grayscale should have G == B");
+        for theme in [
+            AppTheme::Light,
+            AppTheme::Parchment,
+            AppTheme::Stockholm,
+            AppTheme::Copenhagen,
+        ] {
+            let image = load_logo_for_theme(theme, 1.0);
+            assert_eq!(image.size, original.size);
+            assert_eq!(
+                image.pixels, original.pixels,
+                "{theme:?} theme should use exact original logo pixels"
+            );
         }
     }
 }

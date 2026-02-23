@@ -288,6 +288,7 @@ impl WhichKey {
 
         egui::Area::new(egui::Id::new("which_key_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(crate::util::overlay_content_rect(ctx))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 // Extract colors from theme (handles both builtin and custom themes)

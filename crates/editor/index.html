@@ -25,16 +25,16 @@
     <link data-trunk rel="copy-file" href="assets/external_link.png"/>
     <link data-trunk rel="copy-file" href="assets/sw.js"/>
     <link data-trunk rel="copy-file" href="assets/manifest.json"/>
-    <link data-trunk rel="copy-file" href="assets/fonts/DepartureMono-Regular.otf"/>
+    <link data-trunk rel="copy-file" href="assets/fonts/GeistMono-Regular.otf"/>
 
 
     <link rel="manifest" href="manifest.json">
 
     <style>
-        /* Load Departure Mono font for consistent typography */
+        /* Load Geist Mono font for consistent typography */
         @font-face {
-            font-family: 'Departure Mono';
-            src: url('DepartureMono-Regular.otf') format('opentype');
+            font-family: 'Geist Mono';
+            src: url('GeistMono-Regular.otf') format('opentype');
             font-weight: normal;
             font-style: normal;
             font-display: swap;
@@ -46,25 +46,22 @@
         }
 
         body {
-            /* Premium Obsidian Glass - refined base color */
+            /* Premium Obsidian Glass - refined base color (dark default) */
             background: #08080A;
-            font-family: 'Departure Mono', monospace;
+            font-family: 'Geist Mono', monospace;
             font-size: 11px;
             /* Subtle gradient overlay for depth */
             background-image: radial-gradient(ellipse at 50% 0%, rgba(16, 185, 129, 0.02) 0%, transparent 50%);
         }
 
-      /* Allow canvas to fill entire web page: */
-        html,
-        body {
-          overflow: hidden;
-          margin: 0 !important;
-          padding: 0 !important;
-          height: 100%;
-          width: 100%;
+        @media (prefers-color-scheme: light) {
+            body {
+                /* Light theme - cool neutral white (matches Light theme bg_base #FBFBFC) */
+                background: #FBFBFC;
+                background-image: none;
+            }
         }
 
-        
         /* Allow canvas to fill entire web page: */
         html,
         body {
@@ -97,7 +94,7 @@
             transform: translate(-50%, -50%);
             color: #000000;
             font-size: 16px;
-            font-family: 'Departure Mono', monospace;
+            font-family: 'Geist Mono', monospace;
             text-align: center;
         }
 

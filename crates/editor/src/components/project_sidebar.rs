@@ -282,7 +282,11 @@ impl ProjectSidebar {
         }
     }
 
-    /// Show the sidebar panel inside the given `Ui` (must be called inside `CentralPanel`).
+    /// Show the sidebar panel inside the given `Ui` (must be called inside `CentralPanel`
+    /// so it matches the agent panel's height and doesn't touch titlebar/statusbar).
+    ///
+    /// Stores the sidebar width in ctx temp data so overlays can center within the
+    /// content area via [`crate::util::overlay_content_rect`].
     pub fn show(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> ProjectSidebarResult {
         let mut result = ProjectSidebarResult::None;
 
@@ -296,6 +300,12 @@ impl ProjectSidebar {
 
         // Total width includes an 8px gap on the right for visual separation
         let gap = 8.0;
+
+        // Store sidebar width so overlays can offset their centering
+        ctx.data_mut(|d| {
+            d.insert_temp(egui::Id::new("sidebar_width"), SIDEBAR_WIDTH + gap);
+        });
+
         egui::SidePanel::left("project_sidebar")
             .exact_width(SIDEBAR_WIDTH + gap)
             .frame(egui::Frame::NONE)

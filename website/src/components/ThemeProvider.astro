@@ -1,9 +1,144 @@
 ---
 ---
+<style is:global>
+    /* Light theme variable overrides — applied when data-site-theme="light" is set on <html> */
+    html[data-site-theme="light"] {
+        /* Core backgrounds — from editor Light theme */
+        --obsidian-base: #FBFBFC;
+        --obsidian-surface: #F2F3F5;
+        --obsidian-elevated: #EAEBEE;
+        --obsidian-hover: #E2E4E8;
+        --obsidian-active: #D8DAE0;
+        --obsidian-selected: #ECFDF5;
+
+        /* Borders */
+        --obsidian-border-subtle: #E2E4E8;
+        --obsidian-border-default: #D2D4DA;
+        --obsidian-border-focus: #A7F3D0;
+
+        /* Text hierarchy */
+        --obsidian-text-primary: #111318;
+        --obsidian-text-secondary: #4B505C;
+        --obsidian-text-tertiary: #707682;
+        --obsidian-text-disabled: #9CA0AA;
+
+        /* Accent — same emerald, darker hover for light bg */
+        --obsidian-accent: #10B981;
+        --obsidian-accent-hover: #059669;
+        --obsidian-accent-muted: #ECFDF5;
+        --obsidian-accent-glow: rgba(16, 185, 129, 0.08);
+
+        /* Starlight overrides */
+        --sl-color-white: #FBFBFC;
+        --sl-color-gray-1: #F2F3F5;
+        --sl-color-gray-2: #EAEBEE;
+        --sl-color-gray-3: #D2D4DA;
+        --sl-color-gray-4: #707682;
+        --sl-color-gray-5: #4B505C;
+        --sl-color-gray-6: #111318;
+        --sl-color-black: #111318;
+        --sl-color-text: #111318;
+        --sl-color-text-accent: #111318;
+        --sl-color-bg: #FBFBFC;
+        --sl-color-bg-nav: #FBFBFC;
+        --sl-color-bg-sidebar: #FBFBFC;
+        --sl-color-bg-inline-code: #F2F3F5;
+        --sl-color-hairline: #D2D4DA;
+        --sl-color-hairline-light: #E2E4E8;
+        --sl-color-hairline-shade: #707682;
+        --sl-image-bg-color: #FBFBFC;
+        --sl-social-icon-color: #4B505C;
+        --sl-social-icon-hover-color: #111318;
+    }
+
+    /* Smooth theme transitions — applied globally after initial load */
+    html.theme-transition,
+    html.theme-transition *,
+    html.theme-transition *::before,
+    html.theme-transition *::after {
+        transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, fill 0.2s ease !important;
+    }
+
+    /* Theme toggle icon animation */
+    .theme-toggle svg {
+        transition: transform 0.3s ease, opacity 0.2s ease;
+    }
+
+    .theme-toggle.animating .theme-icon-sun {
+        transform: rotate(180deg) scale(0);
+        opacity: 0;
+    }
+
+    .theme-toggle.animating .theme-icon-moon {
+        transform: rotate(-180deg) scale(0);
+        opacity: 0;
+    }
+</style>
+
 <script is:inline>
-    // This ensures that the theme is always dark on the website.
-    // We don't support light mode because the Rive animation
-    // doesn't look good in light mode since the background
-    // is hardcoded to white.
-    document.documentElement.dataset.theme = 'light'
+    (function() {
+        // Determine theme: localStorage > system preference > dark default
+        function getPreferredTheme() {
+            var saved = localStorage.getItem('site-theme');
+            if (saved === 'light' || saved === 'dark') return saved;
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                return 'light';
+            }
+            return 'dark';
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.dataset.siteTheme = theme;
+            // Starlight uses data-theme="light" for its light theme (which we override via CSS).
+            // Keep it as "light" always so Starlight doesn't inject its own dark styles.
+            document.documentElement.dataset.theme = 'light';
+        }
+
+        // Apply immediately to prevent flash (no transition class yet)
+        applyTheme(getPreferredTheme());
+
+        // Enable smooth transitions after first paint to avoid flash-of-transition on load
+        if (document.readyState === 'complete') {
+            document.documentElement.classList.add('theme-transition');
+        } else {
+            window.addEventListener('load', function() {
+                // Small delay to ensure initial paint is done
+                requestAnimationFrame(function() {
+                    document.documentElement.classList.add('theme-transition');
+                });
+            });
+        }
+
+        // Global toggle function
+        window.toggleTheme = function() {
+            var current = document.documentElement.dataset.siteTheme || 'dark';
+            var next = current === 'dark' ? 'light' : 'dark';
+            localStorage.setItem('site-theme', next);
+
+            // Animate toggle icons
+            document.querySelectorAll('.theme-toggle').forEach(function(btn) {
+                btn.classList.add('animating');
+                btn.setAttribute('aria-label', next === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+            });
+
+            // Apply theme (colors transition smoothly via CSS)
+            applyTheme(next);
+
+            // Remove animation class after transition completes
+            setTimeout(function() {
+                document.querySelectorAll('.theme-toggle').forEach(function(btn) {
+                    btn.classList.remove('animating');
+                });
+            }, 300);
+        };
+
+        // Listen for system preference changes (only if no saved preference)
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function(e) {
+                if (!localStorage.getItem('site-theme')) {
+                    applyTheme(e.matches ? 'light' : 'dark');
+                }
+            });
+        }
+    })();
 </script>

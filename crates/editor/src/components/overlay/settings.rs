@@ -352,6 +352,7 @@ impl SettingsOverlay {
 
         egui::Area::new(egui::Id::new("settings_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(crate::util::overlay_content_rect(ctx))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);

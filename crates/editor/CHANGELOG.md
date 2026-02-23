@@ -6,6 +6,8 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **System theme**: New "System" theme option that automatically follows the OS light/dark preference in real-time. Appears as the first option in the style picker. On first launch, the editor now defaults to System instead of Dark.
+
 - **Project sidebar**: New always-visible left sidebar panel showing all workspaces. Click to switch workspaces, toggle visibility with `[`. Replaces the modal workspace finder as the primary workspace navigation. The active workspace name is also shown in the status bar.
 
 - **Project grouping in sidebar**: Create projects to group related workspaces into collapsible sections. Click a project header to collapse/expand, use the "+" button on a project header to create a workspace inside it. Ungrouped workspaces appear after project sections. Projects and their collapsed state persist across sessions.
@@ -42,6 +44,12 @@ All notable changes to the Enya editor will be documented in this file.
 - **Storage settings category**: New "Storage" section in settings sidebar (native only) showing data locations for configuration (`~/.enya/`), workspaces, cloned repositories, and plugins. Each card displays the directory path with a "Reveal" button to open it in Finder. Full j/k keyboard navigation and Enter/l to reveal the focused item.
 
 ### Fixed
+
+- **Landing page cutoff on WASM**: Fixed text cutting off below keyboard hints at default 100% zoom on WASM. Increased `UNSCALED_CONTENT_HEIGHT` to account for the memorial text line and WASM-only "Download Native App" link, using platform-specific values (720 for WASM, 690 for native).
+
+- **Overlay centering with sidebar**: Fixed all overlays (tutorial, fuzzy finder, plugins, settings, command palette, etc.) centering on the full screen instead of the content area when the project sidebar is open. Overlays now center within the area to the right of the sidebar.
+
+- **Logo tinting for light themes**: Builtin light themes (Light, Parchment, Stockholm, Copenhagen) now use the original branded logo instead of a tinted version. Accent-color tinting is only applied for non-builtin themes (Midnight, Ayu, Aurora, etc. and custom themes).
 
 - **Snapshot layout preservation**: Fixed snapshots collapsing split/tiled pane layouts into a single tab. The layout extraction now uses only QueryPane tile IDs for pane index mapping, preventing index mismatches when non-QueryPane components (LogsPane, PluginPanes) are in the viewport tree. Also normalizes redundant single-pane Tabs wrappers added by `all_panes_must_have_tabs` so the saved layout is clean and compact.
 

@@ -566,6 +566,7 @@ impl DiagnosticsPane {
 
         egui::Area::new(egui::Id::new("diagnostics_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(crate::util::overlay_content_rect(ctx))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 overlay_style.frame().show(ui, |ui| {

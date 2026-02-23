@@ -71,7 +71,7 @@ impl ChatColors {
             AppTheme::Void => Color32::from_rgb(18, 14, 35),     // Violet-tinted dark
             AppTheme::Neon => Color32::from_rgb(25, 15, 30),     // Magenta-tinted dark
             AppTheme::Onyx => Color32::from_rgb(28, 26, 18),     // Gold-tinted dark
-            AppTheme::Dark => Color32::from_rgb(30, 27, 45),
+            AppTheme::System | AppTheme::Dark => Color32::from_rgb(30, 27, 45),
         }
     }
 

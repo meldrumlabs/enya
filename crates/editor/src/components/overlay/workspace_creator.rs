@@ -250,6 +250,7 @@ impl WorkspaceCreator {
 
         egui::Area::new(egui::Id::new("workspace_creator_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(crate::util::overlay_content_rect(ctx))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 // Extract colors from theme (Custom variant handles plugin colors internally)

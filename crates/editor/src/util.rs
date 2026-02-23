@@ -72,6 +72,21 @@ pub fn now_unix_nanos() -> i64 {
     }
 }
 
+/// Returns the rect that centered overlays should constrain to.
+///
+/// When the project sidebar is visible, the rect is offset to the right by the
+/// sidebar width so overlays center within the content area. When the sidebar is
+/// hidden, this returns `ctx.available_rect()` (the full area between titlebar
+/// and statusbar).
+pub fn overlay_content_rect(ctx: &egui::Context) -> egui::Rect {
+    let sidebar_w: f32 = ctx
+        .data(|d| d.get_temp(egui::Id::new("sidebar_width")))
+        .unwrap_or(0.0);
+    let mut rect = ctx.available_rect();
+    rect.min.x += sidebar_w;
+    rect
+}
+
 pub fn png_to_icon_data(png_bytes: &[u8]) -> egui::IconData {
     let image = image::load_from_memory(png_bytes).unwrap();
     let size = [image.width() as usize, image.height() as usize];

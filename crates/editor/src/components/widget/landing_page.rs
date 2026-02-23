@@ -189,14 +189,18 @@ impl LandingPage {
         let available_height = ui.available_height();
 
         // Calculate the unscaled content height to determine required scale
-        // Header: logo(160) + spacing(12) + tagline(20) + spacing(8) + version(14) = 214
+        // Header: logo(160) + spacing(12) + tagline(~17) + spacing(8) + version(~15) = ~212
+        //   WASM adds: spacing(8) + native_app_link(~15) = +23
         // Header spacing: 32
         // Menu: 6 items * (48 + 8) = 336
         // Footer spacing: 16
-        // Footer: hints(16) + spacing(12) + credits(12) = 40
+        // Footer: hints(~16) + spacing(12) + credits(~15) + spacing(4) + memorial(~14) = ~61
         // Margins: 32 (frame) + some padding
-        // Total unscaled: ~670
-        const UNSCALED_CONTENT_HEIGHT: f32 = 670.0;
+        // Total unscaled: ~689 (non-WASM), ~712 (WASM)
+        #[cfg(target_arch = "wasm32")]
+        const UNSCALED_CONTENT_HEIGHT: f32 = 720.0;
+        #[cfg(not(target_arch = "wasm32"))]
+        const UNSCALED_CONTENT_HEIGHT: f32 = 690.0;
 
         // Calculate scale to fit content with some breathing room (16px top + 16px bottom)
         let target_height = available_height - 32.0;
