@@ -77,6 +77,8 @@ pub enum KeyboardDecision {
     ClearFocus,
     /// Open plugins overlay (Space+p)
     OpenPluginsOverlay,
+    /// Toggle project sidebar (Space+b)
+    ToggleProjectSidebar,
 }
 
 /// Minimal context needed for keyboard decision making.
@@ -135,6 +137,7 @@ pub fn determine_space_action(key: egui::Key, is_native: bool) -> Option<Keyboar
         egui::Key::D => Some(KeyboardDecision::ToggleDiagnostics),
         egui::Key::A => Some(KeyboardDecision::ToggleAgentPanel),
         egui::Key::P => Some(KeyboardDecision::OpenPluginsOverlay),
+        egui::Key::B => Some(KeyboardDecision::ToggleProjectSidebar),
         egui::Key::C if is_native => Some(KeyboardDecision::OpenCodebaseFinder),
         _ => None,
     }

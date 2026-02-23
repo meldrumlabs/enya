@@ -132,13 +132,16 @@ pub enum WorkspaceAction {
     },
     /// Take a screenshot of the window (optionally with a custom path)
     TakeScreenshot(Option<String>),
-    /// Save workspace with optional name and optional project assignment
+    /// Save workspace with optional name, project assignment, and Flight SQL endpoint
     SaveWorkspace {
         name: Option<String>,
         project: Option<String>,
+        flight_sql_endpoint: Option<String>,
     },
     /// Load workspace by name
     LoadWorkspace(String),
+    /// Start creating a new project in the sidebar
+    CreateProject,
     /// List available workspaces
     ListWorkspaces,
     /// Share workspace as URL (snapshot if data loaded, config-only otherwise)
@@ -157,6 +160,8 @@ pub enum WorkspaceAction {
     OpenSnapshot(String),
     /// Focus the project sidebar (vim h at left edge)
     FocusProjectSidebar,
+    /// Toggle project sidebar visibility (Space+b)
+    ToggleProjectSidebar,
     /// Quit the application
     QuitApp,
     /// Open the annotation editor for the focused pane
@@ -512,6 +517,11 @@ impl Workspace {
     /// Get the name of the currently loaded workspace (filename stem).
     pub fn loaded_name(&self) -> Option<&str> {
         self.loaded_name.as_deref()
+    }
+
+    /// Whether the workspace has any panes.
+    pub fn has_panes(&self) -> bool {
+        !self.get_pane_tile_ids().is_empty()
     }
 
     /// Set the active theme colors (from custom or builtin theme)
@@ -1449,6 +1459,7 @@ impl Workspace {
                 name,
                 endpoint,
                 git_repo,
+                flight_sql_endpoint,
                 project,
             } => {
                 // Set pending connection endpoint to apply
@@ -1462,10 +1473,11 @@ impl Workspace {
                 let _ = git_repo; // Silence unused warning
                 self.show_landing = false;
                 ctx.request_repaint();
-                // Return action to save the workspace
+                // Return action to save the workspace and create/assign project
                 return WorkspaceAction::SaveWorkspace {
                     name: Some(name),
-                    project,
+                    project: Some(project),
+                    flight_sql_endpoint,
                 };
             }
             WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
@@ -1633,17 +1645,6 @@ impl Workspace {
 
         // Handle landing page actions
         match landing_action {
-            LandingPageAction::OpenWorkspaceFinder => {
-                self.open_workspace_finder(
-                    app_state,
-                    crate::app::EnyaApp::list_available_workspaces(),
-                );
-            }
-            LandingPageAction::CreateWorkspace => {
-                // Open the workspace creator overlay (works on both native and WASM)
-                // On WASM, only the endpoint step is shown
-                self.workspace_creator.open();
-            }
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and setup tutorial layout
                 // Layout: HTTP Requests | Requests by Endpoint (side by side at top)
@@ -1665,6 +1666,13 @@ impl Workspace {
             }
             LandingPageAction::OpenSettings => {
                 return WorkspaceAction::OpenSettings;
+            }
+            LandingPageAction::CreateProject => {
+                return WorkspaceAction::CreateProject;
+            }
+            LandingPageAction::NewWorkspace => {
+                self.show_landing = false;
+                ctx.request_repaint();
             }
             LandingPageAction::ShowNativeAppInfo => {
                 // Open the native app promo overlay (WASM only)
@@ -1838,6 +1846,7 @@ impl Workspace {
                 name,
                 endpoint,
                 git_repo,
+                flight_sql_endpoint,
                 project,
             } => {
                 // Set pending connection endpoint to apply
@@ -1851,10 +1860,11 @@ impl Workspace {
                 let _ = git_repo; // Silence unused warning
                 self.show_landing = false;
                 ctx.request_repaint();
-                // Return action to save the workspace
+                // Return action to save the workspace and create/assign project
                 return WorkspaceAction::SaveWorkspace {
                     name: Some(name),
-                    project,
+                    project: Some(project),
+                    flight_sql_endpoint,
                 };
             }
             WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
@@ -1938,6 +1948,7 @@ impl Workspace {
             CommandResult::WriteWorkspace => WorkspaceAction::SaveWorkspace {
                 name: None,
                 project: None,
+                flight_sql_endpoint: None,
             },
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),

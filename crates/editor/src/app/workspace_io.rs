@@ -31,6 +31,21 @@ impl EnyaApp {
         Vec::new()
     }
 
+    /// Generate the next unique "untitled-N" workspace name.
+    pub(super) fn next_untitled_workspace_name(&self) -> String {
+        let existing: rustc_hash::FxHashSet<String> = Self::list_available_workspaces()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        for i in 1u32.. {
+            let candidate = format!("untitled-{i}");
+            if !existing.contains(&candidate) {
+                return candidate;
+            }
+        }
+        "untitled".to_string()
+    }
+
     /// Ensure the built-in tutorial and example workspaces exist on disk.
     ///
     /// Tutorial workspaces are always overwritten so template updates take
@@ -246,6 +261,11 @@ impl EnyaApp {
                     ));
                 }
             }
+        }
+
+        // Auto-focus project sidebar when workspace has no panes
+        if !self.workspace.has_panes() && self.project_sidebar.is_visible() {
+            self.project_sidebar.focus();
         }
     }
 

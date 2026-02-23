@@ -117,6 +117,7 @@ impl Workspace {
         let mut should_go_to_alert = false;
         let mut should_show_definition_demo = false;
         let mut should_toggle_agent_panel = false;
+        let mut should_toggle_project_sidebar = false;
         let mut should_enter_agent_mode = false;
         let mut should_enter_agent_mode_typing = false;
         let mut agent_quick_command: Option<QuickCommand> = None;
@@ -239,6 +240,14 @@ impl Workspace {
                 // Space+t - open time range picker
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
                     should_open_time_range_picker = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+b - toggle project sidebar
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::B) {
+                    should_toggle_project_sidebar = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -885,6 +894,15 @@ impl Workspace {
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             ctx.request_repaint();
             return Some(WorkspaceAction::FocusProjectSidebar);
+        }
+
+        // Handle Space+b toggle project sidebar
+        if should_toggle_project_sidebar {
+            self.behavior.set_focused_tile(None);
+            self.section_focus = FocusTarget::None;
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+            ctx.request_repaint();
+            return Some(WorkspaceAction::ToggleProjectSidebar);
         }
 
         if should_open_which_key {

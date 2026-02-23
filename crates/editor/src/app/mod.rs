@@ -979,99 +979,25 @@ impl EnyaApp {
             }
         }
 
-        // `[` key — toggle sidebar visibility and focus
-        // When sidebar is hidden: show + focus it
-        // When sidebar is visible but unfocused: focus it
-        // When sidebar is focused: unfocus + hide it
-        if !ctx.wants_keyboard_input() {
-            let bracket =
-                ctx.input(|i| i.key_pressed(egui::Key::OpenBracket) && i.modifiers.is_none());
-            if bracket {
-                if self.project_sidebar.has_focus() {
-                    // Focused → hide
-                    self.project_sidebar.unfocus();
-                    self.project_sidebar.toggle();
-                } else if self.project_sidebar.is_visible() {
-                    // Visible but not focused → focus
-                    self.project_sidebar.focus();
-                } else {
-                    // Hidden → show + focus
-                    self.project_sidebar.toggle();
-                    self.project_sidebar.focus();
-                }
-            }
-        }
-
-        // Project sidebar (left panel) — must be rendered before CentralPanel
-        // Hidden on landing page and in zen mode
+        // Project sidebar visibility — hidden on landing page and in zen mode
         let show_sidebar = self.project_sidebar.is_visible()
             && !self.workspace.is_landing_page()
             && !self.workspace.is_zen_mode();
 
-        if show_sidebar {
-            self.project_sidebar.set_theme(self.effective_theme());
-            self.project_sidebar
-                .set_active_workspace(self.workspace.loaded_name());
-            self.project_sidebar
-                .refresh_workspaces(&self.state.settings);
-            match self.project_sidebar.show(ctx) {
-                crate::components::ProjectSidebarResult::LoadWorkspace(name) => {
-                    self.project_sidebar.unfocus();
-                    self.load_workspace(&name);
-                }
-                crate::components::ProjectSidebarResult::PreviewWorkspace(name) => {
-                    // Load workspace but keep sidebar focused for continued j/k navigation
-                    self.load_workspace(&name);
-                }
-                crate::components::ProjectSidebarResult::CreateWorkspace => {
-                    self.project_sidebar.unfocus();
-                    self.workspace.open_workspace_creator();
-                }
-                crate::components::ProjectSidebarResult::CreateWorkspaceInProject(project) => {
-                    self.project_sidebar.unfocus();
-                    self.workspace.open_workspace_creator_in_project(project);
-                }
-                crate::components::ProjectSidebarResult::ToggleProjectCollapse(name) => {
-                    self.state.settings.toggle_project_collapsed(&name);
-                    self.project_sidebar.rebuild(&self.state.settings);
-                }
-                crate::components::ProjectSidebarResult::CreateProject(name) => {
-                    self.state.settings.create_project(name);
-                    self.project_sidebar.rebuild(&self.state.settings);
-                }
-                crate::components::ProjectSidebarResult::OpenSettings => {
-                    self.project_sidebar.unfocus();
-                    self.state.ui_state = UIState::Settings;
-                }
-                crate::components::ProjectSidebarResult::ArchiveWorkspace(name) => {
-                    // Remove from recent workspaces
-                    self.state
-                        .settings
-                        .recent_workspaces
-                        .retain(|w| w.name != name);
-                    // Remove from any project
-                    for project in &mut self.state.settings.projects {
-                        project.workspace_names.retain(|w| w != &name);
-                    }
-                    // Delete the workspace file
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        let path = enya_config::resolve_workspace_path(&name);
-                        let _ = std::fs::remove_file(path);
-                    }
-                    // Force sidebar refresh
-                    self.project_sidebar.force_rescan();
-                    self.project_sidebar
-                        .refresh_workspaces(&self.state.settings);
-                }
-                crate::components::ProjectSidebarResult::Unfocused
-                | crate::components::ProjectSidebarResult::None => {}
-            }
-        }
-
         let mut workspace_action = WorkspaceAction::None;
+        let mut sidebar_result = crate::components::ProjectSidebarResult::None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Project sidebar (left panel) — rendered inside CentralPanel so it
+            // matches the agent panel's height (doesn't touch titlebar/statusbar)
+            if show_sidebar {
+                self.project_sidebar.set_theme(self.effective_theme());
+                self.project_sidebar
+                    .set_active_workspace(self.workspace.loaded_name());
+                self.project_sidebar
+                    .refresh_workspaces(&self.state.settings);
+                sidebar_result = self.project_sidebar.show(ui, ctx);
+            }
             // Update active theme colors (from custom or builtin theme)
             self.workspace
                 .set_active_colors(self.effective_theme().active_colors());
@@ -1108,6 +1034,82 @@ impl EnyaApp {
                 }
             }
         });
+
+        // Handle sidebar results (after CentralPanel so we can mutate app state)
+        match sidebar_result {
+            crate::components::ProjectSidebarResult::LoadWorkspace(name) => {
+                self.project_sidebar.unfocus();
+                self.load_workspace(&name);
+            }
+            crate::components::ProjectSidebarResult::PreviewWorkspace(name) => {
+                self.load_workspace(&name);
+            }
+            crate::components::ProjectSidebarResult::CreateEmptyWorkspace => {
+                let name = self.next_untitled_workspace_name();
+                self.save_workspace(Some(&name));
+                self.load_workspace(&name);
+                self.project_sidebar.force_rescan();
+                self.project_sidebar
+                    .refresh_workspaces(&self.state.settings);
+            }
+            crate::components::ProjectSidebarResult::CreateEmptyWorkspaceInProject(project) => {
+                let name = self.next_untitled_workspace_name();
+                self.save_workspace(Some(&name));
+                self.state
+                    .settings
+                    .add_workspace_to_project(&project, &name);
+                self.load_workspace(&name);
+                self.project_sidebar.force_rescan();
+                self.project_sidebar
+                    .refresh_workspaces(&self.state.settings);
+            }
+            crate::components::ProjectSidebarResult::ToggleProjectCollapse(name) => {
+                self.state.settings.toggle_project_collapsed(&name);
+                self.project_sidebar.rebuild(&self.state.settings);
+            }
+            crate::components::ProjectSidebarResult::CreateProject => {
+                self.project_sidebar.unfocus();
+                let default_flight_sql = self
+                    .state
+                    .settings
+                    .flight_sql_connections
+                    .first()
+                    .map(|c| c.endpoint.as_str())
+                    .unwrap_or("");
+                self.workspace.open_project_creator(
+                    &self.state.settings.default_prometheus_endpoint,
+                    &self.state.settings.git_repo_url,
+                    default_flight_sql,
+                );
+            }
+            crate::components::ProjectSidebarResult::OpenSettings => {
+                self.project_sidebar.unfocus();
+                self.state.ui_state = UIState::Settings;
+            }
+            crate::components::ProjectSidebarResult::ArchiveWorkspace(name) => {
+                self.state
+                    .settings
+                    .recent_workspaces
+                    .retain(|w| w.name != name);
+                for project in &mut self.state.settings.projects {
+                    project.workspace_names.retain(|w| w != &name);
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let path = enya_config::resolve_workspace_path(&name);
+                    let _ = std::fs::remove_file(path);
+                }
+                self.project_sidebar.force_rescan();
+                self.project_sidebar
+                    .refresh_workspaces(&self.state.settings);
+            }
+            crate::components::ProjectSidebarResult::Closed => {
+                self.project_sidebar.unfocus();
+                self.project_sidebar.toggle();
+            }
+            crate::components::ProjectSidebarResult::Unfocused
+            | crate::components::ProjectSidebarResult::None => {}
+        }
 
         // Handle actions from the viewport (e.g., from command palette)
         self.handle_workspace_action(ctx, workspace_action);
@@ -1206,9 +1208,34 @@ impl EnyaApp {
                 // Request a screenshot from egui
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
             }
-            WorkspaceAction::SaveWorkspace { name, project } => {
+            WorkspaceAction::SaveWorkspace {
+                name,
+                project,
+                flight_sql_endpoint,
+            } => {
+                // On WASM, save_workspace copies a share URL to clipboard which is
+                // confusing during project creation. Skip it when creating a project
+                // (the workspace is empty and has nothing to share yet).
+                #[cfg(target_arch = "wasm32")]
+                {
+                    if project.is_none() {
+                        self.save_workspace(name.as_deref());
+                    } else if let Some(ref ws_name) = name {
+                        self.workspace.loaded_name = Some(ws_name.clone());
+                        self.notifications.notify(Notification::new(
+                            format!(
+                                "Project created: {}",
+                                project.as_deref().unwrap_or("unknown")
+                            ),
+                            NotificationLevel::Success,
+                        ));
+                    }
+                }
+                #[cfg(not(target_arch = "wasm32"))]
                 self.save_workspace(name.as_deref());
                 if let Some(project_name) = project {
+                    // Create the project if it doesn't exist yet
+                    self.state.settings.create_project(project_name.clone());
                     let ws = name
                         .as_deref()
                         .or(self.workspace.loaded_name())
@@ -1217,6 +1244,33 @@ impl EnyaApp {
                         self.state
                             .settings
                             .add_workspace_to_project(&project_name, &ws);
+                    }
+                    // Refresh sidebar to show new project
+                    self.project_sidebar.force_rescan();
+                    self.project_sidebar
+                        .refresh_workspaces(&self.state.settings);
+                }
+                // Add Flight SQL connection from wizard if provided
+                if let Some(endpoint) = flight_sql_endpoint {
+                    use crate::ui::settings_screen::FlightSqlConnection;
+                    // Only add if not already present
+                    if !self
+                        .state
+                        .settings
+                        .flight_sql_connections
+                        .iter()
+                        .any(|c| c.endpoint == endpoint)
+                    {
+                        self.state
+                            .settings
+                            .flight_sql_connections
+                            .push(FlightSqlConnection {
+                                name: "default".to_string(),
+                                endpoint,
+                            });
+                        // Sync to all SQL panes
+                        self.workspace
+                            .sync_sql_connections(&self.state.settings.flight_sql_connections);
                     }
                 }
             }
@@ -1285,6 +1339,17 @@ impl EnyaApp {
                     self.project_sidebar.focus();
                 }
             }
+            WorkspaceAction::ToggleProjectSidebar => {
+                if self.project_sidebar.has_focus() {
+                    self.project_sidebar.unfocus();
+                    self.project_sidebar.toggle();
+                } else if self.project_sidebar.is_visible() {
+                    self.project_sidebar.focus();
+                } else {
+                    self.project_sidebar.toggle();
+                    self.project_sidebar.focus();
+                }
+            }
             WorkspaceAction::QuitApp => {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -1329,6 +1394,20 @@ impl EnyaApp {
                     .set_agent_provider_and_model(ai_provider, ai_model);
                 // Propagate Flight SQL connections to all SQL panes
                 self.workspace.sync_sql_connections(&flight_sql_connections);
+            }
+            WorkspaceAction::CreateProject => {
+                let default_flight_sql = self
+                    .state
+                    .settings
+                    .flight_sql_connections
+                    .first()
+                    .map(|c| c.endpoint.as_str())
+                    .unwrap_or("");
+                self.workspace.open_project_creator(
+                    &self.state.settings.default_prometheus_endpoint,
+                    &self.state.settings.git_repo_url,
+                    default_flight_sql,
+                );
             }
             WorkspaceAction::OpenSettings => {
                 // Collect custom themes for the settings page

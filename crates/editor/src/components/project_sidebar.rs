@@ -50,18 +50,21 @@ pub enum ProjectSidebarResult {
     LoadWorkspace(String),
     /// Load a workspace but keep sidebar focused (j/k navigation).
     PreviewWorkspace(String),
-    CreateWorkspace,
-    /// Create a new workspace inside a specific project.
-    CreateWorkspaceInProject(String),
+    /// Create an empty workspace (no wizard).
+    CreateEmptyWorkspace,
+    /// Create an empty workspace inside a specific project (no wizard).
+    CreateEmptyWorkspaceInProject(String),
     /// Toggle a project section's collapsed state.
     ToggleProjectCollapse(String),
-    /// User confirmed a new project name.
-    CreateProject(String),
+    /// Open the project creation wizard.
+    CreateProject,
     OpenSettings,
     /// Archive (delete) a workspace.
     ArchiveWorkspace(String),
     /// Sidebar lost focus — return keyboard control to workspace
     Unfocused,
+    /// User clicked the close button — hide the sidebar.
+    Closed,
 }
 
 const SIDEBAR_WIDTH: f32 = 240.0;
@@ -79,9 +82,6 @@ pub struct ProjectSidebar {
     /// Keyboard selection index within `nav_items`.
     selected_index: usize,
     last_scan: Option<Instant>,
-    /// Inline project creation state.
-    creating_project: bool,
-    new_project_name: String,
 }
 
 impl Default for ProjectSidebar {
@@ -101,8 +101,6 @@ impl ProjectSidebar {
             nav_items: Vec::new(),
             selected_index: 0,
             last_scan: None,
-            creating_project: false,
-            new_project_name: String::new(),
         }
     }
 
@@ -221,6 +219,20 @@ impl ProjectSidebar {
         let known: FxHashSet<&str> = self.workspaces.iter().map(|w| w.name.as_str()).collect();
 
         for project in &settings.projects {
+            // Hide the Tutorial project unless a tutorial workspace is currently active
+            if project.name == "Tutorial" {
+                let tutorial_active = self
+                    .active_workspace
+                    .as_ref()
+                    .is_some_and(|active| project.workspace_names.contains(active));
+                if !tutorial_active {
+                    for ws_name in &project.workspace_names {
+                        grouped.insert(ws_name.clone());
+                    }
+                    continue;
+                }
+            }
+
             // Only count workspaces that actually exist
             let existing: Vec<&str> = project
                 .workspace_names
@@ -270,23 +282,47 @@ impl ProjectSidebar {
         }
     }
 
-    /// Show the sidebar panel. Must be called before `CentralPanel::default().show()`.
-    pub fn show(&mut self, ctx: &egui::Context) -> ProjectSidebarResult {
+    /// Show the sidebar panel inside the given `Ui` (must be called inside `CentralPanel`).
+    pub fn show(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> ProjectSidebarResult {
         let mut result = ProjectSidebarResult::None;
 
         let bg = self.theme.bg_surface();
-        let border = self.theme.border_subtle().gamma_multiply(0.4);
+        // Accent border when keyboard-focused; subtle otherwise (matches agent panel)
+        let (border_color, border_width) = if self.has_focus {
+            (self.theme.accent_primary(), 2.0)
+        } else {
+            (self.theme.border_subtle(), 1.0)
+        };
 
+        // Total width includes an 8px gap on the right for visual separation
+        let gap = 8.0;
         egui::SidePanel::left("project_sidebar")
-            .exact_width(SIDEBAR_WIDTH)
-            .frame(
-                egui::Frame::new()
-                    .fill(bg)
-                    .inner_margin(egui::Margin::ZERO)
-                    .stroke(egui::Stroke::new(1.0, border)),
-            )
-            .show(ctx, |ui| {
-                result = self.render_content(ui, ctx);
+            .exact_width(SIDEBAR_WIDTH + gap)
+            .frame(egui::Frame::NONE)
+            .show_inside(ui, |ui| {
+                // Paint the sidebar background and border inside the allocated area,
+                // leaving the rightmost `gap` pixels transparent (shows parent bg).
+                let full_rect = ui.max_rect();
+                let sidebar_rect = full_rect.with_max_x(full_rect.max.x - gap);
+
+                // Background fill
+                ui.painter().rect_filled(sidebar_rect, 0.0, bg);
+                // Border
+                ui.painter().rect_stroke(
+                    sidebar_rect,
+                    0.0,
+                    egui::Stroke::new(border_width, border_color),
+                    egui::StrokeKind::Inside,
+                );
+
+                // Constrain the child ui to the sidebar area (not the gap)
+                let mut child_rect = sidebar_rect;
+                child_rect.min.x += border_width;
+                child_rect.min.y += border_width;
+                child_rect.max.x -= border_width;
+                child_rect.max.y -= border_width;
+                let mut child_ui = ui.new_child(egui::UiBuilder::new().max_rect(child_rect));
+                result = self.render_content(&mut child_ui, ctx);
             });
 
         result
@@ -307,15 +343,48 @@ impl ProjectSidebar {
             self.selected_index = nav_count - 1;
         }
 
-        // ── Keyboard handling (only when sidebar has focus and not creating project) ─
-        if self.has_focus && !self.creating_project && !ctx.wants_keyboard_input() {
+        // ── Keyboard handling (only when sidebar has focus) ──────────
+        if self.has_focus && !ctx.wants_keyboard_input() {
             let kb_result = self.handle_keyboard(ctx);
             if !matches!(kb_result, ProjectSidebarResult::None) {
                 result = kb_result;
             }
         }
 
-        ui.add_space(8.0);
+        // ── Header with close button ─────────────────────────────────
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            ui.label(
+                RichText::new("Projects")
+                    .color(text_tertiary)
+                    .font(typography::proportional(typography::XS)),
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.add_space(8.0);
+                let close_btn = ui.add(
+                    egui::Button::new(
+                        RichText::new(semantic_icons::action::CLOSE)
+                            .size(14.0)
+                            .color(text_tertiary),
+                    )
+                    .frame(false),
+                );
+                if close_btn.hovered() {
+                    let rect = close_btn.rect.expand(4.0);
+                    ui.painter().rect_filled(
+                        rect,
+                        egui::CornerRadius::same(4),
+                        self.theme.bg_elevated(),
+                    );
+                }
+                if close_btn.on_hover_text("Close sidebar (Space+b)").clicked() {
+                    result = ProjectSidebarResult::Closed;
+                }
+            });
+        });
+        ui.add_space(4.0);
 
         // ── Nav items list ──────────────────────────────────────────
 
@@ -400,45 +469,6 @@ impl ProjectSidebar {
                         }
                     }
                 }
-
-                // Inline project creation text field
-                if self.creating_project {
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(14.0);
-                        ui.label(
-                            RichText::new(semantic_icons::file::FOLDER_PLUS)
-                                .color(accent)
-                                .font(egui::FontId::proportional(semantic_icons::SIZE_ITEM)),
-                        );
-                        ui.add_space(4.0);
-                        let response = ui.add(
-                            egui::TextEdit::singleline(&mut self.new_project_name)
-                                .hint_text("Project name")
-                                .frame(false)
-                                .font(typography::proportional(typography::SM))
-                                .text_color(text_primary)
-                                .desired_width(SIDEBAR_WIDTH - 60.0),
-                        );
-                        response.request_focus();
-                    });
-                    ui.add_space(4.0);
-
-                    // Handle Enter/Escape for project creation
-                    ctx.input_mut(|input| {
-                        if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
-                            let name = self.new_project_name.trim().to_string();
-                            if !name.is_empty() {
-                                result = ProjectSidebarResult::CreateProject(name);
-                            }
-                            self.creating_project = false;
-                            self.new_project_name.clear();
-                        } else if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape) {
-                            self.creating_project = false;
-                            self.new_project_name.clear();
-                        }
-                    });
-                }
             });
 
         // ── Footer ──────────────────────────────────────────────────
@@ -457,6 +487,13 @@ impl ProjectSidebar {
         let mut selection_moved = false;
 
         ctx.input_mut(|input| {
+            // x — close (hide) sidebar
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::X) {
+                self.has_focus = false;
+                result = ProjectSidebarResult::Closed;
+                return;
+            }
+
             // Escape or l — unfocus sidebar, return to workspace
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::L)
@@ -630,7 +667,7 @@ impl ProjectSidebar {
                 accent,
             );
             if plus_response.clicked() {
-                return Some(ProjectSidebarResult::CreateWorkspaceInProject(
+                return Some(ProjectSidebarResult::CreateEmptyWorkspaceInProject(
                     name.to_string(),
                 ));
             }
@@ -829,8 +866,7 @@ impl ProjectSidebar {
             let proj_clicked = proj_icon.clicked() || label.clicked();
             let proj_hovered = proj_icon.hovered() || label.hovered();
             if proj_clicked {
-                self.creating_project = true;
-                self.new_project_name.clear();
+                *result = ProjectSidebarResult::CreateProject;
             }
             if proj_hovered {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

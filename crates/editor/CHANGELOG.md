@@ -12,6 +12,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Tutorial workspaces**: Five built-in tutorial workspaces showcasing different observability use cases — Golden Signals (latency, traffic, errors, saturation), Incident Response (cross-signal investigation), Service Overview (all visualization types), Infrastructure (CPU, memory, disk, network), and Multi-Service (side-by-side comparison). Grouped under a "Tutorial" project that is auto-created for new users.
 
+- **Workspace deletion from sidebar**: Hover over a workspace to reveal a trash icon that deletes the workspace file and removes it from all projects.
+
+- **Landing page redesign**: Streamlined landing page menu — removed "Find workspace" and "Create workspace" (now handled by the sidebar), added "Create project" option. Tutorial project is hidden from the sidebar unless a tutorial workspace is actively loaded.
+
+- **Project creation wizard**: "Create project" now opens a multi-step wizard (project name, workspace name, connection endpoint, git repository) to set up a new project with its first workspace. The sidebar "+" button on project headers creates empty workspaces directly without a wizard.
+
 - **Snapshot naming**: The `:snapshot` command now accepts an optional name (e.g. `:snapshot P99 latency spike`) which becomes the workspace name embedded in the blob. When a recipient opens the snapshot, the name is displayed in the status bar next to the SNAPSHOT badge.
 - **Geist Mono font**: Added Geist Mono by Vercel as a new font option in the editor settings (SIL Open Font License v1.1). Set as the new default editor font.
 
