@@ -48,6 +48,8 @@ pub enum WorkspaceCreatorResult {
         name: String,
         endpoint: String,
         git_repo: Option<String>,
+        /// If set, assign this workspace to a project on creation.
+        project: Option<String>,
     },
 }
 
@@ -70,6 +72,8 @@ pub struct WorkspaceCreator {
     /// Git repository path input (native only)
     #[cfg(not(target_arch = "wasm32"))]
     git_repo: String,
+    /// Project to assign the new workspace to (set by sidebar "+" button).
+    project_context: Option<String>,
 }
 
 impl Default for WorkspaceCreator {
@@ -89,6 +93,7 @@ impl WorkspaceCreator {
             endpoint: DEFAULT_ENDPOINT.to_string(),
             #[cfg(not(target_arch = "wasm32"))]
             git_repo: String::new(),
+            project_context: None,
         }
     }
 
@@ -108,6 +113,14 @@ impl WorkspaceCreator {
         {
             self.git_repo = String::new();
         }
+        self.project_context = None;
+    }
+
+    /// Open the overlay with a project context — the new workspace will be
+    /// assigned to this project on creation.
+    pub fn open_in_project(&mut self, project: String) {
+        self.open();
+        self.project_context = Some(project);
     }
 
     /// Close the overlay
@@ -135,25 +148,29 @@ impl WorkspaceCreator {
             #[cfg(target_arch = "wasm32")]
             WorkspaceCreatorStep::Endpoint => {
                 // On WASM, endpoint is the last step
+                let project = self.project_context.take();
                 self.close();
                 Some(WorkspaceCreatorResult::Created {
                     name: self.name.clone(),
                     endpoint: self.endpoint.clone(),
                     git_repo: None,
+                    project,
                 })
             }
             #[cfg(not(target_arch = "wasm32"))]
             WorkspaceCreatorStep::GitRepo => {
-                self.close();
                 let git_repo = if self.git_repo.trim().is_empty() {
                     None
                 } else {
                     Some(self.git_repo.clone())
                 };
+                let project = self.project_context.take();
+                self.close();
                 Some(WorkspaceCreatorResult::Created {
                     name: self.name.clone(),
                     endpoint: self.endpoint.clone(),
                     git_repo,
+                    project,
                 })
             }
         }

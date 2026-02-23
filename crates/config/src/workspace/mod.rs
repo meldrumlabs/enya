@@ -142,7 +142,8 @@ pub mod snapshot;
 mod templates;
 
 pub use templates::{
-    ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML, DEMO_WORKSPACE_TOML,
+    ATLAS_WORKSPACE_TOML, GOLDEN_SIGNALS_TOML, INCIDENT_RESPONSE_TOML, INFRASTRUCTURE_TOML,
+    MULTI_SERVICE_TOML, SERVICE_OVERVIEW_TOML,
 };
 
 use serde::{Deserialize, Serialize};
@@ -1264,16 +1265,16 @@ impl WorkspaceConfig {
         toml::from_str(toml_str).map_err(WorkspaceError::Parse)
     }
 
-    /// Get the default example workspace
+    /// Get the default example workspace (golden signals)
     pub fn default_example() -> Self {
-        Self::from_toml(templates::DEFAULT_WORKSPACE_TOML)
-            .expect("DEFAULT_WORKSPACE_TOML should be valid")
+        Self::from_toml(templates::GOLDEN_SIGNALS_TOML)
+            .expect("GOLDEN_SIGNALS_TOML should be valid")
     }
 
-    /// Get the demo workspace (uses synthetic data, no backend required)
+    /// Get the demo workspace (golden signals, no backend required)
     pub fn default_demo() -> Self {
-        Self::from_toml(templates::DEMO_WORKSPACE_TOML)
-            .expect("DEMO_WORKSPACE_TOML should be valid")
+        Self::from_toml(templates::GOLDEN_SIGNALS_TOML)
+            .expect("GOLDEN_SIGNALS_TOML should be valid")
     }
 
     /// Serialize workspace to TOML string

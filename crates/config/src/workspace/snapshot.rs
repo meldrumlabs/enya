@@ -1141,7 +1141,7 @@ mod tests {
             },
         ];
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         // Layout must survive the blob round-trip
@@ -1192,7 +1192,7 @@ mod tests {
             },
         ];
 
-        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None).unwrap();
+        let bytes = encode_snapshot(&ws, &pane_data, 1700000000, None, None).unwrap();
         let decoded = decode_snapshot(&bytes).unwrap();
 
         let layout = decoded

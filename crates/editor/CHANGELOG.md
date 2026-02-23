@@ -6,6 +6,12 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Project sidebar**: New always-visible left sidebar panel showing all workspaces. Click to switch workspaces, toggle visibility with `[`. Replaces the modal workspace finder as the primary workspace navigation. The active workspace name is also shown in the status bar.
+
+- **Project grouping in sidebar**: Create projects to group related workspaces into collapsible sections. Click a project header to collapse/expand, use the "+" button on a project header to create a workspace inside it. Ungrouped workspaces appear after project sections. Projects and their collapsed state persist across sessions.
+
+- **Tutorial workspaces**: Five built-in tutorial workspaces showcasing different observability use cases — Golden Signals (latency, traffic, errors, saturation), Incident Response (cross-signal investigation), Service Overview (all visualization types), Infrastructure (CPU, memory, disk, network), and Multi-Service (side-by-side comparison). Grouped under a "Tutorial" project that is auto-created for new users.
+
 - **Automatic git sync**: `CodebaseManager` now periodically fetches remote commits (default every 5 minutes). When new commits are detected, incremental Tantivy re-indexing is triggered automatically. Manual `:git` syncs reset the timer to avoid double-fetching. Configurable in Settings → Codebases → Sync interval (Off, 1m, 5m, 15m, 30m).
 
 - **SNAPSHOT status mode**: When opening an immutable shared snapshot, the status bar now shows "SNAPSHOT" mode (blue badge) instead of "NORMAL", making it immediately clear the workspace is read-only.

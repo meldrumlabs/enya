@@ -91,6 +91,12 @@ impl Workspace {
         self.workspace_creator.open();
     }
 
+    /// Open the workspace creator with a project context — the new workspace
+    /// will be assigned to this project on creation.
+    pub fn open_workspace_creator_in_project(&mut self, project: String) {
+        self.workspace_creator.open_in_project(project);
+    }
+
     // ==================== Codebase Finder ====================
 
     /// Handle codebase finder selection - navigate to source

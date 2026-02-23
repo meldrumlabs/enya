@@ -4416,8 +4416,7 @@ impl SqlPane {
                             .corner_radius(10.0),
                         );
                         if pill_resp.clicked() {
-                            self.sidebar_width =
-                                if self.sidebar_width == 0.0 { 1.0 } else { 0.0 };
+                            self.sidebar_width = if self.sidebar_width == 0.0 { 1.0 } else { 0.0 };
                         }
                         pill_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
 

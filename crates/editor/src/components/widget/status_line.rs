@@ -320,6 +320,8 @@ pub struct StatusLine {
     is_zen_mode: bool,
     /// Whether fullscreen mode is active (display preference badge)
     is_fullscreen: bool,
+    /// Name of the currently loaded workspace
+    workspace_name: Option<String>,
 }
 
 impl Default for StatusLine {
@@ -340,6 +342,7 @@ impl Default for StatusLine {
             codebase_status: None,
             is_zen_mode: false,
             is_fullscreen: false,
+            workspace_name: None,
         }
     }
 }
@@ -418,6 +421,11 @@ impl StatusLine {
     /// Set fullscreen state (for display preference badge)
     pub fn set_fullscreen(&mut self, is_fullscreen: bool) {
         self.is_fullscreen = is_fullscreen;
+    }
+
+    /// Set the loaded workspace name (shown in the status bar)
+    pub fn set_workspace_name(&mut self, name: Option<String>) {
+        self.workspace_name = name;
     }
 
     /// Mark the last refresh time (call when data is updated)
@@ -616,6 +624,21 @@ impl StatusLine {
             let fg = self.theme.badge_fullscreen_fg();
             ui.add_space(4.0);
             self.render_segment(ui, "FULLSCREEN", None, bg, fg, height, padding, false);
+        }
+
+        // Workspace name (if loaded)
+        if let Some(ref ws_name) = self.workspace_name {
+            self.render_separator(ui, height);
+            self.render_segment(
+                ui,
+                ws_name,
+                Some("\u{25C6}"), // ◆ diamond
+                self.theme.bg_surface(),
+                self.theme.text_secondary(),
+                height,
+                padding,
+                false,
+            );
         }
 
         // Git branch / project info (if available)
