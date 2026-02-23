@@ -117,6 +117,7 @@ impl Workspace {
         let mut should_go_to_alert = false;
         let mut should_show_definition_demo = false;
         let mut should_toggle_agent_panel = false;
+        let mut should_toggle_project_sidebar = false;
         let mut should_enter_agent_mode = false;
         let mut should_enter_agent_mode_typing = false;
         let mut agent_quick_command: Option<QuickCommand> = None;
@@ -132,6 +133,7 @@ impl Workspace {
         let mut should_tab_pane_down = false;
         let mut should_float_focused_pane = false;
         let mut should_focus_agent_panel = false;
+        let mut should_focus_sidebar = false;
         let mut should_undo = false;
         let mut should_open_time_range_picker = false;
 
@@ -238,6 +240,14 @@ impl Workspace {
                 // Space+t - open time range picker
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::T) {
                     should_open_time_range_picker = true;
+                    self.leader_keys.clear_space();
+                    consumed = true;
+                    return;
+                }
+
+                // Space+b - toggle project sidebar
+                if input.consume_key(egui::Modifiers::NONE, egui::Key::B) {
+                    should_toggle_project_sidebar = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -616,20 +626,29 @@ impl Workspace {
                 return;
             }
 
-            // h or left arrow - move left
+            // h or left arrow - move left (or focus sidebar at left edge)
             if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
             {
                 // Use section navigation if sections are active
                 if self.has_sections() {
-                    self.navigate_sections(NavDirection::Left);
+                    let at_left_edge = self.is_at_section_left_edge();
+                    if at_left_edge {
+                        should_focus_sidebar = true;
+                    } else {
+                        self.navigate_sections(NavDirection::Left);
+                    }
                 } else if let Some(current_id) = current_focus {
                     let sibling = self.find_sibling_in_direction(current_id, NavDirection::Left);
                     if sibling.is_some() {
                         new_tile_id = sibling;
+                    } else {
+                        // At left edge — focus the sidebar
+                        should_focus_sidebar = true;
                     }
                 } else {
-                    new_tile_id = pane_ids.first().copied();
+                    // No focus — focus the sidebar
+                    should_focus_sidebar = true;
                 }
                 consumed = true;
                 return;
@@ -865,6 +884,25 @@ impl Workspace {
             // Clear egui widget focus so vim keys work immediately in the panel
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             ctx.request_repaint();
+        }
+
+        // Handle focus transfer to project sidebar (vim h at left edge)
+        if should_focus_sidebar {
+            // Clear viewport pane focus
+            self.behavior.set_focused_tile(None);
+            self.section_focus = FocusTarget::None;
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+            ctx.request_repaint();
+            return Some(WorkspaceAction::FocusProjectSidebar);
+        }
+
+        // Handle Space+b toggle project sidebar
+        if should_toggle_project_sidebar {
+            self.behavior.set_focused_tile(None);
+            self.section_focus = FocusTarget::None;
+            ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
+            ctx.request_repaint();
+            return Some(WorkspaceAction::ToggleProjectSidebar);
         }
 
         if should_open_which_key {

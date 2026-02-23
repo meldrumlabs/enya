@@ -96,12 +96,13 @@ use layout_animation::LayoutAnimator;
 
 // Re-export config types for convenience
 pub use config::{
-    ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, ConnectionConfig, DEFAULT_WORKSPACE_TOML,
-    DEMO_WORKSPACE_TOML, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType,
-    LogsConfig, MetricsConfig, PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
-    SectionConfig, SectionLayout, TimeConfig, TimeConfigExt, ViewConfig, ViewConfigExt,
-    WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta, pane_from_query_state,
-    pane_from_query_state_with_viz, time_config_from_preset, time_config_from_preset_with_refresh,
+    ATLAS_WORKSPACE_TOML, ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INCIDENT_RESPONSE_TOML,
+    INFRASTRUCTURE_TOML, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig,
+    MULTI_SERVICE_TOML, MetricsConfig, PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
+    SERVICE_OVERVIEW_TOML, SectionConfig, SectionLayout, TimeConfig, TimeConfigExt, ViewConfig,
+    ViewConfigExt, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
+    pane_from_query_state, pane_from_query_state_with_viz, time_config_from_preset,
+    time_config_from_preset_with_refresh,
 };
 
 /// Actions that the Workspace needs the App to handle
@@ -131,10 +132,16 @@ pub enum WorkspaceAction {
     },
     /// Take a screenshot of the window (optionally with a custom path)
     TakeScreenshot(Option<String>),
-    /// Save workspace with optional name
-    SaveWorkspace(Option<String>),
+    /// Save workspace with optional name, project assignment, and Flight SQL endpoint
+    SaveWorkspace {
+        name: Option<String>,
+        project: Option<String>,
+        flight_sql_endpoint: Option<String>,
+    },
     /// Load workspace by name
     LoadWorkspace(String),
+    /// Start creating a new project in the sidebar
+    CreateProject,
     /// List available workspaces
     ListWorkspaces,
     /// Share workspace as URL (snapshot if data loaded, config-only otherwise)
@@ -151,6 +158,10 @@ pub enum WorkspaceAction {
     UploadSnapshot(Option<String>),
     /// Open a snapshot by ID from blob server
     OpenSnapshot(String),
+    /// Focus the project sidebar (vim h at left edge)
+    FocusProjectSidebar,
+    /// Toggle project sidebar visibility (Space+b)
+    ToggleProjectSidebar,
     /// Quit the application
     QuitApp,
     /// Open the annotation editor for the focused pane
@@ -211,6 +222,8 @@ pub struct Workspace {
     landing_page: LandingPage,
     /// Whether to show the landing page
     show_landing: bool,
+    /// Name of the currently loaded workspace (filename stem, e.g. "my-workspace")
+    pub(crate) loaded_name: Option<String>,
     /// State for leader key sequences (t, Space, y, c)
     leader_keys: LeaderKeyState,
     /// Info overlay (shows build/version info)
@@ -410,6 +423,7 @@ impl Workspace {
             fullscreen_tile: None,
             landing_page: LandingPage::new(),
             show_landing: true, // Start with landing page
+            loaded_name: None,
             leader_keys: LeaderKeyState::new(),
             info_overlay: InfoOverlay::new(enya_build_info::build_info!()),
             about_overlay: AboutOverlay::new(),
@@ -498,6 +512,16 @@ impl Workspace {
             custom_gauge_data: FxHashMap::default(),
             plugin_pane_last_refresh: FxHashMap::default(),
         }
+    }
+
+    /// Get the name of the currently loaded workspace (filename stem).
+    pub fn loaded_name(&self) -> Option<&str> {
+        self.loaded_name.as_deref()
+    }
+
+    /// Whether the workspace has any panes.
+    pub fn has_panes(&self) -> bool {
+        !self.get_pane_tile_ids().is_empty()
     }
 
     /// Set the active theme colors (from custom or builtin theme)
@@ -1435,6 +1459,8 @@ impl Workspace {
                 name,
                 endpoint,
                 git_repo,
+                flight_sql_endpoint,
+                project,
             } => {
                 // Set pending connection endpoint to apply
                 self.pending_connection_endpoint = Some(endpoint);
@@ -1447,8 +1473,12 @@ impl Workspace {
                 let _ = git_repo; // Silence unused warning
                 self.show_landing = false;
                 ctx.request_repaint();
-                // Return action to save the workspace
-                return WorkspaceAction::SaveWorkspace(Some(name));
+                // Return action to save the workspace and create/assign project
+                return WorkspaceAction::SaveWorkspace {
+                    name: Some(name),
+                    project: Some(project),
+                    flight_sql_endpoint,
+                };
             }
             WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
         }
@@ -1615,17 +1645,6 @@ impl Workspace {
 
         // Handle landing page actions
         match landing_action {
-            LandingPageAction::OpenWorkspaceFinder => {
-                self.open_workspace_finder(
-                    app_state,
-                    crate::app::EnyaApp::list_available_workspaces(),
-                );
-            }
-            LandingPageAction::CreateWorkspace => {
-                // Open the workspace creator overlay (works on both native and WASM)
-                // On WASM, only the endpoint step is shown
-                self.workspace_creator.open();
-            }
             LandingPageAction::OpenTutorial => {
                 // Hide landing page and setup tutorial layout
                 // Layout: HTTP Requests | Requests by Endpoint (side by side at top)
@@ -1647,6 +1666,13 @@ impl Workspace {
             }
             LandingPageAction::OpenSettings => {
                 return WorkspaceAction::OpenSettings;
+            }
+            LandingPageAction::CreateProject => {
+                return WorkspaceAction::CreateProject;
+            }
+            LandingPageAction::NewWorkspace => {
+                self.show_landing = false;
+                ctx.request_repaint();
             }
             LandingPageAction::ShowNativeAppInfo => {
                 // Open the native app promo overlay (WASM only)
@@ -1820,6 +1846,8 @@ impl Workspace {
                 name,
                 endpoint,
                 git_repo,
+                flight_sql_endpoint,
+                project,
             } => {
                 // Set pending connection endpoint to apply
                 self.pending_connection_endpoint = Some(endpoint);
@@ -1832,8 +1860,12 @@ impl Workspace {
                 let _ = git_repo; // Silence unused warning
                 self.show_landing = false;
                 ctx.request_repaint();
-                // Return action to save the workspace
-                return WorkspaceAction::SaveWorkspace(Some(name));
+                // Return action to save the workspace and create/assign project
+                return WorkspaceAction::SaveWorkspace {
+                    name: Some(name),
+                    project: Some(project),
+                    flight_sql_endpoint,
+                };
             }
             WorkspaceCreatorResult::Cancelled | WorkspaceCreatorResult::None => {}
         }
@@ -1913,7 +1945,11 @@ impl Workspace {
                 WorkspaceAction::None
             }
             CommandResult::QuitWorkspace => WorkspaceAction::QuitApp,
-            CommandResult::WriteWorkspace => WorkspaceAction::SaveWorkspace(None),
+            CommandResult::WriteWorkspace => WorkspaceAction::SaveWorkspace {
+                name: None,
+                project: None,
+                flight_sql_endpoint: None,
+            },
             CommandResult::TakeScreenshot(path) => WorkspaceAction::TakeScreenshot(path),
             CommandResult::LoadWorkspace(name) => WorkspaceAction::LoadWorkspace(name),
             CommandResult::ShareWorkspace => WorkspaceAction::ShareWorkspace,

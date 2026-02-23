@@ -84,11 +84,17 @@ impl Workspace {
         self.workspace_finder.open();
     }
 
-    // ==================== Workspace Creator ====================
+    // ==================== Project Creator ====================
 
-    /// Open the workspace creator overlay
-    pub fn open_workspace_creator(&mut self) {
-        self.workspace_creator.open();
+    /// Open the project creator wizard overlay, prefilling from settings.
+    pub fn open_project_creator(
+        &mut self,
+        default_endpoint: &str,
+        default_git_repo: &str,
+        default_flight_sql: &str,
+    ) {
+        self.workspace_creator
+            .open(default_endpoint, default_git_repo, default_flight_sql);
     }
 
     // ==================== Codebase Finder ====================

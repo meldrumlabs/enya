@@ -197,6 +197,11 @@ impl LeaderPopup {
                     label: "Agent",
                 },
                 LeaderCommand {
+                    key: "b",
+                    icon: semantic_icons::file::FOLDER,
+                    label: "Sidebar",
+                },
+                LeaderCommand {
                     key: "p",
                     icon: semantic_icons::action::TOOL,
                     label: "Plugins",

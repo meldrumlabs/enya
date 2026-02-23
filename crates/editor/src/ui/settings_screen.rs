@@ -145,6 +145,9 @@ pub struct AppSettings {
     /// How often to automatically fetch new commits from the remote repository
     #[serde(default)]
     pub git_sync_interval: GitSyncInterval,
+    /// Projects that group workspaces together in the sidebar.
+    #[serde(default)]
+    pub projects: Vec<ProjectEntry>,
 }
 
 impl AppSettings {
@@ -263,6 +266,19 @@ pub struct WorkspaceEntry {
     pub timestamp: i64,
 }
 
+/// A project that groups related workspaces together.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct ProjectEntry {
+    /// Display name for the project.
+    pub name: String,
+    /// Workspace names assigned to this project.
+    #[serde(default)]
+    pub workspace_names: Vec<String>,
+    /// Whether the project section is collapsed in the sidebar.
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
 impl AppSettings {
     /// Maximum number of recent plots to keep
     pub const MAX_RECENT_PLOTS: usize = 10;
@@ -312,22 +328,84 @@ impl AppSettings {
         self.recent_workspaces.truncate(Self::MAX_RECENT_WORKSPACES);
     }
 
-    /// Ensure the demo workspace is in recent workspaces (for new users)
-    pub fn ensure_demo_workspace(&mut self) {
-        // Check if demo workspace is already in recent workspaces
-        if self.recent_workspaces.iter().any(|w| w.name == "demo") {
+    /// Create a new project. No-op if a project with the same name already exists.
+    pub fn create_project(&mut self, name: String) {
+        if self.projects.iter().any(|p| p.name == name) {
+            return;
+        }
+        self.projects.push(ProjectEntry {
+            name,
+            workspace_names: Vec::new(),
+            collapsed: false,
+        });
+    }
+
+    /// Assign a workspace to a project, removing it from any other project first.
+    pub fn add_workspace_to_project(&mut self, project: &str, workspace: &str) {
+        // Remove from all projects first
+        for p in &mut self.projects {
+            p.workspace_names.retain(|w| w != workspace);
+        }
+        // Add to the target project
+        if let Some(p) = self.projects.iter_mut().find(|p| p.name == project) {
+            p.workspace_names.push(workspace.to_string());
+        }
+    }
+
+    /// Toggle the collapsed state of a project.
+    pub fn toggle_project_collapsed(&mut self, project: &str) {
+        if let Some(p) = self.projects.iter_mut().find(|p| p.name == project) {
+            p.collapsed = !p.collapsed;
+        }
+    }
+
+    /// Delete a project. Workspaces become ungrouped (not deleted).
+    pub fn delete_project(&mut self, project: &str) {
+        self.projects.retain(|p| p.name != project);
+    }
+
+    /// Ensure the tutorial project and its workspaces exist for new users.
+    ///
+    /// Creates a "Tutorial" project containing the built-in example workspaces
+    /// and adds them to `recent_workspaces` so they appear in the sidebar.
+    pub fn ensure_tutorial_project(&mut self) {
+        // Already set up if the Tutorial project exists
+        if self.projects.iter().any(|p| p.name == "Tutorial") {
             return;
         }
 
-        // Add demo workspace at the end (so it doesn't take priority over user's recent)
-        // but will appear for new users
-        self.recent_workspaces.push(WorkspaceEntry {
-            name: "demo".to_string(),
-            description: "Interactive demo with sample data".to_string(),
-            timestamp: 0, // Old timestamp so it sorts last
-        });
+        // Built-in tutorial workspaces that ship with the editor
+        let tutorial_workspaces: &[(&str, &str)] = &[
+            ("golden-signals", "Latency, traffic, errors, saturation"),
+            ("incident-response", "Cross-signal investigation workspace"),
+            (
+                "service-overview",
+                "Deep-dive with every visualization type",
+            ),
+            ("infrastructure", "CPU, memory, disk, network monitoring"),
+            ("multi-service", "Compare services side by side"),
+        ];
 
-        // Don't truncate here - we want demo to stay even if at max
+        // Add them to recent workspaces (at the end so user's own sort first)
+        for &(name, desc) in tutorial_workspaces {
+            if !self.recent_workspaces.iter().any(|w| w.name == name) {
+                self.recent_workspaces.push(WorkspaceEntry {
+                    name: name.to_string(),
+                    description: desc.to_string(),
+                    timestamp: 0, // Old timestamp so they sort last
+                });
+            }
+        }
+
+        // Create the Tutorial project grouping them together
+        self.projects.push(ProjectEntry {
+            name: "Tutorial".to_string(),
+            workspace_names: tutorial_workspaces
+                .iter()
+                .map(|&(n, _)| n.to_string())
+                .collect(),
+            collapsed: false,
+        });
     }
 }
 

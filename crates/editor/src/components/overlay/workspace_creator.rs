@@ -1,8 +1,9 @@
-//! Workspace creation overlay component.
+//! Project creation overlay component.
 //!
-//! A wizard for creating new workspaces, guiding users through configuration.
-//! On native: three steps (name, endpoint, git repo).
-//! On WASM: single step (endpoint only, since no filesystem/git access).
+//! A wizard for creating new projects with their first workspace,
+//! guiding users through configuration.
+//! On native: five steps (project name, workspace name, endpoint, git repo, flight sql).
+//! On WASM: three steps (project name, workspace name, endpoint).
 //! Styled similarly to the Tutorial overlay with a frosted glass appearance.
 
 use egui::{Key, RichText};
@@ -19,21 +20,24 @@ const DEFAULT_WORKSPACE_NAME: &str = "my-workspace";
 /// Default connection endpoint
 const DEFAULT_ENDPOINT: &str = "http://localhost:9090";
 
-/// Total number of steps in the wizard (native: 3, WASM: 2)
+/// Total number of steps in the wizard (native: 5, WASM: 3)
 #[cfg(not(target_arch = "wasm32"))]
-const TOTAL_STEPS: usize = 3;
+const TOTAL_STEPS: usize = 5;
 
 #[cfg(target_arch = "wasm32")]
-const TOTAL_STEPS: usize = 2;
+const TOTAL_STEPS: usize = 3;
 
 /// The current step in the workspace creation wizard
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 enum WorkspaceCreatorStep {
     #[default]
-    Name,
+    ProjectName,
+    WorkspaceName,
     Endpoint,
     #[cfg(not(target_arch = "wasm32"))]
     GitRepo,
+    #[cfg(not(target_arch = "wasm32"))]
+    FlightSql,
 }
 
 /// Result from the workspace creator overlay
@@ -48,12 +52,16 @@ pub enum WorkspaceCreatorResult {
         name: String,
         endpoint: String,
         git_repo: Option<String>,
+        /// Optional Flight SQL endpoint (native only).
+        flight_sql_endpoint: Option<String>,
+        /// Project to create and assign this workspace to.
+        project: String,
     },
 }
 
-/// Wizard overlay for creating new workspaces.
-/// On native: three steps (name, endpoint, git repo).
-/// On WASM: two steps (name, endpoint).
+/// Wizard overlay for creating new projects with their first workspace.
+/// On native: five steps (project name, workspace name, endpoint, git repo, flight sql).
+/// On WASM: three steps (project name, workspace name, endpoint).
 pub struct WorkspaceCreator {
     /// Whether the overlay is open
     is_open: bool,
@@ -63,6 +71,8 @@ pub struct WorkspaceCreator {
     theme: AppTheme,
     /// Current step in the wizard
     step: WorkspaceCreatorStep,
+    /// Project name input
+    project_name: String,
     /// Workspace name input
     name: String,
     /// Connection endpoint input
@@ -70,6 +80,9 @@ pub struct WorkspaceCreator {
     /// Git repository path input (native only)
     #[cfg(not(target_arch = "wasm32"))]
     git_repo: String,
+    /// Flight SQL endpoint input (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    flight_sql: String,
 }
 
 impl Default for WorkspaceCreator {
@@ -84,11 +97,14 @@ impl WorkspaceCreator {
             is_open: false,
             just_opened: false,
             theme: AppTheme::default(),
-            step: WorkspaceCreatorStep::Name,
+            step: WorkspaceCreatorStep::ProjectName,
+            project_name: String::new(),
             name: DEFAULT_WORKSPACE_NAME.to_string(),
             endpoint: DEFAULT_ENDPOINT.to_string(),
             #[cfg(not(target_arch = "wasm32"))]
             git_repo: String::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            flight_sql: String::new(),
         }
     }
 
@@ -97,16 +113,35 @@ impl WorkspaceCreator {
         self.theme = theme;
     }
 
-    /// Open the overlay and reset to first step
-    pub fn open(&mut self) {
+    /// Open the overlay and reset to first step.
+    ///
+    /// `default_endpoint`, `default_git_repo`, and `default_flight_sql` prefill
+    /// from Settings when non-empty, otherwise fall back to built-in defaults.
+    pub fn open(
+        &mut self,
+        default_endpoint: &str,
+        default_git_repo: &str,
+        default_flight_sql: &str,
+    ) {
         self.is_open = true;
         self.just_opened = true;
-        self.step = WorkspaceCreatorStep::Name;
+        self.step = WorkspaceCreatorStep::ProjectName;
+        self.project_name = String::new();
         self.name = DEFAULT_WORKSPACE_NAME.to_string();
-        self.endpoint = DEFAULT_ENDPOINT.to_string();
+        self.endpoint = if default_endpoint.is_empty() {
+            DEFAULT_ENDPOINT.to_string()
+        } else {
+            default_endpoint.to_string()
+        };
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.git_repo = String::new();
+            self.git_repo = default_git_repo.to_string();
+            self.flight_sql = default_flight_sql.to_string();
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = default_git_repo;
+            let _ = default_flight_sql;
         }
     }
 
@@ -120,10 +155,38 @@ impl WorkspaceCreator {
         self.is_open
     }
 
+    /// Build the final `Created` result from current field values.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn build_result(&mut self) -> WorkspaceCreatorResult {
+        let git_repo = if self.git_repo.trim().is_empty() {
+            None
+        } else {
+            Some(self.git_repo.clone())
+        };
+        let flight_sql_endpoint = if self.flight_sql.trim().is_empty() {
+            None
+        } else {
+            Some(self.flight_sql.clone())
+        };
+        let project = self.project_name.trim().to_string();
+        self.close();
+        WorkspaceCreatorResult::Created {
+            name: self.name.clone(),
+            endpoint: self.endpoint.clone(),
+            git_repo,
+            flight_sql_endpoint,
+            project,
+        }
+    }
+
     /// Go to the next step, or complete if on the last step
     fn next_step(&mut self) -> Option<WorkspaceCreatorResult> {
         match self.step {
-            WorkspaceCreatorStep::Name => {
+            WorkspaceCreatorStep::ProjectName => {
+                self.step = WorkspaceCreatorStep::WorkspaceName;
+                None
+            }
+            WorkspaceCreatorStep::WorkspaceName => {
                 self.step = WorkspaceCreatorStep::Endpoint;
                 None
             }
@@ -135,27 +198,23 @@ impl WorkspaceCreator {
             #[cfg(target_arch = "wasm32")]
             WorkspaceCreatorStep::Endpoint => {
                 // On WASM, endpoint is the last step
+                let project = self.project_name.trim().to_string();
                 self.close();
                 Some(WorkspaceCreatorResult::Created {
                     name: self.name.clone(),
                     endpoint: self.endpoint.clone(),
                     git_repo: None,
+                    flight_sql_endpoint: None,
+                    project,
                 })
             }
             #[cfg(not(target_arch = "wasm32"))]
             WorkspaceCreatorStep::GitRepo => {
-                self.close();
-                let git_repo = if self.git_repo.trim().is_empty() {
-                    None
-                } else {
-                    Some(self.git_repo.clone())
-                };
-                Some(WorkspaceCreatorResult::Created {
-                    name: self.name.clone(),
-                    endpoint: self.endpoint.clone(),
-                    git_repo,
-                })
+                self.step = WorkspaceCreatorStep::FlightSql;
+                None
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            WorkspaceCreatorStep::FlightSql => Some(self.build_result()),
         }
     }
 
@@ -207,21 +266,30 @@ impl WorkspaceCreator {
 
                     // Determine step number and content based on current step
                     let step_number = match self.step {
-                        WorkspaceCreatorStep::Name => 1,
-                        WorkspaceCreatorStep::Endpoint => 2,
+                        WorkspaceCreatorStep::ProjectName => 1,
+                        WorkspaceCreatorStep::WorkspaceName => 2,
+                        WorkspaceCreatorStep::Endpoint => 3,
                         #[cfg(not(target_arch = "wasm32"))]
-                        WorkspaceCreatorStep::GitRepo => 3,
+                        WorkspaceCreatorStep::GitRepo => 4,
+                        #[cfg(not(target_arch = "wasm32"))]
+                        WorkspaceCreatorStep::FlightSql => 5,
                     };
 
                     let (title, label, hint, current_value) = match self.step {
-                        WorkspaceCreatorStep::Name => (
+                        WorkspaceCreatorStep::ProjectName => (
+                            "Project Name",
+                            "Name",
+                            "Group related workspaces under a project",
+                            &mut self.project_name,
+                        ),
+                        WorkspaceCreatorStep::WorkspaceName => (
                             "Workspace Name",
                             "Name",
-                            "Choose a descriptive name for your workspace",
+                            "Choose a descriptive name for your first workspace",
                             &mut self.name,
                         ),
                         WorkspaceCreatorStep::Endpoint => (
-                            "Connection Endpoint",
+                            "Metrics Endpoint",
                             "Endpoint",
                             "Prometheus compatible endpoint URL",
                             &mut self.endpoint,
@@ -233,6 +301,13 @@ impl WorkspaceCreator {
                             "Optional: path to git repo for commit annotations",
                             &mut self.git_repo,
                         ),
+                        #[cfg(not(target_arch = "wasm32"))]
+                        WorkspaceCreatorStep::FlightSql => (
+                            "Flight SQL",
+                            "Endpoint",
+                            "Optional: Arrow Flight SQL endpoint (e.g. grpc://localhost:50051)",
+                            &mut self.flight_sql,
+                        ),
                     };
 
                     // Header section with step indicator
@@ -240,7 +315,7 @@ impl WorkspaceCreator {
                     ui.horizontal(|ui| {
                         ui.add_space(24.0);
                         ui.label(
-                            RichText::new(semantic_icons::action::ADD)
+                            RichText::new(semantic_icons::file::FOLDER_PLUS)
                                 .color(accent_color)
                                 .size(28.0),
                         );
@@ -253,7 +328,7 @@ impl WorkspaceCreator {
                             );
                             ui.add_space(4.0);
                             ui.label(
-                                RichText::new("Create Workspace")
+                                RichText::new("Create Project")
                                     .color(self.theme.text_primary())
                                     .size(typography::HEADING)
                                     .strong(),
@@ -370,15 +445,18 @@ impl WorkspaceCreator {
                     ui.horizontal(|ui| {
                         ui.add_space(20.0);
 
-                        // Next/Create/Connect - depends on step and platform
+                        // Next/Create - depends on step and platform
                         let action_label = match self.step {
-                            WorkspaceCreatorStep::Name => "next",
+                            WorkspaceCreatorStep::ProjectName
+                            | WorkspaceCreatorStep::WorkspaceName => "next",
                             #[cfg(not(target_arch = "wasm32"))]
-                            WorkspaceCreatorStep::Endpoint => "next",
+                            WorkspaceCreatorStep::Endpoint | WorkspaceCreatorStep::GitRepo => {
+                                "next"
+                            }
                             #[cfg(target_arch = "wasm32")]
-                            WorkspaceCreatorStep::Endpoint => "connect",
+                            WorkspaceCreatorStep::Endpoint => "create",
                             #[cfg(not(target_arch = "wasm32"))]
-                            WorkspaceCreatorStep::GitRepo => "create",
+                            WorkspaceCreatorStep::FlightSql => "create",
                         };
                         render_key_badge_large(ui, "Enter", key_bg, self.theme.text_primary());
                         ui.label(

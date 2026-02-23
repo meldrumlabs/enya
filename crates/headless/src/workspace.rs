@@ -94,12 +94,14 @@ pub struct AddPaneParams<'a> {
 /// Resolve a template name to its TOML content.
 pub fn resolve_template(template: &str) -> Result<&'static str> {
     match template {
-        "default" => Ok(enya_config::DEFAULT_WORKSPACE_TOML),
-        "demo" => Ok(enya_config::DEMO_WORKSPACE_TOML),
-        "complex" => Ok(enya_config::COMPLEX_VIEWPORT_TOML),
+        "golden-signals" | "default" => Ok(enya_config::GOLDEN_SIGNALS_TOML),
+        "incident-response" => Ok(enya_config::INCIDENT_RESPONSE_TOML),
+        "service-overview" => Ok(enya_config::SERVICE_OVERVIEW_TOML),
+        "infrastructure" => Ok(enya_config::INFRASTRUCTURE_TOML),
+        "multi-service" => Ok(enya_config::MULTI_SERVICE_TOML),
         "atlas" => Ok(enya_config::ATLAS_WORKSPACE_TOML),
         _ => Err(format!(
-            "unknown template: {template} (available: default, demo, complex, atlas)"
+            "unknown template: {template} (available: golden-signals, incident-response, service-overview, infrastructure, multi-service, atlas)"
         )
         .into()),
     }
@@ -681,8 +683,11 @@ mod tests {
     #[test]
     fn test_resolve_template() {
         assert!(resolve_template("default").is_ok());
-        assert!(resolve_template("demo").is_ok());
-        assert!(resolve_template("complex").is_ok());
+        assert!(resolve_template("golden-signals").is_ok());
+        assert!(resolve_template("incident-response").is_ok());
+        assert!(resolve_template("service-overview").is_ok());
+        assert!(resolve_template("infrastructure").is_ok());
+        assert!(resolve_template("multi-service").is_ok());
         assert!(resolve_template("atlas").is_ok());
         assert!(resolve_template("nonexistent").is_err());
     }

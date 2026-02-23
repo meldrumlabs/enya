@@ -811,12 +811,7 @@ impl Workspace {
         render_centered_title_with_tilde(ui, "Enya", text_col, tilde_col);
 
         // Tagline (with tilde)
-        render_centered_tagline_with_tilde(
-            ui,
-            "A Neovim-inspired observability editor for builders",
-            subtle_col,
-            tilde_col,
-        );
+        render_centered_tagline_with_tilde(ui, "A Builder's Best Friend", subtle_col, tilde_col);
 
         // Version (with tilde)
         let version = format!("version {}", env!("CARGO_PKG_VERSION"));

@@ -31,53 +31,55 @@ impl EnyaApp {
         Vec::new()
     }
 
-    /// Ensure the default example workspaces exist
+    /// Generate the next unique "untitled-N" workspace name.
+    pub(super) fn next_untitled_workspace_name(&self) -> String {
+        let existing: rustc_hash::FxHashSet<String> = Self::list_available_workspaces()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        for i in 1u32.. {
+            let candidate = format!("untitled-{i}");
+            if !existing.contains(&candidate) {
+                return candidate;
+            }
+        }
+        "untitled".to_string()
+    }
+
+    /// Ensure the built-in tutorial and example workspaces exist on disk.
+    ///
+    /// Tutorial workspaces are always overwritten so template updates take
+    /// effect without users having to manually delete old files. The atlas
+    /// workspace (user-customizable) is only written if missing.
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn ensure_default_workspace() {
         use crate::workspace::{
-            ATLAS_WORKSPACE_TOML, COMPLEX_VIEWPORT_TOML, DEFAULT_WORKSPACE_TOML,
-            DEMO_WORKSPACE_TOML,
+            ATLAS_WORKSPACE_TOML, GOLDEN_SIGNALS_TOML, INCIDENT_RESPONSE_TOML, INFRASTRUCTURE_TOML,
+            MULTI_SERVICE_TOML, SERVICE_OVERVIEW_TOML,
         };
 
         let dir = Self::workspace_dir();
 
-        // Create example workspace if it doesn't exist
-        let example_path = dir.join("example.toml");
-        if !example_path.exists() {
-            if let Err(e) = std::fs::write(&example_path, DEFAULT_WORKSPACE_TOML) {
-                log::warn!("Failed to create default workspace: {e}");
-            } else {
-                log::info!("Created default workspace: {}", example_path.display());
+        // Tutorial workspaces — always overwritten to pick up template changes
+        let tutorials: &[(&str, &str)] = &[
+            ("golden-signals", GOLDEN_SIGNALS_TOML),
+            ("incident-response", INCIDENT_RESPONSE_TOML),
+            ("service-overview", SERVICE_OVERVIEW_TOML),
+            ("infrastructure", INFRASTRUCTURE_TOML),
+            ("multi-service", MULTI_SERVICE_TOML),
+        ];
+        for &(name, toml) in tutorials {
+            let path = dir.join(format!("{name}.toml"));
+            if let Err(e) = std::fs::write(&path, toml) {
+                log::warn!("Failed to write {name} workspace: {e}");
             }
         }
 
-        // Create complex viewport workspace if it doesn't exist
-        let viewport_path = dir.join("viewport.toml");
-        if !viewport_path.exists() {
-            if let Err(e) = std::fs::write(&viewport_path, COMPLEX_VIEWPORT_TOML) {
-                log::warn!("Failed to create viewport workspace: {e}");
-            } else {
-                log::info!("Created viewport workspace: {}", viewport_path.display());
-            }
-        }
-
-        // Create demo workspace if it doesn't exist
-        let demo_path = dir.join("demo.toml");
-        if !demo_path.exists() {
-            if let Err(e) = std::fs::write(&demo_path, DEMO_WORKSPACE_TOML) {
-                log::warn!("Failed to create demo workspace: {e}");
-            } else {
-                log::info!("Created demo workspace: {}", demo_path.display());
-            }
-        }
-
-        // Create atlas workspace if it doesn't exist
+        // Atlas — only create if missing (user may have customized it)
         let atlas_path = dir.join("atlas.toml");
         if !atlas_path.exists() {
             if let Err(e) = std::fs::write(&atlas_path, ATLAS_WORKSPACE_TOML) {
                 log::warn!("Failed to create atlas workspace: {e}");
-            } else {
-                log::info!("Created atlas workspace: {}", atlas_path.display());
             }
         }
     }
@@ -185,6 +187,9 @@ impl EnyaApp {
                         }
                     }
 
+                    // Track the loaded workspace name
+                    self.workspace.loaded_name = Some(name.to_string());
+
                     // Add to recent workspaces
                     self.state.settings.add_recent_workspace(
                         name.to_string(),
@@ -206,15 +211,16 @@ impl EnyaApp {
         #[cfg(target_arch = "wasm32")]
         {
             // On web, first check for built-in workspaces, then try base64
-            let workspace_result = if name == "example" {
-                // Load built-in example workspace
-                Ok(WorkspaceConfig::default_example())
-            } else if name == "demo" {
-                // Load built-in demo workspace (synthetic data)
-                Ok(WorkspaceConfig::default_demo())
-            } else if name == "dashboard" {
-                // Load built-in complex dashboard workspace
-                WorkspaceConfig::from_toml(crate::workspace::COMPLEX_VIEWPORT_TOML)
+            let workspace_result = if name == "golden-signals" {
+                WorkspaceConfig::from_toml(crate::workspace::GOLDEN_SIGNALS_TOML)
+            } else if name == "incident-response" {
+                WorkspaceConfig::from_toml(crate::workspace::INCIDENT_RESPONSE_TOML)
+            } else if name == "service-overview" {
+                WorkspaceConfig::from_toml(crate::workspace::SERVICE_OVERVIEW_TOML)
+            } else if name == "infrastructure" {
+                WorkspaceConfig::from_toml(crate::workspace::INFRASTRUCTURE_TOML)
+            } else if name == "multi-service" {
+                WorkspaceConfig::from_toml(crate::workspace::MULTI_SERVICE_TOML)
             } else {
                 // Try to decode from base64 (for shared URLs)
                 WorkspaceConfig::from_base64(name)
@@ -239,6 +245,9 @@ impl EnyaApp {
                         }
                     }
 
+                    // Track the loaded workspace name
+                    self.workspace.loaded_name = Some(workspace_config.workspace.name.clone());
+
                     // Add to recent workspaces
                     self.state.settings.add_recent_workspace(
                         workspace_config.workspace.name.clone(),
@@ -252,6 +261,11 @@ impl EnyaApp {
                     ));
                 }
             }
+        }
+
+        // Auto-focus project sidebar when workspace has no panes
+        if !self.workspace.has_panes() && self.project_sidebar.is_visible() {
+            self.project_sidebar.focus();
         }
     }
 

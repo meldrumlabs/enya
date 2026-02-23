@@ -11,10 +11,6 @@ use crate::util::Instant;
 pub enum LandingPageAction {
     /// No action
     None,
-    /// Open the workspace finder
-    OpenWorkspaceFinder,
-    /// Create a new workspace
-    CreateWorkspace,
     /// Open the interactive tutorial
     OpenTutorial,
     /// Open the settings overlay
@@ -25,6 +21,10 @@ pub enum LandingPageAction {
     ShowShortcuts,
     /// Show plugins overlay
     OpenPlugins,
+    /// Create a new project in the sidebar
+    CreateProject,
+    /// Dismiss the landing page and show the empty workspace
+    NewWorkspace,
     /// Show native app info (WASM only)
     ShowNativeAppInfo,
 }
@@ -191,12 +191,12 @@ impl LandingPage {
         // Calculate the unscaled content height to determine required scale
         // Header: logo(160) + spacing(12) + tagline(20) + spacing(8) + version(14) = 214
         // Header spacing: 32
-        // Menu: 7 items * (48 + 8) = 392
+        // Menu: 6 items * (48 + 8) = 336
         // Footer spacing: 16
         // Footer: hints(16) + spacing(12) + credits(12) = 40
         // Margins: 32 (frame) + some padding
-        // Total unscaled: ~776
-        const UNSCALED_CONTENT_HEIGHT: f32 = 776.0;
+        // Total unscaled: ~670
+        const UNSCALED_CONTENT_HEIGHT: f32 = 670.0;
 
         // Calculate scale to fit content with some breathing room (16px top + 16px bottom)
         let target_height = available_height - 32.0;
@@ -357,13 +357,13 @@ impl LandingPage {
         // Menu items: (icon, label, shortcut, action)
         let menu_items: [MenuItem; NUM_MENU_ITEMS] = [
             (
-                semantic_icons::file::FOLDER_OPEN,
-                "Find workspace",
-                "w",
-                || LandingPageAction::OpenWorkspaceFinder,
+                semantic_icons::file::FOLDER_PLUS,
+                "Create project",
+                "n",
+                || LandingPageAction::CreateProject,
             ),
-            (semantic_icons::action::ADD, "Create workspace", "n", || {
-                LandingPageAction::CreateWorkspace
+            (semantic_icons::nav::FORWARD, "Get started", "e", || {
+                LandingPageAction::NewWorkspace
             }),
             (semantic_icons::diagnostic::HINT, "Tutorial", "t", || {
                 LandingPageAction::OpenTutorial
@@ -578,15 +578,15 @@ impl LandingPage {
         let mut action = LandingPageAction::None;
 
         ctx.input_mut(|input| {
-            // w - Find workspace
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
-                action = LandingPageAction::OpenWorkspaceFinder;
+            // n - Create project
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
+                action = LandingPageAction::CreateProject;
                 return;
             }
 
-            // n - Create workspace
-            if input.consume_key(egui::Modifiers::NONE, egui::Key::N) {
-                action = LandingPageAction::CreateWorkspace;
+            // e - Get started (open editor)
+            if input.consume_key(egui::Modifiers::NONE, egui::Key::E) {
+                action = LandingPageAction::NewWorkspace;
                 return;
             }
 
@@ -650,8 +650,8 @@ impl LandingPage {
             // Enter - Select current menu item
             if input.consume_key(egui::Modifiers::NONE, egui::Key::Enter) {
                 action = match self.selected_index {
-                    0 => LandingPageAction::OpenWorkspaceFinder,
-                    1 => LandingPageAction::CreateWorkspace,
+                    0 => LandingPageAction::CreateProject,
+                    1 => LandingPageAction::NewWorkspace,
                     2 => LandingPageAction::OpenTutorial,
                     3 => LandingPageAction::OpenSettings,
                     4 => LandingPageAction::OpenPlugins,
