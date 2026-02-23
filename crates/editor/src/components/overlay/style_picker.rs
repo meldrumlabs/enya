@@ -747,21 +747,38 @@ impl StylePicker {
         let is_selected = index == self.theme_index;
 
         // Get theme info based on entry type
+        let is_system = matches!(entry, ThemeEntry::Builtin(AppTheme::System));
         let (display_name, preview_colors, chart_palette, is_custom) = match entry {
             ThemeEntry::Builtin(theme) => {
-                // For builtin themes, create preview colors from the theme
-                let colors = [
-                    theme.bg_base(),
-                    theme.bg_elevated(),
-                    theme.accent_primary(),
-                    theme.text_primary(),
-                ];
-                (
-                    theme.name().to_string(),
-                    colors,
-                    Some(theme.chart_palette()),
-                    false,
-                )
+                if *theme == AppTheme::System {
+                    // System theme: show split Dark/Light preview
+                    let colors = [
+                        AppTheme::Dark.bg_base(),
+                        AppTheme::Light.bg_base(),
+                        AppTheme::Dark.accent_primary(),
+                        AppTheme::Light.text_primary(),
+                    ];
+                    (
+                        theme.name().to_string(),
+                        colors,
+                        Some(AppTheme::Dark.chart_palette()),
+                        false,
+                    )
+                } else {
+                    // For builtin themes, create preview colors from the theme
+                    let colors = [
+                        theme.bg_base(),
+                        theme.bg_elevated(),
+                        theme.accent_primary(),
+                        theme.text_primary(),
+                    ];
+                    (
+                        theme.name().to_string(),
+                        colors,
+                        Some(theme.chart_palette()),
+                        false,
+                    )
+                }
             }
             ThemeEntry::Custom {
                 display_name,
@@ -891,6 +908,22 @@ impl StylePicker {
                 text
             },
         );
+
+        // "follows OS" subtitle for System theme
+        if is_system {
+            let name_galley = ui.painter().layout_no_wrap(
+                display_name.clone(),
+                typography::proportional(typography::SM),
+                text,
+            );
+            ui.painter().text(
+                egui::pos2(name_x + name_galley.size().x + 6.0, rect.min.y + 16.0),
+                egui::Align2::LEFT_CENTER,
+                "follows OS",
+                typography::monospace(9.0),
+                text_muted.gamma_multiply(0.6),
+            );
+        }
 
         // Show chart palette dots for all themes, or plugin badge for custom
         let dot_size = 5.0;

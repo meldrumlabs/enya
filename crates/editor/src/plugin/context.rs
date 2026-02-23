@@ -157,6 +157,7 @@ impl PluginHost for EditorPluginHost {
             AppTheme::Void => "void",
             AppTheme::Neon => "neon",
             AppTheme::Onyx => "onyx",
+            AppTheme::System => "system",
         }
     }
 

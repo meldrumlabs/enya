@@ -49,6 +49,8 @@ pub enum AppTheme {
     Neon,
     /// Onyx theme - True dark with gold accent #D4AF37
     Onyx,
+    /// System theme - follows OS light/dark preference, resolves to Light or Dark at runtime
+    System,
     /// Custom theme from plugin - carries resolved colors directly
     #[serde(skip)]
     Custom(ActiveThemeColors),
@@ -71,6 +73,7 @@ impl AppTheme {
             Self::Void => "Void",
             Self::Neon => "Neon",
             Self::Onyx => "Onyx",
+            Self::System => "System",
             Self::Custom(_) => "Custom",
         }
     }
@@ -78,6 +81,7 @@ impl AppTheme {
     /// Returns all available themes
     pub fn all() -> &'static [AppTheme] {
         &[
+            Self::System,
             Self::Dark,
             Self::Light,
             Self::Parchment,
@@ -133,6 +137,7 @@ impl AppTheme {
             "void" => Some(Self::Void),
             "neon" => Some(Self::Neon),
             "onyx" => Some(Self::Onyx),
+            "system" => Some(Self::System),
             _ => None,
         }
     }
@@ -174,7 +179,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(0, 0, 0),            // True OLED black
             Self::Neon => Color32::from_rgb(5, 5, 8),            // Deep near-black
             Self::Onyx => Color32::from_rgb(12, 12, 12),         // True dark neutral
-            Self::Dark => Color32::from_rgb(8, 8, 10),           // Obsidian dark
+            Self::System | Self::Dark => Color32::from_rgb(8, 8, 10), // Obsidian dark
         }
     }
 
@@ -194,7 +199,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(8, 8, 14),           // Near-black with violet tint
             Self::Neon => Color32::from_rgb(12, 10, 16),         // Dark with magenta tint
             Self::Onyx => Color32::from_rgb(18, 18, 16),         // Warm dark surface
-            Self::Dark => Color32::from_rgb(18, 18, 21),
+            Self::System | Self::Dark => Color32::from_rgb(18, 18, 21),
         }
     }
 
@@ -214,7 +219,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(16, 16, 26),         // Dark violet
             Self::Neon => Color32::from_rgb(22, 18, 28),         // Dark magenta
             Self::Onyx => Color32::from_rgb(28, 28, 24),         // Warm elevated
-            Self::Dark => Color32::from_rgb(26, 26, 30),
+            Self::System | Self::Dark => Color32::from_rgb(26, 26, 30),
         }
     }
 
@@ -234,7 +239,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(24, 24, 38),         // Subtle violet lift
             Self::Neon => Color32::from_rgb(32, 26, 40),         // Subtle magenta lift
             Self::Onyx => Color32::from_rgb(38, 38, 32),         // Warm hover
-            Self::Dark => Color32::from_rgb(36, 36, 40),
+            Self::System | Self::Dark => Color32::from_rgb(36, 36, 40),
         }
     }
 
@@ -254,7 +259,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(30, 20, 55),         // Violet tint selected
             Self::Neon => Color32::from_rgb(45, 20, 40),         // Magenta tint selected
             Self::Onyx => Color32::from_rgb(40, 35, 22),         // Gold tint selected
-            Self::Dark => Color32::from_rgb(28, 42, 36),         // Emerald tint
+            Self::System | Self::Dark => Color32::from_rgb(28, 42, 36), // Emerald tint
         }
     }
 
@@ -274,7 +279,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(10, 10, 18),         // Deep card
             Self::Neon => Color32::from_rgb(15, 12, 20),         // Deep card
             Self::Onyx => Color32::from_rgb(22, 22, 18),         // Warm card
-            Self::Dark => Color32::from_rgb(18, 18, 22),
+            Self::System | Self::Dark => Color32::from_rgb(18, 18, 22),
         }
     }
 
@@ -294,7 +299,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(4, 4, 8),            // Deeper than base
             Self::Neon => Color32::from_rgb(3, 3, 6),            // Deeper than base
             Self::Onyx => Color32::from_rgb(8, 8, 6),            // Deeper than base
-            Self::Dark => Color32::from_rgb(12, 12, 15),
+            Self::System | Self::Dark => Color32::from_rgb(12, 12, 15),
         }
     }
 
@@ -318,7 +323,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(28, 28, 42),         // Subtle violet border
             Self::Neon => Color32::from_rgb(30, 26, 38),         // Subtle magenta border
             Self::Onyx => Color32::from_rgb(35, 35, 30),         // Warm subtle border
-            Self::Dark => Color32::from_rgb(38, 38, 44),
+            Self::System | Self::Dark => Color32::from_rgb(38, 38, 44),
         }
     }
 
@@ -338,7 +343,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(42, 42, 60),         // Default violet border
             Self::Neon => Color32::from_rgb(48, 40, 58),         // Default magenta border
             Self::Onyx => Color32::from_rgb(52, 50, 42),         // Warm default border
-            Self::Dark => Color32::from_rgb(52, 52, 60),
+            Self::System | Self::Dark => Color32::from_rgb(52, 52, 60),
         }
     }
 
@@ -358,7 +363,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(124, 58, 237),       // Electric violet focus #7C3AED
             Self::Neon => Color32::from_rgb(224, 64, 160),       // Hot magenta focus #E040A0
             Self::Onyx => Color32::from_rgb(212, 175, 55),       // Gold focus #D4AF37
-            Self::Dark => Color32::from_rgb(55, 80, 72),
+            Self::System | Self::Dark => Color32::from_rgb(55, 80, 72),
         }
     }
 
@@ -382,7 +387,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(232, 232, 240),   // Cool off-white
             Self::Neon => Color32::from_rgb(232, 232, 240),   // Cool off-white
             Self::Onyx => Color32::from_rgb(220, 216, 204),   // Warm off-white
-            Self::Dark => Color32::from_rgb(248, 248, 252),
+            Self::System | Self::Dark => Color32::from_rgb(248, 248, 252),
         }
     }
 
@@ -402,7 +407,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(148, 148, 168),   // Muted lavender
             Self::Neon => Color32::from_rgb(155, 148, 168),   // Muted pink-gray
             Self::Onyx => Color32::from_rgb(160, 156, 140),   // Warm gray
-            Self::Dark => Color32::from_rgb(158, 158, 168),
+            Self::System | Self::Dark => Color32::from_rgb(158, 158, 168),
         }
     }
 
@@ -422,7 +427,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(92, 92, 112),        // Deep muted
             Self::Neon => Color32::from_rgb(100, 92, 112),       // Deep muted
             Self::Onyx => Color32::from_rgb(100, 98, 88),        // Dark warm gray
-            Self::Dark => Color32::from_rgb(100, 100, 112),
+            Self::System | Self::Dark => Color32::from_rgb(100, 100, 112),
         }
     }
 
@@ -434,19 +439,19 @@ impl AppTheme {
     pub fn accent_primary(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.accent_primary,
-            Self::Dark => Color32::from_rgb(16, 185, 129), // #10B981 Enya Emerald
-            Self::Light => Color32::from_rgb(16, 185, 129), // #10B981 Enya Emerald
-            Self::Parchment => Color32::from_rgb(50, 50, 50), // Charcoal ink #323232
-            Self::Stockholm => Color32::from_rgb(74, 111, 165), // Steel blue #4A6FA5
+            Self::System | Self::Dark => Color32::from_rgb(16, 185, 129), // #10B981 Enya Emerald
+            Self::Light => Color32::from_rgb(16, 185, 129),               // #10B981 Enya Emerald
+            Self::Parchment => Color32::from_rgb(50, 50, 50),             // Charcoal ink #323232
+            Self::Stockholm => Color32::from_rgb(74, 111, 165),           // Steel blue #4A6FA5
             Self::Copenhagen => Color32::from_rgb(107, 143, 113), // Muted sage green #6B8F71
-            Self::Midnight => Color32::from_rgb(59, 130, 246), // Electric Blue #3B82F6
-            Self::Ayu => Color32::from_rgb(255, 180, 84),  // Warm Orange #FFB454
-            Self::Aurora => Color32::from_rgb(126, 232, 184), // Aurora Teal #7EE8B8
-            Self::Graphite => Color32::from_rgb(232, 93, 4), // Molten orange #E85D04
-            Self::Ink => Color32::from_rgb(192, 192, 200), // Pure silver #C0C0C8
-            Self::Void => Color32::from_rgb(124, 58, 237), // Electric violet #7C3AED
-            Self::Neon => Color32::from_rgb(224, 64, 160), // Hot magenta #E040A0
-            Self::Onyx => Color32::from_rgb(212, 175, 55), // Gold #D4AF37
+            Self::Midnight => Color32::from_rgb(59, 130, 246),    // Electric Blue #3B82F6
+            Self::Ayu => Color32::from_rgb(255, 180, 84),         // Warm Orange #FFB454
+            Self::Aurora => Color32::from_rgb(126, 232, 184),     // Aurora Teal #7EE8B8
+            Self::Graphite => Color32::from_rgb(232, 93, 4),      // Molten orange #E85D04
+            Self::Ink => Color32::from_rgb(192, 192, 200),        // Pure silver #C0C0C8
+            Self::Void => Color32::from_rgb(124, 58, 237),        // Electric violet #7C3AED
+            Self::Neon => Color32::from_rgb(224, 64, 160),        // Hot magenta #E040A0
+            Self::Onyx => Color32::from_rgb(212, 175, 55),        // Gold #D4AF37
         }
     }
 
@@ -454,7 +459,7 @@ impl AppTheme {
     pub fn accent_hover(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.accent_hover,
-            Self::Dark => Color32::from_rgb(52, 211, 153),
+            Self::System | Self::Dark => Color32::from_rgb(52, 211, 153),
             Self::Light => Color32::from_rgb(5, 150, 105), // Darker emerald #059669
             Self::Parchment => Color32::from_rgb(30, 30, 30), // Rich black ink hover #1E1E1E
             Self::Stockholm => Color32::from_rgb(56, 92, 145), // Darker steel blue #385C91
@@ -474,7 +479,7 @@ impl AppTheme {
     pub fn accent_muted(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.accent_muted,
-            Self::Dark => Color32::from_rgb(20, 40, 34),
+            Self::System | Self::Dark => Color32::from_rgb(20, 40, 34),
             Self::Light => Color32::from_rgb(236, 253, 245), // Light emerald tint #ECFDF5
             Self::Parchment => Color32::from_rgb(240, 236, 228), // Light sepia tint #F0ECE4
             Self::Stockholm => Color32::from_rgb(236, 241, 248), // Light blue tint #ECF1F8
@@ -499,7 +504,7 @@ impl AppTheme {
                 colors.accent_primary.b(),
                 30,
             ),
-            Self::Dark => Color32::from_rgba_premultiplied(16, 185, 129, 30),
+            Self::System | Self::Dark => Color32::from_rgba_premultiplied(16, 185, 129, 30),
             Self::Light => Color32::from_rgba_premultiplied(16, 185, 129, 35),
             Self::Parchment => Color32::from_rgba_premultiplied(50, 50, 50, 40),
             Self::Stockholm => Color32::from_rgba_premultiplied(74, 111, 165, 35),
@@ -519,7 +524,7 @@ impl AppTheme {
     pub fn accent_selection(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.accent_muted,
-            Self::Dark => Color32::from_rgb(24, 52, 42),
+            Self::System | Self::Dark => Color32::from_rgb(24, 52, 42),
             Self::Light => Color32::from_rgb(220, 252, 240), // Emerald selection #DCFCF0
             Self::Parchment => Color32::from_rgb(230, 225, 215), // Warm sepia selection #E6E1D7
             Self::Stockholm => Color32::from_rgb(225, 234, 245), // Blue selection #E1EAF5
@@ -555,7 +560,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 245),
             Self::Neon => Color32::from_rgba_unmultiplied(5, 5, 8, 245),
             Self::Onyx => Color32::from_rgba_unmultiplied(12, 12, 12, 245),
-            Self::Dark => Color32::from_rgba_unmultiplied(14, 14, 16, 245),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(14, 14, 16, 245),
         }
     }
 
@@ -575,7 +580,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 235),
             Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 6, 235),
             Self::Onyx => Color32::from_rgba_unmultiplied(8, 8, 6, 235),
-            Self::Dark => Color32::from_rgba_unmultiplied(12, 12, 14, 235),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(12, 12, 14, 235),
         }
     }
 
@@ -595,7 +600,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(42, 42, 60, 160),
             Self::Neon => Color32::from_rgba_unmultiplied(48, 40, 58, 160),
             Self::Onyx => Color32::from_rgba_unmultiplied(52, 50, 42, 160),
-            Self::Dark => Color32::from_rgba_unmultiplied(45, 45, 48, 160),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(45, 45, 48, 160),
         }
     }
 
@@ -641,7 +646,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(4, 4, 8),        // Popup void
             Self::Neon => Color32::from_rgb(5, 5, 8),        // Popup neon
             Self::Onyx => Color32::from_rgb(8, 8, 6),        // Popup onyx
-            Self::Dark => Color32::from_rgb(16, 16, 20),
+            Self::System | Self::Dark => Color32::from_rgb(16, 16, 20),
         }
     }
 
@@ -661,7 +666,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(60, 40, 90),     // Violet tint border
             Self::Neon => Color32::from_rgb(70, 40, 65),     // Magenta tint border
             Self::Onyx => Color32::from_rgb(65, 58, 35),     // Gold tint border
-            Self::Dark => Color32::from_rgb(50, 55, 52),
+            Self::System | Self::Dark => Color32::from_rgb(50, 55, 52),
         }
     }
 
@@ -690,7 +695,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 200),
             Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 5, 200),
             Self::Onyx => Color32::from_rgba_unmultiplied(6, 6, 6, 200),
-            Self::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 200),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 200),
         }
     }
 
@@ -715,7 +720,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 210),
             Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 5, 210),
             Self::Onyx => Color32::from_rgba_unmultiplied(6, 6, 6, 210),
-            Self::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 210),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 210),
         }
     }
 
@@ -750,7 +755,7 @@ impl AppTheme {
                 }
             }
             Self::Light | Self::Parchment | Self::Stockholm | Self::Copenhagen => None,
-            Self::Dark => Some(Color32::from_rgba_unmultiplied(16, 185, 129, 8)),
+            Self::System | Self::Dark => Some(Color32::from_rgba_unmultiplied(16, 185, 129, 8)),
             Self::Midnight => Some(Color32::from_rgba_unmultiplied(59, 130, 246, 8)),
             Self::Ayu => Some(Color32::from_rgba_unmultiplied(255, 180, 84, 8)),
             Self::Aurora => Some(Color32::from_rgba_unmultiplied(126, 232, 184, 8)),
@@ -782,7 +787,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(35, 25, 65),     // Violet tint highlight
             Self::Neon => Color32::from_rgb(45, 20, 40),     // Magenta tint highlight
             Self::Onyx => Color32::from_rgb(35, 30, 18),     // Gold tint highlight
-            Self::Dark => Color32::from_rgb(16, 60, 48),
+            Self::System | Self::Dark => Color32::from_rgb(16, 60, 48),
         }
     }
 
@@ -803,7 +808,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(167, 139, 250),    // Bright violet
             Self::Neon => Color32::from_rgb(255, 110, 199),    // Bright magenta
             Self::Onyx => Color32::from_rgb(232, 200, 80),     // Bright gold
-            Self::Dark => Color32::from_rgb(255, 200, 80),
+            Self::System | Self::Dark => Color32::from_rgb(255, 200, 80),
         }
     }
 
@@ -828,7 +833,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(124, 58, 237, 30),
             Self::Neon => Color32::from_rgba_unmultiplied(224, 64, 160, 30),
             Self::Onyx => Color32::from_rgba_unmultiplied(212, 175, 55, 30),
-            Self::Dark => Color32::from_rgba_unmultiplied(255, 220, 0, 30),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(255, 220, 0, 30),
         }
     }
 
@@ -852,7 +857,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(167, 139, 250),     // Bright violet
             Self::Neon => Color32::from_rgb(255, 110, 199),     // Bright magenta
             Self::Onyx => Color32::from_rgb(232, 200, 80),      // Bright gold
-            Self::Dark => Color32::from_rgb(180, 150, 220),
+            Self::System | Self::Dark => Color32::from_rgb(180, 150, 220),
         }
     }
 
@@ -877,7 +882,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),     // Blue
             Self::Neon => Color32::from_rgb(96, 165, 250),     // Blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),    // Warm blue
-            Self::Dark => Color32::from_rgb(120, 200, 220),
+            Self::System | Self::Dark => Color32::from_rgb(120, 200, 220),
         }
     }
 
@@ -906,7 +911,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),      // Sky blue
             Self::Neon => Color32::from_rgb(96, 165, 250),      // Sky blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),     // Warm blue
-            Self::Dark => Color32::from_rgb(130, 180, 255),
+            Self::System | Self::Dark => Color32::from_rgb(130, 180, 255),
         }
     }
 
@@ -926,7 +931,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(52, 211, 153),     // Green
             Self::Neon => Color32::from_rgb(52, 211, 153),     // Green
             Self::Onyx => Color32::from_rgb(52, 185, 100),     // Green
-            Self::Dark => Color32::from_rgb(150, 220, 120),
+            Self::System | Self::Dark => Color32::from_rgb(150, 220, 120),
         }
     }
 
@@ -946,7 +951,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(42, 42, 60),     // Default violet border
             Self::Neon => Color32::from_rgb(48, 40, 58),     // Default magenta border
             Self::Onyx => Color32::from_rgb(52, 50, 42),     // Warm default border
-            Self::Dark => Color32::from_rgb(60, 60, 70),
+            Self::System | Self::Dark => Color32::from_rgb(60, 60, 70),
         }
     }
 
@@ -966,7 +971,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(8, 8, 14),       // Buffer void
             Self::Neon => Color32::from_rgb(12, 10, 16),     // Buffer neon
             Self::Onyx => Color32::from_rgb(18, 18, 16),     // Buffer onyx
-            Self::Dark => Color32::from_rgb(25, 25, 30),
+            Self::System | Self::Dark => Color32::from_rgb(25, 25, 30),
         }
     }
 
@@ -986,7 +991,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(0, 0, 0),        // Content bg void
             Self::Neon => Color32::from_rgb(5, 5, 8),        // Content bg neon
             Self::Onyx => Color32::from_rgb(12, 12, 12),     // Content bg onyx
-            Self::Dark => Color32::from_rgb(20, 20, 25),
+            Self::System | Self::Dark => Color32::from_rgb(20, 20, 25),
         }
     }
 
@@ -1010,7 +1015,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(52, 211, 153),    // Green
             Self::Neon => Color32::from_rgb(52, 211, 153),    // Green
             Self::Onyx => Color32::from_rgb(52, 185, 100),    // Green
-            Self::Dark => Color32::from_rgb(34, 197, 94),
+            Self::System | Self::Dark => Color32::from_rgb(34, 197, 94),
         }
     }
 
@@ -1030,7 +1035,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(251, 191, 36),    // Amber
             Self::Neon => Color32::from_rgb(251, 191, 36),    // Amber
             Self::Onyx => Color32::from_rgb(232, 180, 60),    // Warm amber
-            Self::Dark => Color32::from_rgb(251, 176, 45),
+            Self::System | Self::Dark => Color32::from_rgb(251, 176, 45),
         }
     }
 
@@ -1050,7 +1055,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(248, 113, 113),   // Red
             Self::Neon => Color32::from_rgb(248, 113, 113),   // Red
             Self::Onyx => Color32::from_rgb(230, 100, 100),   // Soft red
-            Self::Dark => Color32::from_rgb(239, 82, 82),
+            Self::System | Self::Dark => Color32::from_rgb(239, 82, 82),
         }
     }
 
@@ -1070,7 +1075,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),    // Blue
             Self::Neon => Color32::from_rgb(96, 165, 250),    // Blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),   // Warm blue
-            Self::Dark => Color32::from_rgb(82, 146, 255),
+            Self::System | Self::Dark => Color32::from_rgb(82, 146, 255),
         }
     }
 
@@ -1094,7 +1099,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(124, 58, 237),      // Electric violet
             Self::Neon => Color32::from_rgb(224, 64, 160),      // Hot magenta
             Self::Onyx => Color32::from_rgb(212, 175, 55),      // Gold
-            Self::Dark => Color32::from_rgb(198, 146, 255),
+            Self::System | Self::Dark => Color32::from_rgb(198, 146, 255),
         }
     }
 
@@ -1114,7 +1119,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),     // Blue
             Self::Neon => Color32::from_rgb(96, 165, 250),     // Blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),    // Warm blue
-            Self::Dark => Color32::from_rgb(110, 190, 248),
+            Self::System | Self::Dark => Color32::from_rgb(110, 190, 248),
         }
     }
 
@@ -1134,7 +1139,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(52, 211, 153),     // Green
             Self::Neon => Color32::from_rgb(52, 211, 153),     // Green
             Self::Onyx => Color32::from_rgb(52, 185, 100),     // Green
-            Self::Dark => Color32::from_rgb(52, 211, 153),
+            Self::System | Self::Dark => Color32::from_rgb(52, 211, 153),
         }
     }
 
@@ -1154,7 +1159,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(148, 148, 168),      // Muted
             Self::Neon => Color32::from_rgb(155, 148, 168),      // Muted
             Self::Onyx => Color32::from_rgb(160, 156, 140),      // Warm muted
-            Self::Dark => Color32::from_rgb(140, 140, 155),
+            Self::System | Self::Dark => Color32::from_rgb(140, 140, 155),
         }
     }
 
@@ -1174,7 +1179,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(85, 85, 104),        // Dark muted
             Self::Neon => Color32::from_rgb(85, 80, 96),         // Dark muted
             Self::Onyx => Color32::from_rgb(88, 85, 72),         // Dark warm
-            Self::Dark => Color32::from_rgb(128, 128, 128),
+            Self::System | Self::Dark => Color32::from_rgb(128, 128, 128),
         }
     }
 
@@ -1194,7 +1199,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(167, 139, 250),   // Bright violet
             Self::Neon => Color32::from_rgb(255, 110, 199),   // Bright magenta
             Self::Onyx => Color32::from_rgb(232, 200, 80),    // Bright gold
-            Self::Dark => Color32::from_rgb(100, 160, 255),
+            Self::System | Self::Dark => Color32::from_rgb(100, 160, 255),
         }
     }
 
@@ -1214,7 +1219,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(184, 160, 232),    // Lighter violet
             Self::Neon => Color32::from_rgb(244, 114, 182),    // Pink
             Self::Onyx => Color32::from_rgb(200, 184, 128),    // Pale gold
-            Self::Dark => Color32::from_rgb(220, 160, 100),
+            Self::System | Self::Dark => Color32::from_rgb(220, 160, 100),
         }
     }
 
@@ -1234,7 +1239,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(248, 113, 113),    // Coral red
             Self::Neon => Color32::from_rgb(251, 146, 60),     // Orange
             Self::Onyx => Color32::from_rgb(184, 152, 112),    // Warm bronze
-            Self::Dark => Color32::from_rgb(220, 120, 120),
+            Self::System | Self::Dark => Color32::from_rgb(220, 120, 120),
         }
     }
 
@@ -1254,7 +1259,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(224, 224, 232),   // Near-white
             Self::Neon => Color32::from_rgb(224, 224, 232),   // Near-white
             Self::Onyx => Color32::from_rgb(212, 208, 196),   // Warm near-white
-            Self::Dark => Color32::from_rgb(220, 220, 220),
+            Self::System | Self::Dark => Color32::from_rgb(220, 220, 220),
         }
     }
 
@@ -1300,7 +1305,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(148, 148, 168, 120),
             Self::Neon => Color32::from_rgba_unmultiplied(155, 148, 168, 120),
             Self::Onyx => Color32::from_rgba_unmultiplied(160, 156, 140, 120),
-            Self::Dark => Color32::from_rgba_unmultiplied(140, 140, 160, 120),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(140, 140, 160, 120),
         }
     }
 
@@ -1325,7 +1330,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(124, 58, 237, 160),
             Self::Neon => Color32::from_rgba_unmultiplied(224, 64, 160, 160),
             Self::Onyx => Color32::from_rgba_unmultiplied(212, 175, 55, 160),
-            Self::Dark => Color32::from_rgba_unmultiplied(180, 180, 200, 160),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(180, 180, 200, 160),
         }
     }
 
@@ -1366,7 +1371,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 250),
             Self::Neon => Color32::from_rgba_unmultiplied(5, 5, 8, 250),
             Self::Onyx => Color32::from_rgba_unmultiplied(12, 12, 12, 250),
-            Self::Dark => Color32::from_rgba_unmultiplied(15, 15, 15, 250),
+            Self::System | Self::Dark => Color32::from_rgba_unmultiplied(15, 15, 15, 250),
         }
     }
 
@@ -1386,7 +1391,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(42, 42, 60),     // Default violet border
             Self::Neon => Color32::from_rgb(48, 40, 58),     // Default magenta border
             Self::Onyx => Color32::from_rgb(52, 50, 42),     // Warm default border
-            Self::Dark => Color32::from_rgb(38, 38, 44),
+            Self::System | Self::Dark => Color32::from_rgb(38, 38, 44),
         }
     }
 
@@ -1406,7 +1411,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(16, 16, 26),     // Elevated void
             Self::Neon => Color32::from_rgb(22, 18, 28),     // Elevated neon
             Self::Onyx => Color32::from_rgb(28, 28, 24),     // Elevated onyx
-            Self::Dark => Color32::from_rgb(26, 26, 30),
+            Self::System | Self::Dark => Color32::from_rgb(26, 26, 30),
         }
     }
 
@@ -1631,7 +1636,7 @@ impl AppTheme {
                 accent,
                 accent_hover,
             ],
-            Self::Dark => [
+            Self::System | Self::Dark => [
                 bg,
                 Color32::from_rgb(20, 28, 25),
                 Color32::from_rgb(18, 38, 32),
@@ -1654,7 +1659,7 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.chart_palette,
             // === Dark Themes ===
-            Self::Dark => [
+            Self::System | Self::Dark => [
                 Color32::from_rgb(16, 185, 129),  // Emerald (accent)
                 Color32::from_rgb(110, 190, 248), // Sky blue
                 Color32::from_rgb(198, 146, 255), // Violet
@@ -1824,7 +1829,7 @@ impl AppTheme {
                 ]
             }
             // === Dark Themes ===
-            Self::Dark => [
+            Self::System | Self::Dark => [
                 Color32::from_rgb(96, 165, 250),  // 0: Scan - Sky blue
                 Color32::from_rgb(52, 211, 153),  // 1: Filter - Emerald
                 Color32::from_rgb(251, 146, 60),  // 2: Join - Orange
@@ -2036,7 +2041,7 @@ impl AppTheme {
                 colors.accent_hover,   // Cyan (using accent hover as substitute)
             ],
             // === Dark Themes ===
-            Self::Dark => [
+            Self::System | Self::Dark => [
                 Color32::from_rgb(248, 113, 133), // Red - Soft coral
                 Color32::from_rgb(52, 211, 153),  // Green - Emerald (accent-inspired)
                 Color32::from_rgb(250, 204, 21),  // Yellow - Gold
@@ -2150,15 +2155,15 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.accent_primary,
             // Dark themes - vibrant markers
-            Self::Dark => Color32::from_rgb(180, 155, 255), // Violet
-            Self::Midnight => Color32::from_rgb(192, 132, 252), // Neon purple
-            Self::Ayu => Color32::from_rgb(172, 128, 255),  // Purple
-            Self::Aurora => Color32::from_rgb(180, 150, 180), // Soft purple
-            Self::Graphite => Color32::from_rgb(180, 140, 120), // Copper
-            Self::Ink => Color32::from_rgb(160, 160, 170),  // Silver
-            Self::Void => Color32::from_rgb(167, 139, 250), // Bright violet
-            Self::Neon => Color32::from_rgb(168, 85, 247),  // Purple
-            Self::Onyx => Color32::from_rgb(184, 152, 112), // Bronze
+            Self::System | Self::Dark => Color32::from_rgb(180, 155, 255), // Violet
+            Self::Midnight => Color32::from_rgb(192, 132, 252),            // Neon purple
+            Self::Ayu => Color32::from_rgb(172, 128, 255),                 // Purple
+            Self::Aurora => Color32::from_rgb(180, 150, 180),              // Soft purple
+            Self::Graphite => Color32::from_rgb(180, 140, 120),            // Copper
+            Self::Ink => Color32::from_rgb(160, 160, 170),                 // Silver
+            Self::Void => Color32::from_rgb(167, 139, 250),                // Bright violet
+            Self::Neon => Color32::from_rgb(168, 85, 247),                 // Purple
+            Self::Onyx => Color32::from_rgb(184, 152, 112),                // Bronze
 
             // Light themes - muted markers
             Self::Parchment => Color32::from_rgb(139, 92, 246), // Purple
@@ -2188,7 +2193,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(96, 165, 250),   // Blue
             Self::Neon => Color32::from_rgb(96, 165, 250),   // Blue
             Self::Onyx => Color32::from_rgb(130, 160, 210),  // Warm blue
-            Self::Dark => Color32::from_rgb(100, 149, 237),
+            Self::System | Self::Dark => Color32::from_rgb(100, 149, 237),
         }
     }
 
@@ -2208,7 +2213,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(251, 191, 36),     // Amber
             Self::Neon => Color32::from_rgb(251, 191, 36),     // Amber
             Self::Onyx => Color32::from_rgb(232, 180, 60),     // Warm amber
-            Self::Dark => Color32::from_rgb(255, 165, 0),
+            Self::System | Self::Dark => Color32::from_rgb(255, 165, 0),
         }
     }
 
@@ -2228,7 +2233,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(248, 113, 113),     // Red
             Self::Neon => Color32::from_rgb(248, 113, 113),     // Red
             Self::Onyx => Color32::from_rgb(230, 100, 100),     // Soft red
-            Self::Dark => Color32::from_rgb(220, 53, 69),
+            Self::System | Self::Dark => Color32::from_rgb(220, 53, 69),
         }
     }
 
@@ -2248,7 +2253,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(92, 92, 112),       // Deep muted
             Self::Neon => Color32::from_rgb(100, 92, 112),      // Deep muted
             Self::Onyx => Color32::from_rgb(100, 98, 88),       // Dark warm gray
-            Self::Dark => Color32::GRAY,
+            Self::System | Self::Dark => Color32::GRAY,
         }
     }
 
@@ -2272,7 +2277,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(15, 30, 28),     // Added bg void
             Self::Neon => Color32::from_rgb(15, 30, 28),     // Added bg neon
             Self::Onyx => Color32::from_rgb(18, 30, 20),     // Added bg onyx
-            Self::Dark => Color32::from_rgb(19, 35, 26),
+            Self::System | Self::Dark => Color32::from_rgb(19, 35, 26),
         }
     }
 
@@ -2292,7 +2297,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(35, 18, 22),     // Removed bg void
             Self::Neon => Color32::from_rgb(35, 18, 22),     // Removed bg neon
             Self::Onyx => Color32::from_rgb(35, 20, 18),     // Removed bg onyx
-            Self::Dark => Color32::from_rgb(40, 22, 24),
+            Self::System | Self::Dark => Color32::from_rgb(40, 22, 24),
         }
     }
 
@@ -2312,7 +2317,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(25, 60, 48),     // Added word void
             Self::Neon => Color32::from_rgb(25, 60, 48),     // Added word neon
             Self::Onyx => Color32::from_rgb(30, 55, 35),     // Added word onyx
-            Self::Dark => Color32::from_rgb(35, 70, 50),
+            Self::System | Self::Dark => Color32::from_rgb(35, 70, 50),
         }
     }
 
@@ -2332,7 +2337,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(70, 35, 40),     // Removed word void
             Self::Neon => Color32::from_rgb(70, 35, 40),     // Removed word neon
             Self::Onyx => Color32::from_rgb(70, 38, 35),     // Removed word onyx
-            Self::Dark => Color32::from_rgb(75, 35, 38),
+            Self::System | Self::Dark => Color32::from_rgb(75, 35, 38),
         }
     }
 
@@ -2352,7 +2357,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(52, 211, 153),      // Added text void
             Self::Neon => Color32::from_rgb(52, 211, 153),      // Added text neon
             Self::Onyx => Color32::from_rgb(52, 185, 100),      // Added text onyx
-            Self::Dark => Color32::from_rgb(126, 231, 135),
+            Self::System | Self::Dark => Color32::from_rgb(126, 231, 135),
         }
     }
 
@@ -2372,7 +2377,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(248, 113, 113),     // Removed text void
             Self::Neon => Color32::from_rgb(248, 113, 113),     // Removed text neon
             Self::Onyx => Color32::from_rgb(230, 100, 100),     // Removed text onyx
-            Self::Dark => Color32::from_rgb(255, 123, 114),
+            Self::System | Self::Dark => Color32::from_rgb(255, 123, 114),
         }
     }
 
@@ -2392,7 +2397,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(92, 92, 112),       // Context text void
             Self::Neon => Color32::from_rgb(100, 92, 112),      // Context text neon
             Self::Onyx => Color32::from_rgb(100, 98, 88),       // Context text onyx
-            Self::Dark => Color32::from_rgb(145, 152, 161),
+            Self::System | Self::Dark => Color32::from_rgb(145, 152, 161),
         }
     }
 
@@ -2412,7 +2417,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(52, 211, 153),      // Added gutter void
             Self::Neon => Color32::from_rgb(52, 211, 153),      // Added gutter neon
             Self::Onyx => Color32::from_rgb(52, 185, 100),      // Added gutter onyx
-            Self::Dark => Color32::from_rgb(63, 185, 80),
+            Self::System | Self::Dark => Color32::from_rgb(63, 185, 80),
         }
     }
 
@@ -2432,7 +2437,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(248, 113, 113),     // Removed gutter void
             Self::Neon => Color32::from_rgb(248, 113, 113),     // Removed gutter neon
             Self::Onyx => Color32::from_rgb(230, 100, 100),     // Removed gutter onyx
-            Self::Dark => Color32::from_rgb(248, 81, 73),
+            Self::System | Self::Dark => Color32::from_rgb(248, 81, 73),
         }
     }
 
@@ -2452,7 +2457,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(85, 85, 104),       // Line number void
             Self::Neon => Color32::from_rgb(85, 80, 96),        // Line number neon
             Self::Onyx => Color32::from_rgb(88, 85, 72),        // Line number onyx
-            Self::Dark => Color32::from_rgb(72, 79, 88),
+            Self::System | Self::Dark => Color32::from_rgb(72, 79, 88),
         }
     }
 
@@ -2472,7 +2477,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(4, 4, 8),        // Line number bg void
             Self::Neon => Color32::from_rgb(3, 3, 6),        // Line number bg neon
             Self::Onyx => Color32::from_rgb(8, 8, 6),        // Line number bg onyx
-            Self::Dark => Color32::from_rgb(13, 17, 23),
+            Self::System | Self::Dark => Color32::from_rgb(13, 17, 23),
         }
     }
 
@@ -2492,7 +2497,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(22, 15, 45),     // Hunk bg void
             Self::Neon => Color32::from_rgb(35, 15, 30),     // Hunk bg neon
             Self::Onyx => Color32::from_rgb(30, 28, 18),     // Hunk bg onyx
-            Self::Dark => Color32::from_rgb(22, 27, 46),
+            Self::System | Self::Dark => Color32::from_rgb(22, 27, 46),
         }
     }
 
@@ -2512,7 +2517,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(124, 58, 237),   // Hunk text void
             Self::Neon => Color32::from_rgb(224, 64, 160),   // Hunk text neon
             Self::Onyx => Color32::from_rgb(212, 175, 55),   // Hunk text onyx
-            Self::Dark => Color32::from_rgb(121, 184, 255),
+            Self::System | Self::Dark => Color32::from_rgb(121, 184, 255),
         }
     }
 
@@ -2532,7 +2537,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(232, 232, 240),     // File header void
             Self::Neon => Color32::from_rgb(232, 232, 240),     // File header neon
             Self::Onyx => Color32::from_rgb(220, 216, 204),     // File header onyx
-            Self::Dark => Color32::from_rgb(201, 209, 217),
+            Self::System | Self::Dark => Color32::from_rgb(201, 209, 217),
         }
     }
 
@@ -2552,7 +2557,7 @@ impl AppTheme {
             Self::Void => Color32::from_rgb(8, 8, 14),       // File header bg void
             Self::Neon => Color32::from_rgb(12, 10, 16),     // File header bg neon
             Self::Onyx => Color32::from_rgb(18, 18, 16),     // File header bg onyx
-            Self::Dark => Color32::from_rgb(22, 27, 34),
+            Self::System | Self::Dark => Color32::from_rgb(22, 27, 34),
         }
     }
 

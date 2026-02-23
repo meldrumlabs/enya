@@ -524,9 +524,14 @@ impl Workspace {
         !self.get_pane_tile_ids().is_empty()
     }
 
-    /// Set the active theme colors (from custom or builtin theme)
+    /// Set the active theme colors (from custom plugin theme)
     pub fn set_active_colors(&mut self, colors: crate::ui::ActiveThemeColors) {
         self.active_colors = Some(colors);
+    }
+
+    /// Clear active theme colors (when no custom plugin theme is active)
+    pub fn clear_active_colors(&mut self) {
+        self.active_colors = None;
     }
 
     /// Get the effective theme for rendering.
@@ -830,7 +835,7 @@ impl Workspace {
         if self.pending_open_style_picker {
             self.pending_open_style_picker = false;
             self.style_picker.open_with_custom(
-                self.theme(),
+                app_state.settings.theme,
                 app_state.custom_theme(),
                 app_state.settings.font,
             );

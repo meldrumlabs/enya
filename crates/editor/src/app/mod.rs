@@ -161,16 +161,19 @@ impl EnyaApp {
         // Ensure Tutorial project with example workspaces exists (for new users)
         state.settings.ensure_tutorial_project();
 
-        // Use theme from settings (user preference), falling back to system theme only on first run
+        // First run: default to System theme (follows OS preference)
         if state.settings.theme == AppTheme::default() && state.theme == AppTheme::default() {
-            // First run: use system theme
-            match cc.egui_ctx.theme() {
-                Theme::Light => state.settings.theme = AppTheme::Light,
-                Theme::Dark => state.settings.theme = AppTheme::Dark,
-            }
+            state.settings.theme = AppTheme::System;
         }
-        // Sync state.theme from settings.theme (settings is the source of truth)
-        state.theme = state.settings.theme;
+        // Resolve System theme to concrete Light/Dark based on OS preference
+        state.theme = if state.settings.theme == AppTheme::System {
+            match cc.egui_ctx.theme() {
+                Theme::Light => AppTheme::Light,
+                Theme::Dark => AppTheme::Dark,
+            }
+        } else {
+            state.settings.theme
+        };
 
         // Initialize workspace with async runtime
         let mut workspace = Workspace::new(async_runtime.clone());
@@ -633,14 +636,28 @@ impl EnyaApp {
                 self.state.ui_state = UIState::Dashboard;
             }
             UICommand::Theme(theme) => {
-                self.state.theme = theme;
-                self.state.settings.theme = theme; // Persist to settings
+                self.state.settings.theme = theme; // Persist preference (may be System)
+                self.state.theme = if theme == AppTheme::System {
+                    match egui_ctx.theme() {
+                        egui::Theme::Light => AppTheme::Light,
+                        egui::Theme::Dark => AppTheme::Dark,
+                    }
+                } else {
+                    theme
+                };
                 egui_ctx.set_visuals(self.current_visuals());
                 egui_ctx.request_repaint();
             }
             UICommand::NextTheme => {
-                self.state.theme.next();
-                self.state.settings.theme = self.state.theme; // Persist to settings
+                self.state.settings.theme.next(); // Cycle settings preference
+                self.state.theme = if self.state.settings.theme == AppTheme::System {
+                    match egui_ctx.theme() {
+                        egui::Theme::Light => AppTheme::Light,
+                        egui::Theme::Dark => AppTheme::Dark,
+                    }
+                } else {
+                    self.state.settings.theme
+                };
                 egui_ctx.set_visuals(self.current_visuals());
                 egui_ctx.request_repaint();
             }
@@ -1003,9 +1020,13 @@ impl EnyaApp {
                     .refresh_workspaces(&self.state.settings);
                 sidebar_result = self.project_sidebar.show(ui, ctx);
             }
-            // Update active theme colors (from custom or builtin theme)
-            self.workspace
-                .set_active_colors(self.effective_theme().active_colors());
+            // Update active theme colors (only for custom plugin themes)
+            if self.resolved_custom_theme.is_some() {
+                self.workspace
+                    .set_active_colors(self.effective_theme().active_colors());
+            } else {
+                self.workspace.clear_active_colors();
+            }
 
             workspace_action = self.workspace.show(ui, ctx, &self.state);
 
@@ -1867,6 +1888,17 @@ impl eframe::App for EnyaApp {
 
         // Record frame time for editor metrics sparkline
         self.editor_metrics.record_frame();
+
+        // Resolve System theme each frame to track OS preference changes
+        if self.state.settings.theme == AppTheme::System {
+            let resolved = match ctx.theme() {
+                egui::Theme::Light => AppTheme::Light,
+                egui::Theme::Dark => AppTheme::Dark,
+            };
+            if self.state.theme != resolved {
+                self.state.theme = resolved;
+            }
+        }
 
         // Set theme for the context (use custom theme colors if active)
         ctx.set_visuals(self.current_visuals());
