@@ -59,12 +59,18 @@ impl ChatColors {
     pub fn agent_message_bg(&self) -> Color32 {
         match self.theme {
             AppTheme::Custom(colors) => colors.bg_elevated,
-            AppTheme::Light => Color32::from_rgb(245, 243, 255),
+            AppTheme::Parchment => Color32::from_rgb(245, 243, 255),
+            AppTheme::Stockholm => Color32::from_rgb(238, 242, 252), // Cool blue-tinted bg
+            AppTheme::Copenhagen => Color32::from_rgb(240, 245, 238), // Warm sage-tinted bg
+            AppTheme::Light => Color32::from_rgb(236, 245, 240),     // Emerald-tinted bg
             AppTheme::Midnight => Color32::from_rgb(25, 30, 50),
             AppTheme::Ayu => Color32::from_rgb(22, 26, 35),
             AppTheme::Aurora => Color32::from_rgb(22, 35, 38),
             AppTheme::Graphite => Color32::from_rgb(35, 30, 25), // Orange-tinted dark
             AppTheme::Ink => Color32::from_rgb(22, 22, 32),      // Silver-tinted dark
+            AppTheme::Void => Color32::from_rgb(18, 14, 35),     // Violet-tinted dark
+            AppTheme::Neon => Color32::from_rgb(25, 15, 30),     // Magenta-tinted dark
+            AppTheme::Onyx => Color32::from_rgb(28, 26, 18),     // Gold-tinted dark
             AppTheme::Dark => Color32::from_rgb(30, 27, 45),
         }
     }
