@@ -263,7 +263,7 @@ impl LeaderPopup {
         // which would block keyboard handling in keyboard.rs
         egui::Area::new(egui::Id::new(leader_key.popup_id()))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 50.0]) // Slightly below center
-            .constrain_to(ctx.available_rect())
+            .constrain_to(crate::util::overlay_content_rect(ctx))
             .order(egui::Order::Foreground)
             .interactable(false)
             .show(ctx, |ui| {

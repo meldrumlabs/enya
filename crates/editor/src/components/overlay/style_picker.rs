@@ -406,9 +406,9 @@ impl StylePicker {
             result = StylePickerResult::FontPreview(current_font_preview);
         }
 
-        // Render the overlay — use available_rect so it centers within the content area
-        // (accounting for sidebar and other top-level panels)
-        let available_rect = ctx.available_rect();
+        // Render the overlay — use overlay_content_rect so it centers within the content area
+        // (accounting for sidebar)
+        let available_rect = crate::util::overlay_content_rect(ctx);
         let overlay_width = 700.0_f32.min(available_rect.width() - 40.0);
         let overlay_max_height = 480.0_f32.min(available_rect.height() - 80.0);
         let panel_width = (overlay_width - 56.0) / 2.0;

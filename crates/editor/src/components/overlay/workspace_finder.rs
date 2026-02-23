@@ -359,7 +359,7 @@ impl WorkspaceFinder {
 
         egui::Area::new(egui::Id::new("workspace_finder_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .constrain_to(ctx.available_rect())
+            .constrain_to(crate::util::overlay_content_rect(ctx))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 overlay_style.frame().show(ui, |ui| {

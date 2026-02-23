@@ -214,7 +214,7 @@ impl CodebaseFinder {
         egui::Area::new(egui::Id::new("codebase_finder"))
             .order(egui::Order::Foreground)
             .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, -50.0))
-            .constrain_to(ctx.available_rect())
+            .constrain_to(crate::util::overlay_content_rect(ctx))
             .show(ctx, |ui| {
                 // Background dimming
                 #[allow(deprecated)]
