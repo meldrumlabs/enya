@@ -751,6 +751,7 @@ impl CommandPalette {
 
         egui::Area::new(egui::Id::new("command_palette"))
             .anchor(anchor, offset)
+            .constrain_to(ctx.available_rect())
             .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
                 overlay_style.frame().show(ui, |ui| {

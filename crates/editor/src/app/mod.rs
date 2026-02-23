@@ -987,17 +987,19 @@ impl EnyaApp {
         let mut workspace_action = WorkspaceAction::None;
         let mut sidebar_result = crate::components::ProjectSidebarResult::None;
 
+        // Project sidebar — rendered as a top-level panel so ctx.available_rect()
+        // reflects the sidebar width, allowing overlays to center in the content area.
+        // Rendered after titlebar/statusbar so it spans the same height as CentralPanel.
+        if show_sidebar {
+            self.project_sidebar.set_theme(self.effective_theme());
+            self.project_sidebar
+                .set_active_workspace(self.workspace.loaded_name());
+            self.project_sidebar
+                .refresh_workspaces(&self.state.settings);
+            sidebar_result = self.project_sidebar.show(ctx);
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Project sidebar (left panel) — rendered inside CentralPanel so it
-            // matches the agent panel's height (doesn't touch titlebar/statusbar)
-            if show_sidebar {
-                self.project_sidebar.set_theme(self.effective_theme());
-                self.project_sidebar
-                    .set_active_workspace(self.workspace.loaded_name());
-                self.project_sidebar
-                    .refresh_workspaces(&self.state.settings);
-                sidebar_result = self.project_sidebar.show(ui, ctx);
-            }
             // Update active theme colors (from custom or builtin theme)
             self.workspace
                 .set_active_colors(self.effective_theme().active_colors());

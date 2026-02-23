@@ -161,6 +161,7 @@ impl NativePromoOverlay {
 
         egui::Area::new(egui::Id::new("native_promo_overlay_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(ctx.available_rect())
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 overlay_style.frame().show(ui, |ui| {

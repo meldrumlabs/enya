@@ -680,6 +680,7 @@ impl BufferEditor {
 
         egui::Area::new(egui::Id::new("buffer_editor_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(ctx.available_rect())
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 // Extract colors from theme (Custom variant handles plugin colors internally)

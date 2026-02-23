@@ -1028,6 +1028,7 @@ impl UnifiedFinder {
 
         egui::Area::new(egui::Id::new("unified_finder"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, -30.0])
+            .constrain_to(ctx.available_rect())
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 // Allocate a fixed-size rect to constrain the entire overlay

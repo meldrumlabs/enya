@@ -406,28 +406,28 @@ impl StylePicker {
             result = StylePickerResult::FontPreview(current_font_preview);
         }
 
-        // Render the overlay
-        #[allow(deprecated)]
-        let screen_rect = ctx.screen_rect();
-        let overlay_width = 700.0_f32.min(screen_rect.width() - 40.0);
-        let overlay_max_height = 480.0_f32.min(screen_rect.height() - 80.0);
+        // Render the overlay — use available_rect so it centers within the content area
+        // (accounting for sidebar and other top-level panels)
+        let available_rect = ctx.available_rect();
+        let overlay_width = 700.0_f32.min(available_rect.width() - 40.0);
+        let overlay_max_height = 480.0_f32.min(available_rect.height() - 80.0);
         let panel_width = (overlay_width - 56.0) / 2.0;
         let list_height = overlay_max_height - 140.0;
 
         // Backdrop - use Tooltip order to appear above other overlays
         egui::Area::new(egui::Id::new("style_picker_backdrop"))
-            .fixed_pos(screen_rect.min)
+            .fixed_pos(available_rect.min)
             .order(egui::Order::Tooltip)
             .show(ctx, |ui| {
                 ui.painter()
-                    .rect_filled(screen_rect, 0.0, Color32::from_black_alpha(160));
+                    .rect_filled(available_rect, 0.0, Color32::from_black_alpha(160));
             });
 
         // Main overlay - use Tooltip order to be the uppermost overlay
         egui::Area::new(egui::Id::new("style_picker"))
             .fixed_pos(egui::pos2(
-                (screen_rect.width() - overlay_width) / 2.0 + screen_rect.min.x,
-                screen_rect.min.y + 60.0,
+                (available_rect.width() - overlay_width) / 2.0 + available_rect.min.x,
+                available_rect.min.y + 60.0,
             ))
             .order(egui::Order::Tooltip)
             .show(ctx, |ui| {

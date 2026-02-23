@@ -158,6 +158,7 @@ impl AnnotationEditor {
         // Modal area
         let area = egui::Area::new(Id::new("annotation_editor_overlay"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, -50.0])
+            .constrain_to(ctx.available_rect())
             .order(egui::Order::Foreground);
 
         area.show(ctx, |ui| {

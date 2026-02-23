@@ -73,6 +73,7 @@ impl AboutOverlay {
 
         egui::Area::new(egui::Id::new("about_overlay_popup"))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .constrain_to(ctx.available_rect())
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let overlay_style = OverlayStyle::frosted_glass(self.theme);

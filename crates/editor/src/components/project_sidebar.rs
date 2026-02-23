@@ -282,8 +282,9 @@ impl ProjectSidebar {
         }
     }
 
-    /// Show the sidebar panel inside the given `Ui` (must be called inside `CentralPanel`).
-    pub fn show(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) -> ProjectSidebarResult {
+    /// Show the sidebar as a top-level panel so `ctx.available_rect()` reflects
+    /// the sidebar width, allowing overlays to center within the content area.
+    pub fn show(&mut self, ctx: &egui::Context) -> ProjectSidebarResult {
         let mut result = ProjectSidebarResult::None;
 
         let bg = self.theme.bg_surface();
@@ -299,7 +300,7 @@ impl ProjectSidebar {
         egui::SidePanel::left("project_sidebar")
             .exact_width(SIDEBAR_WIDTH + gap)
             .frame(egui::Frame::NONE)
-            .show_inside(ui, |ui| {
+            .show(ctx, |ui| {
                 // Paint the sidebar background and border inside the allocated area,
                 // leaving the rightmost `gap` pixels transparent (shows parent bg).
                 let full_rect = ui.max_rect();
