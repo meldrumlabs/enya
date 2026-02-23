@@ -8,8 +8,17 @@ All notable changes to the Enya editor will be documented in this file.
 
 - **Snapshot naming**: The `:snapshot` command now accepts an optional name (e.g. `:snapshot P99 latency spike`) which becomes the workspace name embedded in the blob. When a recipient opens the snapshot, the name is displayed in the status bar next to the SNAPSHOT badge.
 - **Geist Mono font**: Added Geist Mono by Vercel as a new font option in the editor settings (SIL Open Font License v1.1). Set as the new default editor font.
+- **Stockholm theme**: New light theme with cool Nordic-inspired tones — crisp white backgrounds, blue-gray borders, and steel blue (#4A6FA5) accent. Designed to pair with Geist Mono and the Stockholm design identity.
+- **Copenhagen theme**: New light theme with warm Danish hygge tones — warm white backgrounds, natural warm-gray borders, and muted sage green (#6B8F71) accent. Designed for premium observability with cozy readability.
+- **Void theme**: New OLED-black dark theme with electric violet (#7C3AED) accent. True black backgrounds for OLED displays with a cyberpunk aesthetic.
+- **Neon theme**: New dark theme with hot magenta (#E040A0) accent. Deep black backgrounds with vibrant magenta highlights for a bold cyberpunk look.
+- **Onyx theme**: New dark theme with gold (#D4AF37) accent. True dark neutral backgrounds with warm gold tones for a refined luxury aesthetic.
+- **Light theme**: New default light theme — the white counterpart of Dark. Cool neutral white backgrounds with the same Enya Emerald (#10B981) accent, like white obsidian glass.
+- **Parchment theme**: The original Light theme renamed to Parchment — warm cream paper backgrounds with rich black ink and sepia tones.
 
 ### Changed
+
+- **Theme aliases removed**: Themes are now selectable only from the Settings page; command-line aliases have been removed from the theme parser.
 
 - **Default font**: Changed default editor font from Departure Mono to Geist Mono for improved readability.
 - **Website font**: Switched website from Departure Mono to Geist Mono to match the editor default.
