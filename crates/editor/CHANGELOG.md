@@ -13,8 +13,12 @@ All notable changes to the Enya editor will be documented in this file.
 - **Void theme**: New OLED-black dark theme with electric violet (#7C3AED) accent. True black backgrounds for OLED displays with a cyberpunk aesthetic.
 - **Neon theme**: New dark theme with hot magenta (#E040A0) accent. Deep black backgrounds with vibrant magenta highlights for a bold cyberpunk look.
 - **Onyx theme**: New dark theme with gold (#D4AF37) accent. True dark neutral backgrounds with warm gold tones for a refined luxury aesthetic.
+- **Light theme**: New default light theme — the white counterpart of Dark. Cool neutral white backgrounds with the same Enya Emerald (#10B981) accent, like white obsidian glass.
+- **Parchment theme**: The original Light theme renamed to Parchment — warm cream paper backgrounds with rich black ink and sepia tones.
 
 ### Changed
+
+- **Theme aliases removed**: Themes are now selectable only from the Settings page; command-line aliases have been removed from the theme parser.
 
 - **Default font**: Changed default editor font from Departure Mono to Geist Mono for improved readability.
 - **Website font**: Switched website from Departure Mono to Geist Mono to match the editor default.
