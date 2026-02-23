@@ -27,6 +27,10 @@ pub enum AppTheme {
     Dark,
     /// Light theme - Paper/Ink aesthetic with warm cream backgrounds and rich black text
     Light,
+    /// Stockholm theme - Cool Nordic light with steel blue accent #4A6FA5
+    Stockholm,
+    /// Copenhagen theme - Danish hygge with muted sage green accent #6B8F71
+    Copenhagen,
     /// Midnight theme - Deep space blue with electric blue accent #3B82F6
     Midnight,
     /// Ayu Dark theme - Soft amber warmth with orange accent #FFB454
@@ -37,6 +41,12 @@ pub enum AppTheme {
     Graphite,
     /// Ink theme - Monochrome editorial with pure silver accent #C0C0C8
     Ink,
+    /// Void theme - OLED black with electric violet accent #7C3AED
+    Void,
+    /// Neon theme - Deep black with hot magenta accent #E040A0
+    Neon,
+    /// Onyx theme - True dark with gold accent #D4AF37
+    Onyx,
     /// Custom theme from plugin - carries resolved colors directly
     #[serde(skip)]
     Custom(ActiveThemeColors),
@@ -48,11 +58,16 @@ impl AppTheme {
         match self {
             Self::Dark => "Dark",
             Self::Light => "Light",
+            Self::Stockholm => "Stockholm",
+            Self::Copenhagen => "Copenhagen",
             Self::Midnight => "Midnight",
             Self::Ayu => "Ayu",
             Self::Aurora => "Aurora",
             Self::Graphite => "Graphite",
             Self::Ink => "Ink",
+            Self::Void => "Void",
+            Self::Neon => "Neon",
+            Self::Onyx => "Onyx",
             Self::Custom(_) => "Custom",
         }
     }
@@ -62,11 +77,16 @@ impl AppTheme {
         &[
             Self::Dark,
             Self::Light,
+            Self::Stockholm,
+            Self::Copenhagen,
             Self::Midnight,
             Self::Ayu,
             Self::Aurora,
             Self::Graphite,
             Self::Ink,
+            Self::Void,
+            Self::Neon,
+            Self::Onyx,
         ]
     }
 
@@ -74,7 +94,7 @@ impl AppTheme {
     pub fn is_dark(&self) -> bool {
         match self {
             Self::Custom(colors) => colors.is_dark,
-            Self::Light => false,
+            Self::Light | Self::Stockholm | Self::Copenhagen => false,
             _ => true,
         }
     }
@@ -98,11 +118,16 @@ impl AppTheme {
         match s.to_lowercase().as_str() {
             "dark" | "d" | "default" | "emerald" => Some(Self::Dark),
             "light" | "l" => Some(Self::Light),
+            "stockholm" | "sthlm" | "nordic" => Some(Self::Stockholm),
+            "copenhagen" | "cph" | "hygge" => Some(Self::Copenhagen),
             "midnight" | "m" | "space" => Some(Self::Midnight),
             "ayu" | "a" | "amber" => Some(Self::Ayu),
             "aurora" | "ar" | "northern" | "lights" | "borealis" => Some(Self::Aurora),
             "graphite" | "graph" | "industrial" | "foundry" | "molten" => Some(Self::Graphite),
             "ink" | "i" | "editorial" | "monochrome" | "silver" => Some(Self::Ink),
+            "void" | "v" | "oled" | "violet" => Some(Self::Void),
+            "neon" | "n" | "magenta" | "cyberpunk" => Some(Self::Neon),
+            "onyx" | "o" | "gold" | "luxury" => Some(Self::Onyx),
             _ => None,
         }
     }
@@ -117,7 +142,7 @@ impl AppTheme {
                     super::design::light_theme(*self)
                 }
             }
-            Self::Light => super::design::light_theme(*self),
+            Self::Light | Self::Stockholm | Self::Copenhagen => super::design::light_theme(*self),
             _ => super::design::dark_theme(*self),
         }
     }
@@ -131,11 +156,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_base,
             Self::Light => Color32::from_rgb(250, 248, 245), // Warm cream paper #FAF8F5
+            Self::Stockholm => Color32::from_rgb(250, 251, 252), // Cool white #FAFBFC
+            Self::Copenhagen => Color32::from_rgb(250, 250, 248), // Warm white #FAFAF8
             Self::Midnight => Color32::from_rgb(10, 11, 16), // Deep space blue #0A0B10
             Self::Ayu => Color32::from_rgb(10, 14, 20),      // Deep charcoal #0A0E14
             Self::Aurora => Color32::from_rgb(13, 17, 23),   // Deep night sky #0D1117
             Self::Graphite => Color32::from_rgb(18, 18, 20), // Deep warm charcoal #121214
             Self::Ink => Color32::from_rgb(10, 10, 15),      // Blue-black #0A0A0F
+            Self::Void => Color32::from_rgb(0, 0, 0),        // True OLED black
+            Self::Neon => Color32::from_rgb(5, 5, 8),        // Deep near-black
+            Self::Onyx => Color32::from_rgb(12, 12, 12),     // True dark neutral
             Self::Dark => Color32::from_rgb(8, 8, 10),       // Obsidian dark
         }
     }
@@ -145,11 +175,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(245, 242, 237), // Parchment #F5F2ED
+            Self::Stockholm => Color32::from_rgb(244, 245, 248), // Cool gray surface #F4F5F8
+            Self::Copenhagen => Color32::from_rgb(245, 244, 240), // Warm gray surface #F5F4F0
             Self::Midnight => Color32::from_rgb(18, 20, 28), // Deep navy #12141C
             Self::Ayu => Color32::from_rgb(13, 16, 23),      // Dark blue-gray #0D1017
             Self::Aurora => Color32::from_rgb(22, 27, 34),   // Night surface #161B22
             Self::Graphite => Color32::from_rgb(26, 26, 28), // Surface #1A1A1C
             Self::Ink => Color32::from_rgb(18, 18, 24),      // Surface #121218
+            Self::Void => Color32::from_rgb(8, 8, 14),       // Near-black with violet tint
+            Self::Neon => Color32::from_rgb(12, 10, 16),     // Dark with magenta tint
+            Self::Onyx => Color32::from_rgb(18, 18, 16),     // Warm dark surface
             Self::Dark => Color32::from_rgb(18, 18, 21),
         }
     }
@@ -159,11 +194,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_elevated,
             Self::Light => Color32::from_rgb(240, 236, 230), // Aged paper #F0ECE6
+            Self::Stockholm => Color32::from_rgb(237, 239, 243), // Elevated blue-gray #EDEFF3
+            Self::Copenhagen => Color32::from_rgb(238, 236, 230), // Warm elevated #EEECE6
             Self::Midnight => Color32::from_rgb(26, 29, 40), // Lighter navy #1A1D28
             Self::Ayu => Color32::from_rgb(21, 26, 34),      // Slightly lighter #151A22
             Self::Aurora => Color32::from_rgb(33, 38, 45),   // Elevated night #21262D
             Self::Graphite => Color32::from_rgb(36, 36, 38), // Elevated #242426
             Self::Ink => Color32::from_rgb(28, 28, 36),      // Elevated #1C1C24
+            Self::Void => Color32::from_rgb(16, 16, 26),     // Dark violet
+            Self::Neon => Color32::from_rgb(22, 18, 28),     // Dark magenta
+            Self::Onyx => Color32::from_rgb(28, 28, 24),     // Warm elevated
             Self::Dark => Color32::from_rgb(26, 26, 30),
         }
     }
@@ -173,11 +213,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_hover,
             Self::Light => Color32::from_rgb(232, 228, 220), // Darker paper #E8E4DC
+            Self::Stockholm => Color32::from_rgb(228, 231, 237), // Hover cool gray #E4E7ED
+            Self::Copenhagen => Color32::from_rgb(230, 227, 220), // Warm hover #E6E3DC
             Self::Midnight => Color32::from_rgb(34, 38, 52), // Hover navy #222634
             Self::Ayu => Color32::from_rgb(28, 34, 44),      // Hover charcoal #1C222C
             Self::Aurora => Color32::from_rgb(40, 46, 56),   // Hover night #282E38
             Self::Graphite => Color32::from_rgb(46, 46, 50), // Hover #2E2E32
             Self::Ink => Color32::from_rgb(38, 38, 46),      // Hover #26262E
+            Self::Void => Color32::from_rgb(24, 24, 38),     // Subtle violet lift
+            Self::Neon => Color32::from_rgb(32, 26, 40),     // Subtle magenta lift
+            Self::Onyx => Color32::from_rgb(38, 38, 32),     // Warm hover
             Self::Dark => Color32::from_rgb(36, 36, 40),
         }
     }
@@ -187,11 +232,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.accent_muted,
             Self::Light => Color32::from_rgb(225, 220, 210), // Selected paper #E1DCD2
+            Self::Stockholm => Color32::from_rgb(218, 224, 232), // Blue tint selected #DAE0E8
+            Self::Copenhagen => Color32::from_rgb(220, 228, 222), // Sage tint selected #DCE4DE
             Self::Midnight => Color32::from_rgb(25, 40, 65), // Blue selection #192841
             Self::Ayu => Color32::from_rgb(40, 35, 25),      // Amber tint selection
             Self::Aurora => Color32::from_rgb(25, 50, 45),   // Teal tint selection
             Self::Graphite => Color32::from_rgb(58, 42, 32), // Orange tint selection #3A2A20
             Self::Ink => Color32::from_rgb(32, 32, 42),      // Silver tint selection #20202A
+            Self::Void => Color32::from_rgb(30, 20, 55),     // Violet tint selected
+            Self::Neon => Color32::from_rgb(45, 20, 40),     // Magenta tint selected
+            Self::Onyx => Color32::from_rgb(40, 35, 22),     // Gold tint selected
             Self::Dark => Color32::from_rgb(28, 42, 36),     // Emerald tint
         }
     }
@@ -201,11 +251,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(245, 242, 237), // Parchment #F5F2ED
+            Self::Stockholm => Color32::from_rgb(244, 245, 248), // Card cool gray #F4F5F8
+            Self::Copenhagen => Color32::from_rgb(245, 244, 240), // Card warm gray #F5F4F0
             Self::Midnight => Color32::from_rgb(20, 22, 32), // Card navy
             Self::Ayu => Color32::from_rgb(16, 20, 28),      // Card charcoal
             Self::Aurora => Color32::from_rgb(27, 32, 40),   // Card night
             Self::Graphite => Color32::from_rgb(30, 30, 32), // Card graphite
             Self::Ink => Color32::from_rgb(22, 22, 28),      // Card ink
+            Self::Void => Color32::from_rgb(10, 10, 18),     // Deep card
+            Self::Neon => Color32::from_rgb(15, 12, 20),     // Deep card
+            Self::Onyx => Color32::from_rgb(22, 22, 18),     // Warm card
             Self::Dark => Color32::from_rgb(18, 18, 22),
         }
     }
@@ -215,11 +270,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_base,
             Self::Light => Color32::from_rgb(255, 253, 250), // Bright paper #FFFDF a
+            Self::Stockholm => Color32::from_rgb(252, 253, 254), // Bright inset #FCFDFE
+            Self::Copenhagen => Color32::from_rgb(253, 253, 251), // Bright warm inset #FDFDFB
             Self::Midnight => Color32::from_rgb(14, 15, 22), // Inset navy
             Self::Ayu => Color32::from_rgb(8, 11, 16),       // Inset charcoal
             Self::Aurora => Color32::from_rgb(10, 14, 18),   // Inset night
             Self::Graphite => Color32::from_rgb(14, 14, 16), // Inset graphite
             Self::Ink => Color32::from_rgb(8, 8, 12),        // Inset ink
+            Self::Void => Color32::from_rgb(4, 4, 8),        // Deeper than base
+            Self::Neon => Color32::from_rgb(3, 3, 6),        // Deeper than base
+            Self::Onyx => Color32::from_rgb(8, 8, 6),        // Deeper than base
             Self::Dark => Color32::from_rgb(12, 12, 15),
         }
     }
@@ -233,11 +293,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.border_subtle,
             Self::Light => Color32::from_rgb(220, 215, 205), // Subtle paper edge #DCD7CD
+            Self::Stockholm => Color32::from_rgb(222, 226, 232), // Subtle cool border #DEE2E8
+            Self::Copenhagen => Color32::from_rgb(225, 222, 215), // Warm subtle border #E1DED7
             Self::Midnight => Color32::from_rgb(40, 44, 58), // Subtle navy border
             Self::Ayu => Color32::from_rgb(35, 42, 52),      // Subtle charcoal border
             Self::Aurora => Color32::from_rgb(48, 54, 62),   // Subtle night border
             Self::Graphite => Color32::from_rgb(42, 42, 46), // Subtle border #2A2A2E
             Self::Ink => Color32::from_rgb(30, 30, 40),      // Subtle border #1E1E28
+            Self::Void => Color32::from_rgb(28, 28, 42),     // Subtle violet border
+            Self::Neon => Color32::from_rgb(30, 26, 38),     // Subtle magenta border
+            Self::Onyx => Color32::from_rgb(35, 35, 30),     // Warm subtle border
             Self::Dark => Color32::from_rgb(38, 38, 44),
         }
     }
@@ -247,11 +312,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.border_default,
             Self::Light => Color32::from_rgb(200, 195, 185), // Paper edge #C8C3B9
+            Self::Stockholm => Color32::from_rgb(205, 210, 218), // Cool border #CDD2DA
+            Self::Copenhagen => Color32::from_rgb(208, 204, 196), // Warm default border #D0CCC4
             Self::Midnight => Color32::from_rgb(55, 60, 78), // Navy border
             Self::Ayu => Color32::from_rgb(48, 56, 68),      // Charcoal border
             Self::Aurora => Color32::from_rgb(56, 62, 72),   // Night border
             Self::Graphite => Color32::from_rgb(58, 58, 64), // Default border #3A3A40
             Self::Ink => Color32::from_rgb(46, 46, 56),      // Default border #2E2E38
+            Self::Void => Color32::from_rgb(42, 42, 60),     // Default violet border
+            Self::Neon => Color32::from_rgb(48, 40, 58),     // Default magenta border
+            Self::Onyx => Color32::from_rgb(52, 50, 42),     // Warm default border
             Self::Dark => Color32::from_rgb(52, 52, 60),
         }
     }
@@ -261,11 +331,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.border_focus,
             Self::Light => Color32::from_rgb(100, 100, 100), // Dark gray ink #646464
+            Self::Stockholm => Color32::from_rgb(74, 111, 165), // Steel blue focus #4A6FA5
+            Self::Copenhagen => Color32::from_rgb(107, 143, 113), // Sage green focus #6B8F71
             Self::Midnight => Color32::from_rgb(59, 130, 246), // Electric blue focus
             Self::Ayu => Color32::from_rgb(180, 120, 60),    // Amber focus
             Self::Aurora => Color32::from_rgb(126, 232, 184), // Aurora teal focus
             Self::Graphite => Color32::from_rgb(232, 93, 4), // Molten orange focus #E85D04
             Self::Ink => Color32::from_rgb(192, 192, 200),   // Silver focus #C0C0C8
+            Self::Void => Color32::from_rgb(124, 58, 237),   // Electric violet focus #7C3AED
+            Self::Neon => Color32::from_rgb(224, 64, 160),   // Hot magenta focus #E040A0
+            Self::Onyx => Color32::from_rgb(212, 175, 55),   // Gold focus #D4AF37
             Self::Dark => Color32::from_rgb(55, 80, 72),
         }
     }
@@ -279,11 +354,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_primary,
             Self::Light => Color32::from_rgb(30, 30, 30), // Rich black ink #1E1E1E
+            Self::Stockholm => Color32::from_rgb(28, 32, 38), // Cool near-black #1C2026
+            Self::Copenhagen => Color32::from_rgb(32, 30, 28), // Warm near-black #201E1C
             Self::Midnight => Color32::from_rgb(228, 228, 231), // Off-white #E4E4E7
             Self::Ayu => Color32::from_rgb(191, 189, 182), // Off-white #BFBDB6
             Self::Aurora => Color32::from_rgb(230, 237, 243), // Crisp white #E6EDF3
             Self::Graphite => Color32::from_rgb(232, 230, 224), // Warm off-white #E8E6E0
             Self::Ink => Color32::from_rgb(228, 228, 236), // Cool off-white #E4E4EC
+            Self::Void => Color32::from_rgb(232, 232, 240), // Cool off-white
+            Self::Neon => Color32::from_rgb(232, 232, 240), // Cool off-white
+            Self::Onyx => Color32::from_rgb(220, 216, 204), // Warm off-white
             Self::Dark => Color32::from_rgb(248, 248, 252),
         }
     }
@@ -293,11 +373,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_secondary,
             Self::Light => Color32::from_rgb(80, 80, 80), // Lighter ink #505050
+            Self::Stockholm => Color32::from_rgb(72, 80, 92), // Blue-gray secondary #48505C
+            Self::Copenhagen => Color32::from_rgb(82, 78, 72), // Warm gray secondary #524E48
             Self::Midnight => Color32::from_rgb(161, 161, 170), // Silver #A1A1AA
             Self::Ayu => Color32::from_rgb(98, 106, 115), // Muted gray #626A73
             Self::Aurora => Color32::from_rgb(139, 148, 158), // Muted silver #8B949E
             Self::Graphite => Color32::from_rgb(168, 166, 160), // Secondary text #A8A6A0
             Self::Ink => Color32::from_rgb(152, 152, 168), // Secondary text #9898A8
+            Self::Void => Color32::from_rgb(148, 148, 168), // Muted lavender
+            Self::Neon => Color32::from_rgb(155, 148, 168), // Muted pink-gray
+            Self::Onyx => Color32::from_rgb(160, 156, 140), // Warm gray
             Self::Dark => Color32::from_rgb(158, 158, 168),
         }
     }
@@ -307,11 +392,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(120, 115, 110), // Faded ink #78736E
+            Self::Stockholm => Color32::from_rgb(108, 118, 132), // Muted tertiary #6C7684
+            Self::Copenhagen => Color32::from_rgb(118, 114, 106), // Muted warm tertiary #76726A
             Self::Midnight => Color32::from_rgb(113, 113, 122), // Darker silver #71717A
             Self::Ayu => Color32::from_rgb(75, 82, 90),      // Darker gray #4B525A
             Self::Aurora => Color32::from_rgb(110, 118, 129), // Deep night #6E7681
             Self::Graphite => Color32::from_rgb(112, 112, 104), // Tertiary text #707068
             Self::Ink => Color32::from_rgb(96, 96, 112),     // Tertiary text #606070
+            Self::Void => Color32::from_rgb(92, 92, 112),    // Deep muted
+            Self::Neon => Color32::from_rgb(100, 92, 112),   // Deep muted
+            Self::Onyx => Color32::from_rgb(100, 98, 88),    // Dark warm gray
             Self::Dark => Color32::from_rgb(100, 100, 112),
         }
     }
@@ -326,11 +416,16 @@ impl AppTheme {
             Self::Custom(colors) => colors.accent_primary,
             Self::Dark => Color32::from_rgb(16, 185, 129), // #10B981 Enya Emerald
             Self::Light => Color32::from_rgb(50, 50, 50),  // Charcoal ink #323232
+            Self::Stockholm => Color32::from_rgb(74, 111, 165), // Steel blue #4A6FA5
+            Self::Copenhagen => Color32::from_rgb(107, 143, 113), // Muted sage green #6B8F71
             Self::Midnight => Color32::from_rgb(59, 130, 246), // Electric Blue #3B82F6
             Self::Ayu => Color32::from_rgb(255, 180, 84),  // Warm Orange #FFB454
             Self::Aurora => Color32::from_rgb(126, 232, 184), // Aurora Teal #7EE8B8
             Self::Graphite => Color32::from_rgb(232, 93, 4), // Molten orange #E85D04
             Self::Ink => Color32::from_rgb(192, 192, 200), // Pure silver #C0C0C8
+            Self::Void => Color32::from_rgb(124, 58, 237), // Electric violet #7C3AED
+            Self::Neon => Color32::from_rgb(224, 64, 160), // Hot magenta #E040A0
+            Self::Onyx => Color32::from_rgb(212, 175, 55), // Gold #D4AF37
         }
     }
 
@@ -340,11 +435,16 @@ impl AppTheme {
             Self::Custom(colors) => colors.accent_hover,
             Self::Dark => Color32::from_rgb(52, 211, 153),
             Self::Light => Color32::from_rgb(30, 30, 30), // Rich black ink hover #1E1E1E
+            Self::Stockholm => Color32::from_rgb(56, 92, 145), // Darker steel blue #385C91
+            Self::Copenhagen => Color32::from_rgb(90, 122, 96), // Darker sage #5A7A60
             Self::Midnight => Color32::from_rgb(96, 165, 250), // Brighter Blue #60A5FA
             Self::Ayu => Color32::from_rgb(255, 204, 128), // Brighter Orange #FFCC80
             Self::Aurora => Color32::from_rgb(165, 243, 206), // Bright Aurora #A5F3CE
             Self::Graphite => Color32::from_rgb(255, 116, 32), // Brighter orange #FF7420
             Self::Ink => Color32::from_rgb(216, 216, 224), // Brighter silver #D8D8E0
+            Self::Void => Color32::from_rgb(167, 139, 250), // Brighter violet #A78BFA
+            Self::Neon => Color32::from_rgb(255, 110, 199), // Brighter magenta #FF6EC7
+            Self::Onyx => Color32::from_rgb(232, 200, 80), // Brighter gold #E8C850
         }
     }
 
@@ -354,11 +454,16 @@ impl AppTheme {
             Self::Custom(colors) => colors.accent_muted,
             Self::Dark => Color32::from_rgb(20, 40, 34),
             Self::Light => Color32::from_rgb(240, 236, 228), // Light sepia tint #F0ECE4
+            Self::Stockholm => Color32::from_rgb(236, 241, 248), // Light blue tint #ECF1F8
+            Self::Copenhagen => Color32::from_rgb(238, 245, 240), // Light sage tint #EEF5F0
             Self::Midnight => Color32::from_rgb(20, 30, 50), // Muted blue bg
             Self::Ayu => Color32::from_rgb(30, 25, 18),      // Muted amber bg
             Self::Aurora => Color32::from_rgb(20, 40, 35),   // Muted aurora bg
             Self::Graphite => Color32::from_rgb(40, 30, 22), // Muted orange bg
             Self::Ink => Color32::from_rgb(28, 28, 35),      // Muted silver bg
+            Self::Void => Color32::from_rgb(22, 15, 45),     // Deep violet bg
+            Self::Neon => Color32::from_rgb(35, 15, 30),     // Deep magenta bg
+            Self::Onyx => Color32::from_rgb(30, 28, 18),     // Dark gold bg
         }
     }
 
@@ -373,11 +478,16 @@ impl AppTheme {
             ),
             Self::Dark => Color32::from_rgba_premultiplied(16, 185, 129, 30),
             Self::Light => Color32::from_rgba_premultiplied(50, 50, 50, 40),
+            Self::Stockholm => Color32::from_rgba_premultiplied(74, 111, 165, 35),
+            Self::Copenhagen => Color32::from_rgba_premultiplied(107, 143, 113, 35),
             Self::Midnight => Color32::from_rgba_premultiplied(59, 130, 246, 30),
             Self::Ayu => Color32::from_rgba_premultiplied(255, 180, 84, 30),
             Self::Aurora => Color32::from_rgba_premultiplied(126, 232, 184, 30),
             Self::Graphite => Color32::from_rgba_premultiplied(232, 93, 4, 30),
             Self::Ink => Color32::from_rgba_premultiplied(192, 192, 200, 30),
+            Self::Void => Color32::from_rgba_premultiplied(124, 58, 237, 30),
+            Self::Neon => Color32::from_rgba_premultiplied(224, 64, 160, 30),
+            Self::Onyx => Color32::from_rgba_premultiplied(212, 175, 55, 30),
         }
     }
 
@@ -387,11 +497,16 @@ impl AppTheme {
             Self::Custom(colors) => colors.accent_muted,
             Self::Dark => Color32::from_rgb(24, 52, 42),
             Self::Light => Color32::from_rgb(230, 225, 215), // Warm sepia selection #E6E1D7
+            Self::Stockholm => Color32::from_rgb(225, 234, 245), // Blue selection #E1EAF5
+            Self::Copenhagen => Color32::from_rgb(228, 240, 232), // Sage selection #E4F0E8
             Self::Midnight => Color32::from_rgb(30, 45, 70), // Blue selection
             Self::Ayu => Color32::from_rgb(45, 38, 25),      // Amber selection
             Self::Aurora => Color32::from_rgb(30, 55, 48),   // Teal selection
             Self::Graphite => Color32::from_rgb(60, 45, 32), // Orange tint selection
             Self::Ink => Color32::from_rgb(38, 38, 50),      // Silver tint selection
+            Self::Void => Color32::from_rgb(30, 22, 60),     // Violet selection
+            Self::Neon => Color32::from_rgb(45, 20, 40),     // Magenta selection
+            Self::Onyx => Color32::from_rgb(38, 34, 22),     // Gold selection
         }
     }
 
@@ -404,11 +519,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.overlay_bg,
             Self::Light => Color32::from_rgba_unmultiplied(250, 248, 245, 250),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(250, 251, 252, 250),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(250, 250, 248, 250),
             Self::Midnight => Color32::from_rgba_unmultiplied(14, 16, 24, 245),
             Self::Ayu => Color32::from_rgba_unmultiplied(12, 16, 22, 245),
             Self::Aurora => Color32::from_rgba_unmultiplied(16, 20, 26, 245),
             Self::Graphite => Color32::from_rgba_unmultiplied(18, 18, 20, 245),
             Self::Ink => Color32::from_rgba_unmultiplied(10, 10, 15, 245),
+            Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 245),
+            Self::Neon => Color32::from_rgba_unmultiplied(5, 5, 8, 245),
+            Self::Onyx => Color32::from_rgba_unmultiplied(12, 12, 12, 245),
             Self::Dark => Color32::from_rgba_unmultiplied(14, 14, 16, 245),
         }
     }
@@ -418,11 +538,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.overlay_bg,
             Self::Light => Color32::from_rgba_unmultiplied(245, 242, 237, 248),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(244, 245, 248, 248),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(245, 244, 240, 248),
             Self::Midnight => Color32::from_rgba_unmultiplied(10, 12, 20, 235),
             Self::Ayu => Color32::from_rgba_unmultiplied(8, 12, 18, 235),
             Self::Aurora => Color32::from_rgba_unmultiplied(12, 16, 22, 235),
             Self::Graphite => Color32::from_rgba_unmultiplied(14, 14, 16, 235),
             Self::Ink => Color32::from_rgba_unmultiplied(8, 8, 12, 235),
+            Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 235),
+            Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 6, 235),
+            Self::Onyx => Color32::from_rgba_unmultiplied(8, 8, 6, 235),
             Self::Dark => Color32::from_rgba_unmultiplied(12, 12, 14, 235),
         }
     }
@@ -432,11 +557,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.overlay_border,
             Self::Light => Color32::from_rgba_unmultiplied(200, 195, 185, 220),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(205, 210, 218, 220),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(208, 204, 196, 220),
             Self::Midnight => Color32::from_rgba_unmultiplied(55, 60, 80, 160),
             Self::Ayu => Color32::from_rgba_unmultiplied(48, 56, 68, 160),
             Self::Aurora => Color32::from_rgba_unmultiplied(50, 58, 68, 160),
             Self::Graphite => Color32::from_rgba_unmultiplied(58, 58, 64, 160),
             Self::Ink => Color32::from_rgba_unmultiplied(46, 46, 56, 160),
+            Self::Void => Color32::from_rgba_unmultiplied(42, 42, 60, 160),
+            Self::Neon => Color32::from_rgba_unmultiplied(48, 40, 58, 160),
+            Self::Onyx => Color32::from_rgba_unmultiplied(52, 50, 42, 160),
             Self::Dark => Color32::from_rgba_unmultiplied(45, 45, 48, 160),
         }
     }
@@ -445,7 +575,9 @@ impl AppTheme {
     pub fn overlay_highlight(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.overlay_highlight,
-            Self::Light => Color32::from_rgba_unmultiplied(255, 255, 252, 100),
+            Self::Light | Self::Stockholm | Self::Copenhagen => {
+                Color32::from_rgba_unmultiplied(255, 255, 252, 100)
+            }
             _ => Color32::from_rgba_unmultiplied(255, 255, 255, 12),
         }
     }
@@ -454,7 +586,9 @@ impl AppTheme {
     pub fn overlay_highlight_strong(&self) -> Color32 {
         match self {
             Self::Custom(colors) => colors.overlay_highlight,
-            Self::Light => Color32::from_rgba_unmultiplied(255, 255, 252, 150),
+            Self::Light | Self::Stockholm | Self::Copenhagen => {
+                Color32::from_rgba_unmultiplied(255, 255, 252, 150)
+            }
             _ => Color32::from_rgba_unmultiplied(255, 255, 255, 18),
         }
     }
@@ -468,11 +602,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_elevated,
             Self::Light => Color32::from_rgb(245, 242, 237),
+            Self::Stockholm => Color32::from_rgb(244, 245, 248),
+            Self::Copenhagen => Color32::from_rgb(245, 244, 240),
             Self::Midnight => Color32::from_rgb(14, 16, 24),
             Self::Ayu => Color32::from_rgb(10, 14, 20),
             Self::Aurora => Color32::from_rgb(14, 18, 24),
             Self::Graphite => Color32::from_rgb(14, 14, 16), // Popup graphite
             Self::Ink => Color32::from_rgb(12, 12, 18),      // Popup ink
+            Self::Void => Color32::from_rgb(4, 4, 8),        // Popup void
+            Self::Neon => Color32::from_rgb(5, 5, 8),        // Popup neon
+            Self::Onyx => Color32::from_rgb(8, 8, 6),        // Popup onyx
             Self::Dark => Color32::from_rgb(16, 16, 20),
         }
     }
@@ -482,11 +621,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.border_default,
             Self::Light => Color32::from_rgb(200, 195, 185),
+            Self::Stockholm => Color32::from_rgb(185, 195, 210), // Cool blue popup border
+            Self::Copenhagen => Color32::from_rgb(190, 200, 192), // Sage-tinted border
             Self::Midnight => Color32::from_rgb(50, 60, 85),
             Self::Ayu => Color32::from_rgb(55, 50, 40),
             Self::Aurora => Color32::from_rgb(45, 70, 62),
             Self::Graphite => Color32::from_rgb(80, 55, 35), // Orange tint border
             Self::Ink => Color32::from_rgb(55, 55, 70),      // Silver tint border
+            Self::Void => Color32::from_rgb(60, 40, 90),     // Violet tint border
+            Self::Neon => Color32::from_rgb(70, 40, 65),     // Magenta tint border
+            Self::Onyx => Color32::from_rgb(65, 58, 35),     // Gold tint border
             Self::Dark => Color32::from_rgb(50, 55, 52),
         }
     }
@@ -505,11 +649,16 @@ impl AppTheme {
                 if colors.is_dark { 200 } else { 60 },
             ),
             Self::Light => Color32::from_rgba_unmultiplied(50, 48, 45, 60),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(40, 48, 60, 60),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(45, 42, 38, 60),
             Self::Midnight => Color32::from_rgba_unmultiplied(5, 8, 15, 200),
             Self::Ayu => Color32::from_rgba_unmultiplied(5, 8, 12, 200),
             Self::Aurora => Color32::from_rgba_unmultiplied(8, 12, 16, 200),
             Self::Graphite => Color32::from_rgba_unmultiplied(10, 10, 12, 200),
             Self::Ink => Color32::from_rgba_unmultiplied(5, 5, 10, 200),
+            Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 200),
+            Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 5, 200),
+            Self::Onyx => Color32::from_rgba_unmultiplied(6, 6, 6, 200),
             Self::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 200),
         }
     }
@@ -524,11 +673,16 @@ impl AppTheme {
                 if colors.is_dark { 210 } else { 80 },
             ),
             Self::Light => Color32::from_rgba_unmultiplied(50, 48, 45, 80),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(40, 48, 60, 80),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(45, 42, 38, 80),
             Self::Midnight => Color32::from_rgba_unmultiplied(5, 8, 15, 210),
             Self::Ayu => Color32::from_rgba_unmultiplied(5, 8, 12, 210),
             Self::Aurora => Color32::from_rgba_unmultiplied(8, 12, 16, 210),
             Self::Graphite => Color32::from_rgba_unmultiplied(10, 10, 12, 210),
             Self::Ink => Color32::from_rgba_unmultiplied(5, 5, 10, 210),
+            Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 210),
+            Self::Neon => Color32::from_rgba_unmultiplied(3, 3, 5, 210),
+            Self::Onyx => Color32::from_rgba_unmultiplied(6, 6, 6, 210),
             Self::Dark => Color32::from_rgba_unmultiplied(4, 4, 6, 210),
         }
     }
@@ -543,7 +697,7 @@ impl AppTheme {
                     None
                 }
             }
-            Self::Light => None,
+            Self::Light | Self::Stockholm | Self::Copenhagen => None,
             _ => Some(Color32::from_rgba_unmultiplied(0, 0, 0, 40)),
         }
     }
@@ -563,13 +717,16 @@ impl AppTheme {
                     None
                 }
             }
-            Self::Light => None,
+            Self::Light | Self::Stockholm | Self::Copenhagen => None,
             Self::Dark => Some(Color32::from_rgba_unmultiplied(16, 185, 129, 8)),
             Self::Midnight => Some(Color32::from_rgba_unmultiplied(59, 130, 246, 8)),
             Self::Ayu => Some(Color32::from_rgba_unmultiplied(255, 180, 84, 8)),
             Self::Aurora => Some(Color32::from_rgba_unmultiplied(126, 232, 184, 8)),
             Self::Graphite => Some(Color32::from_rgba_unmultiplied(232, 93, 4, 8)),
             Self::Ink => Some(Color32::from_rgba_unmultiplied(192, 192, 200, 8)),
+            Self::Void => Some(Color32::from_rgba_unmultiplied(124, 58, 237, 8)),
+            Self::Neon => Some(Color32::from_rgba_unmultiplied(224, 64, 160, 8)),
+            Self::Onyx => Some(Color32::from_rgba_unmultiplied(212, 175, 55, 8)),
         }
     }
 
@@ -582,11 +739,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.accent_muted,
             Self::Light => Color32::from_rgb(255, 245, 180),
+            Self::Stockholm => Color32::from_rgb(225, 238, 255), // Blue highlight #E1EEFF
+            Self::Copenhagen => Color32::from_rgb(228, 245, 232), // Green highlight #E4F5E8
             Self::Midnight => Color32::from_rgb(30, 50, 80),
             Self::Ayu => Color32::from_rgb(50, 40, 25),
             Self::Aurora => Color32::from_rgb(30, 55, 50),
             Self::Graphite => Color32::from_rgb(60, 40, 28), // Orange tint highlight
             Self::Ink => Color32::from_rgb(35, 35, 50),      // Silver tint highlight
+            Self::Void => Color32::from_rgb(35, 25, 65),     // Violet tint highlight
+            Self::Neon => Color32::from_rgb(45, 20, 40),     // Magenta tint highlight
+            Self::Onyx => Color32::from_rgb(35, 30, 18),     // Gold tint highlight
             Self::Dark => Color32::from_rgb(16, 60, 48),
         }
     }
@@ -597,11 +759,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.highlight_match,
             Self::Light => Color32::from_rgb(180, 100, 0),
+            Self::Stockholm => Color32::from_rgb(56, 92, 145), // Steel blue match text
+            Self::Copenhagen => Color32::from_rgb(60, 100, 65), // Dark sage match text
             Self::Midnight => Color32::from_rgb(96, 165, 250), // Electric blue
             Self::Ayu => Color32::from_rgb(255, 200, 100),     // Gold
             Self::Aurora => Color32::from_rgb(126, 232, 184),  // Aurora teal
             Self::Graphite => Color32::from_rgb(255, 130, 60), // Bright orange
             Self::Ink => Color32::from_rgb(220, 220, 230),     // Bright silver
+            Self::Void => Color32::from_rgb(167, 139, 250),    // Bright violet
+            Self::Neon => Color32::from_rgb(255, 110, 199),    // Bright magenta
+            Self::Onyx => Color32::from_rgb(232, 200, 80),     // Bright gold
             Self::Dark => Color32::from_rgb(255, 200, 80),
         }
     }
@@ -616,11 +783,16 @@ impl AppTheme {
                 if colors.is_dark { 30 } else { 60 },
             ),
             Self::Light => Color32::from_rgba_unmultiplied(255, 220, 120, 80),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(74, 111, 165, 60),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(107, 143, 113, 60),
             Self::Midnight => Color32::from_rgba_unmultiplied(59, 130, 246, 30),
             Self::Ayu => Color32::from_rgba_unmultiplied(255, 180, 84, 30),
             Self::Aurora => Color32::from_rgba_unmultiplied(126, 232, 184, 30),
             Self::Graphite => Color32::from_rgba_unmultiplied(232, 93, 4, 30),
             Self::Ink => Color32::from_rgba_unmultiplied(192, 192, 200, 30),
+            Self::Void => Color32::from_rgba_unmultiplied(124, 58, 237, 30),
+            Self::Neon => Color32::from_rgba_unmultiplied(224, 64, 160, 30),
+            Self::Onyx => Color32::from_rgba_unmultiplied(212, 175, 55, 30),
             Self::Dark => Color32::from_rgba_unmultiplied(255, 220, 0, 30),
         }
     }
@@ -634,11 +806,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.accent_primary,
             Self::Light => Color32::from_rgb(100, 90, 80),
+            Self::Stockholm => Color32::from_rgb(74, 111, 165), // Steel blue
+            Self::Copenhagen => Color32::from_rgb(107, 143, 113), // Sage green
             Self::Midnight => Color32::from_rgb(167, 139, 250), // Violet
             Self::Ayu => Color32::from_rgb(210, 180, 140),      // Tan
             Self::Aurora => Color32::from_rgb(165, 210, 195),   // Aurora mint
             Self::Graphite => Color32::from_rgb(232, 93, 4),    // Molten orange
             Self::Ink => Color32::from_rgb(192, 192, 200),      // Pure silver
+            Self::Void => Color32::from_rgb(167, 139, 250),     // Bright violet
+            Self::Neon => Color32::from_rgb(255, 110, 199),     // Bright magenta
+            Self::Onyx => Color32::from_rgb(232, 200, 80),      // Bright gold
             Self::Dark => Color32::from_rgb(180, 150, 220),
         }
     }
@@ -653,11 +830,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(60, 60, 60),
+            Self::Stockholm => Color32::from_rgb(56, 92, 145), // Steel blue
+            Self::Copenhagen => Color32::from_rgb(55, 95, 145), // Warm blue
             Self::Midnight => Color32::from_rgb(56, 189, 248), // Sky blue
             Self::Ayu => Color32::from_rgb(89, 186, 163),      // Teal
             Self::Aurora => Color32::from_rgb(126, 232, 184),  // Aurora teal
             Self::Graphite => Color32::from_rgb(255, 130, 60), // Bright orange
             Self::Ink => Color32::from_rgb(210, 210, 220),     // Bright silver
+            Self::Void => Color32::from_rgb(96, 165, 250),     // Blue
+            Self::Neon => Color32::from_rgb(96, 165, 250),     // Blue
+            Self::Onyx => Color32::from_rgb(130, 160, 210),    // Warm blue
             Self::Dark => Color32::from_rgb(120, 200, 220),
         }
     }
@@ -676,11 +858,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(100, 150, 220),
-            Self::Midnight => Color32::from_rgb(96, 165, 250), // Sky blue
-            Self::Ayu => Color32::from_rgb(89, 186, 163),      // Teal
-            Self::Aurora => Color32::from_rgb(139, 198, 198),  // Aurora cyan
-            Self::Graphite => Color32::from_rgb(232, 93, 4),   // Molten orange
-            Self::Ink => Color32::from_rgb(192, 192, 200),     // Pure silver
+            Self::Stockholm => Color32::from_rgb(74, 111, 165), // Steel blue
+            Self::Copenhagen => Color32::from_rgb(80, 130, 170), // Warm blue
+            Self::Midnight => Color32::from_rgb(96, 165, 250),  // Sky blue
+            Self::Ayu => Color32::from_rgb(89, 186, 163),       // Teal
+            Self::Aurora => Color32::from_rgb(139, 198, 198),   // Aurora cyan
+            Self::Graphite => Color32::from_rgb(232, 93, 4),    // Molten orange
+            Self::Ink => Color32::from_rgb(192, 192, 200),      // Pure silver
+            Self::Void => Color32::from_rgb(96, 165, 250),      // Sky blue
+            Self::Neon => Color32::from_rgb(96, 165, 250),      // Sky blue
+            Self::Onyx => Color32::from_rgb(130, 160, 210),     // Warm blue
             Self::Dark => Color32::from_rgb(130, 180, 255),
         }
     }
@@ -690,11 +877,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(100, 180, 100),
+            Self::Stockholm => Color32::from_rgb(40, 140, 80), // Nordic green
+            Self::Copenhagen => Color32::from_rgb(60, 140, 80), // Forest green
             Self::Midnight => Color32::from_rgb(52, 211, 153), // Green
             Self::Ayu => Color32::from_rgb(170, 210, 120),     // Green
             Self::Aurora => Color32::from_rgb(126, 232, 184),  // Aurora teal
             Self::Graphite => Color32::from_rgb(140, 190, 110), // Sage green
             Self::Ink => Color32::from_rgb(130, 180, 150),     // Muted green
+            Self::Void => Color32::from_rgb(52, 211, 153),     // Green
+            Self::Neon => Color32::from_rgb(52, 211, 153),     // Green
+            Self::Onyx => Color32::from_rgb(52, 185, 100),     // Green
             Self::Dark => Color32::from_rgb(150, 220, 120),
         }
     }
@@ -704,11 +896,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.border_default,
             Self::Light => Color32::from_rgb(200, 195, 185),
+            Self::Stockholm => Color32::from_rgb(205, 210, 218), // Cool border
+            Self::Copenhagen => Color32::from_rgb(208, 204, 196), // Warm border
             Self::Midnight => Color32::from_rgb(55, 60, 78),
             Self::Ayu => Color32::from_rgb(48, 56, 68),
             Self::Aurora => Color32::from_rgb(48, 54, 62),
             Self::Graphite => Color32::from_rgb(58, 58, 64), // Default border #3A3A40
             Self::Ink => Color32::from_rgb(46, 46, 56),      // Default border #2E2E38
+            Self::Void => Color32::from_rgb(42, 42, 60),     // Default violet border
+            Self::Neon => Color32::from_rgb(48, 40, 58),     // Default magenta border
+            Self::Onyx => Color32::from_rgb(52, 50, 42),     // Warm default border
             Self::Dark => Color32::from_rgb(60, 60, 70),
         }
     }
@@ -718,11 +915,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(250, 248, 245),
+            Self::Stockholm => Color32::from_rgb(250, 251, 252), // Cool white
+            Self::Copenhagen => Color32::from_rgb(250, 250, 248), // Warm white
             Self::Midnight => Color32::from_rgb(16, 18, 26),
             Self::Ayu => Color32::from_rgb(12, 16, 22),
             Self::Aurora => Color32::from_rgb(18, 22, 28),
             Self::Graphite => Color32::from_rgb(22, 22, 24), // Buffer graphite
             Self::Ink => Color32::from_rgb(14, 14, 20),      // Buffer ink
+            Self::Void => Color32::from_rgb(8, 8, 14),       // Buffer void
+            Self::Neon => Color32::from_rgb(12, 10, 16),     // Buffer neon
+            Self::Onyx => Color32::from_rgb(18, 18, 16),     // Buffer onyx
             Self::Dark => Color32::from_rgb(25, 25, 30),
         }
     }
@@ -732,11 +934,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_base,
             Self::Light => Color32::from_rgb(255, 253, 250),
+            Self::Stockholm => Color32::from_rgb(252, 253, 254), // Bright inset
+            Self::Copenhagen => Color32::from_rgb(253, 253, 251), // Bright inset
             Self::Midnight => Color32::from_rgb(12, 14, 20),
             Self::Ayu => Color32::from_rgb(10, 14, 20),
             Self::Aurora => Color32::from_rgb(13, 17, 23),
             Self::Graphite => Color32::from_rgb(18, 18, 20), // Content bg #121214
             Self::Ink => Color32::from_rgb(10, 10, 15),      // Content bg #0A0A0F
+            Self::Void => Color32::from_rgb(0, 0, 0),        // Content bg void
+            Self::Neon => Color32::from_rgb(5, 5, 8),        // Content bg neon
+            Self::Onyx => Color32::from_rgb(12, 12, 12),     // Content bg onyx
             Self::Dark => Color32::from_rgb(20, 20, 25),
         }
     }
@@ -750,11 +957,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(45, 100, 45),
+            Self::Stockholm => Color32::from_rgb(30, 110, 60), // Forest green
+            Self::Copenhagen => Color32::from_rgb(40, 115, 55), // Forest green
             Self::Midnight => Color32::from_rgb(52, 211, 153),
             Self::Ayu => Color32::from_rgb(170, 210, 120),
             Self::Aurora => Color32::from_rgb(126, 232, 184), // Aurora teal
             Self::Graphite => Color32::from_rgb(140, 190, 110), // Sage green
             Self::Ink => Color32::from_rgb(130, 180, 150),    // Muted green
+            Self::Void => Color32::from_rgb(52, 211, 153),    // Green
+            Self::Neon => Color32::from_rgb(52, 211, 153),    // Green
+            Self::Onyx => Color32::from_rgb(52, 185, 100),    // Green
             Self::Dark => Color32::from_rgb(34, 197, 94),
         }
     }
@@ -764,11 +976,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.warning,
             Self::Light => Color32::from_rgb(180, 120, 30),
-            Self::Midnight => Color32::from_rgb(251, 191, 36), // Amber
+            Self::Stockholm => Color32::from_rgb(170, 110, 20), // Amber
+            Self::Copenhagen => Color32::from_rgb(175, 115, 25), // Warm amber
+            Self::Midnight => Color32::from_rgb(251, 191, 36),  // Amber
             Self::Ayu => Color32::from_rgb(255, 200, 100),
             Self::Aurora => Color32::from_rgb(255, 200, 120), // Warm gold
             Self::Graphite => Color32::from_rgb(255, 180, 80), // Warm orange
             Self::Ink => Color32::from_rgb(220, 200, 140),    // Muted gold
+            Self::Void => Color32::from_rgb(251, 191, 36),    // Amber
+            Self::Neon => Color32::from_rgb(251, 191, 36),    // Amber
+            Self::Onyx => Color32::from_rgb(232, 180, 60),    // Warm amber
             Self::Dark => Color32::from_rgb(251, 176, 45),
         }
     }
@@ -778,11 +995,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(180, 40, 40),
+            Self::Stockholm => Color32::from_rgb(190, 40, 40), // Red
+            Self::Copenhagen => Color32::from_rgb(185, 45, 45), // Warm red
             Self::Midnight => Color32::from_rgb(248, 113, 113), // Red
             Self::Ayu => Color32::from_rgb(255, 110, 110),
             Self::Aurora => Color32::from_rgb(248, 113, 113), // Soft red
             Self::Graphite => Color32::from_rgb(240, 100, 100), // Soft red
             Self::Ink => Color32::from_rgb(200, 110, 120),    // Muted rose
+            Self::Void => Color32::from_rgb(248, 113, 113),   // Red
+            Self::Neon => Color32::from_rgb(248, 113, 113),   // Red
+            Self::Onyx => Color32::from_rgb(230, 100, 100),   // Soft red
             Self::Dark => Color32::from_rgb(239, 82, 82),
         }
     }
@@ -792,11 +1014,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(50, 80, 140),
+            Self::Stockholm => Color32::from_rgb(50, 90, 150), // Deep blue
+            Self::Copenhagen => Color32::from_rgb(55, 95, 145), // Warm blue
             Self::Midnight => Color32::from_rgb(96, 165, 250), // Blue
             Self::Ayu => Color32::from_rgb(89, 186, 163),
             Self::Aurora => Color32::from_rgb(139, 198, 198), // Aurora cyan
             Self::Graphite => Color32::from_rgb(232, 93, 4),  // Molten orange
             Self::Ink => Color32::from_rgb(192, 192, 200),    // Pure silver
+            Self::Void => Color32::from_rgb(96, 165, 250),    // Blue
+            Self::Neon => Color32::from_rgb(96, 165, 250),    // Blue
+            Self::Onyx => Color32::from_rgb(130, 160, 210),   // Warm blue
             Self::Dark => Color32::from_rgb(82, 146, 255),
         }
     }
@@ -810,11 +1037,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.accent_primary,
             Self::Light => Color32::from_rgb(30, 30, 30),
+            Self::Stockholm => Color32::from_rgb(74, 111, 165), // Steel blue keywords
+            Self::Copenhagen => Color32::from_rgb(107, 143, 113), // Sage green keywords
             Self::Midnight => Color32::from_rgb(199, 146, 234), // Purple
             Self::Ayu => Color32::from_rgb(255, 143, 64),       // Orange
             Self::Aurora => Color32::from_rgb(200, 160, 220),   // Aurora violet
             Self::Graphite => Color32::from_rgb(232, 93, 4),    // Molten orange
             Self::Ink => Color32::from_rgb(192, 192, 200),      // Pure silver
+            Self::Void => Color32::from_rgb(124, 58, 237),      // Electric violet
+            Self::Neon => Color32::from_rgb(224, 64, 160),      // Hot magenta
+            Self::Onyx => Color32::from_rgb(212, 175, 55),      // Gold
             Self::Dark => Color32::from_rgb(198, 146, 255),
         }
     }
@@ -824,11 +1056,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(50, 50, 50),
+            Self::Stockholm => Color32::from_rgb(50, 90, 150), // Deep blue keys
+            Self::Copenhagen => Color32::from_rgb(55, 95, 145), // Warm blue keys
             Self::Midnight => Color32::from_rgb(96, 165, 250), // Blue
             Self::Ayu => Color32::from_rgb(89, 186, 163),      // Teal
             Self::Aurora => Color32::from_rgb(139, 198, 198),  // Aurora cyan
             Self::Graphite => Color32::from_rgb(255, 160, 100), // Bright orange
             Self::Ink => Color32::from_rgb(160, 160, 180),     // Muted silver
+            Self::Void => Color32::from_rgb(96, 165, 250),     // Blue
+            Self::Neon => Color32::from_rgb(96, 165, 250),     // Blue
+            Self::Onyx => Color32::from_rgb(130, 160, 210),    // Warm blue
             Self::Dark => Color32::from_rgb(110, 190, 248),
         }
     }
@@ -838,11 +1075,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(70, 70, 70),
+            Self::Stockholm => Color32::from_rgb(30, 110, 60), // Nordic green values
+            Self::Copenhagen => Color32::from_rgb(40, 115, 55), // Forest green values
             Self::Midnight => Color32::from_rgb(52, 211, 153), // Green
             Self::Ayu => Color32::from_rgb(170, 210, 120),     // Green
             Self::Aurora => Color32::from_rgb(126, 232, 184),  // Aurora teal
             Self::Graphite => Color32::from_rgb(140, 190, 110), // Sage green
             Self::Ink => Color32::from_rgb(130, 180, 150),     // Muted green
+            Self::Void => Color32::from_rgb(52, 211, 153),     // Green
+            Self::Neon => Color32::from_rgb(52, 211, 153),     // Green
+            Self::Onyx => Color32::from_rgb(52, 185, 100),     // Green
             Self::Dark => Color32::from_rgb(52, 211, 153),
         }
     }
@@ -852,11 +1094,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_secondary,
             Self::Light => Color32::from_rgb(100, 95, 90),
-            Self::Midnight => Color32::from_rgb(148, 163, 184), // Slate
-            Self::Ayu => Color32::from_rgb(140, 148, 156),      // Gray
-            Self::Aurora => Color32::from_rgb(139, 148, 158),   // Muted silver
-            Self::Graphite => Color32::from_rgb(168, 166, 160), // Secondary text #A8A6A0
-            Self::Ink => Color32::from_rgb(152, 152, 168),      // Secondary text #9898A8
+            Self::Stockholm => Color32::from_rgb(108, 118, 132), // Blue-gray punctuation
+            Self::Copenhagen => Color32::from_rgb(118, 114, 106), // Warm gray
+            Self::Midnight => Color32::from_rgb(148, 163, 184),  // Slate
+            Self::Ayu => Color32::from_rgb(140, 148, 156),       // Gray
+            Self::Aurora => Color32::from_rgb(139, 148, 158),    // Muted silver
+            Self::Graphite => Color32::from_rgb(168, 166, 160),  // Secondary text #A8A6A0
+            Self::Ink => Color32::from_rgb(152, 152, 168),       // Secondary text #9898A8
+            Self::Void => Color32::from_rgb(148, 148, 168),      // Muted
+            Self::Neon => Color32::from_rgb(155, 148, 168),      // Muted
+            Self::Onyx => Color32::from_rgb(160, 156, 140),      // Warm muted
             Self::Dark => Color32::from_rgb(140, 140, 155),
         }
     }
@@ -866,11 +1113,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(140, 135, 125),
-            Self::Midnight => Color32::from_rgb(100, 116, 139), // Slate gray
-            Self::Ayu => Color32::from_rgb(90, 100, 110),       // Gray
-            Self::Aurora => Color32::from_rgb(110, 118, 129),   // Deep night
-            Self::Graphite => Color32::from_rgb(112, 112, 104), // Tertiary text #707068
-            Self::Ink => Color32::from_rgb(96, 96, 112),        // Tertiary text #606070
+            Self::Stockholm => Color32::from_rgb(140, 150, 165), // Light gray-blue comments
+            Self::Copenhagen => Color32::from_rgb(148, 144, 135), // Warm gray comments
+            Self::Midnight => Color32::from_rgb(100, 116, 139),  // Slate gray
+            Self::Ayu => Color32::from_rgb(90, 100, 110),        // Gray
+            Self::Aurora => Color32::from_rgb(110, 118, 129),    // Deep night
+            Self::Graphite => Color32::from_rgb(112, 112, 104),  // Tertiary text #707068
+            Self::Ink => Color32::from_rgb(96, 96, 112),         // Tertiary text #606070
+            Self::Void => Color32::from_rgb(85, 85, 104),        // Dark muted
+            Self::Neon => Color32::from_rgb(85, 80, 96),         // Dark muted
+            Self::Onyx => Color32::from_rgb(88, 85, 72),         // Dark warm
             Self::Dark => Color32::from_rgb(128, 128, 128),
         }
     }
@@ -880,11 +1132,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.accent_hover,
             Self::Light => Color32::from_rgb(40, 40, 40),
+            Self::Stockholm => Color32::from_rgb(40, 50, 65), // Dark blue-gray functions
+            Self::Copenhagen => Color32::from_rgb(45, 50, 42), // Dark warm-green
             Self::Midnight => Color32::from_rgb(56, 189, 248), // Cyan
-            Self::Ayu => Color32::from_rgb(255, 180, 84),      // Orange
-            Self::Aurora => Color32::from_rgb(165, 243, 206),  // Bright aurora
+            Self::Ayu => Color32::from_rgb(255, 180, 84),     // Orange
+            Self::Aurora => Color32::from_rgb(165, 243, 206), // Bright aurora
             Self::Graphite => Color32::from_rgb(255, 130, 60), // Bright orange
-            Self::Ink => Color32::from_rgb(216, 216, 224),     // Bright silver
+            Self::Ink => Color32::from_rgb(216, 216, 224),    // Bright silver
+            Self::Void => Color32::from_rgb(167, 139, 250),   // Bright violet
+            Self::Neon => Color32::from_rgb(255, 110, 199),   // Bright magenta
+            Self::Onyx => Color32::from_rgb(232, 200, 80),    // Bright gold
             Self::Dark => Color32::from_rgb(100, 160, 255),
         }
     }
@@ -894,11 +1151,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.warning,
             Self::Light => Color32::from_rgb(60, 60, 60),
+            Self::Stockholm => Color32::from_rgb(85, 95, 115), // Medium blue-gray types
+            Self::Copenhagen => Color32::from_rgb(90, 95, 80), // Warm olive-gray
             Self::Midnight => Color32::from_rgb(251, 191, 36), // Amber
             Self::Ayu => Color32::from_rgb(89, 186, 163),      // Teal
             Self::Aurora => Color32::from_rgb(200, 220, 180),  // Aurora yellow-green
             Self::Graphite => Color32::from_rgb(200, 170, 120), // Warm tan
             Self::Ink => Color32::from_rgb(180, 180, 190),     // Light silver
+            Self::Void => Color32::from_rgb(184, 160, 232),    // Lighter violet
+            Self::Neon => Color32::from_rgb(244, 114, 182),    // Pink
+            Self::Onyx => Color32::from_rgb(200, 184, 128),    // Pale gold
             Self::Dark => Color32::from_rgb(220, 160, 100),
         }
     }
@@ -908,11 +1170,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(55, 55, 55),
+            Self::Stockholm => Color32::from_rgb(130, 80, 50), // Warm brown numbers
+            Self::Copenhagen => Color32::from_rgb(140, 85, 55), // Warm brown
             Self::Midnight => Color32::from_rgb(248, 113, 113), // Red
-            Self::Ayu => Color32::from_rgb(230, 140, 90),       // Coral
-            Self::Aurora => Color32::from_rgb(255, 180, 150),   // Aurora peach
-            Self::Graphite => Color32::from_rgb(255, 140, 80),  // Coral orange
-            Self::Ink => Color32::from_rgb(200, 160, 180),      // Dusty rose
+            Self::Ayu => Color32::from_rgb(230, 140, 90),      // Coral
+            Self::Aurora => Color32::from_rgb(255, 180, 150),  // Aurora peach
+            Self::Graphite => Color32::from_rgb(255, 140, 80), // Coral orange
+            Self::Ink => Color32::from_rgb(200, 160, 180),     // Dusty rose
+            Self::Void => Color32::from_rgb(248, 113, 113),    // Coral red
+            Self::Neon => Color32::from_rgb(251, 146, 60),     // Orange
+            Self::Onyx => Color32::from_rgb(184, 152, 112),    // Warm bronze
             Self::Dark => Color32::from_rgb(220, 120, 120),
         }
     }
@@ -922,11 +1189,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_primary,
             Self::Light => Color32::from_rgb(45, 45, 45),
+            Self::Stockholm => Color32::from_rgb(50, 58, 70), // Dark cool gray variables
+            Self::Copenhagen => Color32::from_rgb(52, 50, 45), // Dark warm gray
             Self::Midnight => Color32::from_rgb(228, 228, 231), // Off-white
-            Self::Ayu => Color32::from_rgb(191, 189, 182),      // Fg
-            Self::Aurora => Color32::from_rgb(230, 237, 243),   // Crisp white
+            Self::Ayu => Color32::from_rgb(191, 189, 182),    // Fg
+            Self::Aurora => Color32::from_rgb(230, 237, 243), // Crisp white
             Self::Graphite => Color32::from_rgb(232, 230, 224), // Text primary #E8E6E0
-            Self::Ink => Color32::from_rgb(228, 228, 236),      // Text primary #E4E4EC
+            Self::Ink => Color32::from_rgb(228, 228, 236),    // Text primary #E4E4EC
+            Self::Void => Color32::from_rgb(224, 224, 232),   // Near-white
+            Self::Neon => Color32::from_rgb(224, 224, 232),   // Near-white
+            Self::Onyx => Color32::from_rgb(212, 208, 196),   // Warm near-white
             Self::Dark => Color32::from_rgb(220, 220, 220),
         }
     }
@@ -945,7 +1217,9 @@ impl AppTheme {
                     Color32::from_rgba_unmultiplied(80, 75, 70, 15)
                 }
             }
-            Self::Light => Color32::from_rgba_unmultiplied(80, 75, 70, 15),
+            Self::Light | Self::Stockholm | Self::Copenhagen => {
+                Color32::from_rgba_unmultiplied(80, 75, 70, 15)
+            }
             _ => Color32::from_rgba_unmultiplied(255, 255, 255, 8),
         }
     }
@@ -960,11 +1234,16 @@ impl AppTheme {
                 120,
             ),
             Self::Light => Color32::from_rgba_unmultiplied(120, 115, 105, 160),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(108, 118, 132, 150),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(118, 114, 106, 150),
             Self::Midnight => Color32::from_rgba_unmultiplied(96, 165, 250, 80),
             Self::Ayu => Color32::from_rgba_unmultiplied(140, 148, 156, 120),
             Self::Aurora => Color32::from_rgba_unmultiplied(139, 148, 158, 120),
             Self::Graphite => Color32::from_rgba_unmultiplied(168, 166, 160, 120),
             Self::Ink => Color32::from_rgba_unmultiplied(152, 152, 168, 120),
+            Self::Void => Color32::from_rgba_unmultiplied(148, 148, 168, 120),
+            Self::Neon => Color32::from_rgba_unmultiplied(155, 148, 168, 120),
+            Self::Onyx => Color32::from_rgba_unmultiplied(160, 156, 140, 120),
             Self::Dark => Color32::from_rgba_unmultiplied(140, 140, 160, 120),
         }
     }
@@ -979,11 +1258,16 @@ impl AppTheme {
                 160,
             ),
             Self::Light => Color32::from_rgba_unmultiplied(80, 75, 70, 200),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(74, 111, 165, 160),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(107, 143, 113, 160),
             Self::Midnight => Color32::from_rgba_unmultiplied(96, 165, 250, 140),
             Self::Ayu => Color32::from_rgba_unmultiplied(255, 180, 84, 140),
             Self::Aurora => Color32::from_rgba_unmultiplied(126, 232, 184, 140),
             Self::Graphite => Color32::from_rgba_unmultiplied(232, 93, 4, 140),
             Self::Ink => Color32::from_rgba_unmultiplied(192, 192, 200, 140),
+            Self::Void => Color32::from_rgba_unmultiplied(124, 58, 237, 160),
+            Self::Neon => Color32::from_rgba_unmultiplied(224, 64, 160, 160),
+            Self::Onyx => Color32::from_rgba_unmultiplied(212, 175, 55, 160),
             Self::Dark => Color32::from_rgba_unmultiplied(180, 180, 200, 160),
         }
     }
@@ -998,7 +1282,9 @@ impl AppTheme {
                     Color32::from_rgba_unmultiplied(255, 252, 245, 80)
                 }
             }
-            Self::Light => Color32::from_rgba_unmultiplied(255, 252, 245, 80),
+            Self::Light | Self::Stockholm | Self::Copenhagen => {
+                Color32::from_rgba_unmultiplied(255, 252, 245, 80)
+            }
             _ => Color32::from_rgba_unmultiplied(255, 255, 255, 25),
         }
     }
@@ -1012,11 +1298,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.overlay_bg,
             Self::Light => Color32::from_rgba_unmultiplied(248, 245, 240, 252),
+            Self::Stockholm => Color32::from_rgba_unmultiplied(248, 249, 252, 252),
+            Self::Copenhagen => Color32::from_rgba_unmultiplied(248, 248, 245, 252),
             Self::Midnight => Color32::from_rgba_unmultiplied(14, 16, 24, 250),
             Self::Ayu => Color32::from_rgba_unmultiplied(12, 16, 22, 250),
             Self::Aurora => Color32::from_rgba_unmultiplied(13, 17, 23, 250),
             Self::Graphite => Color32::from_rgba_unmultiplied(18, 18, 20, 250),
             Self::Ink => Color32::from_rgba_unmultiplied(10, 10, 15, 250),
+            Self::Void => Color32::from_rgba_unmultiplied(0, 0, 0, 250),
+            Self::Neon => Color32::from_rgba_unmultiplied(5, 5, 8, 250),
+            Self::Onyx => Color32::from_rgba_unmultiplied(12, 12, 12, 250),
             Self::Dark => Color32::from_rgba_unmultiplied(15, 15, 15, 250),
         }
     }
@@ -1026,11 +1317,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.border_default,
             Self::Light => Color32::from_rgb(200, 195, 185),
+            Self::Stockholm => Color32::from_rgb(205, 210, 218),
+            Self::Copenhagen => Color32::from_rgb(208, 204, 196),
             Self::Midnight => Color32::from_rgb(55, 60, 78),
             Self::Ayu => Color32::from_rgb(48, 56, 68),
             Self::Aurora => Color32::from_rgb(48, 54, 62),
             Self::Graphite => Color32::from_rgb(58, 58, 64), // Default border #3A3A40
             Self::Ink => Color32::from_rgb(46, 46, 56),      // Default border #2E2E38
+            Self::Void => Color32::from_rgb(42, 42, 60),     // Default violet border
+            Self::Neon => Color32::from_rgb(48, 40, 58),     // Default magenta border
+            Self::Onyx => Color32::from_rgb(52, 50, 42),     // Warm default border
             Self::Dark => Color32::from_rgb(38, 38, 44),
         }
     }
@@ -1040,11 +1336,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_elevated,
             Self::Light => Color32::from_rgb(240, 236, 228),
+            Self::Stockholm => Color32::from_rgb(237, 239, 243), // Elevated blue-gray
+            Self::Copenhagen => Color32::from_rgb(238, 236, 230), // Warm elevated
             Self::Midnight => Color32::from_rgb(26, 29, 40),
             Self::Ayu => Color32::from_rgb(21, 26, 34),
             Self::Aurora => Color32::from_rgb(33, 38, 45),
             Self::Graphite => Color32::from_rgb(30, 30, 32), // Elevated graphite
             Self::Ink => Color32::from_rgb(22, 22, 28),      // Elevated ink
+            Self::Void => Color32::from_rgb(16, 16, 26),     // Elevated void
+            Self::Neon => Color32::from_rgb(22, 18, 28),     // Elevated neon
+            Self::Onyx => Color32::from_rgb(28, 28, 24),     // Elevated onyx
             Self::Dark => Color32::from_rgb(26, 26, 30),
         }
     }
@@ -1064,6 +1365,8 @@ impl AppTheme {
                 }
             }
             Self::Light => Color32::from_rgb(255, 240, 235), // Warm rose-tinted paper
+            Self::Stockholm => Color32::from_rgb(255, 238, 238), // Cool rose tint
+            Self::Copenhagen => Color32::from_rgb(255, 242, 238), // Warm rose tint
             _ => self.semantic_error().gamma_multiply(0.15),
         }
     }
@@ -1079,6 +1382,8 @@ impl AppTheme {
                 }
             }
             Self::Light => Color32::from_rgb(255, 248, 230), // Warm amber-tinted paper
+            Self::Stockholm => Color32::from_rgb(255, 248, 235), // Cool amber tint
+            Self::Copenhagen => Color32::from_rgb(255, 250, 232), // Warm amber tint
             _ => self.semantic_warning().gamma_multiply(0.15),
         }
     }
@@ -1094,6 +1399,8 @@ impl AppTheme {
                 }
             }
             Self::Light => Color32::from_rgb(240, 240, 248), // Subtle gray-blue paper
+            Self::Stockholm => Color32::from_rgb(235, 242, 252), // Blue-tinted info
+            Self::Copenhagen => Color32::from_rgb(240, 245, 250), // Warm blue tint
             _ => self.semantic_info().gamma_multiply(0.15),
         }
     }
@@ -1109,6 +1416,8 @@ impl AppTheme {
                 }
             }
             Self::Light => Color32::from_rgb(242, 250, 242), // Subtle sage paper
+            Self::Stockholm => Color32::from_rgb(238, 250, 242), // Cool sage tint
+            Self::Copenhagen => Color32::from_rgb(238, 250, 240), // Sage tint
             _ => self.semantic_success().gamma_multiply(0.15),
         }
     }
@@ -1145,6 +1454,26 @@ impl AppTheme {
                 Color32::from_rgb(170, 165, 155),
                 Color32::from_rgb(130, 125, 115),
                 Color32::from_rgb(90, 85, 80),
+                accent,
+                accent_hover,
+            ],
+            Self::Stockholm => [
+                Color32::from_rgb(250, 251, 252),
+                Color32::from_rgb(230, 235, 242),
+                Color32::from_rgb(200, 210, 225),
+                Color32::from_rgb(165, 180, 200),
+                Color32::from_rgb(125, 145, 175),
+                Color32::from_rgb(90, 110, 145),
+                accent,
+                accent_hover,
+            ],
+            Self::Copenhagen => [
+                Color32::from_rgb(250, 250, 248),
+                Color32::from_rgb(235, 238, 230),
+                Color32::from_rgb(210, 218, 205),
+                Color32::from_rgb(175, 195, 178),
+                Color32::from_rgb(140, 165, 145),
+                Color32::from_rgb(110, 140, 115),
                 accent,
                 accent_hover,
             ],
@@ -1195,6 +1524,36 @@ impl AppTheme {
                 Color32::from_rgb(65, 65, 85),
                 Color32::from_rgb(110, 110, 130),
                 Color32::from_rgb(155, 155, 170),
+                accent,
+                accent_hover,
+            ],
+            Self::Void => [
+                bg,
+                Color32::from_rgb(10, 8, 20),
+                Color32::from_rgb(22, 15, 45),
+                Color32::from_rgb(45, 30, 85),
+                Color32::from_rgb(75, 45, 140),
+                Color32::from_rgb(100, 55, 190),
+                accent,
+                accent_hover,
+            ],
+            Self::Neon => [
+                bg,
+                Color32::from_rgb(15, 8, 15),
+                Color32::from_rgb(35, 15, 30),
+                Color32::from_rgb(70, 25, 55),
+                Color32::from_rgb(120, 40, 90),
+                Color32::from_rgb(175, 55, 130),
+                accent,
+                accent_hover,
+            ],
+            Self::Onyx => [
+                bg,
+                Color32::from_rgb(20, 18, 12),
+                Color32::from_rgb(35, 30, 18),
+                Color32::from_rgb(70, 58, 30),
+                Color32::from_rgb(120, 100, 40),
+                Color32::from_rgb(170, 140, 48),
                 accent,
                 accent_hover,
             ],
@@ -1281,6 +1640,36 @@ impl AppTheme {
                 Color32::from_rgb(175, 175, 185), // Chrome
                 Color32::from_rgb(145, 150, 160), // Lead
             ],
+            Self::Void => [
+                Color32::from_rgb(124, 58, 237),  // Electric violet (accent) #7C3AED
+                Color32::from_rgb(167, 139, 250), // Bright violet #A78BFA
+                Color32::from_rgb(56, 189, 248),  // Sky blue #38BDF8
+                Color32::from_rgb(244, 114, 182), // Pink #F472B6
+                Color32::from_rgb(52, 211, 153),  // Green #34D399
+                Color32::from_rgb(251, 191, 36),  // Amber #FBBF24
+                Color32::from_rgb(248, 113, 113), // Red #F87171
+                Color32::from_rgb(129, 140, 248), // Indigo #818CF8
+            ],
+            Self::Neon => [
+                Color32::from_rgb(224, 64, 160),  // Hot magenta (accent) #E040A0
+                Color32::from_rgb(168, 85, 247),  // Purple #A855F7
+                Color32::from_rgb(56, 189, 248),  // Sky blue #38BDF8
+                Color32::from_rgb(52, 211, 153),  // Green #34D399
+                Color32::from_rgb(251, 191, 36),  // Amber #FBBF24
+                Color32::from_rgb(248, 113, 113), // Red #F87171
+                Color32::from_rgb(255, 110, 199), // Bright magenta #FF6EC7
+                Color32::from_rgb(129, 140, 248), // Indigo #818CF8
+            ],
+            Self::Onyx => [
+                Color32::from_rgb(212, 175, 55),  // Gold (accent) #D4AF37
+                Color32::from_rgb(232, 200, 80),  // Bright gold #E8C850
+                Color32::from_rgb(184, 152, 112), // Bronze #B89870
+                Color32::from_rgb(160, 160, 144), // Warm gray #A0A090
+                Color32::from_rgb(200, 168, 96),  // Amber gold #C8A860
+                Color32::from_rgb(140, 136, 128), // Stone #8C8880
+                Color32::from_rgb(208, 184, 112), // Pale gold #D0B870
+                Color32::from_rgb(152, 144, 120), // Sand #989078
+            ],
 
             // === Light Themes ===
             Self::Light => [
@@ -1292,6 +1681,26 @@ impl AppTheme {
                 Color32::from_rgb(20, 184, 166), // Teal
                 Color32::from_rgb(239, 68, 68),  // Red
                 Color32::from_rgb(99, 102, 241), // Indigo
+            ],
+            Self::Stockholm => [
+                Color32::from_rgb(74, 111, 165), // Steel blue (accent)
+                Color32::from_rgb(45, 140, 100), // Nordic green
+                Color32::from_rgb(120, 85, 195), // Muted purple
+                Color32::from_rgb(200, 140, 30), // Warm amber
+                Color32::from_rgb(190, 70, 130), // Rose
+                Color32::from_rgb(30, 160, 150), // Teal
+                Color32::from_rgb(200, 65, 65),  // Muted red
+                Color32::from_rgb(90, 95, 200),  // Indigo
+            ],
+            Self::Copenhagen => [
+                Color32::from_rgb(107, 143, 113), // Sage green (accent)
+                Color32::from_rgb(55, 120, 165),  // Warm blue
+                Color32::from_rgb(130, 90, 180),  // Warm purple
+                Color32::from_rgb(195, 140, 35),  // Warm amber
+                Color32::from_rgb(180, 75, 120),  // Warm rose
+                Color32::from_rgb(35, 150, 140),  // Warm teal
+                Color32::from_rgb(195, 70, 70),   // Warm red
+                Color32::from_rgb(100, 100, 190), // Warm indigo
             ],
         }
     }
@@ -1415,6 +1824,48 @@ impl AppTheme {
                 Color32::from_rgb(180, 160, 135), // 10: Other Exec - Sand
                 Color32::from_rgb(145, 150, 155), // 11: Reserved - Charcoal
             ],
+            Self::Void => [
+                Color32::from_rgb(96, 165, 250),  // 0: Scan - Sky blue
+                Color32::from_rgb(52, 211, 153),  // 1: Filter - Green
+                Color32::from_rgb(251, 146, 60),  // 2: Join - Orange
+                Color32::from_rgb(167, 139, 250), // 3: Aggregate - Bright violet
+                Color32::from_rgb(248, 113, 113), // 4: Sort - Red
+                Color32::from_rgb(56, 189, 248),  // 5: Project - Cyan
+                Color32::from_rgb(251, 191, 36),  // 6: Hash - Amber
+                Color32::from_rgb(124, 58, 237),  // 7: Remote - Electric violet
+                Color32::from_rgb(244, 114, 182), // 8: Union - Pink
+                Color32::from_rgb(163, 230, 53),  // 9: Cooperative - Lime
+                Color32::from_rgb(184, 160, 232), // 10: Other Exec - Light violet
+                Color32::from_rgb(92, 92, 112),   // 11: Reserved - Muted
+            ],
+            Self::Neon => [
+                Color32::from_rgb(96, 165, 250),  // 0: Scan - Sky blue
+                Color32::from_rgb(52, 211, 153),  // 1: Filter - Green
+                Color32::from_rgb(251, 146, 60),  // 2: Join - Orange
+                Color32::from_rgb(168, 85, 247),  // 3: Aggregate - Purple
+                Color32::from_rgb(248, 113, 113), // 4: Sort - Red
+                Color32::from_rgb(56, 189, 248),  // 5: Project - Cyan
+                Color32::from_rgb(251, 191, 36),  // 6: Hash - Amber
+                Color32::from_rgb(224, 64, 160),  // 7: Remote - Hot magenta
+                Color32::from_rgb(255, 110, 199), // 8: Union - Bright magenta
+                Color32::from_rgb(163, 230, 53),  // 9: Cooperative - Lime
+                Color32::from_rgb(244, 114, 182), // 10: Other Exec - Pink
+                Color32::from_rgb(100, 92, 112),  // 11: Reserved - Muted
+            ],
+            Self::Onyx => [
+                Color32::from_rgb(130, 160, 210), // 0: Scan - Warm blue
+                Color32::from_rgb(52, 185, 100),  // 1: Filter - Green
+                Color32::from_rgb(232, 180, 60),  // 2: Join - Warm amber
+                Color32::from_rgb(184, 152, 112), // 3: Aggregate - Bronze
+                Color32::from_rgb(230, 100, 100), // 4: Sort - Soft red
+                Color32::from_rgb(160, 180, 200), // 5: Project - Steel blue
+                Color32::from_rgb(212, 175, 55),  // 6: Hash - Gold
+                Color32::from_rgb(100, 160, 190), // 7: Remote - Teal
+                Color32::from_rgb(200, 160, 140), // 8: Union - Warm rose
+                Color32::from_rgb(160, 190, 120), // 9: Cooperative - Olive
+                Color32::from_rgb(232, 200, 80),  // 10: Other Exec - Bright gold
+                Color32::from_rgb(100, 98, 88),   // 11: Reserved - Warm gray
+            ],
 
             // === Light Themes ===
             Self::Light => [
@@ -1430,6 +1881,34 @@ impl AppTheme {
                 Color32::from_rgb(132, 204, 22),  // 9: Cooperative - Lime
                 Color32::from_rgb(245, 158, 11),  // 10: Other Exec - Amber
                 Color32::from_rgb(107, 114, 128), // 11: Reserved - Gray
+            ],
+            Self::Stockholm => [
+                Color32::from_rgb(50, 90, 150),   // 0: Scan - Deep blue
+                Color32::from_rgb(30, 130, 70),   // 1: Filter - Green
+                Color32::from_rgb(210, 100, 25),  // 2: Join - Warm orange
+                Color32::from_rgb(120, 60, 200),  // 3: Aggregate - Purple
+                Color32::from_rgb(190, 45, 45),   // 4: Sort - Red
+                Color32::from_rgb(25, 160, 145),  // 5: Project - Teal
+                Color32::from_rgb(180, 125, 10),  // 6: Hash - Gold
+                Color32::from_rgb(15, 155, 185),  // 7: Remote - Cyan
+                Color32::from_rgb(190, 50, 110),  // 8: Union - Pink
+                Color32::from_rgb(110, 175, 30),  // 9: Cooperative - Lime
+                Color32::from_rgb(210, 140, 20),  // 10: Other Exec - Amber
+                Color32::from_rgb(108, 118, 132), // 11: Reserved - Gray
+            ],
+            Self::Copenhagen => [
+                Color32::from_rgb(55, 95, 145),   // 0: Scan - Warm blue
+                Color32::from_rgb(40, 130, 65),   // 1: Filter - Green
+                Color32::from_rgb(200, 105, 30),  // 2: Join - Warm orange
+                Color32::from_rgb(115, 65, 190),  // 3: Aggregate - Purple
+                Color32::from_rgb(185, 50, 50),   // 4: Sort - Red
+                Color32::from_rgb(30, 155, 140),  // 5: Project - Teal
+                Color32::from_rgb(175, 130, 15),  // 6: Hash - Gold
+                Color32::from_rgb(20, 145, 175),  // 7: Remote - Cyan
+                Color32::from_rgb(180, 55, 105),  // 8: Union - Pink
+                Color32::from_rgb(115, 170, 35),  // 9: Cooperative - Lime
+                Color32::from_rgb(205, 145, 25),  // 10: Other Exec - Amber
+                Color32::from_rgb(118, 114, 106), // 11: Reserved - Warm gray
             ],
         }
     }
@@ -1507,6 +1986,30 @@ impl AppTheme {
                 Color32::from_rgb(160, 140, 170), // Magenta - Silver violet
                 Color32::from_rgb(140, 170, 180), // Cyan - Silver cyan
             ],
+            Self::Void => [
+                Color32::from_rgb(248, 113, 113), // Red - Coral red
+                Color32::from_rgb(52, 211, 153),  // Green - Green
+                Color32::from_rgb(251, 191, 36),  // Yellow - Amber
+                Color32::from_rgb(96, 165, 250),  // Blue - Sky blue
+                Color32::from_rgb(124, 58, 237),  // Magenta - Electric violet (accent)
+                Color32::from_rgb(167, 139, 250), // Cyan - Bright violet
+            ],
+            Self::Neon => [
+                Color32::from_rgb(248, 113, 113), // Red - Coral red
+                Color32::from_rgb(52, 211, 153),  // Green - Green
+                Color32::from_rgb(251, 191, 36),  // Yellow - Amber
+                Color32::from_rgb(96, 165, 250),  // Blue - Sky blue
+                Color32::from_rgb(224, 64, 160),  // Magenta - Hot magenta (accent)
+                Color32::from_rgb(255, 110, 199), // Cyan - Bright magenta
+            ],
+            Self::Onyx => [
+                Color32::from_rgb(230, 100, 100), // Red - Soft red
+                Color32::from_rgb(52, 185, 100),  // Green - Green
+                Color32::from_rgb(232, 180, 60),  // Yellow - Warm amber
+                Color32::from_rgb(130, 160, 210), // Blue - Warm blue
+                Color32::from_rgb(212, 175, 55),  // Magenta - Gold (accent)
+                Color32::from_rgb(232, 200, 80),  // Cyan - Bright gold
+            ],
 
             // === Light Themes ===
             Self::Light => [
@@ -1516,6 +2019,22 @@ impl AppTheme {
                 Color32::from_rgb(29, 78, 216),  // Blue - Classic blue
                 Color32::from_rgb(126, 34, 206), // Magenta - Purple
                 Color32::from_rgb(14, 116, 144), // Cyan - Teal
+            ],
+            Self::Stockholm => [
+                Color32::from_rgb(175, 35, 35),  // Red - Nordic red
+                Color32::from_rgb(25, 120, 60),  // Green - Forest green
+                Color32::from_rgb(155, 100, 10), // Yellow - Warm amber
+                Color32::from_rgb(50, 90, 180),  // Blue - Steel blue
+                Color32::from_rgb(115, 40, 190), // Magenta - Cool purple
+                Color32::from_rgb(20, 120, 140), // Cyan - Nordic teal
+            ],
+            Self::Copenhagen => [
+                Color32::from_rgb(170, 40, 40),  // Red - Warm red
+                Color32::from_rgb(30, 115, 55),  // Green - Forest green
+                Color32::from_rgb(160, 105, 15), // Yellow - Warm amber
+                Color32::from_rgb(45, 85, 170),  // Blue - Warm blue
+                Color32::from_rgb(110, 45, 180), // Magenta - Warm purple
+                Color32::from_rgb(25, 125, 135), // Cyan - Warm teal
             ],
         }
     }
@@ -1531,9 +2050,14 @@ impl AppTheme {
             Self::Aurora => Color32::from_rgb(180, 150, 180), // Soft purple
             Self::Graphite => Color32::from_rgb(180, 140, 120), // Copper
             Self::Ink => Color32::from_rgb(160, 160, 170),  // Silver
+            Self::Void => Color32::from_rgb(167, 139, 250), // Bright violet
+            Self::Neon => Color32::from_rgb(168, 85, 247),  // Purple
+            Self::Onyx => Color32::from_rgb(184, 152, 112), // Bronze
 
             // Light themes - muted markers
             Self::Light => Color32::from_rgb(139, 92, 246), // Purple
+            Self::Stockholm => Color32::from_rgb(120, 85, 195), // Muted purple
+            Self::Copenhagen => Color32::from_rgb(130, 90, 180), // Warm purple
         }
     }
 
@@ -1546,11 +2070,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(59, 130, 246),
+            Self::Stockholm => Color32::from_rgb(74, 111, 165), // Steel blue
+            Self::Copenhagen => Color32::from_rgb(55, 95, 145), // Warm blue
             Self::Midnight => Color32::from_rgb(96, 165, 250),
             Self::Ayu => Color32::from_rgb(89, 186, 163),
             Self::Aurora => Color32::from_rgb(139, 198, 198),
             Self::Graphite => Color32::from_rgb(232, 93, 4), // Molten orange
             Self::Ink => Color32::from_rgb(192, 192, 200),   // Pure silver
+            Self::Void => Color32::from_rgb(96, 165, 250),   // Blue
+            Self::Neon => Color32::from_rgb(96, 165, 250),   // Blue
+            Self::Onyx => Color32::from_rgb(130, 160, 210),  // Warm blue
             Self::Dark => Color32::from_rgb(100, 149, 237),
         }
     }
@@ -1560,11 +2089,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.warning,
             Self::Light => Color32::from_rgb(245, 158, 11),
+            Self::Stockholm => Color32::from_rgb(200, 140, 30), // Warm amber
+            Self::Copenhagen => Color32::from_rgb(195, 140, 35), // Warm amber
             Self::Midnight => Color32::from_rgb(251, 191, 36),
             Self::Ayu => Color32::from_rgb(255, 180, 84),
             Self::Aurora => Color32::from_rgb(255, 200, 120),
             Self::Graphite => Color32::from_rgb(255, 180, 80), // Warm orange
             Self::Ink => Color32::from_rgb(220, 200, 140),     // Muted gold
+            Self::Void => Color32::from_rgb(251, 191, 36),     // Amber
+            Self::Neon => Color32::from_rgb(251, 191, 36),     // Amber
+            Self::Onyx => Color32::from_rgb(232, 180, 60),     // Warm amber
             Self::Dark => Color32::from_rgb(255, 165, 0),
         }
     }
@@ -1574,11 +2108,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(220, 38, 38),
+            Self::Stockholm => Color32::from_rgb(190, 40, 40), // Nordic red
+            Self::Copenhagen => Color32::from_rgb(185, 45, 45), // Warm red
             Self::Midnight => Color32::from_rgb(248, 113, 113),
             Self::Ayu => Color32::from_rgb(255, 110, 110),
             Self::Aurora => Color32::from_rgb(248, 113, 113),
             Self::Graphite => Color32::from_rgb(240, 100, 100), // Soft red
             Self::Ink => Color32::from_rgb(200, 110, 120),      // Muted rose
+            Self::Void => Color32::from_rgb(248, 113, 113),     // Red
+            Self::Neon => Color32::from_rgb(248, 113, 113),     // Red
+            Self::Onyx => Color32::from_rgb(230, 100, 100),     // Soft red
             Self::Dark => Color32::from_rgb(220, 53, 69),
         }
     }
@@ -1588,11 +2127,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(156, 163, 175),
+            Self::Stockholm => Color32::from_rgb(140, 150, 165), // Muted blue-gray
+            Self::Copenhagen => Color32::from_rgb(148, 144, 135), // Warm gray
             Self::Midnight => Color32::from_rgb(113, 113, 122),
             Self::Ayu => Color32::from_rgb(90, 100, 110),
             Self::Aurora => Color32::from_rgb(110, 118, 129),
             Self::Graphite => Color32::from_rgb(112, 112, 104), // Tertiary text #707068
             Self::Ink => Color32::from_rgb(96, 96, 112),        // Tertiary text #606070
+            Self::Void => Color32::from_rgb(92, 92, 112),       // Deep muted
+            Self::Neon => Color32::from_rgb(100, 92, 112),      // Deep muted
+            Self::Onyx => Color32::from_rgb(100, 98, 88),       // Dark warm gray
             Self::Dark => Color32::GRAY,
         }
     }
@@ -1606,11 +2150,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.success.gamma_multiply(0.15),
             Self::Light => Color32::from_rgb(230, 255, 237),
+            Self::Stockholm => Color32::from_rgb(232, 248, 238), // Cool green tint
+            Self::Copenhagen => Color32::from_rgb(232, 250, 238), // Warm green tint
             Self::Midnight => Color32::from_rgb(18, 35, 30),
             Self::Ayu => Color32::from_rgb(22, 35, 25),
             Self::Aurora => Color32::from_rgb(20, 40, 35),
             Self::Graphite => Color32::from_rgb(22, 35, 25), // Added bg graphite
             Self::Ink => Color32::from_rgb(20, 30, 28),      // Added bg ink
+            Self::Void => Color32::from_rgb(15, 30, 28),     // Added bg void
+            Self::Neon => Color32::from_rgb(15, 30, 28),     // Added bg neon
+            Self::Onyx => Color32::from_rgb(18, 30, 20),     // Added bg onyx
             Self::Dark => Color32::from_rgb(19, 35, 26),
         }
     }
@@ -1620,11 +2169,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.error.gamma_multiply(0.15),
             Self::Light => Color32::from_rgb(255, 235, 235),
+            Self::Stockholm => Color32::from_rgb(252, 236, 238), // Cool red tint
+            Self::Copenhagen => Color32::from_rgb(252, 238, 236), // Warm red tint
             Self::Midnight => Color32::from_rgb(40, 22, 28),
             Self::Ayu => Color32::from_rgb(40, 25, 25),
             Self::Aurora => Color32::from_rgb(40, 25, 28),
             Self::Graphite => Color32::from_rgb(40, 25, 25), // Removed bg graphite
             Self::Ink => Color32::from_rgb(35, 22, 28),      // Removed bg ink
+            Self::Void => Color32::from_rgb(35, 18, 22),     // Removed bg void
+            Self::Neon => Color32::from_rgb(35, 18, 22),     // Removed bg neon
+            Self::Onyx => Color32::from_rgb(35, 20, 18),     // Removed bg onyx
             Self::Dark => Color32::from_rgb(40, 22, 24),
         }
     }
@@ -1634,11 +2188,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.success.gamma_multiply(0.35),
             Self::Light => Color32::from_rgb(172, 242, 189),
+            Self::Stockholm => Color32::from_rgb(180, 235, 200), // Cool green word
+            Self::Copenhagen => Color32::from_rgb(185, 238, 200), // Warm green word
             Self::Midnight => Color32::from_rgb(30, 70, 55),
             Self::Ayu => Color32::from_rgb(40, 70, 45),
             Self::Aurora => Color32::from_rgb(35, 80, 65),
             Self::Graphite => Color32::from_rgb(45, 70, 45), // Added word graphite
             Self::Ink => Color32::from_rgb(35, 60, 50),      // Added word ink
+            Self::Void => Color32::from_rgb(25, 60, 48),     // Added word void
+            Self::Neon => Color32::from_rgb(25, 60, 48),     // Added word neon
+            Self::Onyx => Color32::from_rgb(30, 55, 35),     // Added word onyx
             Self::Dark => Color32::from_rgb(35, 70, 50),
         }
     }
@@ -1648,11 +2207,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.error.gamma_multiply(0.35),
             Self::Light => Color32::from_rgb(255, 200, 200),
+            Self::Stockholm => Color32::from_rgb(248, 205, 208), // Cool red word
+            Self::Copenhagen => Color32::from_rgb(250, 208, 205), // Warm red word
             Self::Midnight => Color32::from_rgb(80, 40, 45),
             Self::Ayu => Color32::from_rgb(85, 45, 45),
             Self::Aurora => Color32::from_rgb(90, 45, 50),
             Self::Graphite => Color32::from_rgb(85, 45, 45), // Removed word graphite
             Self::Ink => Color32::from_rgb(70, 40, 50),      // Removed word ink
+            Self::Void => Color32::from_rgb(70, 35, 40),     // Removed word void
+            Self::Neon => Color32::from_rgb(70, 35, 40),     // Removed word neon
+            Self::Onyx => Color32::from_rgb(70, 38, 35),     // Removed word onyx
             Self::Dark => Color32::from_rgb(75, 35, 38),
         }
     }
@@ -1662,11 +2226,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(36, 138, 61),
+            Self::Stockholm => Color32::from_rgb(30, 120, 60), // Nordic green text
+            Self::Copenhagen => Color32::from_rgb(35, 125, 55), // Forest green text
             Self::Midnight => Color32::from_rgb(52, 211, 153),
             Self::Ayu => Color32::from_rgb(170, 210, 120),
             Self::Aurora => Color32::from_rgb(126, 232, 184),
             Self::Graphite => Color32::from_rgb(140, 190, 110), // Added text graphite
             Self::Ink => Color32::from_rgb(130, 180, 150),      // Added text ink
+            Self::Void => Color32::from_rgb(52, 211, 153),      // Added text void
+            Self::Neon => Color32::from_rgb(52, 211, 153),      // Added text neon
+            Self::Onyx => Color32::from_rgb(52, 185, 100),      // Added text onyx
             Self::Dark => Color32::from_rgb(126, 231, 135),
         }
     }
@@ -1676,11 +2245,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(207, 34, 46),
+            Self::Stockholm => Color32::from_rgb(190, 40, 50), // Nordic red text
+            Self::Copenhagen => Color32::from_rgb(185, 40, 50), // Warm red text
             Self::Midnight => Color32::from_rgb(248, 113, 113),
             Self::Ayu => Color32::from_rgb(255, 110, 110),
             Self::Aurora => Color32::from_rgb(248, 113, 113),
             Self::Graphite => Color32::from_rgb(240, 100, 100), // Removed text graphite
             Self::Ink => Color32::from_rgb(200, 110, 120),      // Removed text ink
+            Self::Void => Color32::from_rgb(248, 113, 113),     // Removed text void
+            Self::Neon => Color32::from_rgb(248, 113, 113),     // Removed text neon
+            Self::Onyx => Color32::from_rgb(230, 100, 100),     // Removed text onyx
             Self::Dark => Color32::from_rgb(255, 123, 114),
         }
     }
@@ -1690,11 +2264,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(87, 96, 106),
+            Self::Stockholm => Color32::from_rgb(108, 118, 132), // Blue-gray context
+            Self::Copenhagen => Color32::from_rgb(118, 114, 106), // Warm gray context
             Self::Midnight => Color32::from_rgb(113, 113, 122),
             Self::Ayu => Color32::from_rgb(90, 100, 110),
             Self::Aurora => Color32::from_rgb(110, 118, 129),
             Self::Graphite => Color32::from_rgb(112, 112, 104), // Context text graphite
             Self::Ink => Color32::from_rgb(96, 96, 112),        // Context text ink
+            Self::Void => Color32::from_rgb(92, 92, 112),       // Context text void
+            Self::Neon => Color32::from_rgb(100, 92, 112),      // Context text neon
+            Self::Onyx => Color32::from_rgb(100, 98, 88),       // Context text onyx
             Self::Dark => Color32::from_rgb(145, 152, 161),
         }
     }
@@ -1704,11 +2283,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.success,
             Self::Light => Color32::from_rgb(52, 168, 83),
+            Self::Stockholm => Color32::from_rgb(40, 150, 75), // Nordic green gutter
+            Self::Copenhagen => Color32::from_rgb(45, 155, 75), // Green gutter
             Self::Midnight => Color32::from_rgb(52, 211, 153),
             Self::Ayu => Color32::from_rgb(170, 210, 120),
             Self::Aurora => Color32::from_rgb(126, 232, 184),
             Self::Graphite => Color32::from_rgb(140, 190, 110), // Added gutter graphite
             Self::Ink => Color32::from_rgb(130, 180, 150),      // Added gutter ink
+            Self::Void => Color32::from_rgb(52, 211, 153),      // Added gutter void
+            Self::Neon => Color32::from_rgb(52, 211, 153),      // Added gutter neon
+            Self::Onyx => Color32::from_rgb(52, 185, 100),      // Added gutter onyx
             Self::Dark => Color32::from_rgb(63, 185, 80),
         }
     }
@@ -1718,11 +2302,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.error,
             Self::Light => Color32::from_rgb(234, 67, 53),
+            Self::Stockholm => Color32::from_rgb(200, 55, 55), // Nordic red gutter
+            Self::Copenhagen => Color32::from_rgb(210, 60, 55), // Red gutter
             Self::Midnight => Color32::from_rgb(248, 113, 113),
             Self::Ayu => Color32::from_rgb(255, 110, 110),
             Self::Aurora => Color32::from_rgb(248, 113, 113),
             Self::Graphite => Color32::from_rgb(240, 100, 100), // Removed gutter graphite
             Self::Ink => Color32::from_rgb(200, 110, 120),      // Removed gutter ink
+            Self::Void => Color32::from_rgb(248, 113, 113),     // Removed gutter void
+            Self::Neon => Color32::from_rgb(248, 113, 113),     // Removed gutter neon
+            Self::Onyx => Color32::from_rgb(230, 100, 100),     // Removed gutter onyx
             Self::Dark => Color32::from_rgb(248, 81, 73),
         }
     }
@@ -1732,11 +2321,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_muted,
             Self::Light => Color32::from_rgb(140, 150, 160),
+            Self::Stockholm => Color32::from_rgb(140, 150, 168), // Blue-gray line numbers
+            Self::Copenhagen => Color32::from_rgb(148, 144, 135), // Warm gray line numbers
             Self::Midnight => Color32::from_rgb(70, 80, 100),
             Self::Ayu => Color32::from_rgb(60, 70, 80),
             Self::Aurora => Color32::from_rgb(70, 78, 88),
             Self::Graphite => Color32::from_rgb(112, 112, 104), // Line number graphite
             Self::Ink => Color32::from_rgb(96, 96, 112),        // Line number ink
+            Self::Void => Color32::from_rgb(85, 85, 104),       // Line number void
+            Self::Neon => Color32::from_rgb(85, 80, 96),        // Line number neon
+            Self::Onyx => Color32::from_rgb(88, 85, 72),        // Line number onyx
             Self::Dark => Color32::from_rgb(72, 79, 88),
         }
     }
@@ -1746,11 +2340,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(246, 248, 250),
+            Self::Stockholm => Color32::from_rgb(246, 248, 252), // Cool line number bg
+            Self::Copenhagen => Color32::from_rgb(248, 248, 245), // Warm line number bg
             Self::Midnight => Color32::from_rgb(12, 14, 20),
             Self::Ayu => Color32::from_rgb(8, 11, 16),
             Self::Aurora => Color32::from_rgb(10, 14, 18),
             Self::Graphite => Color32::from_rgb(14, 14, 16), // Line number bg graphite
             Self::Ink => Color32::from_rgb(8, 8, 12),        // Line number bg ink
+            Self::Void => Color32::from_rgb(4, 4, 8),        // Line number bg void
+            Self::Neon => Color32::from_rgb(3, 3, 6),        // Line number bg neon
+            Self::Onyx => Color32::from_rgb(8, 8, 6),        // Line number bg onyx
             Self::Dark => Color32::from_rgb(13, 17, 23),
         }
     }
@@ -1760,11 +2359,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.accent_muted,
             Self::Light => Color32::from_rgb(240, 245, 255),
+            Self::Stockholm => Color32::from_rgb(236, 241, 248), // Blue hunk bg
+            Self::Copenhagen => Color32::from_rgb(238, 245, 240), // Sage hunk bg
             Self::Midnight => Color32::from_rgb(20, 30, 55),
             Self::Ayu => Color32::from_rgb(20, 25, 35),
             Self::Aurora => Color32::from_rgb(22, 32, 38),
             Self::Graphite => Color32::from_rgb(30, 25, 20), // Hunk bg graphite
             Self::Ink => Color32::from_rgb(20, 20, 30),      // Hunk bg ink
+            Self::Void => Color32::from_rgb(22, 15, 45),     // Hunk bg void
+            Self::Neon => Color32::from_rgb(35, 15, 30),     // Hunk bg neon
+            Self::Onyx => Color32::from_rgb(30, 28, 18),     // Hunk bg onyx
             Self::Dark => Color32::from_rgb(22, 27, 46),
         }
     }
@@ -1774,11 +2378,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.info,
             Self::Light => Color32::from_rgb(47, 93, 158),
+            Self::Stockholm => Color32::from_rgb(56, 92, 145), // Steel blue hunk text
+            Self::Copenhagen => Color32::from_rgb(60, 100, 65), // Dark sage hunk text
             Self::Midnight => Color32::from_rgb(96, 165, 250),
             Self::Ayu => Color32::from_rgb(89, 186, 163),
             Self::Aurora => Color32::from_rgb(139, 198, 198),
             Self::Graphite => Color32::from_rgb(232, 93, 4), // Hunk text graphite
             Self::Ink => Color32::from_rgb(192, 192, 200),   // Hunk text ink
+            Self::Void => Color32::from_rgb(124, 58, 237),   // Hunk text void
+            Self::Neon => Color32::from_rgb(224, 64, 160),   // Hunk text neon
+            Self::Onyx => Color32::from_rgb(212, 175, 55),   // Hunk text onyx
             Self::Dark => Color32::from_rgb(121, 184, 255),
         }
     }
@@ -1788,11 +2397,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.text_primary,
             Self::Light => Color32::from_rgb(36, 41, 47),
+            Self::Stockholm => Color32::from_rgb(28, 32, 38), // Cool near-black header
+            Self::Copenhagen => Color32::from_rgb(32, 30, 28), // Warm near-black header
             Self::Midnight => Color32::from_rgb(228, 228, 231),
             Self::Ayu => Color32::from_rgb(191, 189, 182),
             Self::Aurora => Color32::from_rgb(230, 237, 243),
             Self::Graphite => Color32::from_rgb(232, 230, 224), // File header graphite
             Self::Ink => Color32::from_rgb(228, 228, 236),      // File header ink
+            Self::Void => Color32::from_rgb(232, 232, 240),     // File header void
+            Self::Neon => Color32::from_rgb(232, 232, 240),     // File header neon
+            Self::Onyx => Color32::from_rgb(220, 216, 204),     // File header onyx
             Self::Dark => Color32::from_rgb(201, 209, 217),
         }
     }
@@ -1802,11 +2416,16 @@ impl AppTheme {
         match self {
             Self::Custom(colors) => colors.bg_surface,
             Self::Light => Color32::from_rgb(246, 248, 250),
+            Self::Stockholm => Color32::from_rgb(244, 245, 248), // Cool file header bg
+            Self::Copenhagen => Color32::from_rgb(245, 244, 240), // Warm surface
             Self::Midnight => Color32::from_rgb(16, 18, 26),
             Self::Ayu => Color32::from_rgb(12, 16, 22),
             Self::Aurora => Color32::from_rgb(18, 22, 28),
             Self::Graphite => Color32::from_rgb(22, 22, 24), // File header bg graphite
             Self::Ink => Color32::from_rgb(14, 14, 20),      // File header bg ink
+            Self::Void => Color32::from_rgb(8, 8, 14),       // File header bg void
+            Self::Neon => Color32::from_rgb(12, 10, 16),     // File header bg neon
+            Self::Onyx => Color32::from_rgb(18, 18, 16),     // File header bg onyx
             Self::Dark => Color32::from_rgb(22, 27, 34),
         }
     }
