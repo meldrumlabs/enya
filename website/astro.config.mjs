@@ -18,11 +18,6 @@ export default defineConfig({
 			title: 'Enya',
 			description: 'Enya',
 			favicon: '/favicon.ico',
-			logo: {
-				src: './public/img/enya.png',
-				alt: 'Enya',
-				replacesTitle: true,
-			},
 			social: [],
 			components: {
 				// Override the default header to remove theme and i18n selectors.
