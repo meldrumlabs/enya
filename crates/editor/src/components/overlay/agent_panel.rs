@@ -1885,7 +1885,7 @@ impl AgentPanel {
             ui.add_space(16.0);
 
             ui.vertical(|ui| {
-                // Role label with icon and copy button
+                // Role label with icon and copy button on the same row
                 let header_response = ui.horizontal(|ui| {
                     match message.role {
                         MessageRole::User => {
@@ -1936,36 +1936,42 @@ impl AgentPanel {
                     );
                 });
 
-                // Show copy button on hover (to the right of the header)
+                // Show copy button on hover (inline to the right of the header)
                 let header_rect = header_response.response.rect;
                 let hover_area = header_rect.expand2(egui::vec2(100.0, 4.0));
                 let is_hovering = ui.rect_contains_pointer(hover_area);
 
                 if is_hovering && !message.content.is_empty() {
-                    ui.horizontal(|ui| {
-                        ui.add_space(header_rect.width() + 8.0);
-                        let copy_btn = ui.add(
-                            egui::Button::new(
-                                RichText::new(egui_nerdfonts::regular::CONTENT_COPY)
-                                    .size(12.0)
-                                    .color(text_tertiary),
-                            )
-                            .frame(false),
+                    // Paint the copy button to the right of the header on the same line
+                    let btn_size = egui::vec2(18.0, 18.0);
+                    let btn_pos = egui::pos2(
+                        header_rect.right() + 8.0,
+                        header_rect.center().y - btn_size.y / 2.0,
+                    );
+                    let btn_rect = egui::Rect::from_min_size(btn_pos, btn_size);
+
+                    let copy_btn =
+                        ui.interact(btn_rect, ui.id().with("copy_msg"), egui::Sense::click());
+
+                    if copy_btn.hovered() {
+                        ui.painter().rect_filled(
+                            btn_rect.expand(2.0),
+                            CornerRadius::same(3),
+                            colors.hover_bg(),
                         );
+                    }
 
-                        if copy_btn.hovered() {
-                            let rect = copy_btn.rect.expand(3.0);
-                            ui.painter().rect_filled(
-                                rect,
-                                CornerRadius::same(3),
-                                colors.hover_bg(),
-                            );
-                        }
+                    ui.painter().text(
+                        btn_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        egui_nerdfonts::regular::CONTENT_COPY,
+                        egui::FontId::proportional(12.0),
+                        text_tertiary,
+                    );
 
-                        if copy_btn.on_hover_text("Copy message").clicked() {
-                            ui.ctx().copy_text(message.content.clone());
-                        }
-                    });
+                    if copy_btn.on_hover_text("Copy message").clicked() {
+                        ui.ctx().copy_text(message.content.clone());
+                    }
                 }
                 ui.add_space(4.0);
 

@@ -296,8 +296,6 @@ pub struct StatusLine {
     mode: StatusMode,
     /// Agent provider name (e.g., "Claude", "Codex") - shown as mode badge when in Agent mode
     agent_provider_name: Option<String>,
-    /// Connection status
-    is_connected: bool,
     /// Number of open charts/tabs
     open_tabs: usize,
     /// Currently selected metric (if any)
@@ -312,8 +310,6 @@ pub struct StatusLine {
     sparkline: Option<Sparkline>,
     /// Timestamp of last data refresh (for relative time display)
     last_refresh: Option<crate::util::Instant>,
-    /// Diagnostics counts (errors, warnings, infos)
-    diagnostics_count: (usize, usize, usize),
     /// Codebase operation status
     codebase_status: Option<CodebaseStatusInfo>,
     /// Whether zen mode is active (display preference badge)
@@ -332,7 +328,6 @@ impl Default for StatusLine {
             theme: AppTheme::default(),
             mode: StatusMode::Normal,
             agent_provider_name: None,
-            is_connected: false,
             open_tabs: 0,
             selected_metric: None,
             branch_info: None,
@@ -340,7 +335,6 @@ impl Default for StatusLine {
             extra_status: None,
             sparkline: None,
             last_refresh: None,
-            diagnostics_count: (0, 0, 0),
             codebase_status: None,
             is_zen_mode: false,
             is_fullscreen: false,
@@ -371,11 +365,6 @@ impl StatusLine {
         self.agent_provider_name = name;
     }
 
-    /// Set the connection status
-    pub fn set_connected(&mut self, connected: bool) {
-        self.is_connected = connected;
-    }
-
     /// Set the number of open tabs
     pub fn set_open_tabs(&mut self, count: usize) {
         self.open_tabs = count;
@@ -404,11 +393,6 @@ impl StatusLine {
     /// Set a sparkline to display in the status bar
     pub fn set_sparkline(&mut self, sparkline: Option<Sparkline>) {
         self.sparkline = sparkline;
-    }
-
-    /// Set diagnostics counts (errors, warnings, infos)
-    pub fn set_diagnostics_count(&mut self, errors: usize, warnings: usize, infos: usize) {
-        self.diagnostics_count = (errors, warnings, infos);
     }
 
     /// Set codebase status info
@@ -747,51 +731,10 @@ impl StatusLine {
         }
     }
 
-    /// Get the single health indicator for the minimalist status line
-    /// Returns (icon, color, tooltip_text)
-    fn get_health_indicator(&self) -> (&'static str, Color32, &'static str) {
-        let (errors, warnings, _) = self.diagnostics_count;
-
-        if errors > 0 {
-            (
-                semantic_icons::diagnostic::ERROR,
-                self.theme.semantic_error(),
-                "Errors detected (Space+d)",
-            )
-        } else if !self.is_connected {
-            (
-                semantic_icons::status::DISCONNECTED,
-                self.theme.semantic_error(),
-                "Connection lost (Space+d)",
-            )
-        } else if warnings > 0 {
-            (
-                semantic_icons::diagnostic::WARNING,
-                self.theme.semantic_warning(),
-                "Warnings present (Space+d)",
-            )
-        } else {
-            (
-                semantic_icons::status::SUCCESS,
-                self.theme.semantic_success(),
-                "All systems operational (Space+d)",
-            )
-        }
-    }
-
     /// Render the right section of the status line (minimalist design)
     fn render_right_section(&self, ui: &mut Ui, height: f32, padding: f32) {
         ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-            // Health indicator (far right) - simple colored icon with tooltip
-            let (icon, color, tooltip) = self.get_health_indicator();
             ui.add_space(padding);
-            let response = ui.label(egui::RichText::new(icon).color(color).size(typography::MD));
-            if response.hovered() {
-                response.show_tooltip_text(tooltip);
-            }
-
-            // Separator between health indicator and codebase status
-            self.render_separator_rtl(ui, height);
 
             // Codebase status (repo name + commit message, or indexing state)
             if let Some(ref status) = self.codebase_status {
@@ -914,24 +857,6 @@ impl StatusLine {
                 }
             }
         });
-    }
-
-    /// Render a subtle separator between segments (right-to-left)
-    fn render_separator_rtl(&self, ui: &mut Ui, height: f32) {
-        let separator_width = 20.0; // Slightly wider for breathing room
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(separator_width, height), egui::Sense::hover());
-
-        if ui.is_rect_visible(rect) {
-            // Premium: use a thin vertical line instead of chevron for cleaner look
-            let line_color = self.theme.text_secondary().gamma_multiply(0.15);
-            let center_x = rect.center().x;
-            ui.painter().vline(
-                center_x,
-                egui::Rangef::new(rect.min.y + 6.0, rect.max.y - 6.0),
-                egui::Stroke::new(1.0, line_color),
-            );
-        }
     }
 
     /// Render a single segment (left-to-right)

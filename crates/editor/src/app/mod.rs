@@ -546,12 +546,6 @@ impl EnyaApp {
             } else {
                 Some(multi_buffer_status)
             });
-        // Set diagnostics count
-        let (errors, warnings, infos) = self.workspace.diagnostics_count_by_level();
-        self.status_line
-            .set_diagnostics_count(errors, warnings, infos);
-        // Set connection status based on Prometheus health check
-        self.status_line.set_connected(self.workspace.is_online());
         // Set workspace name in status bar
         self.status_line
             .set_workspace_name(self.workspace.loaded_name().map(|s| s.to_string()));
