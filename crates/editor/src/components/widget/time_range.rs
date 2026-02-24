@@ -270,14 +270,43 @@ impl TimeRangeToolbar {
         // Use subtle selection background like landing page
         let selected_bg = accent_color.gamma_multiply(0.12);
 
+        // Check available width for progressive hiding of presets
+        let available_width = ui.available_width();
+
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
 
-            // Time range presets
+            // Determine which presets to show based on available width.
+            // Always show the currently selected preset regardless of width.
+            // Wide (>600): all 7 presets
+            // Medium (>400): core presets (5m, 15m, 1h, 24h)
+            // Narrow (<=400): minimal (5m, 15m, 1h)
+            let core_presets: &[TimeRangePreset] = &[
+                TimeRangePreset::Last5Minutes,
+                TimeRangePreset::Last15Minutes,
+                TimeRangePreset::Last1Hour,
+                TimeRangePreset::Last24Hours,
+            ];
+            let minimal_presets: &[TimeRangePreset] = &[
+                TimeRangePreset::Last5Minutes,
+                TimeRangePreset::Last15Minutes,
+                TimeRangePreset::Last1Hour,
+            ];
+
             for preset in TimeRangePreset::all_presets() {
                 let is_selected = self.time_range.preset == *preset;
-                let label = preset.label();
 
+                // Always show the selected preset; otherwise filter by width
+                if !is_selected {
+                    if available_width <= 400.0 && !minimal_presets.contains(preset) {
+                        continue;
+                    }
+                    if available_width <= 600.0 && !core_presets.contains(preset) {
+                        continue;
+                    }
+                }
+
+                let label = preset.label();
                 let button = if is_selected {
                     egui::Button::new(RichText::new(label).color(accent_color).strong())
                         .fill(selected_bg)
@@ -293,18 +322,19 @@ impl TimeRangeToolbar {
 
             ui.separator();
 
-            // Custom range button (future: opens a date picker)
+            // Custom range button — hide label text when narrow
+            let custom_label = if available_width > 500.0 {
+                format!("{} Custom", semantic_icons::time::CALENDAR)
+            } else {
+                semantic_icons::time::CALENDAR.to_string()
+            };
+
             let custom_button = if self.time_range.preset == TimeRangePreset::Custom {
-                egui::Button::new(
-                    RichText::new(format!("{} Custom", semantic_icons::time::CALENDAR))
-                        .color(accent_color)
-                        .strong(),
-                )
-                .fill(selected_bg)
+                egui::Button::new(RichText::new(&custom_label).color(accent_color).strong())
+                    .fill(selected_bg)
             } else {
                 egui::Button::new(
-                    RichText::new(format!("{} Custom", semantic_icons::time::CALENDAR))
-                        .color(text_color.gamma_multiply(0.7)),
+                    RichText::new(&custom_label).color(text_color.gamma_multiply(0.7)),
                 )
             };
 
@@ -342,14 +372,15 @@ impl TimeRangeToolbar {
                 self.changed = true;
             }
 
-            ui.separator();
-
-            // Show current range description
-            ui.label(
-                RichText::new(self.time_range.format_range())
-                    .color(text_color.gamma_multiply(0.6))
-                    .small(),
-            );
+            // Range description — only show when there's enough room
+            if available_width > 500.0 {
+                ui.separator();
+                ui.label(
+                    RichText::new(self.time_range.format_range())
+                        .color(text_color.gamma_multiply(0.6))
+                        .small(),
+                );
+            }
         });
     }
 }

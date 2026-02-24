@@ -975,28 +975,6 @@ impl Workspace {
                     .show_inside(ui, |ui| {
                         ui.add_space(4.0);
 
-                        let toolbar_rect = ui.available_rect_before_wrap();
-
-                        // Only show keyboard hints when there are panes open and
-                        // enough horizontal space to avoid overlapping with the
-                        // filter input (~220px) and time range controls (~550px)
-                        if total_panes > 0 && toolbar_rect.width() > 850.0 {
-                            let hint_color = self.theme().text_tertiary();
-                            let hint_text = "hjkl navigate   : cmd   ? help";
-                            let font = egui::FontId::proportional(11.0);
-                            let hint_galley = ui.painter().layout_no_wrap(
-                                hint_text.to_string(),
-                                font.clone(),
-                                hint_color,
-                            );
-                            let hint_pos = egui::pos2(
-                                toolbar_rect.center().x - hint_galley.size().x / 2.0,
-                                toolbar_rect.center().y - hint_galley.size().y / 2.0,
-                            );
-                            ui.painter().galley(hint_pos, hint_galley, hint_color);
-                        }
-
-                        // Now draw the interactive elements on top
                         ui.horizontal(|ui| {
                             // Left side: Filter input
                             match self.viewport_filter.show_inline(ui) {
@@ -1009,11 +987,43 @@ impl Workspace {
                                 ViewportFilterResult::None => {}
                             }
 
-                            // Flexible spacer to push time controls to the right
+                            // Right side: time range controls (laid out right-to-left)
+                            // Measure remaining space so we can center hints in the gap
+                            let remaining_rect = ui.available_rect_before_wrap();
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     self.time_range_toolbar.show_with_countdown(ui, countdown);
+
+                                    // Keyboard hints centered in whatever space remains
+                                    // between the filter (left) and time controls (right).
+                                    // ui.available_width() here is the gap after time controls
+                                    // consumed their share from the right.
+                                    if total_panes > 0 {
+                                        let gap = ui.available_width();
+                                        let hint_text = "hjkl navigate   : cmd   ? help";
+                                        let hint_color = self.theme().text_tertiary();
+                                        let font = egui::FontId::proportional(11.0);
+                                        let hint_galley = ui.painter().layout_no_wrap(
+                                            hint_text.to_string(),
+                                            font,
+                                            hint_color,
+                                        );
+                                        // Only paint if the hints fit with some breathing room
+                                        if hint_galley.size().x + 32.0 < gap {
+                                            let hint_pos = egui::pos2(
+                                                remaining_rect.left()
+                                                    + (gap - hint_galley.size().x) / 2.0,
+                                                remaining_rect.center().y
+                                                    - hint_galley.size().y / 2.0,
+                                            );
+                                            ui.painter().galley(
+                                                hint_pos,
+                                                hint_galley,
+                                                hint_color,
+                                            );
+                                        }
+                                    }
                                 },
                             );
                         });

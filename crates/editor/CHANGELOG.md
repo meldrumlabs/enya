@@ -4,6 +4,14 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Responsive time range toolbar**: Preset buttons, custom range label, and range description now progressively hide as the toolbar narrows to prevent overlapping text.
+
+### Removed
+
+- **Health indicator icon from status line**: Removed the online/offline health icon from the far right of the status bar for a cleaner look.
+
 ### Added
 
 - **Model selection for AI agents**: Selecting a model in settings (e.g., Sonnet 4.5, Haiku 4.5, Opus 4.6) now correctly routes to that model via `session/set_model` ACP call. Previously, the agent's own default always overrode the selection.

@@ -71,13 +71,12 @@ fn bench_status_line(c: &mut Criterion) {
     group.bench_function("full", |b| {
         let mut status_line = StatusLine::new();
         status_line.set_mode(StatusMode::Normal);
-        status_line.set_connected(true);
+
         status_line.set_open_tabs(5);
         status_line.set_selected_metric(Some("http_requests_total".to_string()));
         status_line.set_branch_info(Some("main".to_string()));
         status_line.set_viewport_info(Some("2x2 grid".to_string()));
         status_line.set_extra_status(Some("3 files modified".to_string()));
-        status_line.set_diagnostics_count(2, 5, 10);
         status_line.mark_refresh();
 
         b.iter(|| {
@@ -91,7 +90,6 @@ fn bench_status_line(c: &mut Criterion) {
     group.bench_function("with_sparkline", |b| {
         let mut status_line = StatusLine::new();
         status_line.set_mode(StatusMode::Normal);
-        status_line.set_connected(true);
 
         let mut sparkline = Sparkline::new("fps").with_unit("").with_bounds(0.0, 100.0);
         for i in 0..15 {
@@ -116,7 +114,6 @@ fn bench_status_line(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("mode", mode.label()), &mode, |b, &mode| {
             let mut status_line = StatusLine::new();
             status_line.set_mode(mode);
-            status_line.set_connected(true);
             status_line.set_open_tabs(3);
 
             b.iter(|| {
