@@ -264,18 +264,253 @@ mod tests {
         }
     }
 
+    // -- ToolOutput --
+
     #[test]
-    fn test_tool_registry() {
+    fn tool_output_text_to_content() {
+        let output = ToolOutput::Text("hello".to_string());
+        assert_eq!(output.to_content(), "hello");
+    }
+
+    #[test]
+    fn tool_output_json_to_content() {
+        let output = ToolOutput::Json(serde_json::json!({"key": "value"}));
+        let content = output.to_content();
+        assert!(content.contains("\"key\""));
+        assert!(content.contains("\"value\""));
+    }
+
+    #[test]
+    fn tool_output_from_string() {
+        let output: ToolOutput = "hello".to_string().into();
+        assert_eq!(output.to_content(), "hello");
+    }
+
+    #[test]
+    fn tool_output_from_str() {
+        let output: ToolOutput = "hello".into();
+        assert_eq!(output.to_content(), "hello");
+    }
+
+    #[test]
+    fn tool_output_from_json_value() {
+        let output: ToolOutput = serde_json::json!(42).into();
+        assert_eq!(output.to_content(), "42");
+    }
+
+    // -- ToolCategory serialization --
+
+    #[test]
+    fn tool_category_serialization() {
+        assert_eq!(
+            serde_json::to_string(&ToolCategory::Metrics).unwrap(),
+            "\"metrics\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ToolCategory::Codebase).unwrap(),
+            "\"codebase\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ToolCategory::Alerts).unwrap(),
+            "\"alerts\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ToolCategory::Dangerous).unwrap(),
+            "\"dangerous\""
+        );
+    }
+
+    #[test]
+    fn tool_category_deserialization() {
+        let cat: ToolCategory = serde_json::from_str("\"metrics\"").unwrap();
+        assert_eq!(cat, ToolCategory::Metrics);
+    }
+
+    // -- ToolError --
+
+    #[test]
+    fn tool_error_display() {
+        assert_eq!(
+            ToolError::InvalidInput("bad".into()).to_string(),
+            "Invalid input: bad"
+        );
+        assert_eq!(
+            ToolError::NotFound("foo".into()).to_string(),
+            "Tool not found: foo"
+        );
+        assert_eq!(
+            ToolError::ExecutionFailed("crash".into()).to_string(),
+            "Execution failed: crash"
+        );
+        assert_eq!(
+            ToolError::PermissionDenied("nope".into()).to_string(),
+            "Permission denied: nope"
+        );
+        assert_eq!(ToolError::Timeout(5000).to_string(), "Timeout after 5000ms");
+    }
+
+    // -- ToolRegistry --
+
+    #[test]
+    fn registry_starts_empty() {
+        let registry = ToolRegistry::new();
+        assert!(registry.is_empty());
+        assert_eq!(registry.len(), 0);
+    }
+
+    #[test]
+    fn registry_register_and_get() {
         let mut registry = ToolRegistry::new();
         registry.register(EchoTool);
 
         assert_eq!(registry.len(), 1);
+        assert!(!registry.is_empty());
         assert!(registry.get("echo").is_some());
         assert!(registry.get("unknown").is_none());
+    }
+
+    #[test]
+    fn registry_definitions() {
+        let mut registry = ToolRegistry::new();
+        registry.register(EchoTool);
+
+        let defs = registry.definitions();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].name, "echo");
+        assert_eq!(defs[0].description, "Echoes back the input");
+    }
+
+    #[test]
+    fn registry_execute_success() {
+        let mut registry = ToolRegistry::new();
+        registry.register(EchoTool);
 
         let ctx = EmptyContext;
         let result = registry.execute("echo", serde_json::json!({"message": "hello"}), &ctx);
         assert!(result.is_ok());
         assert_eq!(result.unwrap().to_content(), "hello");
+    }
+
+    #[test]
+    fn registry_execute_not_found() {
+        let registry = ToolRegistry::new();
+        let ctx = EmptyContext;
+        let result = registry.execute("missing", serde_json::json!({}), &ctx);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ToolError::NotFound(name) => assert_eq!(name, "missing"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn registry_execute_invalid_input() {
+        let mut registry = ToolRegistry::new();
+        registry.register(EchoTool);
+
+        let ctx = EmptyContext;
+        // EchoTool requires "message" field
+        let result = registry.execute("echo", serde_json::json!({}), &ctx);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ToolError::InvalidInput(msg) => assert!(msg.contains("message")),
+            other => panic!("expected InvalidInput, got {other:?}"),
+        }
+    }
+
+    struct MetricsTool;
+    impl AgentTool for MetricsTool {
+        fn name(&self) -> &'static str {
+            "query"
+        }
+        fn description(&self) -> &'static str {
+            "Query metrics"
+        }
+        fn category(&self) -> ToolCategory {
+            ToolCategory::Metrics
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn run(&self, _input: serde_json::Value, _ctx: &dyn ToolContext) -> ToolResult {
+            Ok(ToolOutput::Text("result".into()))
+        }
+    }
+
+    struct DangerousTool;
+    impl AgentTool for DangerousTool {
+        fn name(&self) -> &'static str {
+            "shell"
+        }
+        fn description(&self) -> &'static str {
+            "Run shell command"
+        }
+        fn category(&self) -> ToolCategory {
+            ToolCategory::Dangerous
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object"})
+        }
+        fn run(&self, _input: serde_json::Value, _ctx: &dyn ToolContext) -> ToolResult {
+            Ok(ToolOutput::Text("done".into()))
+        }
+    }
+
+    #[test]
+    fn registry_definitions_for_categories() {
+        let mut registry = ToolRegistry::new();
+        registry.register(EchoTool); // Codebase
+        registry.register(MetricsTool); // Metrics
+        registry.register(DangerousTool); // Dangerous
+
+        let safe = registry.definitions_for_categories(&[ToolCategory::Metrics]);
+        assert_eq!(safe.len(), 1);
+        assert_eq!(safe[0].name, "query");
+
+        let multiple =
+            registry.definitions_for_categories(&[ToolCategory::Metrics, ToolCategory::Codebase]);
+        assert_eq!(multiple.len(), 2);
+    }
+
+    #[test]
+    fn registry_definitions_excluding() {
+        let mut registry = ToolRegistry::new();
+        registry.register(EchoTool); // Codebase
+        registry.register(MetricsTool); // Metrics
+        registry.register(DangerousTool); // Dangerous
+
+        let safe = registry.definitions_excluding(&[ToolCategory::Dangerous]);
+        assert_eq!(safe.len(), 2);
+        assert!(safe.iter().all(|d| d.name != "shell"));
+    }
+
+    // -- AgentTool::to_definition --
+
+    #[test]
+    fn tool_to_definition() {
+        let tool = EchoTool;
+        let def = tool.to_definition();
+        assert_eq!(def.name, "echo");
+        assert_eq!(def.description, "Echoes back the input");
+        assert!(def.input_schema["properties"]["message"].is_object());
+    }
+
+    // -- ToolContext downcast --
+
+    #[test]
+    fn tool_context_downcast() {
+        struct MyContext {
+            value: i32,
+        }
+        impl ToolContext for MyContext {
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+        }
+
+        let ctx = MyContext { value: 42 };
+        let any = ctx.as_any();
+        let downcasted = any.downcast_ref::<MyContext>().unwrap();
+        assert_eq!(downcasted.value, 42);
     }
 }

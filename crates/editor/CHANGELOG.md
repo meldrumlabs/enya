@@ -6,6 +6,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Added
 
+- **Model selection for AI agents**: Selecting a model in settings (e.g., Sonnet 4.5, Haiku 4.5, Opus 4.6) now correctly routes to that model via `session/set_model` ACP call. Previously, the agent's own default always overrode the selection.
+
+- **Provider switching**: Switching between Claude Code and Codex in settings now correctly spawns the right agent subprocess. The persistent client is recreated on provider change, and the correct model defaults are resolved per provider.
+
 - **System theme**: New "System" theme option that automatically follows the OS light/dark preference in real-time. Appears as the first option in the style picker. On first launch, the editor now defaults to System instead of Dark.
 
 - **Project sidebar**: New always-visible left sidebar panel showing all workspaces. Click to switch workspaces, toggle visibility with `[`. Replaces the modal workspace finder as the primary workspace navigation. The active workspace name is also shown in the status bar.

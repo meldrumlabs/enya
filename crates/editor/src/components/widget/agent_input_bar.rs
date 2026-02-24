@@ -12,7 +12,7 @@ use egui::{Color32, Key, RichText, ScrollArea, TextEdit};
 use egui_tiles::TileId;
 
 #[cfg(not(target_arch = "wasm32"))]
-use enya_ai::{AcpClient, AgentEvent};
+use enya_ai::{AgentConfig, AgentEvent, PersistentAcpClient};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Receiver;
 
@@ -182,7 +182,16 @@ pub struct AgentInputBar {
     /// Event receiver for streaming AI responses (native only)
     #[cfg(not(target_arch = "wasm32"))]
     event_receiver: Option<Receiver<AgentEvent>>,
-    /// Tokio runtime handle for spawning async tasks
+    /// Persistent ACP client that keeps a warm subprocess across prompts
+    #[cfg(not(target_arch = "wasm32"))]
+    persistent_client: Option<PersistentAcpClient>,
+    /// Selected AI model ID (e.g., "claude-sonnet-4-5-20250514")
+    #[cfg(not(target_arch = "wasm32"))]
+    selected_model: Option<String>,
+    /// Current AI provider (for detecting provider changes)
+    #[cfg(not(target_arch = "wasm32"))]
+    selected_provider: crate::components::util::AiProvider,
+    /// Tokio runtime handle (kept for recreating the persistent client on provider change)
     #[cfg(not(target_arch = "wasm32"))]
     runtime_handle: Option<tokio::runtime::Handle>,
 }
@@ -225,13 +234,19 @@ impl AgentInputBar {
             #[cfg(not(target_arch = "wasm32"))]
             event_receiver: None,
             #[cfg(not(target_arch = "wasm32"))]
+            persistent_client: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            selected_model: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            selected_provider: crate::components::util::AiProvider::Claude,
+            #[cfg(not(target_arch = "wasm32"))]
             runtime_handle: None,
         }
     }
 
     /// Create a new agent input bar with a tokio runtime handle
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_with_runtime(runtime_handle: tokio::runtime::Handle) -> Self {
+    pub fn new_with_runtime(runtime_handle: &tokio::runtime::Handle) -> Self {
         Self {
             state: AgentInputState::Ready,
             input: String::new(),
@@ -259,7 +274,10 @@ impl AgentInputBar {
             prev_state: AgentInputState::Ready,
             transition_t: 1.0,
             event_receiver: None,
-            runtime_handle: Some(runtime_handle),
+            persistent_client: None, // Created on first set_provider_and_model call
+            selected_model: None,
+            selected_provider: crate::components::util::AiProvider::Claude,
+            runtime_handle: Some(runtime_handle.clone()),
         }
     }
 
@@ -273,6 +291,59 @@ impl AgentInputBar {
     /// Set the current AI provider name (e.g., "Claude", "Codex")
     pub fn set_provider_name(&mut self, name: &str) {
         self.provider_name = name.to_string();
+    }
+
+    /// Update the AI provider and model.
+    ///
+    /// If the provider changes, the persistent client is recreated with the
+    /// new agent config (e.g., switching from Claude Code to Codex).
+    /// The model is passed to each prompt so the ACP agent uses the right one.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_provider_and_model(
+        &mut self,
+        provider: crate::components::util::AiProvider,
+        model: Option<String>,
+    ) {
+        use crate::components::util::AiProvider;
+
+        log::debug!(
+            "set_provider_and_model: provider={}, model={:?}",
+            provider.display_name(),
+            model,
+        );
+
+        self.provider_name = provider.display_name().to_string();
+
+        // Create or recreate persistent client when provider changes
+        // (also creates the initial client on first call after startup)
+        if provider != self.selected_provider || self.persistent_client.is_none() {
+            let new_config = match provider {
+                AiProvider::Claude => AgentConfig::claude_code(),
+                AiProvider::Codex => AgentConfig::codex(),
+            };
+
+            if let Some(handle) = &self.runtime_handle {
+                log::debug!(
+                    "creating persistent ACP client for provider: {}",
+                    provider.display_name()
+                );
+                self.persistent_client = Some(PersistentAcpClient::new(new_config, handle));
+            }
+
+            self.selected_provider = provider;
+        }
+
+        self.selected_model = model;
+    }
+
+    /// Pre-warm the agent subprocess so the first prompt is fast.
+    ///
+    /// Call this when the user enters agent mode (before they type anything).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn warmup(&self) {
+        if let Some(client) = &self.persistent_client {
+            client.warmup();
+        }
     }
 
     /// Set available metrics for @ mention autocomplete
@@ -1919,16 +1990,27 @@ impl AgentInputBar {
         // Get working directory
         let working_dir = std::env::current_dir().ok();
 
-        // Create Claude Code client
-        let client = if let Some(handle) = &self.runtime_handle {
-            AcpClient::claude_code_with_runtime(handle.clone())
-        } else {
-            AcpClient::claude_code()
-        };
+        // Resolve the effective model: use selected model, or fall back to
+        // the provider's default from the manifest.
+        let effective_model = self.selected_model.clone().or_else(|| {
+            crate::components::util::ProviderManifest::default_model_id_for(self.selected_provider)
+        });
 
-        // Send the query with system context (not concatenated into the query)
-        let receiver = client.prompt_with_context(query, working_dir, None, system_context);
-        self.event_receiver = Some(receiver);
+        // Send via persistent client (reuses warm subprocess)
+        if let Some(client) = &self.persistent_client {
+            let receiver = client.prompt_with_context(
+                query,
+                working_dir,
+                effective_model.as_deref(),
+                system_context,
+            );
+            self.event_receiver = Some(receiver);
+        } else {
+            log::error!("no persistent ACP client available");
+            self.state = AgentInputState::Response;
+            self.response_text = "AI agent not available (no runtime)".to_string();
+            self.display_text = self.response_text.clone();
+        }
     }
 
     /// Send a query (WASM version - not supported)

@@ -75,6 +75,7 @@ pub fn run_native_app(startup_workspace: Option<String>) -> Result<(), Box<dyn s
         .with_level(log::LevelFilter::Warn)
         .env()
         .with_module_level("enya_editor", log::LevelFilter::Info)
+        .with_module_level("enya_ai", log::LevelFilter::Info)
         .init()
         .unwrap();
 
