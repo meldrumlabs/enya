@@ -7,8 +7,6 @@ use std::path::PathBuf;
 pub enum AgentKind {
     /// Claude Code (Anthropic)
     ClaudeCode,
-    /// Gemini CLI (Google)
-    GeminiCli,
     /// Codex (OpenAI)
     Codex,
     /// Custom agent
@@ -21,7 +19,6 @@ impl AgentKind {
     pub fn display_name(self) -> &'static str {
         match self {
             Self::ClaudeCode => "Claude Code",
-            Self::GeminiCli => "Gemini CLI",
             Self::Codex => "Codex",
             Self::Custom => "Custom Agent",
         }
@@ -82,19 +79,6 @@ impl AgentConfig {
         Self {
             command: path.into(),
             ..Self::claude_code()
-        }
-    }
-
-    /// Create a configuration for Gemini CLI.
-    #[must_use]
-    pub fn gemini_cli() -> Self {
-        Self {
-            kind: AgentKind::GeminiCli,
-            command: "gemini".to_string(),
-            args: vec!["--acp".to_string()],
-            working_dir: None,
-            env: vec![],
-            env_remove: vec![],
         }
     }
 
@@ -167,7 +151,6 @@ mod tests {
     #[test]
     fn agent_kind_display_names() {
         assert_eq!(AgentKind::ClaudeCode.display_name(), "Claude Code");
-        assert_eq!(AgentKind::GeminiCli.display_name(), "Gemini CLI");
         assert_eq!(AgentKind::Codex.display_name(), "Codex");
         assert_eq!(AgentKind::Custom.display_name(), "Custom Agent");
     }
@@ -215,14 +198,6 @@ mod tests {
                 .args
                 .contains(&"@zed-industries/claude-code-acp".to_string())
         );
-    }
-
-    #[test]
-    fn gemini_cli_config() {
-        let config = AgentConfig::gemini_cli();
-        assert_eq!(config.kind, AgentKind::GeminiCli);
-        assert_eq!(config.command, "gemini");
-        assert_eq!(config.args, vec!["--acp"]);
     }
 
     #[test]

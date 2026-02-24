@@ -31,7 +31,6 @@ pub(super) const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// # Supported Agents
 ///
 /// - Claude Code (`claude --acp`)
-/// - Gemini CLI (`gemini --acp`)
 /// - Codex (`codex --acp`)
 /// - Any ACP-compatible agent
 pub struct AcpClient {
@@ -72,12 +71,6 @@ impl AcpClient {
     #[must_use]
     pub fn claude_code_with_runtime(runtime: tokio::runtime::Handle) -> Self {
         Self::with_runtime(AgentConfig::claude_code(), runtime)
-    }
-
-    /// Create a new ACP client configured for Gemini CLI.
-    #[must_use]
-    pub fn gemini_cli() -> Self {
-        Self::new(AgentConfig::gemini_cli())
     }
 
     /// Create a new ACP client configured for Codex.
@@ -591,15 +584,6 @@ mod tests {
         assert_eq!(
             client.config().kind,
             super::super::config::AgentKind::ClaudeCode
-        );
-    }
-
-    #[test]
-    fn test_acp_client_gemini() {
-        let client = AcpClient::gemini_cli();
-        assert_eq!(
-            client.config().kind,
-            super::super::config::AgentKind::GeminiCli
         );
     }
 

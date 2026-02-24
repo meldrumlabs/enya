@@ -59,7 +59,7 @@ struct WarmProcess {
 /// [`prompt_with_context`](Self::prompt_with_context) to send prompts
 /// without the cold-start penalty.
 ///
-/// Works with any ACP-compatible agent (Claude Code, Codex, Gemini CLI, custom).
+/// Works with any ACP-compatible agent (Claude Code, Codex, or custom).
 pub struct PersistentAcpClient {
     command_tx: tokio_mpsc::UnboundedSender<SessionCommand>,
 }

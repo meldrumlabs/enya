@@ -13,7 +13,7 @@
 //! # Using ACP (Recommended)
 //!
 //! The Agent Client Protocol allows connecting to any ACP-compatible agent
-//! like Claude Code, Gemini CLI, or Codex:
+//! like Claude Code or Codex:
 //!
 //! ```ignore
 //! use enya_ai::{AcpClient, AgentEvent};
