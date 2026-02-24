@@ -59,7 +59,7 @@ impl AnthropicClient {
                 tokio::task::spawn_blocking(move || stream_request(&api_key, &request, &tx)).await;
 
             if let Err(e) = result {
-                tracing::error!("Stream task panicked: {e}");
+                log::error!("Stream task panicked: {e}");
             }
         });
 
@@ -151,7 +151,7 @@ fn parse_sse_stream<R: BufRead>(reader: R, tx: &SyncSender<AgentEvent>) -> Resul
         let event: SseEvent = match serde_json::from_str(data) {
             Ok(e) => e,
             Err(e) => {
-                tracing::warn!("Failed to parse SSE event: {e}");
+                log::warn!("Failed to parse SSE event: {e}");
                 continue;
             }
         };

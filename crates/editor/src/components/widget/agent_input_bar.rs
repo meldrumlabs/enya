@@ -12,7 +12,7 @@ use egui::{Color32, Key, RichText, ScrollArea, TextEdit};
 use egui_tiles::TileId;
 
 #[cfg(not(target_arch = "wasm32"))]
-use enya_ai::{AcpClient, AgentEvent};
+use enya_ai::{AgentConfig, AgentEvent, PersistentAcpClient};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::Receiver;
 
@@ -182,9 +182,9 @@ pub struct AgentInputBar {
     /// Event receiver for streaming AI responses (native only)
     #[cfg(not(target_arch = "wasm32"))]
     event_receiver: Option<Receiver<AgentEvent>>,
-    /// Tokio runtime handle for spawning async tasks
+    /// Persistent ACP client that keeps a warm subprocess across prompts
     #[cfg(not(target_arch = "wasm32"))]
-    runtime_handle: Option<tokio::runtime::Handle>,
+    persistent_client: Option<PersistentAcpClient>,
 }
 
 impl Default for AgentInputBar {
@@ -225,13 +225,13 @@ impl AgentInputBar {
             #[cfg(not(target_arch = "wasm32"))]
             event_receiver: None,
             #[cfg(not(target_arch = "wasm32"))]
-            runtime_handle: None,
+            persistent_client: None,
         }
     }
 
     /// Create a new agent input bar with a tokio runtime handle
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_with_runtime(runtime_handle: tokio::runtime::Handle) -> Self {
+    pub fn new_with_runtime(runtime_handle: &tokio::runtime::Handle) -> Self {
         Self {
             state: AgentInputState::Ready,
             input: String::new(),
@@ -259,7 +259,10 @@ impl AgentInputBar {
             prev_state: AgentInputState::Ready,
             transition_t: 1.0,
             event_receiver: None,
-            runtime_handle: Some(runtime_handle),
+            persistent_client: Some(PersistentAcpClient::new(
+                AgentConfig::claude_code(),
+                runtime_handle,
+            )),
         }
     }
 
@@ -273,6 +276,16 @@ impl AgentInputBar {
     /// Set the current AI provider name (e.g., "Claude", "Codex")
     pub fn set_provider_name(&mut self, name: &str) {
         self.provider_name = name.to_string();
+    }
+
+    /// Pre-warm the agent subprocess so the first prompt is fast.
+    ///
+    /// Call this when the user enters agent mode (before they type anything).
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn warmup(&self) {
+        if let Some(client) = &self.persistent_client {
+            client.warmup();
+        }
     }
 
     /// Set available metrics for @ mention autocomplete
@@ -1919,16 +1932,16 @@ impl AgentInputBar {
         // Get working directory
         let working_dir = std::env::current_dir().ok();
 
-        // Create Claude Code client
-        let client = if let Some(handle) = &self.runtime_handle {
-            AcpClient::claude_code_with_runtime(handle.clone())
+        // Send via persistent client (reuses warm subprocess)
+        if let Some(client) = &self.persistent_client {
+            let receiver = client.prompt_with_context(query, working_dir, None, system_context);
+            self.event_receiver = Some(receiver);
         } else {
-            AcpClient::claude_code()
-        };
-
-        // Send the query with system context (not concatenated into the query)
-        let receiver = client.prompt_with_context(query, working_dir, None, system_context);
-        self.event_receiver = Some(receiver);
+            log::error!("no persistent ACP client available");
+            self.state = AgentInputState::Response;
+            self.response_text = "AI agent not available (no runtime)".to_string();
+            self.display_text = self.response_text.clone();
+        }
     }
 
     /// Send a query (WASM version - not supported)

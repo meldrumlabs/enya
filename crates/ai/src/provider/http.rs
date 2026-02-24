@@ -37,10 +37,9 @@ pub fn streaming_post(
     for attempt in 0..=MAX_RETRIES {
         if attempt > 0 {
             let delay = calculate_delay(attempt, last_error.as_ref());
-            tracing::warn!(
-                attempt,
-                delay_ms = delay.as_millis(),
-                "retrying LLM request"
+            log::warn!(
+                "retrying LLM request (attempt={attempt}, delay_ms={})",
+                delay.as_millis()
             );
             std::thread::sleep(delay);
         }
@@ -48,7 +47,7 @@ pub fn streaming_post(
         match do_post(url, headers, body, parse, tx) {
             Ok(()) => return Ok(()),
             Err(e) if is_retryable(&e) => {
-                tracing::warn!(attempt, error = %e, "transient error");
+                log::warn!("transient error (attempt={attempt}): {e}");
                 last_error = Some(e);
             }
             Err(e) => return Err(e),

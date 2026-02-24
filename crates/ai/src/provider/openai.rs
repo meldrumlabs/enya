@@ -69,7 +69,7 @@ impl OpenAIClient {
                     .await;
 
             if let Err(e) = result {
-                tracing::error!("Stream task panicked: {e}");
+                log::error!("Stream task panicked: {e}");
             }
         });
 
@@ -187,7 +187,7 @@ fn parse_sse_stream<R: BufRead>(reader: R, tx: &SyncSender<AgentEvent>) -> Resul
         let chunk: SseChunk = match serde_json::from_str(data) {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!("Failed to parse SSE chunk: {e}");
+                log::warn!("Failed to parse SSE chunk: {e}");
                 continue;
             }
         };

@@ -6,9 +6,9 @@
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 
+use log::{debug, info, trace, warn};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tracing::{debug, info, trace, warn};
 
 use super::config::AgentConfig;
 use super::protocol::{
@@ -19,9 +19,9 @@ use super::protocol::{
 use crate::types::{AgentError, AgentEvent, StopReason};
 
 /// Client name sent to agents during initialization.
-const CLIENT_NAME: &str = "Enya";
+pub(super) const CLIENT_NAME: &str = "Enya";
 /// Client version sent to agents.
-const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub(super) const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// ACP client for connecting to AI coding agents.
 ///
@@ -78,12 +78,6 @@ impl AcpClient {
     #[must_use]
     pub fn gemini_cli() -> Self {
         Self::new(AgentConfig::gemini_cli())
-    }
-
-    /// Create a new ACP client configured for Gemini CLI with a runtime handle.
-    #[must_use]
-    pub fn gemini_cli_with_runtime(runtime: tokio::runtime::Handle) -> Self {
-        Self::with_runtime(AgentConfig::gemini_cli(), runtime)
     }
 
     /// Create a new ACP client configured for Codex.
@@ -221,7 +215,7 @@ impl AcpClient {
 }
 
 /// Spawn the agent process with the given configuration.
-fn spawn_agent(config: &AgentConfig) -> Result<Child, AgentError> {
+pub(super) fn spawn_agent(config: &AgentConfig) -> Result<Child, AgentError> {
     let mut cmd = Command::new(&config.command);
 
     for arg in &config.args {
@@ -249,7 +243,7 @@ fn spawn_agent(config: &AgentConfig) -> Result<Child, AgentError> {
 }
 
 /// Default model when none is specified.
-const DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250514";
+pub(super) const DEFAULT_MODEL: &str = "claude-sonnet-4-5-20250514";
 
 /// Run a complete ACP session over JSON-RPC 2.0.
 ///
@@ -266,10 +260,10 @@ async fn run_acp_session(
 ) -> Result<(), AgentError> {
     let model_id = model.unwrap_or(DEFAULT_MODEL);
     info!(
-        agent = config.kind.display_name(),
-        command = %config.command,
-        model = model_id,
-        "starting ACP session"
+        "starting ACP session (agent={}, command={}, model={})",
+        config.kind.display_name(),
+        config.command,
+        model_id
     );
 
     // Spawn the agent process with the model set via env var and CLI arg
@@ -351,8 +345,8 @@ async fn run_acp_session(
     );
     send_message(&mut writer, &prompt_msg).await?;
 
-    // Read streaming responses
-    read_streaming_responses(&mut reader, &tx).await?;
+    // Read streaming responses (prompt was sent with JSON-RPC id=3)
+    read_streaming_responses(&mut reader, &tx, 3).await?;
 
     // Clean up
     let _ = child.kill().await;
@@ -360,7 +354,7 @@ async fn run_acp_session(
 }
 
 /// Send a typed JSON-RPC message to the agent.
-async fn send_message<T: serde::Serialize>(
+pub(super) async fn send_message<T: serde::Serialize>(
     writer: &mut tokio::io::BufWriter<tokio::process::ChildStdin>,
     msg: &T,
 ) -> Result<(), AgentError> {
@@ -381,7 +375,7 @@ async fn send_message<T: serde::Serialize>(
 }
 
 /// Read a response from the agent.
-async fn read_response(
+pub(super) async fn read_response(
     reader: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
     label: &str,
 ) -> Result<Option<String>, AgentError> {
@@ -390,7 +384,7 @@ async fn read_response(
         .await
         .map_err(|e| AgentError::Process(format!("failed to read: {e}")))?
     {
-        debug!(label, "response: {line}");
+        debug!("[{label}] response: {line}");
         Ok(Some(line))
     } else {
         Ok(None)
@@ -398,13 +392,16 @@ async fn read_response(
 }
 
 /// Read and extract session ID from response.
-async fn read_session_id(
+pub(super) async fn read_session_id(
     reader: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
 ) -> Result<String, AgentError> {
     if let Some(line) = read_response(reader, "session").await? {
         if let Ok(resp) = serde_json::from_str::<RpcResponse<SessionNewResult>>(&line) {
             if let Some(ref error) = resp.error {
-                warn!(code = error.code, message = %error.message, "session/new returned error");
+                warn!(
+                    "session/new returned error (code={}, message={})",
+                    error.code, error.message
+                );
             }
             if let Some(result) = resp.result {
                 if let Some(id) = result.session_id {
@@ -420,9 +417,13 @@ async fn read_session_id(
 }
 
 /// Read streaming responses until completion.
-async fn read_streaming_responses(
+///
+/// The `prompt_request_id` is the JSON-RPC ID of the `session/prompt` request
+/// whose response signals completion.
+pub(super) async fn read_streaming_responses(
     reader: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
     tx: &SyncSender<AgentEvent>,
+    prompt_request_id: u32,
 ) -> Result<(), AgentError> {
     while let Some(line) = reader
         .next_line()
@@ -441,7 +442,7 @@ async fn read_streaming_responses(
                 }
             }
             // Check for prompt response (completion)
-            if msg.get("id") == Some(&serde_json::json!(3)) {
+            if msg.get("id") == Some(&serde_json::json!(prompt_request_id)) {
                 if let Some(result) = msg.get("result") {
                     if let Some(reason) = result.get("stopReason").and_then(|r| r.as_str()) {
                         let stop_reason = match reason {
@@ -450,10 +451,7 @@ async fn read_streaming_responses(
                             "stop_sequence" => StopReason::StopSequence,
                             "end_turn" => StopReason::EndTurn,
                             other => {
-                                debug!(
-                                    reason = other,
-                                    "unknown stop reason, defaulting to EndTurn"
-                                );
+                                debug!("unknown stop reason '{other}', defaulting to EndTurn");
                                 StopReason::EndTurn
                             }
                         };
@@ -473,7 +471,7 @@ async fn read_streaming_responses(
 /// Extract a tool call or update ID from the update payload.
 ///
 /// Tries `toolCallId` first, then falls back to `id`.
-fn extract_tool_id(update: &serde_json::Value) -> String {
+pub(super) fn extract_tool_id(update: &serde_json::Value) -> String {
     if let Some(id) = update.get("toolCallId").and_then(|i| i.as_str()) {
         return id.to_string();
     }
@@ -486,7 +484,7 @@ fn extract_tool_id(update: &serde_json::Value) -> String {
 }
 
 /// Process a session update notification and emit appropriate events.
-fn process_session_update(params: &serde_json::Value, tx: &SyncSender<AgentEvent>) {
+pub(super) fn process_session_update(params: &serde_json::Value, tx: &SyncSender<AgentEvent>) {
     let Some(update) = params.get("update") else {
         return;
     };
@@ -522,13 +520,10 @@ fn process_session_update(params: &serde_json::Value, tx: &SyncSender<AgentEvent
                 .and_then(|c| c.get("toolName"))
                 .and_then(|n| n.as_str())
             {
-                debug!(
-                    name = n,
-                    "tool name resolved from _meta.claudeCode.toolName"
-                );
+                debug!("tool name '{n}' resolved from _meta.claudeCode.toolName");
                 n.to_string()
             } else if let Some(n) = update.get("title").and_then(|t| t.as_str()) {
-                debug!(name = n, "tool name resolved from title field");
+                debug!("tool name '{n}' resolved from title field");
                 n.to_string()
             } else {
                 warn!("tool_call missing name in all locations, using 'unknown'");

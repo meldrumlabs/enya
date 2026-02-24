@@ -409,7 +409,7 @@ impl Workspace {
         let mut behavior = TreeBehavior::default();
         behavior.set_dim_inactive(true); // Enable dim inactive panes by default
 
-        Self {
+        let workspace = Self {
             viewport_tree,
             behavior,
             open_charts: FxHashSet::default(),
@@ -459,7 +459,7 @@ impl Workspace {
             #[cfg(target_arch = "wasm32")]
             agent_panel: AgentPanel::new(),
             #[cfg(not(target_arch = "wasm32"))]
-            agent_input_bar: AgentInputBar::new_with_runtime(async_runtime.handle().clone()),
+            agent_input_bar: AgentInputBar::new_with_runtime(async_runtime.handle()),
             #[cfg(target_arch = "wasm32")]
             agent_input_bar: AgentInputBar::new(),
             agent_mode_active: false,
@@ -511,7 +511,14 @@ impl Workspace {
             custom_gauge_configs: FxHashMap::default(),
             custom_gauge_data: FxHashMap::default(),
             plugin_pane_last_refresh: FxHashMap::default(),
-        }
+        };
+
+        // Eagerly warm up the agent subprocess at app startup so the first
+        // AI prompt is fast (npx cold-start happens in the background).
+        #[cfg(not(target_arch = "wasm32"))]
+        workspace.agent_input_bar.warmup();
+
+        workspace
     }
 
     /// Get the name of the currently loaded workspace (filename stem).
@@ -2741,6 +2748,7 @@ impl Workspace {
 
         // Enter agent mode
         self.agent_mode_active = true;
+
         if start_typing {
             self.agent_input_bar.reset_to_typing();
         } else {
