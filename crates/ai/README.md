@@ -34,12 +34,12 @@ We use a **custom ACP implementation** (~400 lines) rather than the [`agent-clie
 │                JSON-RPC 2.0 over stdio                      │
 └──────────────────────────┼───────────────────────────────────┘
                            │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-┌───────────────┐  ┌───────────────┐  ┌───────────────┐
-│  Claude Code  │  │  Gemini CLI   │  │    Codex      │
-└───────────────┘  └───────────────┘  └───────────────┘
+              ┌─────────────┴─────────────┐
+              │                           │
+              ▼                           ▼
+      ┌───────────────┐          ┌───────────────┐
+      │  Claude Code  │          │    Codex      │
+      └───────────────┘          └───────────────┘
 ```
 
 ## Crate Structure
@@ -65,7 +65,7 @@ src/
 |------|-------------|
 | `AcpClient` | Spawns agent subprocess, sends JSON-RPC messages, returns `Receiver<AgentEvent>` |
 | `AgentConfig` | Configuration (command, args, working_dir, env) |
-| `AgentKind` | Enum: ClaudeCode, GeminiCli, Codex, Goose, Custom |
+| `AgentKind` | Enum: ClaudeCode, Codex, Custom |
 | `AgentEvent` | Streaming events: TextDelta, ThinkingDelta, ToolCallStart, ToolResult, Done, Error |
 | `Provider` | Direct API client (Anthropic or OpenAI) - alternative to ACP |
 
@@ -73,7 +73,7 @@ src/
 
 ### Using ACP (Recommended)
 
-The Agent Client Protocol allows connecting to any ACP-compatible agent like Claude Code, Gemini CLI, or Codex:
+The Agent Client Protocol allows connecting to any ACP-compatible agent like Claude Code or Codex:
 
 ```rust
 use enya_ai::{AcpClient, AgentEvent};
@@ -118,9 +118,7 @@ while let Ok(event) = rx.try_recv() {
 | Agent | Command | Status |
 |-------|---------|--------|
 | Claude Code | `npx @zed-industries/claude-code-acp` | Primary |
-| Gemini CLI | `gemini --acp` | Supported |
 | Codex | `npx @zed-industries/codex-acp` | Supported |
-| Goose | `goose --acp` | Experimental |
 
 ## Communication Flow
 

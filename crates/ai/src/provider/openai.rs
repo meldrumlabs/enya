@@ -69,7 +69,7 @@ impl OpenAIClient {
                     .await;
 
             if let Err(e) = result {
-                tracing::error!("Stream task panicked: {e}");
+                log::error!("Stream task panicked: {e}");
             }
         });
 
@@ -187,7 +187,7 @@ fn parse_sse_stream<R: BufRead>(reader: R, tx: &SyncSender<AgentEvent>) -> Resul
         let chunk: SseChunk = match serde_json::from_str(data) {
             Ok(c) => c,
             Err(e) => {
-                tracing::warn!("Failed to parse SSE chunk: {e}");
+                log::warn!("Failed to parse SSE chunk: {e}");
                 continue;
             }
         };
@@ -513,5 +513,223 @@ mod tests {
 
         assert_eq!(chunk.choices.len(), 1);
         assert_eq!(chunk.choices[0].delta.content, Some("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_build_request_with_tools() {
+        let client = OpenAIClient::new("key", "gpt-4o");
+        let messages = vec![Message::user("help")];
+        let tools = vec![ToolDefinition {
+            name: "search".to_string(),
+            description: "Search things".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }];
+
+        let request = client.build_request("Be helpful", &messages, &tools);
+
+        assert!(request.tools.is_some());
+        let api_tools = request.tools.unwrap();
+        assert_eq!(api_tools.len(), 1);
+        assert_eq!(api_tools[0].function.name, "search");
+        assert_eq!(api_tools[0].r#type, "function");
+    }
+
+    #[test]
+    fn test_build_request_prepends_system() {
+        let client = OpenAIClient::new("key", "gpt-4o");
+        let messages = vec![Message::user("hi"), Message::assistant("hello")];
+
+        let request = client.build_request("system prompt", &messages, &[]);
+
+        // system + user + assistant = 3
+        assert_eq!(request.messages.len(), 3);
+        assert_eq!(request.messages[0].role, "system");
+        assert_eq!(request.messages[0].content, Some("system prompt".into()));
+    }
+
+    #[test]
+    fn test_build_request_stream_options() {
+        let client = OpenAIClient::new("key", "gpt-4o");
+        let request = client.build_request("sys", &[], &[]);
+
+        assert!(request.stream);
+        assert!(request.stream_options.is_some());
+        assert!(request.stream_options.unwrap().include_usage);
+    }
+
+    #[test]
+    fn test_with_base_url() {
+        let client = OpenAIClient::new("key", "model").with_base_url("https://custom.api.com/v1");
+        assert_eq!(client.base_url, Some("https://custom.api.com/v1".into()));
+    }
+
+    #[test]
+    fn test_parse_chunk_with_finish_reason() {
+        let data = r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#;
+        let chunk: SseChunk = serde_json::from_str(data).unwrap();
+
+        assert_eq!(chunk.choices[0].finish_reason, Some("stop".to_string()));
+    }
+
+    #[test]
+    fn test_parse_chunk_with_tool_call() {
+        let data = r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"search","arguments":""}}]},"finish_reason":null}]}"#;
+        let chunk: SseChunk = serde_json::from_str(data).unwrap();
+
+        let tc = &chunk.choices[0].delta.tool_calls.as_ref().unwrap()[0];
+        assert_eq!(tc.id, Some("call_1".to_string()));
+        assert_eq!(tc.function.as_ref().unwrap().name, Some("search".into()));
+    }
+
+    #[test]
+    fn test_parse_chunk_with_usage() {
+        let data = r#"{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":50}}"#;
+        let chunk: SseChunk = serde_json::from_str(data).unwrap();
+
+        let usage = chunk.usage.unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.completion_tokens, 50);
+    }
+
+    #[test]
+    fn test_parse_sse_stream_text() {
+        let input = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}]}\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\ndata: [DONE]\n";
+        let (tx, rx) = std::sync::mpsc::sync_channel(16);
+        let reader = std::io::Cursor::new(input);
+        parse_sse_stream(reader, &tx).unwrap();
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(t) if t == "Hi"));
+        assert!(matches!(
+            &events[1],
+            AgentEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_sse_stream_done_marker() {
+        let input = "data: [DONE]\n";
+        let (tx, rx) = std::sync::mpsc::sync_channel(16);
+        let reader = std::io::Cursor::new(input);
+        parse_sse_stream(reader, &tx).unwrap();
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_parse_sse_stream_skips_empty_and_non_data() {
+        let input = "\n: comment\nevent: message\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\ndata: [DONE]\n";
+        let (tx, rx) = std::sync::mpsc::sync_channel(16);
+        let reader = std::io::Cursor::new(input);
+        parse_sse_stream(reader, &tx).unwrap();
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(t) if t == "ok"));
+    }
+
+    #[test]
+    fn test_parse_sse_stream_tool_calls_finish_reason() {
+        let input = "\
+data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"search\",\"arguments\":\"\"}}]},\"finish_reason\":null}]}\n\
+data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"q\\\":\\\"test\\\"}\"}}]},\"finish_reason\":null}]}\n\
+data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\
+data: [DONE]\n";
+
+        let (tx, rx) = std::sync::mpsc::sync_channel(32);
+        let reader = std::io::Cursor::new(input);
+        parse_sse_stream(reader, &tx).unwrap();
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        // ToolCallStart, InputDelta, InputDelta (second chunk), ToolCallReady, Done
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::ToolCallStart { name, .. } if name == "search"))
+        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            AgentEvent::Done {
+                stop_reason: StopReason::ToolUse,
+                ..
+            }
+        )));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, AgentEvent::ToolCallReady { .. }))
+        );
+    }
+
+    #[test]
+    fn test_api_message_from_text() {
+        let msg = Message::user("hello");
+        let api_msg: ApiMessage = (&msg).into();
+        assert_eq!(api_msg.role, "user");
+        assert_eq!(api_msg.content, Some("hello".into()));
+        assert!(api_msg.tool_calls.is_none());
+        assert!(api_msg.tool_call_id.is_none());
+    }
+
+    #[test]
+    fn test_api_message_from_tool_result() {
+        let msg = Message {
+            role: Role::User,
+            content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                tool_use_id: "call_1".to_string(),
+                content: "result data".to_string(),
+                is_error: None,
+            }]),
+        };
+        let api_msg: ApiMessage = (&msg).into();
+        assert_eq!(api_msg.role, "tool");
+        assert_eq!(api_msg.content, Some("result data".into()));
+        assert_eq!(api_msg.tool_call_id, Some("call_1".into()));
+    }
+
+    #[test]
+    fn test_api_message_from_assistant_with_tool_calls() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![
+                ContentBlock::Text {
+                    text: "Let me search".to_string(),
+                },
+                ContentBlock::ToolUse {
+                    id: "call_1".to_string(),
+                    name: "search".to_string(),
+                    input: serde_json::json!({"q": "test"}),
+                },
+            ]),
+        };
+        let api_msg: ApiMessage = (&msg).into();
+        assert_eq!(api_msg.role, "assistant");
+        assert_eq!(api_msg.content, Some("Let me search".into()));
+        let tc = api_msg.tool_calls.unwrap();
+        assert_eq!(tc.len(), 1);
+        assert_eq!(tc[0].id, "call_1");
+        assert_eq!(tc[0].function.name, "search");
+    }
+
+    #[test]
+    fn test_api_tool_from_definition() {
+        let def = ToolDefinition {
+            name: "query".to_string(),
+            description: "Run query".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        };
+        let api_tool: ApiTool = (&def).into();
+        assert_eq!(api_tool.r#type, "function");
+        assert_eq!(api_tool.function.name, "query");
+        assert_eq!(api_tool.function.description, "Run query");
     }
 }

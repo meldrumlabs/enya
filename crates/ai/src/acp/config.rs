@@ -7,12 +7,8 @@ use std::path::PathBuf;
 pub enum AgentKind {
     /// Claude Code (Anthropic)
     ClaudeCode,
-    /// Gemini CLI (Google)
-    GeminiCli,
     /// Codex (OpenAI)
     Codex,
-    /// Goose (Square)
-    Goose,
     /// Custom agent
     Custom,
 }
@@ -23,9 +19,7 @@ impl AgentKind {
     pub fn display_name(self) -> &'static str {
         match self {
             Self::ClaudeCode => "Claude Code",
-            Self::GeminiCli => "Gemini CLI",
             Self::Codex => "Codex",
-            Self::Goose => "Goose",
             Self::Custom => "Custom Agent",
         }
     }
@@ -88,19 +82,6 @@ impl AgentConfig {
         }
     }
 
-    /// Create a configuration for Gemini CLI.
-    #[must_use]
-    pub fn gemini_cli() -> Self {
-        Self {
-            kind: AgentKind::GeminiCli,
-            command: "gemini".to_string(),
-            args: vec!["--acp".to_string()],
-            working_dir: None,
-            env: vec![],
-            env_remove: vec![],
-        }
-    }
-
     /// Create a configuration for OpenAI Codex via the ACP adapter.
     ///
     /// Uses the `@zed-industries/codex-acp` npm package which wraps
@@ -125,19 +106,6 @@ impl AgentConfig {
         Self {
             env: vec![("OPENAI_API_KEY".to_string(), api_key.into())],
             ..Self::codex()
-        }
-    }
-
-    /// Create a configuration for Goose.
-    #[must_use]
-    pub fn goose() -> Self {
-        Self {
-            kind: AgentKind::Goose,
-            command: "goose".to_string(),
-            args: vec!["--acp".to_string()],
-            working_dir: None,
-            env: vec![],
-            env_remove: vec![],
         }
     }
 
@@ -173,5 +141,180 @@ impl AgentConfig {
     pub fn with_arg(mut self, arg: impl Into<String>) -> Self {
         self.args.push(arg.into());
         self
+    }
+
+    /// Apply model settings appropriate for this agent's kind.
+    ///
+    /// Different agents accept model configuration differently:
+    /// - Claude Code: `ANTHROPIC_MODEL` env var + `--model` CLI arg
+    /// - Codex: `-c model=<id>` config override
+    /// - Custom: `ANTHROPIC_MODEL` env var only (best-effort)
+    ///
+    /// Note: The actual model is also set via `session/set_model` JSON-RPC
+    /// after session creation to ensure it takes effect.
+    #[must_use]
+    pub fn with_model(self, model_id: &str) -> Self {
+        match self.kind {
+            AgentKind::ClaudeCode => self
+                .with_env("ANTHROPIC_MODEL", model_id)
+                .with_arg("--model")
+                .with_arg(model_id),
+            AgentKind::Codex => self.with_arg("-c").with_arg(format!("model={model_id}")),
+            AgentKind::Custom => self.with_env("ANTHROPIC_MODEL", model_id),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_kind_display_names() {
+        assert_eq!(AgentKind::ClaudeCode.display_name(), "Claude Code");
+        assert_eq!(AgentKind::Codex.display_name(), "Codex");
+        assert_eq!(AgentKind::Custom.display_name(), "Custom Agent");
+    }
+
+    #[test]
+    fn agent_kind_equality() {
+        assert_eq!(AgentKind::ClaudeCode, AgentKind::ClaudeCode);
+        assert_ne!(AgentKind::ClaudeCode, AgentKind::Codex);
+    }
+
+    #[test]
+    fn claude_code_config() {
+        let config = AgentConfig::claude_code();
+        assert_eq!(config.kind, AgentKind::ClaudeCode);
+        assert_eq!(config.command, "npx");
+        assert!(config.args.contains(&"-y".to_string()));
+        assert!(
+            config
+                .args
+                .contains(&"@zed-industries/claude-code-acp".to_string())
+        );
+        assert!(config.working_dir.is_none());
+        assert!(config.env.is_empty());
+        assert!(config.env_remove.is_empty());
+    }
+
+    #[test]
+    fn claude_code_with_api_key() {
+        let config = AgentConfig::claude_code_with_api_key("sk-test-123");
+        assert_eq!(config.kind, AgentKind::ClaudeCode);
+        assert_eq!(config.command, "npx");
+        assert_eq!(config.env.len(), 1);
+        assert_eq!(config.env[0].0, "ANTHROPIC_API_KEY");
+        assert_eq!(config.env[0].1, "sk-test-123");
+    }
+
+    #[test]
+    fn claude_code_with_path() {
+        let config = AgentConfig::claude_code_with_path("/usr/local/bin/claude-acp");
+        assert_eq!(config.kind, AgentKind::ClaudeCode);
+        assert_eq!(config.command, "/usr/local/bin/claude-acp");
+        // Should still have the npx args (inherited from claude_code())
+        assert!(
+            config
+                .args
+                .contains(&"@zed-industries/claude-code-acp".to_string())
+        );
+    }
+
+    #[test]
+    fn codex_config() {
+        let config = AgentConfig::codex();
+        assert_eq!(config.kind, AgentKind::Codex);
+        assert_eq!(config.command, "npx");
+        assert!(
+            config
+                .args
+                .contains(&"@zed-industries/codex-acp".to_string())
+        );
+    }
+
+    #[test]
+    fn codex_with_api_key() {
+        let config = AgentConfig::codex_with_api_key("sk-openai-key");
+        assert_eq!(config.kind, AgentKind::Codex);
+        assert_eq!(config.env.len(), 1);
+        assert_eq!(config.env[0].0, "OPENAI_API_KEY");
+        assert_eq!(config.env[0].1, "sk-openai-key");
+    }
+
+    #[test]
+    fn custom_config() {
+        let config = AgentConfig::custom("my-agent", vec!["--mode".into(), "acp".into()]);
+        assert_eq!(config.kind, AgentKind::Custom);
+        assert_eq!(config.command, "my-agent");
+        assert_eq!(config.args, vec!["--mode", "acp"]);
+    }
+
+    #[test]
+    fn with_working_dir() {
+        let config = AgentConfig::claude_code().with_working_dir("/home/user/project");
+        assert_eq!(
+            config.working_dir,
+            Some(PathBuf::from("/home/user/project"))
+        );
+    }
+
+    #[test]
+    fn with_env() {
+        let config = AgentConfig::claude_code()
+            .with_env("FOO", "bar")
+            .with_env("BAZ", "qux");
+        assert_eq!(config.env.len(), 2);
+        assert_eq!(config.env[0], ("FOO".to_string(), "bar".to_string()));
+        assert_eq!(config.env[1], ("BAZ".to_string(), "qux".to_string()));
+    }
+
+    #[test]
+    fn with_arg() {
+        let config = AgentConfig::claude_code()
+            .with_arg("--verbose")
+            .with_arg("--timeout=30");
+        assert!(config.args.contains(&"--verbose".to_string()));
+        assert!(config.args.contains(&"--timeout=30".to_string()));
+    }
+
+    #[test]
+    fn builder_chaining() {
+        let config = AgentConfig::custom("agent", vec![])
+            .with_working_dir("/tmp")
+            .with_env("KEY", "value")
+            .with_arg("--flag");
+
+        assert_eq!(config.working_dir, Some(PathBuf::from("/tmp")));
+        assert_eq!(config.env.len(), 1);
+        // original empty args + --flag
+        assert_eq!(config.args, vec!["--flag"]);
+    }
+
+    #[test]
+    fn with_model_claude_code() {
+        let config = AgentConfig::claude_code().with_model("claude-haiku-4-5-20251001");
+        assert!(config.args.contains(&"--model".to_string()));
+        assert!(
+            config
+                .args
+                .contains(&"claude-haiku-4-5-20251001".to_string())
+        );
+        assert!(config.env.contains(&(
+            "ANTHROPIC_MODEL".to_string(),
+            "claude-haiku-4-5-20251001".to_string()
+        )));
+    }
+
+    #[test]
+    fn with_model_codex() {
+        let config = AgentConfig::codex().with_model("gpt-5.2-codex");
+        // Codex should NOT get --model CLI arg
+        assert!(!config.args.contains(&"--model".to_string()));
+        // Codex uses -c model=<id> config override
+        assert!(config.args.contains(&"-c".to_string()));
+        assert!(config.args.contains(&"model=gpt-5.2-codex".to_string()));
+        // Should NOT use env vars for model
+        assert!(config.env.is_empty());
     }
 }

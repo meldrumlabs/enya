@@ -1,7 +1,7 @@
 //! Agent Client Protocol (ACP) integration.
 //!
 //! This module provides a client implementation for connecting to ACP-compatible
-//! AI coding agents like Claude Code, Gemini CLI, and Codex.
+//! AI coding agents like Claude Code and Codex.
 //!
 //! # Architecture
 //!
@@ -18,12 +18,12 @@
 //! │                JSON-RPC 2.0 over stdio                      │
 //! └──────────────────────────┼───────────────────────────────────┘
 //!                            │
-//!         ┌──────────────────┼──────────────────┐
-//!         │                  │                  │
-//!         ▼                  ▼                  ▼
-//! ┌───────────────┐  ┌───────────────┐  ┌───────────────┐
-//! │  Claude Code  │  │  Gemini CLI   │  │    Codex      │
-//! └───────────────┘  └───────────────┘  └───────────────┘
+//!              ┌─────────────┴─────────────┐
+//!              │                           │
+//!              ▼                           ▼
+//! ┌───────────────┐  ┌───────────────┐
+//! │  Claude Code  │  │    Codex      │
+//! └───────────────┘  └───────────────┘
 //! ```
 //!
 //! # Example
@@ -50,7 +50,9 @@
 
 mod client;
 mod config;
+mod persistent;
 mod protocol;
 
 pub use client::AcpClient;
 pub use config::{AgentConfig, AgentKind};
+pub use persistent::PersistentAcpClient;
