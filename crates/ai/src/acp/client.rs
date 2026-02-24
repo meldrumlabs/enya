@@ -80,6 +80,12 @@ impl AcpClient {
         Self::new(AgentConfig::gemini_cli())
     }
 
+    /// Create a new ACP client configured for Gemini CLI with a runtime handle.
+    #[must_use]
+    pub fn gemini_cli_with_runtime(runtime: tokio::runtime::Handle) -> Self {
+        Self::with_runtime(AgentConfig::gemini_cli(), runtime)
+    }
+
     /// Create a new ACP client configured for Codex.
     #[must_use]
     pub fn codex() -> Self {
@@ -600,5 +606,277 @@ mod tests {
             client.config().kind,
             super::super::config::AgentKind::GeminiCli
         );
+    }
+
+    #[test]
+    fn test_acp_client_codex() {
+        let client = AcpClient::codex();
+        assert_eq!(client.config().kind, super::super::config::AgentKind::Codex);
+    }
+
+    #[test]
+    fn test_acp_client_custom() {
+        let config = AgentConfig::custom("my-agent", vec!["--acp".into()]);
+        let client = AcpClient::new(config);
+        assert_eq!(client.kind(), super::super::config::AgentKind::Custom);
+        assert_eq!(client.config().command, "my-agent");
+    }
+
+    #[test]
+    fn test_extract_tool_id_from_tool_call_id() {
+        let update = serde_json::json!({"toolCallId": "tc_123", "id": "fallback"});
+        assert_eq!(extract_tool_id(&update), "tc_123");
+    }
+
+    #[test]
+    fn test_extract_tool_id_falls_back_to_id() {
+        let update = serde_json::json!({"id": "id_456"});
+        assert_eq!(extract_tool_id(&update), "id_456");
+    }
+
+    #[test]
+    fn test_extract_tool_id_missing_both() {
+        let update = serde_json::json!({"other": "field"});
+        assert_eq!(extract_tool_id(&update), "unknown");
+    }
+
+    #[test]
+    fn test_process_session_update_text_delta() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {
+                    "text": "Hello world"
+                }
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(t) if t == "Hello world"));
+    }
+
+    #[test]
+    fn test_process_session_update_thinking_delta() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {
+                    "text": "thinking..."
+                }
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(&events[0], AgentEvent::ThinkingDelta(t) if t == "thinking..."));
+    }
+
+    #[test]
+    fn test_process_session_update_tool_call() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "tc_1",
+                "name": "search_metrics",
+                "rawInput": {"query": "cpu_usage"}
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            AgentEvent::ToolCallStart {
+                id,
+                name,
+                raw_input,
+            } => {
+                assert_eq!(id, "tc_1");
+                assert_eq!(name, "search_metrics");
+                assert!(raw_input.is_some());
+                assert_eq!(raw_input.as_ref().unwrap()["query"], "cpu_usage");
+            }
+            other => panic!("expected ToolCallStart, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_process_session_update_tool_call_name_from_meta() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "tc_2",
+                "_meta": {
+                    "claudeCode": {
+                        "toolName": "read_file"
+                    }
+                }
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            AgentEvent::ToolCallStart { name, .. } => {
+                assert_eq!(name, "read_file");
+            }
+            other => panic!("expected ToolCallStart, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_process_session_update_tool_call_name_from_title() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "tc_3",
+                "title": "Write File"
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        match &events[0] {
+            AgentEvent::ToolCallStart { name, .. } => {
+                assert_eq!(name, "Write File");
+            }
+            other => panic!("expected ToolCallStart, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_process_session_update_tool_call_completed() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "tc_1",
+                "status": "completed",
+                "result": "file contents here"
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            AgentEvent::ToolResult {
+                id,
+                output,
+                is_error,
+            } => {
+                assert_eq!(id, "tc_1");
+                assert_eq!(output, "file contents here");
+                assert!(!is_error);
+            }
+            other => panic!("expected ToolResult, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_process_session_update_tool_call_error() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "tc_1",
+                "status": "error",
+                "result": "permission denied"
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            AgentEvent::ToolResult { is_error, .. } => {
+                assert!(is_error);
+            }
+            other => panic!("expected ToolResult, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_process_session_update_tool_call_in_progress_ignored() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "tc_1",
+                "status": "in_progress"
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_process_session_update_unknown_type_ignored() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "unknown_event",
+                "data": "something"
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_process_session_update_missing_update_field() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({"other": "data"});
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_process_session_update_raw_input_as_string() {
+        let (tx, rx) = mpsc::sync_channel(16);
+        let params = serde_json::json!({
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "tc_5",
+                "name": "search",
+                "rawInput": "{\"q\": \"test\"}"
+            }
+        });
+        process_session_update(&params, &tx);
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        match &events[0] {
+            AgentEvent::ToolCallStart { raw_input, .. } => {
+                let input = raw_input.as_ref().unwrap();
+                assert_eq!(input["q"], "test");
+            }
+            other => panic!("expected ToolCallStart, got {other:?}"),
+        }
     }
 }

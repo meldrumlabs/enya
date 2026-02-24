@@ -127,3 +127,143 @@ fn calculate_delay(attempt: u32, last_error: Option<&AgentError>) -> Duration {
     let millis = BASE_DELAY_MS.saturating_mul(2u64.pow(attempt - 1));
     Duration::from_millis(millis.min(MAX_DELAY_MS))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- is_retryable --
+
+    #[test]
+    fn rate_limited_is_retryable() {
+        let err = AgentError::RateLimited {
+            retry_after_secs: Some(30),
+        };
+        assert!(is_retryable(&err));
+    }
+
+    #[test]
+    fn rate_limited_without_retry_after_is_retryable() {
+        let err = AgentError::RateLimited {
+            retry_after_secs: None,
+        };
+        assert!(is_retryable(&err));
+    }
+
+    #[test]
+    fn server_error_is_retryable() {
+        let err = AgentError::Http("HTTP 500".into());
+        assert!(is_retryable(&err));
+
+        let err = AgentError::Http("HTTP 502".into());
+        assert!(is_retryable(&err));
+
+        let err = AgentError::Http("HTTP 503".into());
+        assert!(is_retryable(&err));
+    }
+
+    #[test]
+    fn connection_error_is_retryable() {
+        let err = AgentError::Http("connection refused".into());
+        assert!(is_retryable(&err));
+
+        let err = AgentError::Http("connection timed out".into());
+        assert!(is_retryable(&err));
+
+        let err = AgentError::Http("connection reset".into());
+        assert!(is_retryable(&err));
+    }
+
+    #[test]
+    fn auth_error_not_retryable() {
+        let err = AgentError::Auth("bad key".into());
+        assert!(!is_retryable(&err));
+    }
+
+    #[test]
+    fn parse_error_not_retryable() {
+        let err = AgentError::Parse("invalid json".into());
+        assert!(!is_retryable(&err));
+    }
+
+    #[test]
+    fn client_error_not_retryable() {
+        let err = AgentError::Http("HTTP 400".into());
+        assert!(!is_retryable(&err));
+    }
+
+    #[test]
+    fn process_error_not_retryable() {
+        let err = AgentError::Process("spawn failed".into());
+        assert!(!is_retryable(&err));
+    }
+
+    // -- classify_http_error --
+
+    #[test]
+    fn classify_401_as_auth() {
+        match classify_http_error(401) {
+            AgentError::Auth(_) => {}
+            other => panic!("expected Auth, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_429_as_rate_limited() {
+        match classify_http_error(429) {
+            AgentError::RateLimited { .. } => {}
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_500_as_http() {
+        match classify_http_error(500) {
+            AgentError::Http(msg) => assert!(msg.contains("500")),
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_400_as_http() {
+        match classify_http_error(400) {
+            AgentError::Http(msg) => assert!(msg.contains("400")),
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    // -- calculate_delay --
+
+    #[test]
+    fn delay_exponential_backoff() {
+        let d1 = calculate_delay(1, None);
+        let d2 = calculate_delay(2, None);
+        let d3 = calculate_delay(3, None);
+
+        assert_eq!(d1, Duration::from_millis(500));
+        assert_eq!(d2, Duration::from_millis(1000));
+        assert_eq!(d3, Duration::from_millis(2000));
+    }
+
+    #[test]
+    fn delay_capped_at_max() {
+        let d = calculate_delay(20, None);
+        assert_eq!(d, Duration::from_millis(MAX_DELAY_MS));
+    }
+
+    #[test]
+    fn delay_honours_retry_after() {
+        let err = AgentError::RateLimited {
+            retry_after_secs: Some(45),
+        };
+        let d = calculate_delay(1, Some(&err));
+        assert_eq!(d, Duration::from_secs(45));
+    }
+
+    #[test]
+    fn delay_ignores_non_rate_limit_errors() {
+        let err = AgentError::Http("HTTP 500".into());
+        let d = calculate_delay(1, Some(&err));
+        assert_eq!(d, Duration::from_millis(500));
+    }
+}

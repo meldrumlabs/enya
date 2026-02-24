@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Role in a conversation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     /// System prompt / instructions
@@ -139,7 +139,7 @@ pub enum AgentEvent {
 }
 
 /// Reason the model stopped generating.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StopReason {
     /// Natural end of response
     EndTurn,
@@ -152,7 +152,7 @@ pub enum StopReason {
 }
 
 /// Token usage statistics.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TokenUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
@@ -217,4 +217,308 @@ pub struct ToolDefinition {
     pub name: String,
     pub description: String,
     pub input_schema: serde_json::Value,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- Role --
+
+    #[test]
+    fn role_serialization() {
+        assert_eq!(serde_json::to_string(&Role::System).unwrap(), "\"system\"");
+        assert_eq!(serde_json::to_string(&Role::User).unwrap(), "\"user\"");
+        assert_eq!(
+            serde_json::to_string(&Role::Assistant).unwrap(),
+            "\"assistant\""
+        );
+    }
+
+    #[test]
+    fn role_deserialization() {
+        let role: Role = serde_json::from_str("\"user\"").unwrap();
+        assert_eq!(role, Role::User);
+        let role: Role = serde_json::from_str("\"system\"").unwrap();
+        assert_eq!(role, Role::System);
+        let role: Role = serde_json::from_str("\"assistant\"").unwrap();
+        assert_eq!(role, Role::Assistant);
+    }
+
+    // -- Message constructors --
+
+    #[test]
+    fn message_user() {
+        let msg = Message::user("hello");
+        assert_eq!(msg.role, Role::User);
+        match msg.content {
+            MessageContent::Text(ref s) => assert_eq!(s, "hello"),
+            MessageContent::Blocks(_) => panic!("expected Text content"),
+        }
+    }
+
+    #[test]
+    fn message_assistant() {
+        let msg = Message::assistant("response");
+        assert_eq!(msg.role, Role::Assistant);
+        match msg.content {
+            MessageContent::Text(ref s) => assert_eq!(s, "response"),
+            MessageContent::Blocks(_) => panic!("expected Text content"),
+        }
+    }
+
+    #[test]
+    fn message_system() {
+        let msg = Message::system("you are helpful");
+        assert_eq!(msg.role, Role::System);
+        match msg.content {
+            MessageContent::Text(ref s) => assert_eq!(s, "you are helpful"),
+            MessageContent::Blocks(_) => panic!("expected Text content"),
+        }
+    }
+
+    #[test]
+    fn message_accepts_owned_string() {
+        let msg = Message::user(String::from("owned"));
+        match msg.content {
+            MessageContent::Text(ref s) => assert_eq!(s, "owned"),
+            MessageContent::Blocks(_) => panic!("expected Text content"),
+        }
+    }
+
+    // -- MessageContent serialization --
+
+    #[test]
+    fn text_content_serializes_as_string() {
+        let content = MessageContent::Text("hello".to_string());
+        let json = serde_json::to_string(&content).unwrap();
+        assert_eq!(json, "\"hello\"");
+    }
+
+    #[test]
+    fn blocks_content_serializes_as_array() {
+        let content = MessageContent::Blocks(vec![ContentBlock::Text {
+            text: "hi".to_string(),
+        }]);
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(json.starts_with('['));
+        assert!(json.contains("\"type\":\"text\""));
+    }
+
+    // -- ContentBlock --
+
+    #[test]
+    fn content_block_text_roundtrip() {
+        let block = ContentBlock::Text {
+            text: "hello".to_string(),
+        };
+        let json = serde_json::to_string(&block).unwrap();
+        let parsed: ContentBlock = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ContentBlock::Text { text } => assert_eq!(text, "hello"),
+            _ => panic!("expected Text block"),
+        }
+    }
+
+    #[test]
+    fn content_block_tool_use_roundtrip() {
+        let block = ContentBlock::ToolUse {
+            id: "call_1".to_string(),
+            name: "search".to_string(),
+            input: serde_json::json!({"query": "cpu"}),
+        };
+        let json = serde_json::to_string(&block).unwrap();
+        let parsed: ContentBlock = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ContentBlock::ToolUse { id, name, input } => {
+                assert_eq!(id, "call_1");
+                assert_eq!(name, "search");
+                assert_eq!(input["query"], "cpu");
+            }
+            _ => panic!("expected ToolUse block"),
+        }
+    }
+
+    #[test]
+    fn content_block_tool_result_roundtrip() {
+        let block = ContentBlock::ToolResult {
+            tool_use_id: "call_1".to_string(),
+            content: "found 5 results".to_string(),
+            is_error: Some(false),
+        };
+        let json = serde_json::to_string(&block).unwrap();
+        let parsed: ContentBlock = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
+                assert_eq!(tool_use_id, "call_1");
+                assert_eq!(content, "found 5 results");
+                assert_eq!(is_error, Some(false));
+            }
+            _ => panic!("expected ToolResult block"),
+        }
+    }
+
+    #[test]
+    fn content_block_tool_result_omits_none_is_error() {
+        let block = ContentBlock::ToolResult {
+            tool_use_id: "call_1".to_string(),
+            content: "ok".to_string(),
+            is_error: None,
+        };
+        let json = serde_json::to_string(&block).unwrap();
+        assert!(!json.contains("is_error"));
+    }
+
+    // -- Message full roundtrip --
+
+    #[test]
+    fn message_text_roundtrip() {
+        let msg = Message::user("test");
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.role, Role::User);
+        match parsed.content {
+            MessageContent::Text(s) => assert_eq!(s, "test"),
+            MessageContent::Blocks(_) => panic!("expected Text"),
+        }
+    }
+
+    #[test]
+    fn message_blocks_roundtrip() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![
+                ContentBlock::Text {
+                    text: "I'll search".to_string(),
+                },
+                ContentBlock::ToolUse {
+                    id: "t1".to_string(),
+                    name: "query".to_string(),
+                    input: serde_json::json!({}),
+                },
+            ]),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.role, Role::Assistant);
+        match parsed.content {
+            MessageContent::Blocks(blocks) => assert_eq!(blocks.len(), 2),
+            MessageContent::Text(_) => panic!("expected Blocks"),
+        }
+    }
+
+    // -- AgentError display --
+
+    #[test]
+    fn agent_error_display_messages() {
+        assert_eq!(
+            AgentError::Http("timeout".into()).to_string(),
+            "HTTP error: timeout"
+        );
+        assert_eq!(
+            AgentError::Process("spawn".into()).to_string(),
+            "Process error: spawn"
+        );
+        assert_eq!(
+            AgentError::Parse("bad json".into()).to_string(),
+            "Parse error: bad json"
+        );
+        assert_eq!(
+            AgentError::Auth("bad key".into()).to_string(),
+            "Authentication failed: bad key"
+        );
+        assert_eq!(
+            AgentError::Tool("exec failed".into()).to_string(),
+            "Tool error: exec failed"
+        );
+        assert_eq!(
+            AgentError::NotConfigured("missing".into()).to_string(),
+            "Provider not configured: missing"
+        );
+    }
+
+    #[test]
+    fn agent_error_api_display() {
+        let err = AgentError::Api {
+            message: "overloaded".into(),
+            kind: Some(ApiErrorKind::ServerError),
+        };
+        assert!(err.to_string().contains("overloaded"));
+    }
+
+    #[test]
+    fn agent_error_rate_limited_display() {
+        let err = AgentError::RateLimited {
+            retry_after_secs: Some(60),
+        };
+        let display = err.to_string();
+        assert!(display.contains("60"));
+    }
+
+    // -- ApiErrorKind --
+
+    #[test]
+    fn api_error_kind_display() {
+        assert_eq!(ApiErrorKind::InvalidRequest.to_string(), "invalid request");
+        assert_eq!(
+            ApiErrorKind::ContextWindowExceeded.to_string(),
+            "context window exceeded"
+        );
+        assert_eq!(
+            ApiErrorKind::ContentFiltered.to_string(),
+            "content filtered"
+        );
+        assert_eq!(ApiErrorKind::ServerError.to_string(), "server error");
+    }
+
+    // -- TokenUsage --
+
+    #[test]
+    fn token_usage_default_is_zero() {
+        let usage = TokenUsage::default();
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+    }
+
+    // -- StopReason --
+
+    #[test]
+    fn stop_reason_equality() {
+        assert_eq!(StopReason::EndTurn, StopReason::EndTurn);
+        assert_eq!(StopReason::ToolUse, StopReason::ToolUse);
+        assert_ne!(StopReason::EndTurn, StopReason::MaxTokens);
+        assert_ne!(StopReason::ToolUse, StopReason::StopSequence);
+    }
+
+    // -- ToolDefinition --
+
+    #[test]
+    fn tool_definition_serialization() {
+        let tool = ToolDefinition {
+            name: "query_metrics".to_string(),
+            description: "Query Prometheus".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "expr": { "type": "string" }
+                },
+                "required": ["expr"]
+            }),
+        };
+        let json = serde_json::to_string(&tool).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["name"], "query_metrics");
+        assert_eq!(parsed["description"], "Query Prometheus");
+        assert_eq!(parsed["input_schema"]["type"], "object");
+        assert!(
+            parsed["input_schema"]["required"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("expr"))
+        );
+    }
 }

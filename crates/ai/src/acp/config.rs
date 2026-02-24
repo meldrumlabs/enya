@@ -11,8 +11,6 @@ pub enum AgentKind {
     GeminiCli,
     /// Codex (OpenAI)
     Codex,
-    /// Goose (Square)
-    Goose,
     /// Custom agent
     Custom,
 }
@@ -25,7 +23,6 @@ impl AgentKind {
             Self::ClaudeCode => "Claude Code",
             Self::GeminiCli => "Gemini CLI",
             Self::Codex => "Codex",
-            Self::Goose => "Goose",
             Self::Custom => "Custom Agent",
         }
     }
@@ -128,19 +125,6 @@ impl AgentConfig {
         }
     }
 
-    /// Create a configuration for Goose.
-    #[must_use]
-    pub fn goose() -> Self {
-        Self {
-            kind: AgentKind::Goose,
-            command: "goose".to_string(),
-            args: vec!["--acp".to_string()],
-            working_dir: None,
-            env: vec![],
-            env_remove: vec![],
-        }
-    }
-
     /// Create a custom agent configuration.
     #[must_use]
     pub fn custom(command: impl Into<String>, args: Vec<String>) -> Self {
@@ -173,5 +157,141 @@ impl AgentConfig {
     pub fn with_arg(mut self, arg: impl Into<String>) -> Self {
         self.args.push(arg.into());
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_kind_display_names() {
+        assert_eq!(AgentKind::ClaudeCode.display_name(), "Claude Code");
+        assert_eq!(AgentKind::GeminiCli.display_name(), "Gemini CLI");
+        assert_eq!(AgentKind::Codex.display_name(), "Codex");
+        assert_eq!(AgentKind::Custom.display_name(), "Custom Agent");
+    }
+
+    #[test]
+    fn agent_kind_equality() {
+        assert_eq!(AgentKind::ClaudeCode, AgentKind::ClaudeCode);
+        assert_ne!(AgentKind::ClaudeCode, AgentKind::Codex);
+    }
+
+    #[test]
+    fn claude_code_config() {
+        let config = AgentConfig::claude_code();
+        assert_eq!(config.kind, AgentKind::ClaudeCode);
+        assert_eq!(config.command, "npx");
+        assert!(config.args.contains(&"-y".to_string()));
+        assert!(
+            config
+                .args
+                .contains(&"@zed-industries/claude-code-acp".to_string())
+        );
+        assert!(config.working_dir.is_none());
+        assert!(config.env.is_empty());
+        assert!(config.env_remove.is_empty());
+    }
+
+    #[test]
+    fn claude_code_with_api_key() {
+        let config = AgentConfig::claude_code_with_api_key("sk-test-123");
+        assert_eq!(config.kind, AgentKind::ClaudeCode);
+        assert_eq!(config.command, "npx");
+        assert_eq!(config.env.len(), 1);
+        assert_eq!(config.env[0].0, "ANTHROPIC_API_KEY");
+        assert_eq!(config.env[0].1, "sk-test-123");
+    }
+
+    #[test]
+    fn claude_code_with_path() {
+        let config = AgentConfig::claude_code_with_path("/usr/local/bin/claude-acp");
+        assert_eq!(config.kind, AgentKind::ClaudeCode);
+        assert_eq!(config.command, "/usr/local/bin/claude-acp");
+        // Should still have the npx args (inherited from claude_code())
+        assert!(
+            config
+                .args
+                .contains(&"@zed-industries/claude-code-acp".to_string())
+        );
+    }
+
+    #[test]
+    fn gemini_cli_config() {
+        let config = AgentConfig::gemini_cli();
+        assert_eq!(config.kind, AgentKind::GeminiCli);
+        assert_eq!(config.command, "gemini");
+        assert_eq!(config.args, vec!["--acp"]);
+    }
+
+    #[test]
+    fn codex_config() {
+        let config = AgentConfig::codex();
+        assert_eq!(config.kind, AgentKind::Codex);
+        assert_eq!(config.command, "npx");
+        assert!(
+            config
+                .args
+                .contains(&"@zed-industries/codex-acp".to_string())
+        );
+    }
+
+    #[test]
+    fn codex_with_api_key() {
+        let config = AgentConfig::codex_with_api_key("sk-openai-key");
+        assert_eq!(config.kind, AgentKind::Codex);
+        assert_eq!(config.env.len(), 1);
+        assert_eq!(config.env[0].0, "OPENAI_API_KEY");
+        assert_eq!(config.env[0].1, "sk-openai-key");
+    }
+
+    #[test]
+    fn custom_config() {
+        let config = AgentConfig::custom("my-agent", vec!["--mode".into(), "acp".into()]);
+        assert_eq!(config.kind, AgentKind::Custom);
+        assert_eq!(config.command, "my-agent");
+        assert_eq!(config.args, vec!["--mode", "acp"]);
+    }
+
+    #[test]
+    fn with_working_dir() {
+        let config = AgentConfig::claude_code().with_working_dir("/home/user/project");
+        assert_eq!(
+            config.working_dir,
+            Some(PathBuf::from("/home/user/project"))
+        );
+    }
+
+    #[test]
+    fn with_env() {
+        let config = AgentConfig::claude_code()
+            .with_env("FOO", "bar")
+            .with_env("BAZ", "qux");
+        assert_eq!(config.env.len(), 2);
+        assert_eq!(config.env[0], ("FOO".to_string(), "bar".to_string()));
+        assert_eq!(config.env[1], ("BAZ".to_string(), "qux".to_string()));
+    }
+
+    #[test]
+    fn with_arg() {
+        let config = AgentConfig::claude_code()
+            .with_arg("--verbose")
+            .with_arg("--timeout=30");
+        assert!(config.args.contains(&"--verbose".to_string()));
+        assert!(config.args.contains(&"--timeout=30".to_string()));
+    }
+
+    #[test]
+    fn builder_chaining() {
+        let config = AgentConfig::custom("agent", vec![])
+            .with_working_dir("/tmp")
+            .with_env("KEY", "value")
+            .with_arg("--flag");
+
+        assert_eq!(config.working_dir, Some(PathBuf::from("/tmp")));
+        assert_eq!(config.env.len(), 1);
+        // original empty args + --flag
+        assert_eq!(config.args, vec!["--flag"]);
     }
 }

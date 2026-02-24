@@ -65,7 +65,7 @@ src/
 |------|-------------|
 | `AcpClient` | Spawns agent subprocess, sends JSON-RPC messages, returns `Receiver<AgentEvent>` |
 | `AgentConfig` | Configuration (command, args, working_dir, env) |
-| `AgentKind` | Enum: ClaudeCode, GeminiCli, Codex, Goose, Custom |
+| `AgentKind` | Enum: ClaudeCode, GeminiCli, Codex, Custom |
 | `AgentEvent` | Streaming events: TextDelta, ThinkingDelta, ToolCallStart, ToolResult, Done, Error |
 | `Provider` | Direct API client (Anthropic or OpenAI) - alternative to ACP |
 
@@ -120,7 +120,6 @@ while let Ok(event) = rx.try_recv() {
 | Claude Code | `npx @zed-industries/claude-code-acp` | Primary |
 | Gemini CLI | `gemini --acp` | Supported |
 | Codex | `npx @zed-industries/codex-acp` | Supported |
-| Goose | `goose --acp` | Experimental |
 
 ## Communication Flow
 

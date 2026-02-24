@@ -454,4 +454,225 @@ mod tests {
             _ => panic!("Expected TextDelta"),
         }
     }
+
+    #[test]
+    fn test_build_request_with_tools() {
+        let client = AnthropicClient::new("key", "claude-sonnet-4-20250514");
+        let messages = vec![Message::user("help")];
+        let tools = vec![ToolDefinition {
+            name: "search".to_string(),
+            description: "Search things".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }];
+
+        let request = client.build_request("Be helpful", &messages, &tools);
+
+        assert!(request.tools.is_some());
+        let api_tools = request.tools.unwrap();
+        assert_eq!(api_tools.len(), 1);
+        assert_eq!(api_tools[0].name, "search");
+    }
+
+    #[test]
+    fn test_build_request_filters_system_messages() {
+        let client = AnthropicClient::new("key", "claude-sonnet-4-20250514");
+        let messages = vec![
+            Message::system("system prompt"),
+            Message::user("hello"),
+            Message::assistant("hi"),
+        ];
+
+        let request = client.build_request("separate system", &messages, &[]);
+
+        // System messages should be filtered out (system goes in separate field)
+        assert_eq!(request.messages.len(), 2);
+        assert_eq!(request.system, "separate system");
+    }
+
+    #[test]
+    fn test_parse_message_start() {
+        let data = r#"{"type":"message_start","message":{"id":"msg_1","model":"claude-3"}}"#;
+        let event: SseEvent = serde_json::from_str(data).unwrap();
+        assert!(matches!(event, SseEvent::MessageStart { .. }));
+    }
+
+    #[test]
+    fn test_parse_message_stop() {
+        let data = r#"{"type":"message_stop"}"#;
+        let event: SseEvent = serde_json::from_str(data).unwrap();
+        assert!(matches!(event, SseEvent::MessageStop));
+    }
+
+    #[test]
+    fn test_parse_ping() {
+        let data = r#"{"type":"ping"}"#;
+        let event: SseEvent = serde_json::from_str(data).unwrap();
+        assert!(matches!(event, SseEvent::Ping));
+    }
+
+    #[test]
+    fn test_parse_content_block_start_tool_use() {
+        let data = r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"search","input":{}}}"#;
+        let event: SseEvent = serde_json::from_str(data).unwrap();
+        match event {
+            SseEvent::ContentBlockStart {
+                content_block: SseContentBlock::ToolUse { id, name, .. },
+                ..
+            } => {
+                assert_eq!(id, "toolu_1");
+                assert_eq!(name, "search");
+            }
+            _ => panic!("Expected ToolUse content block start"),
+        }
+    }
+
+    #[test]
+    fn test_parse_input_json_delta() {
+        let data = r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"query\":"}}"#;
+        let event: SseEvent = serde_json::from_str(data).unwrap();
+        match event {
+            SseEvent::ContentBlockDelta {
+                delta: SseDelta::InputJsonDelta { partial_json },
+                ..
+            } => {
+                assert_eq!(partial_json, "{\"query\":");
+            }
+            _ => panic!("Expected InputJsonDelta"),
+        }
+    }
+
+    #[test]
+    fn test_parse_thinking_delta() {
+        let data = r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me think..."}}"#;
+        let event: SseEvent = serde_json::from_str(data).unwrap();
+        match event {
+            SseEvent::ContentBlockDelta {
+                delta: SseDelta::ThinkingDelta { thinking },
+                ..
+            } => {
+                assert_eq!(thinking, "Let me think...");
+            }
+            _ => panic!("Expected ThinkingDelta"),
+        }
+    }
+
+    #[test]
+    fn test_parse_message_delta_end_turn() {
+        let data = r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":100,"output_tokens":50}}"#;
+        let event: SseEvent = serde_json::from_str(data).unwrap();
+        match event {
+            SseEvent::MessageDelta { delta, usage } => {
+                assert_eq!(delta.stop_reason.as_deref(), Some("end_turn"));
+                let u = usage.unwrap();
+                assert_eq!(u.input_tokens, Some(100));
+                assert_eq!(u.output_tokens, Some(50));
+            }
+            _ => panic!("Expected MessageDelta"),
+        }
+    }
+
+    #[test]
+    fn test_parse_error_event() {
+        let data = r#"{"type":"error","error":{"message":"overloaded"}}"#;
+        let event: SseEvent = serde_json::from_str(data).unwrap();
+        match event {
+            SseEvent::Error { error } => {
+                assert_eq!(error.message, "overloaded");
+            }
+            _ => panic!("Expected Error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_sse_stream_text() {
+        let input = "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"input_tokens\":10,\"output_tokens\":5}}\n";
+        let (tx, rx) = std::sync::mpsc::sync_channel(16);
+        let reader = std::io::Cursor::new(input);
+        parse_sse_stream(reader, &tx).unwrap();
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], AgentEvent::TextDelta(t) if t == "Hi"));
+        assert!(matches!(
+            &events[1],
+            AgentEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_parse_sse_stream_skips_non_data_lines() {
+        let input = ": comment\nevent: message\ndata: {\"type\":\"message_stop\"}\n";
+        let (tx, rx) = std::sync::mpsc::sync_channel(16);
+        let reader = std::io::Cursor::new(input);
+        parse_sse_stream(reader, &tx).unwrap();
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        // message_stop doesn't emit an AgentEvent
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_parse_sse_stream_tool_call_lifecycle() {
+        let input = "\
+data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"search\",\"input\":{}}}\n\
+data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"q\\\":\"}}\n\
+data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"test\\\"}\"}}\n\
+data: {\"type\":\"content_block_stop\",\"index\":1}\n\
+data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}\n";
+
+        let (tx, rx) = std::sync::mpsc::sync_channel(32);
+        let reader = std::io::Cursor::new(input);
+        parse_sse_stream(reader, &tx).unwrap();
+        drop(tx);
+
+        let events: Vec<_> = rx.try_iter().collect();
+        // Should see: ToolCallStart, InputDelta x2, ToolCallReady, Done
+        assert!(matches!(
+            &events[0],
+            AgentEvent::ToolCallStart { name, .. } if name == "search"
+        ));
+        assert!(matches!(&events[1], AgentEvent::ToolCallInputDelta { .. }));
+        assert!(matches!(&events[2], AgentEvent::ToolCallInputDelta { .. }));
+        assert!(matches!(&events[3], AgentEvent::ToolCallReady { id, .. } if id == "t1"));
+        assert!(matches!(
+            &events[4],
+            AgentEvent::Done {
+                stop_reason: StopReason::ToolUse,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_api_message_from_text_message() {
+        let msg = Message::user("hello");
+        let api_msg: ApiMessage = (&msg).into();
+        assert_eq!(api_msg.role, "user");
+        assert!(matches!(api_msg.content, ApiContent::Text(s) if s == "hello"));
+    }
+
+    #[test]
+    fn test_api_message_from_blocks_message() {
+        let msg = Message {
+            role: Role::Assistant,
+            content: MessageContent::Blocks(vec![
+                ContentBlock::Text {
+                    text: "result".to_string(),
+                },
+                ContentBlock::ToolUse {
+                    id: "t1".to_string(),
+                    name: "search".to_string(),
+                    input: serde_json::json!({"q": "test"}),
+                },
+            ]),
+        };
+        let api_msg: ApiMessage = (&msg).into();
+        assert_eq!(api_msg.role, "assistant");
+        assert!(matches!(api_msg.content, ApiContent::Blocks(blocks) if blocks.len() == 2));
+    }
 }
