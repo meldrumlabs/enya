@@ -175,9 +175,13 @@ starlight-theme-select {
     border-bottom: none !important;
 }
 
-/* Reduce logo size */
-.site-title img {
-    height: calc((var(--sl-nav-height) - 2 * var(--sl-nav-pad-y)) * 0.8) !important;
+/* Style header title text in emerald */
+.site-title a {
+    color: var(--obsidian-accent) !important;
+    font-family: 'Geist Mono', monospace !important;
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
 }
 
 /* Sidebar navigation styling - Obsidian Glass */
