@@ -72,6 +72,15 @@ pub(super) struct ClaudeCodeOptions {
     pub model: String,
 }
 
+// -- Set Session Model --
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SetSessionModelParams {
+    pub session_id: String,
+    pub model_id: String,
+}
+
 // -- Session Prompt --
 
 #[derive(Debug, Serialize)]
@@ -227,5 +236,19 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["type"], "text");
         assert_eq!(parsed["text"], "What is the CPU usage?");
+    }
+
+    #[test]
+    fn set_session_model_params_serialization() {
+        let params = SetSessionModelParams {
+            session_id: "sess_456".to_string(),
+            model_id: "claude-sonnet-4-5".to_string(),
+        };
+
+        let json = serde_json::to_string(&params).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["sessionId"], "sess_456");
+        assert_eq!(parsed["modelId"], "claude-sonnet-4-5");
     }
 }

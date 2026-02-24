@@ -142,6 +142,27 @@ impl AgentConfig {
         self.args.push(arg.into());
         self
     }
+
+    /// Apply model settings appropriate for this agent's kind.
+    ///
+    /// Different agents accept model configuration differently:
+    /// - Claude Code: `ANTHROPIC_MODEL` env var + `--model` CLI arg
+    /// - Codex: `-c model=<id>` config override
+    /// - Custom: `ANTHROPIC_MODEL` env var only (best-effort)
+    ///
+    /// Note: The actual model is also set via `session/set_model` JSON-RPC
+    /// after session creation to ensure it takes effect.
+    #[must_use]
+    pub fn with_model(self, model_id: &str) -> Self {
+        match self.kind {
+            AgentKind::ClaudeCode => self
+                .with_env("ANTHROPIC_MODEL", model_id)
+                .with_arg("--model")
+                .with_arg(model_id),
+            AgentKind::Codex => self.with_arg("-c").with_arg(format!("model={model_id}")),
+            AgentKind::Custom => self.with_env("ANTHROPIC_MODEL", model_id),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -268,5 +289,32 @@ mod tests {
         assert_eq!(config.env.len(), 1);
         // original empty args + --flag
         assert_eq!(config.args, vec!["--flag"]);
+    }
+
+    #[test]
+    fn with_model_claude_code() {
+        let config = AgentConfig::claude_code().with_model("claude-haiku-4-5-20251001");
+        assert!(config.args.contains(&"--model".to_string()));
+        assert!(
+            config
+                .args
+                .contains(&"claude-haiku-4-5-20251001".to_string())
+        );
+        assert!(config.env.contains(&(
+            "ANTHROPIC_MODEL".to_string(),
+            "claude-haiku-4-5-20251001".to_string()
+        )));
+    }
+
+    #[test]
+    fn with_model_codex() {
+        let config = AgentConfig::codex().with_model("gpt-5.2-codex");
+        // Codex should NOT get --model CLI arg
+        assert!(!config.args.contains(&"--model".to_string()));
+        // Codex uses -c model=<id> config override
+        assert!(config.args.contains(&"-c".to_string()));
+        assert!(config.args.contains(&"model=gpt-5.2-codex".to_string()));
+        // Should NOT use env vars for model
+        assert!(config.env.is_empty());
     }
 }

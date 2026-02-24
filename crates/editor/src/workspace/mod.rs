@@ -2710,13 +2710,16 @@ impl Workspace {
         self.codebase_manager.set_git_sync_interval(seconds);
     }
 
-    /// Update the agent panel's provider and model from settings.
+    /// Update the agent panel's and input bar's provider and model from settings.
     pub fn set_agent_provider_and_model(
         &mut self,
         provider: crate::components::util::AiProvider,
         model: Option<String>,
     ) {
-        self.agent_panel.set_provider_and_model(provider, model);
+        self.agent_panel
+            .set_provider_and_model(provider, model.clone());
+        #[cfg(not(target_arch = "wasm32"))]
+        self.agent_input_bar.set_provider_and_model(provider, model);
     }
 
     /// Send a query to the agent (public wrapper for inline input)

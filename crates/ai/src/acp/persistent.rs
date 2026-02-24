@@ -20,6 +20,7 @@ use super::config::AgentConfig;
 use super::protocol::{
     ClaudeCodeMeta, ClaudeCodeOptions, ClientCapabilities, ClientInfo, InitializeParams,
     PromptContent, RpcRequest, SessionMeta, SessionNewParams, SessionPromptParams,
+    SetSessionModelParams,
 };
 use crate::types::{AgentError, AgentEvent};
 
@@ -131,11 +132,7 @@ async fn spawn_and_initialize(
     config: &AgentConfig,
     model_id: &str,
 ) -> Result<WarmProcess, AgentError> {
-    let spawn_config = config
-        .clone()
-        .with_env("ANTHROPIC_MODEL", model_id)
-        .with_arg("--model")
-        .with_arg(model_id);
+    let spawn_config = config.clone().with_model(model_id);
 
     let t0 = Instant::now();
     info!(
@@ -227,6 +224,27 @@ async fn send_prompt_on_warm(
     send_message(&mut proc.writer, &session_msg).await?;
     let session_id = read_session_id(&mut proc.reader).await?;
     let session_new_ms = t0.elapsed().as_millis();
+
+    // Explicitly set the model via session/set_model after session creation.
+    // This overrides any defaults from the agent's own config (e.g. Claude CLI
+    // settings or Codex config.toml) to ensure our UI selection takes effect.
+    let set_model_id = proc.next_id;
+    proc.next_id += 1;
+    let set_model_msg = RpcRequest::new(
+        set_model_id,
+        "session/set_model",
+        SetSessionModelParams {
+            session_id: session_id.clone(),
+            model_id: proc.current_model.clone(),
+        },
+    );
+    send_message(&mut proc.writer, &set_model_msg).await?;
+    read_response(&mut proc.reader, "setSessionModel").await?;
+    let set_model_ms = t0.elapsed().as_millis();
+    info!(
+        "ACP model set to {} (session_new_ms={session_new_ms}, set_model_ms={set_model_ms})",
+        proc.current_model
+    );
 
     // session/prompt
     let prompt_id = proc.next_id;
@@ -344,7 +362,9 @@ async fn session_manager_loop(
                 }
 
                 let ready_ms = prompt_t0.elapsed().as_millis();
-                info!("process ready for prompt (was_warm={was_warm}, ready_ms={ready_ms})");
+                info!(
+                    "process ready for prompt (was_warm={was_warm}, ready_ms={ready_ms}, model={model_id})"
+                );
 
                 let proc = warm.as_mut().expect("process should be warm after spawn");
                 match send_prompt_on_warm(

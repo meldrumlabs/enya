@@ -14,7 +14,7 @@ use super::config::AgentConfig;
 use super::protocol::{
     ClaudeCodeMeta, ClaudeCodeOptions, ClientCapabilities, ClientInfo, InitializeParams,
     PromptContent, RpcRequest, RpcResponse, SessionMeta, SessionNewParams, SessionNewResult,
-    SessionPromptParams,
+    SessionPromptParams, SetSessionModelParams,
 };
 use crate::types::{AgentError, AgentEvent, StopReason};
 
@@ -209,6 +209,8 @@ impl AcpClient {
 
 /// Spawn the agent process with the given configuration.
 pub(super) fn spawn_agent(config: &AgentConfig) -> Result<Child, AgentError> {
+    info!("spawn_agent: {} {}", config.command, config.args.join(" "));
+
     let mut cmd = Command::new(&config.command);
 
     for arg in &config.args {
@@ -259,12 +261,8 @@ async fn run_acp_session(
         model_id
     );
 
-    // Spawn the agent process with the model set via env var and CLI arg
-    let config = config
-        .clone()
-        .with_env("ANTHROPIC_MODEL", model_id)
-        .with_arg("--model")
-        .with_arg(model_id);
+    // Spawn the agent process with model set per agent kind
+    let config = config.clone().with_model(model_id);
     let mut child = spawn_agent(&config)?;
 
     let stdin = child
@@ -318,6 +316,22 @@ async fn run_acp_session(
     send_message(&mut writer, &session_msg).await?;
     let session_id = read_session_id(&mut reader).await?;
 
+    // Explicitly set the model via session/set_model after session creation.
+    // This overrides any defaults from the agent's own config (e.g. Claude CLI
+    // settings or Codex config.toml) to ensure our UI selection takes effect.
+    let set_model_msg = RpcRequest::new(
+        3,
+        "session/set_model",
+        SetSessionModelParams {
+            session_id: session_id.clone(),
+            model_id: model_id.to_string(),
+        },
+    );
+    send_message(&mut writer, &set_model_msg).await?;
+    read_response(&mut reader, "setSessionModel").await?;
+    info!("ACP model explicitly set to {model_id}");
+    let next_id = 4;
+
     // Send prompt (system context is prepended if provided)
     let full_prompt = if let Some(ctx) = system_context {
         format!("{ctx}\n\n---\n\n{prompt}")
@@ -326,7 +340,7 @@ async fn run_acp_session(
     };
 
     let prompt_msg = RpcRequest::new(
-        3,
+        next_id,
         "session/prompt",
         SessionPromptParams {
             session_id,
@@ -338,8 +352,8 @@ async fn run_acp_session(
     );
     send_message(&mut writer, &prompt_msg).await?;
 
-    // Read streaming responses (prompt was sent with JSON-RPC id=3)
-    read_streaming_responses(&mut reader, &tx, 3).await?;
+    // Read streaming responses
+    read_streaming_responses(&mut reader, &tx, next_id).await?;
 
     // Clean up
     let _ = child.kill().await;
