@@ -7,6 +7,7 @@ All notable changes to the Enya editor will be documented in this file.
 ### Changed
 
 - **Responsive time range toolbar**: Preset buttons, custom range label, and range description now progressively hide as the toolbar narrows to prevent overlapping text.
+- **Agent panel copy button**: Copy button now appears inline to the right of the message header instead of on a separate row below it.
 
 ### Removed
 
