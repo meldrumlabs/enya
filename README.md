@@ -8,7 +8,9 @@
 
 # Enya
 
-Neovim meets Grafana, reimagined for human and agent collaboration.
+Observability for Builders. A shared interface for humans and AI agents.
+
+Learn more at [enya.build](https://enya.build) or try it out directly in the [browser](https://enya.build/editor).
 
 - **AI Native** — Built from the ground up for AI. Agents have access to the same commands you do. Supports Codex and Claude through ACP.
 - **Multi-Tool** — Code, metrics, logs, traces, SQL, terminals — all in one interface.
@@ -16,6 +18,13 @@ Neovim meets Grafana, reimagined for human and agent collaboration.
 - **Shared Workspaces** — Both you and AI agents create, edit, and iterate in the same workspace.
 - **Extensible** — Neovim-inspired modal editing with Lua plugins. Fully customizable.
 - **Fast** — Built in Rust on top of egui. Runs natively on desktop and web through WASM.
+
+## Status
+
+Enya is under active development. We're building in two phases:
+
+1. **Human interface** (current) — Editor, multi-tool panes, modal editing, Lua plugins, and the core workspace experience.
+2. **Agent** (next) — Headless CLI interface for agents to monitor, analyze, and create workspaces viewable by humans.
 
 ## Platform Support
 
@@ -28,63 +37,16 @@ Neovim meets Grafana, reimagined for human and agent collaboration.
 
 Enya has primarily been developed and tested on macOS and WASM. Linux and Windows builds compile and pass CI, but have received less hands-on testing. Bug reports and contributions for these platforms are welcome.
 
-## Requirements
-
-- [Rust](https://rustup.rs/) 1.88+
-- [just](https://github.com/casey/just) command runner
-
-Optional:
-
-- [Zig](https://ziglang.org/) toolchain — required for the `terminal` feature (Ghostty)
-- [Docker](https://www.docker.com/) — required for integration tests
-
 ## Getting Started
 
 ```bash
-# Clone the repository
 git clone https://github.com/meldrumlabs/enya.git
 cd enya
-
-# Install dev tools (cargo-machete, cargo-nextest, cargo-deny) and init submodules
 just install
-
-# Build and run the editor
 just run
 ```
 
-## Just Commands
-
-| Command | Description |
-|---------|-------------|
-| `just install` | Install dev tools and initialize submodules |
-| `just run` | Build and run the editor |
-| `just build` | Build the editor |
-| `just fmt` | Format code |
-| `just clippy` | Run linter |
-| `just test` | Run tests with nextest |
-| `just ci` | Full CI check (fmt, clippy, machete, tests, WASM) |
-| `just check-wasm` | Verify WASM build compiles |
-| `just machete` | Detect unused dependencies |
-| `just deny` | Check dependency licenses and vulnerabilities |
-| `just it-test` | Run integration tests (requires Docker) |
-
-## Feature Flags
-
-All features are opt-in. Enable them with `cargo build -p enya-editor --features <flag>`:
-
-| Flag | Description |
-|------|-------------|
-| `terminal` | Ghostty terminal pane (requires Zig toolchain) |
-| `sql` | DataFusion SQL pane (~500 additional dependencies) |
-| `all-languages` | Tree-sitter syntax highlighting for Go, Python, JS/TS |
-| `puffin` | Puffin profiling backend |
-| `tracy` | Tracy profiling backend |
-
-Note: `puffin` and `tracy` are mutually exclusive.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, coding style, and PR guidelines.
+Requires [Rust](https://rustup.rs/) 1.88+ and [just](https://github.com/casey/just). See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development setup, commands, and feature flags.
 
 ## Acknowledgements
 
@@ -96,6 +58,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, coding style, a
 - [gpui-ghostty](https://github.com/Xuanwo/gpui-ghostty) by [Xuanwo](https://github.com/Xuanwo) for inspiration on terminal emulator integration
 - [Zed](https://zed.dev) for inspiration on agent integration with ACP
 
+## Data Privacy
+
+Enya runs on your machine. Your workspaces, configuration, observability data, and source code stay local. Enya connects directly to your data sources — nothing is proxied through external servers. Enya does not collect telemetry, usage analytics, or crash reports.
+
+Snapshots let you share a workspace via a link. Sharing is entirely opt-in — nothing is uploaded unless you explicitly choose to share. Public snapshots require GitHub authentication and are stored on Cloudflare R2 with a per-user quota. Snapshots auto-expire after 7 days. Read more in our [privacy policy](https://enya.build/privacy).
+
 ## License
 
-Licensed under the [MIT license](LICENSE).
+Enya is developed by [Meldrum Labs](https://github.com/meldrumlabs) and licensed under the [MIT license](LICENSE).

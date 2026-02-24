@@ -4,6 +4,16 @@ All contributions are appreciated! Whether it's fixing a typo, refactoring exist
 
 If you're unsure where to start, have a look at the open [GitHub issues](https://github.com/meldrumlabs/enya/issues).
 
+## Requirements
+
+- [Rust](https://rustup.rs/) 1.88+
+- [just](https://github.com/casey/just) command runner
+
+Optional:
+
+- [Zig](https://ziglang.org/) toolchain — required for the `terminal` feature (Ghostty)
+- [Docker](https://www.docker.com/) — required for integration tests
+
 ## Getting Started
 
 Fork the repository and create a feature branch:
@@ -34,15 +44,35 @@ just install
 
 Use the Justfile helpers for reproducibility:
 
-```bash
-just fmt          # Format code
-just clippy       # Run linter
-just test         # Run tests
-just ci           # Full CI check (lint + machete + test + check-wasm)
-just check-wasm   # Verify WASM build
-```
+| Command | Description |
+|---------|-------------|
+| `just install` | Install dev tools and initialize submodules |
+| `just run` | Build and run the editor |
+| `just build` | Build the editor |
+| `just fmt` | Format code |
+| `just clippy` | Run linter |
+| `just test` | Run tests with nextest |
+| `just ci` | Full CI check (fmt, clippy, machete, tests, WASM) |
+| `just check-wasm` | Verify WASM build compiles |
+| `just machete` | Detect unused dependencies |
+| `just deny` | Check dependency licenses and vulnerabilities |
+| `just it-test` | Run integration tests (requires Docker) |
 
 Before submitting a PR, run `just ci` to catch issues locally.
+
+## Feature Flags
+
+All features are opt-in. Enable them with `cargo build -p enya-editor --features <flag>`:
+
+| Flag | Description |
+|------|-------------|
+| `terminal` | Ghostty terminal pane (requires Zig toolchain) |
+| `sql` | DataFusion SQL pane (~500 additional dependencies) |
+| `all-languages` | Tree-sitter syntax highlighting for Go, Python, JS/TS |
+| `puffin` | Puffin profiling backend |
+| `tracy` | Tracy profiling backend |
+
+Note: `puffin` and `tracy` are mutually exclusive.
 
 ## Coding Style
 
