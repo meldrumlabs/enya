@@ -265,7 +265,8 @@ impl ProjectSidebar {
             }
         }
 
-        // Ungrouped workspaces
+        // Ungrouped workspaces (native only — on WASM only project-grouped tutorials are shown)
+        #[cfg(not(target_arch = "wasm32"))]
         for ws in &self.workspaces {
             if !grouped.contains(&ws.name) {
                 nav.push(SidebarNavItem::Workspace {
@@ -659,7 +660,8 @@ impl ProjectSidebar {
         // ── Right side: workspace count badge + "+" button on hover ──
         let right_edge = rect.max.x - 10.0;
 
-        // "+" button (visible on hover or selected)
+        // "+" button (visible on hover or selected, native only — hidden on WASM demo)
+        #[cfg(not(target_arch = "wasm32"))]
         if hovered || is_selected {
             let plus_x = right_edge;
             let plus_rect = egui::Rect::from_center_size(
@@ -690,11 +692,15 @@ impl ProjectSidebar {
 
         // Workspace count badge
         if workspace_count > 0 {
+            // On native, shift badge left when "+" button is visible (hover/selected)
+            #[cfg(not(target_arch = "wasm32"))]
             let badge_x = if hovered || is_selected {
                 right_edge - 24.0
             } else {
                 right_edge
             };
+            #[cfg(target_arch = "wasm32")]
+            let badge_x = right_edge;
             ui.painter().text(
                 egui::pos2(badge_x, rect.center().y),
                 egui::Align2::RIGHT_CENTER,
@@ -787,9 +793,13 @@ impl ProjectSidebar {
             text_secondary
         };
 
-        // ── Archive button (on hover/selected) ──
+        // ── Archive button (on hover/selected, native only — hidden on WASM demo) ──
+        #[cfg(not(target_arch = "wasm32"))]
         let right_pad = if hovered || is_selected { 24.0 } else { 10.0 };
+        #[cfg(target_arch = "wasm32")]
+        let right_pad = 10.0;
 
+        #[cfg(not(target_arch = "wasm32"))]
         if hovered || is_selected {
             let archive_x = rect.max.x - 16.0;
             let archive_rect = egui::Rect::from_center_size(
@@ -857,31 +867,35 @@ impl ProjectSidebar {
         ui.add_space(4.0);
 
         // Compact icon bar: [+ project] ... [settings]
+        // On WASM demo, hide "Add project" — only show settings
         ui.horizontal(|ui| {
             ui.add_space(8.0);
 
-            // New project
-            let icon_color = text_tertiary.gamma_multiply(0.6);
-            let proj_icon = ui.add(
-                egui::Button::new(
-                    RichText::new(semantic_icons::file::FOLDER_PLUS)
+            // New project (native only — hidden on WASM demo)
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let icon_color = text_tertiary.gamma_multiply(0.6);
+                let proj_icon = ui.add(
+                    egui::Button::new(
+                        RichText::new(semantic_icons::file::FOLDER_PLUS)
+                            .color(icon_color)
+                            .font(egui::FontId::proportional(semantic_icons::SIZE_ITEM)),
+                    )
+                    .frame(false),
+                );
+                let label = ui.label(
+                    RichText::new("Add project")
                         .color(icon_color)
-                        .font(egui::FontId::proportional(semantic_icons::SIZE_ITEM)),
-                )
-                .frame(false),
-            );
-            let label = ui.label(
-                RichText::new("Add project")
-                    .color(icon_color)
-                    .font(typography::proportional(typography::XS)),
-            );
-            let proj_clicked = proj_icon.clicked() || label.clicked();
-            let proj_hovered = proj_icon.hovered() || label.hovered();
-            if proj_clicked {
-                *result = ProjectSidebarResult::CreateProject;
-            }
-            if proj_hovered {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        .font(typography::proportional(typography::XS)),
+                );
+                let proj_clicked = proj_icon.clicked() || label.clicked();
+                let proj_hovered = proj_icon.hovered() || label.hovered();
+                if proj_clicked {
+                    *result = ProjectSidebarResult::CreateProject;
+                }
+                if proj_hovered {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
             }
 
             // Push settings to the right

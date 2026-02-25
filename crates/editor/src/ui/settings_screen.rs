@@ -364,30 +364,52 @@ impl AppSettings {
         self.projects.retain(|p| p.name != project);
     }
 
+    /// Canonical list of built-in tutorial workspaces.
+    const TUTORIAL_WORKSPACES: &[(&str, &str)] = &[
+        ("golden-signals", "Latency, traffic, errors, saturation"),
+        ("incident-response", "Cross-signal investigation workspace"),
+        (
+            "service-overview",
+            "Deep-dive with every visualization type",
+        ),
+        ("infrastructure", "CPU, memory, disk, network monitoring"),
+        ("multi-service", "Compare services side by side"),
+    ];
+
     /// Ensure the tutorial project and its workspaces exist for new users.
     ///
     /// Creates a "Tutorial" project containing the built-in example workspaces
     /// and adds them to `recent_workspaces` so they appear in the sidebar.
+    ///
+    /// On WASM, this also cleans up non-tutorial workspaces and rebuilds the
+    /// project to ensure only the canonical set is shown in the demo.
     pub fn ensure_tutorial_project(&mut self) {
-        // Already set up if the Tutorial project exists
+        let tutorial_names: Vec<String> = Self::TUTORIAL_WORKSPACES
+            .iter()
+            .map(|&(n, _)| n.to_string())
+            .collect();
+
+        // On WASM, always rebuild from scratch to guarantee a clean demo
+        // experience regardless of any persisted data in localStorage.
+        #[cfg(target_arch = "wasm32")]
+        {
+            // Remove any non-tutorial workspaces from recent list
+            self.recent_workspaces
+                .retain(|w| tutorial_names.contains(&w.name));
+
+            // Remove ALL projects (Tutorial will be recreated below with canonical list,
+            // and any user-created projects like "test" are cleaned up)
+            self.projects.clear();
+        }
+
+        // On native, skip if Tutorial project already exists
+        #[cfg(not(target_arch = "wasm32"))]
         if self.projects.iter().any(|p| p.name == "Tutorial") {
             return;
         }
 
-        // Built-in tutorial workspaces that ship with the editor
-        let tutorial_workspaces: &[(&str, &str)] = &[
-            ("golden-signals", "Latency, traffic, errors, saturation"),
-            ("incident-response", "Cross-signal investigation workspace"),
-            (
-                "service-overview",
-                "Deep-dive with every visualization type",
-            ),
-            ("infrastructure", "CPU, memory, disk, network monitoring"),
-            ("multi-service", "Compare services side by side"),
-        ];
-
-        // Add them to recent workspaces (at the end so user's own sort first)
-        for &(name, desc) in tutorial_workspaces {
+        // Ensure all tutorial workspaces are in recent_workspaces
+        for &(name, desc) in Self::TUTORIAL_WORKSPACES {
             if !self.recent_workspaces.iter().any(|w| w.name == name) {
                 self.recent_workspaces.push(WorkspaceEntry {
                     name: name.to_string(),
@@ -400,10 +422,7 @@ impl AppSettings {
         // Create the Tutorial project grouping them together
         self.projects.push(ProjectEntry {
             name: "Tutorial".to_string(),
-            workspace_names: tutorial_workspaces
-                .iter()
-                .map(|&(n, _)| n.to_string())
-                .collect(),
+            workspace_names: tutorial_names,
             collapsed: false,
         });
     }

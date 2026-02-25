@@ -11,6 +11,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Sidebar empty state text**: Changed "No workspaces yet" to "No projects yet" in the project sidebar empty state.
 - **Show Tutorial project on WASM**: The Tutorial project is now always visible in the sidebar on WASM builds, since tutorials are the primary content for web users.
 - **Simplified tutorial workspaces**: Reduced each tutorial workspace from 7-10 panes to 4 panes and added explicit 2x2 grid layouts so all panes are visible in the viewport instead of hidden behind tabs.
+- **WASM sidebar shows only tutorial workspaces**: On WASM, the project sidebar now hides ungrouped workspaces, the "Add project" button, the "+" workspace creation button on project headers, and the archive/delete button on workspace rows. Only the pre-defined Tutorial project workspaces are shown for a clean demo experience.
 
 ### Fixed
 
