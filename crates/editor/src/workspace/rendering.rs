@@ -455,6 +455,8 @@ impl Workspace {
 
                 // Render pane and capture actual content rect
                 let response = ui.allocate_ui(Vec2::new(pane_width, pane_height), |ui| {
+                    ui.set_max_height(pane_height);
+                    ui.set_clip_rect(ui.max_rect());
                     if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
                         component.set_theme(theme);
                         component.show(ui);
@@ -560,6 +562,10 @@ impl Workspace {
                         let is_selected = selected_tiles.contains(&tile_id);
 
                         let response = ui.allocate_ui(Vec2::new(cell_width, cell_height), |ui| {
+                            // Enforce fixed cell height so long titles can't
+                            // push one cell taller than its siblings in the row.
+                            ui.set_max_height(cell_height);
+                            ui.set_clip_rect(ui.max_rect());
                             if let Some(Tile::Pane(component)) =
                                 self.viewport_tree.tiles.get_mut(tile_id)
                             {

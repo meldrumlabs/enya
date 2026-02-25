@@ -16,6 +16,7 @@ All notable changes to the Enya editor will be documented in this file.
 - **Section header right-side clipping**: Section headers now use a fixed width captured once at the start of rendering, so pane content in earlier sections can no longer shrink the available width for subsequent headers. Also added 4px horizontal padding around the scroll area.
 - **Section scroll on j/k navigation**: Navigating between sections with `j`/`k` now scrolls the sections scroll area to keep the focused header or pane visible.
 - **Tutorial workspace demo data**: Workspaces loaded without a backend connection (e.g. tutorials) now show realistic demo data in all pane types. Previously, `from_config_numbered` never called `populate_demo_data`, and `set_visualization_type` only populated demo data when the type differed from the default (TimeSeries), leaving TimeSeries panes empty.
+- **Grid and horizontal pane height alignment**: Panes in grid and horizontal section layouts now enforce a fixed max height with clipping, so long titles (e.g. `http_request_duration_seconds`) can no longer push one cell taller than its siblings in the same row.
 
 - **Responsive time range toolbar**: Preset buttons, custom range label, and range description now progressively hide as the toolbar narrows to prevent overlapping text.
 - **Agent panel copy button**: Copy button now appears inline to the right of the message header instead of on a separate row below it.
