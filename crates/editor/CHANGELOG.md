@@ -13,7 +13,7 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Fixed
 
-- **Section header right-side clipping**: Added 4px horizontal padding around the sections scroll area so header rounded corners and borders are no longer cut off at the panel edge.
+- **Section header right-side clipping**: Section headers now use a fixed width captured once at the start of rendering, so pane content in earlier sections can no longer shrink the available width for subsequent headers. Also added 4px horizontal padding around the scroll area.
 
 - **Responsive time range toolbar**: Preset buttons, custom range label, and range description now progressively hide as the toolbar narrows to prevent overlapping text.
 - **Agent panel copy button**: Copy button now appears inline to the right of the message header instead of on a separate row below it.

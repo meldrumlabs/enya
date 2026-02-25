@@ -298,6 +298,10 @@ impl Workspace {
         // Update section renderer theme
         self.section_renderer.set_theme(theme);
 
+        // Capture the full available width once so that section content
+        // (e.g. horizontal pane layouts) cannot shrink subsequent headers.
+        let full_width = ui.available_width();
+
         // Get all pane tile IDs in order (they match section pane order)
         let pane_tile_ids = self.get_pane_tile_ids();
 
@@ -327,6 +331,7 @@ impl Workspace {
                 section_config,
                 &section_state,
                 header_focused,
+                full_width,
             );
 
             // Handle header click - toggle collapsed state

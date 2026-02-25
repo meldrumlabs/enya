@@ -65,8 +65,9 @@ impl SectionRenderer {
         section: &SectionConfig,
         state: &SectionState,
         focused: bool,
+        width: f32,
     ) -> Response {
-        let desired_size = Vec2::new(ui.available_width(), SECTION_HEADER_HEIGHT);
+        let desired_size = Vec2::new(width, SECTION_HEADER_HEIGHT);
 
         let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
 
