@@ -271,12 +271,14 @@ impl GaugeChart {
 
             // Title (only show if explicitly set and different from default)
             if !self.title.is_empty() && self.title != "Untitled" {
-                ui.label(
+                let title_label = egui::Label::new(
                     RichText::new(&self.title)
                         .color(text_col)
                         .size(title_size)
                         .strong(),
-                );
+                )
+                .truncate();
+                ui.add(title_label);
                 ui.add_space(12.0);
             }
 
