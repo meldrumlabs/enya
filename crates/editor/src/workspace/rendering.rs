@@ -445,6 +445,9 @@ impl Workspace {
         let selected_tiles = self.get_selected_tiles(tile_ids);
 
         ui.horizontal(|ui| {
+            // Disable implicit item spacing – we handle gaps explicitly.
+            ui.spacing_mut().item_spacing.x = 0.0;
+
             for (pane_idx, &tile_id) in tile_ids.iter().enumerate() {
                 let is_focused = self.section_focus
                     == FocusTarget::Pane {
@@ -551,6 +554,9 @@ impl Workspace {
         ui.vertical(|ui| {
             for row_start in (0..tile_ids.len()).step_by(columns) {
                 ui.horizontal(|ui| {
+                    // Disable implicit item spacing – we handle gaps explicitly.
+                    ui.spacing_mut().item_spacing.x = 0.0;
+
                     for col in 0..columns {
                         let pane_idx = row_start + col;
                         if pane_idx >= tile_ids.len() {
