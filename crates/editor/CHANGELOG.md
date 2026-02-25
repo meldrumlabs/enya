@@ -16,6 +16,7 @@ All notable changes to the Enya editor will be documented in this file.
 ### Fixed
 
 - **Tutorial workspace demo data**: Workspaces loaded without a backend connection (e.g. tutorials) now show realistic demo data in all pane types. Previously, `from_config_numbered` never called `populate_demo_data`, and `set_visualization_type` only populated demo data when the type differed from the default (TimeSeries), leaving TimeSeries panes empty.
+- **Gauge percentage text clipping**: Fixed the percentage value (e.g. "54%") being cut off at the bottom of gauge panes by correcting the height overhead constant from 120 to 166 in the gauge sizing calculation.
 
 - **Responsive time range toolbar**: Preset buttons, custom range label, and range description now progressively hide as the toolbar narrows to prevent overlapping text.
 - **Agent panel copy button**: Copy button now appears inline to the right of the message header instead of on a separate row below it.
