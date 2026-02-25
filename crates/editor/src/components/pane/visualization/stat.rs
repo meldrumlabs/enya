@@ -277,8 +277,28 @@ impl StatChart {
         let unit_size = (14.0 * scale_factor).clamp(12.0, 20.0);
         let change_size = (12.0 * scale_factor).clamp(10.0, 16.0);
 
-        // Calculate content height based on scaled sizes
-        let content_height = title_size + 12.0 + value_size + unit_size + 8.0 + change_size + 48.0;
+        // Calculate content height based on what will actually be rendered
+        let has_title = !self.title.is_empty() && self.title != "Untitled";
+        let has_unit = !self.unit.is_empty();
+        let has_change = self.change_value.is_some();
+        let has_sparkline = self.show_sparkline && self.sparkline_data.len() >= 2;
+
+        let mut content_height = value_size; // Big number is always shown
+        if has_title {
+            content_height += title_size + 12.0;
+        }
+        if has_unit {
+            content_height += unit_size;
+        }
+        content_height += 8.0; // spacing before change
+        if has_change {
+            content_height += change_size;
+        }
+        if has_sparkline {
+            content_height += VIZ_PADDING_TOP + 40.0; // sparkline height estimate
+        }
+        content_height += VIZ_PADDING_BOTTOM;
+
         let vertical_offset = ((available_height - content_height) / 2.0).max(VIZ_PADDING_TOP);
 
         ui.vertical_centered(|ui| {
