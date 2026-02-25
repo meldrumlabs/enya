@@ -6,6 +6,9 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Neovim tilde markers flush left**: Removed 16px left margin on `~` markers in the empty workspace view so they sit at the very left edge.
+- **Leader popup only for Space**: Removed the leader key popup overlay for `g` commands; the which-key popup now only appears for Space leader actions.
+
 - **Responsive time range toolbar**: Preset buttons, custom range label, and range description now progressively hide as the toolbar narrows to prevent overlapping text.
 - **Agent panel copy button**: Copy button now appears inline to the right of the message header instead of on a separate row below it.
 

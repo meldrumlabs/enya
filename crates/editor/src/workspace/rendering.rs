@@ -859,7 +859,6 @@ fn render_tilde_line(ui: &mut egui::Ui, color: Color32, line_height: f32) {
     };
 
     let available_width = ui.available_width();
-    let left_margin = 16.0; // Small margin from left edge
 
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(available_width, line_height),
@@ -870,7 +869,7 @@ fn render_tilde_line(ui: &mut egui::Ui, color: Color32, line_height: f32) {
     // Center the tilde vertically within the line height
     let y_offset = (line_height - galley.size().y) / 2.0;
     painter.galley(
-        egui::pos2(rect.left() + left_margin, rect.top() + y_offset),
+        egui::pos2(rect.left(), rect.top() + y_offset),
         galley,
         color,
     );
@@ -885,7 +884,6 @@ fn render_centered_title_with_tilde(
 ) {
     let font = egui::FontId::monospace(typography::HEADING + 4.0);
     let tilde_font = egui::FontId::monospace(typography::MD);
-    let left_margin = 16.0;
 
     let (galley, tilde_galley) = {
         let painter = ui.painter();
@@ -905,11 +903,7 @@ fn render_centered_title_with_tilde(
     let painter = ui.painter();
     // Tilde on left, vertically centered
     let tilde_y = rect.top() + (galley.size().y - tilde_galley.size().y) / 2.0;
-    painter.galley(
-        egui::pos2(rect.left() + left_margin, tilde_y),
-        tilde_galley,
-        tilde_color,
-    );
+    painter.galley(egui::pos2(rect.left(), tilde_y), tilde_galley, tilde_color);
     // Centered title
     painter.galley(egui::pos2(rect.left() + start_x, rect.top()), galley, color);
 }
@@ -923,7 +917,6 @@ fn render_centered_tagline_with_tilde(
 ) {
     let font = egui::FontId::proportional(typography::SM);
     let tilde_font = egui::FontId::monospace(typography::MD);
-    let left_margin = 16.0;
 
     let (galley, tilde_galley) = {
         let painter = ui.painter();
@@ -944,11 +937,7 @@ fn render_centered_tagline_with_tilde(
     let painter = ui.painter();
     // Tilde on left
     let tilde_y = rect.top() + (line_height - tilde_galley.size().y) / 2.0;
-    painter.galley(
-        egui::pos2(rect.left() + left_margin, tilde_y),
-        tilde_galley,
-        tilde_color,
-    );
+    painter.galley(egui::pos2(rect.left(), tilde_y), tilde_galley, tilde_color);
     // Centered tagline
     let text_y = rect.top() + (line_height - galley.size().y) / 2.0;
     painter.galley(egui::pos2(rect.left() + start_x, text_y), galley, color);
@@ -964,7 +953,6 @@ fn render_centered_hints_block_with_tilde(
 ) {
     let font = egui::FontId::monospace(typography::MD);
     let col_spacing = 16.0;
-    let left_margin = 16.0;
 
     // Measure widths in a scoped block to release the painter borrow
     let (max_key_width, max_desc_width) = {
@@ -1019,11 +1007,7 @@ fn render_centered_hints_block_with_tilde(
         // Draw tilde on left
         let painter = ui.painter();
         let tilde_y = rect.top() + (row_height - tilde_galley.size().y) / 2.0;
-        painter.galley(
-            egui::pos2(rect.left() + left_margin, tilde_y),
-            tilde_galley,
-            tilde_color,
-        );
+        painter.galley(egui::pos2(rect.left(), tilde_y), tilde_galley, tilde_color);
 
         // Draw key
         painter.galley(

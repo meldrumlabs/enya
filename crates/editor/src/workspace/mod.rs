@@ -1417,19 +1417,11 @@ impl Workspace {
         // Space has no timeout - stays active until cleared
         self.leader_popup
             .update_visibility(LeaderKey::Space, self.leader_keys.last_space_press);
-        // G has a timeout - only pass press time if still within timeout window
-        let g_press_time = if self.leader_keys.is_g_active() {
-            self.leader_keys.last_g_press
-        } else {
-            None
-        };
-        self.leader_popup
-            .update_visibility(LeaderKey::G, g_press_time);
         #[cfg(not(target_arch = "wasm32"))]
         let is_native = true;
         #[cfg(target_arch = "wasm32")]
         let is_native = false;
-        self.leader_popup.show_all(ctx, is_native);
+        self.leader_popup.show(ctx, LeaderKey::Space, is_native);
 
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());
