@@ -337,6 +337,8 @@ pub struct Workspace {
     section_states: Vec<SectionState>,
     /// Current focus target for section-aware navigation
     section_focus: FocusTarget,
+    /// Whether to scroll the sections scroll area to the focused element
+    section_scroll_to_focus: bool,
     /// Section renderer for drawing section headers and layouts
     section_renderer: SectionRenderer,
 
@@ -489,6 +491,7 @@ impl Workspace {
             section_configs: Vec::new(),
             section_states: Vec::new(),
             section_focus: FocusTarget::default(),
+            section_scroll_to_focus: false,
             section_renderer: SectionRenderer::default(),
             // Floating panes
             floating_panes: FloatingPaneManager::new(),
@@ -2328,6 +2331,9 @@ impl Workspace {
         // with features that rely on tile-based focus (visual-multi, etc.)
         let tile_id = self.section_focus_to_tile_id();
         self.behavior.set_focused_tile(tile_id);
+
+        // Request scroll to bring the focused element into view
+        self.section_scroll_to_focus = true;
 
         log::debug!("Section navigation: focus is now {:?}", self.section_focus);
         true

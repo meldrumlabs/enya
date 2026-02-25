@@ -302,6 +302,11 @@ impl Workspace {
         // (e.g. horizontal pane layouts) cannot shrink subsequent headers.
         let full_width = ui.available_width();
 
+        // Check if we need to scroll to the focused element
+        let should_scroll = self.section_scroll_to_focus;
+        let current_focus = self.section_focus;
+        self.section_scroll_to_focus = false;
+
         // Get all pane tile IDs in order (they match section pane order)
         let pane_tile_ids = self.get_pane_tile_ids();
 
@@ -334,6 +339,11 @@ impl Workspace {
                 full_width,
             );
 
+            // Scroll to focused header
+            if should_scroll && current_focus == FocusTarget::SectionHeader(section_idx) {
+                ui.scroll_to_rect(header_response.rect, Some(egui::Align::Center));
+            }
+
             // Handle header click - toggle collapsed state
             if header_response.clicked() {
                 if let Some(state) = self.section_states.get_mut(section_idx) {
@@ -353,6 +363,20 @@ impl Workspace {
 
                 // Render content based on section layout
                 self.render_section_content(ui, section_config, &section_tile_ids, section_idx);
+
+                // Scroll to focused pane within this section
+                if should_scroll {
+                    if let FocusTarget::Pane { section, .. } = current_focus {
+                        if section == section_idx {
+                            // Scroll to the bottom of this section's content
+                            let rect = egui::Rect::from_min_size(
+                                ui.next_widget_position(),
+                                egui::Vec2::ZERO,
+                            );
+                            ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                        }
+                    }
+                }
             }
 
             // Move to next section's panes
