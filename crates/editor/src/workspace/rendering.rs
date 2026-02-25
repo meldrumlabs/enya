@@ -453,15 +453,16 @@ impl Workspace {
                     };
                 let is_selected = selected_tiles.contains(&tile_id);
 
-                // Render pane and capture actual content rect
+                // Render pane with fixed size so all cells in the row align.
+                // Return max_rect (not min_rect) so the horizontal layout
+                // sees a uniform height for every cell.
                 let response = ui.allocate_ui(Vec2::new(pane_width, pane_height), |ui| {
-                    ui.set_max_height(pane_height);
-                    ui.set_clip_rect(ui.max_rect());
+                    let fixed_rect = ui.max_rect();
                     if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
                         component.set_theme(theme);
                         component.show(ui);
                     }
-                    ui.min_rect()
+                    fixed_rect
                 });
 
                 self.draw_pane_overlays(
@@ -503,11 +504,12 @@ impl Workspace {
                 let is_selected = selected_tiles.contains(&tile_id);
 
                 let response = ui.allocate_ui(Vec2::new(available_width, pane_height), |ui| {
+                    let fixed_rect = ui.max_rect();
                     if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
                         component.set_theme(theme);
                         component.show(ui);
                     }
-                    ui.min_rect()
+                    fixed_rect
                 });
 
                 self.draw_pane_overlays(
@@ -562,17 +564,14 @@ impl Workspace {
                         let is_selected = selected_tiles.contains(&tile_id);
 
                         let response = ui.allocate_ui(Vec2::new(cell_width, cell_height), |ui| {
-                            // Enforce fixed cell height so long titles can't
-                            // push one cell taller than its siblings in the row.
-                            ui.set_max_height(cell_height);
-                            ui.set_clip_rect(ui.max_rect());
+                            let fixed_rect = ui.max_rect();
                             if let Some(Tile::Pane(component)) =
                                 self.viewport_tree.tiles.get_mut(tile_id)
                             {
                                 component.set_theme(theme);
                                 component.show(ui);
                             }
-                            ui.min_rect()
+                            fixed_rect
                         });
 
                         self.draw_pane_overlays(
