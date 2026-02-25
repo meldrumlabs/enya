@@ -211,15 +211,15 @@ impl EnyaApp {
         #[cfg(target_arch = "wasm32")]
         {
             // On web, first check for built-in workspaces, then try base64
-            let workspace_result = if name == "golden-signals" {
+            let workspace_result = if name == "quick-start" {
                 WorkspaceConfig::from_toml(crate::workspace::GOLDEN_SIGNALS_TOML)
-            } else if name == "incident-response" {
+            } else if name == "on-call" {
                 WorkspaceConfig::from_toml(crate::workspace::INCIDENT_RESPONSE_TOML)
-            } else if name == "service-overview" {
+            } else if name == "deep-dive" {
                 WorkspaceConfig::from_toml(crate::workspace::SERVICE_OVERVIEW_TOML)
-            } else if name == "infrastructure" {
+            } else if name == "infra" {
                 WorkspaceConfig::from_toml(crate::workspace::INFRASTRUCTURE_TOML)
-            } else if name == "multi-service" {
+            } else if name == "logs-and-traces" {
                 WorkspaceConfig::from_toml(crate::workspace::MULTI_SERVICE_TOML)
             } else {
                 // Try to decode from base64 (for shared URLs)

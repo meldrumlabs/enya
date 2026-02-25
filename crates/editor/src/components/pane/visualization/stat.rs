@@ -301,8 +301,7 @@ impl StatChart {
 
         // Sparkline gets whatever height remains after text + padding
         let sparkline_height = if has_sparkline {
-            (available_height - text_height - sparkline_gap - pad_bottom)
-                .clamp(16.0, 48.0)
+            (available_height - text_height - sparkline_gap - pad_bottom).clamp(16.0, 48.0)
         } else {
             0.0
         };

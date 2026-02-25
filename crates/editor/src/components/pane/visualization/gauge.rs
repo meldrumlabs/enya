@@ -246,7 +246,7 @@ impl GaugeChart {
         // Fixed overhead ≈ title(18) + spacing(12) + value(64) + minmax(40) + padding(32) ≈ 166
         // Arc height = gauge_size * 0.4 + 27
         // So max gauge_size from height: (available_height - 166) / 0.4
-        let max_from_height = ((available_height - 120.0) / 0.4).max(60.0);
+        let max_from_height = ((available_height - 166.0) / 0.4).max(60.0);
         let gauge_size = available_width.min(max_from_height).clamp(60.0, 500.0);
 
         // Scale text sizes proportionally

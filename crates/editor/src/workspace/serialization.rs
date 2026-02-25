@@ -16,7 +16,7 @@ use super::{
     WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta, pane_from_query_state,
     time_config_from_preset_with_refresh,
 };
-use crate::components::{Component, QueryPane};
+use crate::components::{Component, LogsBackend, LogsPane, QueryPane, TracingPane};
 
 impl Workspace {
     // =========================================================================
@@ -113,6 +113,24 @@ impl Workspace {
         for (i, pane_config) in all_panes.iter().enumerate() {
             let query_number = self.next_query_number;
             self.next_query_number += 1;
+
+            // Handle special pane types that aren't standard query visualizations
+            if pane_config.visualization == "logs" {
+                let now_secs = crate::util::now_unix_secs();
+                let end_ns = now_secs * 1_000_000_000;
+                let start_ns = end_ns - 3600 * 1_000_000_000; // 1 hour ago
+                let pane: Box<dyn Component> =
+                    Box::new(LogsPane::with_backend(start_ns, end_ns, LogsBackend::Demo));
+                let tile_id = self.viewport_tree.tiles.insert_pane(pane);
+                pane_tile_ids.push(tile_id);
+                continue;
+            }
+            if pane_config.visualization == "tracing" {
+                let pane: Box<dyn Component> = Box::new(TracingPane::with_demo());
+                let tile_id = self.viewport_tree.tiles.insert_pane(pane);
+                pane_tile_ids.push(tile_id);
+                continue;
+            }
 
             // Use snapshot constructor if this workspace has embedded data
             let snapshot_data = config.snapshot.as_ref().and_then(|s| s.pane_data.get(i));

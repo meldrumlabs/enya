@@ -223,11 +223,9 @@ impl LogsPane {
         self.promise = None;
     }
 
-    /// Set the text filter.
+    /// Set the text filter (applied locally, no re-query needed).
     pub fn set_filter_text(&mut self, text: impl Into<String>) {
         self.filter_text = text.into();
-        self.results = None;
-        self.promise = None;
     }
 
     /// Set the level filter.
@@ -331,11 +329,6 @@ impl LogsPane {
         // Use the saved LogQL query
         if !self.saved_query.is_empty() {
             query = query.with_query(&self.saved_query);
-        }
-
-        // Apply text filter for local filtering
-        if !self.filter_text.is_empty() {
-            query = query.with_contains(&self.filter_text);
         }
 
         self.is_loading = true;
@@ -819,33 +812,40 @@ impl LogsPane {
                             .size(12.0),
                     );
 
-                    let filter_response = ui.add(
+                    ui.add(
                         egui::TextEdit::singleline(&mut self.filter_text)
                             .hint_text("Filter logs...")
                             .desired_width(140.0)
                             .frame(false)
                             .font(egui::TextStyle::Small),
                     );
-
-                    if filter_response.changed() {
-                        // Trigger refresh on filter change
-                        self.results = None;
-                        self.promise = None;
-                    }
                 });
             });
     }
 
-    /// Count entries that match the current level filter.
+    /// Count entries that match the current filters (level + text).
     fn filtered_entries_count(&self, response: &LogsResponse) -> usize {
-        if self.filter_level.is_none() {
+        let has_level_filter = self.filter_level.is_some();
+        let has_text_filter = !self.filter_text.is_empty();
+
+        if !has_level_filter && !has_text_filter {
             return response.entries.len();
         }
+
+        let filter_lower = self.filter_text.to_lowercase();
 
         response
             .entries
             .iter()
-            .filter(|e| self.filter_level.is_none() || e.level == self.filter_level)
+            .filter(|e| {
+                if has_level_filter && e.level != self.filter_level {
+                    return false;
+                }
+                if has_text_filter && !e.message.to_lowercase().contains(&filter_lower) {
+                    return false;
+                }
+                true
+            })
             .count()
     }
 
@@ -1247,6 +1247,13 @@ impl LogsPane {
         // Reset hover state before rendering rows
         self.hovered_index = None;
 
+        // Precompute lowercase filter for text search
+        let filter_lower = if self.filter_text.is_empty() {
+            String::new()
+        } else {
+            self.filter_text.to_lowercase()
+        };
+
         // Scrollable log entries
         ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -1259,6 +1266,13 @@ impl LogsPane {
                         if entry.level != Some(filter_level) {
                             continue;
                         }
+                    }
+
+                    // Apply text filter (case-insensitive)
+                    if !filter_lower.is_empty()
+                        && !entry.message.to_lowercase().contains(&filter_lower)
+                    {
+                        continue;
                     }
 
                     let is_selected = self.selected_index == Some(idx);

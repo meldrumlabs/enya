@@ -168,7 +168,7 @@ impl TracingPane {
                 ui.add_space(8.0);
 
                 // Calculate input width - leave room for buttons
-                let button_space = 160.0; // Load + Demo + spinner + spacing
+                let button_space = 100.0; // Load + spinner + spacing
                 let input_width = (ui.available_width() - button_space).clamp(120.0, 400.0);
 
                 // Styled text input
@@ -212,19 +212,6 @@ impl TracingPane {
                     self.needs_refresh = true;
                     self.is_loading = true;
                     action = TracingPaneAction::LoadTrace(self.trace_id_input.clone());
-                }
-
-                ui.add_space(4.0);
-
-                // Demo button
-                let demo_button = ui.add(
-                    egui::Button::new(RichText::new("Demo").size(12.0))
-                        .min_size(egui::Vec2::new(50.0, 26.0)),
-                );
-                if demo_button.clicked() {
-                    let trace = demo_trace();
-                    self.trace_id_input = trace.trace_id.clone();
-                    self.set_trace(trace);
                 }
 
                 // Loading indicator with spacing
