@@ -366,14 +366,11 @@ impl AppSettings {
 
     /// Canonical list of built-in tutorial workspaces.
     const TUTORIAL_WORKSPACES: &[(&str, &str)] = &[
-        ("golden-signals", "Latency, traffic, errors, saturation"),
-        ("incident-response", "Cross-signal investigation workspace"),
-        (
-            "service-overview",
-            "Deep-dive with every visualization type",
-        ),
-        ("infrastructure", "CPU, memory, disk, network monitoring"),
-        ("multi-service", "Compare services side by side"),
+        ("quick-start", "The 4 golden signals at a glance"),
+        ("on-call", "Incident triage at a glance"),
+        ("deep-dive", "Every visualization type in one view"),
+        ("infra", "CPU, memory, and system health"),
+        ("logs-and-traces", "Explore logs and distributed traces"),
     ];
 
     /// Ensure the tutorial project and its workspaces exist for new users.

@@ -7,10 +7,10 @@
 //! Tutorial workspaces use demo-mode metric names (see `enya_client::demo`) so
 //! they render realistic data without a real Prometheus backend.
 
-/// Golden Signals workspace — the four pillars of SRE monitoring.
+/// Quick Start workspace — a friendly intro to the four golden signals.
 pub const GOLDEN_SIGNALS_TOML: &str = r#"[workspace]
-name = "golden-signals"
-description = "The four golden signals of SRE: latency, traffic, errors, saturation"
+name = "quick-start"
+description = "The 4 golden signals at a glance"
 
 [view]
 theme = "dark"
@@ -21,7 +21,7 @@ refresh = "30s"
 
 [[panes]]
 query = "http_request_duration_seconds"
-name = "Request Latency"
+name = "Latency"
 description = "Response time distribution across all endpoints"
 tag = "Critical"
 unit = "ms"
@@ -30,7 +30,7 @@ granularity = "1m"
 
 [[panes]]
 query = "http_requests_total"
-name = "Request Rate"
+name = "Traffic"
 description = "HTTP requests per second by method"
 unit = "req/s"
 visualization = "time_series"
@@ -38,7 +38,7 @@ granularity = "1m"
 
 [[panes]]
 query = "http_requests_total"
-name = "Error Rate"
+name = "Errors"
 description = "Percentage of requests returning 5xx status codes"
 tag = "Critical"
 unit = "%"
@@ -47,7 +47,7 @@ granularity = "1m"
 
 [[panes]]
 query = "node_cpu_seconds_total"
-name = "CPU Usage"
+name = "Saturation"
 description = "Average CPU utilization across all nodes"
 unit = "%"
 visualization = "gauge"
@@ -61,10 +61,10 @@ children = [
 ]
 "#;
 
-/// Incident response workspace — cross-signal investigation during an outage.
+/// On-call workspace — quick triage during an incident.
 pub const INCIDENT_RESPONSE_TOML: &str = r#"[workspace]
-name = "incident-response"
-description = "Cross-signal investigation workspace for incident response"
+name = "on-call"
+description = "Incident triage at a glance"
 
 [view]
 theme = "dark"
@@ -75,7 +75,7 @@ refresh = "30s"
 
 [[panes]]
 query = "http_requests_total"
-name = "Error Rate"
+name = "Errors"
 tag = "Critical"
 unit = "err/s"
 visualization = "stat"
@@ -112,10 +112,10 @@ children = [
 ]
 "#;
 
-/// Service overview workspace — deep-dive into a single service.
+/// Deep-dive workspace — every visualization type in one view.
 pub const SERVICE_OVERVIEW_TOML: &str = r#"[workspace]
-name = "service-overview"
-description = "Single-service deep-dive showcasing multiple visualization types"
+name = "deep-dive"
+description = "Every visualization type in one view"
 
 [view]
 theme = "dark"
@@ -160,10 +160,10 @@ children = [
 ]
 "#;
 
-/// Infrastructure workspace — system-level monitoring with live auto-refresh.
+/// Infra workspace — system-level health at a glance.
 pub const INFRASTRUCTURE_TOML: &str = r#"[workspace]
-name = "infrastructure"
-description = "System-level monitoring: CPU, memory, disk, network"
+name = "infra"
+description = "CPU, memory, and system health"
 
 [view]
 theme = "dark"
@@ -212,10 +212,10 @@ children = [
 ]
 "#;
 
-/// Multi-service comparison workspace — comparing services side by side.
+/// Logs & Traces workspace — explore logs and distributed traces.
 pub const MULTI_SERVICE_TOML: &str = r#"[workspace]
-name = "multi-service"
-description = "Compare request rates, latencies, and errors across services"
+name = "logs-and-traces"
+description = "Explore logs and distributed traces"
 
 [view]
 theme = "dark"
@@ -225,32 +225,29 @@ preset = "1h"
 refresh = "30s"
 
 [[panes]]
-query = "http_requests_in_flight"
-name = "In-Flight by Service"
-description = "Active requests compared across all services"
-unit = "req"
-visualization = "bar_chart"
-granularity = "5m"
+query = "http_requests_total"
+name = "Request Rate"
+unit = "req/s"
+visualization = "time_series"
+granularity = "1m"
 
 [[panes]]
 query = "http_request_duration_seconds"
-name = "Latency by Service"
-description = "Tail latency compared across services"
+name = "p99 Latency"
+tag = "Critical"
 unit = "ms"
-visualization = "bar_chart"
-granularity = "5m"
-
-[[panes]]
-query = "http_requests_total"
-name = "API Gateway"
-visualization = "time_series"
+visualization = "stat"
 granularity = "1m"
 
 [[panes]]
-query = "app_active_users"
-name = "Active Users"
-visualization = "time_series"
-granularity = "1m"
+query = ""
+name = "Logs"
+visualization = "logs"
+
+[[panes]]
+query = ""
+name = "Traces"
+visualization = "tracing"
 
 [layout]
 type = "vertical"

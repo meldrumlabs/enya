@@ -12,6 +12,8 @@ All notable changes to the Enya editor will be documented in this file.
 - **Show Tutorial project on WASM**: The Tutorial project is now always visible in the sidebar on WASM builds, since tutorials are the primary content for web users.
 - **Simplified tutorial workspaces**: Reduced each tutorial workspace from 7-10 panes to 4 panes and added explicit 2x2 grid layouts so all panes are visible in the viewport instead of hidden behind tabs.
 - **WASM sidebar shows only tutorial workspaces**: On WASM, the project sidebar now hides ungrouped workspaces, the "Add project" button, the "+" workspace creation button on project headers, and the archive/delete button on workspace rows. Only the pre-defined Tutorial project workspaces are shown for a clean demo experience.
+- **Friendlier tutorial workspace names**: Renamed tutorial workspaces to more approachable names: quick-start, on-call, deep-dive, infra, and logs-and-traces.
+- **Logs & Traces tutorial workspace**: Replaced the multi-service comparison workspace with a new logs-and-traces workspace that showcases the logs pane (demo SQL query logs) and tracing pane (demo distributed trace) alongside metric panes.
 
 ### Fixed
 
