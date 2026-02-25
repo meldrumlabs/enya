@@ -1072,11 +1072,17 @@ impl Workspace {
                     self.render_empty_workspace_hint(ui);
                 } else if !self.section_configs.is_empty() {
                     // Render sections with collapsible headers (Grafana-style)
-                    egui::ScrollArea::vertical()
-                        .id_salt("sections_scroll")
-                        .auto_shrink([false, false])
+                    // Use a frame with horizontal padding so header rounded corners
+                    // and borders are not clipped at the panel edges.
+                    egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(4, 0))
                         .show(ui, |ui| {
-                            self.render_sections(ui);
+                            egui::ScrollArea::vertical()
+                                .id_salt("sections_scroll")
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    self.render_sections(ui);
+                                });
                         });
                 } else {
                     // Store available rect before layout for scrollbar positioning

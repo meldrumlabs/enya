@@ -11,6 +11,10 @@ All notable changes to the Enya editor will be documented in this file.
 - **Sidebar empty state text**: Changed "No workspaces yet" to "No projects yet" in the project sidebar empty state.
 - **Show Tutorial project on WASM**: The Tutorial project is now always visible in the sidebar on WASM builds, since tutorials are the primary content for web users.
 
+### Fixed
+
+- **Section header right-side clipping**: Added 4px horizontal padding around the sections scroll area so header rounded corners and borders are no longer cut off at the panel edge.
+
 - **Responsive time range toolbar**: Preset buttons, custom range label, and range description now progressively hide as the toolbar narrows to prevent overlapping text.
 - **Agent panel copy button**: Copy button now appears inline to the right of the message header instead of on a separate row below it.
 
