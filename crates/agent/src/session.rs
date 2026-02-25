@@ -188,9 +188,7 @@ fn handle_line(session: &mut Session, line: &str) -> Option<RpcResponse> {
         "workspace.rm" => workspace_rm(&req.params),
         "workspace.get" => workspace_get(&req.params),
         "workspace.set" => workspace_set(&req.params),
-        "workspace.add_section" => workspace_add_section(&req.params),
         "workspace.add_pane" => workspace_add_pane(&req.params),
-        "workspace.remove_section" => workspace_remove_section(&req.params),
         "workspace.remove_pane" => workspace_remove_pane(&req.params),
         "workspace.snapshot" => workspace_snapshot(&req.params),
         // Query
@@ -245,6 +243,7 @@ fn param_f64(params: &serde_json::Value, key: &str) -> Option<f64> {
     params.get(key).and_then(|v| v.as_f64())
 }
 
+#[cfg(test)]
 fn param_bool(params: &serde_json::Value, key: &str) -> Option<bool> {
     params.get(key).and_then(|v| v.as_bool())
 }
@@ -301,28 +300,10 @@ fn workspace_set(params: &serde_json::Value) -> HandlerResult {
     serde_json::to_value(&result).map_err(map_err)
 }
 
-fn workspace_add_section(params: &serde_json::Value) -> HandlerResult {
-    let name = require_str(params, "name")?;
-    let section_name = require_str(params, "section_name")?;
-    let layout = param_str(params, "layout").unwrap_or_else(|| "horizontal".to_string());
-    let columns = param_u64(params, "columns").map(|c| c as usize);
-    let collapsed = param_bool(params, "collapsed").unwrap_or(false);
-    let result = enya_headless::workspace::add_section_core(
-        &name,
-        &section_name,
-        &layout,
-        columns,
-        collapsed,
-    )
-    .map_err(map_err)?;
-    serde_json::to_value(&result).map_err(map_err)
-}
-
 fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let query = require_str(params, "query")?;
     let pane_name = param_str(params, "pane_name");
-    let section = param_str(params, "section");
     let tag = param_str(params, "tag");
     let unit = param_str(params, "unit");
     let granularity = param_str(params, "granularity");
@@ -333,7 +314,6 @@ fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
             name: &name,
             query: &query,
             pane_name: pane_name.as_deref(),
-            section: section.as_deref(),
             tag: tag.as_deref(),
             unit: unit.as_deref(),
             granularity: granularity.as_deref(),
@@ -344,20 +324,10 @@ fn workspace_add_pane(params: &serde_json::Value) -> HandlerResult {
     serde_json::to_value(&result).map_err(map_err)
 }
 
-fn workspace_remove_section(params: &serde_json::Value) -> HandlerResult {
-    let name = require_str(params, "name")?;
-    let section_name = require_str(params, "section_name")?;
-    let result =
-        enya_headless::workspace::remove_section_core(&name, &section_name).map_err(map_err)?;
-    serde_json::to_value(&result).map_err(map_err)
-}
-
 fn workspace_remove_pane(params: &serde_json::Value) -> HandlerResult {
     let name = require_str(params, "name")?;
     let pane = require_str(params, "pane")?;
-    let section = param_str(params, "section");
-    let result = enya_headless::workspace::remove_pane_core(&name, &pane, section.as_deref())
-        .map_err(map_err)?;
+    let result = enya_headless::workspace::remove_pane_core(&name, &pane).map_err(map_err)?;
     serde_json::to_value(&result).map_err(map_err)
 }
 
@@ -1049,68 +1019,14 @@ mod tests {
     }
 
     #[test]
-    fn test_workspace_add_section_and_remove() {
-        let (_dir, path) = temp_workspace();
-        let p = path.display().to_string();
-
-        let result = workspace_add_section(&serde_json::json!({
-            "name": p,
-            "section_name": "API Metrics",
-            "layout": "grid",
-            "columns": 3,
-        }))
-        .unwrap();
-        insta::assert_snapshot!(mask_ws(&result), @r#"
-        {
-          "layout": "grid",
-          "section": "API Metrics",
-          "workspace": "[ws]"
-        }
-        "#);
-
-        let ws = WorkspaceConfig::load(&path).unwrap();
-        assert!(ws.find_section("API Metrics").is_some());
-
-        let result = workspace_remove_section(
-            &serde_json::json!({"name": p, "section_name": "API Metrics"}),
-        )
-        .unwrap();
-        insta::assert_snapshot!(mask_ws(&result), @r#"
-        {
-          "panes_removed": 0,
-          "removed_section": "API Metrics",
-          "workspace": "[ws]"
-        }
-        "#);
-
-        let ws = WorkspaceConfig::load(&path).unwrap();
-        assert!(ws.find_section("API Metrics").is_none());
-    }
-
-    #[test]
-    fn test_workspace_add_section_duplicate() {
-        let (_dir, path) = temp_workspace();
-        let p = path.display().to_string();
-
-        workspace_add_section(&serde_json::json!({"name": p, "section_name": "Dup"})).unwrap();
-        insta::assert_snapshot!(
-            fmt_err(workspace_add_section(&serde_json::json!({"name": p, "section_name": "Dup"})).unwrap_err()),
-            @"(-32603) section already exists: Dup"
-        );
-    }
-
-    #[test]
     fn test_workspace_add_pane_and_remove() {
         let (_dir, path) = temp_workspace();
         let p = path.display().to_string();
-
-        workspace_add_section(&serde_json::json!({"name": p, "section_name": "Infra"})).unwrap();
 
         let result = workspace_add_pane(&serde_json::json!({
             "name": p,
             "query": "rate(http_requests_total[5m])",
             "pane_name": "Request Rate",
-            "section": "Infra",
             "unit": "req/s",
             "tag": "Critical",
         }))
@@ -1119,7 +1035,6 @@ mod tests {
         {
           "pane": "Request Rate",
           "query": "rate(http_requests_total[5m])",
-          "section": "Infra",
           "workspace": "[ws]"
         }
         "#);
@@ -1127,13 +1042,11 @@ mod tests {
         let result = workspace_remove_pane(&serde_json::json!({
             "name": p,
             "pane": "Request Rate",
-            "section": "Infra",
         }))
         .unwrap();
         insta::assert_snapshot!(mask_ws(&result), @r#"
         {
           "removed_pane": "Request Rate",
-          "section": "Infra",
           "workspace": "[ws]"
         }
         "#);
@@ -1158,21 +1071,6 @@ mod tests {
     fn test_workspace_rm_not_found() {
         let err = workspace_rm(&serde_json::json!({"name": "nonexistent_ws_xyz"})).unwrap_err();
         assert_eq!(err.0, -32603);
-    }
-
-    #[test]
-    fn test_workspace_add_section_invalid_layout() {
-        let (_dir, path) = temp_workspace();
-        let p = path.display().to_string();
-
-        insta::assert_snapshot!(
-            fmt_err(workspace_add_section(&serde_json::json!({
-                "name": p,
-                "section_name": "Bad",
-                "layout": "diagonal",
-            })).unwrap_err()),
-            @"(-32603) invalid layout: diagonal (expected: horizontal, vertical, grid, tabs)"
-        );
     }
 
     #[test]

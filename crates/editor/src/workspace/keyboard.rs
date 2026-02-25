@@ -6,7 +6,7 @@
 
 use egui_tiles::{Tile, TileId};
 
-use super::{FocusTarget, NavDirection, Workspace, WorkspaceAction};
+use super::{NavDirection, Workspace, WorkspaceAction};
 use crate::components::{
     Buffer, BufferMode, EditExcerpt, QueryPane, QuickCommand, TimeRangePreset,
 };
@@ -630,15 +630,7 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::H)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowLeft)
             {
-                // Use section navigation if sections are active
-                if self.has_sections() {
-                    let at_left_edge = self.is_at_section_left_edge();
-                    if at_left_edge {
-                        should_focus_sidebar = true;
-                    } else {
-                        self.navigate_sections(NavDirection::Left);
-                    }
-                } else if let Some(current_id) = current_focus {
+                if let Some(current_id) = current_focus {
                     let sibling = self.find_sibling_in_direction(current_id, NavDirection::Left);
                     if sibling.is_some() {
                         new_tile_id = sibling;
@@ -658,16 +650,7 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::L)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowRight)
             {
-                // Use section navigation if sections are active
-                if self.has_sections() {
-                    // Check if at right edge and should transfer to agent panel
-                    let at_right_edge = self.is_at_section_right_edge();
-                    if at_right_edge && self.agent_panel.is_open() {
-                        should_focus_agent_panel = true;
-                    } else {
-                        self.navigate_sections(NavDirection::Right);
-                    }
-                } else if let Some(current_id) = current_focus {
+                if let Some(current_id) = current_focus {
                     let sibling = self.find_sibling_in_direction(current_id, NavDirection::Right);
                     if sibling.is_some() {
                         new_tile_id = sibling;
@@ -689,10 +672,7 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::J)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)
             {
-                // Use section navigation if sections are active
-                if self.has_sections() {
-                    self.navigate_sections(NavDirection::Down);
-                } else if let Some(current_id) = current_focus {
+                if let Some(current_id) = current_focus {
                     new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Down);
                 } else {
                     new_tile_id = pane_ids.first().copied();
@@ -705,10 +685,7 @@ impl Workspace {
             if input.consume_key(egui::Modifiers::NONE, egui::Key::K)
                 || input.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp)
             {
-                // Use section navigation if sections are active
-                if self.has_sections() {
-                    self.navigate_sections(NavDirection::Up);
-                } else if let Some(current_id) = current_focus {
+                if let Some(current_id) = current_focus {
                     new_tile_id = self.find_sibling_in_direction(current_id, NavDirection::Up);
                 } else {
                     new_tile_id = pane_ids.first().copied();
@@ -817,7 +794,7 @@ impl Workspace {
                 self.agent_panel.set_focus(true);
                 // Clear viewport pane focus so it doesn't appear highlighted
                 self.behavior.set_focused_tile(None);
-                self.section_focus = FocusTarget::None;
+
                 // Clear egui widget focus so vim keys work immediately in the panel
                 // (otherwise a TextEdit or ComboBox from viewport might still consume keys)
                 ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
@@ -879,8 +856,6 @@ impl Workspace {
             self.agent_panel.set_focus(true);
             // Clear viewport pane focus so it doesn't appear highlighted
             self.behavior.set_focused_tile(None);
-            // Also clear section focus for section-based workspaces
-            self.section_focus = FocusTarget::None;
             // Clear egui widget focus so vim keys work immediately in the panel
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             ctx.request_repaint();
@@ -890,7 +865,6 @@ impl Workspace {
         if should_focus_sidebar {
             // Clear viewport pane focus
             self.behavior.set_focused_tile(None);
-            self.section_focus = FocusTarget::None;
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             ctx.request_repaint();
             return Some(WorkspaceAction::FocusProjectSidebar);
@@ -899,7 +873,6 @@ impl Workspace {
         // Handle Space+b toggle project sidebar
         if should_toggle_project_sidebar {
             self.behavior.set_focused_tile(None);
-            self.section_focus = FocusTarget::None;
             ctx.memory_mut(|mem| mem.surrender_focus(egui::Id::NULL));
             ctx.request_repaint();
             return Some(WorkspaceAction::ToggleProjectSidebar);
@@ -1244,43 +1217,17 @@ impl Workspace {
         None
     }
 
-    /// Navigate in visual-multi mode, handling both sections and regular workspaces.
-    /// When sections are active, uses flat list navigation.
-    /// Otherwise, uses tree-based sibling navigation.
+    /// Navigate in visual-multi mode using tree-based sibling navigation.
     fn visual_multi_navigate(
         &self,
         cursor_tile_id: Option<TileId>,
         direction: NavDirection,
-        pane_ids: &[TileId],
+        _pane_ids: &[TileId],
     ) -> Option<TileId> {
-        if self.has_sections() {
-            // For sections, use flat list navigation (panes are ordered by section)
-            if let Some(current_id) = cursor_tile_id {
-                if let Some(current_idx) = pane_ids.iter().position(|&id| id == current_id) {
-                    let new_idx = match direction {
-                        NavDirection::Down | NavDirection::Right => {
-                            if current_idx + 1 < pane_ids.len() {
-                                current_idx + 1
-                            } else {
-                                current_idx
-                            }
-                        }
-                        NavDirection::Up | NavDirection::Left => current_idx.saturating_sub(1),
-                    };
-                    pane_ids.get(new_idx).copied()
-                } else {
-                    pane_ids.first().copied()
-                }
-            } else {
-                pane_ids.first().copied()
-            }
+        if let Some(current_id) = cursor_tile_id {
+            self.find_sibling_in_direction(current_id, direction)
         } else {
-            // For regular workspaces, use tree-based navigation
-            if let Some(current_id) = cursor_tile_id {
-                self.find_sibling_in_direction(current_id, direction)
-            } else {
-                pane_ids.first().copied()
-            }
+            _pane_ids.first().copied()
         }
     }
 

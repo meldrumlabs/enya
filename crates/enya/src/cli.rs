@@ -148,23 +148,6 @@ enum Command {
         value: String,
     },
 
-    /// Add a section to a workspace
-    AddSection {
-        /// Workspace name or path
-        name: String,
-        /// Section name
-        section_name: String,
-        /// Layout: horizontal, vertical, grid, tabs
-        #[arg(long, default_value = "horizontal")]
-        layout: String,
-        /// Number of columns (for grid layout)
-        #[arg(long)]
-        columns: Option<usize>,
-        /// Start section collapsed
-        #[arg(long)]
-        collapsed: bool,
-    },
-
     /// Add a query pane to a workspace
     AddPane {
         /// Workspace name or path
@@ -174,9 +157,6 @@ enum Command {
         /// Display name for the pane
         #[arg(long = "name")]
         pane_name: Option<String>,
-        /// Target section (defaults to last section)
-        #[arg(long)]
-        section: Option<String>,
         /// Tag (e.g. "Critical", "Warning")
         #[arg(long)]
         tag: Option<String>,
@@ -194,23 +174,12 @@ enum Command {
         description: Option<String>,
     },
 
-    /// Remove a section from a workspace
-    RemoveSection {
-        /// Workspace name or path
-        name: String,
-        /// Section name to remove
-        section_name: String,
-    },
-
     /// Remove a pane from a workspace
     RemovePane {
         /// Workspace name or path
         name: String,
         /// Pane name to remove
         pane: String,
-        /// Limit search to a specific section
-        #[arg(long)]
-        section: Option<String>,
     },
 
     /// Open a workspace in the GUI editor
@@ -505,25 +474,10 @@ pub fn run() -> ExitCode {
             Command::Set { name, key, value } => {
                 enya_headless::workspace::set(&name, &key, &value, json)
             }
-            Command::AddSection {
-                name,
-                section_name,
-                layout,
-                columns,
-                collapsed,
-            } => enya_headless::workspace::add_section(
-                &name,
-                &section_name,
-                &layout,
-                columns,
-                collapsed,
-                json,
-            ),
             Command::AddPane {
                 name,
                 query,
                 pane_name,
-                section,
                 tag,
                 unit,
                 granularity,
@@ -534,7 +488,6 @@ pub fn run() -> ExitCode {
                     name: &name,
                     query: &query,
                     pane_name: pane_name.as_deref(),
-                    section: section.as_deref(),
                     tag: tag.as_deref(),
                     unit: unit.as_deref(),
                     granularity: granularity.as_deref(),
@@ -543,14 +496,9 @@ pub fn run() -> ExitCode {
                 },
                 json,
             ),
-            Command::RemoveSection { name, section_name } => {
-                enya_headless::workspace::remove_section(&name, &section_name, json)
+            Command::RemovePane { name, pane } => {
+                enya_headless::workspace::remove_pane(&name, &pane, json)
             }
-            Command::RemovePane {
-                name,
-                pane,
-                section,
-            } => enya_headless::workspace::remove_pane(&name, &pane, section.as_deref(), json),
             Command::Snapshot {
                 name,
                 endpoint,

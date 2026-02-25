@@ -4,7 +4,6 @@ use egui::{Color32, RichText, Stroke};
 
 use crate::ui::theme::AppTheme;
 
-use super::{VIZ_PADDING_BOTTOM, VIZ_PADDING_TOP};
 use crate::components::util::id_generator::next_id_usize;
 
 /// A threshold configuration for stat/gauge visualizations
@@ -204,9 +203,8 @@ impl StatChart {
         self.theme.accent_primary()
     }
 
-    /// Render the sparkline at the bottom of the stat
-    fn render_sparkline(&self, ui: &mut egui::Ui, width: f32) {
-        let height = 48.0;
+    /// Render the sparkline at the bottom of the stat with a given height
+    fn render_sparkline_sized(&self, ui: &mut egui::Ui, width: f32, height: f32) {
         let (response, painter) =
             ui.allocate_painter(egui::vec2(width, height), egui::Sense::hover());
 
@@ -267,45 +265,70 @@ impl StatChart {
         let available_width = ui.available_width();
         let available_height = ui.available_height();
 
-        // Scale based on available space
+        // Scale based on available space — use height to keep text compact in short panes
         let base_size = available_width.min(available_height * 1.5);
         let scale_factor = (base_size / 200.0).clamp(0.5, 2.0);
 
         // Scale text sizes proportionally
-        let title_size = (14.0 * scale_factor).clamp(12.0, 20.0);
-        let value_size = (56.0 * scale_factor).clamp(36.0, 96.0);
-        let unit_size = (14.0 * scale_factor).clamp(12.0, 20.0);
+        let title_size = (14.0 * scale_factor).clamp(11.0, 20.0);
+        let value_size = (56.0 * scale_factor).clamp(28.0, 96.0);
+        let unit_size = (14.0 * scale_factor).clamp(11.0, 20.0);
         let change_size = (12.0 * scale_factor).clamp(10.0, 16.0);
 
-        // Calculate content height based on what will actually be rendered
         let has_title = !self.title.is_empty() && self.title != "Untitled";
         let has_unit = !self.unit.is_empty();
         let has_change = self.change_value.is_some();
         let has_sparkline = self.show_sparkline && self.sparkline_data.len() >= 2;
 
-        let mut content_height = value_size; // Big number is always shown
+        // Compact gaps
+        let title_gap = 2.0;
+        let change_gap = 2.0;
+        let sparkline_gap = 4.0;
+        let pad_bottom = 4.0;
+
+        // Height used by text content (everything except sparkline)
+        let mut text_height = value_size;
         if has_title {
-            content_height += title_size + 12.0;
+            text_height += title_size + title_gap;
         }
         if has_unit {
-            content_height += unit_size;
+            text_height += unit_size;
         }
-        content_height += 8.0; // spacing before change
+        text_height += change_gap;
         if has_change {
-            content_height += change_size;
+            text_height += change_size;
         }
-        if has_sparkline {
-            content_height += VIZ_PADDING_TOP + 40.0; // sparkline height estimate
-        }
-        content_height += VIZ_PADDING_BOTTOM;
 
-        let vertical_offset = ((available_height - content_height) / 2.0).max(VIZ_PADDING_TOP);
+        // Sparkline gets whatever height remains after text + padding
+        let sparkline_height = if has_sparkline {
+            (available_height - text_height - sparkline_gap - pad_bottom)
+                .clamp(16.0, 48.0)
+        } else {
+            0.0
+        };
+
+        let content_height = text_height
+            + if has_sparkline {
+                sparkline_gap + sparkline_height
+            } else {
+                0.0
+            }
+            + pad_bottom;
+
+        // Center vertically when there's plenty of room, otherwise top-align
+        let vertical_offset = if content_height < available_height * 0.85 {
+            (available_height - content_height) / 2.0
+        } else {
+            2.0
+        };
 
         ui.vertical_centered(|ui| {
+            // Zero out implicit inter-widget spacing so content_height is accurate
+            ui.spacing_mut().item_spacing.y = 0.0;
             ui.add_space(vertical_offset);
 
-            // Title (only show if explicitly set and different from default)
-            if !self.title.is_empty() && self.title != "Untitled" {
+            // Title
+            if has_title {
                 let title_label = egui::Label::new(
                     RichText::new(&self.title)
                         .color(text_col)
@@ -314,7 +337,7 @@ impl StatChart {
                 )
                 .truncate();
                 ui.add(title_label);
-                ui.add_space(12.0);
+                ui.add_space(title_gap);
             }
 
             // Big number
@@ -329,7 +352,7 @@ impl StatChart {
             );
 
             // Unit
-            if !self.unit.is_empty() {
+            if has_unit {
                 ui.label(
                     RichText::new(&self.unit)
                         .color(text_col.gamma_multiply(0.5))
@@ -337,7 +360,7 @@ impl StatChart {
                 );
             }
 
-            ui.add_space(8.0);
+            ui.add_space(change_gap);
 
             // Change indicator
             if let Some(change) = self.change_value {
@@ -354,14 +377,14 @@ impl StatChart {
                 );
             }
 
-            // Sparkline at bottom
-            if self.show_sparkline && self.sparkline_data.len() >= 2 {
-                ui.add_space(VIZ_PADDING_TOP);
+            // Sparkline fills remaining space
+            if has_sparkline {
+                ui.add_space(sparkline_gap);
                 let sparkline_width = (available_width * 0.8).clamp(80.0, 500.0);
-                self.render_sparkline(ui, sparkline_width);
+                self.render_sparkline_sized(ui, sparkline_width, sparkline_height);
             }
 
-            ui.add_space(VIZ_PADDING_BOTTOM);
+            ui.add_space(pad_bottom);
         });
     }
 }

@@ -11,10 +11,10 @@ use egui_tiles::{Tile, TileId, Tiles};
 use enya_config::SnapshotPaneData;
 
 use super::{
-    ConnectionConfig, FocusTarget, GitConfig, LayoutConfig, LayoutContainer, LayoutNode,
-    LayoutType, LogsConfig, MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
-    SectionState, TimeConfigExt, ViewConfig, WORKSPACE_VERSION, Workspace, WorkspaceConfig,
-    WorkspaceMeta, pane_from_query_state, time_config_from_preset_with_refresh,
+    ConnectionConfig, GitConfig, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig,
+    MetricsConfig, PaneConfigExt, PluginsConfig, RefreshInterval, TimeConfigExt, ViewConfig,
+    WORKSPACE_VERSION, Workspace, WorkspaceConfig, WorkspaceMeta, pane_from_query_state,
+    time_config_from_preset_with_refresh,
 };
 use crate::components::{Component, QueryPane};
 
@@ -72,7 +72,6 @@ impl Workspace {
                 self.refresh_interval.unwrap_or_default(),
             ),
             plugins: PluginsConfig::default(),
-            sections: Vec::new(),
             panes,
             layout: self.extract_layout_from_tile_ids(&query_pane_tile_ids),
             snapshot: None,
@@ -105,22 +104,6 @@ impl Workspace {
         // Reset query counter for new workspace
         self.next_query_number = 1;
 
-        // Initialize section state if workspace uses sections
-        if config.uses_sections() {
-            self.section_configs = config.sections.clone();
-            self.section_states = config
-                .sections
-                .iter()
-                .map(|s| SectionState::new(s.collapsed))
-                .collect();
-            self.section_focus = FocusTarget::first();
-        } else {
-            self.section_configs.clear();
-            self.section_states.clear();
-            self.section_focus = FocusTarget::None;
-        }
-
-        // Get all panes (from sections if present, otherwise from legacy panes field)
         let all_panes = config.all_panes();
         let pane_count = all_panes.len();
 
@@ -233,13 +216,8 @@ impl Workspace {
             Some(effective_conn.endpoint.clone())
         };
 
-        // Sync behavior.focused_tile() with section_focus for compatibility
-        // with features that rely on tile-based focus (visual-multi, etc.)
-        if self.has_sections() {
-            let tile_id = self.section_focus_to_tile_id();
-            self.behavior.set_focused_tile(tile_id);
-        } else if !pane_tile_ids.is_empty() {
-            // For non-section workspaces, focus the first pane (top-left)
+        // Focus the first pane (top-left)
+        if !pane_tile_ids.is_empty() {
             self.behavior.set_focused_tile(Some(pane_tile_ids[0]));
         }
 
@@ -346,7 +324,6 @@ impl Workspace {
                 self.refresh_interval.unwrap_or_default(),
             ),
             plugins: PluginsConfig::default(),
-            sections: Vec::new(),
             // Stack subset panes vertically
             layout: if panes.len() > 1 {
                 Some(LayoutConfig {

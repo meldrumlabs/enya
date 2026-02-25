@@ -10,19 +10,18 @@ All notable changes to the Enya editor will be documented in this file.
 - **Leader popup only for Space**: Removed the leader key popup overlay for `g` commands; the which-key popup now only appears for Space leader actions.
 - **Sidebar empty state text**: Changed "No workspaces yet" to "No projects yet" in the project sidebar empty state.
 - **Show Tutorial project on WASM**: The Tutorial project is now always visible in the sidebar on WASM builds, since tutorials are the primary content for web users.
+- **Simplified tutorial workspaces**: Reduced each tutorial workspace from 7-10 panes to 4 panes and added explicit 2x2 grid layouts so all panes are visible in the viewport instead of hidden behind tabs.
 
 ### Fixed
 
-- **Section header right-side clipping**: Section headers now use a fixed width captured once at the start of rendering, so pane content in earlier sections can no longer shrink the available width for subsequent headers. Also added 4px horizontal padding around the scroll area.
-- **Section scroll on j/k navigation**: Navigating between sections with `j`/`k` now scrolls the sections scroll area to keep the focused header or pane visible.
 - **Tutorial workspace demo data**: Workspaces loaded without a backend connection (e.g. tutorials) now show realistic demo data in all pane types. Previously, `from_config_numbered` never called `populate_demo_data`, and `set_visualization_type` only populated demo data when the type differed from the default (TimeSeries), leaving TimeSeries panes empty.
-- **Grid and horizontal pane height alignment**: Pane cells now report the full allocated rect so horizontal/grid rows have uniform height. Stat and gauge titles are truncated with ellipsis so long metric names (e.g. `http_request_duration_seconds`) don't wrap and push content out of alignment.
 
 - **Responsive time range toolbar**: Preset buttons, custom range label, and range description now progressively hide as the toolbar narrows to prevent overlapping text.
 - **Agent panel copy button**: Copy button now appears inline to the right of the message header instead of on a separate row below it.
 
 ### Removed
 
+- **Sections feature**: Removed the collapsible sections system (section headers, section-based navigation, section rendering). Workspaces now always use the flat `egui_tiles` layout. Users can use separate workspaces instead of sections. Removed `SectionConfig`, `SectionLayout`, `SectionState`, `FocusTarget`, `SectionRenderer`, and all related methods.
 - **Health indicator icon from status line**: Removed the online/offline health icon from the far right of the status bar for a cleaner look.
 
 ### Added
