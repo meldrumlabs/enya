@@ -767,6 +767,14 @@ impl QueryPane {
         }
     }
 
+    /// Populate demo data for this pane (for workspaces with no backend connection).
+    pub fn enable_demo_data(&mut self) {
+        self.is_demo = true;
+        self.needs_refresh = false;
+        let query = self.buffer.saved_content().to_string();
+        populate_demo_data(&mut self.visualization, &query);
+    }
+
     /// Check if this pane uses demo data (synthetic data, not connected to a backend)
     pub fn is_demo(&self) -> bool {
         self.is_demo

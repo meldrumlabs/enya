@@ -152,6 +152,10 @@ impl Workspace {
                 let state = pane_config.to_query_state(&config.time.preset);
                 pane.set_query_state(state);
                 pane.set_visualization_type(pane_config.visualization_type());
+                // Populate demo data when no backend is configured (e.g. tutorials)
+                if config.effective_connection().is_empty() {
+                    pane.enable_demo_data();
+                }
                 pane
             };
 
