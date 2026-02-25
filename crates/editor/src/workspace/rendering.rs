@@ -453,21 +453,23 @@ impl Workspace {
                     };
                 let is_selected = selected_tiles.contains(&tile_id);
 
-                // Render pane with fixed size so all cells in the row align.
-                // Return max_rect (not min_rect) so the horizontal layout
-                // sees a uniform height for every cell.
-                let response = ui.allocate_ui(Vec2::new(pane_width, pane_height), |ui| {
-                    let fixed_rect = ui.max_rect();
-                    if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
-                        component.set_theme(theme);
-                        component.show(ui);
-                    }
-                    fixed_rect
-                });
+                // Reserve exact space so all cells in the row have identical
+                // dimensions, then render into a child UI at that rect.
+                let (cell_rect, _) = ui.allocate_exact_size(
+                    Vec2::new(pane_width, pane_height),
+                    egui::Sense::hover(),
+                );
+                let mut child_ui =
+                    ui.new_child(egui::UiBuilder::new().max_rect(cell_rect));
+                child_ui.set_clip_rect(cell_rect);
+                if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
+                    component.set_theme(theme);
+                    component.show(&mut child_ui);
+                }
 
                 self.draw_pane_overlays(
                     ui,
-                    response.inner,
+                    cell_rect,
                     is_focused,
                     is_selected,
                     is_visual_multi,
@@ -563,20 +565,25 @@ impl Workspace {
                             };
                         let is_selected = selected_tiles.contains(&tile_id);
 
-                        let response = ui.allocate_ui(Vec2::new(cell_width, cell_height), |ui| {
-                            let fixed_rect = ui.max_rect();
-                            if let Some(Tile::Pane(component)) =
-                                self.viewport_tree.tiles.get_mut(tile_id)
-                            {
-                                component.set_theme(theme);
-                                component.show(ui);
-                            }
-                            fixed_rect
-                        });
+                        // Reserve exact space so all cells in the row have
+                        // identical dimensions, then render into a child UI.
+                        let (cell_rect, _) = ui.allocate_exact_size(
+                            Vec2::new(cell_width, cell_height),
+                            egui::Sense::hover(),
+                        );
+                        let mut child_ui =
+                            ui.new_child(egui::UiBuilder::new().max_rect(cell_rect));
+                        child_ui.set_clip_rect(cell_rect);
+                        if let Some(Tile::Pane(component)) =
+                            self.viewport_tree.tiles.get_mut(tile_id)
+                        {
+                            component.set_theme(theme);
+                            component.show(&mut child_ui);
+                        }
 
                         self.draw_pane_overlays(
                             ui,
-                            response.inner,
+                            cell_rect,
                             is_focused,
                             is_selected,
                             is_visual_multi,
