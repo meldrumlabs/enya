@@ -219,7 +219,9 @@ impl ProjectSidebar {
         let known: FxHashSet<&str> = self.workspaces.iter().map(|w| w.name.as_str()).collect();
 
         for project in &settings.projects {
-            // Hide the Tutorial project unless a tutorial workspace is currently active
+            // On native, hide the Tutorial project unless a tutorial workspace is active.
+            // On WASM, always show it since tutorials are the primary content.
+            #[cfg(not(target_arch = "wasm32"))]
             if project.name == "Tutorial" {
                 let tutorial_active = self
                     .active_workspace
@@ -420,7 +422,7 @@ impl ProjectSidebar {
                         );
                         ui.add_space(8.0);
                         ui.label(
-                            RichText::new("No workspaces yet")
+                            RichText::new("No projects yet")
                                 .color(text_tertiary)
                                 .font(typography::proportional(typography::SM)),
                         );

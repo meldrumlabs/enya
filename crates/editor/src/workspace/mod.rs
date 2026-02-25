@@ -38,15 +38,7 @@ pub mod config;
 // Input handling (navigation, visual-multi mode)
 mod input;
 pub use input::{
-    FocusTarget, LEADER_KEY_TIMEOUT_MS, LEADER_POPUP_DELAY_MS, LeaderKeyState, NavDirection,
-    SectionState, VisualMultiState,
-};
-
-// Section rendering for collapsible sections
-mod sections;
-pub use sections::{
-    MIN_PANE_SIZE, SECTION_CONTENT_PADDING, SECTION_GRID_CELL_HEIGHT, SECTION_HEADER_HEIGHT,
-    SECTION_PANE_GAP, SECTION_PANE_HEIGHT, SectionRenderer,
+    LEADER_KEY_TIMEOUT_MS, LEADER_POPUP_DELAY_MS, LeaderKeyState, NavDirection, VisualMultiState,
 };
 
 // Tile tree behavior (egui_tiles integration)
@@ -99,10 +91,9 @@ pub use config::{
     ATLAS_WORKSPACE_TOML, ConnectionConfig, GOLDEN_SIGNALS_TOML, GitConfig, INCIDENT_RESPONSE_TOML,
     INFRASTRUCTURE_TOML, LayoutConfig, LayoutContainer, LayoutNode, LayoutType, LogsConfig,
     MULTI_SERVICE_TOML, MetricsConfig, PaneConfig, PaneConfigExt, PluginsConfig, RefreshInterval,
-    SERVICE_OVERVIEW_TOML, SectionConfig, SectionLayout, TimeConfig, TimeConfigExt, ViewConfig,
-    ViewConfigExt, WORKSPACE_VERSION, WorkspaceConfig, WorkspaceError, WorkspaceMeta,
-    pane_from_query_state, pane_from_query_state_with_viz, time_config_from_preset,
-    time_config_from_preset_with_refresh,
+    SERVICE_OVERVIEW_TOML, TimeConfig, TimeConfigExt, ViewConfig, ViewConfigExt, WORKSPACE_VERSION,
+    WorkspaceConfig, WorkspaceError, WorkspaceMeta, pane_from_query_state,
+    pane_from_query_state_with_viz, time_config_from_preset, time_config_from_preset_with_refresh,
 };
 
 /// Actions that the Workspace needs the App to handle
@@ -330,16 +321,6 @@ pub struct Workspace {
     /// Annotation editor overlay
     annotation_editor: AnnotationEditor,
 
-    // ==================== Collapsible Sections ====================
-    /// Section configurations (when workspace uses sections format)
-    section_configs: Vec<SectionConfig>,
-    /// Runtime state for each section (collapsed/expanded)
-    section_states: Vec<SectionState>,
-    /// Current focus target for section-aware navigation
-    section_focus: FocusTarget,
-    /// Section renderer for drawing section headers and layouts
-    section_renderer: SectionRenderer,
-
     // ==================== Floating Panes ====================
     /// Floating panes that hover above the tile layout
     floating_panes: FloatingPaneManager,
@@ -485,11 +466,6 @@ impl Workspace {
             native_promo_overlay: NativePromoOverlay::new(),
             unified_finder: UnifiedFinder::new(),
             annotation_editor: AnnotationEditor::new(),
-            // Section state
-            section_configs: Vec::new(),
-            section_states: Vec::new(),
-            section_focus: FocusTarget::default(),
-            section_renderer: SectionRenderer::default(),
             // Floating panes
             floating_panes: FloatingPaneManager::new(),
             // Undo system
@@ -912,11 +888,6 @@ impl Workspace {
                 // Vim h key pressed - return focus to viewport
                 self.agent_panel_focused = false;
                 self.agent_panel.set_focus(false);
-                // Set section_focus to first focusable target (this controls visual focus)
-                self.section_focus = self.first_focusable_target();
-                // Sync behavior.focused_tile() with section_focus
-                let tile_id = self.section_focus_to_tile_id();
-                self.behavior.set_focused_tile(tile_id);
             }
             AgentPanelResult::EnteredInputMode => {
                 // User pressed i or Enter to enter chat input - release vim focus
@@ -1070,14 +1041,6 @@ impl Workspace {
                 } else if self.get_pane_tile_ids().is_empty() {
                     // Show empty workspace hint
                     self.render_empty_workspace_hint(ui);
-                } else if !self.section_configs.is_empty() {
-                    // Render sections with collapsible headers (Grafana-style)
-                    egui::ScrollArea::vertical()
-                        .id_salt("sections_scroll")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            self.render_sections(ui);
-                        });
                 } else {
                     // Store available rect before layout for scrollbar positioning
                     let full_rect = ui.available_rect_before_wrap();
@@ -1417,19 +1380,11 @@ impl Workspace {
         // Space has no timeout - stays active until cleared
         self.leader_popup
             .update_visibility(LeaderKey::Space, self.leader_keys.last_space_press);
-        // G has a timeout - only pass press time if still within timeout window
-        let g_press_time = if self.leader_keys.is_g_active() {
-            self.leader_keys.last_g_press
-        } else {
-            None
-        };
-        self.leader_popup
-            .update_visibility(LeaderKey::G, g_press_time);
         #[cfg(not(target_arch = "wasm32"))]
         let is_native = true;
         #[cfg(target_arch = "wasm32")]
         let is_native = false;
-        self.leader_popup.show_all(ctx, is_native);
+        self.leader_popup.show(ctx, LeaderKey::Space, is_native);
 
         // Show tutorial overlay modal
         self.tutorial_overlay.set_theme(self.theme());
@@ -2261,286 +2216,6 @@ impl Workspace {
     }
 
     // =========================================================================
-    // Section Folding Operations (for collapsible sections)
-    // =========================================================================
-
-    /// Check if sections are active (workspace uses sections format)
-    pub fn has_sections(&self) -> bool {
-        !self.section_configs.is_empty()
-    }
-
-    /// Check if current section focus is at the left edge (for channels panel transfer)
-    ///
-    /// Returns true when:
-    /// - Focus is on section header 0 (first section)
-    /// - Focus is on pane 0 of section 0 (first pane of first section)
-    /// - No focus (will transfer to channels panel)
-    pub fn is_at_section_left_edge(&self) -> bool {
-        matches!(
-            self.section_focus,
-            FocusTarget::None
-                | FocusTarget::SectionHeader(0)
-                | FocusTarget::Pane {
-                    section: 0,
-                    pane: 0
-                }
-        )
-    }
-
-    /// Check if current section focus is at the right edge (for agent panel transfer)
-    ///
-    /// Returns true when:
-    /// - Focus is on any section header (section headers span the full width)
-    /// - Focus is on the last pane of ANY section (rightmost pane in that section)
-    pub fn is_at_section_right_edge(&self) -> bool {
-        match self.section_focus {
-            FocusTarget::None => false,
-            // Any section header is at the right edge (headers span full width)
-            FocusTarget::SectionHeader(_) => true,
-            // Check if we're on the last pane of the current section
-            FocusTarget::Pane { section, pane } => self
-                .section_configs
-                .get(section)
-                .map(|s| pane == s.panes.len().saturating_sub(1))
-                .unwrap_or(false),
-        }
-    }
-
-    /// Navigate in a direction within sections (hjkl navigation)
-    /// Returns true if navigation was handled, false if sections are not active
-    pub fn navigate_sections(&mut self, direction: NavDirection) -> bool {
-        if !self.has_sections() {
-            return false;
-        }
-
-        match self.section_focus {
-            FocusTarget::None => {
-                // No focus - focus first pane of first expanded section
-                self.section_focus = self.first_focusable_target();
-            }
-            FocusTarget::SectionHeader(section_idx) => {
-                self.navigate_from_section_header(section_idx, direction);
-            }
-            FocusTarget::Pane { section, pane } => {
-                self.navigate_from_pane(section, pane, direction);
-            }
-        }
-
-        // Sync behavior.focused_tile() with section_focus for compatibility
-        // with features that rely on tile-based focus (visual-multi, etc.)
-        let tile_id = self.section_focus_to_tile_id();
-        self.behavior.set_focused_tile(tile_id);
-
-        log::debug!("Section navigation: focus is now {:?}", self.section_focus);
-        true
-    }
-
-    /// Convert current section_focus to a tile ID (if focusing a pane)
-    fn section_focus_to_tile_id(&self) -> Option<egui_tiles::TileId> {
-        if let FocusTarget::Pane { section, pane } = self.section_focus {
-            // Calculate the flat pane index from section + pane
-            let mut flat_idx = 0;
-            for (s_idx, section_config) in self.section_configs.iter().enumerate() {
-                if s_idx == section {
-                    flat_idx += pane;
-                    break;
-                }
-                flat_idx += section_config.panes.len();
-            }
-            // Get the tile ID at that index
-            let pane_ids = self.get_pane_tile_ids();
-            pane_ids.get(flat_idx).copied()
-        } else {
-            None // Section headers don't have tile IDs
-        }
-    }
-
-    /// Get the first focusable target (first pane of first expanded section, or first header)
-    fn first_focusable_target(&self) -> FocusTarget {
-        for (section_idx, state) in self.section_states.iter().enumerate() {
-            if !state.collapsed {
-                if let Some(section) = self.section_configs.get(section_idx) {
-                    if !section.panes.is_empty() {
-                        return FocusTarget::Pane {
-                            section: section_idx,
-                            pane: 0,
-                        };
-                    }
-                }
-            }
-        }
-        // All sections collapsed or empty - focus first header
-        if !self.section_configs.is_empty() {
-            FocusTarget::SectionHeader(0)
-        } else {
-            FocusTarget::None
-        }
-    }
-
-    /// Navigate from a section header
-    fn navigate_from_section_header(&mut self, section_idx: usize, direction: NavDirection) {
-        match direction {
-            NavDirection::Down => {
-                // Down from header -> enter section (first pane) or next header
-                if let Some(state) = self.section_states.get(section_idx) {
-                    if !state.collapsed {
-                        if let Some(section) = self.section_configs.get(section_idx) {
-                            if !section.panes.is_empty() {
-                                self.section_focus = FocusTarget::Pane {
-                                    section: section_idx,
-                                    pane: 0,
-                                };
-                                return;
-                            }
-                        }
-                    }
-                }
-                // Section is collapsed or empty - go to next header
-                if section_idx + 1 < self.section_configs.len() {
-                    self.section_focus = FocusTarget::SectionHeader(section_idx + 1);
-                }
-            }
-            NavDirection::Up => {
-                // Up from header -> previous section's last pane or previous header
-                if section_idx > 0 {
-                    let prev_idx = section_idx - 1;
-                    if let Some(state) = self.section_states.get(prev_idx) {
-                        if !state.collapsed {
-                            if let Some(section) = self.section_configs.get(prev_idx) {
-                                if !section.panes.is_empty() {
-                                    self.section_focus = FocusTarget::Pane {
-                                        section: prev_idx,
-                                        pane: section.panes.len() - 1,
-                                    };
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    // Previous section is collapsed or empty
-                    self.section_focus = FocusTarget::SectionHeader(prev_idx);
-                }
-            }
-            NavDirection::Left => {
-                // Left on header - collapse it (like vim zc)
-                if let Some(state) = self.section_states.get_mut(section_idx) {
-                    state.collapse();
-                }
-            }
-            NavDirection::Right => {
-                // Right on header - expand it and enter (like vim zo then l)
-                if let Some(state) = self.section_states.get_mut(section_idx) {
-                    state.expand();
-                }
-                // Enter the section's first pane
-                if let Some(section) = self.section_configs.get(section_idx) {
-                    if !section.panes.is_empty() {
-                        self.section_focus = FocusTarget::Pane {
-                            section: section_idx,
-                            pane: 0,
-                        };
-                    }
-                }
-            }
-        }
-    }
-
-    /// Navigate from a pane within a section
-    fn navigate_from_pane(&mut self, section_idx: usize, pane_idx: usize, direction: NavDirection) {
-        let section = match self.section_configs.get(section_idx) {
-            Some(s) => s,
-            None => return,
-        };
-
-        let pane_count = section.panes.len();
-
-        match direction {
-            NavDirection::Left => {
-                if pane_idx > 0 {
-                    // Move to previous pane in section
-                    self.section_focus = FocusTarget::Pane {
-                        section: section_idx,
-                        pane: pane_idx - 1,
-                    };
-                } else {
-                    // At first pane - go to section header
-                    self.section_focus = FocusTarget::SectionHeader(section_idx);
-                }
-            }
-            NavDirection::Right => {
-                if pane_idx + 1 < pane_count {
-                    // Move to next pane in section
-                    self.section_focus = FocusTarget::Pane {
-                        section: section_idx,
-                        pane: pane_idx + 1,
-                    };
-                }
-                // At last pane - stay (could optionally go to next section)
-            }
-            NavDirection::Up => {
-                // For vertical/grid layouts, might want to go up within section
-                // For now, go to section header or previous section's last pane
-                if pane_idx == 0 {
-                    // At first pane - go to header
-                    self.section_focus = FocusTarget::SectionHeader(section_idx);
-                } else {
-                    // Try to move up within grid layout
-                    let columns = section.columns.unwrap_or(2);
-                    if pane_idx >= columns {
-                        self.section_focus = FocusTarget::Pane {
-                            section: section_idx,
-                            pane: pane_idx - columns,
-                        };
-                    } else {
-                        // Top row - go to header
-                        self.section_focus = FocusTarget::SectionHeader(section_idx);
-                    }
-                }
-            }
-            NavDirection::Down => {
-                // For vertical/grid layouts, move down within section or to next section
-                let columns = section.columns.unwrap_or(2);
-                let next_pane = pane_idx + columns;
-
-                if next_pane < pane_count {
-                    // Can move down within section
-                    self.section_focus = FocusTarget::Pane {
-                        section: section_idx,
-                        pane: next_pane,
-                    };
-                } else {
-                    // At bottom - go to next section
-                    self.go_to_next_section_from_pane(section_idx);
-                }
-            }
-        }
-    }
-
-    /// Move to the next section after the current one
-    fn go_to_next_section_from_pane(&mut self, current_section: usize) {
-        let next_section = current_section + 1;
-        if next_section >= self.section_configs.len() {
-            return; // Already at last section
-        }
-
-        // Check if next section is expanded and has panes
-        if let Some(state) = self.section_states.get(next_section) {
-            if !state.collapsed {
-                if let Some(section) = self.section_configs.get(next_section) {
-                    if !section.panes.is_empty() {
-                        self.section_focus = FocusTarget::Pane {
-                            section: next_section,
-                            pane: 0,
-                        };
-                        return;
-                    }
-                }
-            }
-        }
-        // Next section is collapsed or empty - focus its header
-        self.section_focus = FocusTarget::SectionHeader(next_section);
-    }
-
     /// Open annotation editor for the focused pane.
     /// Uses current time as the default annotation point.
     pub fn open_annotation_editor(&mut self) {

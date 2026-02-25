@@ -756,23 +756,8 @@ impl Workspace {
                         log::warn!("Agent could not find pane to close: {pane}");
                     }
                 }
-                AgentCommand::CreateSection { name, collapsed } => {
-                    // Create a new section config
-                    use crate::workspace::config::SectionConfig;
-                    use crate::workspace::input::SectionState;
-
-                    let section_config = SectionConfig::new(&name);
-                    let section_state = SectionState::new(collapsed.unwrap_or(false));
-
-                    self.section_configs.push(section_config);
-                    self.section_states.push(section_state);
-
-                    log::info!(
-                        "Agent created section: {} (collapsed: {})",
-                        name,
-                        collapsed.unwrap_or(false)
-                    );
-                    success = true;
+                AgentCommand::CreateSection { .. } => {
+                    log::warn!("CreateSection command is no longer supported");
                 }
                 AgentCommand::CreateFloatingPane {
                     query,
@@ -1090,22 +1075,7 @@ impl Workspace {
 
     /// Add a tile to the viewport, handling different container types
     /// Returns true if the tile was successfully added
-    ///
-    /// If sections mode is active, this clears sections mode so the new pane
-    /// is visible. Sections mode renders panes defined in the TOML config,
-    /// but dynamically added panes aren't in any section.
     pub(super) fn add_tile_to_viewport(&mut self, tile_id: TileId) -> bool {
-        // Clear sections mode if active - dynamically added panes aren't in any section
-        // and need tile-based rendering to be visible
-        if !self.section_configs.is_empty() {
-            log::info!(
-                "Clearing {} sections to show dynamically added pane in tile mode",
-                self.section_configs.len()
-            );
-            self.section_configs.clear();
-            self.section_states.clear();
-        }
-
         let tiles_before = self.viewport_tree.tiles.len();
         let Some(root_id) = self.viewport_tree.root() else {
             // No root exists (all panes were closed), create a new tabs container

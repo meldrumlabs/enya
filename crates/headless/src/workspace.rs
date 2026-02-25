@@ -1,7 +1,6 @@
 use console::style;
 use enya_config::{
-    PaneConfig, SectionConfig, SectionLayout, WorkspaceConfig, list_workspaces,
-    resolve_workspace_path, workspace_dir,
+    PaneConfig, WorkspaceConfig, list_workspaces, resolve_workspace_path, workspace_dir,
 };
 use serde::Serialize;
 
@@ -48,32 +47,16 @@ pub struct SetResult {
 }
 
 #[derive(Serialize)]
-pub struct AddSectionResult {
-    pub workspace: String,
-    pub section: String,
-    pub layout: String,
-}
-
-#[derive(Serialize)]
 pub struct AddPaneResult {
     pub workspace: String,
-    pub section: String,
     pub pane: String,
     pub query: String,
-}
-
-#[derive(Serialize)]
-pub struct RemoveSectionResult {
-    pub workspace: String,
-    pub removed_section: String,
-    pub panes_removed: usize,
 }
 
 #[derive(Serialize)]
 pub struct RemovePaneResult {
     pub workspace: String,
     pub removed_pane: String,
-    pub section: String,
 }
 
 /// Parameters for adding a pane to a workspace.
@@ -81,7 +64,6 @@ pub struct AddPaneParams<'a> {
     pub name: &'a str,
     pub query: &'a str,
     pub pane_name: Option<&'a str>,
-    pub section: Option<&'a str>,
     pub tag: Option<&'a str>,
     pub unit: Option<&'a str>,
     pub granularity: Option<&'a str>,
@@ -90,7 +72,6 @@ pub struct AddPaneParams<'a> {
 }
 
 // -- Template resolution ------------------------------------------------------
-
 /// Resolve a template name to its TOML content.
 pub fn resolve_template(template: &str) -> Result<&'static str> {
     match template {
@@ -205,58 +186,9 @@ pub fn set_core(name: &str, key: &str, value: &str) -> Result<SetResult> {
     })
 }
 
-pub fn add_section_core(
-    name: &str,
-    section_name: &str,
-    layout: &str,
-    columns: Option<usize>,
-    collapsed: bool,
-) -> Result<AddSectionResult> {
-    let path = resolve_workspace_path(name);
-    let mut ws = WorkspaceConfig::load(&path)?;
-
-    if ws.find_section(section_name).is_some() {
-        return Err(format!("section already exists: {section_name}").into());
-    }
-
-    let section_layout = SectionLayout::parse(layout).ok_or_else(|| {
-        format!("invalid layout: {layout} (expected: horizontal, vertical, grid, tabs)")
-    })?;
-
-    let mut section = SectionConfig::new(section_name).with_layout(section_layout);
-    if let Some(cols) = columns {
-        section = section.with_columns(cols);
-    }
-    if collapsed {
-        section = section.with_collapsed(true);
-    }
-
-    ws.add_section(section);
-    ws.save(&path)?;
-    Ok(AddSectionResult {
-        workspace: ws.workspace.name,
-        section: section_name.to_string(),
-        layout: layout.to_string(),
-    })
-}
-
 pub fn add_pane_core(params: &AddPaneParams<'_>) -> Result<AddPaneResult> {
     let path = resolve_workspace_path(params.name);
     let mut ws = WorkspaceConfig::load(&path)?;
-
-    ws.ensure_default_section();
-
-    let section_idx = if let Some(sec_name) = params.section {
-        ws.find_section(sec_name).ok_or_else(|| {
-            let available: Vec<&str> = ws.sections.iter().map(|s| s.name.as_str()).collect();
-            format!(
-                "section not found: {sec_name} (available: {})",
-                available.join(", ")
-            )
-        })?
-    } else {
-        ws.sections.len() - 1
-    };
 
     let mut pane = PaneConfig::new(params.query);
     if let Some(n) = params.pane_name {
@@ -278,80 +210,32 @@ pub fn add_pane_core(params: &AddPaneParams<'_>) -> Result<AddPaneResult> {
         pane.description = d.to_string();
     }
 
-    let sec_name = ws.sections[section_idx].name.clone();
-    ws.sections[section_idx].panes.push(pane);
+    ws.panes.push(pane);
     ws.save(&path)?;
 
     Ok(AddPaneResult {
         workspace: ws.workspace.name,
-        section: sec_name,
         pane: params.pane_name.unwrap_or("").to_string(),
         query: params.query.to_string(),
     })
 }
 
-pub fn remove_section_core(name: &str, section_name: &str) -> Result<RemoveSectionResult> {
+pub fn remove_pane_core(name: &str, pane: &str) -> Result<RemovePaneResult> {
     let path = resolve_workspace_path(name);
     let mut ws = WorkspaceConfig::load(&path)?;
 
     let idx = ws
-        .find_section(section_name)
-        .ok_or_else(|| format!("section not found: {section_name}"))?;
+        .panes
+        .iter()
+        .position(|p| p.name == pane)
+        .ok_or_else(|| format!("pane not found: {pane}"))?;
 
-    let panes_removed = ws.sections[idx].panes.len();
-    ws.sections.remove(idx);
-    ws.save(&path)?;
-
-    Ok(RemoveSectionResult {
-        workspace: ws.workspace.name,
-        removed_section: section_name.to_string(),
-        panes_removed,
-    })
-}
-
-pub fn remove_pane_core(name: &str, pane: &str, section: Option<&str>) -> Result<RemovePaneResult> {
-    let path = resolve_workspace_path(name);
-    let mut ws = WorkspaceConfig::load(&path)?;
-
-    let matches = if let Some(sec_name) = section {
-        let si = ws
-            .find_section(sec_name)
-            .ok_or_else(|| format!("section not found: {sec_name}"))?;
-        ws.sections[si]
-            .panes
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.name == pane)
-            .map(|(pi, _)| (si, pi))
-            .collect::<Vec<_>>()
-    } else {
-        ws.find_pane_by_name(pane)
-    };
-
-    if matches.is_empty() {
-        return Err(format!("pane not found: {pane}").into());
-    }
-    if matches.len() > 1 {
-        let sections: Vec<&str> = matches
-            .iter()
-            .map(|(si, _)| ws.sections[*si].name.as_str())
-            .collect();
-        return Err(format!(
-            "multiple panes named \"{pane}\" (in sections: {}). Use --section to disambiguate.",
-            sections.join(", ")
-        )
-        .into());
-    }
-
-    let (si, pi) = matches[0];
-    let sec_name = ws.sections[si].name.clone();
-    ws.sections[si].panes.remove(pi);
+    ws.panes.remove(idx);
     ws.save(&path)?;
 
     Ok(RemovePaneResult {
         workspace: ws.workspace.name,
         removed_pane: pane.to_string(),
-        section: sec_name,
     })
 }
 
@@ -428,50 +312,19 @@ pub fn show(name: &str, json: bool) -> Result {
     println!("{} {}", style("Theme:").bold(), ws.view.theme);
     println!("{} {}", style("Time:").bold(), ws.time.preset);
 
-    if ws.uses_sections() {
-        println!("{} {}", style("Sections:").bold(), ws.sections.len());
-        for (i, section) in ws.sections.iter().enumerate() {
-            let collapsed = if section.collapsed {
-                " (collapsed)"
+    if !ws.panes.is_empty() {
+        println!("{} {}", style("Panes:").bold(), ws.panes.len());
+        for (i, pane) in ws.panes.iter().enumerate() {
+            let label = if pane.name.is_empty() {
+                format!("pane {i}")
             } else {
-                ""
+                pane.name.clone()
             };
             println!(
-                "  {} {} ({} panes, {:?}){collapsed}",
+                "  {} {label}: {}",
                 style(format!("[{i}]")).dim(),
-                style(&section.name).bold(),
-                section.panes.len(),
-                section.layout,
+                pane.query
             );
-            for pane in &section.panes {
-                let label = if pane.name.is_empty() {
-                    &pane.query
-                } else {
-                    &pane.name
-                };
-                println!("      - {label}: {}", pane.query);
-            }
-        }
-    } else {
-        let all_panes = ws.all_panes();
-        if !all_panes.is_empty() {
-            println!(
-                "{} {} (legacy format)",
-                style("Panes:").bold(),
-                all_panes.len()
-            );
-            for (i, pane) in all_panes.iter().enumerate() {
-                let label = if pane.name.is_empty() {
-                    format!("pane {i}")
-                } else {
-                    pane.name.clone()
-                };
-                println!(
-                    "  {} {label}: {}",
-                    style(format!("[{i}]")).dim(),
-                    pane.query
-                );
-            }
         }
     }
 
@@ -508,68 +361,26 @@ pub fn set(name: &str, key: &str, value: &str, json: bool) -> Result {
     Ok(())
 }
 
-pub fn add_section(
-    name: &str,
-    section_name: &str,
-    layout: &str,
-    columns: Option<usize>,
-    collapsed: bool,
-    json: bool,
-) -> Result {
-    let result = add_section_core(name, section_name, layout, columns, collapsed)?;
-    if json {
-        println!("{}", serde_json::to_string(&result)?);
-    } else {
-        println!(
-            "{} section \"{}\" ({})",
-            style("Added").green(),
-            result.section,
-            result.layout
-        );
-    }
-    Ok(())
-}
-
 pub fn add_pane(params: &AddPaneParams<'_>, json: bool) -> Result {
     let result = add_pane_core(params)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
         let label = params.pane_name.unwrap_or(params.query);
-        println!(
-            "{} pane \"{label}\" to section \"{}\"",
-            style("Added").green(),
-            result.section
-        );
+        println!("{} pane \"{label}\"", style("Added").green(),);
     }
     Ok(())
 }
 
-pub fn remove_section(name: &str, section_name: &str, json: bool) -> Result {
-    let result = remove_section_core(name, section_name)?;
+pub fn remove_pane(name: &str, pane: &str, json: bool) -> Result {
+    let result = remove_pane_core(name, pane)?;
     if json {
         println!("{}", serde_json::to_string(&result)?);
     } else {
         println!(
-            "{} section \"{}\" ({} panes)",
+            "{} pane \"{}\"",
             style("Removed").green(),
-            result.removed_section,
-            result.panes_removed
-        );
-    }
-    Ok(())
-}
-
-pub fn remove_pane(name: &str, pane: &str, section: Option<&str>, json: bool) -> Result {
-    let result = remove_pane_core(name, pane, section)?;
-    if json {
-        println!("{}", serde_json::to_string(&result)?);
-    } else {
-        println!(
-            "{} pane \"{}\" from section \"{}\"",
-            style("Removed").green(),
-            result.removed_pane,
-            result.section
+            result.removed_pane
         );
     }
     Ok(())
@@ -601,22 +412,18 @@ pub fn snapshot(base_url: &str, ws: &WorkspaceConfig) -> Result<serde_json::Valu
 
     let mut pane_results: Vec<serde_json::Value> = Vec::new();
 
-    for section in &ws.sections {
-        for pane in &section.panes {
-            let result =
-                match promql::query_range(base_url, &pane.query, start_secs, now, step_secs) {
-                    Ok(data) => serde_json::to_value(&data)
-                        .unwrap_or_else(|e| serde_json::json!({"error": e.to_string()})),
-                    Err(e) => serde_json::json!({"error": e.to_string()}),
-                };
+    for pane in &ws.panes {
+        let result = match promql::query_range(base_url, &pane.query, start_secs, now, step_secs) {
+            Ok(data) => serde_json::to_value(&data)
+                .unwrap_or_else(|e| serde_json::json!({"error": e.to_string()})),
+            Err(e) => serde_json::json!({"error": e.to_string()}),
+        };
 
-            pane_results.push(serde_json::json!({
-                "section": section.name,
-                "name": pane.name,
-                "query": pane.query,
-                "result": result,
-            }));
-        }
+        pane_results.push(serde_json::json!({
+            "name": pane.name,
+            "query": pane.query,
+            "result": result,
+        }));
     }
 
     Ok(serde_json::json!({

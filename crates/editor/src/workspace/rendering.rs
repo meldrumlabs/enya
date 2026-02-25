@@ -1,18 +1,17 @@
 //! UI rendering methods for the workspace.
 //!
 //! This module handles rendering the filtered view, custom scrollbar,
-//! collapsible sections, and scroll-to-focused-tile functionality.
+//! and scroll-to-focused-tile functionality.
 
-use egui::{Color32, RichText, Vec2};
+use egui::{Color32, RichText};
 use egui_tiles::Tile;
 
-use super::{FocusTarget, SECTION_CONTENT_PADDING, SECTION_PANE_GAP, SectionConfig, Workspace};
+use super::Workspace;
 use crate::components::{Buffer, QueryPane};
 use crate::ui::colors::text_color;
 use crate::ui::semantic_icons;
 use crate::ui::theme::AppTheme;
 use crate::ui::typography;
-use egui_tiles::TileId;
 
 /// Render text with a highlighted portion (for filter matches)
 fn render_highlighted_text(
@@ -205,462 +204,6 @@ impl Workspace {
                         }
                     });
             });
-    }
-
-    /// Check if a tile is selected in visual-multi mode
-    fn is_tile_selected_in_visual_multi(&self, tile_id: TileId) -> bool {
-        self.visual_multi_state
-            .as_ref()
-            .is_some_and(|state| state.selected_tile_ids.contains(&tile_id))
-    }
-
-    /// Check if we're in visual-multi mode
-    fn is_in_visual_multi_mode(&self) -> bool {
-        self.visual_multi_state.is_some()
-    }
-
-    /// Draw visual-multi selection indicator for a pane
-    fn draw_visual_multi_selection(&self, ui: &egui::Ui, rect: egui::Rect, theme: AppTheme) {
-        // Selection tint using theme accent
-        let selection_color = theme.accent_primary().gamma_multiply(0.15);
-
-        // Fill the entire pane with a subtle selection tint
-        ui.painter().rect_filled(rect, 4.0, selection_color);
-
-        // Draw selection border
-        let border_color = theme.accent_primary();
-        let border_width = 2.0;
-        let inset_rect = rect.shrink(border_width / 2.0);
-        ui.painter().rect_stroke(
-            inset_rect,
-            4.0,
-            egui::Stroke::new(border_width, border_color),
-            egui::StrokeKind::Outside,
-        );
-    }
-
-    /// Collect tile IDs that are selected in visual-multi mode within a section.
-    /// Returns empty vec if not in visual-multi mode.
-    fn get_selected_tiles(&self, tile_ids: &[TileId]) -> Vec<TileId> {
-        if self.is_in_visual_multi_mode() {
-            tile_ids
-                .iter()
-                .filter(|&&id| self.is_tile_selected_in_visual_multi(id))
-                .copied()
-                .collect()
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Draw focus and selection overlays for a pane.
-    /// Handles both visual-multi selection indicator and focus border.
-    fn draw_pane_overlays(
-        &self,
-        ui: &egui::Ui,
-        rect: egui::Rect,
-        is_focused: bool,
-        is_selected: bool,
-        is_visual_multi: bool,
-        theme: AppTheme,
-    ) {
-        // Draw visual-multi selection indicator first (underneath focus border)
-        if is_selected {
-            self.draw_visual_multi_selection(ui, rect, theme);
-        }
-
-        // Draw focus border (brighter in visual-multi mode)
-        if is_focused {
-            let focus_color = if is_visual_multi {
-                theme.accent_hover()
-            } else {
-                theme.accent_primary()
-            };
-            ui.painter().rect_stroke(
-                rect,
-                4.0,
-                egui::Stroke::new(2.0, focus_color),
-                egui::StrokeKind::Inside,
-            );
-        }
-    }
-
-    /// Render sections with collapsible headers (Grafana-style)
-    ///
-    /// This is called when the workspace uses the sections format instead of
-    /// the legacy flat panes format. Each section renders as:
-    /// - A clickable header with collapse indicator (▼/▶), name, and pane count
-    /// - Section content (panes) when expanded, laid out according to section layout
-    #[profiling::function]
-    pub(super) fn render_sections(&mut self, ui: &mut egui::Ui) {
-        let theme = self.behavior.theme();
-
-        // Update section renderer theme
-        self.section_renderer.set_theme(theme);
-
-        // Get all pane tile IDs in order (they match section pane order)
-        let pane_tile_ids = self.get_pane_tile_ids();
-
-        // Clone section configs to avoid borrow conflicts
-        let section_configs = self.section_configs.clone();
-
-        // Track which pane index we're at as we iterate through sections
-        let mut pane_offset = 0;
-
-        // Render each section
-        for (section_idx, section_config) in section_configs.iter().enumerate() {
-            let section_pane_count = section_config.panes.len();
-
-            // Get or create section state
-            let section_state = self
-                .section_states
-                .get(section_idx)
-                .cloned()
-                .unwrap_or_default();
-
-            // Check if this section header is focused
-            let header_focused = self.section_focus == FocusTarget::SectionHeader(section_idx);
-
-            // Render section header
-            let header_response = self.section_renderer.render_header(
-                ui,
-                section_config,
-                &section_state,
-                header_focused,
-            );
-
-            // Handle header click - toggle collapsed state
-            if header_response.clicked() {
-                if let Some(state) = self.section_states.get_mut(section_idx) {
-                    state.collapsed = !state.collapsed;
-                }
-            }
-
-            // Render section content if not collapsed
-            if !section_state.collapsed {
-                // Get the tile IDs for this section's panes
-                let section_tile_ids: Vec<_> = pane_tile_ids
-                    .iter()
-                    .skip(pane_offset)
-                    .take(section_pane_count)
-                    .copied()
-                    .collect();
-
-                // Render content based on section layout
-                self.render_section_content(ui, section_config, &section_tile_ids, section_idx);
-            }
-
-            // Move to next section's panes
-            pane_offset += section_pane_count;
-
-            // Add spacing between sections
-            ui.add_space(8.0);
-        }
-    }
-
-    /// Render section content (panes) based on the section's layout type
-    fn render_section_content(
-        &mut self,
-        ui: &mut egui::Ui,
-        section: &SectionConfig,
-        tile_ids: &[egui_tiles::TileId],
-        section_idx: usize,
-    ) {
-        use super::config::SectionLayout;
-
-        if tile_ids.is_empty() {
-            return;
-        }
-
-        let theme = self.behavior.theme();
-
-        ui.add_space(SECTION_CONTENT_PADDING);
-
-        match section.layout {
-            SectionLayout::Horizontal => {
-                self.render_section_horizontal(ui, tile_ids, section_idx, theme);
-            }
-            SectionLayout::Vertical => {
-                self.render_section_vertical(ui, tile_ids, section_idx, theme);
-            }
-            SectionLayout::Grid => {
-                let columns = section.columns.unwrap_or(2).max(1);
-                self.render_section_grid(ui, tile_ids, section_idx, columns, theme);
-            }
-            SectionLayout::Tabs => {
-                // Clone section to avoid borrow conflict with render method
-                let section = section.clone();
-                self.render_section_tabs(ui, tile_ids, &section, section_idx, theme);
-            }
-        }
-
-        ui.add_space(SECTION_CONTENT_PADDING);
-    }
-
-    /// Render panes in horizontal layout (side by side)
-    fn render_section_horizontal(
-        &mut self,
-        ui: &mut egui::Ui,
-        tile_ids: &[egui_tiles::TileId],
-        section_idx: usize,
-        theme: AppTheme,
-    ) {
-        let available_width = ui.available_width() - SECTION_CONTENT_PADDING * 2.0;
-        let pane_count = tile_ids.len();
-        let total_gaps = (pane_count.saturating_sub(1)) as f32 * SECTION_PANE_GAP;
-        let pane_width =
-            ((available_width - total_gaps) / pane_count as f32).max(super::MIN_PANE_SIZE);
-        let pane_height = super::SECTION_PANE_HEIGHT;
-
-        let is_visual_multi = self.is_in_visual_multi_mode();
-        let selected_tiles = self.get_selected_tiles(tile_ids);
-
-        ui.horizontal(|ui| {
-            for (pane_idx, &tile_id) in tile_ids.iter().enumerate() {
-                let is_focused = self.section_focus
-                    == FocusTarget::Pane {
-                        section: section_idx,
-                        pane: pane_idx,
-                    };
-                let is_selected = selected_tiles.contains(&tile_id);
-
-                // Render pane and capture actual content rect
-                let response = ui.allocate_ui(Vec2::new(pane_width, pane_height), |ui| {
-                    if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
-                        component.set_theme(theme);
-                        component.show(ui);
-                    }
-                    ui.min_rect()
-                });
-
-                self.draw_pane_overlays(
-                    ui,
-                    response.inner,
-                    is_focused,
-                    is_selected,
-                    is_visual_multi,
-                    theme,
-                );
-
-                if pane_idx < pane_count - 1 {
-                    ui.add_space(SECTION_PANE_GAP);
-                }
-            }
-        });
-    }
-
-    /// Render panes in vertical layout (stacked)
-    fn render_section_vertical(
-        &mut self,
-        ui: &mut egui::Ui,
-        tile_ids: &[egui_tiles::TileId],
-        section_idx: usize,
-        theme: AppTheme,
-    ) {
-        let pane_height = super::SECTION_PANE_HEIGHT;
-        let is_visual_multi = self.is_in_visual_multi_mode();
-        let selected_tiles = self.get_selected_tiles(tile_ids);
-
-        ui.vertical(|ui| {
-            let available_width = ui.available_width();
-            for (pane_idx, &tile_id) in tile_ids.iter().enumerate() {
-                let is_focused = self.section_focus
-                    == FocusTarget::Pane {
-                        section: section_idx,
-                        pane: pane_idx,
-                    };
-                let is_selected = selected_tiles.contains(&tile_id);
-
-                let response = ui.allocate_ui(Vec2::new(available_width, pane_height), |ui| {
-                    if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
-                        component.set_theme(theme);
-                        component.show(ui);
-                    }
-                    ui.min_rect()
-                });
-
-                self.draw_pane_overlays(
-                    ui,
-                    response.inner,
-                    is_focused,
-                    is_selected,
-                    is_visual_multi,
-                    theme,
-                );
-
-                if pane_idx < tile_ids.len() - 1 {
-                    ui.add_space(SECTION_PANE_GAP);
-                }
-            }
-        });
-    }
-
-    /// Render panes in grid layout
-    fn render_section_grid(
-        &mut self,
-        ui: &mut egui::Ui,
-        tile_ids: &[egui_tiles::TileId],
-        section_idx: usize,
-        columns: usize,
-        theme: AppTheme,
-    ) {
-        let available_width = ui.available_width() - SECTION_CONTENT_PADDING * 2.0;
-        let total_gaps = (columns.saturating_sub(1)) as f32 * SECTION_PANE_GAP;
-        let cell_width =
-            ((available_width - total_gaps) / columns as f32).max(super::MIN_PANE_SIZE);
-        let cell_height = super::SECTION_GRID_CELL_HEIGHT;
-
-        let is_visual_multi = self.is_in_visual_multi_mode();
-        let selected_tiles = self.get_selected_tiles(tile_ids);
-
-        ui.vertical(|ui| {
-            for row_start in (0..tile_ids.len()).step_by(columns) {
-                ui.horizontal(|ui| {
-                    for col in 0..columns {
-                        let pane_idx = row_start + col;
-                        if pane_idx >= tile_ids.len() {
-                            break;
-                        }
-
-                        let tile_id = tile_ids[pane_idx];
-                        let is_focused = self.section_focus
-                            == FocusTarget::Pane {
-                                section: section_idx,
-                                pane: pane_idx,
-                            };
-                        let is_selected = selected_tiles.contains(&tile_id);
-
-                        let response = ui.allocate_ui(Vec2::new(cell_width, cell_height), |ui| {
-                            if let Some(Tile::Pane(component)) =
-                                self.viewport_tree.tiles.get_mut(tile_id)
-                            {
-                                component.set_theme(theme);
-                                component.show(ui);
-                            }
-                            ui.min_rect()
-                        });
-
-                        self.draw_pane_overlays(
-                            ui,
-                            response.inner,
-                            is_focused,
-                            is_selected,
-                            is_visual_multi,
-                            theme,
-                        );
-
-                        if col < columns - 1 && pane_idx + 1 < tile_ids.len() {
-                            ui.add_space(SECTION_PANE_GAP);
-                        }
-                    }
-                });
-
-                if row_start + columns < tile_ids.len() {
-                    ui.add_space(SECTION_PANE_GAP);
-                }
-            }
-        });
-    }
-
-    /// Render panes in tabbed layout
-    fn render_section_tabs(
-        &mut self,
-        ui: &mut egui::Ui,
-        tile_ids: &[egui_tiles::TileId],
-        section: &SectionConfig,
-        section_idx: usize,
-        theme: AppTheme,
-    ) {
-        if tile_ids.is_empty() {
-            return;
-        }
-
-        // Determine active tab from focus (or default to first)
-        let active_tab = if let FocusTarget::Pane { section: s, pane } = self.section_focus {
-            if s == section_idx {
-                pane.min(tile_ids.len() - 1)
-            } else {
-                0
-            }
-        } else {
-            0
-        };
-
-        let is_visual_multi = self.is_in_visual_multi_mode();
-
-        // Tab bar
-        ui.horizontal(|ui| {
-            for (pane_idx, &tile_id) in tile_ids.iter().enumerate() {
-                let is_active = pane_idx == active_tab;
-
-                // Get pane name from config or generate default
-                let pane_name = if pane_idx < section.panes.len()
-                    && !section.panes[pane_idx].name.is_empty()
-                {
-                    section.panes[pane_idx].name.clone()
-                } else if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get(tile_id) {
-                    if let Some(query_pane) = component.as_any().downcast_ref::<QueryPane>() {
-                        query_pane.name().to_string()
-                    } else {
-                        format!("Pane {}", pane_idx + 1)
-                    }
-                } else {
-                    format!("Pane {}", pane_idx + 1)
-                };
-
-                // Check if this tab is selected in visual-multi mode
-                let is_selected = self.is_tile_selected_in_visual_multi(tile_id);
-
-                let button_fill = if is_selected {
-                    theme.accent_primary().gamma_multiply(0.3)
-                } else if is_active {
-                    theme.bg_elevated()
-                } else {
-                    theme.bg_surface()
-                };
-
-                let button = egui::Button::new(&pane_name).fill(button_fill);
-
-                if ui.add(button).clicked() {
-                    self.section_focus = FocusTarget::Pane {
-                        section: section_idx,
-                        pane: pane_idx,
-                    };
-                }
-            }
-        });
-
-        ui.add_space(SECTION_PANE_GAP);
-
-        // Render active tab content
-        if let Some(&tile_id) = tile_ids.get(active_tab) {
-            let is_focused = self.section_focus
-                == FocusTarget::Pane {
-                    section: section_idx,
-                    pane: active_tab,
-                };
-            let is_selected = self.is_tile_selected_in_visual_multi(tile_id);
-
-            let pane_height = super::SECTION_PANE_HEIGHT;
-            let available_width = ui.available_width();
-
-            let response = ui.allocate_ui(Vec2::new(available_width, pane_height), |ui| {
-                if let Some(Tile::Pane(component)) = self.viewport_tree.tiles.get_mut(tile_id) {
-                    component.set_theme(theme);
-                    component.show(ui);
-                }
-                ui.min_rect()
-            });
-
-            self.draw_pane_overlays(
-                ui,
-                response.inner,
-                is_focused,
-                is_selected,
-                is_visual_multi,
-                theme,
-            );
-        }
     }
 
     /// Draw nvim-style scrollbar indicator in the scrollbar gutter
@@ -859,7 +402,6 @@ fn render_tilde_line(ui: &mut egui::Ui, color: Color32, line_height: f32) {
     };
 
     let available_width = ui.available_width();
-    let left_margin = 16.0; // Small margin from left edge
 
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(available_width, line_height),
@@ -870,7 +412,7 @@ fn render_tilde_line(ui: &mut egui::Ui, color: Color32, line_height: f32) {
     // Center the tilde vertically within the line height
     let y_offset = (line_height - galley.size().y) / 2.0;
     painter.galley(
-        egui::pos2(rect.left() + left_margin, rect.top() + y_offset),
+        egui::pos2(rect.left(), rect.top() + y_offset),
         galley,
         color,
     );
@@ -885,7 +427,6 @@ fn render_centered_title_with_tilde(
 ) {
     let font = egui::FontId::monospace(typography::HEADING + 4.0);
     let tilde_font = egui::FontId::monospace(typography::MD);
-    let left_margin = 16.0;
 
     let (galley, tilde_galley) = {
         let painter = ui.painter();
@@ -905,11 +446,7 @@ fn render_centered_title_with_tilde(
     let painter = ui.painter();
     // Tilde on left, vertically centered
     let tilde_y = rect.top() + (galley.size().y - tilde_galley.size().y) / 2.0;
-    painter.galley(
-        egui::pos2(rect.left() + left_margin, tilde_y),
-        tilde_galley,
-        tilde_color,
-    );
+    painter.galley(egui::pos2(rect.left(), tilde_y), tilde_galley, tilde_color);
     // Centered title
     painter.galley(egui::pos2(rect.left() + start_x, rect.top()), galley, color);
 }
@@ -923,7 +460,6 @@ fn render_centered_tagline_with_tilde(
 ) {
     let font = egui::FontId::proportional(typography::SM);
     let tilde_font = egui::FontId::monospace(typography::MD);
-    let left_margin = 16.0;
 
     let (galley, tilde_galley) = {
         let painter = ui.painter();
@@ -944,11 +480,7 @@ fn render_centered_tagline_with_tilde(
     let painter = ui.painter();
     // Tilde on left
     let tilde_y = rect.top() + (line_height - tilde_galley.size().y) / 2.0;
-    painter.galley(
-        egui::pos2(rect.left() + left_margin, tilde_y),
-        tilde_galley,
-        tilde_color,
-    );
+    painter.galley(egui::pos2(rect.left(), tilde_y), tilde_galley, tilde_color);
     // Centered tagline
     let text_y = rect.top() + (line_height - galley.size().y) / 2.0;
     painter.galley(egui::pos2(rect.left() + start_x, text_y), galley, color);
@@ -964,7 +496,6 @@ fn render_centered_hints_block_with_tilde(
 ) {
     let font = egui::FontId::monospace(typography::MD);
     let col_spacing = 16.0;
-    let left_margin = 16.0;
 
     // Measure widths in a scoped block to release the painter borrow
     let (max_key_width, max_desc_width) = {
@@ -1019,11 +550,7 @@ fn render_centered_hints_block_with_tilde(
         // Draw tilde on left
         let painter = ui.painter();
         let tilde_y = rect.top() + (row_height - tilde_galley.size().y) / 2.0;
-        painter.galley(
-            egui::pos2(rect.left() + left_margin, tilde_y),
-            tilde_galley,
-            tilde_color,
-        );
+        painter.galley(egui::pos2(rect.left(), tilde_y), tilde_galley, tilde_color);
 
         // Draw key
         painter.galley(

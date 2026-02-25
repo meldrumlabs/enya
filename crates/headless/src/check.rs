@@ -34,7 +34,6 @@ pub struct EndpointStatus {
 #[derive(Serialize)]
 pub struct QueryStatus {
     pub query: String,
-    pub section: String,
     pub pane: String,
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,21 +82,18 @@ pub fn check_core(name: &str) -> CheckResult {
 
     // Query validation
     let mut queries = Vec::new();
-    for section in &ws.sections {
-        for pane in &section.panes {
-            let result = enya_promql::validate(&pane.query);
-            queries.push(QueryStatus {
-                query: pane.query.clone(),
-                section: section.name.clone(),
-                pane: if pane.name.is_empty() {
-                    pane.query.clone()
-                } else {
-                    pane.name.clone()
-                },
-                ok: result.is_valid,
-                error: result.error,
-            });
-        }
+    for pane in &ws.panes {
+        let result = enya_promql::validate(&pane.query);
+        queries.push(QueryStatus {
+            query: pane.query.clone(),
+            pane: if pane.name.is_empty() {
+                pane.query.clone()
+            } else {
+                pane.name.clone()
+            },
+            ok: result.is_valid,
+            error: result.error,
+        });
     }
 
     // Endpoint check
@@ -266,7 +262,7 @@ fn print_check_result(result: &CheckResult) {
         for q in &invalid {
             println!(
                 "    - {} {} — {}",
-                style(format!("[{}]", q.section)).dim(),
+                style(format!("[{}]", q.pane)).dim(),
                 q.query,
                 q.error.as_deref().unwrap_or("invalid")
             );
