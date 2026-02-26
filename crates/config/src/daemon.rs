@@ -70,6 +70,54 @@ fn default_bind() -> String {
     "127.0.0.1".to_string()
 }
 
+/// OTLP receiver configuration.
+///
+/// When enabled, Enya accepts OpenTelemetry data directly via OTLP HTTP
+/// endpoints (`/v1/traces`, `/v1/logs`), storing it in memory. This lets
+/// developers point their OTel SDKs at Enya without needing separate
+/// Prometheus/Loki/Tempo infrastructure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtlpReceiver {
+    /// Whether the OTLP receiver is enabled (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Maximum number of traces to store in memory (default: 1000).
+    #[serde(default = "default_max_traces")]
+    pub max_traces: usize,
+
+    /// Maximum number of log entries to store in memory (default: 50000).
+    #[serde(default = "default_max_log_entries")]
+    pub max_log_entries: usize,
+}
+
+impl Default for OtlpReceiver {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_traces: default_max_traces(),
+            max_log_entries: default_max_log_entries(),
+        }
+    }
+}
+
+impl OtlpReceiver {
+    /// Returns true if this config is all defaults (for skip_serializing_if).
+    pub fn is_default(&self) -> bool {
+        !self.enabled
+            && self.max_traces == default_max_traces()
+            && self.max_log_entries == default_max_log_entries()
+    }
+}
+
+fn default_max_traces() -> usize {
+    1000
+}
+
+fn default_max_log_entries() -> usize {
+    50_000
+}
+
 /// Top-level Enya daemon configuration.
 ///
 /// Stored at `~/.enya/config.toml`. Separate from workspace files
@@ -83,6 +131,10 @@ pub struct Config {
     /// Server bind settings.
     #[serde(default)]
     pub server: Server,
+
+    /// OTLP receiver settings.
+    #[serde(default, skip_serializing_if = "OtlpReceiver::is_default")]
+    pub otlp: OtlpReceiver,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -150,6 +202,36 @@ bind = "0.0.0.0"
     }
 
     #[test]
+    fn test_otlp_config() {
+        let toml = r#"
+[otlp]
+enabled = true
+max_traces = 2000
+max_log_entries = 100000
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.otlp.enabled);
+        assert_eq!(config.otlp.max_traces, 2000);
+        assert_eq!(config.otlp.max_log_entries, 100_000);
+    }
+
+    #[test]
+    fn test_otlp_defaults() {
+        let config = Config::default();
+        assert!(!config.otlp.enabled);
+        assert_eq!(config.otlp.max_traces, 1000);
+        assert_eq!(config.otlp.max_log_entries, 50_000);
+        assert!(config.otlp.is_default());
+    }
+
+    #[test]
+    fn test_otlp_skip_serializing_when_default() {
+        let config = Config::default();
+        let toml_str = toml::to_string_pretty(&config).unwrap();
+        assert!(!toml_str.contains("otlp"));
+    }
+
+    #[test]
     fn test_roundtrip() {
         let config = Config {
             datasources: Datasources {
@@ -160,6 +242,7 @@ bind = "0.0.0.0"
                 ..Default::default()
             },
             server: Server::default(),
+            otlp: OtlpReceiver::default(),
         };
         let toml_str = toml::to_string_pretty(&config).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();

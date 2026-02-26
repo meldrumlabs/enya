@@ -2903,6 +2903,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
+ "enya-client",
  "enya-config",
  "enya-headless",
  "insta",
@@ -2976,6 +2977,7 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "log",
+ "parking_lot",
  "poll-promise",
  "reqwest",
  "rustc-hash 2.1.1",

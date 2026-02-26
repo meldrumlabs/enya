@@ -2,8 +2,10 @@
 
 use crate::error::ClientError;
 use crate::now_unix_secs;
+use crate::normalize_url;
 use crate::promise::promise_channel;
 use crate::request::QueryRequest;
+use crate::url_encode;
 use crate::{
     BackendInfo, HealthCheckResult, LabelsResult, MetricLabelsResult, MetricsClient, QueryResult,
 };
@@ -52,20 +54,8 @@ impl PrometheusClient {
     /// On native, panics if called outside a tokio runtime context.
     #[must_use]
     pub fn new(base_url: impl Into<String>) -> Self {
-        let mut url = base_url.into();
-
-        // Add http:// if no protocol specified (Prometheus runs on HTTP by default)
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            url = format!("http://{url}");
-        }
-
-        // Remove trailing slash if present
-        if url.ends_with('/') {
-            url.pop();
-        }
-
         Self {
-            base_url: url,
+            base_url: normalize_url(base_url),
             http_client: reqwest::Client::new(),
             #[cfg(not(target_arch = "wasm32"))]
             runtime_handle: tokio::runtime::Handle::current(),
@@ -78,18 +68,8 @@ impl PrometheusClient {
     #[cfg(not(target_arch = "wasm32"))]
     #[must_use]
     pub fn with_runtime(base_url: impl Into<String>, handle: tokio::runtime::Handle) -> Self {
-        let mut url = base_url.into();
-
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            url = format!("http://{url}");
-        }
-
-        if url.ends_with('/') {
-            url.pop();
-        }
-
         Self {
-            base_url: url,
+            base_url: normalize_url(base_url),
             http_client: reqwest::Client::new(),
             runtime_handle: handle,
         }
@@ -345,29 +325,6 @@ impl MetricsClient for PrometheusClient {
     }
 }
 
-/// Simple URL encoding for query parameters.
-///
-/// This handles the most common characters that need encoding in PromQL queries.
-fn url_encode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len() * 2);
-    for c in s.chars() {
-        match c {
-            ' ' => result.push_str("%20"),
-            '"' => result.push_str("%22"),
-            '#' => result.push_str("%23"),
-            '%' => result.push_str("%25"),
-            '&' => result.push_str("%26"),
-            '+' => result.push_str("%2B"),
-            '=' => result.push_str("%3D"),
-            '{' => result.push_str("%7B"),
-            '}' => result.push_str("%7D"),
-            '[' => result.push_str("%5B"),
-            ']' => result.push_str("%5D"),
-            _ => result.push(c),
-        }
-    }
-    result
-}
 
 #[cfg(test)]
 mod tests {

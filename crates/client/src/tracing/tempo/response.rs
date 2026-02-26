@@ -1,9 +1,10 @@
 //! Response parsing for Grafana Tempo HTTP API.
 //!
-//! Tempo returns traces in a JSON format based on the Jaeger model.
-//! This module handles parsing those responses into our trace types.
+//! Tempo returns traces in a JSON format based on the Jaeger model or
+//! OpenTelemetry format. OTLP parsing is shared via [`crate::otlp`].
 
 use crate::error::ClientError;
+use crate::otlp::types::OtlpBatch;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 
@@ -17,7 +18,7 @@ pub fn parse_trace_response(bytes: &[u8]) -> Result<Trace, ClientError> {
     // Tempo wraps the trace in a "batches" array (OpenTelemetry format)
     // or returns Jaeger format with "data" array
     if let Some(batches) = response.batches {
-        parse_otlp_trace(batches)
+        crate::otlp::parse_otlp_trace(batches)
     } else if let Some(data) = response.data {
         parse_jaeger_trace(data)
     } else {
@@ -79,195 +80,6 @@ struct TempoSearchTrace {
 #[derive(Deserialize)]
 struct SpanSet {
     spans: usize,
-}
-
-// ============================================================================
-// OpenTelemetry (OTLP) Format Parsing
-// ============================================================================
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OtlpBatch {
-    resource: Option<OtlpResource>,
-    scope_spans: Option<Vec<OtlpScopeSpans>>,
-    /// Legacy field name
-    instrumentation_library_spans: Option<Vec<OtlpScopeSpans>>,
-}
-
-#[derive(Deserialize)]
-struct OtlpResource {
-    attributes: Option<Vec<OtlpAttribute>>,
-}
-
-#[derive(Deserialize)]
-struct OtlpScopeSpans {
-    spans: Option<Vec<OtlpSpan>>,
-}
-
-#[derive(Deserialize)]
-struct OtlpSpan {
-    #[serde(alias = "traceId", alias = "trace_id")]
-    trace_id: Option<String>,
-    #[serde(alias = "spanId", alias = "span_id")]
-    span_id: Option<String>,
-    #[serde(alias = "parentSpanId", alias = "parent_span_id")]
-    parent_span_id: Option<String>,
-    name: Option<String>,
-    #[serde(alias = "startTimeUnixNano", alias = "start_time_unix_nano")]
-    start_time_unix_nano: Option<u64>,
-    #[serde(alias = "endTimeUnixNano", alias = "end_time_unix_nano")]
-    end_time_unix_nano: Option<u64>,
-    status: Option<OtlpStatus>,
-    attributes: Option<Vec<OtlpAttribute>>,
-    events: Option<Vec<OtlpEvent>>,
-}
-
-#[derive(Deserialize)]
-struct OtlpStatus {
-    code: Option<i32>,
-    #[allow(dead_code)]
-    message: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct OtlpAttribute {
-    key: String,
-    value: Option<OtlpValue>,
-}
-
-#[derive(Deserialize)]
-struct OtlpValue {
-    #[serde(alias = "stringValue", alias = "string_value")]
-    string_value: Option<String>,
-    #[serde(alias = "intValue", alias = "int_value")]
-    int_value: Option<i64>,
-    #[serde(alias = "doubleValue", alias = "double_value")]
-    double_value: Option<f64>,
-    #[serde(alias = "boolValue", alias = "bool_value")]
-    bool_value: Option<bool>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OtlpEvent {
-    time_unix_nano: Option<u64>,
-    name: Option<String>,
-    attributes: Option<Vec<OtlpAttribute>>,
-}
-
-fn parse_otlp_trace(batches: Vec<OtlpBatch>) -> Result<Trace, ClientError> {
-    let mut all_spans = Vec::new();
-    let mut trace_id = String::new();
-
-    for batch in batches {
-        // Extract service name from resource attributes
-        let service_name = batch
-            .resource
-            .as_ref()
-            .and_then(|r| r.attributes.as_ref())
-            .and_then(|attrs| {
-                attrs
-                    .iter()
-                    .find(|a| a.key == "service.name")
-                    .and_then(|a| a.value.as_ref().and_then(|v| v.string_value.clone()))
-            })
-            .unwrap_or_else(|| "unknown".to_string());
-
-        // Get spans from either scope_spans or instrumentation_library_spans
-        let scope_spans = batch
-            .scope_spans
-            .or(batch.instrumentation_library_spans)
-            .unwrap_or_default();
-
-        for scope in scope_spans {
-            for otlp_span in scope.spans.unwrap_or_default() {
-                let span_trace_id = otlp_span.trace_id.clone().unwrap_or_default();
-                if trace_id.is_empty() {
-                    trace_id = span_trace_id.clone();
-                }
-
-                let start_time_ns = otlp_span.start_time_unix_nano.unwrap_or(0);
-                let end_time_ns = otlp_span.end_time_unix_nano.unwrap_or(0);
-
-                let duration_us = (end_time_ns.saturating_sub(start_time_ns)) / 1000;
-                let start_time_us = start_time_ns / 1000;
-
-                // Parse status
-                let status = match otlp_span.status.as_ref().and_then(|s| s.code) {
-                    Some(2) => SpanStatus::Error,
-                    Some(1) => SpanStatus::Ok,
-                    _ => SpanStatus::Unset,
-                };
-
-                // Parse tags from attributes
-                let tags = otlp_span
-                    .attributes
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|a| {
-                        let value = a.value.and_then(|v| {
-                            v.string_value
-                                .or(v.int_value.map(|i| i.to_string()))
-                                .or(v.double_value.map(|d| d.to_string()))
-                                .or(v.bool_value.map(|b| b.to_string()))
-                        })?;
-                        Some((a.key, value))
-                    })
-                    .collect();
-
-                // Parse logs from events
-                let logs = otlp_span
-                    .events
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|e| {
-                        let mut fields: FxHashMap<String, String> = e
-                            .attributes
-                            .unwrap_or_default()
-                            .into_iter()
-                            .filter_map(|a| {
-                                let value = a.value.and_then(|v| {
-                                    v.string_value.or(v.int_value.map(|i| i.to_string()))
-                                })?;
-                                Some((a.key, value))
-                            })
-                            .collect();
-                        if let Some(name) = e.name {
-                            fields.insert("event".to_string(), name);
-                        }
-                        SpanLog {
-                            timestamp_us: e.time_unix_nano.unwrap_or(0) / 1000,
-                            fields,
-                        }
-                    })
-                    .collect();
-
-                let parent_span_id = otlp_span.parent_span_id.filter(|s| !s.is_empty());
-
-                all_spans.push(Span {
-                    span_id: otlp_span.span_id.unwrap_or_default(),
-                    trace_id: span_trace_id,
-                    parent_span_id,
-                    operation_name: otlp_span.name.unwrap_or_else(|| "unknown".to_string()),
-                    service_name: service_name.clone(),
-                    start_time_us,
-                    duration_us,
-                    status,
-                    tags,
-                    logs,
-                    depth: 0, // Computed in Trace::from_spans
-                });
-            }
-        }
-    }
-
-    if all_spans.is_empty() {
-        return Err(ClientError::ParseError(
-            "No spans found in trace".to_string(),
-        ));
-    }
-
-    Ok(Trace::from_spans(trace_id, all_spans))
 }
 
 // ============================================================================

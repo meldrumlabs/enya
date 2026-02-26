@@ -35,6 +35,7 @@
 pub mod demo;
 pub mod error;
 pub mod logs;
+pub mod otlp;
 pub mod prometheus;
 pub mod promise;
 pub mod request;
@@ -92,7 +93,7 @@ pub type MetricLabelsResult = Result<MetricLabels, ClientError>;
 pub type HealthCheckResult = Result<BackendInfo, ClientError>;
 
 /// Backend health/version information from a health check.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BackendInfo {
     /// Backend type (e.g., "prometheus", "enya")
     pub backend_type: String,
@@ -141,6 +142,45 @@ pub trait MetricsClient {
     /// For Prometheus, this calls `/api/v1/status/buildinfo`.
     /// Returns backend version information on success.
     fn health_check(&self, ctx: &egui::Context) -> Promise<HealthCheckResult>;
+}
+
+/// Normalize a base URL: ensure it has an `http://` scheme and strip trailing slashes.
+pub fn normalize_url(url: impl Into<String>) -> String {
+    let mut url = url.into();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        url = format!("http://{url}");
+    }
+    if url.ends_with('/') {
+        url.pop();
+    }
+    url
+}
+
+/// Simple URL encoding for query parameters.
+///
+/// Encodes characters that are unsafe in URL query strings. This is intentionally
+/// minimal — only characters that would break query parameter parsing are encoded.
+pub fn url_encode(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() * 2);
+    for c in s.chars() {
+        match c {
+            ' ' => result.push_str("%20"),
+            '"' => result.push_str("%22"),
+            '#' => result.push_str("%23"),
+            '%' => result.push_str("%25"),
+            '&' => result.push_str("%26"),
+            '+' => result.push_str("%2B"),
+            '=' => result.push_str("%3D"),
+            '{' => result.push_str("%7B"),
+            '}' => result.push_str("%7D"),
+            '[' => result.push_str("%5B"),
+            ']' => result.push_str("%5D"),
+            '|' => result.push_str("%7C"),
+            '~' => result.push_str("%7E"),
+            _ => result.push(c),
+        }
+    }
+    result
 }
 
 /// Default query timeout in seconds.
@@ -747,6 +787,51 @@ mod tests {
         let manager = LogsQueryManager::new();
         assert!(!manager.is_querying());
         assert_eq!(manager.pending_count(), 0);
+    }
+
+    #[test]
+    fn test_normalize_url_adds_http() {
+        assert_eq!(normalize_url("localhost:9090"), "http://localhost:9090");
+    }
+
+    #[test]
+    fn test_normalize_url_preserves_https() {
+        assert_eq!(
+            normalize_url("https://example.com"),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn test_normalize_url_strips_trailing_slash() {
+        assert_eq!(
+            normalize_url("http://localhost:9090/"),
+            "http://localhost:9090"
+        );
+    }
+
+    #[test]
+    fn test_normalize_url_no_change_needed() {
+        assert_eq!(
+            normalize_url("http://localhost:9090"),
+            "http://localhost:9090"
+        );
+    }
+
+    #[test]
+    fn test_url_encode_simple() {
+        assert_eq!(url_encode("simple"), "simple");
+        assert_eq!(url_encode("hello world"), "hello%20world");
+    }
+
+    #[test]
+    fn test_url_encode_special_chars() {
+        assert_eq!(url_encode("{app=\"test\"}"), "%7Bapp%3D%22test%22%7D");
+        assert_eq!(url_encode("a&b=c"), "a%26b%3Dc");
+        assert_eq!(url_encode("[1,2]"), "%5B1,2%5D");
+        assert_eq!(url_encode("a+b"), "a%2Bb");
+        assert_eq!(url_encode("a|b"), "a%7Cb");
+        assert_eq!(url_encode("100%"), "100%25");
     }
 
     #[test]

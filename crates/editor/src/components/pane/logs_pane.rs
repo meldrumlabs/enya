@@ -12,6 +12,7 @@ use enya_client::Promise;
 use enya_client::logs::{
     DemoLogsClient, LogLevel, LogsClient, LogsQuery, LogsResponse, LogsResult, LokiClient,
 };
+use enya_client::otlp::{OtlpHttpLogsClient, OtlpLogsClient, TelemetryStore};
 
 use crate::components::util::id_generator::next_id_usize;
 use crate::ui::semantic_icons;
@@ -34,6 +35,10 @@ pub enum LogsBackend {
     Demo,
     /// Loki backend with the given base URL (e.g., "http://localhost:3100").
     Loki(String),
+    /// OTLP backend reading from the agent's in-memory telemetry store.
+    Otlp(Arc<TelemetryStore>),
+    /// OTLP backend querying the agent daemon over HTTP.
+    OtlpHttp(String),
 }
 
 impl Default for LogsBackend {
@@ -145,6 +150,8 @@ impl LogsPane {
         let logs_client: Arc<dyn LogsClient + Send + Sync> = match &backend {
             LogsBackend::Demo => Arc::new(DemoLogsClient::new()),
             LogsBackend::Loki(url) => Arc::new(LokiClient::new(url.clone())),
+            LogsBackend::Otlp(store) => Arc::new(OtlpLogsClient::new(Arc::clone(store))),
+            LogsBackend::OtlpHttp(url) => Arc::new(OtlpHttpLogsClient::new(url.clone())),
         };
 
         let (name, default_query) = match &backend {
@@ -162,6 +169,16 @@ impl LogsPane {
                     format!("Logs {id} ({host})"),
                     "{job=\"varlogs\"}".to_string(),
                 )
+            }
+            LogsBackend::Otlp(_) => (format!("Logs {id} (otlp)"), String::new()),
+            LogsBackend::OtlpHttp(url) => {
+                let host = url
+                    .trim_start_matches("http://")
+                    .trim_start_matches("https://")
+                    .split('/')
+                    .next()
+                    .unwrap_or(url);
+                (format!("Logs {id} (otlp@{host})"), String::new())
             }
         };
 
