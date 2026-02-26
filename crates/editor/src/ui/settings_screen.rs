@@ -112,6 +112,9 @@ pub struct AppSettings {
     /// Default Loki endpoint for new workspaces
     #[serde(default)]
     pub default_loki_endpoint: String,
+    /// Default Tempo endpoint for new workspaces
+    #[serde(default)]
+    pub default_tempo_endpoint: String,
     /// [DEPRECATED] Legacy single Flight SQL endpoint — kept for migration only.
     #[serde(default, skip_serializing)]
     pub default_flight_sql_endpoint: String,

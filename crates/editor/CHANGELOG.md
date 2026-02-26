@@ -4,8 +4,13 @@ All notable changes to the Enya editor will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Tracing pane no longer auto-focuses input**: The trace ID input field no longer grabs focus when the tracing pane is first activated, matching the behavior of other panes.
+
 ### Added
 
+- **Tempo endpoint in Settings**: Added a Tempo trace endpoint configuration field to both the Settings overlay and full-page Settings, alongside the existing Prometheus and Loki fields. Also added `TracingConfig` to workspace TOML configuration.
 - **Series filter dropdown for time series charts**: When a chart has 6+ series, a filter icon appears in the legend bar. Clicking it (or pressing `gs`) opens a searchable dropdown popup where users can toggle individual series on/off. Features include fuzzy search filtering, All/None quick toggles, keyboard navigation (arrows + Tab to toggle), and stable color assignment. Hidden series are excluded from both the chart and legend, and filter state persists across data refreshes.
 
 ### Changed

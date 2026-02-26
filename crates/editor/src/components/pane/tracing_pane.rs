@@ -75,7 +75,7 @@ impl TracingPane {
             is_loading: false,
             needs_refresh: false,
             show_detail_panel: true,
-            focus_input: true,
+            focus_input: false,
         }
     }
 
