@@ -189,7 +189,7 @@ visualization = "gauge"
 granularity = "1m"
 
 [[panes]]
-query = "node_cpu_seconds_total"
+query = "node_cpu_seconds_total by_node"
 name = "CPU per Node"
 description = "CPU utilization broken down by host"
 unit = "%"
