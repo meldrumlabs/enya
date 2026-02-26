@@ -173,11 +173,11 @@ mod keyboard_logic_tests {
         assert_eq!(decision, Some(KeyboardDecision::OpenUnifiedFinder));
     }
 
-    /// Test Space+w opens the workspace finder
+    /// Test Space+w is unbound
     #[test]
-    fn test_space_w_opens_workspace_finder() {
+    fn test_space_w_unbound() {
         let decision = determine_space_action(egui::Key::W, true);
-        assert_eq!(decision, Some(KeyboardDecision::OpenWorkspaceFinder));
+        assert_eq!(decision, None);
     }
 
     /// Test Space+h shows home/landing page
@@ -303,7 +303,6 @@ mod keyboard_logic_tests {
     fn test_navigation_blocked_by_modals() {
         // All modals closed - not blocked
         let (blocked, reason) = check_navigation_blocked(
-            false, // workspace_finder
             false, // unified_finder
             false, // command_palette
             false, // buffer_editor
@@ -318,16 +317,16 @@ mod keyboard_logic_tests {
         assert!(!blocked, "Should not be blocked by default");
         assert!(reason.is_empty());
 
-        // Workspace finder open - blocked
+        // Unified finder open - blocked
         let (blocked, reason) = check_navigation_blocked(
-            true, false, false, false, false, false, false, false, false, false, false,
+            true, false, false, false, false, false, false, false, false, false,
         );
-        assert!(blocked, "Should be blocked when workspace finder is open");
-        assert_eq!(reason, "workspace_finder");
+        assert!(blocked, "Should be blocked when unified finder is open");
+        assert_eq!(reason, "unified_finder");
 
         // Command palette open - blocked
         let (blocked, reason) = check_navigation_blocked(
-            false, false, true, false, false, false, false, false, false, false, false,
+            false, true, false, false, false, false, false, false, false, false,
         );
         assert!(blocked, "Should be blocked when command palette is open");
         assert_eq!(reason, "command_palette");
@@ -489,88 +488,6 @@ mod command_palette_tests {
         harness.step();
 
         // Should be closed
-        assert!(!harness.state().is_open());
-    }
-}
-
-/// Test module for WorkspaceFinder overlay component.
-///
-/// The WorkspaceFinder is a telescope/fzf-style finder for saved workspaces.
-mod workspace_finder_tests {
-    use super::*;
-    use enya_editor::components::{WorkspaceFinder, WorkspaceItem};
-    use enya_editor::ui::theme::AppTheme;
-
-    /// Test that WorkspaceFinder starts in closed state
-    #[test]
-    fn test_workspace_finder_initially_closed() {
-        let finder = WorkspaceFinder::new();
-        assert!(!finder.is_open());
-    }
-
-    /// Test that WorkspaceFinder opens and closes correctly
-    #[test]
-    fn test_workspace_finder_open_close() {
-        let mut finder = WorkspaceFinder::new();
-
-        finder.open();
-        assert!(finder.is_open());
-
-        finder.close();
-        assert!(!finder.is_open());
-    }
-
-    /// Test WorkspaceFinder rendering with workspace items
-    ///
-    /// Note: Uses step() instead of run() because WorkspaceFinder requests
-    /// continuous repaint for focus management.
-    #[test]
-    fn test_workspace_finder_renders_with_items() {
-        let mut finder = WorkspaceFinder::new();
-        finder.set_theme(AppTheme::default());
-        finder.set_workspaces(vec![
-            WorkspaceItem {
-                name: "dashboard".into(),
-                description: Some("Main dashboard".into()),
-            },
-            WorkspaceItem {
-                name: "api-metrics".into(),
-                description: None,
-            },
-        ]);
-        finder.open();
-
-        let mut harness = Harness::new_state(
-            |ctx: &egui::Context, finder: &mut WorkspaceFinder| {
-                let _ = finder.show(ctx);
-            },
-            finder,
-        );
-
-        harness.step();
-        assert!(harness.state().is_open());
-    }
-
-    /// Test that Escape key closes the WorkspaceFinder
-    #[test]
-    fn test_workspace_finder_closes_on_escape() {
-        let mut finder = WorkspaceFinder::new();
-        finder.set_theme(AppTheme::default());
-        finder.open();
-
-        let mut harness = Harness::new_state(
-            |ctx: &egui::Context, finder: &mut WorkspaceFinder| {
-                let _ = finder.show(ctx);
-            },
-            finder,
-        );
-
-        harness.run();
-        assert!(harness.state().is_open());
-
-        harness.key_press(egui::Key::Escape);
-        harness.run();
-
         assert!(!harness.state().is_open());
     }
 }

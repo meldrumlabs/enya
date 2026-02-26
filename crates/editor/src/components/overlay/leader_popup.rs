@@ -137,11 +137,6 @@ impl LeaderPopup {
                     label: "Find anything",
                 },
                 LeaderCommand {
-                    key: "w",
-                    icon: semantic_icons::file::FOLDER,
-                    label: "Workspace",
-                },
-                LeaderCommand {
                     key: "h",
                     icon: semantic_icons::nav::HOME,
                     label: "Home",

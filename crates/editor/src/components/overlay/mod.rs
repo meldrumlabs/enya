@@ -32,7 +32,6 @@ pub mod unified_finder;
 pub mod viewport_filter;
 pub mod which_key;
 pub mod workspace_creator;
-pub mod workspace_finder;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use agent_context::build_codebase_context;
@@ -76,4 +75,4 @@ pub use unified_finder::{FinderMode, UnifiedFinder, UnifiedFinderAction, Unified
 pub use viewport_filter::{ViewportFilter, ViewportFilterResult};
 pub use which_key::WhichKey;
 pub use workspace_creator::{WorkspaceCreator, WorkspaceCreatorResult};
-pub use workspace_finder::{WorkspaceFinder, WorkspaceFinderResult, WorkspaceItem};
+

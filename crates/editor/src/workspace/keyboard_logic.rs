@@ -31,8 +31,6 @@ pub enum KeyboardDecision {
     OpenCommandPalette,
     /// Open unified finder (Space+f)
     OpenUnifiedFinder,
-    /// Open workspace finder (Space+w)
-    OpenWorkspaceFinder,
     /// Open codebase finder (Space+c, native only)
     OpenCodebaseFinder,
     /// Show home/landing page (Space+h)
@@ -132,7 +130,6 @@ impl KeyboardContext {
 pub fn determine_space_action(key: egui::Key, is_native: bool) -> Option<KeyboardDecision> {
     match key {
         egui::Key::F => Some(KeyboardDecision::OpenUnifiedFinder),
-        egui::Key::W => Some(KeyboardDecision::OpenWorkspaceFinder),
         egui::Key::H => Some(KeyboardDecision::ShowHome),
         egui::Key::D => Some(KeyboardDecision::ToggleDiagnostics),
         egui::Key::A => Some(KeyboardDecision::ToggleAgentPanel),
@@ -232,7 +229,6 @@ pub fn determine_ctrl_w_t_action(key: egui::Key) -> Option<KeyboardDecision> {
 /// Returns (is_blocked, reason) for debugging and testing.
 #[allow(clippy::too_many_arguments)]
 pub fn check_navigation_blocked(
-    workspace_finder_open: bool,
     unified_finder_open: bool,
     command_palette_open: bool,
     buffer_editor_open: bool,
@@ -244,9 +240,6 @@ pub fn check_navigation_blocked(
     style_picker_open: bool,
     codebase_finder_open: bool,
 ) -> (bool, &'static str) {
-    if workspace_finder_open {
-        return (true, "workspace_finder");
-    }
     if unified_finder_open {
         return (true, "unified_finder");
     }
@@ -365,9 +358,9 @@ mod tests {
     }
 
     #[test]
-    fn test_space_w_opens_workspace_finder() {
+    fn test_space_w_unused() {
         let result = determine_space_action(egui::Key::W, true);
-        assert_eq!(result, Some(KeyboardDecision::OpenWorkspaceFinder));
+        assert_eq!(result, None);
     }
 
     #[test]
@@ -709,25 +702,16 @@ mod tests {
     #[test]
     fn test_no_modals_open_not_blocked() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false,
         );
         assert!(!blocked);
         assert_eq!(reason, "");
     }
 
     #[test]
-    fn test_workspace_finder_blocks() {
-        let (blocked, reason) = check_navigation_blocked(
-            true, false, false, false, false, false, false, false, false, false, false,
-        );
-        assert!(blocked);
-        assert_eq!(reason, "workspace_finder");
-    }
-
-    #[test]
     fn test_unified_finder_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, true, false, false, false, false, false, false, false, false, false,
+            true, false, false, false, false, false, false, false, false, false,
         );
         assert!(blocked);
         assert_eq!(reason, "unified_finder");
@@ -736,7 +720,7 @@ mod tests {
     #[test]
     fn test_command_palette_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, true, false, false, false, false, false, false, false, false,
+            false, true, false, false, false, false, false, false, false, false,
         );
         assert!(blocked);
         assert_eq!(reason, "command_palette");
@@ -745,7 +729,7 @@ mod tests {
     #[test]
     fn test_buffer_editor_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, true, false, false, false, false, false, false, false,
+            false, false, true, false, false, false, false, false, false, false,
         );
         assert!(blocked);
         assert_eq!(reason, "buffer_editor");
@@ -754,7 +738,7 @@ mod tests {
     #[test]
     fn test_multi_edit_overlay_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, true, false, false, false, false, false, false,
+            false, false, false, true, false, false, false, false, false, false,
         );
         assert!(blocked);
         assert_eq!(reason, "multi_edit_overlay");
@@ -763,7 +747,7 @@ mod tests {
     #[test]
     fn test_which_key_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, true, false, false, false, false, false,
+            false, false, false, false, true, false, false, false, false, false,
         );
         assert!(blocked);
         assert_eq!(reason, "which_key");
@@ -772,7 +756,7 @@ mod tests {
     #[test]
     fn test_viewport_filter_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, true, false, false, false, false,
+            false, false, false, false, false, true, false, false, false, false,
         );
         assert!(blocked);
         assert_eq!(reason, "viewport_filter");
@@ -781,7 +765,7 @@ mod tests {
     #[test]
     fn test_tutorial_overlay_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, true, false, false, false,
+            false, false, false, false, false, false, true, false, false, false,
         );
         assert!(blocked);
         assert_eq!(reason, "tutorial_overlay");
@@ -790,7 +774,7 @@ mod tests {
     #[test]
     fn test_source_preview_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, true, false, false,
+            false, false, false, false, false, false, false, true, false, false,
         );
         assert!(blocked);
         assert_eq!(reason, "source_preview");
@@ -799,7 +783,7 @@ mod tests {
     #[test]
     fn test_style_picker_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, false, true, false,
+            false, false, false, false, false, false, false, false, true, false,
         );
         assert!(blocked);
         assert_eq!(reason, "style_picker");
@@ -808,7 +792,7 @@ mod tests {
     #[test]
     fn test_codebase_finder_blocks() {
         let (blocked, reason) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, false, false, true,
+            false, false, false, false, false, false, false, false, false, true,
         );
         assert!(blocked);
         assert_eq!(reason, "codebase_finder");
@@ -818,10 +802,10 @@ mod tests {
     fn test_first_blocker_takes_precedence() {
         // When multiple modals are open, first one wins
         let (blocked, reason) = check_navigation_blocked(
-            true, true, true, false, false, false, false, false, false, false, false,
+            true, true, false, false, false, false, false, false, false, false,
         );
         assert!(blocked);
-        assert_eq!(reason, "workspace_finder");
+        assert_eq!(reason, "unified_finder");
     }
 
     // ==================== Focus Management Invariants ====================
@@ -856,7 +840,7 @@ mod tests {
         // This test documents the expected state after all overlays close:
         // navigation should not be blocked.
         let (blocked, _) = check_navigation_blocked(
-            false, false, false, false, false, false, false, false, false, false, false,
+            false, false, false, false, false, false, false, false, false, false,
         );
         assert!(
             !blocked,

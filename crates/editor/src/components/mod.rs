@@ -33,8 +33,7 @@ pub use overlay::{
     PluginDisplayInfo, PluginSource, PluginsOverlay, PluginsOverlayResult, SourcePreviewOverlay,
     SourcePreviewResult, StylePicker, StylePickerResult, StyleTab, TimeRangePicker,
     TimeRangePickerResult, TutorialAction, TutorialOverlay, ViewportFilter, ViewportFilterResult,
-    WhichKey, WorkspaceCreator, WorkspaceCreatorResult, WorkspaceFinder, WorkspaceFinderResult,
-    WorkspaceItem, parse_commands, strip_command_blocks,
+    WhichKey, WorkspaceCreator, WorkspaceCreatorResult, parse_commands, strip_command_blocks,
 };
 
 // Re-export from project_sidebar

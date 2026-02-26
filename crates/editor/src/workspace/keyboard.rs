@@ -53,8 +53,7 @@ impl Workspace {
         #[cfg(target_arch = "wasm32")]
         let codebase_finder_open = false;
 
-        if self.workspace_finder.is_open()
-            || self.unified_finder.is_open()
+        if self.unified_finder.is_open()
             || self.command_palette.is_open()
             || self.buffer_editor.is_open()
             || self.multi_edit_overlay.is_open()
@@ -105,7 +104,6 @@ impl Workspace {
         let mut should_open_which_key = false;
         let mut should_enter_visual_multi = false;
         let mut should_cycle_visualization = false;
-        let mut should_open_workspace_finder = false;
         let mut should_open_unified_finder = false;
         #[cfg(not(target_arch = "wasm32"))]
         let mut should_open_codebase_finder = false;
@@ -188,14 +186,6 @@ impl Workspace {
                 // Space+f - open unified finder (Telescope-style)
                 if input.consume_key(egui::Modifiers::NONE, egui::Key::F) {
                     should_open_unified_finder = true;
-                    self.leader_keys.clear_space();
-                    consumed = true;
-                    return;
-                }
-
-                // Space+w - open workspace finder
-                if input.consume_key(egui::Modifiers::NONE, egui::Key::W) {
-                    should_open_workspace_finder = true;
                     self.leader_keys.clear_space();
                     consumed = true;
                     return;
@@ -744,11 +734,6 @@ impl Workspace {
         }
 
         // Handle workspace finder (w key)
-        if should_open_workspace_finder {
-            self.pending_open_workspace_finder = true;
-            ctx.request_repaint();
-        }
-
         // Handle unified finder (Space+f)
         if should_open_unified_finder {
             self.open_unified_finder();

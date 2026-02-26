@@ -9,7 +9,6 @@ use super::{FinderMode, Workspace, WorkspaceAction};
 use crate::app::AppState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::codebase::search::{SearchFilter, SearchResult, SearchResultKind};
-use crate::components::WorkspaceItem;
 use crate::components::overlay::UnifiedFinderAction;
 
 impl Workspace {
@@ -45,43 +44,6 @@ impl Workspace {
                 })
                 .unwrap_or_else(|| "Metrics".to_string())
         }
-    }
-
-    // ==================== Workspace Finder ====================
-
-    /// Open the workspace finder modal (for loading saved workspaces)
-    pub fn open_workspace_finder(
-        &mut self,
-        app_state: &AppState,
-        available_workspaces: Vec<(String, Option<String>)>,
-    ) {
-        // Start with recent workspaces
-        let mut workspaces: Vec<WorkspaceItem> = app_state
-            .settings
-            .recent_workspaces
-            .iter()
-            .map(|entry| WorkspaceItem {
-                name: entry.name.clone(),
-                description: if entry.description.is_empty() {
-                    None
-                } else {
-                    Some(entry.description.clone())
-                },
-            })
-            .collect();
-
-        // Track names already in the list
-        let existing_names: FxHashSet<String> = workspaces.iter().map(|w| w.name.clone()).collect();
-
-        // Add available workspaces from filesystem that aren't already in recent
-        for (name, description) in available_workspaces {
-            if !existing_names.contains(&name) {
-                workspaces.push(WorkspaceItem { name, description });
-            }
-        }
-
-        self.workspace_finder.set_workspaces(workspaces);
-        self.workspace_finder.open();
     }
 
     // ==================== Project Creator ====================
