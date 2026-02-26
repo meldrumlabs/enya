@@ -1,7 +1,6 @@
 use egui::{Color32, RichText};
 use enya_config::SnapshotPaneData;
 
-use crate::components::pane::time_series_chart::ChartInteraction;
 use crate::components::pane::visualization::{
     Visualization, VisualizationType, populate_demo_data,
 };
@@ -149,8 +148,6 @@ pub struct QueryPane {
     edit_requested: bool,
     /// Whether the visualization type dropdown is open
     viz_dropdown_open: bool,
-    /// Pending action to be consumed by the workspace (set during show, cleared on take)
-    pending_action: Option<QueryPaneAction>,
     /// Whether this pane uses demo data (prevents re-querying on time range change)
     is_demo: bool,
     /// Pending demo refresh (deferred to next frame so loading animation can show)
@@ -196,7 +193,7 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
-            pending_action: None,
+
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: false,
@@ -258,7 +255,7 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
-            pending_action: None,
+
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: false,
@@ -291,7 +288,7 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
-            pending_action: None,
+
             is_demo: true,
             pending_demo_refresh: false,
             is_snapshot: false,
@@ -327,7 +324,7 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
-            pending_action: None,
+
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: false,
@@ -363,7 +360,7 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
-            pending_action: None,
+
             is_demo: true,
             pending_demo_refresh: false,
             is_snapshot: false,
@@ -410,7 +407,7 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
-            pending_action: None,
+
             is_demo: true,
             pending_demo_refresh: false,
             is_snapshot: false,
@@ -444,7 +441,7 @@ impl QueryPane {
             has_user_override: false,
             edit_requested: false,
             viz_dropdown_open: false,
-            pending_action: None,
+
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: false,
@@ -485,7 +482,7 @@ impl QueryPane {
             has_user_override: true,
             edit_requested: false,
             viz_dropdown_open: false,
-            pending_action: None,
+
             is_demo: false,
             pending_demo_refresh: false,
             is_snapshot: true,
@@ -570,12 +567,6 @@ impl QueryPane {
     /// Get the user-defined tag
     pub fn tag(&self) -> &str {
         &self.tag
-    }
-
-    /// Take the pending action (returns and clears it).
-    /// Call this after rendering to check for drilldown interactions.
-    pub fn take_pending_action(&mut self) -> Option<QueryPaneAction> {
-        self.pending_action.take()
     }
 
     /// Set the user-defined tag
@@ -903,18 +894,6 @@ impl QueryPane {
                 render_loading_state(ui, self.theme);
             } else {
                 self.visualization.show(ui);
-
-                // Check for chart interactions (e.g., double-click for drilldown)
-                if let Some(ChartInteraction::DrilldownLogs {
-                    timestamp_secs,
-                    metric_name,
-                }) = self.visualization.take_interaction()
-                {
-                    action = QueryPaneAction::DrilldownLogs {
-                        timestamp_secs,
-                        metric_name,
-                    };
-                }
             }
         });
 
@@ -1081,11 +1060,6 @@ impl QueryPane {
             }
         }
 
-        // Store actions that need to be consumed by the workspace (e.g., drilldown)
-        if matches!(action, QueryPaneAction::DrilldownLogs { .. }) {
-            self.pending_action = Some(action.clone());
-        }
-
         action
     }
 }
@@ -1097,13 +1071,6 @@ pub enum QueryPaneAction {
     None,
     /// Query was changed (buffer saved)
     QueryChanged,
-    /// User double-clicked on chart for logs drilldown
-    DrilldownLogs {
-        /// Timestamp in seconds where user clicked
-        timestamp_secs: f64,
-        /// The metric name for context
-        metric_name: String,
-    },
 }
 
 /// Implement Component trait so QueryPane can be used in the dashboard
