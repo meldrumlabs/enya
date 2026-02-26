@@ -132,7 +132,6 @@ impl Workspace {
                 pane_tile_ids.push(tile_id);
                 continue;
             }
-
             // Use snapshot constructor if this workspace has embedded data
             let snapshot_data = config.snapshot.as_ref().and_then(|s| s.pane_data.get(i));
 

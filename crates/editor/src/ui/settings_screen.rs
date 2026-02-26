@@ -370,8 +370,6 @@ impl AppSettings {
     /// Canonical list of built-in tutorial workspaces.
     const TUTORIAL_WORKSPACES: &[(&str, &str)] = &[
         ("quick-start", "The 4 golden signals at a glance"),
-        ("on-call", "Incident triage at a glance"),
-        ("deep-dive", "Every visualization type in one view"),
         ("infra", "CPU, memory, and system health"),
         ("logs-and-traces", "Explore logs and distributed traces"),
     ];
