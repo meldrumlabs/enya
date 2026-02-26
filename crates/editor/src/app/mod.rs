@@ -873,6 +873,7 @@ impl EnyaApp {
                     git_repo_url,
                     default_prometheus_endpoint,
                     default_loki_endpoint,
+                    default_tempo_endpoint,
                     flight_sql_connections,
                     default_workspace,
                     timezone,
@@ -888,6 +889,7 @@ impl EnyaApp {
                     self.state.settings.git_repo_url = git_repo_url;
                     self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
                     self.state.settings.default_loki_endpoint = default_loki_endpoint;
+                    self.state.settings.default_tempo_endpoint = default_tempo_endpoint;
                     self.state.settings.flight_sql_connections = flight_sql_connections.clone();
                     self.state.settings.default_workspace = default_workspace;
                     self.state.settings.timezone = timezone;
@@ -1401,6 +1403,7 @@ impl EnyaApp {
                 git_repo_url,
                 default_prometheus_endpoint,
                 default_loki_endpoint,
+                default_tempo_endpoint,
                 flight_sql_connections,
             } => {
                 self.state.settings.ai_provider = ai_provider;
@@ -1408,6 +1411,7 @@ impl EnyaApp {
                 self.state.settings.git_repo_url = git_repo_url;
                 self.state.settings.default_prometheus_endpoint = default_prometheus_endpoint;
                 self.state.settings.default_loki_endpoint = default_loki_endpoint;
+                self.state.settings.default_tempo_endpoint = default_tempo_endpoint;
                 self.state.settings.flight_sql_connections = flight_sql_connections.clone();
                 // Propagate provider/model to agent panel
                 self.workspace
@@ -1456,6 +1460,7 @@ impl EnyaApp {
                     self.state.settings.git_repo_url.clone(),
                     self.state.settings.default_prometheus_endpoint.clone(),
                     self.state.settings.default_loki_endpoint.clone(),
+                    self.state.settings.default_tempo_endpoint.clone(),
                     self.state.settings.flight_sql_connections.clone(),
                     self.effective_theme(),
                     self.state.custom_theme.clone(),
