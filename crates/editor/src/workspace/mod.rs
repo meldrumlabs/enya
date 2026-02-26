@@ -1656,12 +1656,12 @@ impl Workspace {
         // Handle landing page actions
         match landing_action {
             LandingPageAction::OpenTutorial => {
-                // Hide landing page and setup tutorial layout
-                // Layout: HTTP Requests | Requests by Endpoint (side by side at top)
-                //         CPU Usage
-                //         Memory Used
+                // Hide landing page and load the quick-start workspace
                 self.show_landing = false;
-                self.setup_tutorial_layout();
+                if let Ok(config) = WorkspaceConfig::from_toml(GOLDEN_SIGNALS_TOML) {
+                    self.load_workspace_config(&config);
+                    self.loaded_name = Some("quick-start".to_string());
+                }
                 self.tutorial_overlay.open();
                 ctx.request_repaint();
             }

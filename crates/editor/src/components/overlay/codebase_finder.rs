@@ -275,7 +275,7 @@ impl CodebaseFinder {
 
             // Search input
             let response = ui.add_sized(
-                egui::vec2(ui.available_width() - 180.0, 24.0),
+                egui::vec2((ui.available_width() - 180.0).max(1.0), 24.0),
                 egui::TextEdit::singleline(&mut self.query)
                     .hint_text(
                         RichText::new("Search codebase...")

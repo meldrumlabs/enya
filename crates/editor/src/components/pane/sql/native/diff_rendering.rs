@@ -347,7 +347,7 @@ pub fn render_profile_diff_content(
 
     // Side-by-side layout
     let separator_width = 2.0;
-    let side_width = (available_width - separator_width) / 2.0;
+    let side_width = ((available_width - separator_width) / 2.0).max(1.0);
 
     // Side-by-side scrolling content
     let content_height = (available_height - 80.0).max(200.0);
@@ -686,7 +686,7 @@ pub fn render_data_diff_content(ui: &mut egui::Ui, theme: AppTheme, diff_result:
     let text_secondary = theme.text_secondary();
     let available_width = ui.available_width();
     let available_height = ui.available_height().max(300.0);
-    let side_width = (available_width - 12.0) / 2.0;
+    let side_width = ((available_width - 12.0) / 2.0).max(1.0);
     let colors = OverlayColors::new(theme);
 
     // Compute detailed diff with paired rows

@@ -1461,43 +1461,6 @@ impl Workspace {
         log::debug!("Split panes vertically (horizontal layout)");
     }
 
-    /// Setup the tutorial layout with two panes stacked vertically:
-    /// - "HTTP Requests" on top, "Memory Used" on bottom
-    pub(super) fn setup_tutorial_layout(&mut self) {
-        use crate::components::pane::QueryPane;
-
-        let demo_queries = [
-            (
-                "http_requests_total{method=\"GET\", path=\"/api/users\"}",
-                "HTTP Requests",
-                "",
-            ),
-            ("node_memory_Active_bytes", "Memory Used", "MB"),
-        ];
-
-        let mut pane_ids = Vec::new();
-        for (query, name, unit) in demo_queries {
-            let pane: Box<dyn Component> =
-                Box::new(QueryPane::with_demo_query_named_unit(query, name, unit));
-            let pane_tile = self.viewport_tree.tiles.insert_pane(pane);
-            self.open_charts.insert(query.to_string());
-            pane_ids.push(pane_tile);
-        }
-
-        let root = self
-            .viewport_tree
-            .tiles
-            .insert_vertical_tile(vec![pane_ids[0], pane_ids[1]]);
-
-        // Set as the tree root
-        self.viewport_tree.root = Some(root);
-
-        // Focus the first pane
-        self.behavior.set_focused_tile(Some(pane_ids[0]));
-
-        log::debug!("Setup tutorial layout with 2 panes side by side");
-    }
-
     // ==================== Pane Movement (Ctrl+W H/J/K/L) ====================
 
     /// Move the focused pane to the far left (becomes leftmost vertical split).

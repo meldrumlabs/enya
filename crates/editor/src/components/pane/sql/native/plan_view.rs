@@ -415,7 +415,7 @@ impl PlanTreeView {
                                 .corner_radius(2.0)
                                 .inner_margin(4.0)
                                 .show(ui, |ui| {
-                                    ui.set_min_width(available_width - indent - 40.0);
+                                    ui.set_min_width((available_width - indent - 40.0).max(1.0));
 
                                     // First line: icon, operator, metrics
                                     ui.horizontal_wrapped(|ui| {
@@ -1452,7 +1452,7 @@ impl DiffView {
         ui.add_space(4.0);
 
         let available_width = ui.available_width();
-        let half_width = (available_width - 16.0) / 2.0;
+        let half_width = ((available_width - 16.0) / 2.0).max(1.0);
 
         ui.horizontal(|ui| {
             // Left pane
