@@ -21,11 +21,10 @@ refresh = "30s"
 
 [[panes]]
 query = "http_request_duration_seconds"
-name = "Latency"
-description = "Response time distribution across all endpoints"
+name = "Latency Heatmap"
+description = "Request latency distribution over time"
 tag = "Critical"
-unit = "ms"
-visualization = "time_series"
+visualization = "heatmap"
 granularity = "1m"
 
 [[panes]]
@@ -51,105 +50,6 @@ name = "Saturation"
 description = "Average CPU utilization across all nodes"
 unit = "%"
 visualization = "gauge"
-granularity = "1m"
-
-[layout]
-type = "vertical"
-children = [
-  { type = "horizontal", children = [0, 1] },
-  { type = "horizontal", children = [2, 3] },
-]
-"#;
-
-/// On-call workspace — quick triage during an incident.
-pub const INCIDENT_RESPONSE_TOML: &str = r#"[workspace]
-name = "on-call"
-description = "Incident triage at a glance"
-
-[view]
-theme = "dark"
-
-[time]
-preset = "1h"
-refresh = "30s"
-
-[[panes]]
-query = "http_requests_total"
-name = "Errors"
-tag = "Critical"
-unit = "err/s"
-visualization = "stat"
-granularity = "1m"
-
-[[panes]]
-query = "http_request_duration_seconds"
-name = "p99 Latency"
-tag = "Critical"
-unit = "ms"
-visualization = "stat"
-granularity = "1m"
-
-[[panes]]
-query = "http_requests_total"
-name = "Errors by Endpoint"
-description = "Identify which endpoints are failing"
-tag = "Critical"
-visualization = "time_series"
-granularity = "1m"
-
-[[panes]]
-query = "node_cpu_seconds_total"
-name = "CPU"
-unit = "%"
-visualization = "sparkline"
-granularity = "1m"
-
-[layout]
-type = "vertical"
-children = [
-  { type = "horizontal", children = [0, 1] },
-  { type = "horizontal", children = [2, 3] },
-]
-"#;
-
-/// Deep-dive workspace — every visualization type in one view.
-pub const SERVICE_OVERVIEW_TOML: &str = r#"[workspace]
-name = "deep-dive"
-description = "Every visualization type in one view"
-
-[view]
-theme = "dark"
-
-[time]
-preset = "1h"
-refresh = "30s"
-
-[[panes]]
-query = "http_requests_total"
-name = "Request Rate"
-unit = "req/s"
-visualization = "stat"
-granularity = "1m"
-
-[[panes]]
-query = "http_request_duration_seconds"
-name = "p99 Latency"
-unit = "ms"
-visualization = "stat"
-granularity = "1m"
-
-[[panes]]
-query = "http_requests_total"
-name = "Traffic by Method"
-description = "GET, POST, PUT, DELETE request rates over time"
-visualization = "time_series"
-granularity = "1m"
-
-[[panes]]
-query = "http_request_duration_seconds"
-name = "Latency Heatmap"
-description = "Request latency distribution over time"
-visualization = "heatmap"
 granularity = "1m"
 
 [layout]

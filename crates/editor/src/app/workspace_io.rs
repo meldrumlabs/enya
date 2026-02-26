@@ -54,8 +54,7 @@ impl EnyaApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn ensure_default_workspace() {
         use crate::workspace::{
-            ATLAS_WORKSPACE_TOML, GOLDEN_SIGNALS_TOML, INCIDENT_RESPONSE_TOML, INFRASTRUCTURE_TOML,
-            MULTI_SERVICE_TOML, SERVICE_OVERVIEW_TOML,
+            ATLAS_WORKSPACE_TOML, GOLDEN_SIGNALS_TOML, INFRASTRUCTURE_TOML, MULTI_SERVICE_TOML,
         };
 
         let dir = Self::workspace_dir();
@@ -63,8 +62,6 @@ impl EnyaApp {
         // Tutorial workspaces — always overwritten to pick up template changes
         let tutorials: &[(&str, &str)] = &[
             ("golden-signals", GOLDEN_SIGNALS_TOML),
-            ("incident-response", INCIDENT_RESPONSE_TOML),
-            ("service-overview", SERVICE_OVERVIEW_TOML),
             ("infrastructure", INFRASTRUCTURE_TOML),
             ("multi-service", MULTI_SERVICE_TOML),
         ];
@@ -213,10 +210,6 @@ impl EnyaApp {
             // On web, first check for built-in workspaces, then try base64
             let workspace_result = if name == "quick-start" {
                 WorkspaceConfig::from_toml(crate::workspace::GOLDEN_SIGNALS_TOML)
-            } else if name == "on-call" {
-                WorkspaceConfig::from_toml(crate::workspace::INCIDENT_RESPONSE_TOML)
-            } else if name == "deep-dive" {
-                WorkspaceConfig::from_toml(crate::workspace::SERVICE_OVERVIEW_TOML)
             } else if name == "infra" {
                 WorkspaceConfig::from_toml(crate::workspace::INFRASTRUCTURE_TOML)
             } else if name == "logs-and-traces" {

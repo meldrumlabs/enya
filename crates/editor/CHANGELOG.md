@@ -6,6 +6,10 @@ All notable changes to the Enya editor will be documented in this file.
 
 ### Changed
 
+- **Streamlined WASM tutorial**: Removed the on-call and deep-dive tutorial workspaces to simplify the demo. Replaced the Latency time series in the quick-start workspace with a Latency Heatmap.
+
+### Changed
+
 - **Neovim tilde markers flush left**: Removed 16px left margin on `~` markers in the empty workspace view so they sit at the very left edge.
 - **Leader popup only for Space**: Removed the leader key popup overlay for `g` commands; the which-key popup now only appears for Space leader actions.
 - **Sidebar empty state text**: Changed "No workspaces yet" to "No projects yet" in the project sidebar empty state.
